@@ -19,10 +19,10 @@
 - [x] map function (lambdas + object/array literals; own parser)
 - [x] think about error handling child -> parent (see docs/child-error-handling.md; raise/panic, the `raised` status, error_code, and child→parent catch with batch resolution all implemented)
 - [] think about action extensivity/passability from parent
+- [] unknown type -  a way how child can pass data to parent, without looking at it
 - [] Go + REST API error handling (see docs/error-handling-audit.md; the workflow error model is fine — this is the plumbing under it: every API error is a 400, no code on the wire, `%w` wrapping nothing unwraps, `err == sql.ErrNoRows`, no panic barrier in advance goroutines)
 - [x] look at naming conventions - cancel -> pause, then resume. Retry only for failed processes.
 - [] pause as a debugging tool: start an instance paused, then step it with tick
-- [] look at the templating system the "{{expression}}" is not ideal, would be nice to have some universal simple way
 
 # docs
 
