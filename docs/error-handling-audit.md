@@ -116,8 +116,19 @@ that threw away the most useful part. It now returns a
 ```
 
 `Field` is the validator namespace with the root struct name stripped, so it reads as
-the client wrote it: `tasks[0].id`, not `ProcessDefinition.tasks[0].id`. `Error()`
-still renders the joined human form, so every caller that only prints continues to work
+the client wrote it: `tasks[0].id`, not `ProcessDefinition.tasks[0].id`.
+
+The index is the part that earns its keep, and it is why the joined message alone was
+not enough: for a nested failure the message names only the leaf. Three tasks missing
+an `id` produce three entries whose messages are all `"id is required"` and are
+therefore indistinguishable — `tasks[0].id` / `tasks[2].id` are not. Both halves are
+pinned, the path construction in
+[validation_error_test.go](../internal/model/validation_error_test.go) and its survival
+to the wire in [api_errors_test.ts](../tests/integration/api_errors_test.ts), including
+through the process-name prefix `applyBatch` wraps each definition's failure with —
+which only works because `fieldsOf` unwraps rather than type-asserting.
+
+`Error()` still renders the joined human form, so every caller that only prints continues to work
 — including `genctl`, which keys on the `input validation: ` / `result validation: `
 message prefixes ([commands.go](../cmd/genctl/commands.go#L670)). **Those two prefixes
 are load-bearing**; both sites carry a comment saying so.

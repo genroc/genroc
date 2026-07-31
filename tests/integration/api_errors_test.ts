@@ -139,6 +139,8 @@ test("api errors — retrying a completed process is 409 conflict", async () => 
   mock.stop();
 });
 
+type Field = { field: string; rule: string; param?: string; message: string };
+
 test("api errors — a definition validation failure reports the offending field", async () => {
   // The per-field detail the validator already produced used to be joined into one
   // string; `fields` keeps it addressable so a client need not parse English.
@@ -149,11 +151,85 @@ test("api errors — a definition validation failure reports the offending field
   });
   expect(status).toBe(400);
   expect(body.code).toBe("invalid");
-  const fields = body.fields as Array<{ field: string; rule: string; message: string }>;
-  expect(Array.isArray(fields)).toBe(true);
-  expect(fields.length).toBeGreaterThan(0);
-  expect(fields.some((f) => f.field === "tasks")).toBe(true);
-  expect(fields.some((f) => f.rule === "min")).toBe(true);
+  const fields = body.fields as Field[];
+  expect(fields).toEqual([
+    { field: "tasks", rule: "min", param: "1", message: "tasks must have at least 1 item(s)" },
+  ]);
+});
+
+test("api errors — a nested validation failure carries the indexed path to the field", async () => {
+  // The path is what makes `fields` worth having. The message for a nested failure
+  // names only the leaf ("id is required"), so with three tasks it cannot say which
+  // one is at fault; tasks[1].id can.
+  const { status, body } = await errorOf(`/definitions`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: `nested_${crypto.randomUUID()}`,
+      tasks: [
+        { id: "first", switch: [{ goto: "end" }] },
+        { switch: [{ goto: "end" }] }, // no id
+        { id: "third", switch: [{ goto: "end" }] },
+      ],
+    }),
+  });
+  expect(status).toBe(400);
+  expect(body.code).toBe("invalid");
+  expect(body.fields as Field[]).toEqual([
+    { field: "tasks[1].id", rule: "required", message: "id is required" },
+  ]);
+});
+
+test("api errors — every failing element is reported with its own index", async () => {
+  const { status, body } = await errorOf(`/definitions`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: `multi_${crypto.randomUUID()}`,
+      tasks: [
+        { switch: [{ goto: "end" }] },
+        { id: "ok", switch: [{ goto: "end" }] },
+        { switch: [{ goto: "end" }] },
+      ],
+    }),
+  });
+  expect(status).toBe(400);
+  const fields = body.fields as Field[];
+  expect(fields.map((f) => f.field)).toEqual(["tasks[0].id", "tasks[2].id"]);
+  // Identical messages, distinct paths — the case the path exists to disambiguate.
+  expect(new Set(fields.map((f) => f.message)).size).toBe(1);
+});
+
+test("api errors — the field path survives the batch handler's name prefix", async () => {
+  // applyBatch wraps each definition's failure with the process name, so the detail
+  // only reaches the client if errReply unwraps through that prefix.
+  const name = `batch_${crypto.randomUUID()}`;
+  const { status, body } = await errorOf(`/definitions/batch`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      channel: "latest",
+      definitions: [{ name, tasks: [{ switch: [{ goto: "end" }] }] }],
+    }),
+  });
+  expect(status).toBe(400);
+  expect(body.code).toBe("invalid");
+  expect(body.error).toContain(name); // the prefix is still there
+  expect((body.fields as Field[]).map((f) => f.field)).toEqual(["tasks[0].id"]);
+});
+
+test("api errors — validate_definitions reports paths without saving anything", async () => {
+  const name = `dryrun_${crypto.randomUUID()}`;
+  const { status, body } = await errorOf(`/definitions/validate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify([{ name, tasks: [{ switch: [{ goto: "end" }] }] }]),
+  });
+  expect(status).toBe(400);
+  expect((body.fields as Field[]).map((f) => f.field)).toEqual(["tasks[0].id"]);
+
+  const listed = await errorOf(`/instances?limit=1`);
+  expect(listed.status).toBe(200); // sanity: the server is still serving
 });
 
 test("api errors — a bad external-task token is 400, a stale one is 409", async () => {
