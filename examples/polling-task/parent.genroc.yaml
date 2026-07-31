@@ -1,25 +1,35 @@
-# Parent: runs the poller as a child, narrows the opaque payload it returns, and catches
-# what it raises. It owns the connection details (url + headers) and — knowing which job
-# it started — the answer's shape.
+# Parent: drives the generic poller. It composes both requests, correlates them with its
+# own `ref` (the poller never reads the kickoff response, so it cannot learn a
+# server-assigned id), and narrows the opaque result the poller hands back.
 name: polling-example
 input_schema:
   type: object
   properties:
     url: { type: string }
+    ref: { type: string }
     headers:
       type: object
       additionalProperties: { type: string }
     poll_interval_ms: { type: integer, default: 500 }
     max_attempts: { type: integer, default: 20 }
-  required: [url, headers]
+  required: [url, ref, headers]
 tasks:
   - id: run
     action:
       type: child
       name: poll-until-done
       input:
-        url: "$: input.url"
         headers: "$: input.headers"
+        kickoff:
+          url: "${ input.url }/jobs"
+          body:
+            command: compute-answer
+            ref: "$: input.ref"
+        check:
+          url: "${ input.url }/status"
+          body:
+            ref: "$: input.ref"
+          accepted_status: ["200"]
         poll_interval_ms: "$: input.poll_interval_ms"
         max_attempts: "$: input.max_attempts"
       # The narrowing point: `result` arrives unknown, and declaring its shape here is

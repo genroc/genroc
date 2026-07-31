@@ -1,20 +1,21 @@
 # Polling task example
 
-A parent process that spawns a **child process** whose whole job is to kick off a
-long-running task on a remote server and then **poll its status until it's done**, or until
-an attempt budget runs out. On success the child hands back the job's payload **without ever
-looking inside it** (an `unknown`, which the parent narrows); running out of attempts is
-**raised** as an error the parent catches.
+A **generic HTTP poller**, written as a child process. The caller hands it two whole
+requests — a kickoff and a check — and it loops the check until the job is done, or until an
+attempt budget runs out. It reads **nothing** from either response body: both are `unknown`,
+progress is signalled by the HTTP status, and the final payload goes back to the parent to
+narrow. Running out of attempts is **raised** as an error the parent catches.
 
 ```
 polling-example (parent)
   └─ run: child     ──spawn──▶ poll-until-done (child)
-       result_schema:            kickstart  POST {url}/jobs    ─▶ { job_id }
-         narrows result          check      POST {url}/status  ─▶ { status, result: unknown }
-       on_error:                   ├─ status == "done"     ─▶ end ─▶ output { result, attempts }
-         poll_timeout ─▶ report    ├─ attempts exhausted   ─▶ raise poll_timeout
-                                   └─ else                 ─▶ backoff
-                                  backoff    delay ({{ poll_interval_ms }}) ─▶ back to check
+       composes both requests    kickstart  caller's request  ─▶ response ignored
+       result_schema:            check      caller's request
+         narrows result            ├─ accepted status  ─▶ end ─▶ output { result, attempts }
+       on_error:                   └─ 202 (on_error)   ─▶ backoff
+         poll_timeout ─▶ report  backoff    delay ({{ poll_interval_ms }})
+                                   ├─ attempts exhausted ─▶ raise poll_timeout
+                                   └─ else               ─▶ back to check
 ```
 
 This is the child → parent error-handling contract (see
@@ -28,21 +29,75 @@ so no separate task is needed to fail.
 
 ## Files
 
-- [`poller.genroc.yaml`](./poller.genroc.yaml) — the child. Three tasks: starts the remote
-  job, then loops `check → backoff → check` until it's `done` or out of attempts. Returns
-  the job's payload untouched, as an `unknown`.
-- [`parent.genroc.yaml`](./parent.genroc.yaml) — spawns the poller as a child, threads the
-  connection details and the (optional) knobs down, **narrows** the returned payload with a
-  `result_schema` on the child task, and catches `poll_timeout` via `on_error` on the same
-  task.
+- [`poller.genroc.yaml`](./poller.genroc.yaml) — the child. Three tasks: fire the caller's
+  kickoff request, then loop `check → backoff → check` until the check returns an accepted
+  status or the budget runs out. Returns the check's payload untouched, as an `unknown`.
+- [`parent.genroc.yaml`](./parent.genroc.yaml) — composes both requests, correlates them
+  with its own `ref`, **narrows** the returned payload with a `result_schema` on the child
+  task, and catches `poll_timeout` via `on_error` on the same task.
 
 ## The polling pattern
 
-genroc has no `while`/`until` keyword. A poll loop is expressed structurally: the `check`
-task's `switch` routes to a `backoff` delay, which routes back to `$check`, until the status
-becomes `done`. Each request is a `fetch` action (an HTTP call like `fetch(url, {method,
-headers, body})`, where every field is an expression) that persists and reclaims, so the loop
-is crash-safe and holds no worker while it's parked.
+genroc has no `while`/`until` keyword. A poll loop is expressed structurally: `check` routes
+to a `backoff` delay, which routes back to `$check`. Each request is a `fetch` action (an
+HTTP call like `fetch(url, {method, headers, body})`, where every field is an expression)
+that persists and reclaims, so the loop is crash-safe and holds no worker while it's parked.
+
+## Both requests are the caller's (`kickoff` / `check`)
+
+The poller owns no URLs, bodies or status conventions. Its input carries two request
+descriptions plus one shared `headers` map:
+
+```yaml
+headers: { Authorization: "Bearer …" }    # applied to both requests
+kickoff:
+  url: "https://api.example.com/jobs"
+  body: { command: compute-answer, ref: "abc-123" }
+check:
+  url: "https://api.example.com/status"
+  body: { ref: "abc-123" }
+  accepted_status: ["200"]                # which statuses mean "done"
+```
+
+`method` (default `POST`) and `accepted_status` are optional with schema defaults, and
+`body` is `unknown` — the poller passes it straight through to the request without ever
+looking at it. Because a fetch `body` is inferred against no required shape, an opaque value
+is accepted there; a *typed* slot would have rejected it.
+
+### Progress is an HTTP status, not a body field
+
+`self.result` is only the response **body** — a fetch's status code is not visible to
+expressions. What *is* visible is that a status outside `accepted_status` becomes a
+**catchable error code** `http.<N>`. So the loop branches through `on_error`, not `switch`:
+
+```yaml
+accepted_status: "$: input.check.accepted_status"   # e.g. ["200"] → done
+on_error:
+  - code: [http.202]                                # → still running
+    goto: $backoff
+```
+
+**202 Accepted** is the convention, and it is fixed rather than caller-supplied: `on_error`
+codes are static patterns, not expressions. That is a fair contract — 202 is precisely
+HTTP's "request accepted, processing not complete." The caller still controls the *done*
+side through `accepted_status`; anything that is neither fails the poll.
+
+Two consequences worth knowing:
+
+- **The attempt counter lives on `backoff`.** A task's `output` is only computed when its
+  action *succeeds*, and on the polling path `check` always errors — so `check.output`
+  never runs while polling. `backoff` is a `delay`, which always succeeds, so it counts the
+  polls and its `switch` enforces the budget off `self.output.attempt`.
+- **Every poll logs as an error.** A healthy 20-poll run leaves 19 `action_failed` /
+  `error_route` entries in the instance log. Accurate, but noisy.
+
+### What this costs: no server-assigned id
+
+Because the poller never reads the kickoff response, the check request **cannot depend on
+it** — a job id the server invents is unreachable. The caller correlates the two requests
+itself instead, here by generating a `ref` and putting it in both bodies. Polling a
+server-assigned resource would need the kickoff response typed, which is exactly the
+coupling this design trades away.
 
 ## Returning a payload the poller never reads (`unknown`)
 
@@ -53,17 +108,11 @@ job type.
 
 `unknown` is the way out: **the empty schema `{}`** — JSON Schema's top type — for a value
 a process **carries but never inspects**. There is no keyword; `{}` already means "any
-value", and genroc treats it as opaque. The child's `check` task splits its response along
-exactly that line:
+value", and genroc treats it as opaque. Because progress is signalled by the status code,
+the check's whole response body can be exactly that:
 
 ```yaml
-result_schema:
-  type: object
-  properties:
-    status: { type: string }   # the poller reads this to drive its loop → typed
-    result:                    # the poller only forwards this → unknown
-      description: "opaque job payload — the caller narrows this"
-  required: [status]
+result_schema: { description: "opaque job result — the caller narrows this" }
 ```
 
 The `description` is optional and carries no meaning to the type system — `{}` alone is
@@ -72,10 +121,11 @@ unfinished stub, and unlike a YAML comment a description survives into the store
 definition and the editor. Any *shape* keyword you add (`type`, `properties`, `enum`, …)
 stops it being the top type, which is the whole rule.
 
-The split is **per field, not per process**: data a process acts on must stay typed, and
-only data it forwards untouched can be `unknown`. Most real processes are this mix — the
-poller's `output` returns `result` (opaque) alongside `attempts` (an ordinary typed number
-it does know).
+Opacity is **per value, not per process**: data a process acts on must stay typed, only
+data it forwards untouched can be `unknown`, and most processes are a mix. This poller is —
+its output pairs the opaque `result` with `attempts`, an ordinary typed number it does know
+because it counted the polls itself. The parent's `result_schema` narrows the first and
+simply restates the second.
 
 An `unknown` is not an escape hatch — it is emphatically not `any`. It has exactly two
 legal moves:
@@ -133,12 +183,12 @@ no `?? ` guard.) The parent declares the same defaults and threads the values do
   a static int and can't be templated, so it could not carry a caller-supplied interval.)
 - **`max_attempts`** (default 20) — the overall timeout, expressed as a **maximum number of
   status checks**. genroc expressions have no wall clock, so a poll budget is the honest primitive;
-  the wall-time budget is roughly `max_attempts × poll_interval_ms`. `check` counts its own
+  the wall-time budget is roughly `max_attempts × poll_interval_ms`. `backoff` counts its own
   runs via `self.previous`, and once the budget is spent its `switch` **raises `poll_timeout`**.
 
 ```sh
 genctl run polling-example \
-  --input '{ "url": "http://localhost:9000",
+  --input '{ "url": "http://localhost:9000", "ref": "job-1",
              "headers": { "Authorization": "Bearer s3cr3t" },
              "poll_interval_ms": 2000, "max_attempts": 30 }'
 ```
@@ -146,7 +196,7 @@ genctl run polling-example \
 ## Configuring headers (parent → child)
 
 The whole request is caller-driven, so the **caller supplies the entire headers map** and
-the child splats it onto every `fetch` with `headers: "{{ input.headers }}"`. The headers
+the child splats the one map onto both `fetch`es with `headers: "$: input.headers"`. The headers
 input is typed as an **open string map** — `{ type: object, additionalProperties: { type:
 string } }` — so arbitrary keys (auth, trace ids, …) flow from the parent down without the
 child declaring each one. This is `additionalProperties` in action: without it, undeclared
@@ -161,23 +211,27 @@ longer carries.
 
 ## Running it
 
-The service base URL and a headers map are passed as input, so point it at any server exposing
-`POST /jobs` (returns `{ "job_id": ... }`), `POST /status` (returns
-`{ "status": "pending" | "done", "result": ... }`):
+The parent builds both requests from a base URL, a correlation `ref` and a headers map, so
+point it at any server exposing `POST /jobs` and `POST /status`, where `/status` answers
+**202** while the job runs and **200** with the result when it's done:
 
 ```sh
 genctl apply -f poller.genroc.yaml -f parent.genroc.yaml
 genctl run polling-example --input '{
   "url": "http://localhost:9000",
+  "ref": "job-1",
   "headers": { "Authorization": "Bearer s3cr3t" }
 }'
 ```
+
+The poller itself has no opinion about those paths — swap the `kickoff` / `check` blocks in
+[`parent.genroc.yaml`](./parent.genroc.yaml) and it polls any other API unchanged.
 
 ## Automated test
 
 [`tests/integration/examples_polling_test.ts`](../../tests/integration/examples_polling_test.ts)
 loads these YAML files verbatim, applies them against a throwaway mock job service, and
-asserts all three outcomes — polling through to `done` (the payload narrowed, a surplus key
+asserts all three outcomes — polling through to a 200 (the payload narrowed, a surplus key
 dropped), a payload that fails the parent's narrowing (child completes, parent fails on the
 collect conform), and running out of `max_attempts` (`poll_timeout` raised and caught) — so
 this example is also an executable test. Run it with `make test-int`.

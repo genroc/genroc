@@ -202,13 +202,13 @@ real processes are a mix.
 
 The poller (`examples/polling-task/`) is the canonical mix:
 
-- `job_id` / `status` — the poller reads these to drive its loop. **Typed**,
-  validated where they're read. They cannot be `unknown` or the child couldn't
-  poll.
-- the job's `result` payload — the child never inspects it, just returns it.
-  **This** is the part that is `unknown` and is validated when the *parent* reads
-  the child result. Its sibling `attempts` is typed, so the parent's
-  `result_schema` narrows one field and simply restates the other.
+- the job's response body — the child never inspects it, just returns it. **This**
+  is the `unknown`, validated when the *parent* reads the child result. The poller
+  gets away with a fully opaque body because it drives its loop off the HTTP status
+  instead (a 202 arrives as the catchable code `http.202`), so it needs nothing from
+  the payload.
+- `attempts` — the child counted the polls itself, so it knows the type. The
+  parent's `result_schema` narrows the first and simply restates this one.
 
 So the poller's only behavioral change: the payload is validated **when the parent
 reads the child result**, not right after the fetch. Same runtime guarantee,

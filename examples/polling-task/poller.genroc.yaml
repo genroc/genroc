@@ -1,67 +1,87 @@
-# Child: kicks off a remote job and polls it until it's done, looping check → backoff.
-# Works for ANY job: the payload is left unknown (`{}`) for the parent to narrow.
-# Raises `poll_timeout` when the attempt budget runs out. See README.md.
+# Child: a generic HTTP poller. The caller supplies two whole requests — a kickoff and a
+# check — and this process loops check → backoff until the check stops returning 202.
+# It reads nothing from either response body: both are unknown, and the final one is
+# handed back for the caller to narrow. Raises `poll_timeout` on budget exhaustion.
 name: poll-until-done
 input_schema:
   type: object
   properties:
-    url: { type: string }
     headers:
       type: object
       additionalProperties: { type: string }
+    kickoff:
+      type: object
+      properties:
+        url: { type: string }
+        method: { type: string, default: POST }
+        body: { description: "request body, opaque to the poller" }
+        accepted_status:
+          type: array
+          items: { type: string }
+          default: ["2xx"]
+      required: [url]
+    check:
+      type: object
+      properties:
+        url: { type: string }
+        method: { type: string, default: POST }
+        body: { description: "request body, opaque to the poller" }
+        # Which statuses mean "done". Anything else is an error; 202 alone means
+        # "still running" and routes back into the loop.
+        accepted_status:
+          type: array
+          items: { type: string }
+          default: ["200"]
+      required: [url]
     poll_interval_ms: { type: integer, default: 500 }
     max_attempts: { type: integer, default: 20 }
-  required: [url, headers]
+  required: [headers, kickoff, check]
 tasks:
+  # Starts the job. Its response is never read — no result_schema, nothing exported.
   - id: kickstart
     action:
       type: fetch
-      url: "${ input.url }/jobs"
+      url: "$: input.kickoff.url"
+      method: "$: input.kickoff.method"
       headers: "$: input.headers"
-      body:
-        command: compute-answer
-      result_schema:
-        type: object
-        properties:
-          job_id: { type: string }
-        required: [job_id]
-    output: "$: self.result"
+      body: "$: input.kickoff.body"
+      accepted_status: "$: input.kickoff.accepted_status"
     timeout_ms: 2000
     switch: next
 
   - id: check
     action:
       type: fetch
-      url: "${ input.url }/status"
+      url: "$: input.check.url"
+      method: "$: input.check.method"
       headers: "$: input.headers"
-      body:
-        job_id: "$: outputs.kickstart.job_id"
-      result_schema:
-        type: object
-        properties:
-          status: { type: string }        # read to drive the loop → typed
-          result:                         # only carried → unknown
-            description: "opaque job payload — the caller narrows this"
-        required: [status]
+      body: "$: input.check.body"
+      accepted_status: "$: input.check.accepted_status"
+      result_schema: { description: "opaque job result — the caller narrows this" }
     output:
-      result: "$: self.result.result"
-      attempt: "$: (self.previous.attempt ?? 0) + 1"
+      result: "$: self.result"
     timeout_ms: 2000
-    switch:
-      - case: "self.result.status == 'done'"
-        goto: end
-      - case: "(outputs.check.attempt ?? 0) >= input.max_attempts"
-        raise:
-          code: poll_timeout
-          message: "gave up after max_attempts polls"
-      - goto: $backoff
+    # 202 is outside accepted_status, so it arrives as the catchable code http.202 —
+    # the only way to branch on a status, since self.result is just the body.
+    on_error:
+      - code: [http.202]
+        goto: $backoff
+    switch: end
 
+  # Counts the polls, because check's output does not run on the 202 path.
   - id: backoff
     action:
       type: delay
       ms: "$: input.poll_interval_ms"
-    switch: $check
+    output:
+      attempt: "$: (self.previous.attempt ?? 0) + 1"
+    switch:
+      - case: "self.output.attempt >= input.max_attempts"
+        raise:
+          code: poll_timeout
+          message: "gave up after max_attempts polls"
+      - goto: $check
 
 output:
   result: "$: outputs.check.result"
-  attempts: "$: outputs.check.attempt"
+  attempts: "$: (outputs.backoff.attempt ?? 0) + 1"

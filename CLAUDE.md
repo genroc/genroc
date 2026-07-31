@@ -126,6 +126,12 @@ stays untyped and unexportable, so "I meant it to be opaque" stays distinguishab
 These describe intended future work, **not current behavior** — do not treat them as
 describing the code as it stands:
 
+- [docs/fetch-http-surface.md](docs/fetch-http-surface.md) — two independent additions
+  to `fetch`: response metadata (`self.status` / `self.headers`, which would retire the
+  `http.202`-via-`on_error` trick in the polling example) and a structured `query` slot
+  (string interpolation into a URL does no escaping). Each part carries its own
+  compatibility argument; both are additive. Notes a blocker: hyphenated header names
+  are unreadable because the parser accepts only integer literals in `[...]`.
 - [docs/typed-values.md](docs/typed-values.md) — generalize `Shape` into a typed value
   authorable as literal YAML (expression leaves) **or** a single expression, checked
   against a schema via `inferShape`→`IsSubset`; applies to action payloads / `input`,

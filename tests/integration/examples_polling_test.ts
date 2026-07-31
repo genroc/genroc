@@ -18,12 +18,16 @@ function loadDef(file: string): any {
 const poller = loadDef("poller.genroc.yaml");
 const parent = loadDef("parent.genroc.yaml");
 
-// startJobService stands in for the remote server the poller talks to.
-//   POST /jobs   -> { job_id }                  starts a job
-//   POST /status -> { status: pending|done, … } "pending" for the first `pendingPolls`
-//                                               checks of a job, then "done" with `result`
-// Every request must carry `expectedAuth` or it's rejected 401 — so a completed run
-// proves the auth header the parent set reached the service on each call.
+// startJobService stands in for the remote server the poller talks to. It signals
+// progress with the HTTP STATUS, not a body field — which is what lets the poller treat
+// both response bodies as opaque.
+//   POST /jobs   -> 200 { job_id }  starts a job (the poller never reads this body)
+//   POST /status -> 202 {}          still running, for the first `pendingPolls` checks
+//                -> 200 result      done
+// Jobs are keyed by the caller-supplied `ref`, since the poller cannot carry a
+// server-assigned id from one request to the other. Every request must carry
+// `expectedAuth` or it's rejected 401 — so a completed run proves the auth header the
+// parent set reached the service on each call.
 async function startJobService(
   pendingPolls: number,
   result: Record<string, unknown>,
@@ -50,16 +54,16 @@ async function startJobService(
 
       if (req.url === "/jobs") {
         startCount++;
-        const jobId = `job-${startCount}`;
-        pollsByJob.set(jobId, 0);
-        send(200, { job_id: jobId });
+        const ref = body.ref as string;
+        pollsByJob.set(ref, 0);
+        send(200, { job_id: `job-${startCount}` });
       } else if (req.url === "/status") {
         statusRequests++;
-        const jobId = body.job_id as string;
-        const seen = (pollsByJob.get(jobId) ?? 0) + 1;
-        pollsByJob.set(jobId, seen);
-        if (seen <= pendingPolls) send(200, { status: "pending" });
-        else send(200, { status: "done", result });
+        const ref = body.ref as string;
+        const seen = (pollsByJob.get(ref) ?? 0) + 1;
+        pollsByJob.set(ref, seen);
+        if (seen <= pendingPolls) send(202, {});
+        else send(200, result);
       } else {
         send(404, {});
       }
@@ -77,6 +81,7 @@ async function startJobService(
 }
 
 const AUTH_TOKEN = "s3cr3t-token";
+let refCounter = 0;
 
 // Apply the example definitions exactly as shipped — child before parent so the parent's
 // child reference resolves at registration.
@@ -93,6 +98,7 @@ async function startExample(port: number, extra: Record<string, unknown> = {}): 
       process: parent.name,
       input: {
         url: `http://localhost:${port}`,
+        ref: `run-${++refCounter}`,
         headers: { Authorization: `Bearer ${AUTH_TOKEN}` },
         ...extra,
       },
