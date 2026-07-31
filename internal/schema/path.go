@@ -51,15 +51,21 @@ func JoinIndex(path string, i int) string {
 	return path + "[" + strconv.Itoa(i) + "]"
 }
 
-// renderPath renders navigation steps as an access path.
+// renderPath renders navigation steps as an access path. A computed key renders
+// as the accessor it came from, `a[k]` — still valid expression syntax, though not
+// something parsePath reads back: parsePath handles static paths only, and a
+// computed step never arises from one.
 func renderPath(steps []pathStep) string {
 	path := ""
 	for _, st := range steps {
-		if st.isIndex {
+		switch st.kind {
+		case stepIndex:
 			path = JoinIndex(path, st.index)
-			continue
+		case stepKey:
+			path += "[" + renderPath(st.key) + "]"
+		default:
+			path = JoinPath(path, st.prop)
 		}
-		path = JoinPath(path, st.prop)
 	}
 	return path
 }

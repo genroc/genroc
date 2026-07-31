@@ -128,6 +128,15 @@ which is true and does not apply to a literal. **Recommendation: (b)**, as a sma
 separate change that Part 1 depends on; fall back to (a) only if (b) turns out to
 disturb the inference of index access on arrays.
 
+> **Follow-up, also built: computed keys.** The rationale above turned out not to
+> hold for a *homogeneous* base either — on an array, or on a map declaring only
+> `additionalProperties`, every key has the same type, so `headers[k]` type-checks
+> as readily as `headers['retry-after']`. It is accepted for exactly those two
+> shapes; an object with named properties is rejected, because there a computed key
+> could land on a declared property whose type differs from `additionalProperties`.
+> This makes `self.headers` usable with a key the definition computes, not only one
+> written literally.
+
 ## What this buys, concretely
 
 The poller's loop currently branches through `on_error`, because a status is only

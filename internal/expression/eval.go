@@ -5,7 +5,9 @@
 //
 //   - Literals: integer, float, string, bool, null
 //   - Field access via dot notation: input.x, outputs.task.y
-//   - Constant indexing: input.items[0]
+//   - Field access by string key: self.headers["retry-after"]
+//   - Indexing: input.items[0], and a computed key input.items[i] / headers[k]
+//     where every key shares one type (an array, or a map of additionalProperties)
 //   - Object and array literals: {a: x, b: y}, [x, y]
 //   - map with a lambda: map(input.items, item => {id: item.id})
 //   - Arithmetic: +, -, *, /, % (numbers; + also concatenates strings)
@@ -20,6 +22,7 @@ import (
 	"fmt"
 
 	"genroc/internal/expression/syntax"
+	"genroc/internal/numeric"
 )
 
 // Eval evaluates expression against context.
@@ -95,6 +98,8 @@ func evalNode(node syntax.Node, e env) (any, error) {
 		return evalMember(n, e)
 	case *syntax.IndexNode:
 		return evalIndex(n, e)
+	case *syntax.KeyNode:
+		return evalKey(n, e)
 	case *syntax.ArrayNode:
 		return evalArray(n, e)
 	case *syntax.ObjectNode:
@@ -149,6 +154,61 @@ func evalIndex(n *syntax.IndexNode, e env) (any, error) {
 		return nil, nil
 	}
 	return slice[n.Index], nil
+}
+
+// evalKey reads a computed key. A null or non-container base yields null, matching
+// evalMember and evalIndex; an absent key or out-of-range index likewise. A key of
+// the wrong type is an error rather than null: inference has already established
+// that the key types, so reaching here means the data contradicted its schema, and
+// silently reading nothing would hide that.
+func evalKey(n *syntax.KeyNode, e env) (any, error) {
+	base, err := evalNode(n.Base, e)
+	if err != nil || base == nil {
+		return nil, err
+	}
+	key, err := evalNode(n.Key, e)
+	if err != nil {
+		return nil, err
+	}
+	switch b := base.(type) {
+	case map[string]any:
+		name, ok := key.(string)
+		if !ok {
+			return nil, fmt.Errorf("a computed key into a map must be a string, got %s", jsonKindOf(key))
+		}
+		return b[name], nil
+	case []any:
+		d, ok := numeric.ToDecimal(key)
+		if !ok || !numeric.IsIntegral(key) {
+			return nil, fmt.Errorf("a computed index into an array must be an integer, got %s", jsonKindOf(key))
+		}
+		i, err := d.Int64()
+		if err != nil || i < 0 || i >= int64(len(b)) {
+			return nil, nil
+		}
+		return b[i], nil
+	}
+	return nil, nil
+}
+
+// jsonKindOf names a runtime value's JSON kind for an error message.
+func jsonKindOf(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case map[string]any:
+		return "object"
+	case []any:
+		return "array"
+	}
+	if _, ok := numeric.ToDecimal(v); ok {
+		return "number"
+	}
+	return fmt.Sprintf("%T", v)
 }
 
 func evalArray(n *syntax.ArrayNode, e env) (any, error) {

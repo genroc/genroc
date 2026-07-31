@@ -555,18 +555,14 @@ func TestEdgePostfixChains(t *testing.T) {
 
 func TestEdgePostfixErrors(t *testing.T) {
 	cases := []parseCase{
-		// A computed index cannot be type-checked statically, so it is a grammar
-		// error rather than a runtime concern.
-		{"identifier_index", `a[i]`, "literal integer"},
-		{"arithmetic_index", `a[0 + 1]`, `expected "]"`},
-		{"negative_index", `a[-1]`, "literal integer"}, // a sign makes it an expression, not a literal
-		{"float_index", `a[1.5]`, "literal integer"},
-		{"empty_index", `a[]`, "literal integer"},
-		{"concatenated_string_index", `a["k" + "j"]`, `expected "]"`}, // a computed key is still computed
+		// A computed key is grammatical — whether the base admits one is a typing
+		// question, so these are the shapes that are not expressions at all.
+		{"empty_index", `a[]`, "must not be empty"},
+		{"unclosed_index", `a[b`, `expected "]"`},
 
 		// Slicing is expr-lang syntax with no genroc counterpart.
 		{"slice", `a[1:3]`, `expected "]"`},
-		{"slice_open_start", `a[:2]`, "literal integer"},
+		{"slice_open_start", `a[:2]`, "unexpected"},
 
 		{"trailing_dot", `a.`, "property name after"},
 		{"numeric_property", `a.1`, "unexpected"},
@@ -1003,7 +999,6 @@ func TestEdgeErrorQuotesOriginalSource(t *testing.T) {
 		{"duplicate_object_key", `{name: input.user.name, name: 2}`},
 		{"coalesce_mixed_with_plus", `outputs.step_one ?? [] + 1`},
 		{"unknown_function", `filter(input.items, x => x.n)`},
-		{"computed_index", `input.items[key]`},
 		{"elvis", `config.timeout ?: 30`},
 	}
 	for _, c := range cases {
@@ -1029,7 +1024,6 @@ func TestEdgeErrorCaretColumn(t *testing.T) {
 		{"leading_dot", `.field`, 0, "the leading dot"},
 		{"byte_literal", `b'bytes'`, 0, "the byte literal"},
 		{"elvis", `a ?: b`, 3, "the ':' that follows '?'"},
-		{"computed_index", `a[b]`, 2, "the computed index, not the bracket"},
 		{"slice", `a[1:3]`, 3, "the ':' where ']' was expected"},
 		{"unsupported_operator", `2 ** 3`, 2, "the unsupported operator"},
 		{"word_operator_after_literal", `[1, 2] and x`, 7, "the word operator after a complete literal"},

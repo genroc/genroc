@@ -373,6 +373,19 @@ func (s Schema) Index() (Schema, error) {
 	return s.subSchema(inferIndex(s.n, s.rootDefs()))
 }
 
+// AnyKey returns the (nullable) subschema a computed key a[expr] reads and the type
+// that key must have: the element type of an array (integer key), or the value type
+// of a map declaring only additionalProperties (string key). An object with declared
+// properties is an error — its type varies per key.
+func (s Schema) AnyKey() (Schema, string, error) {
+	value, keyType, err := anyKey(s.n, s.rootDefs())
+	if err != nil {
+		return Schema{}, "", err
+	}
+	sub, err := s.subSchema(value, nil)
+	return sub, keyType, err
+}
+
 // subSchema wraps a one-step navigation result as a Schema carrying the parent's $defs,
 // so it resolves $refs against the same root, threading the navigation error through.
 func (s Schema) subSchema(n *node, err error) (Schema, error) {

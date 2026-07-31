@@ -218,8 +218,53 @@ func TestParseError_NumericObjectKey(t *testing.T) {
 	assertParseError(t, `{1: 2}`, "object key must be")
 }
 
-func TestParseError_ComputedIndex(t *testing.T) {
-	assertParseError(t, `a[b]`, "literal integer")
+// A computed key parses against any base; only inference knows whether the base
+// has one type for every key. Literal subscripts keep their own nodes, so nothing
+// that worked before now takes the computed path.
+func TestComputedKeyParses(t *testing.T) {
+	assertParses(t, `a[b]`, `a[b]`)
+	assertParses(t, `a[i + 1]`, `a[(+ i 1)]`)
+	assertParses(t, `a["k" + "j"]`, `a[(+ "k" "j")]`)
+	assertParses(t, `a[-1]`, `a[(- 1)]`)
+	assertParses(t, `a[1.5]`, `a[1.5]`)
+	assertParses(t, `headers[k].x`, `headers[k].x`)
+	assertParses(t, `a[b[c]]`, `a[b[c]]`)
+	// Still the literal forms, not KeyNode.
+	assertParses(t, `a[0]`, `a[0]`)
+	assertParses(t, `a["k"]`, `a.k`)
+}
+
+// The bracket takes a full expression, so everything the grammar allows elsewhere
+// composes inside it.
+func TestComputedKeyNesting(t *testing.T) {
+	assertParses(t, `a[b][c]`, `a[b][c]`)
+	assertParses(t, `a[b.c.d]`, `a[b.c.d]`)
+	assertParses(t, `a[b[c[d]]]`, `a[b[c[d]]]`)
+	assertParses(t, `a[b].c[d].e`, `a[b].c[d].e`)
+	assertParses(t, `a[b ? c : d]`, `a[(if b c d)]`)
+	assertParses(t, `a[b ?? "d"]`, `a[(?? b "d")]`)
+	assertParses(t, `a[ b ]`, `a[b]`) // whitespace inside the bracket
+	assertParses(t, `a[b == 1]`, `a[(== b 1)]`)
+	assertParses(t, `map(xs, x => m[x])`, `map(xs (\x -> m[x]))`)
+	assertParses(t, `map(xs, (v, i) => m[i])`, `map(xs (\v,i -> m[i]))`)
+}
+
+// A lambda is only ever a builtin's callback argument. The permission is consumed
+// by the enclosing primary, so it does not leak into a bracket — including a
+// bracket that sits inside a lambda that was itself permitted.
+func TestComputedKeyRejectsLambda(t *testing.T) {
+	assertParseError(t, `a[x => 1]`, "lambda is only valid")
+	assertParseError(t, `map(xs, x => m[y => 1])`, "lambda is only valid")
+}
+
+// A literal subscript still takes the literal path even where a computed one would
+// also be grammatical, so the desugaring to MemberNode is not shadowed.
+func TestComputedKeyLiteralsKeepTheirNodes(t *testing.T) {
+	assertSameTree(t, `a["k"]`, `a.k`)
+	assertSameTree(t, `a[0]`, `a[0]`)
+	// Parenthesised or signed, it is an expression again — same value, different node.
+	assertParses(t, `a[(0)]`, `a[0]`)
+	assertParses(t, `a[+0]`, `a[(+ 0)]`)
 }
 
 // A string subscript is property access, not indexing: it must produce the exact

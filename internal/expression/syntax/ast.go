@@ -7,7 +7,7 @@
 //
 //	literals    1, 1.5, "s", 'r', true, false, null
 //	identifier  input, outputs, config, self, error
-//	member      a.b, a["a-b"]     index    a[0]
+//	member      a.b, a["a-b"]     index    a[0], a[expr]
 //	array       [a, b]            object   {k: v, "k-2": v}
 //	lambda      x => body         (x, i) => body
 //	call        map(src, x => body)
@@ -60,11 +60,21 @@ type (
 		Name string
 	}
 
-	// IndexNode is constant integer indexing, a[0]. The index must be a literal:
-	// a computed index cannot be type-checked statically.
+	// IndexNode is constant integer indexing, a[0].
 	IndexNode struct {
 		Base  Node
 		Index int
+	}
+
+	// KeyNode is computed access, a[expr] — the key is an expression rather than a
+	// literal. It is accepted only where the answer does not depend on which key is
+	// read: an array (every element has the type of `items`) or a map that declares
+	// only additionalProperties. An object with declared properties is rejected,
+	// since there the type genuinely varies per key. Inference enforces that; the
+	// grammar admits the form against any base.
+	KeyNode struct {
+		Base Node
+		Key  Node
 	}
 
 	ArrayNode struct{ Items []Node }
@@ -111,6 +121,7 @@ func (*NullNode) isNode()   {}
 func (*IdentNode) isNode()  {}
 func (*MemberNode) isNode() {}
 func (*IndexNode) isNode()  {}
+func (*KeyNode) isNode()    {}
 func (*ArrayNode) isNode()  {}
 func (*ObjectNode) isNode() {}
 func (*LambdaNode) isNode() {}

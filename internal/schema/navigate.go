@@ -7,18 +7,34 @@ import (
 	"strings"
 )
 
-// pathStep is one segment of a navigation path: a named property or an array
-// index. isIndex is the discriminator rather than prop != "" — a property key is
-// an arbitrary JSON string, and once expressions can spell one (a["…"]) the
-// empty key is reachable and would otherwise read as index 0.
+// pathStep is one segment of a navigation path. The kind is an explicit tag
+// rather than something inferred from the fields: a property key is an arbitrary
+// JSON string, and once expressions can spell one (a["…"]) the empty key is
+// reachable and would otherwise be indistinguishable from index 0.
+type stepKind uint8
+
+const (
+	stepProp  stepKind = iota // a named property: .name or ["name"]
+	stepIndex                 // a literal array index: [0]
+	// stepKey is a computed key, a[expr]. It names no single position, so it
+	// navigates to the type every key shares — the array element or the map value.
+	// key holds the key expression when that is itself a static path, which is what
+	// lets two reads of a[k] share a narrowing guard.
+	stepKey
+)
+
 type pathStep struct {
-	prop    string
-	index   int
-	isIndex bool
+	kind  stepKind
+	prop  string
+	index int
+	key   []pathStep
 }
 
-func propStep(name string) pathStep { return pathStep{prop: name} }
-func indexStep(i int) pathStep      { return pathStep{index: i, isIndex: true} }
+func propStep(name string) pathStep { return pathStep{kind: stepProp, prop: name} }
+func indexStep(i int) pathStep      { return pathStep{kind: stepIndex, index: i} }
+func keyStep(key []pathStep) pathStep {
+	return pathStep{kind: stepKey, key: key}
+}
 
 // parsePath reads the access-path syntax renderPath emits, so a path shown in an
 // error message can be handed straight back to At / SecretAt. A bare segment runs
@@ -391,13 +407,40 @@ func taintNode(s *node) *node {
 // nodeOrTargetSecret reports whether n, or the definition it resolves to, is secret. A
 // taint on a $ref node marks the pointer, not the shared target (tainting the target
 // would over-taint its other users), so both sides must be consulted.
+//
+// The two must be consulted at every union position, not only at the top: a value
+// reached through additionalProperties or items comes back wrapped nullable, so a
+// map or array whose value type is a $ref to a secret definition presents as
+// oneOf[{$ref}, null]. Checking only the wrapper's own Ref field misses it, and the
+// miss is a silent one — the value goes out unredacted.
 func nodeOrTargetSecret(n *node, defs map[string]*node) bool {
-	if isSecret(n) {
+	return secretThroughRefs(n, defs, nil)
+}
+
+// secretThroughRefs walks a node's union variants and $ref targets. visiting guards
+// the union walk against a reference cycle; deref carries its own guard for chains.
+func secretThroughRefs(n *node, defs map[string]*node, visiting map[*node]bool) bool {
+	if n == nil || visiting[n] {
+		return false
+	}
+	if n.Secret {
 		return true
 	}
-	if n != nil && n.Ref != "" {
-		if resolved, err := deref(n, defs); err == nil && isSecret(resolved) {
+	next := make(map[*node]bool, len(visiting)+1)
+	for k := range visiting {
+		next[k] = true
+	}
+	next[n] = true
+	if n.Ref != "" {
+		if resolved, err := deref(n, defs); err == nil && secretThroughRefs(resolved, defs, next) {
 			return true
+		}
+	}
+	for _, variants := range [][]*node{n.OneOf, n.AnyOf} {
+		for _, v := range variants {
+			if secretThroughRefs(v, defs, next) {
+				return true
+			}
 		}
 	}
 	return false
@@ -427,11 +470,7 @@ func stepsHitSecret(s *node, defs map[string]*node, steps []pathStep) bool {
 		return false
 	}
 	for _, step := range steps {
-		if step.isIndex {
-			cur, err = inferIndex(cur, defs)
-		} else {
-			cur, err = lookupProperty(cur, step.prop, defs)
-		}
+		cur, err = navigateStep(cur, defs, step)
 		if err != nil {
 			return false
 		}
@@ -757,16 +796,53 @@ func navigateSchema(s *node, defs map[string]*node, steps []pathStep) (*node, er
 	current := s
 	for _, step := range steps {
 		var err error
-		if step.isIndex {
-			current, err = inferIndex(current, defs)
-		} else {
-			current, err = lookupProperty(current, step.prop, defs)
-		}
+		current, err = navigateStep(current, defs, step)
 		if err != nil {
 			return nil, err
 		}
 	}
 	return current, nil
+}
+
+// navigateStep applies one step. The three kinds share this so navigation,
+// secret-walking and inference cannot drift in what a step means.
+func navigateStep(cur *node, defs map[string]*node, step pathStep) (*node, error) {
+	switch step.kind {
+	case stepIndex:
+		return inferIndex(cur, defs)
+	case stepKey:
+		value, _, err := anyKey(cur, defs)
+		return value, err
+	default:
+		return lookupProperty(cur, step.prop, defs)
+	}
+}
+
+// anyKey returns the type shared by every key of s, and the type a key must have
+// to read it: the element type of an array (integer key), or the value type of a
+// map that declares only additionalProperties (string key). It is what a computed
+// key a[expr] reads, and it exists only for those two shapes — on an object with
+// declared properties the type genuinely varies per key, so a computed key there
+// has no single answer and is an error rather than a guess.
+func anyKey(s *node, defs map[string]*node) (*node, string, error) {
+	resolved, err := deref(s, defs)
+	if err != nil {
+		return nil, "", err
+	}
+	stripped := stripNull(resolved)
+	switch {
+	case stripped.Type.Contains("array") || stripped.Items != nil:
+		el, err := inferIndex(stripped, defs)
+		return el, "integer", err
+	case stripped.AdditionalProperties != nil && len(stripped.Properties) == 0:
+		// Nullable for the same reason an index is: the key may be absent.
+		return withNull(stripped.AdditionalProperties), "string", nil
+	case len(stripped.Properties) > 0:
+		return nil, "", fmt.Errorf("cannot read a computed key: the value declares named properties, so its type depends on which key is read; use a literal key")
+	case isEmptyNode(stripped):
+		return nil, "", fmt.Errorf("cannot read a computed key: the value is unknown (its schema is {})")
+	}
+	return nil, "", fmt.Errorf("cannot read a computed key: the value is not an array or a map")
 }
 
 func isRequired(s *node, name string) bool {

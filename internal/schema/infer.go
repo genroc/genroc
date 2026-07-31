@@ -20,6 +20,7 @@ package schema
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"genroc/internal/expression/syntax"
@@ -45,11 +46,13 @@ type inferCtx struct {
 	vars   map[string]Schema
 }
 
-// guard is one narrowed path. root is the leading identifier, kept so a lambda
-// that shadows it can drop the entry without decoding the key.
+// guard is one narrowed path. roots holds every identifier the path depends on,
+// kept so a lambda that shadows any of them can drop the entry without decoding
+// the key. There is more than one because a computed key contributes its own: the
+// narrowing of `m[k]` is void once `k` means something else.
 type guard struct {
-	root string
-	s    Schema
+	roots []string
+	s     Schema
 }
 
 func (c inferCtx) withGuard(steps []pathStep, narrowed Schema) inferCtx {
@@ -57,8 +60,23 @@ func (c inferCtx) withGuard(steps []pathStep, narrowed Schema) inferCtx {
 	for k, v := range c.guards {
 		guards[k] = v
 	}
-	guards[guardKey(steps)] = guard{root: steps[0].prop, s: narrowed}
+	guards[guardKey(steps)] = guard{roots: stepRoots(steps), s: narrowed}
 	return inferCtx{s: c.s, guards: guards, vars: c.vars}
+}
+
+// stepRoots collects the identifiers a path is rooted at: its own leading name,
+// plus the leading name of every computed key nested inside it.
+func stepRoots(steps []pathStep) []string {
+	var roots []string
+	for i, st := range steps {
+		if i == 0 && st.kind == stepProp {
+			roots = append(roots, st.prop)
+		}
+		if st.kind == stepKey {
+			roots = append(roots, stepRoots(st.key)...)
+		}
+	}
+	return roots
 }
 
 // guardKey encodes steps as a map key — the shared path rendering (path.go),
@@ -85,7 +103,7 @@ func (c inferCtx) withParams(lam *syntax.LambdaNode, elem Schema) inferCtx {
 	}
 	guards := make(map[string]guard, len(c.guards))
 	for k, v := range c.guards {
-		if v.root == lam.Param || v.root == lam.IndexParam {
+		if slices.Contains(v.roots, lam.Param) || (lam.IndexParam != "" && slices.Contains(v.roots, lam.IndexParam)) {
 			continue
 		}
 		guards[k] = v
@@ -148,6 +166,8 @@ func walkSecretRefs(n syntax.Node, ictx inferCtx) bool {
 		return walkSecretRefs(x.Base, ictx)
 	case *syntax.IndexNode:
 		return walkSecretRefs(x.Base, ictx)
+	case *syntax.KeyNode:
+		return keySecretRefs(x, ictx)
 	case *syntax.ArrayNode:
 		for _, item := range x.Items {
 			if walkSecretRefs(item, ictx) {
@@ -170,6 +190,28 @@ func walkSecretRefs(n syntax.Node, ictx inferCtx) bool {
 		return walkSecretRefs(x.Cond, ictx) || walkSecretRefs(x.Then, ictx) || walkSecretRefs(x.Else, ictx)
 	}
 	return false
+}
+
+// keySecretRefs handles a computed key, which the path-based walk above cannot
+// reach: a[expr] names no static path, so the taint has to be read off the type it
+// resolves to. The mark lives on the map's value schema (additionalProperties) or
+// the array's items, and never on the container itself — a map of secrets is not a
+// secret map — so falling back to the base's own flag would miss every one of them.
+func keySecretRefs(x *syntax.KeyNode, ictx inferCtx) bool {
+	// Building the key can read a secret in its own right: vault[input.which].
+	if walkSecretRefs(x.Key, ictx) {
+		return true
+	}
+	value, err := inferNode(x, ictx)
+	if err != nil {
+		// The expression will not type-check anyway; taint rather than risk a leak,
+		// matching the unresolvable-lambda case.
+		return true
+	}
+	if secretAtSub(value, nil) {
+		return true
+	}
+	return walkSecretRefs(x.Base, ictx)
 }
 
 func callSecretRefs(x *syntax.CallNode, ictx inferCtx) bool {
@@ -200,18 +242,14 @@ func secretAtSub(s Schema, sub []pathStep) bool {
 	if len(sub) > 0 {
 		return stepsHitSecret(s.n, s.rootDefs(), sub)
 	}
-	// IsSecret reads only the node's own flag. SecretAt derefs, so reading one
-	// field of a secret-marked definition taints while copying the whole element
-	// did not — the wrong way round, since the copy exposes strictly more. Marking
-	// a definition secret is a shape a user's result_schema carries verbatim
-	// through MergeInto, so the ref has to be followed here too.
-	if s.IsSecret() {
+	// Reading only the node's own flag would mean that reading one field of a
+	// secret-marked definition taints while copying the whole element did not — the
+	// wrong way round, since the copy exposes strictly more. Marking a definition
+	// secret is a shape a user's result_schema carries verbatim through MergeInto,
+	// so the ref has to be followed here too — at every union position, since a
+	// nullable value presents as oneOf[{$ref}, null].
+	if nodeOrTargetSecret(s.n, s.rootDefs()) {
 		return true
-	}
-	if s.HasRef() {
-		if target, err := s.Resolve(); err == nil {
-			return target.IsSecret()
-		}
 	}
 	return false
 }
@@ -240,6 +278,8 @@ func inferNode(node syntax.Node, ictx inferCtx) (Schema, error) {
 		return inferMember(n, ictx)
 	case *syntax.IndexNode:
 		return inferIndexNode(n, ictx)
+	case *syntax.KeyNode:
+		return inferKeyNode(n, ictx)
 	case *syntax.ArrayNode:
 		return inferArray(n, ictx)
 	case *syntax.ObjectNode:
@@ -318,6 +358,35 @@ func inferIndexNode(n *syntax.IndexNode, ictx inferCtx) (Schema, error) {
 		return nullOr(err)
 	}
 	return base.Index()
+}
+
+// inferKeyNode types a computed key, a[expr]. The key must be a string (into a
+// map) or an integer (into an array); which one is required follows from the base,
+// so the error names the mismatch rather than the key type in isolation.
+func inferKeyNode(n *syntax.KeyNode, ictx inferCtx) (Schema, error) {
+	if steps, ok := nodeSteps(n); ok {
+		if g, ok := ictx.guards[guardKey(steps)]; ok {
+			return g.s, nil
+		}
+	}
+	key, err := inferNode(n.Key, ictx)
+	if err != nil {
+		return Schema{}, err
+	}
+	base, ok, err := inferBase(n.Base, ictx)
+	if err != nil || !ok {
+		return nullOr(err)
+	}
+	value, wantKey, err := base.AnyKey()
+	if err != nil {
+		return Schema{}, err
+	}
+	// IsType is strict — a nullable key does not pass — so `m[k]` where k may be
+	// null has to be narrowed or defaulted first, exactly as a null base would.
+	if !key.IsType(wantKey) {
+		return Schema{}, fmt.Errorf("a computed key must be %s, got %s", wantKey, key.TypeName())
+	}
+	return value, nil
 }
 
 func nullOr(err error) (Schema, error) {
@@ -599,6 +668,20 @@ func nodeSteps(node syntax.Node) ([]pathStep, bool) {
 		if base, ok := nodeSteps(n.Base); ok {
 			return append(base, indexStep(n.Index)), true
 		}
+	case *syntax.KeyNode:
+		// Only when the key is itself a static path, which is what makes two reads
+		// of a[k] the same access and so safely narrowable. A computed key built by
+		// an operator (a[x + "s"]) yields no path — it loses narrowing, never
+		// soundness, and the secret walk covers it separately.
+		base, ok := nodeSteps(n.Base)
+		if !ok {
+			return nil, false
+		}
+		key, ok := nodeSteps(n.Key)
+		if !ok {
+			return nil, false
+		}
+		return append(base, keyStep(key)), true
 	}
 	return nil, false
 }

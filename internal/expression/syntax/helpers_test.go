@@ -37,6 +37,8 @@ func dump(n Node) string {
 		return fmt.Sprintf("%s.%s", dump(x.Base), x.Name)
 	case *IndexNode:
 		return fmt.Sprintf("%s[%d]", dump(x.Base), x.Index)
+	case *KeyNode:
+		return fmt.Sprintf("%s[%s]", dump(x.Base), dump(x.Key))
 	case *ArrayNode:
 		return "[" + strings.Join(dumpAll(x.Items), " ") + "]"
 	case *ObjectNode:

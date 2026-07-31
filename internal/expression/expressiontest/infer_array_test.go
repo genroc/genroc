@@ -129,10 +129,13 @@ func TestInfer_Array_Index_NonArrayFails(t *testing.T) {
 	inferErr(t, "input.tags[0][1]", c, "index access [n] requires an array schema") // tags[0] is nullable string, not array
 }
 
-// Dynamic index is unsupported.
-func TestInfer_Array_DynamicIndexUnsupported(t *testing.T) {
+// A computed index is supported, but the key must be a plain integer. An index
+// read out of another array is nullable (it may be out of bounds), so this one is
+// rejected until it is defaulted — the type error, not a grammar error.
+func TestInfer_Array_DynamicIndexMustNotBeNullable(t *testing.T) {
 	c := ctx(t, arrayCtxJSON)
-	inferErr(t, "input.tags[input.counts[0]]", c, "literal integer")
+	inferErr(t, "input.tags[input.counts[0]]", c, "a computed key must be integer, got integer|null")
+	assertSchema(t, infer(t, "input.tags[input.counts[0] ?? 0]", c), `{"type":["string","null"]}`)
 }
 
 // Indexing a nullable array (type-array form: {"type":["array","null"]}) returns

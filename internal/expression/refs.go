@@ -74,6 +74,9 @@ func collectOutputRefs(node syntax.Node, bound map[string]bool, set map[string]s
 		collectOutputRefs(n.Base, bound, set)
 	case *syntax.IndexNode:
 		collectOutputRefs(n.Base, bound, set)
+	case *syntax.KeyNode:
+		collectOutputRefs(n.Base, bound, set)
+		collectOutputRefs(n.Key, bound, set)
 	case *syntax.ArrayNode:
 		for _, item := range n.Items {
 			collectOutputRefs(item, bound, set)
@@ -118,6 +121,12 @@ func collectRoots(node syntax.Node, bound map[string]bool, r *Roots) {
 		collectRoots(n.Base, bound, r)
 	case *syntax.IndexNode:
 		collectRoots(n.Base, bound, r)
+	case *syntax.KeyNode:
+		// The base of a computed key is never the `outputs.<id>` shape, so it falls
+		// through to the bare-identifier case and marks AllOutputs — which is what
+		// `outputs[k]` needs: the id is not known until the expression runs.
+		collectRoots(n.Base, bound, r)
+		collectRoots(n.Key, bound, r)
 	case *syntax.IdentNode:
 		if bound[n.Name] {
 			return // a lambda parameter, not a context root
