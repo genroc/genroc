@@ -293,7 +293,13 @@ func TestValidateConfigSchema(t *testing.T) {
 		{"not an object", cfgSchema(`{"type":"string"}`), `must be type "object"`},
 		{"nested object property", cfgSchema(`{"type":"object","properties":{"X":{"type":"object","properties":{"a":{"type":"string"}}}}}`), "unsupported type"},
 		{"scalar with nested structure", cfgSchema(`{"type":"object","properties":{"X":{"type":"string","items":{"type":"string"}}}}`), "primitive value"},
+		// A config value arrives as an env string, so only the four primitives can be
+		// parsed out of one.
 		{"unsupported type", cfgSchema(`{"type":"object","properties":{"X":{"type":"date"}}}`), "unsupported type"},
+		{"non-primitive type", cfgSchema(`{"type":"object","properties":{"X":{"type":"array"}}}`), "unsupported type"},
+		// An unknown ({}) config var is meaningless for the same reason: it declares no
+		// type at all, so it lands on the single-primitive-type rule.
+		{"unknown type", cfgSchema(`{"type":"object","properties":{"X":{}}}`), "single primitive type"},
 		{"combinator", cfgSchema(`{"type":"object","oneOf":[{"type":"string"}]}`), "oneOf/anyOf/allOf"},
 		{"required unknown property", cfgSchema(`{"type":"object","required":["NOPE"],"properties":{"X":{"type":"string"}}}`), "unknown property"},
 		{"required with default", cfgSchema(`{"type":"object","required":["X"],"properties":{"X":{"type":"string","default":"a"}}}`), "cannot be both required and have a default"},

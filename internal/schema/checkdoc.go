@@ -117,6 +117,17 @@ func checkDoc(nd *node, defs map[string]*node, seen map[*node]bool) error {
 			return err
 		}
 	}
+	// A type name outside the JSON Schema simpleTypes enum matches no value, so the
+	// schema is unsatisfiable — it used to parse cleanly and then reject everything at
+	// runtime. This is a validity check rather than a decode check on purpose: the
+	// decoder also runs over schemas already stored in the DB, and a legacy definition
+	// carrying a bad name should fail its own registration, not become undecodable
+	// (which would take out the whole ListDefinitions page it sits on).
+	for _, t := range nd.Type {
+		if !validTypes[t] {
+			return fmt.Errorf("unsupported schema type %q", t)
+		}
+	}
 	if nd.Minimum != nil && nd.Maximum != nil && *nd.Minimum > *nd.Maximum {
 		return fmt.Errorf("minimum %v exceeds maximum %v", *nd.Minimum, *nd.Maximum)
 	}

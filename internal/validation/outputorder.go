@@ -46,7 +46,7 @@ func inferOutputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proce
 		if !typed {
 			hooks.Roots = func(refs expression.Roots) error {
 				if refs.SelfResult {
-					return fmt.Errorf("task %q: output references self.result, but the action has no result_schema — add a result_schema to type the response", id)
+					return fmt.Errorf("task %q: output references self.result, but the action has no result_schema — add a result_schema to type the response, or `result_schema: {}` (the top type) to export it opaquely for a caller to narrow", id)
 				}
 				return nil
 			}

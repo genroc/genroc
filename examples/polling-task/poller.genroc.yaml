@@ -1,7 +1,6 @@
-# Child: polls a remote job until it's done, looping structurally check → wait → backoff.
-# Returns { answer } on success; RAISES an anticipated error the parent catches — `cancelled`
-# (a caller signals the `wait` checkpoint) or `poll_timeout` (out of max_attempts polls).
-# See README.md for the poll-budget and cancel-signal details.
+# Child: kicks off a remote job and polls it until it's done, looping check → backoff.
+# Works for ANY job: the payload is left unknown (`{}`) for the parent to narrow.
+# Raises `poll_timeout` when the attempt budget runs out. See README.md.
 name: poll-until-done
 input_schema:
   type: object
@@ -40,12 +39,9 @@ tasks:
       result_schema:
         type: object
         properties:
-          status: { type: string }
-          result:
-            type: object
-            properties:
-              answer: { type: number }
-            required: [answer]
+          status: { type: string }        # read to drive the loop → typed
+          result:                         # only carried → unknown
+            description: "opaque job payload — the caller narrows this"
         required: [status]
     output:
       result: "$: self.result.result"
@@ -53,26 +49,11 @@ tasks:
     timeout_ms: 2000
     switch:
       - case: "self.result.status == 'done'"
-        goto: $finish
+        goto: end
       - case: "(outputs.check.attempt ?? 0) >= input.max_attempts"
-        goto: $give_up
-      - goto: $wait
-
-  - id: wait
-    action:
-      type: external
-      result_schema:
-        type: object
-        properties:
-          cancel: { type: boolean }
-        required: [cancel]
-    timeout_ms: 500
-    on_error:
-      - code: [external.timeout]
-        goto: $backoff
-    switch:
-      - case: "self.result.cancel == true"
-        goto: $cancel
+        raise:
+          code: poll_timeout
+          message: "gave up after max_attempts polls"
       - goto: $backoff
 
   - id: backoff
@@ -81,45 +62,6 @@ tasks:
       ms: "$: input.poll_interval_ms"
     switch: $check
 
-  # Both failure paths clean up the remote job, then raise for the parent to catch.
-  - id: cancel
-    action:
-      type: fetch
-      url: "${ input.url }/cancel"
-      headers: "$: input.headers"
-      body:
-        job_id: "$: outputs.kickstart.job_id"
-      result_schema:
-        type: object
-        properties:
-          cancelled: { type: boolean }
-        required: [cancelled]
-    timeout_ms: 2000
-    switch:
-      - raise:
-          code: cancelled
-          message: "the caller cancelled the job"
-
-  - id: give_up
-    action:
-      type: fetch
-      url: "${ input.url }/cancel"
-      headers: "$: input.headers"
-      body:
-        job_id: "$: outputs.kickstart.job_id"
-      result_schema:
-        type: object
-        properties:
-          cancelled: { type: boolean }
-        required: [cancelled]
-    timeout_ms: 2000
-    switch:
-      - raise:
-          code: poll_timeout
-          message: "gave up after max_attempts polls"
-
-  - id: finish
-    switch: end
-
 output:
-  answer: "$: (outputs.check.result.answer) ?? 0"
+  result: "$: outputs.check.result"
+  attempts: "$: outputs.check.attempt"

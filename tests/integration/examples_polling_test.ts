@@ -7,9 +7,10 @@ import { client, waitForInstance } from "../helpers/client.ts";
 
 // The definitions under test are the real example files in examples/polling-task/, loaded
 // and applied verbatim — so this doubles as an executable check that the shipped example
-// works end to end. The poller returns the job's { answer } on success, or RAISES
-// `cancelled` / `poll_timeout`; the parent catches those on the child task. (Vitest's
-// bundler can't `import` a .yaml file, so we read + parse the source instead.)
+// works end to end. The poller returns the job's payload as `unknown` plus a typed
+// `attempts`, and the parent narrows the payload with a result_schema; running out of
+// attempts is RAISED as `poll_timeout` and caught on the child task. (Vitest's bundler
+// can't `import` a .yaml file, so we read + parse the source instead.)
 const EXAMPLES = new URL("../../examples/polling-task/", import.meta.url);
 function loadDef(file: string): any {
   return loadYaml(readFileSync(new URL(file, EXAMPLES), "utf8"));
@@ -21,7 +22,6 @@ const parent = loadDef("parent.genroc.yaml");
 //   POST /jobs   -> { job_id }                  starts a job
 //   POST /status -> { status: pending|done, … } "pending" for the first `pendingPolls`
 //                                               checks of a job, then "done" with `result`
-//   POST /cancel -> { cancelled: true }         stops the job (cancel or timeout cleanup)
 // Every request must carry `expectedAuth` or it's rejected 401 — so a completed run
 // proves the auth header the parent set reached the service on each call.
 async function startJobService(
@@ -31,7 +31,6 @@ async function startJobService(
 ) {
   let startCount = 0;
   let statusRequests = 0;
-  let cancelCount = 0;
   const pollsByJob = new Map<string, number>();
   const authSeen = new Set<string>();
 
@@ -61,9 +60,6 @@ async function startJobService(
         pollsByJob.set(jobId, seen);
         if (seen <= pendingPolls) send(200, { status: "pending" });
         else send(200, { status: "done", result });
-      } else if (req.url === "/cancel") {
-        cancelCount++;
-        send(200, { cancelled: true });
       } else {
         send(404, {});
       }
@@ -75,7 +71,6 @@ async function startJobService(
     port: (server.address() as AddressInfo).port,
     startCount: () => startCount,
     statusRequests: () => statusRequests,
-    cancelCount: () => cancelCount,
     authHeaders: () => [...authSeen],
     stop: () => new Promise<void>((r) => server.close(() => r())),
   };
@@ -128,7 +123,10 @@ async function outputsOf(id: string): Promise<Record<string, any>> {
 
 test("examples/polling-task: the poller returns the job's answer to the parent", async () => {
   const pendingPolls = 2; // two "pending" replies, then "done" on the third check
-  const mock = await startJobService(pendingPolls, { answer: 42 }, `Bearer ${AUTH_TOKEN}`);
+  // The payload carries a field the parent's result_schema does not declare, proving the
+  // poller really is agnostic: it forwards whatever the job produced, and narrowing at the
+  // parent strips the surplus rather than rejecting it.
+  const mock = await startJobService(pendingPolls, { answer: 42, debug: "ignored" }, `Bearer ${AUTH_TOKEN}`);
 
   try {
     await applyExample();
@@ -136,15 +134,16 @@ test("examples/polling-task: the poller returns the job's answer to the parent",
 
     expect(await waitForInstance(id, 20_000)).toBe("completed");
 
-    // The polled answer flowed all the way up; the error path was never taken.
+    // The payload travelled up opaque and came out typed: `answer` is readable only
+    // because the parent narrowed it, `attempts` was typed by the child all along, and
+    // `debug` was dropped by the narrowing conform. The error path was never taken.
     const outputs = await outputsOf(id);
-    expect(outputs.run).toEqual({ answer: 42 });
+    expect(outputs.run).toEqual({ answer: 42, attempts: pendingPolls + 1 });
     expect(outputs.report).toBeUndefined();
 
-    // Started once, polled until done (pendingPolls "pending" + 1 "done"), never cancelled.
+    // Started once, polled until done (pendingPolls "pending" + 1 "done").
     expect(mock.startCount()).toBe(1);
     expect(mock.statusRequests()).toBe(pendingPolls + 1);
-    expect(mock.cancelCount()).toBe(0);
 
     // Every request carried exactly the auth header the parent threaded down.
     expect(mock.authHeaders()).toEqual([`Bearer ${AUTH_TOKEN}`]);
@@ -153,35 +152,28 @@ test("examples/polling-task: the poller returns the job's answer to the parent",
   }
 });
 
-test("examples/polling-task: a cancel signal raises `cancelled`, which the parent catches", async () => {
-  // The job never reports done, so the poller keeps looping until it's cancelled.
-  const mock = await startJobService(Number.MAX_SAFE_INTEGER, { answer: 42 }, `Bearer ${AUTH_TOKEN}`);
+// The trade-off `unknown` makes: because the poller never inspects the payload, a
+// malformed one is not caught where it is produced (the child's fetch accepts it — the
+// slot is unknown) but where it is consumed, when the parent's result_schema conforms the
+// collected child output. Later, and outside the child's own on_error scope.
+test("examples/polling-task: a payload that fails the parent's narrowing is caught at the parent", async () => {
+  const pendingPolls = 1;
+  // `answer` is a string; the parent's result_schema declares it a number.
+  const mock = await startJobService(pendingPolls, { answer: "forty-two" }, `Bearer ${AUTH_TOKEN}`);
 
   try {
     await applyExample();
-    // High attempt budget + short interval so we cancel well before the timeout fires.
-    const id = await startExample(mock.port, { poll_interval_ms: 50, max_attempts: 100 });
+    const id = await startExample(mock.port, { poll_interval_ms: 50 });
 
-    // Signal the child's `wait` task to cancel; it routes the child to $cancel, which raises.
+    // The CHILD completes — it polled successfully and carried the payload out untouched.
     const childId = await waitForChildId(id);
-    const { error: sigErr } = await client.POST("/instances/{id}/signal", {
-      params: { path: { id: childId } },
-      body: { task_id: "wait", result: { cancel: true } } as never,
-    });
-    expect(sigErr).toBeUndefined();
+    expect(await waitForInstance(childId, 20_000)).toBe("completed");
 
-    expect(await waitForInstance(id, 20_000)).toBe("completed");
-
-    // The child raised `cancelled`; the parent caught it and reported. No answer collected.
-    const outputs = await outputsOf(id);
-    expect(outputs.run).toBeUndefined();
-    expect(outputs.report).toEqual({
-      outcome: "cancelled",
-      detail: "the caller cancelled the job",
-    });
-
-    expect(mock.startCount()).toBe(1);
-    expect(mock.cancelCount()).toBe(1);
+    // The PARENT fails, on the narrowing conform at collect. `poll_timeout` is the only
+    // code its on_error catches, so a type violation is not swallowed.
+    expect(await waitForInstance(id, 20_000)).toBe("failed");
+    const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+    expect(data?.error ?? "").toMatch(/output validation/i);
   } finally {
     await mock.stop();
   }
@@ -204,10 +196,9 @@ test("examples/polling-task: exhausting max_attempts raises `poll_timeout`, whic
       detail: "gave up after max_attempts polls",
     });
 
-    // Exactly max_attempts status checks, then the server job was cleaned up.
+    // Exactly max_attempts status checks before it gave up.
     expect(mock.startCount()).toBe(1);
     expect(mock.statusRequests()).toBe(2);
-    expect(mock.cancelCount()).toBe(1);
   } finally {
     await mock.stop();
   }

@@ -1,9 +1,6 @@
-# Parent process: runs the poller as a child and reacts to what it raises.
-#
-# It owns the connection details (url + headers) and passes them down as the child's input;
-# the headers are an open string map, so any auth/trace header flows through without the
-# child declaring it. On success it returns the child's answer; a `cancelled` or
-# `poll_timeout` raise is caught on the child task and reported.
+# Parent: runs the poller as a child, narrows the opaque payload it returns, and catches
+# what it raises. It owns the connection details (url + headers) and — knowing which job
+# it started — the answer's shape.
 name: polling-example
 input_schema:
   type: object
@@ -25,15 +22,25 @@ tasks:
         headers: "$: input.headers"
         poll_interval_ms: "$: input.poll_interval_ms"
         max_attempts: "$: input.max_attempts"
+      # The narrowing point: `result` arrives unknown, and declaring its shape here is
+      # what makes it readable. The engine conforms the child's output against this on
+      # collect, so the type is checked, not assumed. `attempts` is already typed.
       result_schema:
         type: object
         properties:
-          answer: { type: number }
-        required: [answer]
+          result:
+            type: object
+            properties:
+              answer: { type: number }
+            required: [answer]
+          attempts: { type: integer }
+        required: [result, attempts]
     on_error:
-      - code: [cancelled, poll_timeout]
+      - code: [poll_timeout]
         goto: $report
-    output: "$: self.result"
+    output:
+      answer: "$: self.result.result.answer"
+      attempts: "$: self.result.attempts"
     switch: end
 
   - id: report

@@ -1,14 +1,15 @@
 # The `unknown` type: opaque results, narrowed at the boundary
 
-Status: **DRAFT / proposal, 2026-07-21. Not implemented.** Captures a concept
-worked out in discussion; details left open are marked *(open)*. Engine facts are
-cited to `file:line` so the draft stays honest about what exists vs. what is new.
+Status: **IMPLEMENTED, 2026-07-31** (designed 2026-07-21). Authored as the empty
+schema `{}` — there is no keyword; see `examples/polling-task/` for the worked
+example. The **Infer** mode described under "Three ways a parent types a child
+result" is *not* built — it remains a proposal, and is the one part of this document
+that still describes intended work rather than behaviour.
 
 > A more ambitious version of this idea — passing schemas as values for true
 > generic processes with call-site specialization — was considered and
 > **deliberately dropped** as not worth its complexity. It is preserved for the
-> record in the appendix "Not planned: schema-valued generics". This document
-> describes the version we intend to build.
+> record in the appendix "Not planned: schema-valued generics".
 
 ## The idea in one line
 
@@ -35,12 +36,19 @@ decision to whoever actually reads the value.
 
 ## What `unknown` is — the `{}` top type
 
-Reuse the engine's existing **empty-node top type `{}`**. It already has the three
-behaviors we need (this is `unknown`, emphatically **not** `any`):
+`unknown` **is** the engine's empty-node top type `{}`. There is no keyword and no
+alias: you write `{}`, and every code path — subset, navigation, inference, the
+solver — already treats it correctly. Nothing was added to the schema language.
 
-- **reads rejected** — `self.result.foo` errors ("schema has no properties",
-  `internal/schema/navigate.go:159-162`). A black box.
-- **`{} ⊄ T`** for any typed `T` (`internal/schema/subset.go:56-61`) — cannot flow
+The empty node already had the three behaviors we need (this is `unknown`,
+emphatically **not** `any`):
+
+- **reads rejected** — `self.result.foo` errors (`lookupProperty`,
+  `internal/schema/navigate.go`). A black box. The empty node now gets its own
+  message there ("the value is unknown (its schema is {})") rather
+  than the generic "schema has no properties", since it is the one such case an
+  author reaches deliberately and can act on.
+- **`{} ⊄ T`** for any typed `T` (`internal/schema/subset.go`) — cannot flow
   into a typed slot without narrowing.
 - **`X ⊆ {}`** — assignable into a schema-free slot (e.g. `output`).
 
@@ -48,63 +56,121 @@ So an `unknown` value can be **exported or nested in a known structure**
 (`{ data: self.result }`) and nothing else. Runtime `conform` against the real
 schema, when narrowing happens, enforces the actual shape.
 
-### One change to how an untyped result is represented
+### Saying you meant it
 
-Today an action with no `result_schema` produces a result that is *omitted* from
-the inference context (`typed=false`, `internal/validation/infer.go:289-291,
-359-361`) — which is why it currently cannot even be exported. **Change:** set the
-slot to `{}` instead of dropping it, and let `output` carry `{}`.
+`{}` has one real weakness: it does not announce intent. `payload: {}` in a long
+schema reads like an unfinished stub. Two things answer that, neither of which needs
+engine support:
 
-That single change turns "absent" into "unknown": still unreadable, still not a
-subset of any typed slot, but now forwardable.
+- a **YAML comment** at the authoring site — genroc definitions are authored in YAML,
+  and a comment is invisible to every tool;
+- a **`description`** — `isEmptyNode` ignores it (along with `secret` and `default`),
+  so `{"description": "opaque payload"}` is still exactly the top type. Unlike a
+  comment, it survives into the stored definition and the editor, and
+  `canonicalizeNode` strips it before type comparison, so it provably cannot perturb
+  inference.
+
+The rest of the "no other fields" rule enforces itself: adding any shape keyword makes
+the node non-empty, so it simply stops being the top type — there is no rule to write.
+
+### A dedicated `type: unknown` was built, then dropped
+
+Worth recording, because it will be re-proposed. A `type: unknown` keyword (erased at
+parse to `{}`) was implemented and reverted. Two reasons:
+
+1. **It would have been genroc's only divergence from JSON Schema.** `type` is
+   restricted to the meta-schema's `simpleTypes` enum, so a standard validator rejects
+   `type: unknown` on sight. Everything else genroc does is *subsetting* — it accepts
+   less (no `allOf`, no boolean `additionalProperties`, no unrecognised keywords) plus
+   one inert custom keyword (`secret`), which JSON Schema permits because validators
+   ignore keywords they don't know. Staying a pure subset means outside tooling —
+   an OpenAPI importer generating schemas, a meta-schema validating the authoring
+   surface in an editor, third-party resolvers reading a `result_schema` off the
+   external-tasks API — all work unmodified.
+2. **The explicitness it bought was illusory.** Because the keyword was erased at
+   parse, it never reached the database, the API, or `genctl get`. It existed only in
+   the source file — which is YAML, which has comments, and which can carry a
+   `description` that *does* survive. The one benefit was confined to the single
+   medium that already had two better mechanisms.
+
+A custom keyword (`{"unknown": true}`) would have kept the authored form
+meta-schema-valid, since JSON Schema ignores unrecognised keywords, and would even
+degrade to `{}` under a standard validator. It was not chosen either: genroc's parser
+rejects unrecognised keywords by allowlist, so it does not play by that convention,
+and it reads worse than the alternatives above.
+
+### Omission stayed an error
+
+A `result_schema` that is *omitted* still produces a result omitted from the
+inference context (`typed=false`, `internal/validation/infer.go`): unreadable and
+**unexportable**. That was left alone deliberately. Making omission mean `unknown`
+was on the table and rejected: it would erase the difference between "I meant this
+to be opaque" and "I forgot to type it", turning a forgotten schema into a value
+that fails much later at some consumer's boundary. The distinction is free, since
+omission and `{}` are already separate states in the inference context. The error
+message for the omitted case names both fixes.
 
 ## Narrowing — the one load-bearing rule
 
 An `unknown` enters the typed world only by being **narrowed** with a concrete
 schema, and the narrowing is **runtime-checked**. The narrowing point already
-exists in the syntax: the **`result_schema` on the action that produced the
+existed in the syntax: the **`result_schema` on the action that produced the
 value.** For a child, the parent writes `result_schema` on the child action; the
 child's actual output is conformed against it at collect time (`_spawn_result_schema`,
-`internal/engine/child.go:200-203` → `internal/engine/collect.go:249-256`), so the
-narrowing is sound.
+`internal/engine/child.go` → `resolveAndValidateChildOutput`,
+`internal/engine/collect.go`), so the narrowing is sound.
 
-The **one rule to add** is: allow a `result_schema` to narrow a `{}` result — i.e.
+The **one rule added** is: allow a `result_schema` to narrow a `{}` result — i.e.
 permit `{} → T` **through a `result_schema` only** (runtime-conformed), while
-keeping `{} ⊄ T` everywhere else. Concretely that is a small relaxation in the
-subset check plus the `conform` you already run.
+keeping `{} ⊄ T` everywhere else. Concretely: `subsetCtx` gained a `narrow` flag
+that flips the single `isEmptyNode(sub) → false` rule, exposed as
+`Schema.NarrowsTo`, and `checkChildOutputType` calls that instead of `IsSubset`.
+Because the flag is checked inside the recursion, an unknown narrows **at any
+depth** — which is what the per-field split below actually needs. Nothing else in
+the engine can reach the relaxed relation.
 
-Everything else in this design is reuse. This rule is the whole build.
+An unknown handed to a typed **input** is still rejected, and the reason is not
+symmetry: nothing conforms a child input against the callee's schema on the
+parent's behalf, so there would be no check standing behind the claim. The
+privilege belongs to `result_schema` precisely because that slot has a runtime
+conform.
+
+Everything else in this design was reuse. That rule was the whole build — there is
+no syntax to go with it.
 
 ## Three ways a parent types a child result
 
 A child action's result-type slot has **three modes**, trading coupling for safety
-and ergonomics. This is the full story of the slot; `unknown` is one corner of it.
+and ergonomics. Two are built; Infer is not.
 
-| Mode | Syntax *(open)* | `self.result` | Coupling | On a version bump |
+| Mode | Syntax | `self.result` | Coupling | On a version bump |
 |---|---|---|---|---|
-| **Pin** (safeguard) | explicit schema | that schema | decoupled — parent validates without the child | `childOutput ⊆ schema` checked; drift **fails loudly** |
-| **Infer** (inherit) | `infer` marker | the child's computed output | **coupled** — child must be defined | auto-adopts the new output; fails only where a changed field is *used* |
-| **Unknown** (opaque) | omitted | `{}` | decoupled | n/a — opaque; the consumer narrows |
+| **Pin** (safeguard) | explicit schema | that schema | decoupled — parent validates without the child | `childOutput` narrows to schema; drift **fails loudly** |
+| **Infer** (inherit) — *not built* | `infer` marker *(open)* | the child's computed output | **coupled** — child must be defined | auto-adopts the new output; fails only where a changed field is *used* |
+| **Unknown** (opaque) | `{}` | `{}` | decoupled | n/a — opaque; the consumer narrows |
 
-- **Pin** is today's behaviour, reframed as a *safeguard*: `childOutput ⊆
-  resultSchema` (`internal/validation/validate_children.go:230`). The parent
-  validates standalone, and if the child's output drifts the subset check fails.
-  This is the "explicit type annotation at a public boundary" — you restate the
-  return type as a stability gate.
-- **Infer** copies the child's *computed* output (`Generate(child)`,
-  `validate_children.go:213`) into the slot — `self.result` becomes the child's
-  output verbatim, no subset check. This is "import a function; don't re-state its
-  return type", and it is what makes child-processes-as-functions pleasant. It
-  **tightly couples** parent to child: the child must be defined at parent-validation
-  time or it is a hard error. Version pinning is what makes it safe — a pinned
-  version is immutable, so there is no drift *within* a version; bumping the pin
-  re-inherits the new output and re-checks the parent's usage.
-- **Unknown** (the rest of this document): omit → `{}`, opaque, consumer narrows.
+- **Pin** is the pre-existing behaviour, reframed as a *safeguard*
+  (`checkChildOutputType`, `internal/validation/validate_children.go`). The parent
+  validates standalone, and if the child's output drifts the check fails. This is
+  the "explicit type annotation at a public boundary" — you restate the return type
+  as a stability gate. It is also the slot that does the narrowing, so pin and
+  unknown are not alternatives: pinning a schema onto a child's unknown field *is*
+  the narrowing.
+- **Infer** would copy the child's *computed* output (`Generate(child)`) into the
+  slot — `self.result` becomes the child's output verbatim, no subset check. This is
+  "import a function; don't re-state its return type", and it is what would make
+  child-processes-as-functions pleasant. It **tightly couples** parent to child: the
+  child must be defined at parent-validation time or it is a hard error. Version
+  pinning is what makes it safe — a pinned version is immutable, so there is no
+  drift *within* a version; bumping the pin re-inherits the new output and re-checks
+  the parent's usage.
+- **Unknown** (the rest of this document): `{}`, opaque, consumer narrows.
 
-**Infer is a larger build than the `unknown` core.** It makes output inference
-**recursive across process boundaries** — `Generate` today "infers the child's
-output from its own tasks … no getter, so it does not recurse across the tree"
-(`validate_children.go:210-212`). So Infer needs: cross-process output resolution;
+**Infer is a much larger build than the `unknown` core** — which is why the core
+shipped alone. It makes output inference **recursive across process boundaries** —
+`Generate` today "infers the child's output from its own tasks … no getter, so it
+does not recurse across the tree"
+(`validate_children.go`). So Infer needs: cross-process output resolution;
 cycle handling for mutually-recursive processes (reuse the collapse-or-keep /
 productivity machinery, now at process granularity); memoization per pinned
 `(process, version)`; and a registration-ordering rule (child before parent, or
@@ -139,13 +205,16 @@ The poller (`examples/polling-task/`) is the canonical mix:
 - `job_id` / `status` — the poller reads these to drive its loop. **Typed**,
   validated where they're read. They cannot be `unknown` or the child couldn't
   poll.
-- the final `answer` payload — the child never inspects it, just returns it.
-  **This** is the part that becomes `unknown` and is validated when the *parent*
-  reads the child result.
+- the job's `result` payload — the child never inspects it, just returns it.
+  **This** is the part that is `unknown` and is validated when the *parent* reads
+  the child result. Its sibling `attempts` is typed, so the parent's
+  `result_schema` narrows one field and simply restates the other.
 
-So the poller's only behavioral change vs. today: the answer payload is validated
-**when the parent reads the child result**, not right after the fetch. Same
-runtime guarantee, different clock.
+So the poller's only behavioral change: the payload is validated **when the parent
+reads the child result**, not right after the fetch. Same runtime guarantee,
+different clock. Because narrowing runs the parent's schema over the whole child
+output, it also **strips** keys the parent didn't declare — a job may return more
+than the caller asked for.
 
 ## Consequence: validation is lazy, not eager
 
@@ -161,43 +230,56 @@ Because the check moves from *at the source* to *at consumption*:
   each runtime-checked independently. That's a feature.
 
 None of these hurt a stable poller; they're the things to keep in mind before
-reaching for `unknown` on data whose shape you don't trust.
+reaching for `unknown` on data whose shape you don't trust. The last two are pinned
+by the example's integration test, which asserts that a payload violating the
+parent's narrowing lets the **child complete** and fails the **parent**.
 
 ## Ledger
 
-**The build:**
-- Represent an untyped result as `{}` (not omitted); let `output` carry `{}`.
-- Allow `result_schema` to narrow `{}` → `T`, runtime-conformed (`{} → T` only
-  through a `result_schema`).
+**What was built** — one relation and two error messages. No syntax:
+- `Schema.NarrowsTo` — `IsSubset` with the `isEmptyNode(sub)` rule flipped — used
+  by `checkChildOutputType` and nowhere else, backed by the collect-time conform.
+- Two error messages that name the fix: reading through an unknown, and exporting
+  an untyped result.
+
+Also, opportunistically: unrecognised **type names are now rejected at
+registration**. They previously parsed and then rejected every value, so
+`type: strng` produced an unsatisfiable schema in silence. It is a `CheckDoc`
+validity rule rather than a decode rule on purpose: the decoder also runs over
+definitions already in the DB, so enforcing it there would turn a legacy bad name
+from "fails at runtime" into "undecodable", taking out the whole `ListDefinitions`
+page it sits on. `validTypes` is exactly the JSON Schema `simpleTypes` enum.
 
 **Reused as-is:**
-- `{}` top type (reads rejected, `{} ⊄ T`, `X ⊆ {}`).
+- `{}` top type (reads rejected, `{} ⊄ T`, `X ⊆ {}`), and its pass-through
+  validation — an empty node returns a value verbatim, which is what makes
+  forwarding non-destructive.
 - `result_schema` as the narrowing point + its runtime `conform`.
-- Everything in the recursion / inference machinery — untouched.
+- Everything in the recursion / inference machinery — untouched, as predicted.
 
-**Trap to avoid:**
+**Trap avoided:**
 - Do **not** represent `unknown` as a dangling `$ref`. A `$ref` to a missing def
-  is a hard error on any touch (`navigate.go:276-277`), and an unresolved ref in
+  is a hard error on any touch (`navigate.go`), and an unresolved ref in
   `super` position of `IsSubset` is silently treated as top (`derefSubset`,
-  `subset.go:273-285`) — unsound. `{}` is the designed top type; use it.
+  `subset.go`) — unsound. `{}` is the designed top type; use it.
 
 ## Open questions (settle later)
 
-- Surface syntax for the three modes: proposal is **omit** → unknown, **explicit
-  schema** → pin, **`infer` marker** → inherit. Exact spelling open — and whether
-  "omit" should really mean unknown or stay an error so "I meant unknown" is
-  distinguishable from "I forgot". *(open)*
 - Infer mode's cross-process inference: cycle handling across mutually-recursive
   processes, `(process, version)` memoization, and registration ordering (child
-  before parent). *(open — the main cost of Infer)*
-- Author-time ergonomics: when a typed slot rejects an `unknown`, the error should
-  point the user at "narrow it with a `result_schema`" rather than a bare subset
-  failure. *(open)*
+  before parent). *(open — the main cost of Infer, and the only unbuilt mode)*
+- Author-time ergonomics beyond the read path: when a typed **input** slot rejects
+  an `unknown`, the message is still a bare subset failure and should say why
+  narrowing isn't available there. *(open)*
 - Harden `derefSubset` to error on an unresolved `super` regardless — a latent
-  bug independent of this feature, worth fixing while here.
-- Confirm the child-output conform path (`collect.go`) enforces the parent's
-  `result_schema` in every child-spawning action type (`child` / `child_map` /
-  `child_list`), so narrowing is sound uniformly.
+  bug independent of this feature, still unfixed. *(open)*
+
+**Settled while building:** the child-output conform *is* uniform. All three
+spawn paths stash `_spawn_result_schema` (`internal/engine/child.go`) and all three
+collectors — `buildSingleChildOutput` / `buildMapChildOutput` /
+`buildListChildOutput` — funnel through `resolveAndValidateChildOutput`, so
+narrowing is backed by a real check for `child`, `child_map` and `child_list`
+alike.
 
 ---
 

@@ -35,7 +35,7 @@ type ChildEntry struct {
 	Name         string         `json:"name"                    description:"Name of the child process to invoke."`
 	Version      int            `json:"version,omitempty"       description:"Version to run; 0 means latest published version."`
 	Input        *Shape         `json:"input,omitempty"         description:"Templated value (a string expression or nested object of expressions) evaluated against the current context to build the child's input payload."`
-	ResultSchema *schema.Schema `json:"result_schema,omitempty" description:"JSON Schema to validate and expose this child's output."`
+	ResultSchema *schema.Schema `json:"result_schema,omitempty" description:"JSON Schema to validate and expose this child's output. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it — the output is conformed against this schema when collected."`
 }
 
 // Action describes how to invoke a task's action. It is a discriminated union on Type.
@@ -63,6 +63,11 @@ type ChildEntry struct {
 // ResultSchema (fetch/external): when set, the result is validated before the instance
 // resumes (the submitted result, for external). Without it the result is available only as "self" in
 // this task's switch.
+//
+// A result_schema is also the one place an unknown is narrowed: a slot left as `{}`
+// (the top type — carried, never read) becomes readable when a consumer restates its
+// shape here, and the value is conformed against that shape at runtime.
+// See docs/unknown-type.md.
 //
 // AcceptedStatus (fetch only): a shape evaluating to an array of HTTP status patterns
 // treated as non-errors ("2xx".."5xx" or a 3-digit code). Defaults to any 2xx.
@@ -162,7 +167,7 @@ var actionSchemaTemplate = `{
 					"name":          {"type": "string", "description": "Name of the child process to invoke."},
 					"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
 					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the child's input payload."},
-					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose the child's output. Without it the output is available only as self.result in this task's switch."}
+					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose the child's output. Without it the output is available only as self.result in this task's switch. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it, making it readable here; the collected output is conformed against this schema."}
 				},
 				"required": ["type", "name"],
 				"additionalProperties": false
@@ -181,7 +186,7 @@ var actionSchemaTemplate = `{
 								"name":          {"type": "string", "description": "Name of the child process to invoke."},
 								"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
 								"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the child's input payload."},
-								"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose this child's output."}
+								"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose this child's output. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it; the collected output is conformed against this schema."}
 							},
 							"required": ["name"],
 							"additionalProperties": false
@@ -200,7 +205,7 @@ var actionSchemaTemplate = `{
 					"name":          {"type": "string", "description": "Name of the child process to invoke for every element."},
 					"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
 					"over":          {"type": "string", "description": "A $: expression evaluating to an array (e.g. \"$: input.items\"); the engine spawns one child per element, passing the element as that child's input. An empty array spawns no children and yields an empty-array result."},
-					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose EACH child's output. The collected result is an array of values conforming to this schema."}
+					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose EACH child's output. The collected result is an array of values conforming to this schema. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it, per element."}
 				},
 				"required": ["type", "name", "over"],
 				"additionalProperties": false

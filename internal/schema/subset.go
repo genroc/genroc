@@ -8,6 +8,21 @@ import (
 // isSubset reports whether every value valid under sub is also valid under super.
 // Both schemas must be normalized (flat $defs at root, only #/$defs/<name> refs).
 func isSubset(sub, super *node) bool {
+	return subsetWith(sub, super, false)
+}
+
+// narrowsTo is isSubset with one rule flipped: an unknown ({}) anywhere in sub is
+// accepted by any super, at any depth. It is the static half of narrowing — the
+// caller must pair it with a runtime conform of the value against super, which is
+// what actually establishes the type. Only the child-output check uses it, because
+// only there does such a conform exist (collect validates a child's output against
+// the parent's result_schema). Everywhere else {} ⊄ T stands, so an unknown cannot
+// reach a typed slot unchecked.
+func narrowsTo(sub, super *node) bool {
+	return subsetWith(sub, super, true)
+}
+
+func subsetWith(sub, super *node, narrow bool) bool {
 	var subDefs, superDefs map[string]*node
 	if sub != nil {
 		subDefs = sub.Defs
@@ -19,6 +34,7 @@ func isSubset(sub, super *node) bool {
 		subDefs:   subDefs,
 		superDefs: superDefs,
 		visiting:  make(map[string]bool),
+		narrow:    narrow,
 	}
 	return ctx.check(sub, super)
 }
@@ -27,6 +43,8 @@ type subsetCtx struct {
 	subDefs   map[string]*node
 	superDefs map[string]*node
 	visiting  map[string]bool
+	// narrow admits an unknown in sub position — see narrowsTo.
+	narrow bool
 }
 
 func (ctx *subsetCtx) check(sub, super *node) bool {
@@ -57,7 +75,9 @@ func (ctx *subsetCtx) check(sub, super *node) bool {
 		return true
 	}
 	if isEmptyNode(sub) {
-		return false
+		// An unknown satisfies nothing typed — unless we are checking narrowability,
+		// where a runtime conform against super stands behind the claim.
+		return ctx.narrow
 	}
 
 	// Composition in sub (anyOf / oneOf): every variant must be ⊆ super.

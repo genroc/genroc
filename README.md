@@ -98,8 +98,8 @@ genctl logs @last         # its per-instance logs
 ```
 
 See [examples/polling-task](examples/polling-task) for a fuller example — a parent
-that spawns a child process which polls a remote job until it finishes, is
-cancelled, or exhausts its attempt budget.
+that spawns a child process which polls a remote job until it finishes or exhausts
+its attempt budget, and narrows the opaque payload it hands back.
 
 ## Development
 

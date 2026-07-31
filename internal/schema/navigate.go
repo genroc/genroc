@@ -157,6 +157,12 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 			return withNull(resolved.AdditionalProperties), nil
 		}
 		if resolved.Properties == nil {
+			// The top type ({}) is the one "no properties" case with an actionable fix,
+			// and the one an author reaches deliberately, so it gets its own message —
+			// the more so because the empty schema does not announce its own intent.
+			if isEmptyNode(resolved) {
+				return nil, fmt.Errorf("cannot access .%s: the value is unknown (its schema is {})", name)
+			}
 			return nil, fmt.Errorf("cannot access .%s: schema has no properties", name)
 		}
 		return nil, fmt.Errorf("field %q not found in schema", name)
@@ -670,9 +676,16 @@ func stripNull(s *node) *node {
 	return s
 }
 
-// isEmptyNode reports whether s constrains nothing. Root $defs are deliberately ignored:
-// a node carrying only a resolution context (as navigation's sub-schemas do) still
-// accepts any value.
+// isEmptyNode reports whether s constrains nothing — the top type, written {}, which is
+// how "unknown" is spelled (see docs/unknown-type.md). Root $defs are deliberately
+// ignored: a node carrying only a resolution context (as navigation's sub-schemas do)
+// still accepts any value.
+//
+// Description, Secret and Default are ignored too, so {"description": "…"} is still the
+// top type — which is the recommended way to say the opacity is deliberate, since the
+// bare {} cannot. (Secret and Default are functional rather than annotations, so an
+// otherwise-empty node carrying one is still treated as top; that predates the unknown
+// work and is left as-is.)
 func isEmptyNode(s *node) bool {
 	return s == nil || (len(s.Type) == 0 && s.Properties == nil && s.Required == nil &&
 		s.AdditionalProperties == nil &&

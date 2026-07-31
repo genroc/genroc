@@ -216,6 +216,15 @@ func (s Schema) IsSubset(super Schema) bool {
 	return isSubset(s.n, super.n)
 }
 
+// NarrowsTo is IsSubset with unknowns admitted: every unknown (the empty schema {}) in
+// s is accepted by whatever super declares at that position, at any depth. It answers
+// "could this value be narrowed to super?", not "is it already super?" — so it is sound
+// ONLY where the value is conformed against super at runtime. Both schemas must be
+// normalized.
+func (s Schema) NarrowsTo(super Schema) bool {
+	return narrowsTo(s.n, super.n)
+}
+
 // ─── Secrets ────────────────────────────────────────────────────────────────────
 
 // IsSecret looks through nullable / single-variant union wrappers.

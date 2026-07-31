@@ -197,9 +197,16 @@ func validateChildEntry(taskID string, label string, p model.ChildEntry, ctx sch
 // the child raises before it ever produces an output.
 //
 // The direction mirrors the input check: at runtime the collected output is validated
-// *against* result_schema, so every value the child can output must be accepted by it —
-// childOutput ⊆ result_schema. `any`/untyped is deliberately not a subset of a typed
-// schema (isSubset), exactly as an untyped input is not accepted by a typed input_schema.
+// *against* result_schema, so every value the child can output must be accepted by it.
+// The relation is NarrowsTo rather than IsSubset, which differs on exactly one case: an
+// unknown (the empty schema {}) in the child's output is accepted by whatever
+// the parent declares there. That is this slot's privilege and nowhere else's — the
+// parent's result_schema is the one place a child result is conformed at runtime
+// (resolveAndValidateChildOutput → validateChildOutput, from the schema stashed in
+// _spawn_result_schema at spawn), so the narrowing is backed by a real check instead of
+// being taken on faith. An unknown handed to a typed *input* stays rejected, since
+// nothing conforms it there. Untyped remains not a subset of typed in every other
+// position, exactly as an untyped input is not accepted by a typed input_schema.
 //
 // Skipped when the parent declares no result_schema (nothing to check against) or the
 // child declares no process output (its output type is open; runtime validation still
@@ -217,12 +224,12 @@ func checkChildOutputType(prefix string, child *model.ProcessDefinition, resultS
 		return nil
 	}
 	// Generate returns ProcessOutput as a $ref into sf.Defs; resolve it to the concrete
-	// schema (deref follows the whole ref chain) so IsSubset compares two real shapes.
+	// schema (deref follows the whole ref chain) so the check compares two real shapes.
 	childOut, err := sf.ProcessOutput.WithDefs(sf.Defs).Resolve()
 	if err != nil {
 		return fmt.Errorf("%s: resolve child output type: %w", prefix, err)
 	}
-	if !childOut.IsSubset(*resultSchema) {
+	if !childOut.NarrowsTo(*resultSchema) {
 		return fmt.Errorf("%s: the child's output type is not compatible with the declared result_schema", prefix)
 	}
 	return nil
