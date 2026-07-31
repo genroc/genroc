@@ -27,14 +27,17 @@ func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Tas
 	inst.WaitState = model.WaitStateNone
 	first := raised[0]
 	e.setBatchError(inst, task, first)
-	rule := matchOnError(task, first.ErrorCode)
+	// A child's error_code arrives as a persisted string — it may be an authored raise
+	// code as easily as an engine one — so it is converted once, here, at the boundary.
+	raisedCode := errcode.Code(first.ErrorCode)
+	rule := matchOnError(task, raisedCode)
 
 	switch {
 	case rule == nil || (rule.Goto == "" && rule.Raise == nil && rule.Panic == nil):
 		// Unhandled: the raise degrades to a defect and fails the parent, which fails fast
 		// up its own tree. The parent inherits the child's code and message verbatim, so
 		// error_code stays the raised code an operator would filter on.
-		return e.failInstance(inst, first.ErrorCode, fmt.Sprintf(
+		return e.failInstance(inst, raisedCode, fmt.Sprintf(
 			"task %q: child %q (%s) raised %q: %s; no on_error rule matches",
 			task.ID, first.ProcessName, childSlotLabel(first), first.ErrorCode, first.Error))
 	case rule.Raise != nil:
@@ -42,7 +45,7 @@ func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Tas
 	case rule.Panic != nil:
 		return e.panicInstance(inst, task, rule.Panic)
 	case rule.Goto == model.GotoEnd:
-		return e.completeViaErrorHandler(inst, task, first.Error, first.ErrorCode)
+		return e.completeViaErrorHandler(inst, task, first.Error, raisedCode)
 	default: // goto $id
 		if err := e.resolveGoto(inst, rule.Goto); err != nil {
 			return e.failInstance(inst, errcode.EngineDefinition, err.Error())
@@ -50,7 +53,7 @@ func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Tas
 		inst.Task = rule.Goto
 		inst.RetryCount = 0
 		inst.WakeAt = nil
-		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventErrorRoute, Task: task.ID, Code: first.ErrorCode,
+		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventErrorRoute, Task: task.ID, Code: raisedCode,
 			Msg: fmt.Sprintf("child raised %q → %s", first.ErrorCode, rule.Goto)})
 		return advanceOutcome{kind: outcomeUpdate}
 	}

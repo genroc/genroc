@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	dbgen "genroc/internal/db/gen"
@@ -64,20 +65,20 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID, token string,
 			`SELECT status, wait_state, external_data, worker_id, lease_expires_at
 		   FROM process_instances WHERE id = ?`+db.forUpdate(), instanceID).
 			Scan(&status, &waitState, &externalData, &workerID, &leaseExpiresAt)
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("external task not found")
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("external task: %w", ErrNotFound)
 		}
 		if err != nil {
 			return fmt.Errorf("lock instance: %w", err)
 		}
 
 		if status != string(model.StatusRunning) || model.WaitState(waitState) != model.WaitStateExternal {
-			return fmt.Errorf("task is not waiting for an external result")
+			return fmt.Errorf("task is not waiting for an external result: %w", ErrConflict)
 		}
 		// A live lease means a worker already claimed this instance (a timeout firing); the
 		// timeout wins, so reject the submit rather than racing its advance.
 		if workerID.Valid && leaseExpiresAt.Valid && leaseExpiresAt.Int64 > nowMillis() {
-			return fmt.Errorf("external task is being processed; try again")
+			return fmt.Errorf("external task is being processed; try again: %w", ErrConflict)
 		}
 
 		storedToken, err := externalToken(externalData)
@@ -85,7 +86,7 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID, token string,
 			return err
 		}
 		if storedToken == "" || storedToken != token {
-			return fmt.Errorf("token does not match the waiting task (it may have already been resolved or re-armed)")
+			return fmt.Errorf("token does not match the waiting task (it may have already been resolved or re-armed): %w", ErrConflict)
 		}
 
 		newExt, err := withExternalResult(externalData, result)

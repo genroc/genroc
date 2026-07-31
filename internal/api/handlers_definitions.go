@@ -19,16 +19,19 @@ func (h *Handlers) putDefinition(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
+	// Validate returns a *model.ValidationError for struct-tag failures, which codeOf
+	// maps to invalid and errReply expands into per-field detail; the schema/goto
+	// checks below it are plain errors and classify the same way via invalid().
 	if err := req.Validate(); err != nil {
 		return errReply(err)
 	}
 	latestV, _ := h.db.LatestVersion(req.Name)
 	version := latestV + 1
 	if _, err := validation.Generate(&req.ProcessDefinition); err != nil {
-		return errReply(err)
+		return invalid("%w", err).reply()
 	}
 	if err := validation.ValidateChildProcessRefs(&req.ProcessDefinition, version, h.db); err != nil {
-		return errReply(err)
+		return invalid("%w", err).reply()
 	}
 	// Reject registration if a required config var has no value in the server
 	// environment, the same rule ResolveConfig enforces at instance start — so a
@@ -43,7 +46,10 @@ func (h *Handlers) putDefinition(raw json.RawMessage) Reply {
 }
 
 func (h *Handlers) listDefinitions(raw json.RawMessage) Reply {
-	req := decodeOptionalBody[ListDefinitionsReq](raw)
+	req, err := decodeOptionalBody[ListDefinitionsReq](raw)
+	if err != nil {
+		return errReply(err)
+	}
 	defs, info, err := h.db.ListDefinitions(req.page())
 	if err != nil {
 		return errReply(err)
@@ -120,7 +126,7 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string, au
 
 	sorted, err := topoSort(ptrs)
 	if err != nil {
-		return nil, err
+		return nil, invalid("%w", err)
 	}
 
 	// batchVersions tracks the resolved version for each process in this batch.
@@ -134,7 +140,7 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string, au
 	for _, def := range sorted {
 		// Normalize schemas to canonical form before any comparison or storage.
 		if err := def.Normalize(); err != nil {
-			return nil, fmt.Errorf("%s: normalize: %w", def.Name, err)
+			return nil, invalid("%s: normalize: %w", def.Name, err)
 		}
 
 		// Server assigns the next version; user-supplied value is ignored.
@@ -170,14 +176,17 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string, au
 		// Build a validation copy with baked-in versions for validation.
 		defForValidation := applyDepsToDefCopy(def, newDeps)
 		getter := &batchGetter{batch: sorted, versions: batchVersions, db: h.db}
+		// Everything in this block judges the submitted document, so it is invalid,
+		// not internal. ResolveConfig below is deliberately left unclassified: an
+		// unset GENROC_* var is the server's environment, not the client's request.
 		if err := def.Validate(); err != nil {
-			return nil, fmt.Errorf("%s: %w", def.Name, err)
+			return nil, invalid("%s: %w", def.Name, err)
 		}
 		if _, err := validation.Generate(defForValidation); err != nil {
-			return nil, fmt.Errorf("%s: %w", def.Name, err)
+			return nil, invalid("%s: %w", def.Name, err)
 		}
 		if err := validation.ValidateChildProcessRefs(defForValidation, newVersion, getter); err != nil {
-			return nil, fmt.Errorf("%s: %w", def.Name, err)
+			return nil, invalid("%s: %w", def.Name, err)
 		}
 		// Reject if a required config var is unset in the server environment, the
 		// same rule ResolveConfig enforces at instance start.
@@ -270,7 +279,10 @@ func (h *Handlers) resolveChildVersion(childName string, childVersion int, taskI
 		if childKey != "" {
 			label = fmt.Sprintf("%s[%q]", childName, childKey)
 		}
-		return 0, fmt.Errorf("task %q child %s: not on channel %q (%w)", taskID, label, channel, err)
+		// Classified invalid rather than letting the wrapped ErrNotFound surface as 404:
+		// the submitted parent names a child the channel does not carry, so the fault is
+		// in the document, not in a resource the caller asked to read.
+		return 0, invalid("task %q child %s: not on channel %q (%w)", taskID, label, channel, err)
 	}
 	return v, nil
 }
@@ -320,11 +332,13 @@ func (h *Handlers) cascadeUpdate(channel string, changedVersions map[string]int,
 
 			defForValidation := applyDepsToDefCopy(vd.Def, newDeps)
 			getter := &batchGetter{db: h.db}
+			// A cascade that cannot re-validate a parent is a consequence of the batch
+			// the caller submitted, so it reports as invalid with the parent named.
 			if _, err := validation.Generate(defForValidation); err != nil {
-				return nil, fmt.Errorf("auto-update %s: schema incompatible after child upgrade: %w", vd.Def.Name, err)
+				return nil, invalid("auto-update %s: schema incompatible after child upgrade: %w", vd.Def.Name, err)
 			}
 			if err := validation.ValidateChildProcessRefs(defForValidation, newVersion, getter); err != nil {
-				return nil, fmt.Errorf("auto-update %s: child input incompatible after upgrade: %w", vd.Def.Name, err)
+				return nil, invalid("auto-update %s: child input incompatible after upgrade: %w", vd.Def.Name, err)
 			}
 
 			if err := h.db.SaveDefinition(vd.Def, newVersion, newDeps, hash, channel); err != nil {
@@ -539,15 +553,18 @@ func (h *Handlers) validateDefinitions(raw json.RawMessage) Reply {
 	getter := &batchGetter{batch: ptrs, versions: map[string]int{}, db: h.db}
 	schemas := make([]validation.SchemaFile, 0, len(ptrs))
 	for _, def := range ptrs {
+		// Everything here is a verdict on the submitted document, so all of it is
+		// invalid — never internal. The %w keeps a *model.ValidationError reachable
+		// through the name prefix so its per-field detail survives to the reply.
 		if err := def.Validate(); err != nil {
-			return errReply(fmt.Errorf("%s: %w", def.Name, err))
+			return invalid("%s: %w", def.Name, err).reply()
 		}
 		sf, err := validation.Generate(def)
 		if err != nil {
-			return errReply(fmt.Errorf("%s: %w", def.Name, err))
+			return invalid("%s: %w", def.Name, err).reply()
 		}
 		if err := validation.ValidateChildProcessRefs(def, 0, getter); err != nil {
-			return errReply(fmt.Errorf("%s: %w", def.Name, err))
+			return invalid("%s: %w", def.Name, err).reply()
 		}
 		schemas = append(schemas, sf)
 	}

@@ -3,6 +3,7 @@ package engine
 import (
 	"testing"
 
+	"genroc/internal/errcode"
 	"genroc/internal/model"
 )
 
@@ -114,7 +115,7 @@ func TestIsRetryAllowed(t *testing.T) {
 	tests := []struct {
 		name     string
 		onlyOnce *bool
-		errCode  string
+		errCode  errcode.Code
 		matched  *model.ErrorCase
 		want     bool
 	}{

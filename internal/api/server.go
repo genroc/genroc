@@ -3,13 +3,15 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
+
+	"genroc/internal/model"
 )
 
 // Server listens on HTTP, TCP, and/or Unix Domain Socket simultaneously.
@@ -34,7 +36,9 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 		mux.HandleFunc(a.Method+" "+a.Path, func(w http.ResponseWriter, r *http.Request) {
 			env, err := a.envelope(r)
 			if err != nil {
-				writeReply(w, errReply(fmt.Errorf("bad request: %w", err)))
+				// The envelope only fails on a body that is not JSON at all, so this
+				// is always the caller's fault, never the server's.
+				writeReply(w, invalid("bad request: %w", err).reply())
 				return
 			}
 			writeReply(w, a.handle(h, env))
@@ -75,7 +79,10 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 		}
 		data, err := h.ProcessSpec(r.PathValue("name"), version)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			// Was an unconditional 404 with a text/plain body; now it classifies like
+			// every other route, so a broken spec build reports 500 rather than
+			// masquerading as an unknown process.
+			writeReply(w, errReply(err))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -124,7 +131,11 @@ func (s *Server) acceptLoop(ctx context.Context, ln net.Listener) error {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			if strings.Contains(err.Error(), "use of closed network connection") {
+			// The normal shutdown path: the context goroutine above closed the
+			// listener. Tested with errors.Is rather than by matching the stdlib's
+			// message text — a mismatch there would turn a clean shutdown into a
+			// logged error plus a hot retry loop.
+			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
 			s.log.Error("accept error", "err", err)
@@ -150,12 +161,25 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 }
 
+// errorBody is the JSON shape of every failed HTTP response. It mirrors the failure
+// half of Reply, which is what TCP and UDS clients receive verbatim, so the three
+// transports report the same facts under the same names.
+type errorBody struct {
+	Error  string             `json:"error"`
+	Code   Code               `json:"code"`
+	Fields []model.FieldError `json:"fields,omitempty"`
+}
+
+// writeReply renders a Reply over HTTP, mapping its Code to a status through the one
+// table in errors.go. An unclassified failure becomes 500, not 400: an error nobody
+// classified is a server problem until someone shows otherwise, and that default is
+// what makes the remaining unclassified paths findable.
 func writeReply(w http.ResponseWriter, r Reply) {
 	w.Header().Set("Content-Type", "application/json")
 	if !r.OK {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": r.Error})
-	} else {
-		json.NewEncoder(w).Encode(r.Data)
+		w.WriteHeader(statusOf(r.Code))
+		json.NewEncoder(w).Encode(errorBody{Error: r.Error, Code: r.Code, Fields: r.Fields})
+		return
 	}
+	json.NewEncoder(w).Encode(r.Data)
 }

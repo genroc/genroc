@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -30,16 +31,19 @@ func (db *DB) ArmExternalOrConsumeSignal(ctx context.Context, inst *model.Proces
 	// (it finds us parked and resolves directly). No lost signal, no deadlock. The FOR
 	// UPDATE makes this read hand-written; everything else goes through sqlc.
 	var one int
-	switch err := raw.QueryRowContext(ctx, `SELECT 1 FROM process_instances WHERE id = ?`+db.forUpdate(), inst.ID).Scan(&one); err {
-	case nil:
-	case sql.ErrNoRows:
-		return false, nil, fmt.Errorf("instance not found")
+	switch err := raw.QueryRowContext(ctx, `SELECT 1 FROM process_instances WHERE id = ?`+db.forUpdate(), inst.ID).Scan(&one); {
+	case err == nil:
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil, fmt.Errorf("instance %q: %w", inst.ID, ErrNotFound)
 	default:
 		return false, nil, fmt.Errorf("lock instance: %w", err)
 	}
 
+	// An empty signal queue is the ordinary case, not a lookup failure: it is what
+	// sends this call down the park branch below. Hence sql.ErrNoRows here, never
+	// ErrNotFound.
 	resultStr, popErr := qtx.PopOldestSignal(ctx, dbgen.PopOldestSignalParams{InstanceID: inst.ID, TaskID: taskID})
-	if popErr != nil && popErr != sql.ErrNoRows {
+	if popErr != nil && !errors.Is(popErr, sql.ErrNoRows) {
 		return false, nil, fmt.Errorf("pop signal: %w", popErr)
 	}
 
@@ -116,10 +120,10 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID, signalID st
 	switch err := raw.QueryRowContext(ctx,
 		`SELECT status, wait_state, task, external_data, worker_id, lease_expires_at
 		   FROM process_instances WHERE id = ?`+db.forUpdate(), instanceID).
-		Scan(&status, &waitState, &currentTask, &externalData, &workerID, &leaseExpiresAt); err {
-	case nil:
-	case sql.ErrNoRows:
-		return false, fmt.Errorf("instance not found")
+		Scan(&status, &waitState, &currentTask, &externalData, &workerID, &leaseExpiresAt); {
+	case err == nil:
+	case errors.Is(err, sql.ErrNoRows):
+		return false, fmt.Errorf("instance %q: %w", instanceID, ErrNotFound)
 	default:
 		return false, fmt.Errorf("lock instance: %w", err)
 	}
@@ -128,7 +132,7 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID, signalID st
 	// not supposed to do.
 	if status != string(model.StatusRunning) &&
 		status != string(model.StatusPaused) && status != string(model.StatusPausing) {
-		return false, fmt.Errorf("instance is not running (status %s); cannot signal", status)
+		return false, fmt.Errorf("instance is not running (status %s); cannot signal: %w", status, ErrConflict)
 	}
 
 	// The `task` column is the current task id, so the instance is armed for this

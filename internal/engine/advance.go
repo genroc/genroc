@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"genroc/internal/errcode"
 	"genroc/internal/model"
@@ -57,7 +58,7 @@ func (e *Engine) persist(inst *model.ProcessInstance, o advanceOutcome) error {
 // closing the window where the instance is free in the DB but still marked in memory.
 // (For Tick, which keeps no marker, the delete is a harmless no-op.)
 func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) error {
-	outcome := e.advance(ctx, inst)
+	outcome := e.advanceGuarded(ctx, inst)
 	e.inflight.Delete(inst.ID)
 	if err := e.persist(inst, outcome); err != nil {
 		return err
@@ -69,6 +70,69 @@ func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) er
 	// one empty claim, so signalling unconditionally keeps this correct and simple.
 	e.signalWork()
 	return nil
+}
+
+// advanceGuarded runs advance under a panic barrier, converting a panic into an ordinary
+// terminal failure carrying errcode.EnginePanic.
+//
+// The alternative — let the panic reach the goroutine and take the worker down — is
+// defensible and is what this did before: engine state after a panic is suspect, which is
+// the same reasoning that makes an OverwhelmError stop the pump. It is rejected here
+// because the two cases differ in blast radius, which is the property that should decide
+// it. An overwhelm is a statement about the whole worker (lease renewal cannot keep up, so
+// every instance it holds is suspect). A panic under advance is almost always attributable
+// to the one definition being advanced — a nil map, a bad index, an unexpected shape in an
+// expression — and killing the process drops dozens of healthy in-flight advances to
+// punish one bad definition. Those instances are recovered only via lease expiry, and the
+// panicking one is re-claimed and panics again, so fail-fast does not even isolate it.
+//
+// Failing the instance instead makes it terminal, queryable by error_code, and visible in
+// its own audit trail with the stack that produced it — while the worker keeps its other
+// work. It is also honest about what the engine knows: it cannot advance this instance.
+//
+// The barrier deliberately covers advance() only, not persist(). A panic in the write path
+// is not definition-attributable, and there would be nothing left to write the failure
+// with, so that one still takes the process down.
+//
+// One residual: if the panic lands after a spawn transaction committed, the parent fails
+// while its children keep running. That is not new — it is true of every failInstance
+// reached after a spawn — and the children settle into a tree whose parent is already
+// failed, which the failing/collect logic tolerates.
+func (e *Engine) advanceGuarded(ctx context.Context, inst *model.ProcessInstance) (outcome advanceOutcome) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		reason := fmt.Sprintf("panic while advancing task %q: %v", inst.Task, r)
+		stack := string(debug.Stack())
+
+		// Console first, via logOnly: it writes neither to the database nor through
+		// the definition, so it is the one report that cannot itself fail. Whatever
+		// happens below, the panic is on the record somewhere.
+		e.logOnly(logEvent{Level: model.LogError, ID: inst.ID, Msg: reason + "\n" + stack})
+
+		// Pre-set the outcome, because the durable recording below can panic in turn
+		// and this value has to survive that. It is not defensive padding: audit
+		// resolves the instance's definition to redact secrets from the entry, so a
+		// definition malformed enough to panic advance is a good bet to panic the
+		// recording too — and failInstance audits. The order matters: failInstance
+		// assigns the terminal fields *before* it audits, so an instance that dies in
+		// the audit is still correctly marked failed and is persisted as such.
+		outcome = advanceOutcome{kind: outcomeTerminal}
+		defer func() {
+			if r2 := recover(); r2 != nil {
+				e.logOnly(logEvent{Level: model.LogError, ID: inst.ID,
+					Msg: fmt.Sprintf("panic while recording the panic above: %v", r2)})
+			}
+		}()
+		outcome = e.failInstance(inst, errcode.EnginePanic, reason)
+		// The stack in the instance's own trail is what makes a panicked instance
+		// debuggable from the API alone, without the worker's console.
+		e.audit(inst, logEvent{Level: model.LogError, Event: model.EventInstanceFailed, Task: inst.Task,
+			Msg: reason, Code: errcode.EnginePanic, Data: stack})
+	}()
+	return e.advance(ctx, inst)
 }
 
 // prepareAdvance runs the once-per-tick setup before the task loop: load the definition,

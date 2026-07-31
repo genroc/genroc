@@ -33,7 +33,7 @@ const (
 // Status is the HTTP status code for a REST call (success or failure); 0 for non-HTTP transports.
 type Response struct {
 	Body         any
-	ErrorCode    string
+	ErrorCode    errcode.Code
 	ErrorMessage string
 	Status       int
 }
@@ -156,7 +156,7 @@ func ValidStatusPattern(p string) bool {
 // response) to an error code: pre.timeout / pre.error for a failure during the dial phase
 // (server never received the request), http.timeout when the connection was established
 // but no response arrived in time.
-func ClassifyGoError(err error) string {
+func ClassifyGoError(err error) errcode.Code {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		var netErr *net.OpError
 		if errors.As(err, &netErr) && netErr.Op == "dial" {

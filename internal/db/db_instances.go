@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"genroc/internal/numeric"
 
@@ -443,8 +444,8 @@ func (db *DB) UpdateInstanceProgress(inst *model.ProcessInstance) error {
 
 func (db *DB) GetInstance(id string) (*model.ProcessInstance, error) {
 	r, err := db.q.GetInstance(context.Background(), id)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("instance not found")
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("instance %q: %w", id, ErrNotFound)
 	}
 	if err != nil {
 		return nil, err

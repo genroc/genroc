@@ -20,7 +20,7 @@ func (h *Handlers) startInstance(raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	if req.Process == "" {
-		return errReply(fmt.Errorf("process name is required"))
+		return invalid("process name is required").reply()
 	}
 
 	version := 0
@@ -53,12 +53,16 @@ func (h *Handlers) startInstance(raw json.RawMessage) Reply {
 
 	input, err = def.ValidateInput(input)
 	if err != nil {
-		return errReply(fmt.Errorf("input validation: %w", err))
+		// The "input validation: " prefix is load-bearing — genctl keys on it to
+		// print a dedicated message (cmd/genctl/commands.go, inputValidationError).
+		return invalid("input validation: %w", err).reply()
 	}
 
 	// Resolve config up front so a missing required var or bad value rejects the
 	// start request rather than producing an instance that fails on first tick.
 	if _, err := def.ResolveConfig(os.LookupEnv); err != nil {
+		// A required config var missing from the server environment is the operator's
+		// problem, not the caller's: the same request succeeds once it is set.
 		return errReply(fmt.Errorf("config: %w", err))
 	}
 
@@ -89,7 +93,10 @@ func (h *Handlers) startInstance(raw json.RawMessage) Reply {
 }
 
 func (h *Handlers) listInstances(raw json.RawMessage) Reply {
-	req := decodeOptionalBody[ListInstancesReq](raw)
+	req, err := decodeOptionalBody[ListInstancesReq](raw)
+	if err != nil {
+		return errReply(err)
+	}
 	instances, info, err := h.db.ListInstances(req.Status, req.ErrorCode, req.page())
 	if err != nil {
 		return errReply(err)
@@ -103,7 +110,7 @@ func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 
 func (h *Handlers) getInstance(id string, resolve bool) Reply {
 	if id == "" {
-		return errReply(fmt.Errorf("id is required"))
+		return invalid("id is required").reply()
 	}
 	inst, err := h.db.GetInstance(id)
 	if err != nil {
@@ -131,7 +138,7 @@ func (h *Handlers) getInstance(id string, resolve bool) Reply {
 
 func (h *Handlers) pauseInstance(id string) Reply {
 	if id == "" {
-		return errReply(fmt.Errorf("id is required"))
+		return invalid("id is required").reply()
 	}
 	if err := h.db.PauseProcess(context.Background(), id); err != nil {
 		return errReply(err)
@@ -141,7 +148,7 @@ func (h *Handlers) pauseInstance(id string) Reply {
 
 func (h *Handlers) resumeInstance(id string) Reply {
 	if id == "" {
-		return errReply(fmt.Errorf("id is required"))
+		return invalid("id is required").reply()
 	}
 	if err := h.db.ResumeProcess(context.Background(), id); err != nil {
 		return errReply(err)
@@ -151,9 +158,12 @@ func (h *Handlers) resumeInstance(id string) Reply {
 
 func (h *Handlers) retryInstance(id string, raw json.RawMessage) Reply {
 	if id == "" {
-		return errReply(fmt.Errorf("id is required"))
+		return invalid("id is required").reply()
 	}
-	req := decodeOptionalBody[RetryInstanceReq](raw)
+	req, err := decodeOptionalBody[RetryInstanceReq](raw)
+	if err != nil {
+		return errReply(err)
+	}
 	if err := h.db.RetryProcess(context.Background(), id, req.Force); err != nil {
 		return errReply(err)
 	}
@@ -161,15 +171,20 @@ func (h *Handlers) retryInstance(id string, raw json.RawMessage) Reply {
 }
 
 func (h *Handlers) tick(raw json.RawMessage) Reply {
+	// Both of these are configuration facts, not request faults: the endpoint is
+	// routed but this server cannot serve it, which is what "unsupported" (501) says.
 	if h.engine == nil {
-		return errReply(fmt.Errorf("engine not available"))
+		return unsupported("engine not available").reply()
 	}
 	if !h.engine.ManualTick() {
-		return errReply(fmt.Errorf("tick is only available in manual mode; start the server with --poll 0"))
+		return unsupported("tick is only available in manual mode; start the server with --poll 0").reply()
 	}
-	req := decodeOptionalBody[TickReq](raw)
+	req, err := decodeOptionalBody[TickReq](raw)
+	if err != nil {
+		return errReply(err)
+	}
 	if req.AdvanceMs < 0 {
-		return errReply(fmt.Errorf("advance_ms must not be negative"))
+		return invalid("advance_ms must not be negative").reply()
 	}
 	if req.AdvanceMs > 0 {
 		db.AdvanceClock(time.Duration(req.AdvanceMs) * time.Millisecond)

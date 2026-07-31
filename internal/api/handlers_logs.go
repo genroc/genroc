@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"genroc/internal/db"
@@ -29,9 +28,12 @@ func decodeLogData(raw string) (string, *LogDataRef) {
 
 func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 	if id == "" {
-		return errReply(fmt.Errorf("id is required"))
+		return invalid("id is required").reply()
 	}
-	req := decodeOptionalBody[ListLogsReq](raw)
+	req, err := decodeOptionalBody[ListLogsReq](raw)
+	if err != nil {
+		return errReply(err)
+	}
 	opts := db.LogQuery{
 		Level: req.Level,
 		Since: req.Since,
@@ -40,7 +42,6 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 	var (
 		logs []*model.LogEntry
 		info db.PageInfo
-		err  error
 	)
 	if req.Recursive {
 		logs, info, err = h.db.ListTreeLogs(id, opts)
@@ -83,11 +84,14 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 // Only log objects are served — they are stored pre-redacted, so this leaks no secrets.
 func (h *Handlers) getLogObject(id, hash string) Reply {
 	if id == "" || hash == "" {
-		return errReply(fmt.Errorf("id and ref are required"))
+		return invalid("id and ref are required").reply()
 	}
 	content, err := h.db.GetLogObject(id, hash)
 	if err != nil {
-		return errReply(fmt.Errorf("log payload not found"))
+		// GetLogObject reports an absent object as db.ErrNotFound, so the classification
+		// comes through unaided; a read failure stays internal instead of being
+		// relabelled "not found" the way it was before.
+		return errReply(err)
 	}
 	return okReply(map[string]any{"data": content})
 }

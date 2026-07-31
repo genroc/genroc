@@ -274,6 +274,11 @@ func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.P
 		}
 	}
 	wg.Add(1)
+	// No recover() here on purpose: the barrier sits one level down, around advance()
+	// itself (advanceGuarded), where the panicking instance is still in hand and can be
+	// failed with errcode.EnginePanic instead of merely logged. What reaches this
+	// goroutine is therefore a panic from the persist path, which is not attributable to
+	// any one definition — and that one is still meant to take the worker down.
 	go func() {
 		defer wg.Done()
 		defer func() { <-e.sem }()

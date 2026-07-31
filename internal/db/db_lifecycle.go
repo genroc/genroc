@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	dbgen "genroc/internal/db/gen"
@@ -37,7 +38,9 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 		)
 		SELECT wait_state FROM locked WHERE id = ?`,
 			child.ID, child.ParentID, child.ParentID).Scan(&parentWaitState)
-		if err != nil && err != sql.ErrNoRows {
+		// An absent parent is control flow, not a lookup failure — a root child, or a
+		// parent already gone — so this stays sql.ErrNoRows and never becomes ErrNotFound.
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("lock parent: %w", err)
 		}
 		parentFound := err == nil
@@ -136,7 +139,7 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 		// failing, so it must never enter the collect phase.
 		if child.ParentID != "" {
 			parentWaitState, err := qtx.GetWaitState(ctx, child.ParentID)
-			if err != nil && err != sql.ErrNoRows {
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("read parent wait_state: %w", err)
 			}
 			if err == nil && model.WaitState(parentWaitState) == model.WaitStateWaiting {
@@ -206,9 +209,9 @@ func (db *DB) forUpdate() string {
 // as FinishChild/FailInstanceAndAncestors -- to avoid PostgreSQL deadlocks (SQLite
 // single-writer, empty lock clause).
 func (db *DB) PauseProcess(ctx context.Context, id string) error {
-	row, err := db.q.GetInstance(ctx, id)
+	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
-		return fmt.Errorf("get instance: %w", err)
+		return err
 	}
 	if err := requireRoot(row, "pause"); err != nil {
 		return err
@@ -257,7 +260,7 @@ func (db *DB) PauseProcess(ctx context.Context, id string) error {
 		// Nothing running anywhere in the tree: the process has already settled (or is
 		// already paused). Report it rather than silently succeeding.
 		if len(settled)+len(leased) == 0 {
-			return fmt.Errorf("process has no running instances to pause (status: %s)", row.Status)
+			return fmt.Errorf("process has no running instances to pause (status: %s): %w", row.Status, ErrConflict)
 		}
 
 		// A worker mid-task cannot be stopped, so a leased row only records the request
@@ -348,9 +351,9 @@ func (db *DB) logInstances(ids []string, event, msg string) {
 // resuming is exactly how the operator unblocks it (the branches drain, the tree
 // settles to failed, and it becomes retryable).
 func (db *DB) ResumeProcess(ctx context.Context, id string) error {
-	row, err := db.q.GetInstance(ctx, id)
+	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
-		return fmt.Errorf("get instance: %w", err)
+		return err
 	}
 	if err := requireRoot(row, "resume"); err != nil {
 		return err
@@ -384,7 +387,7 @@ func (db *DB) ResumeProcess(ctx context.Context, id string) error {
 		rows.Close() // release the cursor before the UPDATE (SQLite single connection)
 
 		if len(resumed) == 0 {
-			return fmt.Errorf("process is not paused (status: %s)", row.Status)
+			return fmt.Errorf("process is not paused (status: %s): %w", row.Status, ErrConflict)
 		}
 		if err := updateStatusIn(ctx, exec, resumed, string(model.StatusRunning), now); err != nil {
 			return fmt.Errorf("resume process: %w", err)
@@ -401,6 +404,21 @@ func (db *DB) ResumeProcess(ctx context.Context, id string) error {
 	return nil
 }
 
+// loadInstanceRow reads the row a tree-wide operation (pause/resume/retry) was asked
+// to act on. It exists so an absent instance comes back as ErrNotFound: the generated
+// db.q.GetInstance returns a bare sql.ErrNoRows, which callers above the db package
+// have no business inspecting.
+func (db *DB) loadInstanceRow(ctx context.Context, id string) (dbgen.ProcessInstance, error) {
+	row, err := db.q.GetInstance(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return row, fmt.Errorf("instance %q: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return row, fmt.Errorf("get instance: %w", err)
+	}
+	return row, nil
+}
+
 // requireRoot rejects operations on non-root instances, pointing the caller at
 // the tree root (call_stack[0]) instead.
 func requireRoot(row dbgen.ProcessInstance, op string) error {
@@ -409,9 +427,9 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 	}
 	var stack []string
 	if err := json.Unmarshal([]byte(row.CallStack), &stack); err != nil || len(stack) == 0 {
-		return fmt.Errorf("instance %q is not a root instance", row.ID)
+		return fmt.Errorf("instance %q is not a root instance: %w", row.ID, ErrInvalid)
 	}
-	return fmt.Errorf("instance %q is not a root instance; %s root instance %q instead", row.ID, op, stack[0])
+	return fmt.Errorf("instance %q is not a root instance; %s root instance %q instead: %w", row.ID, op, stack[0], ErrInvalid)
 }
 
 // RetryProcess revives a failed root process from where its tree died: failed nodes on
@@ -426,16 +444,16 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 // (with force, one that skips only_once protection too). Un-suspending a paused process
 // grants nothing and is ResumeProcess, a plain status flip.
 func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
-	rootRow, err := db.q.GetInstance(ctx, id)
+	rootRow, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
-		return fmt.Errorf("get instance: %w", err)
+		return err
 	}
 	if err := requireRoot(rootRow, "retry"); err != nil {
 		return err
 	}
 	if status := model.Status(rootRow.Status); status != model.StatusFailed {
 		if status == model.StatusPaused || status == model.StatusPausing {
-			return fmt.Errorf("process is paused, not failed (status: %s); resume it instead", status)
+			return fmt.Errorf("process is paused, not failed (status: %s); resume it instead: %w", status, ErrConflict)
 		}
 		// A raised root is settled, not interrupted, so retry has nothing to re-attempt:
 		// it can only re-run the task the instance sits on, and that task is the one
@@ -447,9 +465,9 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 		if status == model.StatusRaised {
 			return fmt.Errorf("process concluded with error %q (status: raised); a raised error is "+
 				"a declared outcome, not a fault -- start a new instance, or publish a new version "+
-				"if the outcome should be handled differently", rootRow.ErrorCode)
+				"if the outcome should be handled differently: %w", rootRow.ErrorCode, ErrConflict)
 		}
-		return fmt.Errorf("process is not retryable (status: %s)", status)
+		return fmt.Errorf("process is not retryable (status: %s): %w", status, ErrConflict)
 	}
 
 	tx, qtx, exec, err := db.beginTx(ctx, nil)
@@ -589,7 +607,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 					return err
 				}
 				if front != nil && front.OnlyOnce != nil && *front.OnlyOnce {
-					return fmt.Errorf("instance %q task %q is marked only_once and may have already been attempted; use force to override", node.ID, node.Task)
+					return fmt.Errorf("instance %q task %q is marked only_once and may have already been attempted; use force to override: %w", node.ID, node.Task, ErrConflict)
 				}
 			}
 		}

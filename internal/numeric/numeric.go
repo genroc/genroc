@@ -178,3 +178,18 @@ func DecodeReader(r io.Reader, v any) error {
 	dec.UseNumber()
 	return dec.Decode(v)
 }
+
+// DecodeStrict is Decode that also rejects fields v has no home for.
+//
+// It is deliberately a separate function rather than a flag on Decode: Decode also
+// reads rows already written to the database and payloads already accepted from the
+// network, where an unrecognised field is history and rejecting it would make stored
+// data undecodable. Strictness belongs only at the *entry* boundary, where the sender
+// is still there to be told — an API request body, where a misspelled field silently
+// becoming a default is a bug the client cannot see.
+func DecodeStrict(data []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	dec.DisallowUnknownFields()
+	return dec.Decode(v)
+}

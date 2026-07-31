@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"genroc/internal/errcode"
 	"genroc/internal/logview"
 	"genroc/internal/model"
 	"genroc/internal/schema"
@@ -32,7 +33,7 @@ type logEvent struct {
 	ID    string // instance id; audit fills this from the instance
 	Task  string
 	Msg   string // human note (rendered as note=…, since slog uses msg for the event)
-	Code  string
+	Code  errcode.Code
 	Data  string // body (request/response/input/output/…); shown under its event Label
 	Meta  map[string]any
 }
@@ -62,7 +63,7 @@ func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 		Event:      ev.Event,
 		TaskID:     ev.Task,
 		Message:    ev.Msg,
-		Code:       ev.Code,
+		Code:       string(ev.Code),
 		Data:       e.encodeLogData(ev.ID, ev.Data),
 		Meta:       ev.Meta,
 	}); err != nil {
@@ -177,7 +178,7 @@ func (e *Engine) emit(ev logEvent) {
 	}
 	// audit: the event is the slog message; id/task become columns; the rest detail.
 	detail := logview.Record{
-		Event: ev.Event, Msg: ev.Msg, Code: ev.Code, Data: ev.Data, Meta: ev.Meta,
+		Event: ev.Event, Msg: ev.Msg, Code: string(ev.Code), Data: ev.Data, Meta: ev.Meta,
 	}.Detail(e.logCfg.Mode)
 	attrs := make([]any, 0, 6+2*len(detail))
 	attrs = append(attrs, logview.AuditKey, true, "id", ev.ID, "task", ev.Task)

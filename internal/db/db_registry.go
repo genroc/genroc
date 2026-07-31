@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	dbgen "genroc/internal/db/gen"
@@ -104,8 +105,8 @@ func (db *DB) GetDefinition(name string, version int) (*model.ProcessDefinition,
 	raw, ok := db.defCache.Load(key)
 	if !ok {
 		row, err := db.q.GetDefinition(context.Background(), dbgen.GetDefinitionParams{Name: name, Version: int64(version)})
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("definition %q v%d not found", name, version)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("definition %q v%d: %w", name, version, ErrNotFound)
 		}
 		if err != nil {
 			return nil, err
@@ -125,7 +126,7 @@ func (db *DB) LatestVersion(name string) (int, error) {
 		return 0, err
 	}
 	if v == nil {
-		return 0, fmt.Errorf("no definitions found for %q", name)
+		return 0, fmt.Errorf("no definitions found for %q: %w", name, ErrNotFound)
 	}
 	return int(v.(int64)), nil
 }
@@ -176,6 +177,8 @@ func (db *DB) FindVersionByHash(name, hash string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Deliberately not ErrNotFound: "no identical version exists" is the ordinary
+	// answer here, the one that sends applyBatch down the save-a-new-version path.
 	if v == nil {
 		return 0, fmt.Errorf("no version found for %q with given hash", name)
 	}
@@ -189,8 +192,8 @@ func (db *DB) GetDependencyVersion(parentName string, parentVersion int, taskID 
 		TaskID:        taskID,
 		ChildKey:      childKey,
 	})
-	if err == sql.ErrNoRows {
-		return 0, fmt.Errorf("dependency not found for %q v%d task %q child %q", parentName, parentVersion, taskID, childKey)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("dependency for %q v%d task %q child %q: %w", parentName, parentVersion, taskID, childKey, ErrNotFound)
 	}
 	if err != nil {
 		return 0, err
@@ -285,8 +288,8 @@ func (db *DB) SaveChannel(name, channel string, version int) error {
 
 func (db *DB) GetChannel(name, channel string) (int, error) {
 	v, err := db.q.GetChannel(context.Background(), dbgen.GetChannelParams{Name: name, Channel: channel})
-	if err == sql.ErrNoRows {
-		return 0, fmt.Errorf("process %q has no channel %q", name, channel)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("process %q has no channel %q: %w", name, channel, ErrNotFound)
 	}
 	return int(v), err
 }

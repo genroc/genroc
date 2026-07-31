@@ -79,7 +79,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	if resp.ErrorCode != "" {
 		msg := resp.ErrorMessage
 		if msg == "" {
-			msg = resp.ErrorCode
+			msg = string(resp.ErrorCode)
 		}
 		// action_failed (debug): error body in data, status in meta, code in code.
 		e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionFailed, Task: task.ID, Code: resp.ErrorCode, Data: e.snippetRaw(resp.ErrorMessage), Meta: statusMeta(resp.Status)})

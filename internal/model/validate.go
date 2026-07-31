@@ -485,6 +485,33 @@ var v = func() *validator.Validate {
 	return val
 }()
 
+// FieldError is one failed struct-tag rule, located by its path within the submitted
+// document. Field is the JSON path with the root struct name stripped, so it reads as
+// the client wrote it: "tasks[0].id", not "ProcessDefinition.tasks[0].id".
+type FieldError struct {
+	Field   string `json:"field"`
+	Rule    string `json:"rule"`
+	Param   string `json:"param,omitempty"`
+	Message string `json:"message"`
+}
+
+// ValidationError is a definition-validation failure that keeps the per-field detail
+// the validator produced instead of flattening it to prose. A client submitting a
+// process definition is the main consumer of this API, so "which field" has to survive
+// the trip; Error() still renders the joined human form, which is what every existing
+// caller that only prints the error continues to get.
+type ValidationError struct {
+	Fields []FieldError
+}
+
+func (e *ValidationError) Error() string {
+	msgs := make([]string, len(e.Fields))
+	for i, f := range e.Fields {
+		msgs[i] = f.Message
+	}
+	return strings.Join(msgs, "; ")
+}
+
 func fmtValidationErr(err error) error {
 	if err == nil {
 		return nil
@@ -493,11 +520,26 @@ func fmtValidationErr(err error) error {
 	if !errors.As(err, &ve) {
 		return err
 	}
-	msgs := make([]string, len(ve))
+	fields := make([]FieldError, len(ve))
 	for i, fe := range ve {
-		msgs[i] = describeFieldErr(fe)
+		fields[i] = FieldError{
+			Field:   trimRootNamespace(fe.Namespace()),
+			Rule:    fe.Tag(),
+			Param:   fe.Param(),
+			Message: describeFieldErr(fe),
+		}
 	}
-	return fmt.Errorf("%s", strings.Join(msgs, "; "))
+	return &ValidationError{Fields: fields}
+}
+
+// trimRootNamespace drops the leading struct-type segment from a validator namespace
+// ("ProcessDefinition.tasks[0].id" → "tasks[0].id"); a namespace with no dot is the
+// root struct itself and is returned unchanged.
+func trimRootNamespace(ns string) string {
+	if i := strings.IndexByte(ns, '.'); i >= 0 {
+		return ns[i+1:]
+	}
+	return ns
 }
 
 func describeFieldErr(fe validator.FieldError) string {

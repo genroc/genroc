@@ -200,7 +200,11 @@ func (db *DB) WriteLogObject(instanceID, content string) (*model.ObjectRef, erro
 // GetLogObject returns a log-referenced object's raw content. Non-log-referenced
 // (unredacted, context-only) objects are never served here — see the query.
 func (db *DB) GetLogObject(instanceID, hash string) (string, error) {
-	return db.q.GetLogObject(context.Background(), dbgen.GetLogObjectParams{InstanceID: instanceID, Hash: hash})
+	content, err := db.q.GetLogObject(context.Background(), dbgen.GetLogObjectParams{InstanceID: instanceID, Hash: hash})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("log payload %q for instance %q: %w", hash, instanceID, ErrNotFound)
+	}
+	return content, err
 }
 
 // DeleteExpiredObjects removes objects no longer pinned by context and no longer

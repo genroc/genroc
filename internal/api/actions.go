@@ -29,6 +29,11 @@ type actionDef struct {
 	// Resp is a zero-value of the response data type.
 	Resp any
 
+	// Errors are the failure codes this action can produce, documented in the spec as
+	// the corresponding statuses. CodeInvalid and CodeInternal are implicit — every
+	// action can reject a body and every action can fail — so list only the extras.
+	Errors []Code
+
 	// fromHTTP extracts an Envelope from an HTTP request.
 	// nil = default: decode body as JSON payload.
 	fromHTTP func(r *http.Request) (Envelope, error)
@@ -147,6 +152,7 @@ var registry = func() []actionDef {
 			Path:    "/instances",
 			Summary: "Start a new process instance (omit version to use latest)",
 			Tags:    []string{"Instances"},
+			Errors:  []Code{CodeNotFound},
 			Req: func() StartInstanceReq {
 				input := any(map[string]any{"order_id": 42})
 				return StartInstanceReq{Process: "order_pipeline", Version: &v1, Input: &input}
@@ -210,6 +216,7 @@ var registry = func() []actionDef {
 			Path:    "/channels",
 			Summary: "Set a channel pointer to a specific process version",
 			Tags:    []string{"Channels"},
+			Errors:  []Code{CodeNotFound},
 			Req:     PutChannelReq{Name: "order_pipeline", Channel: "stable", Version: 3},
 			Resp:    map[string]any{"name": "order_pipeline", "channel": "stable", "version": 3},
 			handle: func(h *Handlers, env Envelope) Reply {
@@ -256,6 +263,7 @@ var registry = func() []actionDef {
 			Path:    "/channels/promote",
 			Summary: "Copy all channel pointers from one channel to another (optionally scoped to a process subtree)",
 			Tags:    []string{"Channels"},
+			Errors:  []Code{CodeNotFound},
 			Req:     PromoteChannelReq{From: "staging", To: "latest"},
 			Resp:    map[string]any{"from": "staging", "to": "latest", "promoted": []any{}},
 			handle: func(h *Handlers, env Envelope) Reply {
@@ -268,6 +276,7 @@ var registry = func() []actionDef {
 			Path:    "/channels/status",
 			Summary: "Report stale child references within a channel",
 			Tags:    []string{"Channels"},
+			Errors:  []Code{CodeNotFound},
 			Req:     ChannelStatusReq{Channel: "latest"},
 			Resp:    []ChannelStatusItem{},
 			handle: func(h *Handlers, env Envelope) Reply {
@@ -297,6 +306,7 @@ var registry = func() []actionDef {
 			Path:    "/instances/{id}",
 			Summary: "Get status of a process instance",
 			Tags:    []string{"Instances"},
+			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
 				ID      string `path:"id" format:"uuid"`
 				Resolve bool   `query:"resolve" description:"Resolve externalized context values inline; default false returns large values as {ref, size} references"`
@@ -314,10 +324,12 @@ var registry = func() []actionDef {
 				return Envelope{Action: "get_instance", ID: r.PathValue("id"), Payload: b}, nil
 			},
 			handle: func(h *Handlers, env Envelope) Reply {
-				var p struct {
+				p, err := decodeOptionalBody[struct {
 					Resolve bool `json:"resolve"`
+				}](env.Payload)
+				if err != nil {
+					return errReply(err)
 				}
-				_ = numeric.Decode(env.Payload, &p)
 				return h.getInstance(env.ID, p.Resolve)
 			},
 		},
@@ -327,6 +339,7 @@ var registry = func() []actionDef {
 			Path:    "/instances/{id}/logs",
 			Summary: "Get the execution audit trail for a process instance (oldest first)",
 			Tags:    []string{"Instances"},
+			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
 				ID        string `path:"id" format:"uuid"`
 				Level     string `query:"level" enum:"debug,info,warn,error" description:"Filter by log level"`
@@ -360,6 +373,7 @@ var registry = func() []actionDef {
 			Path:    "/instances/{id}/objects/{ref}",
 			Summary: "Fetch the full payload of an externalized log entry (referenced by a log's data_ref)",
 			Tags:    []string{"Instances"},
+			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
 				ID  string `path:"id" format:"uuid"`
 				Ref string `path:"ref"`
@@ -370,10 +384,12 @@ var registry = func() []actionDef {
 				return Envelope{Action: "get_log_object", ID: r.PathValue("id"), Payload: b}, nil
 			},
 			handle: func(h *Handlers, env Envelope) Reply {
-				var p struct {
+				p, err := decodeOptionalBody[struct {
 					Ref string `json:"ref"`
+				}](env.Payload)
+				if err != nil {
+					return errReply(err)
 				}
-				_ = numeric.Decode(env.Payload, &p)
 				return h.getLogObject(env.ID, p.Ref)
 			},
 		},
@@ -383,6 +399,7 @@ var registry = func() []actionDef {
 			Path:    "/instances/{id}/pause",
 			Summary: "Pause a running root process instance and its entire descendant tree; takes effect at the next task boundary, so a task already executing runs to completion",
 			Tags:    []string{"Instances"},
+			Errors:  []Code{CodeNotFound, CodeConflict},
 			PathQuery: struct {
 				ID string `path:"id" format:"uuid"`
 			}{},
@@ -397,6 +414,7 @@ var registry = func() []actionDef {
 			Path:    "/instances/{id}/resume",
 			Summary: "Resume a paused root process instance and its tree, continuing exactly where it stopped (timers kept running while paused)",
 			Tags:    []string{"Instances"},
+			Errors:  []Code{CodeNotFound, CodeConflict},
 			PathQuery: struct {
 				ID string `path:"id" format:"uuid"`
 			}{},
@@ -411,6 +429,7 @@ var registry = func() []actionDef {
 			Path:    "/instances/{id}/retry",
 			Summary: "Retry a failed root process instance, reviving its tree where it died and granting the failing task another attempt beyond its on_error budget",
 			Tags:    []string{"Instances"},
+			Errors:  []Code{CodeNotFound, CodeConflict},
 			PathQuery: struct {
 				ID    string `path:"id" format:"uuid"`
 				Force bool   `query:"force" description:"Override only_once retry protection"`
@@ -459,6 +478,7 @@ var registry = func() []actionDef {
 			Path:    "/external-tasks/resolve",
 			Summary: "Submit a result for a waiting external task; validates it against the task's result_schema and resumes the process",
 			Tags:    []string{"External Tasks"},
+			Errors:  []Code{CodeNotFound, CodeConflict},
 			Req: ResolveExternalTaskReq{
 				Token:  "550e8400-e29b-41d4-a716-446655440000.6ba7b810-9dad-11d1-80b4-00c04fd430c8",
 				Result: map[string]any{"approved": true},
@@ -474,6 +494,7 @@ var registry = func() []actionDef {
 			Path:    "/instances/{id}/signal",
 			Summary: "Deliver a signal (result) to an external task by id: resolves it if armed now, else buffers FIFO until the task next arms",
 			Tags:    []string{"External Tasks"},
+			Errors:  []Code{CodeNotFound, CodeConflict},
 			PathQuery: struct {
 				ID string `path:"id" format:"uuid"`
 			}{},
@@ -489,6 +510,7 @@ var registry = func() []actionDef {
 			Path:    "/tick",
 			Summary: "Manually trigger one engine poll cycle (useful when started with -poll 0); optionally shift the server clock forward first to expire leases and retry timers without real waits (testing only)",
 			Tags:    []string{"Debug"},
+			Errors:  []Code{CodeUnsupported},
 			Req:     TickReq{AdvanceMs: 12_000},
 			Resp:    map[string]any{"count": 0},
 			handle:  func(h *Handlers, env Envelope) Reply { return h.tick(env.Payload) },

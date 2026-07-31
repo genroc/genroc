@@ -11,10 +11,12 @@ func (h *Handlers) putChannel(raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	if req.Name == "" || req.Channel == "" || req.Version < 1 {
-		return errReply(fmt.Errorf("name, channel, and version (≥1) are required"))
+		return invalid("name, channel, and version (≥1) are required").reply()
 	}
+	// Forwarded rather than reworded, so a missing definition reports not_found and a
+	// failed read reports internal instead of both collapsing into one message.
 	if _, err := h.db.GetDefinition(req.Name, req.Version); err != nil {
-		return errReply(fmt.Errorf("definition %q v%d not found", req.Name, req.Version))
+		return errReply(err)
 	}
 	if err := h.db.SaveChannel(req.Name, req.Channel, req.Version); err != nil {
 		return errReply(err)
@@ -28,7 +30,7 @@ func (h *Handlers) deleteChannel(raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	if req.Name == "" || req.Channel == "" {
-		return errReply(fmt.Errorf("name and channel are required"))
+		return invalid("name and channel are required").reply()
 	}
 	if err := h.db.DeleteChannel(req.Name, req.Channel); err != nil {
 		return errReply(err)
@@ -42,7 +44,7 @@ func (h *Handlers) listChannels(raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	if req.Name == "" {
-		return errReply(fmt.Errorf("name is required"))
+		return invalid("name is required").reply()
 	}
 	channels, info, err := h.db.ListChannels(req.Name, req.page())
 	if err != nil {
@@ -61,10 +63,10 @@ func (h *Handlers) promoteChannel(raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	if req.From == "" || req.To == "" {
-		return errReply(fmt.Errorf("from and to are required"))
+		return invalid("from and to are required").reply()
 	}
 	if req.From == req.To {
-		return errReply(fmt.Errorf("from and to must differ"))
+		return invalid("from and to must differ").reply()
 	}
 
 	defs, err := h.db.LoadDefinitionsOnChannel(req.From)
@@ -96,7 +98,7 @@ func (h *Handlers) channelStatus(raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	if req.Channel == "" {
-		return errReply(fmt.Errorf("channel is required"))
+		return invalid("channel is required").reply()
 	}
 
 	defs, err := h.db.LoadDefinitionsOnChannel(req.Channel)

@@ -44,6 +44,13 @@ type Reply struct {
 	OK    bool            `json:"ok"`
 	Data  json.RawMessage `json:"data,omitempty"`
 	Error string          `json:"error,omitempty"`
+	// Code classifies the failure for machines; see the Code constants. It is on
+	// Reply, not on the HTTP response alone, because TCP and UDS clients encode
+	// Reply directly and have no status line to read.
+	Code Code `json:"code,omitempty"`
+	// Fields carries per-field detail when a submitted definition failed validation,
+	// so a client can point at the offending field instead of parsing the message.
+	Fields []model.FieldError `json:"fields,omitempty"`
 }
 
 // Handle is the single entry-point shared by all transports (HTTP, TCP, UDS); it
@@ -54,34 +61,57 @@ func (h *Handlers) Handle(env Envelope) Reply {
 			return registry[i].handle(h, env)
 		}
 	}
-	return errReply(fmt.Errorf("unknown action %q", env.Action))
+	return notFound("unknown action %q", env.Action).reply()
 }
 
+// okReply encodes a successful payload. A marshal failure is reported rather than
+// swallowed: returning OK with an empty Data would hand the client a 200 and an empty
+// body, so it would believe it had received an empty result rather than nothing.
 func okReply(v interface{}) Reply {
-	data, _ := json.Marshal(v)
+	data, err := json.Marshal(v)
+	if err != nil {
+		return errReply(fmt.Errorf("encode response: %w", err))
+	}
 	return Reply{OK: true, Data: data}
 }
 
+// errReply renders any error as a failed Reply, classifying it through codeOf — so a
+// handler that simply forwards a db error still produces the right code and status,
+// and only paths nobody has classified come out as internal.
 func errReply(err error) Reply {
-	return Reply{OK: false, Error: err.Error()}
+	return Reply{OK: false, Error: err.Error(), Code: codeOf(err), Fields: fieldsOf(err)}
 }
 
-// decodeBody unmarshals a required JSON body into T; an empty or malformed body is an
-// error wrapped with the "decode:" prefix.
+// reply is the shorthand for returning a freshly constructed *Error from a handler.
+func (e *Error) reply() Reply { return errReply(e) }
+
+// decodeBody unmarshals a required JSON body into T. An empty, malformed or
+// unrecognised body is an error wrapped with the "decode:" prefix and classified
+// invalid — the request is wrong, and no retry of it will do better.
 func decodeBody[T any](raw json.RawMessage) (T, error) {
 	var v T
-	if err := numeric.Decode(raw, &v); err != nil {
-		return v, fmt.Errorf("decode: %w", err)
+	if err := numeric.DecodeStrict(raw, &v); err != nil {
+		return v, invalid("decode: %w", err)
 	}
 	return v, nil
 }
 
-// decodeOptionalBody best-effort unmarshals an optional JSON body into T: an empty body
-// yields the zero T and a malformed body is ignored.
-func decodeOptionalBody[T any](raw json.RawMessage) T {
+// decodeOptionalBody unmarshals an optional JSON body into T: an absent body yields
+// the zero T, but a present one must decode. Optional is about *presence* only — it
+// never meant "unparseable is fine". Before this, POST /tick with
+// {"advance_ms": "12000"} silently left the clock unmoved and answered 200.
+//
+// Note the layer below already rejects syntactically invalid JSON: actionDef.envelope
+// decodes the HTTP body into a json.RawMessage, and TCP/UDS decode the whole envelope.
+// What is caught here is a well-formed body of the wrong shape, including — via
+// DecodeStrict — a misspelled field, which would otherwise be dropped silently.
+func decodeOptionalBody[T any](raw json.RawMessage) (T, error) {
 	var v T
-	if len(raw) > 0 {
-		_ = numeric.Decode(raw, &v)
+	if len(raw) == 0 {
+		return v, nil
 	}
-	return v
+	if err := numeric.DecodeStrict(raw, &v); err != nil {
+		return v, invalid("decode: %w", err)
+	}
+	return v, nil
 }

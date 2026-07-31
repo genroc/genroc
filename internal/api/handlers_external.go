@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -13,7 +12,10 @@ import (
 )
 
 func (h *Handlers) listExternalTasks(raw json.RawMessage) Reply {
-	req := decodeOptionalBody[ListExternalTasksReq](raw)
+	req, err := decodeOptionalBody[ListExternalTasksReq](raw)
+	if err != nil {
+		return errReply(err)
+	}
 	instances, info, err := h.db.ListExternalTasks(req.Process, req.Version, req.Task, req.page())
 	if err != nil {
 		return errReply(err)
@@ -55,14 +57,14 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	if req.Token == "" {
-		return errReply(fmt.Errorf("token is required"))
+		return invalid("token is required").reply()
 	}
 	// The token is instanceID.nonce; instance ids are UUIDs (no '.'), so the part before
 	// the first '.' is the instance id for a PK lookup. The exact-token check happens
 	// under lock in ResolveExternalTask.
 	instanceID, _, ok := strings.Cut(req.Token, ".")
 	if !ok || instanceID == "" {
-		return errReply(fmt.Errorf("invalid token"))
+		return invalid("malformed token").reply()
 	}
 	inst, err := h.db.GetInstance(instanceID)
 	if err != nil {
@@ -73,7 +75,7 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	if inst.Status != model.StatusRunning || inst.WaitState != model.WaitStateExternal || task == nil {
-		return errReply(fmt.Errorf("task is not waiting for an external result"))
+		return conflict("task is not waiting for an external result").reply()
 	}
 	// Validate the submitted result against the parked task's result_schema (no-op when
 	// absent). The task definition is immutable, so validating the pre-lock snapshot is
@@ -81,7 +83,9 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 	if task.Action != nil {
 		normalized, err := task.Action.ValidateOutput(req.Result)
 		if err != nil {
-			return errReply(fmt.Errorf("result validation: %w", err))
+			// The "result validation: " prefix is load-bearing — genctl keys on it
+			// (cmd/genctl/commands.go, resultValidationError).
+			return invalid("result validation: %w", err).reply()
 		}
 		req.Result = normalized
 	}
@@ -93,14 +97,14 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 
 func (h *Handlers) signalInstance(id string, raw json.RawMessage) Reply {
 	if id == "" {
-		return errReply(fmt.Errorf("id is required"))
+		return invalid("id is required").reply()
 	}
 	req, err := decodeBody[SignalInstanceReq](raw)
 	if err != nil {
 		return errReply(err)
 	}
 	if req.TaskID == "" {
-		return errReply(fmt.Errorf("task_id is required"))
+		return invalid("task_id is required").reply()
 	}
 	inst, err := h.db.GetInstance(id)
 	if err != nil {
@@ -112,7 +116,7 @@ func (h *Handlers) signalInstance(id string, raw json.RawMessage) Reply {
 	// decision (deliver now vs buffer) is made under the row lock in SignalInstance.
 	if inst.Status != model.StatusRunning &&
 		inst.Status != model.StatusPaused && inst.Status != model.StatusPausing {
-		return errReply(fmt.Errorf("instance is not running (status %s)", inst.Status))
+		return conflict("instance is not running (status %s)", inst.Status).reply()
 	}
 	// Resolve the target external task from the pinned definition — it may be a wait point
 	// reached later, not the current front task. The definition (and its result_schema) is
@@ -129,14 +133,14 @@ func (h *Handlers) signalInstance(id string, raw json.RawMessage) Reply {
 		}
 	}
 	if target == nil {
-		return errReply(fmt.Errorf("no task %q in %s v%d", req.TaskID, inst.ProcessName, inst.ProcessVersion))
+		return notFound("no task %q in %s v%d", req.TaskID, inst.ProcessName, inst.ProcessVersion).reply()
 	}
 	if target.Action == nil || target.Action.Type != model.ActionTypeExternal {
-		return errReply(fmt.Errorf("task %q is not an external task", req.TaskID))
+		return invalid("task %q is not an external task", req.TaskID).reply()
 	}
 	normalized, err := target.Action.ValidateOutput(req.Result)
 	if err != nil {
-		return errReply(fmt.Errorf("result validation: %w", err))
+		return invalid("result validation: %w", err).reply()
 	}
 	req.Result = normalized
 	delivered, err := h.db.DeliverSignal(context.Background(), id, req.TaskID, idgen.New(), req.Result)

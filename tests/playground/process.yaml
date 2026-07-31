@@ -10,7 +10,7 @@ tasks:
         properties:
           test:
             type: boolean
-    output: "$: 10"
+    output: "$: self.result"
     switch:
       - panic:
           code: test
