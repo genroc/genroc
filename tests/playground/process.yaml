@@ -26,5 +26,10 @@ tasks:
       url: "tst"
       headers:
         test: "100"
+    switch: next
+  - id: wait
+    action:
+      type: delay
+      for: "2s"
     switch: end
 output: "$: error"

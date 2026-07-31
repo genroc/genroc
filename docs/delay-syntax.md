@@ -1,11 +1,13 @@
 # `delay`: human durations and calendar deadlines
 
-**Status: DRAFT / proposal, 2026-07-31. Not implemented.** Flagged as release-blocking —
-see *Compatibility* for why the window closes at the first release rather than staying
-open indefinitely.
+**Status: IMPLEMENTED, 2026-07-31.** `for`, `until` and `tz` are the delay action's slots;
+`ms` was **removed outright** rather than deprecated, which is the decision this document
+was written to force. The window for that closes at the first release — see
+*Compatibility*.
 
-Engine facts are cited to `file:line` so the draft stays honest about what exists vs. what
-is new. Line numbers are as of 2026-07-31.
+The grammars live in `internal/delayspec` (no engine or DB dependency, so the calendar
+edge cases are table-tested in isolation). Line numbers below are as of 2026-07-31 and
+refer to the pre-change code where they describe the motivation.
 
 ## The idea in one line
 
@@ -38,7 +40,7 @@ the other side.
 
 ## Design
 
-Two new slots next to `ms`, and one classification rule that does most of the work.
+Two slots replacing `ms`, and one classification rule that does most of the work.
 
 ### The slots
 
@@ -47,9 +49,10 @@ Two new slots next to `ms`, and one classification rule that does most of the wo
 | `for` | a duration, relative to arm time | milliseconds |
 | `until` | an instant | unix milliseconds |
 
-Exactly one of `ms` / `for` / `until`. A bare number means something different in each
-slot, which is unambiguous *within* a slot and matches what the slot is named — and
-together they cover strictly more than `ms` did.
+Exactly one of `for` / `until`. A bare number means something different in each slot, which
+is unambiguous *within* a slot and matches what the slot is named — and together they cover
+strictly more than `ms` did. `ms` is exactly `for` with a bare number, which is why it
+could be removed rather than aliased.
 
 ```yaml
 - id: wait
@@ -167,11 +170,22 @@ example with exactly one parse each.
 - **Definitions.** `Action` decodes with plain `encoding/json` — no custom
   `UnmarshalJSON`, no `DisallowUnknownFields` — so new `omitempty` fields are absent in
   every stored definition, decode to zero, and change nothing.
-- **`ms` must stay decodable forever.** Definition rows already in the database carry it,
-  and the decoder runs over those rows. The precedent is the one `CLAUDE.md` records for
-  unrecognised type names: **reject in `CheckDoc`, not in the decoder.** `Action.Ms` stays
-  in the struct permanently; whether *new* registrations may still use it is a
-  deprecation-appetite call (see open questions).
+- **`ms` was removed, not deprecated.** The constraint that it "must stay decodable
+  forever" was entirely a function of *deployed* databases carrying rows that use it.
+  Pre-release there are none, so `Action.Ms` is gone from the struct and the whole
+  deprecation question is moot. This is the one part of the design that could only be done
+  before the first release.
+- **The removal inverts the skew hazard, and that needs a guard.** `Action` decodes with
+  plain `encoding/json` and no `DisallowUnknownFields`, so a row carrying only `ms` now
+  decodes with both slots empty. Previously that failed loudly only by accident —
+  `evalDurationMsCtx("")` reached `strconv.ParseInt("")` and errored. The new slots accept
+  a bare JSON number, so an absent slot and a present zero are no longer distinguishable
+  by parse failure. `delayArity` therefore fails explicitly rather than resolving either
+  bad arity to a default — **neither** slot is not zero, and **both** slots do not silently
+  prefer `for` (if `until` held the far-future deadline, preferring `for` waits a fraction
+  of the intended time and nothing reports it). This is permanent, not migration-only:
+  `CheckDoc` runs at registration, the decoder runs over stored rows, and nothing
+  re-validates them.
 - **Editor schema.** The delay variant declares `ms` required and sets
   `"additionalProperties": false` (`internal/model/definition.go:213-222`), so `for` /
   `until` / `tz` must be added there or editors reject a definition the server accepts.
@@ -183,15 +197,35 @@ example with exactly one parse each.
 - **Storage / wire.** No migration, no API type change, `openapi.json` unaffected beyond
   the action schema.
 
-**Version skew is why this is release-blocking.** The silent-degradation hazard recorded in
+**Version skew is why this was release-blocking, and shipping it first is what resolved
+it.** The silent-degradation hazard recorded in
 [fetch-http-surface.md](fetch-http-surface.md) applies here and is *worse*: an older engine
 decoding a definition that uses `for` and omits `ms` does not merely drop an optional
 extra — it sees an empty `ms` and delays **zero**, turning a two-day wait into no wait at
-all, silently. Shipping `for`/`until` before there is a released binary in the wild avoids
-the skew entirely. Afterwards it needs either the `min_engine` assertion from that doc's
-open questions or a hard registration error, both larger and themselves breaking.
+all, silently. Landing `for`/`until` before any binary is released avoids the skew
+entirely, because there is no older engine to decode it. Had this shipped afterwards it
+would have needed either the `min_engine` assertion from that doc's open questions or a
+hard registration error, both larger and themselves breaking.
 
 ## Ledger
+
+**Where the build diverged from this draft** (all three make the design more
+deterministic, none change the surface):
+
+- **Calendar units with no `tz` resolve in UTC**, rather than being a separate "fixed"
+  case. UTC has no transitions, so `1d` is exactly 24h and the draft's stated outcome falls
+  out of the general rule — and `mo` / `y`, which "fixed" left undefined (30 days? 365?),
+  get real calendar semantics for free.
+- **Calendar components apply before fixed ones**, regardless of written order. Only a DST
+  boundary can distinguish the two orders, and fixing it keeps a spec's meaning independent
+  of how it was typed.
+- **Unsatisfiable calendar dates are rejected at parse, not by resolving at registration.**
+  The draft implied resolving a literal once to catch `*-02-30`. That would make
+  registration depend on the wall clock — the same definition validating differently on
+  different days, and a concrete far-future year failing against the five-year search
+  bound. A concrete month/day pair is decidable statically, so `parsePattern` checks it
+  against a leap year (keeping `*-02-29` legal). Patterns needing a calendar walk to
+  disprove (`mon 2026-01-01`) still fail at resolve.
 
 **The build:**
 
@@ -222,12 +256,15 @@ normalization (`internal/engine/action.go:224-254`); the `$:` discrimination in
 
 - `time.AddDate` month overflow (above).
 - **Do not route the literal grammar through `shape.Shape`.** It is not a template, does
-  not participate in the Solver, and needs no relaxed editor node. Note that
-  `internal/shape/shape.go:34` already *claims* "delay ms" is an expression-only `Expr`
-  slot, but neither `checkMsTemplate` (`internal/validation/infer.go:203`) nor
-  `evalDurationMsCtx` (`internal/engine/action.go:217`) sets `Expr: true` — the only
-  `Expr` slots are switch cases (`internal/validation/infer.go:143`,
-  `internal/engine/advance.go:428`). Correct that comment while in here.
+  not participate in the Solver, and needs no relaxed editor node. *(Done: the literal
+  branch calls `delayspec` directly.)* The stale `internal/shape/shape.go:34` comment
+  claiming "delay ms" was an `Expr` slot has been corrected — it never was.
+- **The `$:` branch uses a plain shape, not an `Expr` shape.** An `Expr` shape carries a
+  *bare* expression body, the way a switch case passes `c.Case`; the delay slot's string
+  still has its `$:` marker. Passing it as `Expr` would hand `$: x` to the expression lexer
+  verbatim. A plain shape routes it through `template.Parse`, whose `$:` leaf is
+  type-preserving, so the inferred type is the expression's own — which is what the
+  `number` check needs.
 - **Do not add a `now` root to the expression language** to solve the absolute-deadline
   case. See open questions.
 
@@ -235,7 +272,8 @@ normalization (`internal/engine/action.go:224-254`); the `$:` discrimination in
 
 - **Ceiling on the resolved delay.** A literal `for: "1y"` is visible at registration; a
   `$:` number is not, and a units slip parks an instance for a decade. A server-level
-  maximum with its own error code, or unbounded. *(open)*
+  maximum with its own error code, or unbounded. Shipped **unbounded**, which matches what
+  `ms` did — so this is a gap carried forward, not a regression. *(open)*
 - **Should a `$:` on `until` also accept RFC 3339?** It is the format vendors actually
   send, and it reintroduces a runtime parse — which would need a catchable `delay.invalid`
   rather than today's uncatchable `engine.expression` → `failInstance`
@@ -250,13 +288,17 @@ normalization (`internal/engine/action.go:224-254`); the `$:` discrimination in
   *are* re-evaluated on retry, where a shifting clock is a real hazard — `runDelay` itself
   would be safe, but the keyword could not be scoped to it. *(closed unless a second use
   case appears)*
-- **DST-ambiguous wall clocks.** 02:30 does not exist on a spring-forward day and occurs
-  twice in autumn. Pick a rule (normalize forward / first occurrence) and document it
-  rather than inheriting whatever `time.Date` happens to do. *(open)*
+- **DST-ambiguous wall clocks.** *(decided)* A nonexistent wall clock (spring forward)
+  **normalizes forward**; an ambiguous one (autumn fall-back) takes the **first, earlier**
+  occurrence. `resolveWall` pins both rather than inheriting `time.Date`, whose own docs
+  decline to guarantee the ambiguous case. The ambiguity is detected by the same wall clock
+  existing one hour earlier, which makes the rule hold whichever occurrence `time.Date`
+  happens to return. Not handled: transitions that are not a whole hour (Lord Howe's 30
+  minutes).
 - **Definition-level default `timezone`**, with per-task `tz` overriding, vs. per-task
   only. *(open)*
-- **Deprecation appetite for `ms`:** silent alias for `for`, registration warning, or
-  registration error. Decodability is settled either way. *(open)*
+- **Deprecation appetite for `ms`:** *(closed)* Removed outright before the first release,
+  so there is nothing to deprecate. `ms: "30000"` is written `for: 30000`.
 - **Recurrence is out of scope.** `until` resolves to exactly one instant; a repeating
   schedule is a different feature and probably a different action type. *(closed for this
   doc)*

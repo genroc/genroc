@@ -72,7 +72,7 @@ tasks:
   - id: backoff
     action:
       type: delay
-      ms: "$: input.poll_interval_ms"
+      for: "$: input.poll_interval_ms"
     output:
       attempt: "$: (self.previous.attempt ?? 0) + 1"
     switch:

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"genroc/internal/delayspec"
 	"genroc/internal/errcode"
 	"genroc/internal/schema"
 
@@ -140,8 +141,17 @@ func validateActionRequiredFields(s *Task) error {
 			return fmt.Errorf("task %q: action.over is required for type %q", s.ID, s.Action.Type)
 		}
 	case ActionTypeDelay:
-		if s.Action.Ms == "" {
-			return fmt.Errorf("task %q: action.ms is required for type %q", s.ID, s.Action.Type)
+		hasFor, hasUntil := s.Action.For != nil, s.Action.Until != nil
+		switch {
+		case hasFor && hasUntil:
+			return fmt.Errorf("task %q: action.for and action.until are mutually exclusive — %q is a duration from now, %q is an instant", s.ID, "for", "until")
+		case !hasFor && !hasUntil:
+			return fmt.Errorf("task %q: action.for or action.until is required for type %q", s.ID, s.Action.Type)
+		}
+		if s.Action.TZ != "" {
+			if _, err := delayspec.LoadLocation(s.Action.TZ); err != nil {
+				return fmt.Errorf("task %q: action.%v", s.ID, err)
+			}
 		}
 	case ActionTypeExternal:
 		// No required action fields: input and result_schema are both optional

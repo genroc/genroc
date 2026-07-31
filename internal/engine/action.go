@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
 	"genroc/internal/db"
+	"genroc/internal/delayspec"
 	"genroc/internal/errcode"
 	"genroc/internal/idgen"
 	"genroc/internal/model"
 	"genroc/internal/shape"
+	"genroc/internal/template"
 	"genroc/internal/transport"
 )
 
@@ -119,16 +120,141 @@ func (e *Engine) buildTaskData(inst *model.ProcessInstance, task *model.Task) (a
 // A non-nil outcome means it parked or failed (the caller stops and persists it).
 func (e *Engine) runDelay(inst *model.ProcessInstance, task *model.Task) *advanceOutcome {
 	if inst.WakeAt == nil {
-		ms, err := e.evalDurationMsCtx(inst, task.Action.Ms)
+		now := db.Now()
+		wake, spec, err := e.resolveDelay(inst, task, now)
 		if err != nil {
 			return stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q delay: %v", task.ID, err)))
 		}
-		wake := db.Now().Add(time.Duration(ms) * time.Millisecond)
+		// A target in the past clamps rather than failing. Timers keep running while an
+		// instance is paused, so an `until` can legitimately resolve behind now on resume —
+		// the pause design requires that to be a no-op wait, not an error.
+		msg := fmt.Sprintf("%s -> %s", spec, wake.Format(time.RFC3339))
+		if wake.Before(now) {
+			msg = fmt.Sprintf("%s -> %s (already past; waking now)", spec, wake.Format(time.RFC3339))
+			wake = now
+		}
 		inst.WakeAt = &wake
-		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventDelayArmed, Task: task.ID, Msg: fmt.Sprintf("%dms", ms)})
+		// Log the source spec alongside the resolved absolute instant: without both, a
+		// calendar target is undebuggable after the fact.
+		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventDelayArmed, Task: task.ID, Msg: msg})
 		return stop(advanceOutcome{kind: outcomeProgress})
 	}
 	return nil
+}
+
+// resolveDelay turns a delay task's `for` / `until` slot into the absolute instant to wake
+// at, plus the source spec for the audit log. It is called once per task entry (runDelay
+// guards on WakeAt), so a calendar target cannot drift when the instance is re-claimed.
+func (e *Engine) resolveDelay(inst *model.ProcessInstance, task *model.Task, now time.Time) (time.Time, string, error) {
+	a := task.Action
+	loc, err := delayspec.LoadLocation(a.TZ)
+	if err != nil {
+		return time.Time{}, "", err
+	}
+	if err := delayArity(a); err != nil {
+		return time.Time{}, "", err
+	}
+	switch {
+	case a.For != nil:
+		d, spec, err := e.resolveDuration(inst, a.For)
+		if err != nil {
+			return time.Time{}, "", fmt.Errorf("for: %w", err)
+		}
+		return d.Resolve(now, loc), spec, nil
+
+	default:
+		// `until`, since delayArity has established exactly one slot is set. A number (bare
+		// or from an expression) is unix milliseconds; only a literal goes through the
+		// instant grammar.
+		if lit, ok := delayLiteral(a.Until); ok {
+			target, err := delayspec.ParseInstant(lit)
+			if err != nil {
+				return time.Time{}, "", fmt.Errorf("until: %w", err)
+			}
+			at, err := target.Resolve(now, loc)
+			if err != nil {
+				return time.Time{}, "", fmt.Errorf("until: %w", err)
+			}
+			return at, target.Source(), nil
+		}
+		ms, err := e.delayNumber(inst, a.Until)
+		if err != nil {
+			return time.Time{}, "", fmt.Errorf("until: %w", err)
+		}
+		return time.UnixMilli(ms).In(loc), fmt.Sprintf("%d (unix ms)", ms), nil
+	}
+}
+
+// delayArity rejects the two slot counts that are not exactly one. Both are unreachable by
+// design — model.Validate rejects them at registration — but the decoder also runs over
+// stored rows, which never re-validate, so neither may be resolved to a default here:
+//
+//   - Neither slot: a row predating these fields (one carrying only the removed `ms`)
+//     decodes to this, since Action takes no DisallowUnknownFields. Treating it as zero is
+//     the two-day-wait-becomes-no-wait failure this syntax exists to prevent.
+//   - Both slots: preferring one silently is worse than failing. If `until` held the
+//     far-future deadline, falling back to `for` waits a fraction of the intended time and
+//     nothing anywhere reports it.
+//
+// Split from resolveDelay so both branches are testable without building an engine.
+func delayArity(a *model.Action) error {
+	switch {
+	case a.For != nil && a.Until != nil:
+		return fmt.Errorf("both `for` and `until` are set: exactly one is required")
+	case a.For == nil && a.Until == nil:
+		return fmt.Errorf("no delay set: exactly one of `for` or `until` is required")
+	default:
+		return nil
+	}
+}
+
+// resolveDuration turns a `for` slot into a Duration: a literal parses against the grammar,
+// anything else evaluates to a bare millisecond count.
+func (e *Engine) resolveDuration(inst *model.ProcessInstance, raw any) (*delayspec.Duration, string, error) {
+	if lit, ok := delayLiteral(raw); ok {
+		d, err := delayspec.ParseDuration(lit)
+		if err != nil {
+			return nil, "", err
+		}
+		return d, d.Source(), nil
+	}
+	ms, err := e.delayNumber(inst, raw)
+	if err != nil {
+		return nil, "", err
+	}
+	if ms < 0 {
+		return nil, "", fmt.Errorf("must be non-negative, got %d", ms)
+	}
+	return delayspec.Millis(ms), fmt.Sprintf("%dms", ms), nil
+}
+
+// delayLiteral reports whether raw is a pure literal string — the only form the delayspec
+// grammars apply to. A "$:" leaf and a bare number both evaluate to a count instead.
+// Classification mirrors checkDelaySlot in the validation package, which rejected the
+// remaining form ("${ }") at registration.
+func delayLiteral(raw any) (string, bool) {
+	src, ok := raw.(string)
+	if !ok {
+		return "", false
+	}
+	tmpl, err := template.Parse(src)
+	if err != nil {
+		return "", false
+	}
+	return tmpl.Static()
+}
+
+// delayNumber evaluates a delay slot to a whole number: a "$:" expression against the
+// instance context, or a bare JSON number passed through.
+func (e *Engine) delayNumber(inst *model.ProcessInstance, raw any) (int64, error) {
+	v := raw
+	if src, ok := raw.(string); ok {
+		var err error
+		if v, err = e.evalShape(inst, shape.Shape{Raw: src}, nil); err != nil {
+			return 0, err
+		}
+	}
+	return delayMillis(v)
 }
 
 // runExternal implements the external (pull/callback) task, with three entry states
@@ -200,55 +326,26 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	return nil, stop(advanceOutcome{kind: outcomeNoop})
 }
 
-// evalDurationMs evaluates a delay expression to a non-negative millisecond count. It is
-// a template, so a bare literal ("30000") comes back as a string (parsed here); a
-// "$: …" expression comes back as a number.
-func evalDurationMs(expr string, ctx, config map[string]any) (int64, error) {
-	v, err := evalAny(expr, ctx, config)
-	if err != nil {
-		return 0, err
-	}
-	return durationFromValue(expr, v)
-}
-
-// evalDurationMsCtx is evalDurationMs against inst's context, resolving only the slots
-// the ms template references.
-func (e *Engine) evalDurationMsCtx(inst *model.ProcessInstance, expr string) (int64, error) {
-	v, err := e.evalShape(inst, shape.Shape{Raw: expr}, nil)
-	if err != nil {
-		return 0, err
-	}
-	return durationFromValue(expr, v)
-}
-
-func durationFromValue(expr string, v any) (int64, error) {
-	var ms int64
+// delayMillis coerces an evaluated delay value to a whole number of milliseconds. Note the
+// absent string case: a bare numeric string ("30000") was the old `ms` spelling and is now
+// a literal, routed to the delayspec grammar — which rejects it as unitless on purpose.
+func delayMillis(v any) (int64, error) {
 	switch n := v.(type) {
 	case int:
-		ms = int64(n)
+		return int64(n), nil
 	case int64:
-		ms = n
+		return n, nil
 	case float64:
-		ms = int64(n)
+		return int64(n), nil
 	case json.Number:
-		parsed, perr := n.Int64()
-		if perr != nil {
-			return 0, fmt.Errorf("ms %q is not a whole number of milliseconds", expr)
+		parsed, err := n.Int64()
+		if err != nil {
+			return 0, fmt.Errorf("%v is not a whole number of milliseconds", n)
 		}
-		ms = parsed
-	case string:
-		parsed, perr := strconv.ParseInt(strings.TrimSpace(n), 10, 64)
-		if perr != nil {
-			return 0, fmt.Errorf("ms %q is not a number", expr)
-		}
-		ms = parsed
+		return parsed, nil
 	default:
-		return 0, fmt.Errorf("ms must evaluate to a number, got %T", v)
+		return 0, fmt.Errorf("must evaluate to a number, got %T", v)
 	}
-	if ms < 0 {
-		return 0, fmt.Errorf("ms must be non-negative, got %d", ms)
-	}
-	return ms, nil
 }
 
 // resolveURL evaluates the fetch URL as a template so a base URL can come from config or

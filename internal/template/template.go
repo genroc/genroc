@@ -188,6 +188,14 @@ func (t *Template) Static() (string, bool) {
 	return b.String(), true
 }
 
+// IsExpr reports whether the leaf is a single $: typed expression rather than a template.
+// Together with Static this gives the three-way split a slot needs when a literal and an
+// expression mean different things in it — pure literal, $: expression, ${ } interpolation
+// — decidable syntactically, before any inference runs. The delay `for` / `until` slots
+// are the case that motivates exposing it: a literal is parsed at registration, a $: leaf
+// must infer to a number, and an interpolation is rejected outright.
+func (t *Template) IsExpr() bool { return t.expr }
+
 // EvalAny evaluates the template against ctx. A $: expression returns the raw value,
 // preserving its type; a template stringifies each ${ } interpolation and concatenates
 // it with the literal text.

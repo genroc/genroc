@@ -31,7 +31,7 @@ type Shape struct {
 	Raw    any            // the templated value: string | float64 | bool | nil | []any | map[string]any
 	Schema *schema.Schema // optional: the required structure Check verifies conformance to
 	Name   string         // optional: locates the shape in error messages (e.g. "task X headers")
-	// Expr marks an expression-only slot (a switch case, child_list over, delay ms): Raw is
+	// Expr marks an expression-only slot (a switch case, child_list over): Raw is
 	// a single bare expression string — not a template — checked and evaluated directly,
 	// with a required Schema of the expected type (e.g. boolean for a case). Structural and
 	// template semantics do not apply.

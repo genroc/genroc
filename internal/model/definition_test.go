@@ -603,6 +603,50 @@ func TestProcessDefinition_Validate(t *testing.T) {
 	}
 }
 
+// A delay carries exactly one of for / until, and a tz that resolves. The slot contents
+// themselves are checked at registration (validationtest/delay_test.go) — this is only the
+// structural arity, which is what stops "no slot set" from ever reaching the engine.
+func TestProcessDefinition_Validate_DelaySlots(t *testing.T) {
+	delay := func(a *Action) ProcessDefinition {
+		return ProcessDefinition{Name: "p", Tasks: []*Task{{ID: "wait", Action: a, Switch: SwitchMap{{Goto: GotoEnd}}}}}
+	}
+	tests := []struct {
+		name    string
+		action  *Action
+		wantErr string
+	}{
+		{"for alone", &Action{Type: ActionTypeDelay, For: "2h30m"}, ""},
+		{"until alone", &Action{Type: ActionTypeDelay, Until: "+2d 08:00"}, ""},
+		{"bare number for", &Action{Type: ActionTypeDelay, For: float64(5000)}, ""},
+		{"for with tz", &Action{Type: ActionTypeDelay, For: "1d", TZ: "Europe/Prague"}, ""},
+		{"for with fixed-offset tz", &Action{Type: ActionTypeDelay, For: "1d", TZ: "+02:00"}, ""},
+
+		{"neither slot", &Action{Type: ActionTypeDelay}, "for or action.until is required"},
+		{"both slots", &Action{Type: ActionTypeDelay, For: "1h", Until: "+1d 08:00"}, "mutually exclusive"},
+		// An abbreviation means the wrong thing for half the year and resolves per host.
+		{"abbreviated tz", &Action{Type: ActionTypeDelay, For: "1d", TZ: "CET"}, "abbreviations"},
+		{"unknown tz", &Action{Type: ActionTypeDelay, For: "1d", TZ: "Europe/Nowhere"}, "unknown IANA location"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def := delay(tt.action)
+			err := def.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected an error containing %q, got nil", tt.wantErr)
+			}
+			if !containsStr(err.Error(), tt.wantErr) {
+				t.Errorf("error %q does not contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestProcessDefinition_ValidateInput_Nullable(t *testing.T) {
 	def := ProcessDefinition{
 		Name: "p",

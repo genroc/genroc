@@ -27,6 +27,11 @@
 - [x] computed keys - `m[k]`, `xs[i]` (allowed only where every key shares one type: an array, or a map declaring only `additionalProperties`. An object with named properties is rejected — a computed key there could land on a declared property whose type differs from `additionalProperties`. Narrows like a static path when the key is itself a path, and the guard dies when a lambda rebinds the key)
 - [x] Go + REST API error handling (an error `code` on `Reply` that HTTP renders as a status, db sentinels handlers inherit, per-field `fields`, and a panic barrier around `advance` — see docs/error-handling-audit.md. Still open: escalation for the log-and-continue background loops)
 - [x] look at naming conventions - cancel -> pause, then resume. Retry only for failed processes.
+- [x] delay syntax - `for` (human durations: `2h30m`, `1d 12h`) and `until` (calendar
+  deadlines: `+2d 08:00`, `*-*-01 08:00`, RFC 3339) with `tz`; the raw `ms` slot was
+  **removed** rather than deprecated, which was only possible pre-release (see
+  docs/delay-syntax.md). Grammars in internal/delayspec. Still open: a ceiling on the
+  resolved delay, `tz` from an expression, a definition-level default timezone
 - [] pause as a debugging tool: start an instance paused, then step it with tick
 
 # docs

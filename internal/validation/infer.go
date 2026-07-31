@@ -1,9 +1,11 @@
 package validation
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 
+	"genroc/internal/delayspec"
 	"genroc/internal/expression"
 	"genroc/internal/model"
 	"genroc/internal/schema"
@@ -37,8 +39,10 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			hasBody := s.Action.Body.Present()
 			hasInput := s.Action.Input.Present()
 			hasOver := s.Action.Type == model.ActionTypeChildList && s.Action.Over != ""
-			hasMs := s.Action.Type == model.ActionTypeDelay && s.Action.Ms != ""
-			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasAcceptedStatus || hasOver || hasMs {
+			isDelay := s.Action.Type == model.ActionTypeDelay
+			hasFor := isDelay && s.Action.For != nil
+			hasUntil := isDelay && s.Action.Until != nil
+			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasAcceptedStatus || hasOver || hasFor || hasUntil {
 				ctx := contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, mustErr[s.ID], mayErr[s.ID]).WithDefs(defs)
 				// The child_list `over` expression must be a non-null array; each
 				// element becomes one child's input. Type-check it here so a malformed or
@@ -48,12 +52,17 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 						return err
 					}
 				}
-				// The delay `ms` template must evaluate to a number of milliseconds (a
-				// literal like "30000", which stringifies, or a numeric expression);
-				// type-check it so a malformed or non-numeric ms is rejected at
-				// registration rather than failing when the process reaches the delay.
-				if hasMs {
-					if err := checkMsTemplate(s.Action.Ms, ctx, s.ID); err != nil {
+				// A delay `for` / `until` is classified syntactically: a literal is parsed
+				// against the delayspec grammar here, a $: expression is type-checked to a
+				// number, and a ${ } interpolation is rejected — so a malformed duration or
+				// instant fails at registration rather than when the task is reached.
+				if hasFor {
+					if err := checkDelaySlot(s.Action.For, ctx, s.ID, "for"); err != nil {
+						return err
+					}
+				}
+				if hasUntil {
+					if err := checkDelaySlot(s.Action.Until, ctx, s.ID, "until"); err != nil {
 						return err
 					}
 				}
@@ -163,9 +172,11 @@ var (
 	// accepted_status must be an array whose elements are all strings (HTTP status patterns).
 	acceptedStatusSchema = schema.Array(schema.Type("string"))
 	boolSchema           = schema.Type("boolean")
-	// A delay ms is a number (a numeric expression) or a string (a literal like "30000",
-	// which stringifies and is parsed at runtime); array/object/boolean/null are rejected.
-	msSchema = schema.Type("number", "string")
+	// A delay `for` / `until` expression must be a number: milliseconds for `for`, unix
+	// milliseconds for `until`. The literal grammars never reach the type system — they are
+	// parsed by delayspec at registration — so unlike the old ms slot, string is not
+	// accepted here.
+	delaySchema = schema.Type("number")
 )
 
 // checkNonNullTemplate type-checks a fetch url/method against ctx: it must produce a
@@ -197,16 +208,81 @@ func checkArrayTemplate(expr string, ctx schema.Schema, taskID string) (schema.S
 	})
 }
 
-// checkMsTemplate type-checks a delay `ms` against ctx: it must produce a number (a
-// numeric expression) or a string (a numeric literal, parsed at runtime).
-func checkMsTemplate(expr string, ctx schema.Schema, taskID string) error {
-	shp := shape.Shape{Raw: expr, Schema: &msSchema, Name: fmt.Sprintf("task %q delay ms", taskID)}
-	_, err := shp.CheckWith(ctx, shape.CheckHooks{
+// checkDelaySlot type-checks a delay `for` or `until` against ctx. The slot's accepted
+// type depends on how the value is written, and that is decidable syntactically before any
+// inference runs:
+//
+//	bare JSON number      for: 5000                     milliseconds (unix ms for until) — nothing to check
+//	pure literal          for: "2h30m"                  the delayspec grammar, parsed here
+//	$: typed expression   until: "$: outputs.x.due_ms"  must infer to number
+//	${ } interpolation    for: "${ input.hours }h"      rejected
+//
+// The interpolation case is rejected by name rather than left to fall through: it produces
+// a string at runtime, which is precisely the failure this syntax exists to remove. The
+// human grammar is authoring syntax — a value arriving from input or a fetch result is
+// machine-produced, and the machine representation of an instant is a number.
+func checkDelaySlot(raw any, ctx schema.Schema, taskID, slot string) error {
+	label := fmt.Sprintf("task %q delay %s", taskID, slot)
+
+	// A bare number is milliseconds (for) or unix milliseconds (until): no parse, no check.
+	switch raw.(type) {
+	case float64, int, int64, json.Number:
+		return nil
+	}
+	src, ok := raw.(string)
+	if !ok {
+		return fmt.Errorf("%s must be a string or a number, got %T", label, raw)
+	}
+
+	tmpl, err := template.Parse(src)
+	if err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	if lit, isLit := tmpl.Static(); isLit {
+		return checkDelayLiteral(lit, label, slot)
+	}
+	if !tmpl.IsExpr() {
+		return fmt.Errorf("%s: a ${ } interpolation is not allowed here — it would produce a string at runtime. "+
+			"Write a literal (e.g. %s) or a whole-value $: expression evaluating to a number (e.g. %q)",
+			label, delaySlotExample(slot), "$: input.wait_ms")
+	}
+	// Not an Expr shape: those carry a bare expression body (as a switch case does), while
+	// src still has its "$:" marker. A plain shape routes it through template.Parse, whose
+	// $: leaf is type-preserving — so the inferred type is the expression's own.
+	shp := shape.Shape{Raw: src, Schema: &delaySchema, Name: label}
+	_, err = shp.CheckWith(ctx, shape.CheckHooks{
 		Result: func(inferred, _ schema.Schema) error {
-			return fmt.Errorf("task %q delay ms must evaluate to a number of milliseconds, got %q", taskID, inferred.TypeName())
+			unit := "a number of milliseconds"
+			if slot == "until" {
+				unit = "a number of unix milliseconds"
+			}
+			return fmt.Errorf("%s must evaluate to %s, got %q", label, unit, inferred.TypeName())
 		},
 	})
 	return err
+}
+
+// checkDelayLiteral parses a pure literal at registration, so a typo fails when the
+// definition is applied rather than three days into a run. Parsing alone is the whole
+// check: it is clock-independent, so the same definition always validates the same way.
+func checkDelayLiteral(lit, label, slot string) error {
+	var err error
+	if slot == "for" {
+		_, err = delayspec.ParseDuration(lit)
+	} else {
+		_, err = delayspec.ParseInstant(lit)
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	return nil
+}
+
+func delaySlotExample(slot string) string {
+	if slot == "until" {
+		return `"+2d 08:00"`
+	}
+	return `"2h30m"`
 }
 
 // inferActionPayload infers the schema of an action's payload shape — the fetch request

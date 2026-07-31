@@ -51,7 +51,12 @@ type ChildEntry struct {
 //   - "child_list": Name (required), Over (required), Version (optional), ResultSchema (optional) —
 //     runs one child per element of the Over array; each element is that child's input, and the
 //     collected result is an array of the children's outputs in the same order as Over.
-//   - "delay":      Ms (required) — pauses the instance for a duration without holding a worker, then routes via switch
+//   - "delay":      exactly one of For / Until (required), TZ (optional) — pauses the instance
+//     without holding a worker, then routes via switch. For is a duration from arm time
+//     ("2h30m", "1d 12h"); Until is an instant ("+2d 08:00", "*-*-01 08:00", RFC 3339). Both
+//     also accept a bare number (milliseconds for For, unix milliseconds for Until) and a
+//     "$:" expression inferring to number; a "${ }" interpolation is rejected, because it
+//     would produce a string at runtime. See internal/delayspec for the literal grammars.
 //   - "external":   Input (optional), ResultSchema (optional) — parks the instance until an
 //     outside caller submits a result via the external-tasks API; no worker is held while waiting.
 //     An optional Task.TimeoutMs (0 = wait forever) raises a catchable "external.timeout" error.
@@ -84,7 +89,9 @@ type Action struct {
 	Input          *Shape                `json:"input,omitempty"`           // child/external: templated input payload
 	Children       map[string]ChildEntry `json:"children,omitempty"`        // child_map
 	Over           string                `json:"over,omitempty"`            // child_list: expression evaluating to the input array (one child per element)
-	Ms             string                `json:"ms,omitempty"`              // delay: milliseconds to pause, as an expression
+	For            any                   `json:"for,omitempty"`             // delay: a duration — literal ("2h30m"), bare number of milliseconds, or $: numeric expression
+	Until          any                   `json:"until,omitempty"`           // delay: an instant — literal ("+2d 08:00"), bare number of unix milliseconds, or $: numeric expression
+	TZ             string                `json:"tz,omitempty"`              // delay: IANA name or fixed offset the calendar units of `for` / wall clocks of `until` resolve in
 }
 
 // JSONSchemaBytes returns the JSON Schema for Action as a discriminated union
@@ -212,12 +219,18 @@ var actionSchemaTemplate = `{
 			},
 			{
 				"type": "object",
-				"description": "Delay action — pauses the instance for a duration without holding a worker, then routes via switch.",
+				"description": "Delay action — parks the instance until a duration elapses (for) or an instant arrives (until), without holding a worker, then routes via switch. Exactly one of for / until.",
 				"properties": {
-					"type": {"type": "string", "const": "delay"},
-					"ms":   {"type": "string", "description": "Milliseconds to pause, as an expression: a literal such as \"30000\" or a $: expression such as \"$: outputs.x.retry_after\"."}
+					"type":  {"type": "string", "const": "delay"},
+					"for":   {"type": ["string", "number"], "description": "A duration from the moment the task is reached: a literal such as \"2h30m\" or \"1d 12h\" (units ms, s, m, h, d, w, mo, y), a bare number of milliseconds, or a $: expression evaluating to milliseconds such as \"$: outputs.x.retry_after\". A quoted number without a unit is rejected as ambiguous."},
+					"until": {"type": ["string", "number"], "description": "An instant: \"2026-09-01T08:00:00+02:00\" (RFC 3339), \"2026-09-01 08:00\" (in tz), \"+2d 08:00\" (two days from now at 08:00), \"*-*-01 08:00\" or \"mon 09:00\" (next match), a bare number of unix milliseconds, or a $: expression evaluating to unix milliseconds. An instant already in the past resolves immediately."},
+					"tz":    {"type": "string", "description": "IANA name (\"Europe/Prague\") or fixed offset (\"+02:00\") that for's calendar units and until's wall clocks resolve in; defaults to UTC. Abbreviations such as \"CET\" are rejected — they are ambiguous across DST."}
 				},
-				"required": ["type", "ms"],
+				"required": ["type"],
+				"oneOf": [
+					{"required": ["for"]},
+					{"required": ["until"]}
+				],
 				"additionalProperties": false
 			},
 			{

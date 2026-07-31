@@ -16,7 +16,7 @@ async function defineDoubler(name: string) {
       tasks: [
         {
           id: "wait",
-          action: { type: "delay" as const, ms: "$: (6 - input.n) * 30" },
+          action: { type: "delay" as const, for: "$: (6 - input.n) * 30" },
           switch: [{ goto: "next" }],
         },
         { id: "done", switch: [{ goto: "end" }] },

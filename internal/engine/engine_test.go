@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"genroc/internal/errcode"
@@ -71,39 +73,78 @@ func TestEvaluator_EvalBool_WithSelf(t *testing.T) {
 	}
 }
 
-func TestEvalDurationMs(t *testing.T) {
-	ctx := map[string]any{
-		"input":   map[string]any{"interval": 4500},
-		"outputs": map[string]any{"poll": map[string]any{"retry_after": 250}},
-	}
+// Both non-single arities are unreachable through registration, so they are tested here
+// directly. They stay reachable via the decoder, which runs over stored rows that never
+// re-validate — and both would otherwise degrade silently rather than fail.
+func TestDelayArity(t *testing.T) {
 	tests := []struct {
 		name    string
-		expr    string
-		want    int64
-		wantErr bool
+		action  model.Action
+		wantErr string
 	}{
-		{"bare literal", "30000", 30000, false},
-		{"template literal", "$: 5000", 5000, false},
-		{"template arithmetic", "$: 1000 + 2000", 3000, false},
-		{"template field", "$: input.interval", 4500, false},
-		{"template nested field", "$: outputs.poll.retry_after", 250, false},
-		{"non-numeric string", "abc", 0, true},
-		{"negative", "$: 0 - 5", 0, true},
+		{"for only", model.Action{For: "2h30m"}, ""},
+		{"until only", model.Action{Until: "+2d 08:00"}, ""},
+		// A row carrying only the removed `ms` decodes to this: Action takes no
+		// DisallowUnknownFields, so `ms` is dropped and both slots are absent.
+		{"neither", model.Action{}, "no delay set"},
+		// Preferring `for` here would wait a fraction of the intended time if `until` held
+		// the real deadline, with nothing reporting it.
+		{"both", model.Action{For: "1h", Until: "+1d 08:00"}, "both"},
+		// Zero is a real value, not absence — it must not be mistaken for an unset slot.
+		{"explicit zero for", model.Action{For: float64(0)}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := evalDurationMs(tt.expr, ctx, nil)
+			err := delayArity(&tt.action)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected an error containing %q, got nil", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error %q does not contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDelayMillis(t *testing.T) {
+	tests := []struct {
+		name    string
+		v       any
+		want    int64
+		wantErr bool
+	}{
+		{"int", 30000, 30000, false},
+		{"int64", int64(5000), 5000, false},
+		{"float64", float64(3000), 3000, false},
+		{"json.Number", json.Number("250"), 250, false},
+		{"negative passes through", int64(-5), -5, false},
+		// A numeric string was the old `ms` spelling. It is now a literal handled by the
+		// delayspec grammar (which rejects it as unitless), so it must not coerce here.
+		{"numeric string", "30000", 0, true},
+		{"non-numeric string", "abc", 0, true},
+		{"fractional json.Number", json.Number("1.5"), 0, true},
+		{"bool", true, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := delayMillis(tt.v)
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("evalDurationMs(%q) = %d, want error", tt.expr, got)
+					t.Errorf("delayMillis(%#v) = %d, want error", tt.v, got)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("evalDurationMs(%q) unexpected error: %v", tt.expr, err)
+				t.Fatalf("delayMillis(%#v) unexpected error: %v", tt.v, err)
 			}
 			if got != tt.want {
-				t.Errorf("evalDurationMs(%q) = %d, want %d", tt.expr, got, tt.want)
+				t.Errorf("delayMillis(%#v) = %d, want %d", tt.v, got, tt.want)
 			}
 		})
 	}
