@@ -132,6 +132,13 @@ describing the code as it stands:
   (string interpolation into a URL does no escaping). Each part carries its own
   compatibility argument; both are additive. Notes a blocker: hyphenated header names
   are unreadable because the parser accepts only integer literals in `[...]`.
+- [docs/delay-syntax.md](docs/delay-syntax.md) — `for` (human durations: `2h30m`, `1d 12h`)
+  and `until` (calendar deadlines: `+2d 08:00`, `*-*-01 08:00`, plus `tz`) alongside the
+  current raw `ms`. The load-bearing rule is a three-way **syntactic** classification —
+  pure literal parses at `CheckDoc`, a `$:` leaf must infer to `number`, a `${ }`
+  interpolation is rejected — which needs no new type-system machinery because
+  `template.Parse` already makes that distinction. Flagged release-blocking: the version
+  skew is silent and turns a two-day wait into no wait.
 - [docs/typed-values.md](docs/typed-values.md) — generalize `Shape` into a typed value
   authorable as literal YAML (expression leaves) **or** a single expression, checked
   against a schema via `inferShape`→`IsSubset`; applies to action payloads / `input`,
