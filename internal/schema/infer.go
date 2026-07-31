@@ -5,6 +5,8 @@
 //
 //   - Literals: integer, float, string, bool, null
 //   - Field access via dot notation: input.x, outputs.task.y
+//   - Field access by string key, for keys no identifier can spell:
+//     self.headers["retry-after"] — the same access, not a distinct construct
 //   - Constant indexing: input.items[0]
 //   - Object and array literals: {a: x, b: y}, [x, y]
 //   - map with a lambda: map(input.items, item => {id: item.id})
@@ -19,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 
 	"genroc/internal/expression/syntax"
 )
@@ -35,23 +36,40 @@ func (e ErrUnsupported) Error() string {
 
 // inferCtx is the immutable type-inference context threaded through all infer
 // calls. s is the context schema (carrying the root $defs every navigation
-// resolves against); guards is a shallow-copied overlay mapping dot-paths to
+// resolves against); guards is a shallow-copied overlay mapping access paths to
 // schema overrides for type-narrowed branches; vars holds the lambda parameters
 // currently in scope, which shadow context roots of the same name.
 type inferCtx struct {
 	s      Schema
-	guards map[string]Schema
+	guards map[string]guard
 	vars   map[string]Schema
 }
 
-func (c inferCtx) withGuard(path string, narrowed Schema) inferCtx {
-	guards := make(map[string]Schema, len(c.guards)+1)
+// guard is one narrowed path. root is the leading identifier, kept so a lambda
+// that shadows it can drop the entry without decoding the key.
+type guard struct {
+	root string
+	s    Schema
+}
+
+func (c inferCtx) withGuard(steps []pathStep, narrowed Schema) inferCtx {
+	guards := make(map[string]guard, len(c.guards)+1)
 	for k, v := range c.guards {
 		guards[k] = v
 	}
-	guards[path] = narrowed
+	guards[guardKey(steps)] = guard{root: steps[0].prop, s: narrowed}
 	return inferCtx{s: c.s, guards: guards, vars: c.vars}
 }
+
+// guardKey encodes steps as a map key — the shared path rendering (path.go),
+// which is injective precisely because a key needing brackets never renders as a
+// dotted one. That matters here and not only in messages: `x["a.b"]` and `x.a.b`
+// are different paths, and a key that collapsed them would narrow whichever the
+// author did not write.
+func guardKey(steps []pathStep) string { return renderPath(steps) }
+
+// identKey is guardKey for a bare identifier — the root of every guarded path.
+func identKey(name string) string { return JoinPath("", name) }
 
 // withParams binds a lambda's parameters to the element type. Guards rooted at a
 // name the lambda shadows are dropped: a narrowing established outside says
@@ -65,9 +83,9 @@ func (c inferCtx) withParams(lam *syntax.LambdaNode, elem Schema) inferCtx {
 	if lam.IndexParam != "" {
 		vars[lam.IndexParam] = Type("integer")
 	}
-	guards := make(map[string]Schema, len(c.guards))
+	guards := make(map[string]guard, len(c.guards))
 	for k, v := range c.guards {
-		if root := pathRoot(k); root == lam.Param || root == lam.IndexParam {
+		if v.root == lam.Param || v.root == lam.IndexParam {
 			continue
 		}
 		guards[k] = v
@@ -116,12 +134,12 @@ func walkSecretRefs(n syntax.Node, ictx inferCtx) bool {
 	if n == nil {
 		return false
 	}
-	if root, sub, ok := nodeSplit(n); ok {
-		if elem, bound := ictx.vars[root]; bound {
-			if secretAtSub(elem, sub) {
+	if steps, ok := nodeSteps(n); ok {
+		if elem, bound := ictx.vars[steps[0].prop]; bound {
+			if secretAtSub(elem, steps[1:]) {
 				return true
 			}
-		} else if ictx.s.SecretAt(nodePath(n)) {
+		} else if stepsHitSecret(ictx.s.n, ictx.s.rootDefs(), steps) {
 			return true
 		}
 	}
@@ -178,9 +196,9 @@ func callSecretRefs(x *syntax.CallNode, ictx inferCtx) bool {
 
 // secretAtSub checks a path below an already-resolved schema; an empty sub-path
 // means the value itself.
-func secretAtSub(s Schema, sub string) bool {
-	if sub != "" {
-		return s.SecretAt(sub)
+func secretAtSub(s Schema, sub []pathStep) bool {
+	if len(sub) > 0 {
+		return stepsHitSecret(s.n, s.rootDefs(), sub)
 	}
 	// IsSecret reads only the node's own flag. SecretAt derefs, so reading one
 	// field of a secret-marked definition taints while copying the whole element
@@ -211,8 +229,8 @@ func inferNode(node syntax.Node, ictx inferCtx) (Schema, error) {
 	case *syntax.NullNode:
 		return Type("null"), nil
 	case *syntax.IdentNode:
-		if s, ok := ictx.guards[n.Name]; ok {
-			return s, nil
+		if g, ok := ictx.guards[identKey(n.Name)]; ok {
+			return g.s, nil
 		}
 		if s, ok := ictx.vars[n.Name]; ok {
 			return s, nil
@@ -277,9 +295,9 @@ func inferBase(node syntax.Node, ictx inferCtx) (base Schema, ok bool, err error
 }
 
 func inferMember(n *syntax.MemberNode, ictx inferCtx) (Schema, error) {
-	if path := nodePath(n); path != "" {
-		if s, ok := ictx.guards[path]; ok {
-			return s, nil
+	if steps, ok := nodeSteps(n); ok {
+		if g, ok := ictx.guards[guardKey(steps)]; ok {
+			return g.s, nil
 		}
 	}
 	base, ok, err := inferBase(n.Base, ictx)
@@ -290,9 +308,9 @@ func inferMember(n *syntax.MemberNode, ictx inferCtx) (Schema, error) {
 }
 
 func inferIndexNode(n *syntax.IndexNode, ictx inferCtx) (Schema, error) {
-	if path := nodePath(n); path != "" {
-		if s, ok := ictx.guards[path]; ok {
-			return s, nil
+	if steps, ok := nodeSteps(n); ok {
+		if g, ok := ictx.guards[guardKey(steps)]; ok {
+			return g.s, nil
 		}
 	}
 	base, ok, err := inferBase(n.Base, ictx)
@@ -524,8 +542,8 @@ func narrowCondition(cond syntax.Node, ictx inferCtx) (thenCtx, elseCtx inferCtx
 		return
 	}
 
-	path := nodePath(subject)
-	if path == "" {
+	steps, ok := nodeSteps(subject)
+	if !ok {
 		return
 	}
 
@@ -537,17 +555,17 @@ func narrowCondition(cond syntax.Node, ictx inferCtx) (thenCtx, elseCtx inferCtx
 	_, litIsNull := litNode.(*syntax.NullNode)
 
 	if bin.Op == "==" {
-		thenCtx = ictx.withGuard(path, litSchema)
+		thenCtx = ictx.withGuard(steps, litSchema)
 		if litIsNull {
 			if subjectSchema, err := inferNode(subject, ictx); err == nil {
-				elseCtx = ictx.withGuard(path, subjectSchema.StripNull())
+				elseCtx = ictx.withGuard(steps, subjectSchema.StripNull())
 			}
 		}
 	} else {
-		elseCtx = ictx.withGuard(path, litSchema)
+		elseCtx = ictx.withGuard(steps, litSchema)
 		if litIsNull {
 			if subjectSchema, err := inferNode(subject, ictx); err == nil {
-				thenCtx = ictx.withGuard(path, subjectSchema.StripNull())
+				thenCtx = ictx.withGuard(steps, subjectSchema.StripNull())
 			}
 		}
 	}
@@ -562,38 +580,25 @@ func isLiteralNode(n syntax.Node) bool {
 	return false
 }
 
-// nodePath renders a member/index chain as a dot-path, or "" when the chain is
-// not rooted at a bare identifier.
-func nodePath(node syntax.Node) string {
+// nodeSteps renders a member/index chain as navigation steps, ok=false when the
+// chain is not rooted at a bare identifier. The first step is always that root
+// identifier, so steps[0].prop is the root and steps[1:] the path below it.
+//
+// Steps, not a rendered dot-path: a["a.b"] and a.a.b are distinct accesses whose
+// dot-path renderings are identical, and every consumer here — the guard map,
+// the secret walk — is one that must not confuse them.
+func nodeSteps(node syntax.Node) ([]pathStep, bool) {
 	switch n := node.(type) {
 	case *syntax.IdentNode:
-		return n.Name
+		return []pathStep{propStep(n.Name)}, true
 	case *syntax.MemberNode:
-		if base := nodePath(n.Base); base != "" {
-			return base + "." + n.Name
+		if base, ok := nodeSteps(n.Base); ok {
+			return append(base, propStep(n.Name)), true
 		}
 	case *syntax.IndexNode:
-		if base := nodePath(n.Base); base != "" {
-			return fmt.Sprintf("%s[%d]", base, n.Index)
+		if base, ok := nodeSteps(n.Base); ok {
+			return append(base, indexStep(n.Index)), true
 		}
 	}
-	return ""
-}
-
-// nodeSplit splits a chain's path into its root identifier and the remainder,
-// which is "" when the node is the bare identifier.
-func nodeSplit(n syntax.Node) (root, sub string, ok bool) {
-	path := nodePath(n)
-	if path == "" {
-		return "", "", false
-	}
-	root = pathRoot(path)
-	return root, strings.TrimPrefix(path[len(root):], "."), true
-}
-
-func pathRoot(path string) string {
-	if i := strings.IndexAny(path, ".["); i >= 0 {
-		return path[:i]
-	}
-	return path
+	return nil, false
 }

@@ -58,7 +58,7 @@ Two new siblings of `self.result`, on **fetch tasks only**:
 | Expression | Type | Notes |
 |---|---|---|
 | `self.status` | `integer` | the HTTP status code |
-| `self.headers` | `object` + `additionalProperties: {type: string}` | lowercase keys; every access is `string \| null`. **See the blocker below — hyphenated names are unreadable today.** |
+| `self.headers` | `object` + `additionalProperties: {type: string}` | lowercase keys; every access is `string \| null`. Hyphenated names read as `self.headers['retry-after']` (the blocker below, now resolved). |
 
 `self.result` keeps meaning exactly what it means today — the decoded body. Nothing
 is re-wrapped. That is the whole reason this is not a breaking change.
@@ -84,7 +84,15 @@ workflow.
 `delay` or `child` task does not grow a `self.status` that is always null. An honest
 type is worth the extra condition.
 
-### Blocker found while writing this: you cannot read a hyphenated header
+### Blocker found while writing this: you cannot read a hyphenated header — **RESOLVED**
+
+> **Settled: (b) was built.** `x['some-key']` now parses, desugaring to a `MemberNode`
+> exactly as sketched below, so `self.headers['retry-after']` is readable and Part 1 is
+> unblocked. One thing the sketch missed: a property key is an arbitrary JSON string,
+> and inference carried access paths as *dot-joined strings* — so `x['a.b']` and `x.a.b`
+> rendered identically, which would have let a secret marked on a dotted key escape
+> redaction. Those paths are now carried as steps (`nodeSteps` / `pathStep`), which is
+> the part of the change that was not free. See the note in `ROADMAP.md`.
 
 `self.headers` as an open string map is **unusable as-is**, and this is the one thing
 that must be settled before Part 1 is built. The parser accepts only an integer

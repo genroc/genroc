@@ -222,8 +222,56 @@ func TestParseError_ComputedIndex(t *testing.T) {
 	assertParseError(t, `a[b]`, "literal integer")
 }
 
-func TestParseError_StringIndex(t *testing.T) {
-	assertParseError(t, `a["k"]`, "literal integer")
+// A string subscript is property access, not indexing: it must produce the exact
+// tree the dot form produces, since that is what leaves inference and evaluation
+// untouched by the new syntax.
+func TestStringSubscriptIsMemberAccess(t *testing.T) {
+	assertSameTree(t, `a["k"]`, `a.k`)
+	assertSameTree(t, `a['k']`, `a.k`)
+	assertSameTree(t, `a["k"].b["c"]`, `a.k.b.c`)
+}
+
+// The keys that motivate the syntax: unreachable via `.` because they lex as
+// something else (`retry-after` is a subtraction) or not at all.
+func TestStringSubscriptNonIdentifierKeys(t *testing.T) {
+	assertParses(t, `self.headers["retry-after"]`, `self.headers.retry-after`)
+	assertParses(t, `config["a.b"]`, `config.a.b`)
+	assertParses(t, `outputs["step-1"].value`, `outputs.step-1.value`)
+	assertParses(t, `a[""]`, `a.`)
+}
+
+// A subscript is an ordinary string literal, so it inherits expr-lang's string
+// rules wholesale — both quote styles and the usual escapes. Asserted on the
+// decoded key rather than the source, since that is what property lookup uses.
+func TestStringSubscriptEscapes(t *testing.T) {
+	cases := []struct{ src, wantKey string }{
+		{`a["with space"]`, "with space"},
+		{`a["say \"hi\""]`, `say "hi"`},
+		{`a['it\'s']`, "it's"},
+		{`a['single "double" inside']`, `single "double" inside`},
+		{`a["back\\slash"]`, `back\slash`},
+		{`a["tab\there"]`, "tab\there"},
+		{`a["nl\nhere"]`, "nl\nhere"},
+		{`a["\x41"]`, "A"},
+		{`a["café"]`, "café"},
+		{`a["emoji 🎉"]`, "emoji 🎉"},
+		{`a["]"]`, "]"}, // a bracket in the key does not end the subscript
+	}
+	for _, c := range cases {
+		t.Run(c.wantKey, func(t *testing.T) {
+			n, err := Parse(c.src)
+			if err != nil {
+				t.Fatalf("Parse(%s): %v", c.src, err)
+			}
+			m, ok := n.(*MemberNode)
+			if !ok {
+				t.Fatalf("Parse(%s) = %T, want *MemberNode", c.src, n)
+			}
+			if m.Name != c.wantKey {
+				t.Errorf("Parse(%s) key = %q, want %q", c.src, m.Name, c.wantKey)
+			}
+		})
+	}
 }
 
 // Leftovers and unsupported spellings.

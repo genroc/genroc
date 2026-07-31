@@ -7,49 +7,99 @@ import (
 	"strings"
 )
 
-// pathStep is one segment of a dot-path expression.
+// pathStep is one segment of a navigation path: a named property or an array
+// index. isIndex is the discriminator rather than prop != "" — a property key is
+// an arbitrary JSON string, and once expressions can spell one (a["…"]) the
+// empty key is reachable and would otherwise read as index 0.
 type pathStep struct {
-	prop  string
-	index int
+	prop    string
+	index   int
+	isIndex bool
 }
 
+func propStep(name string) pathStep { return pathStep{prop: name} }
+func indexStep(i int) pathStep      { return pathStep{index: i, isIndex: true} }
+
+// parsePath reads the access-path syntax renderPath emits, so a path shown in an
+// error message can be handed straight back to At / SecretAt. A bare segment runs
+// to the next '.' or '[', which keeps an authored `headers.retry-after` reading as
+// two steps exactly as it always did; the quoted form `headers["retry-after"]` is
+// what a key containing '.' or '[' needs, and is the only way to name one at all.
 func parsePath(path string) ([]pathStep, error) {
 	if path == "" {
 		return nil, fmt.Errorf("path must not be empty")
 	}
 	var steps []pathStep
-	for _, segment := range strings.Split(path, ".") {
-		if segment == "" {
-			return nil, fmt.Errorf("invalid path %q: empty segment", path)
-		}
-		for {
-			open := strings.Index(segment, "[")
-			if open == -1 {
-				break
-			}
-			close := strings.Index(segment, "]")
-			if close == -1 || close < open {
-				return nil, fmt.Errorf("invalid path %q: unmatched '[' in segment %q", path, segment)
-			}
-			name := segment[:open]
-			if name != "" {
-				steps = append(steps, pathStep{prop: name})
-			}
-			idx, err := strconv.Atoi(segment[open+1 : close])
+	i := 0
+	for i < len(path) {
+		switch {
+		case path[i] == '[':
+			step, next, err := parseBracket(path, i)
 			if err != nil {
-				return nil, fmt.Errorf("invalid path %q: non-integer index in %q", path, segment)
+				return nil, err
 			}
-			steps = append(steps, pathStep{index: idx})
-			segment = segment[close+1:]
-		}
-		if segment != "" {
-			steps = append(steps, pathStep{prop: segment})
+			steps = append(steps, step)
+			i = next
+		case path[i] == '.':
+			// A separator is only meaningful between steps; the segment that follows
+			// carries the name.
+			if len(steps) == 0 || i+1 == len(path) || path[i+1] == '.' {
+				return nil, fmt.Errorf("invalid path %q: empty segment", path)
+			}
+			i++
+		default:
+			end := i
+			for end < len(path) && path[end] != '.' && path[end] != '[' {
+				end++
+			}
+			if end == i {
+				return nil, fmt.Errorf("invalid path %q: empty segment", path)
+			}
+			// Two adjacent bare segments cannot occur — the loop above stops only at a
+			// separator — so a name here always follows '.' or starts the path.
+			steps = append(steps, propStep(path[i:end]))
+			i = end
 		}
 	}
 	if len(steps) == 0 {
 		return nil, fmt.Errorf("invalid path %q: no steps", path)
 	}
 	return steps, nil
+}
+
+// parseBracket reads one [...] step starting at open, returning the step and the
+// offset just past the closing bracket.
+func parseBracket(path string, open int) (pathStep, int, error) {
+	if open+1 < len(path) && path[open+1] == '"' {
+		// Scan for the closing quote, respecting backslash escapes, then let
+		// strconv.Unquote apply the same escape rules that quoted it.
+		for j := open + 2; j < len(path); j++ {
+			switch path[j] {
+			case '\\':
+				j++
+			case '"':
+				if j+1 >= len(path) || path[j+1] != ']' {
+					return pathStep{}, 0, fmt.Errorf("invalid path %q: expected ']' after quoted key", path)
+				}
+				name, err := strconv.Unquote(path[open+1 : j+1])
+				if err != nil {
+					return pathStep{}, 0, fmt.Errorf("invalid path %q: bad quoted key: %w", path, err)
+				}
+				return propStep(name), j + 2, nil
+			}
+		}
+		return pathStep{}, 0, fmt.Errorf("invalid path %q: unterminated quoted key", path)
+	}
+	close := strings.IndexByte(path[open:], ']')
+	if close == -1 {
+		return pathStep{}, 0, fmt.Errorf("invalid path %q: unmatched '['", path)
+	}
+	close += open
+	idx, err := strconv.Atoi(path[open+1 : close])
+	if err != nil {
+		return pathStep{}, 0, fmt.Errorf("invalid path %q: non-integer index %q", path, path[open+1:close])
+	}
+	return indexStep(idx), close + 1, nil
 }
 
 func navigate(s *node, defs map[string]*node, path string) (*node, error) {
@@ -361,6 +411,14 @@ func pathHitsSecret(s *node, defs map[string]*node, path string) bool {
 	if err != nil {
 		return false
 	}
+	return stepsHitSecret(s, defs, steps)
+}
+
+// stepsHitSecret is pathHitsSecret over already-parsed steps. Callers that derive a
+// path from an expression tree use this: a property key there is an arbitrary string
+// which the dot-path syntax cannot round-trip (a key containing "." or "[" would
+// re-split into the wrong steps, and silently miss the secret).
+func stepsHitSecret(s *node, defs map[string]*node, steps []pathStep) bool {
 	if nodeOrTargetSecret(s, defs) {
 		return true
 	}
@@ -369,10 +427,10 @@ func pathHitsSecret(s *node, defs map[string]*node, path string) bool {
 		return false
 	}
 	for _, step := range steps {
-		if step.prop != "" {
-			cur, err = lookupProperty(cur, step.prop, defs)
-		} else {
+		if step.isIndex {
 			cur, err = inferIndex(cur, defs)
+		} else {
+			cur, err = lookupProperty(cur, step.prop, defs)
 		}
 		if err != nil {
 			return false
@@ -699,10 +757,10 @@ func navigateSchema(s *node, defs map[string]*node, steps []pathStep) (*node, er
 	current := s
 	for _, step := range steps {
 		var err error
-		if step.prop != "" {
-			current, err = lookupProperty(current, step.prop, defs)
-		} else {
+		if step.isIndex {
 			current, err = inferIndex(current, defs)
+		} else {
+			current, err = lookupProperty(current, step.prop, defs)
 		}
 		if err != nil {
 			return nil, err

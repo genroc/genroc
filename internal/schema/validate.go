@@ -159,7 +159,7 @@ func conformArray(nd *node, defs map[string]*node, arr []any, path string) (any,
 	}
 	out := make([]any, len(arr))
 	for i, el := range arr {
-		norm, err := conform(nd.Items, defs, el, fmt.Sprintf("%s[%d]", path, i))
+		norm, err := conform(nd.Items, defs, el, JoinIndex(path, i))
 		if err != nil {
 			return nil, err
 		}
@@ -376,10 +376,8 @@ func at(path string) string {
 	return path + ": "
 }
 
-// join extends a path with a child property name.
-func join(path, name string) string {
-	if path == "" {
-		return name
-	}
-	return path + "." + name
-}
+// join extends a path with a child property name. Non-identifier keys take the
+// bracket form (see path.go), so the path an error reports is the accessor the
+// author would write — `headers["retry-after"]`, not the unparseable
+// `headers.retry-after`.
+func join(path, name string) string { return JoinPath(path, name) }

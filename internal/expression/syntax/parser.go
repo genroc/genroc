@@ -179,16 +179,27 @@ func (p *parser) parsePostfix(base Node) Node {
 		case p.is(lexer.Bracket, "["):
 			p.next()
 			idx := p.cur()
-			if idx.Kind != lexer.Number || !isIntLiteral(idx.Value) {
-				p.failAt(idx, "an index must be a literal integer; a computed index cannot be type-checked")
+			switch {
+			// A string subscript is property access spelled so that a key which is
+			// not an identifier — "retry-after", "content-type" — is reachable at
+			// all; `.retry-after` lexes as subtraction. It desugars to the very node
+			// the dot form produces, so inference, evaluation and the ref walkers
+			// never learn the difference.
+			case idx.Kind == lexer.String:
+				p.next()
+				p.expect(lexer.Bracket, "]")
+				base = &MemberNode{Base: base, Name: idx.Value}
+			case idx.Kind == lexer.Number && isIntLiteral(idx.Value):
+				p.next()
+				n, err := parseIndex(idx.Value)
+				if err != nil {
+					p.failAt(idx, "invalid index %q", idx.Value)
+				}
+				p.expect(lexer.Bracket, "]")
+				base = &IndexNode{Base: base, Index: n}
+			default:
+				p.failAt(idx, "an index must be a literal integer or string; a computed index cannot be type-checked")
 			}
-			p.next()
-			n, err := parseIndex(idx.Value)
-			if err != nil {
-				p.failAt(idx, "invalid index %q", idx.Value)
-			}
-			p.expect(lexer.Bracket, "]")
-			base = &IndexNode{Base: base, Index: n}
 		default:
 			return base
 		}

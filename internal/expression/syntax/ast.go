@@ -7,7 +7,7 @@
 //
 //	literals    1, 1.5, "s", 'r', true, false, null
 //	identifier  input, outputs, config, self, error
-//	member      a.b               index    a[0]
+//	member      a.b, a["a-b"]     index    a[0]
 //	array       [a, b]            object   {k: v, "k-2": v}
 //	lambda      x => body         (x, i) => body
 //	call        map(src, x => body)
@@ -50,8 +50,11 @@ type (
 	// error) or a lambda parameter.
 	IdentNode struct{ Name string }
 
-	// MemberNode is dot access, a.b. Property access on a null base yields null
-	// (optional-chaining semantics), so a missing field is never a hard error.
+	// MemberNode is property access: a.b, or a["b"] when the key is not spellable
+	// as an identifier. Both forms parse to this node — the brackets are pure
+	// surface syntax, carrying no separate meaning. Property access on a null base
+	// yields null (optional-chaining semantics), so a missing field is never a
+	// hard error.
 	MemberNode struct {
 		Base Node
 		Name string

@@ -42,7 +42,7 @@ func Infer(node any, ctx schema.Schema, label string) (schema.Schema, error) {
 	case []any:
 		elems := make([]schema.Schema, len(n))
 		for i, item := range n {
-			el, err := Infer(item, ctx, fmt.Sprintf("%s[%d]", label, i))
+			el, err := Infer(item, ctx, schema.JoinIndex(label, i))
 			if err != nil {
 				return schema.Schema{}, err
 			}
@@ -57,7 +57,7 @@ func Infer(node any, ctx schema.Schema, label string) (schema.Schema, error) {
 		slices.Sort(names)
 		out := schema.Object()
 		for _, name := range names {
-			p, err := Infer(n[name], ctx, fmt.Sprintf("%s.%s", label, name))
+			p, err := Infer(n[name], ctx, schema.JoinPath(label, name))
 			if err != nil {
 				return schema.Schema{}, err
 			}

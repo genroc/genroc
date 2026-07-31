@@ -561,8 +561,8 @@ func TestEdgePostfixErrors(t *testing.T) {
 		{"arithmetic_index", `a[0 + 1]`, `expected "]"`},
 		{"negative_index", `a[-1]`, "literal integer"}, // a sign makes it an expression, not a literal
 		{"float_index", `a[1.5]`, "literal integer"},
-		{"string_index", `a["k"]`, "literal integer"},
 		{"empty_index", `a[]`, "literal integer"},
+		{"concatenated_string_index", `a["k" + "j"]`, `expected "]"`}, // a computed key is still computed
 
 		// Slicing is expr-lang syntax with no genroc counterpart.
 		{"slice", `a[1:3]`, `expected "]"`},
