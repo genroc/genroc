@@ -2,7 +2,7 @@
   "name": "genroc-tests",
   "type": "module",
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run --project='!stress' && vitest run --project=stress",
     "typecheck": "tsc --noEmit",
     "generate": "openapi-typescript ../openapi.json -o generated/api.ts",
     "playground:generate": "bun run playground/codegen.ts",

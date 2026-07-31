@@ -33,6 +33,16 @@ export default defineConfig({
       {
         // Stress tests spawn their own worker fleet, so no shared globalSetup
         // server. Runs the SQLite backend always and Postgres when DSN is set.
+        //
+        // Run in its own vitest invocation (see the `test` script in package.json):
+        // the postgres project's globalSetup server is a full worker (poll on,
+        // max-concurrent 200) against the same database, so while it is alive it
+        // claims and advances the stress suites' instances too. That both breaks
+        // their premise — overwhelm_recovery asserts exactly one processor exists,
+        // so no peer can steal a lapsed lease — and drains their trees, starving
+        // the overwhelm-prone worker of the in-flight work it must overwhelm on.
+        // Selecting only this project skips the other projects' globalSetup, so
+        // nothing but the suite's own fleet is on the database.
         test: {
           name: "stress",
           include: ["stress/**/*_test.ts"],

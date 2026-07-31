@@ -63,20 +63,37 @@ async function walk(
   return { items, pages };
 }
 
-test("page object reports position", async () => {
+test("page object echoes the effective sort and order", async () => {
   const { data, error } = await client.GET("/instances", { params: { query: { limit: 2 } } });
   expect(error).toBeUndefined();
   const page = data!.page;
   expect(page.size).toBe(2);
-  expect(page.items_before).toBe(0); // first page
-  expect(page.items_after).toBeGreaterThan(0); // far more than 2 rows exist
   // The effective sort/order is echoed back (resolved from the endpoint defaults).
   expect(page.sort).toBe("created");
   expect(page.order).toBe("desc");
+  expect(page.after).toBeTruthy(); // far more than 2 rows exist
+  expect((data!.items ?? []).length).toBeLessThanOrEqual(2);
+  // items_before / page.before are asserted below on an ascending page instead:
+  // on this newest-first page they are racy — see the next test.
+});
+
+test("page object reports position", async () => {
+  // Oldest-first on purpose. The counts are two bounded subqueries run after the
+  // page itself, and /instances is a shared, concurrently written table: on a
+  // newest-first page an instance another test creates in between sorts *before*
+  // the page, so items_before flakes to 1. Ascending, a concurrent insert can only
+  // land after the page, so a first page has 0 rows before it by construction.
+  const { data, error } = await client.GET("/instances", {
+    params: { query: { limit: 2, order: "asc" } },
+  });
+  expect(error).toBeUndefined();
+  const page = data!.page;
+  expect(page.order).toBe("asc");
+  expect(page.items_before).toBe(0); // first page
+  expect(page.items_after).toBeGreaterThan(0); // far more than 2 rows exist
   // Cursor present only in a direction with more rows: first page → after only.
   expect(page.after).toBeTruthy();
   expect(page.before).toBeFalsy();
-  expect((data!.items ?? []).length).toBeLessThanOrEqual(2);
 });
 
 test("forward paging has no duplicates and is newest-first", async () => {

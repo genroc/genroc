@@ -221,6 +221,6 @@ export async function setup() {
   sharedServer = await startGenroc(bin, PORT as number, db);
 }
 
-export function teardown() {
-  sharedServer?.stop();
+export async function teardown() {
+  await sharedServer?.stop();
 }

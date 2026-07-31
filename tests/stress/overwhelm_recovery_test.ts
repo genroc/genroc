@@ -30,7 +30,11 @@ import { listAllInstances } from "../helpers/client.ts";
 // instance is terminal, every root completed, and each tree aggregated to its exact
 // size — overwhelm churn never dropped or double-counted a subtree.
 //
-// Postgres only (a worker fleet is a Postgres deployment).
+// Postgres only (a worker fleet is a Postgres deployment). It also needs the database
+// to itself: any foreign worker polling the same DSN is a second processor, which both
+// voids the single-processor premise above and drains the trees before the crippled
+// worker can overwhelm on them. The stress project therefore runs in its own vitest
+// invocation, with no other project's shared server alive — see vitest.config.ts.
 
 const DSN = process.env.POSTGRES_DSN;
 

@@ -16,6 +16,9 @@ export async function setup() {
   server = await startGenroc(bin, PG_PORT, "", dsn);
 }
 
-export function teardown() {
-  server?.stop();
+// Awaited on purpose: the stress project runs as a second vitest invocation right
+// after this one, and a worker still draining against the same database would be a
+// foreign processor in suites that require the database to themselves.
+export async function teardown() {
+  await server?.stop();
 }
