@@ -17,6 +17,8 @@ import (
 //	calendar_test.go        the calendar rules: DST, month ends, unit ordering
 //	instant_parse_test.go   the three `until` forms
 //	instant_resolve_test.go finding a pattern's next match
+//	instant_random_test.go  the same, cross-checked against a brute-force scan on
+//	                        generated patterns and instants
 
 const (
 	// wallFmt renders an instant with its UTC offset, for the cases where the zone is the

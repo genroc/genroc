@@ -40,6 +40,13 @@ const accepted: Array<[string, Record<string, unknown>]> = [
   ["until: relaxed date-time", { until: "2026-09-01 08:00" }],
   ["until: bare number is unix milliseconds", { until: 1789000000000 }],
   ["until: $: expression", { until: "$: input.due_ms" }],
+  // Clock wildcards and steps: the sub-daily half of the pattern form.
+  ["until: every whole minute", { until: "*:*:00" }],
+  ["until: every second", { until: "*:*:*" }],
+  ["until: stepped seconds", { until: "*:*:0/5" }],
+  ["until: stepped minutes with a phase", { until: "*:2/5:00", tz: "Europe/Prague" }],
+  ["until: stepped hours", { until: "0/6:00:00" }],
+  ["until: weekday and stepped clock", { until: "mon *:0/30:00" }],
 ];
 
 for (const [name, action] of accepted) {
@@ -63,6 +70,11 @@ const rejected: Array<[string, Record<string, unknown>]> = [
   ["until: natural language", { until: "in two days" }],
   ["until: impossible calendar date", { until: "*-02-30 08:00" }],
   ["until: pattern without a clock", { until: "*-*-01" }],
+  // Steps are written base/step; cron's "*/5" has no room for a phase and is turned away.
+  ["until: cron step spelling", { until: "*:*:*/5" }],
+  ["until: zero step", { until: "*:*:0/0" }],
+  ["until: step past the field's range", { until: "*:*:0/61" }],
+  ["until: wildcard in the offset form", { until: "+2d *:00" }],
   // Arity: exactly one slot.
   ["neither slot", {}],
   ["both slots", { for: "1h", until: "+1d 08:00" }],

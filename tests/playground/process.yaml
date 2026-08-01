@@ -1,35 +1,51 @@
 # yaml-language-server: $schema=http://localhost:8448/process-schema.json
-name: order-pipeline
+name: weather-logger
+input_schema:
+  type: object
+  properties:
+    server_url: { type: string, default: "http://localhost:3002" }
+    place: { type: string, default: "Praha" }
+    ticks:
+      type: integer
+      default: 0
+      description: "kolik měření udělat; 0 = běžet donekonečna"
 tasks:
-  - id: child
-    action:
-      type: child
-      name: child
-      result_schema:
-        type: object
-        properties:
-          test:
-            type: boolean
-    output: "$: self.result"
-    switch:
-      - panic:
-          code: test
-          message: test
-    on_error:
-      - code: ["fourth_%"]
-        goto: $call
-  - id: call
-    action:
-      type: fetch
-      accepted_status: 
-        - "2xx"
-      url: "tst"
-      headers:
-        test: "100"
-    switch: next
   - id: wait
     action:
       type: delay
-      for: "2s"
-    switch: end
-output: "$: error"
+      until: "*:*:0/10"
+      tz: "Europe/Prague"
+    switch: next
+
+  - id: record
+    action:
+      type: fetch
+      url: "${ input.server_url }/record"
+      body:
+        place: "$: input.place"
+      result_schema:
+        type: object
+        properties:
+          time: { type: string }
+          temperature_c: { type: number }
+        required: [time, temperature_c]
+    timeout_ms: 15000
+    output:
+      time: "$: self.result.time"
+      temperature_c: "$: self.result.temperature_c"
+      count: "$: (self.previous.count ?? 0) + 1"
+    on_error:
+      - code: ["http.404"]
+        raise:
+          code: unknown_place
+          message: "weather server doesn't know the place"
+      - goto: $wait
+    switch:
+      - case: "input.ticks > 0 && self.output.count >= input.ticks"
+        goto: end
+      - goto: $wait
+
+output:
+  readings: "$: outputs.record.count"
+  last_time: "$: outputs.record.time"
+  last_temperature_c: "$: outputs.record.temperature_c"

@@ -53,7 +53,8 @@ type ChildEntry struct {
 //     collected result is an array of the children's outputs in the same order as Over.
 //   - "delay":      exactly one of For / Until (required), TZ (optional) — pauses the instance
 //     without holding a worker, then routes via switch. For is a duration from arm time
-//     ("2h30m", "1d 12h"); Until is an instant ("+2d 08:00", "*-*-01 08:00", RFC 3339). Both
+//     ("2h30m", "1d 12h"); Until is an instant ("+2d 08:00", "*-*-01 08:00", "*:*:00" for
+//     every whole minute, RFC 3339). Both
 //     also accept a bare number (milliseconds for For, unix milliseconds for Until) and a
 //     "$:" expression inferring to number; a "${ }" interpolation is rejected, because it
 //     would produce a string at runtime. See internal/delayspec for the literal grammars.
@@ -223,7 +224,7 @@ var actionSchemaTemplate = `{
 				"properties": {
 					"type":  {"type": "string", "const": "delay"},
 					"for":   {"type": ["string", "number"], "description": "A duration from the moment the task is reached: a literal such as \"2h30m\" or \"1d 12h\" (units ms, s, m, h, d, w, mo, y), a bare number of milliseconds, or a $: expression evaluating to milliseconds such as \"$: outputs.x.retry_after\". A quoted number without a unit is rejected as ambiguous."},
-					"until": {"type": ["string", "number"], "description": "An instant: \"2026-09-01T08:00:00+02:00\" (RFC 3339), \"2026-09-01 08:00\" (in tz), \"+2d 08:00\" (two days from now at 08:00), \"*-*-01 08:00\" or \"mon 09:00\" (next match), a bare number of unix milliseconds, or a $: expression evaluating to unix milliseconds. An instant already in the past resolves immediately."},
+					"until": {"type": ["string", "number"], "description": "An instant: \"2026-09-01T08:00:00+02:00\" (RFC 3339), \"2026-09-01 08:00\" (in tz), \"+2d 08:00\" (two days from now at 08:00), \"*-*-01 08:00\" or \"mon 09:00\" (next match), \"*:*:00\" (every whole minute; any clock field may be * or a base/step — \"*:*:*\" is every second, \"*:*:0/5\" every five seconds, \"*:2/5:00\" every five minutes from :02), a bare number of unix milliseconds, or a $: expression evaluating to unix milliseconds. An instant already in the past resolves immediately."},
 					"tz":    {"type": "string", "description": "IANA name (\"Europe/Prague\") or fixed offset (\"+02:00\") that for's calendar units and until's wall clocks resolve in; defaults to UTC. Abbreviations such as \"CET\" are rejected — they are ambiguous across DST."}
 				},
 				"required": ["type"],

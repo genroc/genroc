@@ -16,7 +16,8 @@
 //     in. Only a DST boundary can tell the two orders apart, and fixing the order keeps a
 //     spec's meaning independent of how it was typed.
 //   - A wall clock DST makes nonexistent (spring forward) normalizes forward; one it makes
-//     ambiguous (autumn fall-back) takes the first (earlier) occurrence.
+//     ambiguous (autumn fall-back) takes the first (earlier) occurrence — or the second,
+//     where a pattern's next match is being found and the first has already gone by.
 //
 // Resolution never fails on a target in the past — the caller clamps to now. That is
 // forced by the pause design: timers keep running while an instance is paused, so an
@@ -34,6 +35,13 @@ import (
 // years is far past any plausible schedule, and the bound is what stops a pattern that
 // can never match (e.g. "*-02-30") from spinning.
 const maxPatternDays = 366 * 5
+
+// maxClockRetries bounds how many candidate times of day nextMatch reconsiders within one
+// date. A candidate is only ever reconsidered because its wall clock is ambiguous and both
+// of its occurrences are behind now, which takes at most one retry to leave — a fall-back
+// repeats an hour once, not repeatedly. The cap exists so a zone rule nobody anticipated
+// cannot turn a resolve into a scan of the day.
+const maxClockRetries = 4
 
 // ---------------------------------------------------------------------------
 // Locations
@@ -103,19 +111,48 @@ func parseFixedOffset(s string) (int, bool) {
 // guarantee for ambiguous times):
 //
 //   - Nonexistent (spring forward): 02:30 where the clock jumps 02:00→03:00 does not
-//     exist. time.Date normalizes it forward to 03:30, which is what we want and keep.
+//     exist. It normalizes forward to 03:30 — the reading is carried past the jump by as
+//     much as it stood past the pre-jump clock.
 //   - Ambiguous (autumn fall-back): 02:30 where the clock repeats 03:00→02:00 happens
 //     twice. We take the first (earlier) occurrence, detected by the same wall clock
 //     existing one hour earlier.
 //
-// Out-of-range date fields normalize the way time.Date does, which is what lets day
+// Neither can be left to time.Date, whose own docs decline to guarantee the ambiguous case
+// — and whose answer in the nonexistent one is not consistently forward. Asking Prague for
+// 02:30 on a spring-forward day does give 03:30; asking Santiago for 00:49 on one gives
+// 23:49 the *previous day*, because there the gap starts at midnight. A caller that trusts
+// the direction then loses a whole day (found by the randomised scan cross-check, which is
+// why it exists).
+//
+// Out-of-range date fields still normalize the way time.Date does, which is what lets day
 // arithmetic run past a month end.
 func resolveWall(loc *time.Location, year int, month time.Month, day, hour, min, sec int) time.Time {
 	t := time.Date(year, month, day, hour, min, sec, 0, loc)
+	// The same fields read as UTC: a canonical form of what was asked for, with any
+	// out-of-range date already carried, and no zone rules involved.
+	want := time.Date(year, month, day, hour, min, sec, 0, time.UTC)
+	if !sameClock(t, want) {
+		return skippedForward(loc, want)
+	}
 	if e := t.Add(-time.Hour); sameClock(e, t) {
 		return e
 	}
 	return t
+}
+
+// skippedForward resolves a wall clock a transition deleted. want carries the requested
+// reading as UTC; reading it against each of the two offsets in play around the gap gives
+// two instants, and the later one is the reading carried forward — the pre-gap offset's
+// answer, whichever direction the zone's rules run.
+func skippedForward(loc *time.Location, want time.Time) time.Time {
+	_, off := want.In(loc).Zone()
+	first := want.Add(-time.Duration(off) * time.Second)
+	_, off = first.In(loc).Zone()
+	second := want.Add(-time.Duration(off) * time.Second)
+	if second.After(first) {
+		return second.In(loc)
+	}
+	return first.In(loc)
 }
 
 // sameClock reports whether two instants show the identical wall clock — true only for the
@@ -292,10 +329,32 @@ type Instant struct {
 
 	off *Duration // kindOffset
 
-	// Date fields; -1 is a wildcard. kindWall and kindOffset use only the clock fields.
+	// Date fields; `wildcard` matches every value.
 	year, month, day, weekday int
-	hour, min, sec            int
+	// Clock fields. kindWall and kindOffset use only these, and only ever as single values —
+	// widening a clock is a pattern-only spelling.
+	hour, min, sec clockField
 }
+
+// wildcard is the stored form of a `*` date field.
+const wildcard = -1
+
+// clockField is one field of a pattern's clock: the values base, base+step, base+2*step …
+// within the field's range. A step of 0 is a single value, which is how a plain "08" is
+// stored.
+//
+// The representation collapses the three spellings into one rule instead of branching on
+// them: "*" is 0/1 (every value from zero), "0/5" is 0/5, "07" is 7 with no step. Nothing
+// downstream needs to know which of the three was written.
+type clockField struct {
+	base, step int
+}
+
+// only is a clock field matching exactly one value.
+func only(v int) clockField { return clockField{base: v} }
+
+// everyValue is the stored form of "*" — from zero, in ones.
+var everyValue = clockField{base: 0, step: 1}
 
 // Source returns the literal the instant was parsed from, for logs and error messages.
 func (i *Instant) Source() string { return i.src }
@@ -321,7 +380,9 @@ var wallLayouts = []string{
 //  1. absolute — RFC 3339, RFC 9557 with an IANA annotation
 //     ("2026-09-01T08:00:00+02:00[Europe/Prague]"), or relaxed "2026-09-01 08:00"
 //  2. offset + wall clock — "+2d 08:00": two days from now, at 08:00 in tz
-//  3. calendar pattern — a systemd OnCalendar subset: "*-*-01 08:00", "mon 09:00"
+//  3. calendar pattern — a systemd OnCalendar subset: "*-*-01 08:00", "mon 09:00",
+//     "*:*:00" (every whole minute), "*:*:*" (every second), "*:*:0/5" (every five
+//     seconds), "*:2/5:00" (every five minutes, from :02)
 //
 // Natural language is deliberately absent: a definition is stored, versioned and replayed,
 // and a locale-dependent parser would let an upgrade silently change what rows already in
@@ -351,7 +412,7 @@ func ParseInstant(s string) (*Instant, error) {
 			return &Instant{
 				src: raw, kind: kindWall,
 				year: t.Year(), month: int(t.Month()), day: t.Day(),
-				hour: t.Hour(), min: t.Minute(), sec: t.Second(),
+				hour: only(t.Hour()), min: only(t.Minute()), sec: only(t.Second()),
 			}, nil
 		}
 	}
@@ -372,7 +433,7 @@ func parseOffset(raw, body string) (*Instant, error) {
 	if err != nil {
 		return nil, fmt.Errorf("until %q: %v", raw, err)
 	}
-	h, m, sec, err := parseClock(f[1])
+	h, m, sec, err := parseClock(f[1], false)
 	if err != nil {
 		return nil, fmt.Errorf("until %q: %v", raw, err)
 	}
@@ -386,21 +447,31 @@ func parsePattern(raw, body string) (*Instant, error) {
 	if len(f) == 0 {
 		return nil, fmt.Errorf("until %q is not a recognised instant", raw)
 	}
-	i := &Instant{src: raw, kind: kindPattern, year: -1, month: -1, day: -1, weekday: -1}
-	h, m, sec, err := parseClock(f[len(f)-1])
+	i := &Instant{src: raw, kind: kindPattern, year: wildcard, month: wildcard, day: wildcard, weekday: wildcard}
+	h, m, sec, err := parseClock(f[len(f)-1], true)
 	if err != nil {
 		return nil, fmt.Errorf("until %q: %v", raw, err)
 	}
 	i.hour, i.min, i.sec = h, m, sec
 
+	// Two tokens of the same kind are a spec meaning "either", which this grammar cannot
+	// express — and quietly keeping the last one would schedule something nobody asked for.
+	var sawWeekday, sawDate bool
 	for _, tok := range f[:len(f)-1] {
 		if wd, ok := weekdays[strings.ToLower(tok)]; ok {
-			i.weekday = wd
+			if sawWeekday {
+				return nil, fmt.Errorf("until %q: two weekdays; a pattern names one, and there is no way to say %q", raw, "either")
+			}
+			sawWeekday, i.weekday = true, wd
 			continue
 		}
 		if !strings.Contains(tok, "-") {
 			return nil, fmt.Errorf("until %q: %q is neither a weekday nor a Y-M-D date", raw, tok)
 		}
+		if sawDate {
+			return nil, fmt.Errorf("until %q: two dates; a pattern names one", raw)
+		}
+		sawDate = true
 		parts := strings.Split(tok, "-")
 		if len(parts) != 3 {
 			return nil, fmt.Errorf("until %q: date %q must be Y-M-D, e.g. %q", raw, tok, "*-*-01")
@@ -419,7 +490,7 @@ func parsePattern(raw, body string) (*Instant, error) {
 				continue
 			}
 			v, err := strconv.Atoi(parts[n])
-			if err != nil || v < fd.min || v > fd.max {
+			if !allDigits(parts[n]) || err != nil || v < fd.min || v > fd.max {
 				return nil, fmt.Errorf("until %q: %s %q must be %q or %d-%d", raw, fd.name, parts[n], "*", fd.min, fd.max)
 			}
 			*fd.dst = v
@@ -437,22 +508,109 @@ func parsePattern(raw, body string) (*Instant, error) {
 	return i, nil
 }
 
-// parseClock parses HH:MM or HH:MM:SS.
-func parseClock(s string) (hour, min, sec int, err error) {
+// parseClock parses HH:MM or HH:MM:SS. In a pattern a field may widen, in two spellings
+// taken from systemd's OnCalendar and no others:
+//
+// "*" is every value: "*:*:00" is every whole minute, "*:*:*" every second. "base/step" is
+// every step-th value counted from base: "*:*:0/5" is every five seconds, and "*:2/5:00" is
+// every five minutes from :02 — the base is the phase.
+//
+// cron's "*/5" is rejected by name. It means the same thing, and it is the spelling most
+// people know, but genroc's pattern form is systemd's shape throughout (Y-M-D order,
+// leading weekday, `*`), and "*/5" cannot express a phase — it is hardwired to base 0,
+// which makes it a special case of base/step rather than an alternative to it. Two
+// spellings for one concept is the cost; recognition is not worth it when the error
+// message can just say the right one.
+//
+// An omitted seconds field stays :00 rather than widening — "08:00" has always meant one
+// instant a day and must keep meaning that. Only a written "*" or step widens a field.
+//
+// The offset form (`+2d 08:00`) takes neither: it names the one clock its day lands on, and
+// "+2d *:00" would name every hour of a day two days out, which is not an instant.
+func parseClock(s string, allowPattern bool) (hour, min, sec clockField, err error) {
 	parts := strings.Split(s, ":")
 	if len(parts) != 2 && len(parts) != 3 {
-		return 0, 0, 0, fmt.Errorf("clock %q must be HH:MM or HH:MM:SS", s)
+		return clockField{}, clockField{}, clockField{}, fmt.Errorf("clock %q must be HH:MM or HH:MM:SS", s)
 	}
 	bounds := []int{23, 59, 59}
-	out := []int{0, 0, 0}
+	out := []clockField{only(0), only(0), only(0)}
 	for n, p := range parts {
-		v, e := strconv.Atoi(p)
-		if e != nil || v < 0 || v > bounds[n] {
-			return 0, 0, 0, fmt.Errorf("clock %q: %q is out of range", s, p)
+		f, err := parseClockField(s, p, bounds[n], allowPattern)
+		if err != nil {
+			return clockField{}, clockField{}, clockField{}, err
 		}
-		out[n] = v
+		out[n] = f
 	}
 	return out[0], out[1], out[2], nil
+}
+
+// parseClockField parses one field of a clock: "*", "base/step", or a plain number.
+func parseClockField(clock, p string, max int, allowPattern bool) (clockField, error) {
+	widened := func(what string) error {
+		return fmt.Errorf("clock %q: %s is only allowed in a calendar pattern, e.g. %q", clock, what, "*:*:0/5")
+	}
+	if p == "*" {
+		if !allowPattern {
+			return clockField{}, widened(`"*"`)
+		}
+		return everyValue, nil
+	}
+	if base, step, ok := strings.Cut(p, "/"); ok {
+		if !allowPattern {
+			return clockField{}, widened("a step")
+		}
+		// The one place cron habit lands wrong, so it gets its own message rather than
+		// "out of range".
+		if base == "*" {
+			return clockField{}, fmt.Errorf("clock %q: %q is cron's spelling; write the base explicitly, e.g. %q for every %s values",
+				clock, p, "0/"+step, step)
+		}
+		b, err := parseClockValue(clock, base, max)
+		if err != nil {
+			return clockField{}, err
+		}
+		n, err := strconv.Atoi(step)
+		if !allDigits(step) || err != nil || n < 1 {
+			return clockField{}, fmt.Errorf("clock %q: step %q must be a positive number, as in %q", clock, step, "0/5")
+		}
+		// A step past the field's range matches its base and nothing else, which is what
+		// writing the base alone already says — so it is a mistake, not a shorthand.
+		if n > max {
+			return clockField{}, fmt.Errorf("clock %q: step %d is past the field's range (0-%d), so it would match only %d; write %q if that is what you mean",
+				clock, n, max, b, base)
+		}
+		return clockField{base: b, step: n}, nil
+	}
+	v, err := parseClockValue(clock, p, max)
+	if err != nil {
+		return clockField{}, err
+	}
+	return only(v), nil
+}
+
+func parseClockValue(clock, p string, max int) (int, error) {
+	// Digits only. strconv.Atoi would take "+5" and "-0", which are not clock readings —
+	// and a sign here is far likelier to be a typo for something else than a deliberate 5.
+	if !allDigits(p) {
+		return 0, fmt.Errorf("clock %q: %q is out of range", clock, p)
+	}
+	v, err := strconv.Atoi(p)
+	if err != nil || v < 0 || v > max {
+		return 0, fmt.Errorf("clock %q: %q is out of range", clock, p)
+	}
+	return v, nil
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // Resolve returns the instant this spec denotes, relative to now in loc. A pattern with no
@@ -463,38 +621,230 @@ func (i *Instant) Resolve(now time.Time, loc *time.Location) (time.Time, error) 
 	case kindAbsolute:
 		return i.abs, nil
 	case kindWall:
-		return resolveWall(loc, i.year, time.Month(i.month), i.day, i.hour, i.min, i.sec), nil
+		// Both non-pattern forms name a single clock — parseClock refuses to widen one for
+		// them — so reading the fields' bases is reading their values.
+		return resolveWall(loc, i.year, time.Month(i.month), i.day, i.hour.base, i.min.base, i.sec.base), nil
 	case kindOffset:
 		base := i.off.Resolve(now, loc)
-		return resolveWall(loc, base.Year(), base.Month(), base.Day(), i.hour, i.min, i.sec), nil
+		return resolveWall(loc, base.Year(), base.Month(), base.Day(), i.hour.base, i.min.base, i.sec.base), nil
 	default:
 		return i.nextMatch(now, loc)
 	}
 }
 
-// nextMatch walks forward a day at a time for the first day satisfying the pattern whose
-// clock lands strictly after now. Day-stepping (rather than arithmetic per field) is what
-// keeps "*-*-31 08:00" and leap days correct without special cases.
+// nextMatch finds the first instant strictly after now that satisfies the pattern.
+//
+// The two halves of a pattern are searched differently, and deliberately so:
+//
+//   - The date is walked a day at a time, bounded by maxPatternDays. Stepping (rather than
+//     arithmetic per field) is what keeps "*-*-31" and leap days correct with no special
+//     cases, and a date pattern is coarse enough that the walk is cheap — the worst case a
+//     satisfiable pattern can reach is a leap day, under 1500 steps of pure comparison.
+//   - The time of day is computed, never stepped. A clock wildcard makes the match set
+//     dense — "*:*:00" matches 1440 times a day, "*:*:*" 86 400 — so searching it would
+//     turn "the next match a year out" into millions of iterations. nextClock is a carry
+//     cascade instead: hours, then minutes, then seconds, a fixed handful of comparisons
+//     whatever the pattern says. That asymmetry is why per-second schedules are affordable.
 func (i *Instant) nextMatch(now time.Time, loc *time.Location) (time.Time, error) {
-	cur := now.In(loc)
+	// Matches land on whole seconds, so the earliest one that can be strictly after now is
+	// the second after now's. Truncating in absolute time is exact here: every zone offset
+	// is a whole number of minutes, so second boundaries are the same in every zone.
+	lb := now.Truncate(time.Second).Add(time.Second).In(loc)
+	// The date walk is anchored at midday, not at the bound's own clock. addDays preserves
+	// the wall clock, and a clock sitting next to midnight can be carried across a date
+	// boundary by a DST jump, which would skip a date without anything reporting it. No
+	// zone rule moves midday off its own date.
+	anchor := resolveWall(loc, lb.Year(), lb.Month(), lb.Day(), 12, 0, 0)
+
+	// The walk visits wall clocks in increasing order, which misses one thing: inside a
+	// fall-back repeat, wall clocks *behind* now happen again ahead of it. Those second
+	// occurrences are found separately, and whichever of the two searches lands earlier
+	// wins. See repeatedMatch.
+	repeated, hasRepeated := i.repeatedMatch(now, loc)
+
 	for n := 0; n <= maxPatternDays; n++ {
-		day := addDays(cur, n)
+		day := addDays(anchor, n)
 		year, month, dom := day.Date()
-		if (i.year >= 0 && year != i.year) ||
-			(i.month >= 0 && int(month) != i.month) ||
-			(i.day >= 0 && dom != i.day) ||
-			(i.weekday >= 0 && int(day.Weekday()) != i.weekday) {
+		if !i.matchesDate(day) {
 			continue
 		}
-		// resolveWall normalizes an impossible day (Feb 30) into the next month, which
-		// would match a date the pattern never named — so verify the day survived.
-		cand := resolveWall(loc, year, month, dom, i.hour, i.min, i.sec)
-		if cand.Day() != dom {
-			continue
+		// Only the first day of the walk is constrained by now; every later one is open
+		// from midnight.
+		fromH, fromM, fromS := 0, 0, 0
+		if n == 0 {
+			fromH, fromM, fromS = lb.Clock()
 		}
-		if cand.After(now) {
-			return cand, nil
+		for retry := 0; retry < maxClockRetries; retry++ {
+			h, m, s, ok := i.nextClock(fromH, fromM, fromS)
+			if !ok {
+				break // this day has no clock left; try the next matching date
+			}
+			// The date here always exists — the walk enumerates real dates and matchesDate
+			// is what rejects the ones the pattern excludes — so the only way this lands on
+			// another date is a transition carrying the reading over midnight, and that
+			// instant is the honest answer for the clock that was asked for.
+			cand := resolveWall(loc, year, month, dom, h, m, s)
+			if cand.After(now) {
+				return earlier(cand, repeated, hasRepeated), nil
+			}
+			// Behind now, which on a lower bound taken from now can only mean an ambiguous
+			// wall clock: resolveWall names the *first* occurrence of one, and now is
+			// already in the second. Then the second occurrence is the next match — "the
+			// next 02:30" after the first 02:30 has passed is the other 02:30, not a reason
+			// to skip the repeated hour entirely. Detected and offset the same way
+			// resolveWall detects ambiguity, so both rest on the same whole-hour assumption.
+			if alt := cand.Add(time.Hour); sameClock(alt, cand) && alt.After(now) {
+				return earlier(alt, repeated, hasRepeated), nil
+			}
+			// Neither occurrence is ahead: retry from the next second the pattern could
+			// match. Strictly monotone, so the retry cap is never the thing that ends this.
+			fromH, fromM, fromS = h, m, s+1
 		}
+	}
+	if hasRepeated {
+		return repeated, nil
 	}
 	return time.Time{}, fmt.Errorf("until %q has no match within %d years", i.src, maxPatternDays/366)
 }
+
+// earlier picks the sooner of the walk's candidate and the repeat's, when there is one.
+func earlier(cand, repeated time.Time, hasRepeated bool) time.Time {
+	if hasRepeated && repeated.Before(cand) {
+		return repeated
+	}
+	return cand
+}
+
+// matchesDate reports whether a date satisfies the pattern's date fields.
+func (i *Instant) matchesDate(day time.Time) bool {
+	year, month, dom := day.Date()
+	return (i.year == wildcard || year == i.year) &&
+		(i.month == wildcard || int(month) == i.month) &&
+		(i.day == wildcard || dom == i.day) &&
+		(i.weekday == wildcard || int(day.Weekday()) == i.weekday)
+}
+
+// repeatedMatch finds the earliest match that a search over increasing wall clocks cannot
+// see: during a fall-back the clock repeats an hour, so a wall clock *behind* now occurs
+// again *ahead* of it.
+//
+// It matters whenever now falls in the first pass of that hour. Take "*:30:00" at 02:30
+// summer time, with the clock about to repeat 03:00 → 02:00. The walk starts from 02:30:01,
+// finds nothing left in that hour, and lands on 03:30 — two hours away — while the schedule
+// plainly owes a tick at 02:30 winter time, one hour away. A brute-force scan of the local
+// clock (the test oracle) sees that tick; ordered wall clocks alone cannot.
+//
+// So the repeat is searched from its own start, in wall clock, and the first match found
+// there is offset by the repeat's length. Earliest wall clock gives earliest second
+// occurrence, so one candidate is enough — the caller compares it against the walk's and
+// keeps whichever is sooner.
+func (i *Instant) repeatedMatch(now time.Time, loc *time.Location) (time.Time, bool) {
+	// Read now as a wall clock in loc: whether it is ambiguous is a question about the
+	// target zone, not about whichever zone the caller's clock happens to carry.
+	local := now.In(loc)
+	// The same wall clock an hour later means now is in a repeat's first pass — the mirror
+	// of resolveWall's own ambiguity test, and it rests on the same whole-hour assumption.
+	if !sameClock(local, local.Add(time.Hour)) {
+		return time.Time{}, false
+	}
+	start := fallBackAt(local).In(loc)
+	if !i.matchesDate(start) {
+		return time.Time{}, false
+	}
+	h, m, s, ok := i.nextClock(start.Clock())
+	if !ok {
+		return time.Time{}, false
+	}
+	year, month, dom := start.Date()
+	first := resolveWall(loc, year, month, dom, h, m, s)
+	second := first.Add(time.Hour)
+	// Only a genuinely ambiguous wall clock has a second occurrence; past the repeat's end
+	// the walk is the one with the answer.
+	if first.Day() != dom || !sameClock(second, first) || !second.After(now) {
+		return time.Time{}, false
+	}
+	return second, true
+}
+
+// fallBackAt returns the instant a fall-back takes effect, for a now already known to sit
+// in the repeated hour's first pass. Go exposes no transition table, so the offset is
+// bisected: it changes exactly once in the hour or two after such a now, and the bisection
+// converges on the second it changes.
+func fallBackAt(now time.Time) time.Time {
+	_, base := now.Zone()
+	lo, hi := now, now.Add(2*time.Hour)
+	for hi.Sub(lo) > time.Second {
+		mid := lo.Add(hi.Sub(lo) / 2)
+		if _, off := mid.Zone(); off == base {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	return hi
+}
+
+// nextClock returns the earliest time of day the pattern admits at or after
+// fromH:fromM:fromS, and whether the day has one at all. Carry runs the way a clock does:
+// a field that has run out advances the one above it and resets those below to their
+// smallest admissible value.
+//
+// fromS may arrive as 60 (from nextMatch's retry step) and fromM likewise; a field bound
+// past its range simply admits nothing, which the carry then handles.
+func (i *Instant) nextClock(fromH, fromM, fromS int) (h, m, s int, ok bool) {
+	h, ok = fieldAtLeast(i.hour, fromH, 23)
+	if !ok {
+		return 0, 0, 0, false
+	}
+	if h > fromH {
+		// A later hour than the bound: the minutes and seconds are unconstrained by it.
+		return h, fieldMin(i.min), fieldMin(i.sec), true
+	}
+	if m, ok = fieldAtLeast(i.min, fromM, 59); ok {
+		if m > fromM {
+			return h, m, fieldMin(i.sec), true
+		}
+		if s, ok = fieldAtLeast(i.sec, fromS, 59); ok {
+			return h, m, s, true
+		}
+		// This minute is spent; the next minute this hour, if the pattern allows one.
+		if m, ok = fieldAtLeast(i.min, fromM+1, 59); ok {
+			return h, m, fieldMin(i.sec), true
+		}
+	}
+	// This hour is spent; the next hour today, if the pattern allows one.
+	if h, ok = fieldAtLeast(i.hour, fromH+1, 23); ok {
+		return h, fieldMin(i.min), fieldMin(i.sec), true
+	}
+	return 0, 0, 0, false
+}
+
+// fieldAtLeast returns the smallest value a clock field admits that is at least from, and
+// whether it admits one at all. This is the one place a field's shape is interpreted, which
+// is why a step costs no extra branch anywhere else: the answer is arithmetic, never a
+// scan, so a field with 60 admissible values is no more expensive than one with a single
+// value.
+func fieldAtLeast(field clockField, from, max int) (int, bool) {
+	if field.step == 0 {
+		if field.base < from {
+			return 0, false
+		}
+		return field.base, true
+	}
+	v := field.base
+	if from > v {
+		// Round the bound up to the next value on the step's own grid, anchored at base.
+		v += ceilDiv(from-field.base, field.step) * field.step
+	}
+	if v > max {
+		return 0, false
+	}
+	return v, true
+}
+
+// fieldMin is a clock field's smallest admissible value, for the fields below one that has
+// just advanced.
+func fieldMin(field clockField) int { return field.base }
+
+// ceilDiv divides rounding away from zero, for non-negative operands.
+func ceilDiv(a, b int) int { return (a + b - 1) / b }

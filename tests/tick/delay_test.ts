@@ -49,6 +49,88 @@ test("a `for` literal resolves to its stated duration", async () => {
   expect(await ctx.env.status(id)).toBe("completed");
 });
 
+// A stepped `until` has to reach wake_at aligned, which no status check can see — the
+// instance parks either way. The armed instant is in the audit log (delay_armed carries
+// "spec -> RFC3339"), so the assertion is made there: on the grid, and no more than one
+// period away. A `for: "5s"` — the drifting stand-in this syntax replaces — passes neither
+// half from an off-grid arm time.
+test("a stepped `until` arms on the field's grid, not on the arm time", async () => {
+  await ctx.env.define("delay_step", [
+    { id: "wait", action: { type: "delay", until: "*:*:0/5" }, switch: "end" },
+  ]);
+  const id = await ctx.env.start("delay_step");
+
+  expect(await ctx.env.tick()).toBe(1); // arm
+  expect(await ctx.env.status(id)).toBe("running");
+
+  const { data, error } = await ctx.env.client.GET("/instances/{id}/logs", {
+    params: { path: { id } },
+  });
+  if (error) throw new Error(`get logs failed: ${JSON.stringify(error)}`);
+  const armed = (data!.items ?? []).find((l) => l.event === "delay_armed");
+  expect(armed, "the delay should have logged where it armed").toBeDefined();
+
+  const [spec, target] = (armed!.message ?? "").split(" -> ");
+  expect(spec).toBe("*:*:0/5");
+  const at = new Date(target!);
+  expect(at.getSeconds() % 5, `armed at ${target}, off the five-second grid`).toBe(0);
+  expect(at.getMilliseconds()).toBe(0);
+
+  // Within one period of the arm time: a five-second schedule that resolved a minute or an
+  // hour out would still be "on the grid".
+  const armedAt = new Date(armed!.time!).getTime();
+  const wait = at.getTime() - armedAt;
+  expect(wait).toBeGreaterThan(0);
+  expect(wait).toBeLessThanOrEqual(5000);
+
+  // And it is a real timer: parked until the clock reaches it, then done.
+  expect(await ctx.env.tick()).toBe(0);
+  await ctx.env.client.POST("/tick", { body: { advance_ms: 5000 } });
+  expect(await ctx.env.status(id)).toBe("completed");
+});
+
+// Drift is a property of the *loop*, not of one resolution: every single arm above can be
+// correct and the schedule still walk off the grid once the task re-arms behind its own
+// runtime. This runs the loop the way a process does — the task routes back to itself — and
+// checks the whole sequence, which is the shape the weather playground actually uses.
+test("re-arming in a loop stays on the grid instead of drifting", async () => {
+  await ctx.env.define("delay_loop", [
+    {
+      id: "wait",
+      action: { type: "delay", until: "*:*:0/5" },
+      output: { count: "$: (self.previous.count ?? 0) + 1" },
+      switch: [{ case: "self.output.count >= 5", goto: "end" }, { goto: "$wait" }],
+    },
+  ]);
+  const id = await ctx.env.start("delay_loop");
+
+  // Each round: one tick arms the delay, then the clock reaches it.
+  for (let round = 0; round < 5; round++) {
+    await ctx.env.tick();
+    await ctx.env.client.POST("/tick", { body: { advance_ms: 5000 } });
+  }
+  expect(await ctx.env.status(id)).toBe("completed");
+
+  const { data, error } = await ctx.env.client.GET("/instances/{id}/logs", {
+    params: { path: { id } },
+  });
+  if (error) throw new Error(`get logs failed: ${JSON.stringify(error)}`);
+  const armed = (data!.items ?? [])
+    .filter((l) => l.event === "delay_armed")
+    .map((l) => new Date((l.message ?? "").split(" -> ")[1]!).getTime());
+
+  expect(armed.length).toBe(5);
+  for (const [n, at] of armed.entries()) {
+    expect(new Date(at).getSeconds() % 5, `arm ${n} landed at ${new Date(at).toISOString()}`).toBe(0);
+  }
+  // Consecutive arms exactly one period apart: the clock is advanced by exactly a period
+  // each round, so anything that anchored on arm time instead of on the grid would show up
+  // here as a gap that grows.
+  for (let n = 1; n < armed.length; n++) {
+    expect(armed[n]! - armed[n - 1]!, `arms ${n - 1}→${n}`).toBe(5000);
+  }
+});
+
 // An `until` already behind now clamps to now rather than failing — the rule pause/resume
 // forces, since timers keep running while an instance is suspended.
 test("an `until` in the past wakes immediately instead of failing", async () => {

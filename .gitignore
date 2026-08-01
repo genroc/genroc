@@ -29,3 +29,4 @@ tests/generated/
 tests/node_modules/
 /p_schema.json
 /p.json
+tests/playground/weather.log

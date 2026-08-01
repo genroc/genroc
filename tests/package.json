@@ -7,6 +7,7 @@
     "generate": "openapi-typescript ../openapi.json -o generated/api.ts",
     "playground:generate": "bun run playground/codegen.ts",
     "playground:server": "bun run playground/server.ts",
+    "playground:weather": "bun run playground/weather_server.ts",
     "playground:run": "bun run playground/run.ts",
     "bench-recursive": "bun run bench/run.ts recursive",
     "bench-deep": "bun run bench/run.ts deep",

@@ -1,6 +1,7 @@
 # `delay`: human durations and calendar deadlines
 
-**Status: IMPLEMENTED, 2026-07-31.** `for`, `until` and `tz` are the delay action's slots;
+**Status: IMPLEMENTED, 2026-07-31**; clock wildcards (`*:*:00`) added 2026-08-01, see
+*Clock wildcards*. `for`, `until` and `tz` are the delay action's slots;
 `ms` was **removed outright** rather than deprecated, which is the decision this document
 was written to force. The window for that closes at the first release — see
 *Compatibility*.
@@ -122,7 +123,87 @@ Three closed forms, next match after now, no natural language:
 1. **absolute** — RFC 3339, RFC 9557 with the IANA annotation
    (`2026-09-01T08:00:00+02:00[Europe/Prague]`), or relaxed `2026-09-01 08:00`
 2. **offset + wall clock** — `+2d 08:00`: two days from now, at 08:00 in `tz`
-3. **calendar pattern** — a `systemd` `OnCalendar` subset: `*-*-01 08:00`, `mon 09:00`
+3. **calendar pattern** — a `systemd` `OnCalendar` subset: `*-*-01 08:00`, `mon 09:00`,
+   `*:*:00`
+
+#### Clock wildcards (added 2026-08-01)
+
+Any clock field of a pattern may be `*`, which is the only way to name a schedule finer
+than a day:
+
+| spelling | means | cron |
+|---|---|---|
+| `*:*:00` | every whole minute | `* * * * *` |
+| `*:*:*` | every second | — (cron has no seconds field) |
+| `*:30:00` | every hour at half past | `30 * * * *` |
+| `12:*:00` | every minute of the 12th hour | `* 12 * * *` |
+| `*:*:0/5` | every five seconds | — |
+| `*:0/15:00` | every quarter hour | `*/15 * * * *` |
+| `*:2/5:00` | every five minutes, from :02 | `2-59/5 * * * *` |
+
+A field is written three ways and stored as one thing — `base/step`, where `*` is `0/1`
+and a plain number is a base with no step. Nothing downstream branches on which was
+written.
+
+**`base/step`, not cron's `*/step`.** They mean the same for `0/5`, and `*/5` is the
+spelling most people know — but the base *is* the phase (`2/5` is :02, :07, :12), and
+`*/5` has nowhere to put one, which makes it a special case of `base/step` rather than an
+alternative to it. Two spellings for one concept is not worth the recognition when the
+error message can name the right one, which it does. A step past its field's range is
+rejected too: `0/61` on seconds would match only `:00`, which is what writing `00` already
+says.
+
+Steps are **clock-only**. `systemd` allows them on date fields as well; nothing has asked
+for "every third day", and the date walk would need the same treatment `fieldAtLeast` got.
+It is a small extension when a case appears.
+
+A step that does not divide its field's range leaves a short interval at the wrap — `0/7`
+on seconds runs :00, :07 … :56, then :00, a 4-second gap. That is cron's behaviour too and
+it is inherent: alignment to the minute and even spacing cannot both hold.
+
+An **omitted** seconds field stays `:00`; only a written `*` or step widens it. `08:00` has always
+named one instant a day and keeps doing so — the alternative would silently turn every
+existing schedule into a per-second one.
+
+The offset form takes no wildcards: `+2d *:00` names a day and then fails to name a time
+on it, which is not an instant.
+
+**This does not make `until` recurring** — see the decision below. A pattern still resolves
+to exactly one instant; repetition is a back edge in the process, which is where genroc's
+recurrence has always lived. The difference from cron is only *where* the repetition is
+written, and the loop has one property cron's default lacks: because each iteration
+re-resolves against the then-current now, a body that overruns its period waits for the
+next match instead of starting a second, overlapping run.
+
+##### Why the search is a hybrid
+
+The date fields are searched by walking forward a day at a time, bounded at five years:
+that is what keeps `*-*-31` and leap days correct without special-casing month lengths,
+and a satisfiable date pattern is at most ~1500 steps of integer comparison away.
+
+The clock fields cannot be searched the same way. `*:*:00` matches 1440 times a day and
+`*:*:*` matches 86 400 — so `*-02-29 *:*:*`, a leap day away, would be ~50 million steps.
+The time of day is therefore **computed**: a carry cascade over hours → minutes → seconds
+(`nextClock`), a fixed handful of comparisons regardless of how dense the pattern is. Only
+the date is walked; the clock never is.
+
+##### DST
+
+Both transitions are reachable by a per-minute schedule, unlike a once-a-day clock, so both
+are pinned by test:
+
+- **Spring forward.** 02:00–02:59 do not exist, so `*:*:00` goes 01:59 → 03:00. Nothing is
+  actually skipped: those two wall clocks are 60 seconds of real time apart.
+- **Fall back.** 02:00–02:59 happen twice, and a schedule fires on both passes. That takes
+  two rules, because a search over increasing wall clocks can only see one of them:
+  - `resolveWall` names the *first* occurrence of an ambiguous wall clock; when that one is
+    already behind now, the **second occurrence is the next match** — "the next 02:31"
+    after the first 02:31 has passed is the other 02:31.
+  - When now sits in the *first* pass, matches whose wall clock is behind now still occur
+    again ahead of it, and the walk never revisits them. `repeatedMatch` searches the
+    repeat from its own start and offsets the result; the sooner of the two searches wins.
+    Without it, `*:30:00` at 02:30 summer time skips its 02:30 winter-time tick and waits
+    two hours instead of one — which is exactly what the brute-force oracle test caught.
 
 ### `tz`
 
@@ -295,10 +376,33 @@ normalization (`internal/engine/action.go:224-254`); the `$:` discrimination in
   existing one hour earlier, which makes the rule hold whichever occurrence `time.Date`
   happens to return. Not handled: transitions that are not a whole hour (Lord Howe's 30
   minutes).
+
+  **Amended 2026-08-01:** the *nonexistent* case had been left to `time.Date`, on the
+  strength of Prague, where it does normalize forward (02:30 → 03:30). It does not do so
+  everywhere: for Santiago, whose gap starts at midnight, asking for 00:49 returns **23:49
+  the previous day**. The date walk then saw a candidate on the wrong date and skipped that
+  day entirely — a schedule silently a day late, once a year, in half the world's zones.
+  `resolveWall` now reads the requested clock against both offsets in play around the gap
+  and takes the later, which is "forward" whichever way the zone's rules run. Found by the
+  randomised scan cross-check, not by review.
 - **Definition-level default `timezone`**, with per-task `tz` overriding, vs. per-task
   only. *(open)*
 - **Deprecation appetite for `ms`:** *(closed)* Removed outright before the first release,
   so there is nothing to deprecate. `ms: "30000"` is written `for: 30000`.
 - **Recurrence is out of scope.** `until` resolves to exactly one instant; a repeating
   schedule is a different feature and probably a different action type. *(closed for this
-  doc)*
+  doc)* — **still true after clock wildcards.** `*:*:00` resolves to one instant like every
+  other pattern; that a process loops back onto the same task is the process's business, not
+  the slot's. What changed is only that a pattern can now name a time of day partially.
+- **Clock wildcards.** *(decided, 2026-08-01)* Any clock field of a pattern may be `*`, down
+  to seconds. The grammar had taken only the date half of `systemd`'s `OnCalendar`, which
+  left "every whole minute" — cron's `* * * * *`, the single most ordinary schedule there
+  is — unwritable: `for: "1m"` drifts by the body's own runtime, and the `$:` branch cannot
+  help because the expression language has no clock. The search stays affordable because
+  only the date is walked; see *Why the search is a hybrid*.
+- **Step values.** *(decided, 2026-08-01)* Written `base/step`, `systemd`'s spelling.
+  cron's `*/step` is rejected by name, with the working spelling in the message — see
+  *Clock wildcards*. Clock fields only.
+- **Lists (`*:*:0,15,30,45`).** *(open)* `systemd` and cron both have them; nothing has
+  needed one yet, and a step covers every regular schedule. Worth adding only for genuinely
+  irregular times, which are rare enough to write as separate definitions today.
