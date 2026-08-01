@@ -19,6 +19,8 @@ import (
 //	instant_resolve_test.go finding a pattern's next match
 //	instant_random_test.go  the same, cross-checked against a brute-force scan on
 //	                        generated patterns and instants
+//	doc_examples_test.go    every spelling docs/delay-syntax.md shows, run through the
+//	                        parser — so the reference cannot drift from the grammar
 
 const (
 	// wallFmt renders an instant with its UTC offset, for the cases where the zone is the
