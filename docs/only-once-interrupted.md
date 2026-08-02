@@ -111,15 +111,6 @@ pause" means.
 
 ## What a matching rule may do
 
-Everything `on_error` already offers, minus retries:
-
-- **`retries` is refused, always.** Not "refused unless `not_reached`" — refused. That flag
-  is an author's assertion that a *call error* means the request never left, and here there
-  was no call error: the attempt vanished without recording anything. Today a rule of
-  `{code: ["%"], retries: 3, not_reached: true}` on an `only_once` task passes validation,
-  so the runtime refusal is the load-bearing one. Registration additionally rejects
-  `retries > 0` on a rule whose pattern **literally** names the code, because an ignored
-  `retries` is worse than a refused one (the same argument D7 makes for child tasks).
 - **`goto`, `raise`, `panic`, `goto: end`** all behave exactly as they do for a call error.
 - **Wildcards and catch-alls may match it.** `%` is the author's risk, consistent with how
   every other code is matched; there is no exactness gate. One consequence to accept
@@ -129,11 +120,56 @@ Everything `on_error` already offers, minus retries:
   behaviour change for existing rows, not a re-registration.
 - **Uncaught is unchanged**: no matching rule means the same terminal failure as today,
   with the same phrase in `error`.
+- **`retries` is refused** — and not only for this code. See the next section.
 
 Mechanically it is `handleCallError` minus the retry branch: match, inject
 `$error = {task, message, code}`, then route. `$error.task` is what tells the handler
 *which* task was interrupted. No `work_started` is emitted for the interrupted task —
 the handler task emits its own on the next claim.
+
+## The unknowable set: where `not_reached` stops being an option
+
+`only_once.interrupted` is not the only error an `only_once` task can meet where retrying
+is a coin flip, and it would be strange to ban the retry here while allowing it on the
+error one line over that means the same thing operationally. So the rule is drawn around
+the property, not the code:
+
+> **A retry is refused when the definition cannot, even in principle, know whether the
+> call took effect** — which is exactly when the request left and no response ever came
+> back.
+
+| code | why it is in the set |
+|---|---|
+| `only_once.interrupted` | the worker vanished mid-task; nothing was recorded anywhere |
+| `http.timeout` | connected, and no response ever arrived — the server may have processed it |
+| `external.timeout` | an occurrence was armed and nobody resolved it before the deadline (routed through `handleCallError` like any call error, so it is subject to the same rules) |
+
+And what stays outside it, where `not_reached: true` keeps working exactly as documented:
+
+| code | why the author may still assert |
+|---|---|
+| `pre.*` | the request never left; a retry is safe with no assertion needed at all |
+| `http.<status>`, `output.parse`, `output.invalid` | a response **did** arrive, so there is evidence to reason from — "a 422 from this API means nothing was charged" is a real claim about a real API |
+
+That is the line: `not_reached` is an assertion about what an error *means*, and it can
+only be made about an error that actually came back. For the set above nothing came back,
+so there is nothing to interpret — an author writing `not_reached: true` there is not
+asserting domain knowledge, they are guessing.
+
+**Enforcement is at declaration, and again at runtime.** Registration rejects `retries > 0`
+on any rule whose pattern can match a member of the set, and `not_reached: true` does not
+rescue it. "Can match" is exact rather than approximated: the set is small and fixed, so
+each pattern is tested against each member with the same matcher the engine routes with —
+`%` and every other wildcard fall out of that for free, with no prefix analysis.
+
+The runtime refusal stays as well, and it is not redundant. Validation runs at
+registration; definitions registered before this rule keep their stored `on_error` rules
+verbatim and never re-validate, so the engine must still refuse the retry when one of them
+routes today.
+
+Wildcards remain legal for **matching**. `{code: ["%"], goto: verify}` is fine and
+sometimes exactly right; `{code: ["%"], retries: 3}` is not, because `%` can match
+`http.timeout`.
 
 ## Recovering: verify, then continue
 
@@ -144,7 +180,7 @@ The intended shape, and the reason retries are banned rather than merely discour
   only_once: true
   action: { type: fetch, url: "https://psp.example/charge", ... }
   on_error:
-    - code: [only_once.interrupted]
+    - code: [only_once.interrupted, http.timeout]   # both mean "outcome unknown"
       goto: verify_charge
   switch: [{ goto: receipt }]
 
@@ -155,6 +191,13 @@ The intended shape, and the reason retries are banned rather than merely discour
       goto: receipt
     - goto: charge_card                   # it did not — re-run it, deliberately
 ```
+
+The rule lists **both** unknowable codes, and handlers generally should. The two arise
+differently — a worker that vanished versus a server that never answered — but they leave
+the definition in the same position, with the same question to ask and the same place to
+ask it. A handler that catches only `only_once.interrupted` leaves the far more common
+`http.timeout` falling through to a plain failure on the very task that can least afford
+one.
 
 The re-entry on the last line works and is sanctioned: the `only_once` guard is evaluated
 **once per claim**, in `prepareAdvance`, against the task the instance was parked on — not
@@ -170,6 +213,26 @@ concludes the call did happen must produce the equivalent value itself — which
 `verify_charge` above does by reading the charge back, its own output taking the place of
 the lost one.
 
+## Implementation note: where the matcher has to live
+
+The declaration check needs to ask "can this pattern match this code", which is
+`transport.MatchCode` — and `internal/model` cannot import `internal/transport`, because
+transport imports model. Three ways out, in order of preference:
+
+1. **Move the matcher into `errcode`.** It matches codes, `errcode` is the package that
+   owns codes, and it has no genroc dependencies, so both model and transport can use it.
+   `transport.MatchCode` becomes a one-line forward (it is also used for `accepted_status`
+   patterns, which are not codes — a second reason to keep the transport-side name).
+2. Do the check in `internal/validation`, which may import both. Rejected: the other
+   `only_once` retry rules live in `model/validate.go`, and splitting one rule set across
+   two packages is how it drifts.
+3. Reimplement a matcher in model. No.
+
+The set itself belongs in `errcode` beside `NotReached`, and the two read as the pair they
+are: `NotReached` is the prefix meaning "definitely did not happen", and this is the list
+meaning "cannot be known either way". A `Code.IsUnknowable()` method mirrors
+`Code.IsNotReached()`.
+
 ## Compatibility
 
 - Instances that already failed carry the string `engine.only_once` in `error_code`
@@ -177,6 +240,18 @@ the lost one.
   contains "only_once", so `crash_recovery_test.ts`'s existing assertion survives.
 - No schema change, no migration. `error_code` is a free-form string column.
 - Definitions with no rule for the code behave identically to today.
+- **The unknowable set tightens an existing allowance.** Today
+  `{code: ["http.%"], retries: 2, not_reached: true}` on an `only_once` task registers
+  cleanly, because `not_reached` overrides the pattern check; afterwards it does not,
+  since `http.%` can match `http.timeout`. Re-registering such a definition fails with a
+  message naming the offending code, and the author narrows the pattern (`http.4%`) or
+  drops the retry. Versions already registered keep running — validation happens at
+  registration — which is why the runtime refusal is load-bearing rather than belt-and-braces.
+- `only_once` is the fallback for APIs that cannot deduplicate. Where the remote accepts an
+  idempotency key, sending one from process input (`${ input.order_id }`) makes a retry
+  safe outright, and none of this applies. genroc cannot synthesise such a key itself: the
+  expression environment is `input`, `outputs`, `self`, `error`, `config` — there is no
+  engine-provided run identity (see Open questions).
 
 ## Testing
 
@@ -194,11 +269,14 @@ the lost one.
   and assert the instance settles at **`paused` parked on the handler task** — not on the
   interrupted one, and not `running`. Then resume and assert the handler runs. The
   uncaught variant of the same setup must settle `failed`, as it does today.
-- Go, `internal/model`: registration rejects `retries` on a rule literally naming the code;
-  a wildcard rule with `retries` + `not_reached` still registers (the author's risk) but is
-  refused at runtime.
+- Go, `internal/model`: a table over the unknowable set × pattern shapes — `%`, `http.%`,
+  `only_once.%`, the literal code, and a near-miss that must still register (`http.4%`,
+  `pre.%`) — each with and without `not_reached: true`, asserting that the flag never
+  rescues a rule that can match the set. Plus the unchanged cases: `pre.%` + retries
+  registers, `http.500` + retries + `not_reached` registers.
 - Go, `internal/engine`: uncaught → terminal with the code; matched `goto` → routed with
-  `$error` populated; matched rule carrying `retries` → routed, never retried.
+  `$error` populated; a stored rule carrying `retries` (as a pre-rule definition would) →
+  routed, never retried — the runtime half of the ban.
 
 ## Open questions
 
@@ -212,6 +290,21 @@ the lost one.
   `RenewWorkerLeases` would renew forever, so it depends on the renewer scoping specced in
   [lease-fencing.md](lease-fencing.md). Resolving the interruption immediately makes both
   unnecessary: nothing has to survive the pause because nothing is deferred.
+- **Is `external.timeout` really in the unknowable set?** It is here by the principle
+  rather than by demand: an armed occurrence whose deadline passed tells the engine nothing
+  about whether the external actor acted, which is the same epistemic state as a response
+  that never came. But `only_once` on an external task is a less-trodden combination than
+  `only_once` on a fetch, so it is the member of the set most worth a second opinion.
+- **Should a stable run identity be exposed to expressions?** The idempotency-key path
+  above is the better answer whenever the remote supports it, and today an author can only
+  build a key out of their own input. An engine-provided identity (the instance id, or a
+  per-task attempt token) would make the key derivable for any process. It is a change to
+  the expression environment, so it belongs in its own design rather than smuggled in here.
+- **Is there a third outcome between "fail" and "route"?** A definition with no handler for
+  an unknowable error currently fails the tree, and recovery is `RetryProcess(force)` — an
+  operator verb applied to a dead process. A state meaning "stopped, needs a human, resume
+  when decided" would fit this case better than either. It is a lifecycle change, not an
+  error-model one, so it is noted rather than proposed.
 - **Should `$error` say more than the code?** A handler currently learns *which* task was
   interrupted but nothing about how far it got — there is nothing to learn, since the
   attempt recorded nothing. If action-level metadata (`self.status`, the `fetch` surface

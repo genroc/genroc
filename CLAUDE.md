@@ -176,10 +176,14 @@ describing the code as it stands:
 - [docs/only-once-interrupted.md](docs/only-once-interrupted.md) — make an interrupted
   `only_once` task recoverable instead of terminal: a new **catchable** engine code
   `only_once.interrupted` that `on_error` can route, so a definition can ask the system of
-  record whether the call happened and then continue (or deliberately re-run it). Retries
-  are refused on it unconditionally — `not_reached` is an assertion about a call error, and
-  this event is the absence of one. Records why the code is not in `pre.*` (that prefix
-  authorises retries) nor `engine.*` (that family means uncatchable).
+  record whether the call happened and then continue (or deliberately re-run it). Also
+  defines the **unknowable set** — `only_once.interrupted`, `http.timeout`,
+  `external.timeout`: the errors where the request left and nothing came back, so there is
+  no evidence to interpret. On an `only_once` task these can never be retried and
+  `not_reached: true` no longer overrides, enforced at registration (any pattern that *can*
+  match a member, `%` included) and again at runtime (for definitions registered earlier).
+  Records why the code is not in `pre.*` (that prefix authorises retries) nor `engine.*`
+  (that family means uncatchable).
 - [docs/fetch-http-surface.md](docs/fetch-http-surface.md) — two independent additions
   to `fetch`: response metadata (`self.status` / `self.headers`, which would retire the
   `http.202`-via-`on_error` trick in the polling example) and a structured `query` slot
