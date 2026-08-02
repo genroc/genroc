@@ -150,8 +150,14 @@ type InstanceSummary struct {
 	RetryCount int
 	Status     Status
 	WaitState  WaitState
-	Error      string
-	ErrorCode  string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// Task is the instance's position in its definition's task list — where it is
+	// running, parked or stopped, and on a settled one where it finished. Cheap (a
+	// short string on the row) and the one piece of "where is this process" that
+	// status and wait_state cannot express between them, so unlike the JSON blobs it
+	// belongs in the light projection.
+	Task      string
+	Error     string
+	ErrorCode string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }

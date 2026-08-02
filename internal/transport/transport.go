@@ -176,34 +176,4 @@ func RetryDelay(attempt int) time.Duration {
 	return d
 }
 
-// MatchCode reports whether the error code s matches the pattern p. '%' is the only
-// wildcard: it matches any sequence of characters (including none). Every other character
-// is literal — in particular '_' and '.' match themselves, because both are ordinary
-// characters in an error code (snake_case, and dotted engine codes like http.500 /
-// pre.timeout). This is deliberately NOT full SQL LIKE: LIKE's '_' single-char wildcard
-// is a footgun for codes that contain underscores, so `order_%` matches `order_placed` but
-// not `order.placed`.
-func MatchCode(p, s string) bool {
-	for len(p) > 0 {
-		switch p[0] {
-		case '%':
-			p = p[1:]
-			if len(p) == 0 {
-				return true
-			}
-			for i := 0; i <= len(s); i++ {
-				if MatchCode(p, s[i:]) {
-					return true
-				}
-			}
-			return false
-		default:
-			if len(s) == 0 || p[0] != s[0] {
-				return false
-			}
-			p, s = p[1:], s[1:]
-		}
-	}
-	return len(s) == 0
-}
 

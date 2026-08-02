@@ -396,6 +396,7 @@ func runGetCmd(server string, args []string) {
 		Version    int            `json:"version"`
 		Status     string         `json:"status"`
 		WaitState  string         `json:"wait_state"`
+		Task       string         `json:"task"`
 		RetryCount int            `json:"retry_count"`
 		Error      string         `json:"error"`
 		ErrorCode  string         `json:"error_code"`
@@ -411,6 +412,11 @@ func runGetCmd(server string, args []string) {
 	fmt.Fprintf(w, "ID:\t%s\n", inst.ID)
 	fmt.Fprintf(w, "Process:\t%s@v%d\n", inst.Process, inst.Version)
 	fmt.Fprintf(w, "Status:\t%s\n", inst.Status)
+	// Where the process is, printed right under what is happening to it — and on a
+	// settled instance, where it stopped.
+	if inst.Task != "" {
+		fmt.Fprintf(w, "Task:\t%s\n", inst.Task)
+	}
 	if inst.WaitState != "" {
 		fmt.Fprintf(w, "Wait:\t%s\n", inst.WaitState)
 	}

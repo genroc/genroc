@@ -192,7 +192,12 @@ type InstanceSummaryResp struct {
 	Version    int             `json:"version"`
 	Status     model.Status    `json:"status"`
 	WaitState  model.WaitState `json:"wait_state,omitempty"`
-	RetryCount int             `json:"retry_count"`
+	// Task is where the instance sits in its definition: the task it is running, is
+	// parked on, or stopped at — and on a settled instance, the one it finished,
+	// failed or raised at. Status says what is happening to the process and
+	// wait_state says what it is waiting for; this says where.
+	Task       string `json:"task,omitempty"`
+	RetryCount int    `json:"retry_count"`
 	Error      string          `json:"error,omitempty"`
 	ErrorCode  string          `json:"error_code,omitempty"` // machine-readable discriminator for every non-success outcome; see model.ProcessInstance.ErrorCode
 	CreatedAt  string          `json:"created_at"`

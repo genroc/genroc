@@ -474,7 +474,10 @@ func TestProcessDefinition_Validate(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			name: "only_once:true — not_reached:true on catch-all retry is valid",
+			// A catch-all matches the unknowable codes too, and not_reached cannot
+			// assert anything about an error that never came back — so unlike the
+			// http.422 case above, this one is refused however it is annotated.
+			name: "only_once:true — not_reached:true does not rescue a catch-all retry",
 			def: ProcessDefinition{Name: "p", Tasks: []*Task{
 				{
 					ID: "charge", Action: &Action{Type: ActionTypeFetch, URL: "http://x"},
@@ -483,7 +486,7 @@ func TestProcessDefinition_Validate(t *testing.T) {
 					OnError:  []ErrorCase{{NotReached: boolPtr(true), Retries: 2}},
 				},
 			}},
-			wantErr: "",
+			wantErr: "a catch-all rule cannot have retries on an only_once task",
 		},
 		{
 			name: "only_once:true — retries on http.% is rejected",
@@ -531,7 +534,7 @@ func TestProcessDefinition_Validate(t *testing.T) {
 					OnError:  []ErrorCase{{Retries: 2}},
 				},
 			}},
-			wantErr: "catch-all rule cannot have retries on an only_once task",
+			wantErr: "a catch-all rule cannot have retries on an only_once task",
 		},
 		{
 			name: "only_once:true — wildcard crossing namespaces is rejected",

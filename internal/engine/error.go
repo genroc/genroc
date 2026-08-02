@@ -6,7 +6,6 @@ import (
 	"genroc/internal/db"
 	"genroc/internal/errcode"
 	"genroc/internal/model"
-	"genroc/internal/transport"
 )
 
 // All engine-produced codes live in package errcode (the single source of truth). The
@@ -18,9 +17,18 @@ import (
 // For idempotent tasks (the default) retries are always governed by on_error rules.
 // For non-idempotent tasks, a retry is only allowed when we know the remote call
 // never started: a pre.* (not-reached) code, or an on_error rule with not_reached:true.
+//
+// The unknowable codes are the exception that not_reached cannot buy back: the request
+// left and nothing came back, so there is no error to interpret and nothing for the
+// author to assert. Registration rejects such a rule outright (validateOnError), but a
+// definition registered before that rule keeps its stored on_error verbatim and never
+// re-validates — so this test is what actually holds the line at runtime.
 func isRetryAllowed(task *model.Task, errCode errcode.Code, matched *model.ErrorCase) bool {
 	if task.OnlyOnce == nil || !*task.OnlyOnce {
 		return true
+	}
+	if errCode.IsUnknowable() {
+		return false
 	}
 	if matched != nil && matched.NotReached != nil && *matched.NotReached {
 		return true
@@ -28,10 +36,22 @@ func isRetryAllowed(task *model.Task, errCode errcode.Code, matched *model.Error
 	return errCode.IsNotReached()
 }
 
+// interruptedOnlyOnce reports whether task is an only_once action whose previous attempt
+// was cut short — the question both reclaim paths ask, and the only situation that
+// produces errcode.OnlyOnceInterrupted.
+func interruptedOnlyOnce(task *model.Task) bool {
+	return task != nil && task.Action != nil && task.OnlyOnce != nil && *task.OnlyOnce
+}
+
+// interruptedMessage is the reason text for an interrupted only_once task. It says what
+// happened to the task, not what happened to the worker: a definition has no lease to
+// reason about, and its author's question is only ever "did this take effect".
+const interruptedMessage = "its previous attempt was interrupted; the engine will not re-run it"
+
 // matchOnError returns the first ErrorCase whose Code patterns match errCode,
 // or whose Code list is empty (catch-all). Returns nil when no rule matches.
 // Used for both action tasks (matching engine codes) and child tasks (matching a child's
-// raised code) — the same transport.MatchCode, where `%` is the only wildcard, so
+// raised code) — the same errcode.MatchCode, where `%` is the only wildcard, so
 // `order_%` matches `order_placed` but not `order.placed`. A child task's patterns were
 // checked at registration against the child raise set (R5), so a rule that fires here can
 // always match something the child actually raises.
@@ -42,7 +62,7 @@ func matchOnError(task *model.Task, errCode errcode.Code) *model.ErrorCase {
 			return c
 		}
 		for _, pat := range c.Code {
-			if transport.MatchCode(pat, string(errCode)) {
+			if errcode.MatchCode(pat, string(errCode)) {
 				return c
 			}
 		}
@@ -178,15 +198,14 @@ func (e *Engine) failInstance(inst *model.ProcessInstance, code errcode.Code, re
 // while paused, so a delay or backoff that elapses meanwhile is simply due on resume.
 //
 // This path is reached only when a worker died holding the instance — in the normal case
-// the pause lands in SQL when the owning worker writes its finished task. That makes the
-// reclaim check below load-bearing rather than defensive: the interrupted task may have
-// already executed on the dead worker, and pausing here would launder that into a silent
-// re-execution when the operator resumes.
-func (e *Engine) settlePausing(inst *model.ProcessInstance, task *model.Task) advanceOutcome {
-	if inst.ReclaimedExpired && task != nil && task.Action != nil && task.OnlyOnce != nil && *task.OnlyOnce {
-		return e.failInstance(inst, errcode.EngineOnlyOnce, fmt.Sprintf(
-			"task %q is only_once and was interrupted by a lease takeover; cannot re-execute", task.ID))
-	}
+// the pause lands in SQL when the owning worker writes its finished task.
+//
+// An interrupted only_once task never reaches here: advance() resolves that before the
+// pause, because the evidence for it (ReclaimedExpired, derived per claim from worker_id)
+// does not survive the write that settles the pause. Everything that does reach here is
+// safe to park as-is — a task that may be re-run on resume needs no evidence, only the
+// task position this instance already carries.
+func (e *Engine) settlePausing(inst *model.ProcessInstance) advanceOutcome {
 	inst.Status = model.StatusPaused
 	// The other half of inst_paused: PauseProcess logs the rows it settled directly, and
 	// this covers the leased one it could only mark 'pausing'. Same event and level, so

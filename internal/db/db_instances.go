@@ -73,7 +73,7 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 // and it is what a list is usually being filtered or scanned for when something has
 // gone wrong, so making callers fetch the detail view to see it would defeat the point.
 const instanceSummaryColumns = `id, process_name, process_version, retry_count,
-	status, wait_state, error, error_code, created_at, updated_at`
+	status, wait_state, task, error, error_code, created_at, updated_at`
 
 // scanInstanceSummary reads one process_instances row (in instanceSummaryColumns
 // order) into a model.InstanceSummary.
@@ -86,7 +86,7 @@ func scanInstanceSummary(s interface{ Scan(...any) error }) (*model.InstanceSumm
 	)
 	if err := s.Scan(
 		&r.ID, &r.ProcessName, &processVersion, &retryCount,
-		&status, &waitState, &r.Error, &r.ErrorCode, &createdAt, &updatedAt,
+		&status, &waitState, &r.Task, &r.Error, &r.ErrorCode, &createdAt, &updatedAt,
 	); err != nil {
 		return nil, err
 	}

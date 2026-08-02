@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"genroc/internal/shape"
@@ -95,6 +96,15 @@ func (s *SwitchMap) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &items); err != nil {
 		return fmt.Errorf("switch: %w", err)
 	}
+	// Same strictness as on_error, for the mirror typo.
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err == nil {
+		for _, item := range raw {
+			if err := rejectUnknownFields("switch", item, switchCaseFields); err != nil {
+				return err
+			}
+		}
+	}
 	*s = (*s)[:0]
 	for _, item := range items {
 		// Only the *shape* of a goto is checked here. Which of goto/raise/panic a case
@@ -156,7 +166,7 @@ type ErrorCase struct {
 	Goto       string   `json:"goto,omitempty"        description:"Task to route to when retries are exhausted. '$task-id' or 'end'. Omit to fail the instance."`
 	Raise      *Fault   `json:"raise,omitempty"       description:"Terminate as 'raised' with this code and message instead of routing — an anticipated condition a parent process may react to. Mutually exclusive with goto and panic."`
 	Panic      *Fault   `json:"panic,omitempty"       description:"Terminate as 'failed' with this code and message instead of routing — a defect. Nothing can catch a panic; the code exists to classify the failure, not to branch on it. Mutually exclusive with goto and raise."`
-	NotReached *bool    `json:"not_reached,omitempty" description:"Assert that this error code means the remote call was never reached. When true, retries are allowed even on only_once:true tasks. Omit to use the engine's default classification (pre.* = not reached, everything else = potentially reached)."`
+	NotReached *bool    `json:"not_reached,omitempty" description:"Assert that this error code means the remote call was never reached. When true, retries are allowed even on only_once:true tasks. On an only_once task it must name exact codes rather than a wildcard -- an assertion is about one specific error -- and it cannot be made at all about http.timeout, external.timeout or only_once.interrupted, since nothing came back from those to interpret. Omit to use the engine's default classification (pre.* = not reached, everything else = potentially reached)."`
 }
 
 // errorCaseWire is the JSON wire form of an ErrorCase, shared by its MarshalJSON and
@@ -182,7 +192,57 @@ func (e ErrorCase) MarshalJSON() ([]byte, error) {
 	return json.Marshal(w)
 }
 
+
+// A task's two rule lists sit next to each other and select with different keys: a switch
+// case matches a condition with "case", an on_error rule matches error codes with "code".
+// Mistyping one for the other is easy, and encoding/json's default is to drop the unknown
+// key without a word — which is not benign here. An on_error rule whose "code" was dropped
+// becomes a **catch-all**, the broadest and most dangerous shape there is, and the author
+// is then told off about a rule they did not write.
+//
+// Rejecting the key is safe despite the usual rule that decoders also run over stored rows:
+// SaveDefinition persists json.Marshal of the decoded struct, so a stored definition is
+// canonical by construction and cannot carry a field this does not know.
+var (
+	errorCaseFields  = map[string]bool{"code": true, "retries": true, "goto": true, "raise": true, "panic": true, "not_reached": true}
+	switchCaseFields = map[string]bool{"case": true, "goto": true, "raise": true, "panic": true}
+
+	// Advice for the two keys that are valid in the *other* list. Only reached for a key
+	// the rule itself does not accept, so a legitimate use never sees it.
+	ruleFieldHints = map[string]string{
+		"case": `an on_error rule selects errors with "code"; "case" belongs to a switch`,
+		"code": `a switch case selects with "case"; "code" belongs to on_error`,
+	}
+)
+
+// rejectUnknownFields reports the first key in data that the rule does not define, in
+// sorted order so the message is stable. A malformed document is left to the real decode,
+// which reports it better.
+func rejectUnknownFields(where string, data []byte, allowed map[string]bool) error {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(probe))
+	for k := range probe {
+		if !allowed[k] {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	sort.Strings(keys)
+	if hint, ok := ruleFieldHints[keys[0]]; ok {
+		return fmt.Errorf("%s: unknown field %q - %s", where, keys[0], hint)
+	}
+	return fmt.Errorf("%s: unknown field %q", where, keys[0])
+}
+
 func (e *ErrorCase) UnmarshalJSON(data []byte) error {
+	if err := rejectUnknownFields("on_error", data, errorCaseFields); err != nil {
+		return err
+	}
 	var w errorCaseWire
 	if err := json.Unmarshal(data, &w); err != nil {
 		return err

@@ -3,10 +3,10 @@ package validation
 import (
 	"fmt"
 
+	"genroc/internal/errcode"
 	"genroc/internal/model"
 	"genroc/internal/schema"
 	"genroc/internal/shape"
-	"genroc/internal/transport"
 )
 
 // DefinitionGetter looks up process definitions. *db.DB satisfies this interface.
@@ -73,7 +73,7 @@ func ValidateChildProcessRefs(def *model.ProcessDefinition, currentVersion int, 
 // raise set, so a typo'd or orphaned rule is caught, but a raisable code with no rule is
 // allowed and surfaces at runtime (§3.1).
 //
-// Patterns are matched with the same transport.MatchCode the engine uses at runtime
+// Patterns are matched with the same errcode.MatchCode the engine uses at runtime
 // (`%` the only wildcard), so `fourth_%` is accepted as long as some child raises a
 // matching code. This is what makes the child raise set a genuinely closed set to validate
 // against — an action task's engine-code space is open (http.NNN is unbounded), so there is
@@ -119,7 +119,7 @@ func validateChildOnErrorReachability(s *model.Task, current *model.ProcessDefin
 
 	matchesSomeRaise := func(pattern string) bool {
 		for _, code := range raisable {
-			if transport.MatchCode(pattern, code) {
+			if errcode.MatchCode(pattern, code) {
 				return true
 			}
 		}

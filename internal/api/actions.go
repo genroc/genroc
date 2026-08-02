@@ -314,7 +314,8 @@ var registry = func() []actionDef {
 			Resp: InstanceStatusResp{
 				InstanceSummaryResp: InstanceSummaryResp{
 					ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
-					Version: 1, Status: model.StatusCompleted,
+					Version: 1, Status: model.StatusFailed, Task: "charge_card",
+					ErrorCode: "only_once.interrupted",
 				},
 				Context: map[string]any{"order_id": 42, "charged": true},
 			},

@@ -1,13 +1,22 @@
 # Recovering an interrupted `only_once` task
 
-Status: **proposed, not implemented** (drafted 2026-08-02).
+Status: **implemented 2026-08-02** (drafted the same day). Everything below "The gap"
+describes current behaviour; the gap itself describes what it replaced.
 
-Would touch: `internal/errcode/errcode.go`, `internal/engine/advance.go`
-(`prepareAdvance`), `internal/engine/error.go` (a router beside `handleCallError`),
-`internal/model/validate.go` (`validateOnError`), `internal/model/wire.go` (the
-`only_once` / `on_error` descriptions the editor schema is generated from),
-`docs/child-error-handling.md` (the error-code table), and
-`tests/integration/crash_recovery_test.ts`.
+Code: `internal/errcode/errcode.go` (the code, the unknowable set, `MatchCode`),
+`internal/engine/advance.go` (`prepareAdvance` and the `pausing` branch of `advance`),
+`internal/engine/error.go` (`isRetryAllowed`, `settlePausing`, `interruptedOnlyOnce`),
+`internal/model/validate.go` (`validateOnError`), `internal/model/definition.go` and
+`wire.go` (the `only_once` / `not_reached` descriptions the editor schema is generated
+from).
+
+Tests: `internal/engine/interrupted_test.go`, `internal/model/validate_onlyonce_test.go`
+(the retry-tier matrix), the only_once cases in `internal/model/definition_test.go`,
+`internal/errcode/match_test.go`, `tests/integration/idempotent_test.ts`, and the
+interrupted-recovery tests at the end of `tests/integration/crash_recovery_test.ts`.
+
+`docs/child-error-handling.md` still lists `engine.only_once` in its historical code
+table; it is a record of what was decided then, not of current behaviour.
 
 ## The gap
 
@@ -120,7 +129,8 @@ pause" means.
   behaviour change for existing rows, not a re-registration.
 - **Uncaught is unchanged**: no matching rule means the same terminal failure as today,
   with the same phrase in `error`.
-- **`retries` is refused** — and not only for this code. See the next section.
+- **`retries` is refused** — for this code and for every other error nothing came back
+  from. See the next section.
 
 Mechanically it is `handleCallError` minus the retry branch: match, inject
 `$error = {task, message, code}`, then route. `$error.task` is what tells the handler
@@ -156,16 +166,43 @@ only be made about an error that actually came back. For the set above nothing c
 so there is nothing to interpret — an author writing `not_reached: true` there is not
 asserting domain knowledge, they are guessing.
 
-**Enforcement is at declaration, and again at runtime.** Registration rejects `retries > 0`
-on any rule whose pattern can match a member of the set, and `not_reached: true` does not
-rescue it. "Can match" is exact rather than approximated: the set is small and fixed, so
-each pattern is tested against each member with the same matcher the engine routes with —
-`%` and every other wildcard fall out of that for free, with no prefix analysis.
+**Enforcement is at declaration, in three tiers, applied per pattern.** A rule's patterns
+are not all-or-nothing: `{code: ["pre.%", "http.409"], not_reached: true, retries: 2}` is
+legal, the wildcard passing on tier 1 and the named exception on tier 2.
+
+| tier | rule | rejected with |
+|---|---|---|
+| 1 | a pattern that can only match `pre.*` is safe on its own — nothing left the process | — |
+| 2 | anything else needs `not_reached: true`, **and must name exact codes**: an assertion about "everything matching `http.%`" is not an assertion, it is a hope | *"pattern %q cannot be a wildcard; name the exact codes instead"* |
+| 3 | a member of the unknowable set is refused however it is named, with or without `not_reached` | *"%s can never be retried … Catch it with a goto and check the system of record instead"* |
+
+Tier 3 is checked first, so naming `http.timeout` gets the reason it is hopeless rather
+than tier-2 advice that leads nowhere. And because tier 2 admits only literals, tier 3 is
+an exact set-membership test — no wildcard matching in validation at all. An earlier draft
+matched every pattern against every member, which over-reported (a wildcard was blamed for
+"matching `only_once.interrupted`" when the real objection is that it is a wildcard) and
+under-explained.
+
+A rule can only be judged on what it says, so `on_error` and `switch` now reject a key they
+do not define, naming the list it belongs to. The two select with different words — `code`
+for errors, `case` for a condition — and `encoding/json` used to drop the mistyped one in
+silence, which turned an on_error rule into a **catch-all** and then reported a catch-all
+problem the author never wrote. (Safe despite decoders also running over stored rows:
+`SaveDefinition` persists `json.Marshal` of the decoded struct, so a stored definition is
+canonical by construction. The check found a mis-keyed rule in this repo's own test
+fixtures on its first run.)
+
+Each message names both the offending pattern and the way forward, which is the property
+the validation matrix in `internal/model/validate_onlyonce_test.go` asserts alongside the
+verdict: a rejection that does not say what to write instead is a defect even when the
+verdict is right. The same matrix runs every case against a task **without** `only_once`,
+where all of them must be accepted — these tiers exist only for at-most-once, and a false
+positive means a legitimate retry policy cannot be expressed at all.
 
 The runtime refusal stays as well, and it is not redundant. Validation runs at
 registration; definitions registered before this rule keep their stored `on_error` rules
-verbatim and never re-validate, so the engine must still refuse the retry when one of them
-routes today.
+verbatim and never re-validate, so `isRetryAllowed` is what actually holds the line for
+them.
 
 Wildcards remain legal for **matching**. `{code: ["%"], goto: verify}` is fine and
 sometimes exactly right; `{code: ["%"], retries: 3}` is not, because `%` can match
@@ -215,14 +252,19 @@ the lost one.
 
 ## Implementation note: where the matcher has to live
 
-The declaration check needs to ask "can this pattern match this code", which is
+The declaration check needs to ask "can this pattern match this code", which was
 `transport.MatchCode` — and `internal/model` cannot import `internal/transport`, because
-transport imports model. Three ways out, in order of preference:
+transport imports model. Three ways out were considered:
 
-1. **Move the matcher into `errcode`.** It matches codes, `errcode` is the package that
-   owns codes, and it has no genroc dependencies, so both model and transport can use it.
-   `transport.MatchCode` becomes a one-line forward (it is also used for `accepted_status`
-   patterns, which are not codes — a second reason to keep the transport-side name).
+1. **Move the matcher into `errcode`** — taken. It matches codes, `errcode` is the package
+   that owns codes, and it has no genroc dependencies, so the engine and the child-raise
+   checks in `internal/validation` reach the one implementation. The move turned out to be
+   total rather than a forward: `accepted_status` patterns, the other thing that looked
+   like a caller, do not use it, so nothing was left behind in transport.
+
+   The import cycle that forced the question then dissolved: tier 2 admits only literal
+   codes, so `validateOnError` compares them with `IsUnknowable` and needs no matcher at
+   all. The move stands on where the code belongs rather than on who could reach it.
 2. Do the check in `internal/validation`, which may import both. Rejected: the other
    `only_once` retry rules live in `model/validate.go`, and splitting one rule set across
    two packages is how it drifts.

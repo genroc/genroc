@@ -170,7 +170,7 @@ func validateActionRequiredFields(s *Task) error {
 //     Forbidding it keeps authored codes lexically distinct from engine ones, and — the
 //     stronger reason — stops a raise from just mirroring a system code: an authored error
 //     is meant to carry its own semantic name (card_declined), not re-raise http.503.
-//   - '%' is the on_error match wildcard (transport.MatchCode); keeping it out means a
+//   - '%' is the on_error match wildcard (errcode.MatchCode); keeping it out means a
 //     code never contains a character that has meaning in a pattern, so no escaping is
 //     ever needed.
 var faultCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -340,18 +340,37 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 			continue
 		}
 
+		// Retries on an only_once task, in three tiers. A pattern that can only match
+		// pre.* is safe on its own: nothing left the process. Anything else needs
+		// not_reached:true, which is the author asserting from knowledge of their own API
+		// that this particular error leaves the remote untouched -- so it must name
+		// individual codes, because an assertion about "everything matching http.%" is
+		// not an assertion, it is a hope. And a handful of codes cannot be excepted at
+		// all: nothing came back from them, so there is nothing to have knowledge about.
+		//
+		// The tiers are applied per pattern rather than per rule, so a rule may mix a
+		// self-evidently safe pre.% with a named exception without either spoiling the
+		// other.
 		if onlyOnce && ec.Retries > 0 {
-			// not_reached:true is an explicit user override — allow retries regardless of pattern.
-			if ec.NotReached != nil && *ec.NotReached {
-				continue
-			}
-			// Catch-all rules (empty Code) would match any error including reached ones.
+			notReached := ec.NotReached != nil && *ec.NotReached
 			if len(ec.Code) == 0 {
-				return fmt.Errorf("task %q %s: catch-all rule cannot have retries on an only_once task; restrict to pre.%% or add not_reached:true", s.ID, where)
+				return fmt.Errorf("task %q %s: a catch-all rule cannot have retries on an only_once task; restrict it to pre.%% patterns, or add not_reached:true and name the exact codes that are safe to retry", s.ID, where)
 			}
 			for _, pat := range ec.Code {
-				if !patternOnlyMatchesPre(pat) {
-					return fmt.Errorf("task %q %s: pattern %q can match errors where the call may have executed; restrict to pre.%% patterns or add not_reached:true to assert the remote was not reached", s.ID, where, pat)
+				// Checked first, and irrespective of not_reached, so that naming one of
+				// these gets the reason it is hopeless rather than advice that leads
+				// nowhere.
+				if errcode.Code(pat).IsUnknowable() {
+					return fmt.Errorf("task %q %s: %s can never be retried on an only_once task, with or without not_reached: the request left and no response came back, so whether the call took effect is unknowable. Catch it with a goto and check the system of record instead", s.ID, where, pat)
+				}
+				if patternOnlyMatchesPre(pat) {
+					continue
+				}
+				if !notReached {
+					return fmt.Errorf("task %q %s: pattern %q can match errors where the call may have executed; restrict it to pre.%% patterns, or add not_reached:true and name the exact codes you know leave the remote untouched", s.ID, where, pat)
+				}
+				if strings.ContainsRune(pat, '%') {
+					return fmt.Errorf("task %q %s: not_reached:true asserts what one specific error means, so pattern %q cannot be a wildcard; name the exact codes instead (e.g. \"http.409\")", s.ID, where, pat)
 				}
 			}
 		}
@@ -386,7 +405,7 @@ func validLikePattern(p string) bool {
 
 // patternOnlyMatchesPre reports whether a code pattern can only match error codes in the
 // not-reached (pre.*) namespace: its constant prefix (before the first % wildcard) must
-// start with errcode.NotReached. '%' is the only wildcard (see transport.MatchCode), so it
+// start with errcode.NotReached. '%' is the only wildcard (see errcode.MatchCode), so it
 // is the only boundary.
 func patternOnlyMatchesPre(p string) bool {
 	for i := 0; i < len(p); i++ {

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { client } from "../helpers/client.ts";
+import { client, waitForInstance } from "../helpers/client.ts";
 
 const processName = `test_proc_${crypto.randomUUID()}`;
 
@@ -55,6 +55,70 @@ test("GET /instances/{id} — returns instance status", async () => {
   });
   expect(error).toBeUndefined();
   expect(data!.id).toBe(id);
+});
+
+// status says what is happening to a process and wait_state says what it is waiting for;
+// neither says *where* it is. The task field does, on both the detail and the list — which
+// is what makes a stuck or failed instance diagnosable without reading the audit log.
+test("GET /instances — task reports where the instance is, and clears when it ends", async () => {
+  const name = `task_field_${crypto.randomUUID()}`;
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: "unreachable",
+          // Port 1 is never listenable, so this fails fast and the instance stops here.
+          action: { type: "fetch" as const, url: "http://127.0.0.1:1/x" },
+          timeout_ms: 500,
+          switch: [{ goto: "end" }],
+        },
+      ],
+    },
+  });
+  const { data: started } = await client.POST("/instances", {
+    body: { process: name },
+  });
+  const id = started!.id;
+  await waitForInstance(id, 15_000);
+
+  const { data: detail } = await client.GET("/instances/{id}", {
+    params: { path: { id } },
+  });
+  expect(detail!.status).toBe("failed");
+  expect(detail!.task).toBe("unreachable"); // where it died
+
+  const { data: list } = await client.GET("/instances", {
+    params: { query: { limit: 100 } },
+  });
+  const listed = (list!.items ?? []).find((i) => i.id === id);
+  expect(listed!.task).toBe("unreachable"); // and the light projection carries it too
+});
+
+// A settled instance keeps its position rather than clearing it, which is what makes the
+// field answer "where did this end up" as well as "where is it now". Every task must carry
+// a switch and only the last may say `end`, so a process always finishes *at* a task.
+test("GET /instances/{id} — a completed process reports the task it finished at", async () => {
+  const name = `task_field_done_${crypto.randomUUID()}`;
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        { id: "first", switch: [{ goto: "$last" }] },
+        { id: "last", switch: [{ goto: "end" }] },
+      ],
+    },
+  });
+  const { data: started } = await client.POST("/instances", {
+    body: { process: name },
+  });
+  const id = started!.id;
+  expect(await waitForInstance(id, 15_000)).toBe("completed");
+
+  const { data } = await client.GET("/instances/{id}", {
+    params: { path: { id } },
+  });
+  expect(data!.task).toBe("last");
 });
 
 test("GET /instances/{id} — returns error for unknown ID", async () => {

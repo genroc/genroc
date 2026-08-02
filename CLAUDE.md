@@ -85,6 +85,48 @@ Two invariants that are easy to break:
    is why `ResumeProcess` keys on paused rows anywhere in the subtree rather than on the
    root's own status.
 
+## `only_once`, `only_once.interrupted`, and the unknowable set
+
+An `only_once` task whose previous attempt was interrupted is never re-run by the engine.
+It raises **`only_once.interrupted`** — the one engine-produced code that `on_error` can
+catch — so a definition can ask the system of record what actually happened and then
+continue, or deliberately route back into the task to re-run it. Uncaught, it is the same
+terminal failure it always was. Design and rejected alternatives:
+[docs/only-once-interrupted.md](docs/only-once-interrupted.md).
+
+Three things that break silently if you touch this:
+
+1. **The evidence is `worker_id`, and it is transient.** `ReclaimedExpired` is derived per
+   claim from the row having carried a `worker_id`, and every ordinary write clears that
+   column. So a decision about an interruption can never be deferred past the next write —
+   which is why `advance()` resolves it *before* settling a pending pause, ignoring the
+   `pausing` status to do so, and why `settlePausing` must not regain an `only_once`
+   branch. The routed instance still lands `paused`: it writes status `running` and the
+   `CASE` in `UpdateInstance` maps `pausing` + `running` → `paused` (invariant 1 above,
+   applied to a path that used to opt out of it). Anything that hands a row back by
+   clearing `worker_id` re-runs `only_once` tasks that must never re-run.
+2. **The unknowable set is `only_once.interrupted`, `http.timeout`, `external.timeout`** —
+   the errors where the request left and nothing came back. On an `only_once` task these
+   can never be retried, and `not_reached: true` does **not** override them: that flag
+   asserts what an error *means*, which is a claim only about an error that returned.
+   `errcode.Unknowable()` is the list; `Code.IsUnknowable()` its predicate, mirroring
+   `IsNotReached()`.
+3. **Retries on an `only_once` task are three tiers, applied per pattern**
+   (`validateOnError`): a pattern matching only `pre.*` is safe alone; anything else needs
+   `not_reached: true` **and must name exact codes**, because an assertion about a wildcard
+   is not an assertion; and a member of the unknowable set is refused however it is named.
+   Tier 3 is tested first so naming `http.timeout` gets the reason it is hopeless rather
+   than advice that leads nowhere, and because tier 2 admits only literals the set test is
+   exact membership, not wildcard matching. Every message must name the offending pattern
+   *and* the way forward — `validate_onlyonce_test.go` asserts that, and asserts every case
+   is accepted on a task without `only_once`.
+4. **`on_error` and `switch` reject unknown keys**, naming the list the key belongs to: they select with `code` and `case` respectively, and a silently dropped selector turns an on_error rule into a catch-all. Safe to do in the decoder because `SaveDefinition` stores `json.Marshal` of the decoded struct, so stored definitions are canonical.
+5. **`isRetryAllowed` refuses at runtime too**, which is not redundant: validation runs only
+   at registration, and definitions stored before the rule keep their `on_error` verbatim.
+
+`errcode.MatchCode` lives in `errcode` rather than `transport` because that is the package
+that owns codes; the engine and `internal/validation` share the one implementation.
+
 ## The `unknown` type
 
 "Unknown" — a value a process carries but never inspects — is spelled `{}`, the empty
@@ -173,17 +215,6 @@ describing the code as it stands:
   is usually the same worker), and nothing may hand a row back by clearing `worker_id` —
   that column is the evidence `ReclaimedExpired` is derived from, and erasing it re-runs
   `only_once` tasks that must never re-run.
-- [docs/only-once-interrupted.md](docs/only-once-interrupted.md) — make an interrupted
-  `only_once` task recoverable instead of terminal: a new **catchable** engine code
-  `only_once.interrupted` that `on_error` can route, so a definition can ask the system of
-  record whether the call happened and then continue (or deliberately re-run it). Also
-  defines the **unknowable set** — `only_once.interrupted`, `http.timeout`,
-  `external.timeout`: the errors where the request left and nothing came back, so there is
-  no evidence to interpret. On an `only_once` task these can never be retried and
-  `not_reached: true` no longer overrides, enforced at registration (any pattern that *can*
-  match a member, `%` included) and again at runtime (for definitions registered earlier).
-  Records why the code is not in `pre.*` (that prefix authorises retries) nor `engine.*`
-  (that family means uncatchable).
 - [docs/fetch-http-surface.md](docs/fetch-http-surface.md) — two independent additions
   to `fetch`: response metadata (`self.status` / `self.headers`, which would retire the
   `http.202`-via-`on_error` trick in the polling example) and a structured `query` slot

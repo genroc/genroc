@@ -470,7 +470,7 @@ func TestGenerate_OnError_EndTerminal_RecognisedAsTerminal(t *testing.T) {
       },
       "on_error": [
         {
-          "next": "end"
+          "goto": "end"
         }
       ],
       "output": "$: self.result"

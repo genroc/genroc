@@ -173,17 +173,17 @@ func (e *Engine) prepareAdvance(inst *model.ProcessInstance) (*model.ProcessDefi
 	// current task may have started executing on the previous owner before it
 	// crashed/stalled. Re-running is fine for idempotent tasks, but an only_once
 	// (non-idempotent) call task cannot be safely re-executed — the call may already
-	// have happened — so fail the instance to honour at-most-once.
+	// have happened — so the engine refuses to re-run it and hands the situation to the
+	// definition as only_once.interrupted. A handler can ask the system of record what
+	// actually happened and then continue; with no handler this is the same terminal
+	// failure it has always been (handleCallError's fallthrough), and the retry branch
+	// cannot fire because the code is unknowable (isRetryAllowed).
 	if inst.ReclaimedExpired {
 		e.logOnly(logEvent{Level: model.LogWarn, ID: inst.ID,
 			Msg:  "reclaimed expired lease; previous owner crashed or stalled mid-task",
 			Meta: map[string]any{"task": inst.Task, "process": inst.ProcessName}})
-		if idx >= 0 {
-			s := def.Tasks[idx]
-			if s.Action != nil && s.OnlyOnce != nil && *s.OnlyOnce {
-				return nil, 0, stop(e.failInstance(inst, errcode.EngineOnlyOnce, fmt.Sprintf(
-					"task %q is only_once and was interrupted by a lease takeover; cannot re-execute", s.ID)))
-			}
+		if idx >= 0 && interruptedOnlyOnce(def.Tasks[idx]) {
+			return nil, 0, stop(e.handleCallError(inst, def.Tasks[idx], interruptedMessage, errcode.OnlyOnceInterrupted))
 		}
 	}
 
@@ -208,13 +208,31 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 	if inst.Status == model.StatusPausing {
 		// Crash recovery only: a pause normally lands in SQL when the worker holding
 		// the instance writes its finished task, so reaching a claim means that worker
-		// died. The task is looked up solely for settlePausing's only_once check, which
-		// applies only to a reclaimed lease.
-		var task *model.Task
+		// died mid-task.
+		//
+		// An interrupted only_once task is resolved here rather than parked, and the
+		// pending pause is ignored while doing so, because the two have different
+		// deadlines. Deciding what to do about the interruption is time-sensitive:
+		// ReclaimedExpired is derived per claim from worker_id, and the write that
+		// settles a pause clears that column, so a decision deferred past it would be
+		// made on evidence that no longer exists. Running the handler is not
+		// time-sensitive at all — asking a payment provider whether a charge exists
+		// answers the same tomorrow.
+		//
+		// So the instance goes through the ordinary error path and the pause lands on
+		// the write it produces: setting the status to 'running' hands the decision to
+		// the CASE in UpdateInstance, which maps a 'pausing' row plus an incoming
+		// 'running' to 'paused'. A routed instance therefore parks at its handler task,
+		// paused, and runs it on resume; a terminal outcome (no handler, or an authored
+		// raise/panic) writes itself instead, which is the engine's existing rule that a
+		// failure outranks a pause.
 		if inst.ReclaimedExpired {
-			task = e.lookupTask(inst)
+			if task := e.lookupTask(inst); interruptedOnlyOnce(task) {
+				inst.Status = model.StatusRunning
+				return e.handleCallError(inst, task, interruptedMessage, errcode.OnlyOnceInterrupted)
+			}
 		}
-		return e.settlePausing(inst, task)
+		return e.settlePausing(inst)
 	}
 
 	def, idx, done := e.prepareAdvance(inst)
