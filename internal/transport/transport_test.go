@@ -105,4 +105,3 @@ func TestClient_PoolsConnectionsPerHost(t *testing.T) {
 			"deadline, and a ceiling here silently overrides a task's declared timeout", client.Timeout)
 	}
 }
-

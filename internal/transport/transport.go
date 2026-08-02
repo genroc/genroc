@@ -197,4 +197,3 @@ func ClassifyGoError(err error) errcode.Code {
 	}
 	return errcode.PreError
 }
-
