@@ -1,11 +1,16 @@
-# `delay`: human durations and calendar deadlines
+# `delay` and `timeout`: human durations and calendar deadlines
 
 **Status: IMPLEMENTED.** `for` / `until` / `tz` landed 2026-07-31, replacing the old `ms`
 slot outright (pre-release, so there was nothing to deprecate — `ms: "30000"` is now
-`for: 30000`). Clock wildcards and steps landed 2026-08-01.
+`for: 30000`). Clock wildcards and steps landed 2026-08-01. A task's `timeout` adopted the
+same grammar on 2026-08-02, replacing `timeout_ms` the same way.
 
 The grammars live in `internal/delayspec`, deliberately free of engine and DB dependencies
 so the calendar edge cases are table-testable in isolation.
+
+Two slots, two homes: a `delay` action names when to **wake up**, a task's `timeout` names
+when to **give up**. Everything from here to [§ As a `timeout`](#as-a-timeout) applies to
+both; that section covers only where they differ.
 
 ## Syntax
 
@@ -114,6 +119,63 @@ keeps naming one instant a day. Only a written `*` or step widens a field.
 IANA names, `UTC`, or fixed offsets — `Europe/Prague`, `+02:00`, `-05:30`. Omitted is UTC.
 Literal-only: no expressions, no abbreviations.
 
+## As a `timeout`
+
+A task's `timeout` is the same two slots aimed at a deadline. It takes an extra shorthand,
+because the overwhelmingly common case is a plain duration and `timeout: {for: "30s"}`
+would be ceremony:
+
+```yaml
+timeout: 30s                                      # shorthand → for, resolved in UTC
+timeout: 5000                                     # bare number: milliseconds
+timeout: "$: input.budget_ms"                     # expression: milliseconds
+timeout: {for: "1d", tz: Europe/Prague}           # long form, for calendar units in a zone
+timeout: {until: "fri 17:00", tz: Europe/Prague}  # external tasks only — see below
+```
+
+The shorthand desugars to `for` at decode, the way `switch: next` desugars to a single
+case, so the stored definition is always the long form and nothing downstream branches on
+which was written.
+
+Four rules are specific to this home:
+
+**`until` is accepted only on an `external` task.** A deadline in the past has to mean
+something, and it only means something coherent where the task parks: the instance is
+simply due, which is the honest reading of "the review window closed". A `fetch` would
+instead build a context that expired before the request was sent, and
+`transport.ClassifyGoError` reports that as `http.timeout` — a member of the unknowable set,
+so on an `only_once` task it can never be retried, ever, for a request that provably never
+left. There is no honest code to report for it, so the slot is refused at registration.
+`for` remains available everywhere.
+
+**Absent means no deadline; it is not zero.** `timeout_ms: 0` used to spell "wait forever".
+A slot carrying a duration grammar cannot also carry a magic zero meaning the opposite of
+its smallest value, so absence is now the only spelling — a `fetch` falls back to the 30s
+engine default, an `external` waits indefinitely.
+
+**A deadline already in the past clamps on an `external` and is refused on a `fetch`.** The
+rule is not "delays clamp, timeouts refuse" — it is *clamp wherever there is a truthful
+code to report*:
+
+| | past deadline | why |
+|---|---|---|
+| `delay` | clamps, wakes now | a delay that is late is simply due |
+| `external` timeout | clamps, raises `external.timeout` | the window closed; that is exactly what the code means, and it is what the definition's `on_error` is written against |
+| `fetch` timeout | refuses, fails the instance | an expired context reports `http.timeout` for a request never sent — a lie, and an unknowable one |
+
+A past deadline reaches an external legitimately: a re-arm after a retry, or a resume from a
+pause that outlasted the window. Failing there would hand an author who wrote
+`on_error: [external.timeout]` an uncatchable `engine.expression` instead of the route they
+asked for.
+
+**Only `fetch` and `external` honour one at all.** The engine reads the slot in exactly two
+places, so a timeout on a `child` or `delay` task is rejected rather than silently ignored.
+
+**When it resolves differs by action type.** A `fetch` resolves per attempt, so a retry of
+an expression-valued timeout gets the budget the context says it should have *now*. An
+`external` resolves once at arm time, so a re-arm after an `external.timeout` retry keeps an
+`until` pinned to the same instant while a `for` budget starts over.
+
 ### What is rejected
 
 | written | why |
@@ -130,6 +192,10 @@ Literal-only: no expressions, no abbreviations.
 | `until: "mon tue 09:00"` | two weekdays would mean "either", which this grammar cannot say |
 | `tz: "CET"`, `tz: "Local"` | an abbreviation means the wrong thing for half the year, and resolves per host |
 | both slots, or neither | exactly one of `for` / `until` |
+| `timeout: {until: …}` on a `fetch` | a deadline already past reports `http.timeout` for a request never sent |
+| `timeout:` on a `child` / `child_map` / `child_list` / `delay` task | nothing honours it there; silence would be worse |
+| `timeout: {untill: …}`, `{timeout_ms: …}` | unknown key — it would decode to an empty timeout, i.e. no timeout |
+| a `fetch` `timeout` resolving to now or earlier | the request would time out before it was sent (an `external` clamps instead) |
 
 ## Why it is this way
 
@@ -192,8 +258,13 @@ pattern is. That asymmetry is what makes per-second schedules affordable.
 
 ## What must not regress
 
-- **Clamp, never fail.** Timers keep running while an instance is paused, so an `until` can
-  legitimately resolve behind now on resume. It clamps to now and logs.
+- **Clamp wherever a truthful code exists; refuse only where none does.** Timers keep
+  running while an instance is paused, so a target behind now is legitimate on resume. A
+  `delay` clamps and wakes; an `external` timeout clamps and raises `external.timeout`; only
+  a `fetch` timeout refuses, because the code it would otherwise report (`http.timeout`) is
+  false and unknowable. `resolveTimeout` therefore returns a past instant untouched and lets
+  each caller decide — do not move that decision into it, and do not make the two callers
+  agree.
 - **Arm once.** `runDelay` guards on `WakeAt == nil`, so a calendar target resolves exactly
   once per task entry and cannot drift on re-claim.
 - **`delayArity` fails loudly on any slot count but one.** `CheckDoc` enforces it at
@@ -202,8 +273,17 @@ pattern is. That asymmetry is what makes per-second schedules affordable.
   decodes to *neither* slot, which must not become a zero-length wait. *Both* slots must not
   silently prefer one either: if `until` held the far-future deadline, falling back to `for`
   waits a fraction of the intended time with nothing reporting it.
+- **`model.DelaySpec` must never gain an `UnmarshalJSON`.** `Action` embeds it — which is
+  what keeps `{"type": "delay", "for": "1h"}` flat on the wire — so a decoder on it is
+  promoted to `Action`, and json would hand that decoder the *whole action object*: `type`,
+  `url` and every other field would decode to nothing, silently. The `timeout` shorthand
+  therefore lives on the `Timeout` wrapper, which nothing embeds.
+- **An absent `timeout` must stay absent on the wire.** Absence is the only spelling of "no
+  deadline", and a present timeout must be in the future — so anything that turns absent
+  into zero (a dropped `omitzero`, a defaulted struct) makes every such task unrunnable.
 - **Storage.** `wake_at` and the claim predicate are untouched; everything resolves to the
-  same BIGINT millisecond column. No migration, no API type change.
+  same BIGINT millisecond column. No migration, no API type change — a `timeout` deadline
+  goes into the same column a delay's wake-up does.
 - **Do not route the literal grammar through `shape.Shape`**, and use a **plain** shape for
   the `$:` branch, not an `Expr` one — an `Expr` shape carries a bare expression body, while
   the delay slot's string still has its `$:` marker.
@@ -230,7 +310,15 @@ pattern is. That asymmetry is what makes per-second schedules affordable.
 - **Definition-level default `tz`**, with per-task override, vs. per-task only.
 - **A ceiling on the resolved delay.** A literal `for: "1y"` is visible at registration; a
   `$:` number is not, and a units slip parks an instance for a decade. Shipped unbounded,
-  which is what `ms` did — a gap carried forward, not a regression.
+  which is what `ms` did — a gap carried forward, not a regression. Applies to a `timeout`
+  equally, where the slip is quieter: an over-long deadline looks like a hung task.
+- **Per-attempt vs. whole-task timeouts.** A `fetch` timeout bounds one attempt, so a task
+  with retries can elapse far more than its timeout in total — `timeout: "30s"` with three
+  retries is up to four 30s attempts plus backoff. That is the same behaviour `timeout_ms`
+  had and it is what a per-attempt deadline should do, but there is no way to express "give
+  up on this task after 2 minutes however many attempts that takes". An `until` on a fetch
+  would be a *worse* answer to this (see § As a `timeout`); a separate whole-task budget
+  would be the honest one.
 - **Should `$:` on `until` accept RFC 3339?** It is what vendors send, but it reintroduces a
   runtime parse, which would need a catchable `delay.invalid` rather than today's
   uncatchable `engine.expression`. The number form covers every case where the caller can

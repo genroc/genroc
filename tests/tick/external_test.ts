@@ -3,7 +3,7 @@ import { useTickEnv } from "./helpers.ts";
 
 // Exercises the `external` action: the engine parks the instance (wait_state='external',
 // no worker held), an outside caller discovers it via GET /external-tasks and submits a
-// result to POST /external-tasks/resolve, and the process resumes. An optional timeout_ms
+// result to POST /external-tasks/resolve, and the process resumes. An optional timeout
 // raises a catchable external.timeout. Driven in manual-tick mode.
 const ctx = useTickEnv(20031);
 
@@ -115,7 +115,7 @@ test("timeout raises external.timeout, catchable in on_error", async () => {
     {
       id: "approval",
       action: { type: "external", result_schema: approvedSchema },
-      timeout_ms: 60000,
+      timeout: 60000,
       on_error: [{ code: ["external.timeout"], goto: "$handler" }],
       switch: "end",
     },
@@ -143,7 +143,7 @@ test("an external timeout that elapses while paused fires on resume", async () =
     {
       id: "approval",
       action: { type: "external", result_schema: approvedSchema },
-      timeout_ms: 60000,
+      timeout: 60000,
       on_error: [{ code: ["external.timeout"], goto: "$handler" }],
       switch: "end",
     },

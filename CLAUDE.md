@@ -30,9 +30,9 @@ records failures that are silent, not compile errors.
 |---|---|
 | [internal/db/CLAUDE.md](internal/db/CLAUDE.md) | sqlc, the dual-engine (SQLite/Postgres) rules, hand-written-SQL exceptions, pagination, Postgres autovacuum bootstrap, adding a query/migration; pause/resume vs retry |
 | [internal/engine/CLAUDE.md](internal/engine/CLAUDE.md) | `only_once.interrupted` and the unknowable set at runtime; the live half of lease fencing |
-| [internal/model/CLAUDE.md](internal/model/CLAUDE.md) | `on_error` validation tiers on an `only_once` task; unknown-key rejection in `on_error` / `switch` |
+| [internal/model/CLAUDE.md](internal/model/CLAUDE.md) | `on_error` validation tiers on an `only_once` task; unknown-key rejection in `on_error` / `switch`; `timeout` decoding and its action-type rules |
 | [internal/schema/CLAUDE.md](internal/schema/CLAUDE.md) | the `unknown` type (`{}`), why there is no keyword, `NarrowsTo` |
-| [internal/delayspec/CLAUDE.md](internal/delayspec/CLAUDE.md) | `delay` syntax (`for` / `until` / `tz`), arity, calendar arithmetic |
+| [internal/delayspec/CLAUDE.md](internal/delayspec/CLAUDE.md) | `delay` and `timeout` syntax (`for` / `until` / `tz`), arity, calendar arithmetic |
 | [docs/CLAUDE.md](docs/CLAUDE.md) | which docs are **proposals, not current behavior** |
 
 ## Build / test

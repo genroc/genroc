@@ -618,17 +618,17 @@ func TestProcessDefinition_Validate_DelaySlots(t *testing.T) {
 		action  *Action
 		wantErr string
 	}{
-		{"for alone", &Action{Type: ActionTypeDelay, For: "2h30m"}, ""},
-		{"until alone", &Action{Type: ActionTypeDelay, Until: "+2d 08:00"}, ""},
-		{"bare number for", &Action{Type: ActionTypeDelay, For: float64(5000)}, ""},
-		{"for with tz", &Action{Type: ActionTypeDelay, For: "1d", TZ: "Europe/Prague"}, ""},
-		{"for with fixed-offset tz", &Action{Type: ActionTypeDelay, For: "1d", TZ: "+02:00"}, ""},
+		{"for alone", &Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{For: "2h30m"}}, ""},
+		{"until alone", &Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{Until: "+2d 08:00"}}, ""},
+		{"bare number for", &Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{For: float64(5000)}}, ""},
+		{"for with tz", &Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{For: "1d", TZ: "Europe/Prague"}}, ""},
+		{"for with fixed-offset tz", &Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{For: "1d", TZ: "+02:00"}}, ""},
 
 		{"neither slot", &Action{Type: ActionTypeDelay}, "for or action.until is required"},
-		{"both slots", &Action{Type: ActionTypeDelay, For: "1h", Until: "+1d 08:00"}, "mutually exclusive"},
+		{"both slots", &Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{For: "1h", Until: "+1d 08:00"}}, "mutually exclusive"},
 		// An abbreviation means the wrong thing for half the year and resolves per host.
-		{"abbreviated tz", &Action{Type: ActionTypeDelay, For: "1d", TZ: "CET"}, "abbreviations"},
-		{"unknown tz", &Action{Type: ActionTypeDelay, For: "1d", TZ: "Europe/Nowhere"}, "unknown IANA location"},
+		{"abbreviated tz", &Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{For: "1d", TZ: "CET"}}, "abbreviations"},
+		{"unknown tz", &Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{For: "1d", TZ: "Europe/Nowhere"}}, "unknown IANA location"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

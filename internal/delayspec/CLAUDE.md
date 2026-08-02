@@ -9,6 +9,18 @@ questions: [docs/delay-syntax.md](../../docs/delay-syntax.md). The grammars live
 package, deliberately free of engine and DB dependencies so the calendar edge cases are
 table-testable.
 
+The same two slots are a task's `timeout`, which decodes to the same `model.DelaySpec` and
+resolves through the same `Engine.resolveSpec` — a timeout is this grammar aimed at a
+deadline rather than a wake-up. Everything below applies to both.
+
+What differs is what a *past* instant means, and it splits by whether a truthful code exists
+to report: a delay clamps and wakes, an external timeout clamps and raises
+`external.timeout`, and only a fetch timeout refuses — an expired context would report
+`http.timeout` for a request that was never sent. `resolveSpec` and `resolveTimeout`
+deliberately return a past instant untouched so each caller decides. See
+[internal/model/CLAUDE.md](../model/CLAUDE.md) for the timeout-only rules (`until` is
+external-only; absent ≠ zero).
+
 Three things that break silently if you touch this:
 
 1. **A slot's accepted type is decided syntactically, before inference.** A pure literal

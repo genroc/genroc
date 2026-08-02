@@ -21,6 +21,37 @@ the runtime half and the unknowable set are in
    on_error rule into a catch-all. Safe to do in the decoder because `SaveDefinition` stores
    `json.Marshal` of the decoded struct, so stored definitions are canonical.
 
+## `timeout`: one grammar, two homes
+
+A task's `timeout` is the delay action's slot set pointed at a deadline instead of a
+wake-up, so both decode to the same `DelaySpec` (`for` / `until` / `tz`) and share
+`delayArity` and the delayspec grammars. Three things break silently:
+
+1. **`DelaySpec` must never gain an `UnmarshalJSON`.** `Action` embeds it — which is what
+   keeps `{"type":"delay","for":"1h"}` flat on the wire — so a decoder on `DelaySpec` is
+   promoted to `Action` and json hands it the *whole action object*: `type`, `url` and
+   every other field decode to nothing, silently. The scalar-or-object shorthand therefore
+   lives on the `Timeout` wrapper, which nothing embeds.
+   `TestAction_DelaySpecDoesNotHijackDecode` is the regression test.
+2. **Absent is not zero.** `timeout_ms: 0` used to spell "wait forever"; a duration slot
+   cannot also carry a magic zero, so absence is now the only spelling for it. Anything that
+   turns an absent timeout into a zero one — a marshaller dropping `omitzero`, a decoder
+   defaulting the struct — makes every fetch task unrunnable, since a zero fetch budget is
+   refused (an external clamps it instead; see below).
+3. **`until` is confined to `external`, and a timeout is refused on the action types that
+   ignore it** (`validateTimeout`). Both rejections exist because the alternative is
+   silent: a timeout on a child task is simply never applied, and a fetch whose deadline
+   has already passed builds an expired context, which `transport.ClassifyGoError` reports
+   as `http.timeout` — an unknowable code, so on an `only_once` task it can never be
+   retried, for a request that provably never left.
+
+   The same asymmetry governs a deadline that resolves into the past at runtime, and the
+   engine's two callers must keep disagreeing about it: an external **clamps** (it parks
+   already due and raises `external.timeout`, the truthful code its `on_error` is written
+   against), a fetch **refuses**. Making them agree either invents a lie or turns a
+   legitimate late deadline — a re-arm, a resume from a long pause — into an uncatchable
+   `engine.expression`.
+
 ## Pointers
 
 - `Action` decoding of `delay` (`for` / `until`, no `DisallowUnknownFields`) —

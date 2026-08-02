@@ -59,7 +59,9 @@ type ChildEntry struct {
 //     would produce a string at runtime. See internal/delayspec for the literal grammars.
 //   - "external":   Input (optional), ResultSchema (optional) — parks the instance until an
 //     outside caller submits a result via the external-tasks API; no worker is held while waiting.
-//     An optional Task.TimeoutMs (0 = wait forever) raises a catchable "external.timeout" error.
+//     An optional Task.Timeout (absent = wait forever) raises a catchable "external.timeout"
+//     error. It is the one place `until` is accepted: a deadline for a parked task is a real
+//     instant ("approve by Friday 17:00"), which no duration from arm time can express.
 //
 // Body (fetch) / Input (external): templated value evaluated against the current context —
 // the raw HTTP request body (fetch), or the snapshot exposed to the resolver via the
@@ -89,9 +91,22 @@ type Action struct {
 	Input          *Shape                `json:"input,omitempty"`           // child/external: templated input payload
 	Children       map[string]ChildEntry `json:"children,omitempty"`        // child_map
 	Over           string                `json:"over,omitempty"`            // child_list: expression evaluating to the input array (one child per element)
-	For            any                   `json:"for,omitempty"`             // delay: a duration — literal ("2h30m"), bare number of milliseconds, or $: numeric expression
-	Until          any                   `json:"until,omitempty"`           // delay: an instant — literal ("+2d 08:00"), bare number of unix milliseconds, or $: numeric expression
-	TZ             string                `json:"tz,omitempty"`              // delay: IANA name or fixed offset the calendar units of `for` / wall clocks of `until` resolve in
+	DelaySpec                                                                 // delay: exactly one of for / until, plus tz
+}
+
+// DelaySpec is a target instant named by exactly one of two slots: `for` (a duration
+// measured from now) or `until` (an instant), both resolved in `tz`. It is the delay
+// action's entire payload and the object form of a task's Timeout, so a deadline is
+// written the same way wherever it appears. Grammars: internal/delayspec.
+//
+// Do not give this type an UnmarshalJSON. Action embeds it, so the method would be
+// promoted and json would hand it the whole action object instead of the three slots —
+// every other action field would decode to nothing. Timeout wraps it precisely because
+// the wrapper can carry a decoder without Action inheriting one.
+type DelaySpec struct {
+	For   any    `json:"for,omitempty"`   // a duration — literal ("2h30m"), bare number of milliseconds, or $: numeric expression
+	Until any    `json:"until,omitempty"` // an instant — literal ("+2d 08:00"), bare number of unix milliseconds, or $: numeric expression
+	TZ    string `json:"tz,omitempty"`    // IANA name or fixed offset the calendar units of `for` / wall clocks of `until` resolve in
 }
 
 // JSONSchemaBytes returns the JSON Schema for Action as a discriminated union
@@ -235,7 +250,7 @@ var actionSchemaTemplate = `{
 			},
 			{
 				"type": "object",
-				"description": "External task — parks the instance until an outside caller submits a result via the external-tasks API; no worker is held while waiting. An optional task timeout_ms (0 = wait forever) raises a catchable external.timeout error.",
+				"description": "External task — parks the instance until an outside caller submits a result via the external-tasks API; no worker is held while waiting. An optional task timeout (absent = wait forever) raises a catchable external.timeout error, and is the one place an absolute 'until' deadline is accepted.",
 				"properties": {
 					"type":          {"type": "string", "const": "external"},
 					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value evaluated against the current context, snapshotted and exposed to the resolver via the queue (the only context the resolver sees)."},
@@ -263,7 +278,7 @@ var actionSchemaTemplate = `{
 type Task struct {
 	ID        string      `json:"id"                 validate:"required" description:"Unique task identifier. 'end' and 'next' are reserved and cannot be used."`
 	Action    *Action     `json:"action,omitempty"                        description:"Describes the action to perform. Omit for switch-only (routing) tasks."`
-	TimeoutMs int         `json:"timeout_ms,omitempty"                  description:"Maximum execution time in milliseconds. 0 means no timeout."`
+	Timeout   Timeout     `json:"timeout,omitempty,omitzero"            description:"Maximum execution time, honoured by fetch and external tasks. Either a duration shorthand (\"30s\", \"2h30m\", a bare number of milliseconds, or a $: expression evaluating to milliseconds) resolved in UTC, or an object naming exactly one of 'for' / 'until' plus an optional 'tz'. 'until' is an absolute deadline and is accepted only on an external task. Omit for no timeout of its own: a fetch falls back to the engine default, an external waits indefinitely."`
 	OnlyOnce  *bool       `json:"only_once,omitempty"                   description:"When true, the engine guarantees at-most-once execution: retries are only allowed for pre.* errors (remote never reached) or on_error rules with not_reached:true. A rule that is not restricted to pre.* needs not_reached:true and must name exact codes; errors where the request left and nothing came back (http.timeout, external.timeout, only_once.interrupted) can never be retried at all. An attempt cut short by a crash raises only_once.interrupted, which on_error can catch to check the system of record and then continue. Defaults to false (retryable)."`
 	OnError   []ErrorCase `json:"on_error,omitempty"                    description:"Ordered error-routing rules evaluated when the call fails. First match wins."`
 	Output    *Shape      `json:"output,omitempty"                      description:"Templated value that remaps this task's output. Evaluated against the context plus self.result (the action's raw result) and self.previous (this task's prior output). When set, this value is stored as outputs.taskID and seen by the switch as self.output; the raw result is not exported."`

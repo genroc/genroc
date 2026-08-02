@@ -54,7 +54,7 @@ beforeAll(async () => {
         url: `http://localhost:${failMockPort}/action`,
       },
       on_error: [{ code: ["http.%"], retries: 2 }],
-      timeout_ms: 5_000,
+      timeout: 5_000,
       switch: [{ goto: "end" }],
     },
   ]);
@@ -68,7 +68,7 @@ beforeAll(async () => {
         url: `http://localhost:${failMockPort}/action`,
       },
       on_error: [{ code: ["http.%"], retries: 1 }],
-      timeout_ms: 5_000,
+      timeout: 5_000,
       switch: [{ goto: "end" }],
     },
   ]);

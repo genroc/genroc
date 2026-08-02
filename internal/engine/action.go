@@ -17,14 +17,27 @@ import (
 	"genroc/internal/transport"
 )
 
+// defaultActionTimeout bounds a fetch that declares no timeout of its own. An external
+// task has no equivalent default: parking indefinitely is what it is for.
+const defaultActionTimeout = 30 * time.Second
+
 // executeAction sends a request to the task's endpoint and returns (output, done):
 //   - done=nil: action succeeded; output is the task result.
 //   - done!=nil: the task loop should stop and persist this outcome (retry, error
 //     route, or permanent fail).
 func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *advanceOutcome) {
-	timeout := time.Duration(task.TimeoutMs) * time.Millisecond
-	if timeout == 0 {
-		timeout = 30 * time.Second
+	// Resolved per attempt, so a retry of an expression-valued timeout gets the budget the
+	// context says it should have now rather than the one the first attempt was given.
+	//
+	// The deadline is converted to a duration and applied with WithTimeout rather than
+	// handed to WithDeadline: it was resolved against db.Now(), which carries the test
+	// clock offset, while a context deadline is compared against the real time.Now(). The
+	// difference of two db.Now()-based instants cancels that offset out; the instant itself
+	// does not, and a tick-advanced test would stretch every timeout by the offset.
+	now := db.Now()
+	timeout, err := e.fetchTimeout(inst, task, now)
+	if err != nil {
+		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q timeout: %v", task.ID, err)))
 	}
 
 	taskCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -146,27 +159,33 @@ func (e *Engine) runDelay(inst *model.ProcessInstance, task *model.Task) *advanc
 // at, plus the source spec for the audit log. It is called once per task entry (runDelay
 // guards on WakeAt), so a calendar target cannot drift when the instance is re-claimed.
 func (e *Engine) resolveDelay(inst *model.ProcessInstance, task *model.Task, now time.Time) (time.Time, string, error) {
-	a := task.Action
-	loc, err := delayspec.LoadLocation(a.TZ)
+	return e.resolveSpec(inst, task.Action.DelaySpec, now)
+}
+
+// resolveSpec turns a `for` / `until` pair into the absolute instant it names, plus the
+// source spec for the audit log. Shared by the delay action and by a task timeout, which
+// is the same grammar pointed at a deadline rather than a wake-up.
+func (e *Engine) resolveSpec(inst *model.ProcessInstance, spec model.DelaySpec, now time.Time) (time.Time, string, error) {
+	loc, err := delayspec.LoadLocation(spec.TZ)
 	if err != nil {
 		return time.Time{}, "", err
 	}
-	if err := delayArity(a); err != nil {
+	if err := delayArity(spec); err != nil {
 		return time.Time{}, "", err
 	}
 	switch {
-	case a.For != nil:
-		d, spec, err := e.resolveDuration(inst, a.For)
+	case spec.For != nil:
+		d, src, err := e.resolveDuration(inst, spec.For)
 		if err != nil {
 			return time.Time{}, "", fmt.Errorf("for: %w", err)
 		}
-		return d.Resolve(now, loc), spec, nil
+		return d.Resolve(now, loc), src, nil
 
 	default:
 		// `until`, since delayArity has established exactly one slot is set. A number (bare
 		// or from an expression) is unix milliseconds; only a literal goes through the
 		// instant grammar.
-		if lit, ok := delayLiteral(a.Until); ok {
+		if lit, ok := delayLiteral(spec.Until); ok {
 			target, err := delayspec.ParseInstant(lit)
 			if err != nil {
 				return time.Time{}, "", fmt.Errorf("until: %w", err)
@@ -177,7 +196,7 @@ func (e *Engine) resolveDelay(inst *model.ProcessInstance, task *model.Task, now
 			}
 			return at, target.Source(), nil
 		}
-		ms, err := e.delayNumber(inst, a.Until)
+		ms, err := e.delayNumber(inst, spec.Until)
 		if err != nil {
 			return time.Time{}, "", fmt.Errorf("until: %w", err)
 		}
@@ -185,16 +204,61 @@ func (e *Engine) resolveDelay(inst *model.ProcessInstance, task *model.Task, now
 	}
 }
 
+// resolveTimeout returns the instant a task's attempt must finish by. ok is false when the
+// task declares no timeout, which is not a zero deadline but an absence — the caller
+// supplies the default, and it differs by action type (a fetch falls back to
+// defaultActionTimeout, an external waits indefinitely).
+//
+// A deadline already behind now is returned as-is, because what to do about it is the
+// caller's question and the two callers answer it oppositely. See fetchTimeout (refuse) and
+// runExternal (clamp).
+func (e *Engine) resolveTimeout(inst *model.ProcessInstance, task *model.Task, now time.Time) (time.Time, string, bool, error) {
+	if task.Timeout.IsZero() {
+		return time.Time{}, "", false, nil
+	}
+	at, src, err := e.resolveSpec(inst, task.Timeout.DelaySpec, now)
+	if err != nil {
+		return time.Time{}, "", false, err
+	}
+	return at, src, true, nil
+}
+
+// fetchTimeout is the budget for one fetch attempt, defaulting when the task declares none.
+//
+// A deadline already behind now is refused rather than clamped. Clamping would build a
+// context that is expired before the request is sent, and transport.ClassifyGoError reports
+// that as http.timeout — an unknowable code, so on an only_once task it can never be
+// retried, ever, for a request that provably never left. There is no truthful code to
+// report, so the definition bug is named instead. (An external task has a truthful code for
+// exactly this, which is why it clamps; see runExternal.)
+func (e *Engine) fetchTimeout(inst *model.ProcessInstance, task *model.Task, now time.Time) (time.Duration, error) {
+	at, src, ok, err := e.resolveTimeout(inst, task, now)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return defaultActionTimeout, nil
+	}
+	if !at.After(now) {
+		return 0, fmt.Errorf("%s resolves to %s, which is not in the future — a request would time out before it was sent", src, at.Format(time.RFC3339))
+	}
+	return at.Sub(now), nil
+}
+
 // delayArity rejects any slot count other than exactly one. Registration rejects both
 // cases too, but the decoder also runs over stored rows that never re-validate, so neither
 // may resolve to a default: a row carrying only the removed `ms` decodes to *no* slot and
 // would wait zero, and preferring one of two slots silently waits a fraction of the
 // intended time with nothing reporting it. See docs/delay-syntax.md.
-func delayArity(a *model.Action) error {
+//
+// A Timeout guards its own absence before calling this (an absent timeout is legitimate,
+// unlike an absent delay), so reaching here with neither slot set is the same corruption
+// it has always been.
+func delayArity(spec model.DelaySpec) error {
 	switch {
-	case a.For != nil && a.Until != nil:
+	case spec.For != nil && spec.Until != nil:
 		return fmt.Errorf("both `for` and `until` are set: exactly one is required")
-	case a.For == nil && a.Until == nil:
+	case spec.For == nil && spec.Until == nil:
 		return fmt.Errorf("no delay set: exactly one of `for` or `until` is required")
 	default:
 		return nil
@@ -254,7 +318,7 @@ func (e *Engine) delayNumber(inst *model.ProcessInstance, raw any) (int64, error
 // by wait_state and the presence of _external_result:
 //
 //  1. First arrival — snapshot the input, mint a per-occurrence token, park on
-//     wait_state='external' (wake_at is the deadline when timeout_ms > 0).
+//     wait_state='external' (wake_at is the resolved timeout, absent when the task has none).
 //  2. Result submitted — the resolve API cleared wait_state and stored the result.
 //  3. Timeout — a parked external is only claimed once wake_at passed, so still being
 //     parked means no result arrived → external.timeout, re-armed with a fresh token if
@@ -289,10 +353,29 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q input: %v", task.ID, err)))
 	}
 	token := inst.ID + "." + idgen.New()
+	// Resolved at arm time, once per occurrence: a re-arm after an external.timeout retry
+	// resolves again, so an `until` deadline stays the same instant while a `for` budget
+	// starts over. wake_at is a DB timestamp, so the instant goes in as resolved — unlike
+	// the fetch path, there is no clock offset to cancel out.
+	armedAt := db.Now()
+	deadline, spec, hasDeadline, err := e.resolveTimeout(inst, task, armedAt)
+	if err != nil {
+		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q timeout: %v", task.ID, err)))
+	}
 	var wakeAt *time.Time
-	if task.TimeoutMs > 0 {
-		wake := db.Now().Add(time.Duration(task.TimeoutMs) * time.Millisecond)
-		wakeAt = &wake
+	if hasDeadline {
+		// A deadline behind now clamps rather than failing, exactly as a delay's `until`
+		// does: the task parks already due, the next claim finds it still parked, and it
+		// raises external.timeout — the truthful code, and the one the definition's
+		// on_error is written against. Failing here instead would hand an author who wrote
+		// `on_error: [external.timeout]` an uncatchable engine.expression, and a deadline
+		// legitimately arrives in the past — a re-arm after a retry, or a resume from a
+		// pause that outlasted the window.
+		if deadline.Before(armedAt) {
+			spec = fmt.Sprintf("%s (already past; due now)", spec)
+			deadline = armedAt
+		}
+		wakeAt = &deadline
 	}
 	consumed, result, err := e.db.ArmExternalOrConsumeSignal(ctx, inst, task.ID, token, input, wakeAt)
 	if err != nil {
@@ -309,8 +392,11 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	// Parked. ArmExternalOrConsumeSignal persisted the parked state and released the lease,
 	// so (like a child spawn) advance returns noop and writes nothing further.
 	armedMsg := "token=" + token
-	if task.TimeoutMs > 0 {
-		armedMsg += fmt.Sprintf(" timeout=%dms", task.TimeoutMs)
+	if hasDeadline {
+		// Both the source spec and the instant it resolved to: a calendar deadline is
+		// undebuggable after the fact from either one alone, the same reason delay_armed
+		// logs both.
+		armedMsg += fmt.Sprintf(" timeout=%s -> %s", spec, deadline.Format(time.RFC3339))
 	}
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventExternalArmed, Task: task.ID, Msg: armedMsg})
 	return nil, stop(advanceOutcome{kind: outcomeNoop})

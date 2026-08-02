@@ -102,6 +102,9 @@ func validateTask(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int, po
 	if err := validateActionRequiredFields(s); err != nil {
 		return err
 	}
+	if err := validateTimeout(s); err != nil {
+		return err
+	}
 	if err := validateSwitch(s, taskIDs, taskIdx, lastIdx); err != nil {
 		return err
 	}
@@ -109,6 +112,40 @@ func validateTask(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int, po
 		return err
 	}
 	return validateActionSchemas(s, pool)
+}
+
+// validateTimeout enforces the two rules a timeout has beyond its grammar: which action
+// types honour one at all, and that `until` is confined to the one that parks.
+//
+// A timeout on a child or delay task is rejected rather than ignored — the engine reads it
+// in exactly two places, and a deadline that is silently never applied is the failure this
+// check exists for.
+//
+// `until` is confined to external because a deadline already past has to mean something,
+// and it only means something coherent there: the task parks on that instant, so a
+// deadline behind now is simply due. A fetch would instead build a context that is expired
+// before the request is sent, and transport.ClassifyGoError reports that as http.timeout —
+// an unknowable code, so on an only_once task it can never be retried, for a request that
+// provably never left. There is no honest code to report for it, so the slot is refused.
+func validateTimeout(s *Task) error {
+	if s.Timeout.IsZero() {
+		return nil
+	}
+	if s.Action == nil {
+		return fmt.Errorf("task %q: timeout is not valid on a switch-only task — there is no call for it to bound", s.ID)
+	}
+	switch s.Action.Type {
+	case ActionTypeFetch:
+		if s.Timeout.Until != nil {
+			return fmt.Errorf("task %q: timeout.until is only valid on an external task — a fetch deadline that has already passed would report http.timeout for a request that was never sent. Use %s for a budget per attempt", s.ID, `timeout: "30s"`)
+		}
+	case ActionTypeExternal:
+		// Both slots: an external parks on an instant, so a fixed deadline is as meaningful
+		// as a budget.
+	default:
+		return fmt.Errorf("task %q: timeout is not honoured on a %q task — only fetch and external tasks are bounded by one", s.ID, s.Action.Type)
+	}
+	return nil
 }
 
 func validateActionRequiredFields(s *Task) error {
@@ -155,7 +192,8 @@ func validateActionRequiredFields(s *Task) error {
 		}
 	case ActionTypeExternal:
 		// No required action fields: input and result_schema are both optional
-		// (mirroring fetch). The wait timeout is the task's timeout_ms (0 = forever).
+		// (mirroring fetch). The wait is bounded by the task's timeout, absent = forever;
+		// validateTimeout owns its rules, including that this is the one type taking `until`.
 	default:
 		return fmt.Errorf("task %q: action.type must be one of: fetch, child, child_map, child_list, delay, external", s.ID)
 	}

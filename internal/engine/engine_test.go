@@ -79,23 +79,23 @@ func TestEvaluator_EvalBool_WithSelf(t *testing.T) {
 func TestDelayArity(t *testing.T) {
 	tests := []struct {
 		name    string
-		action  model.Action
+		spec    model.DelaySpec
 		wantErr string
 	}{
-		{"for only", model.Action{For: "2h30m"}, ""},
-		{"until only", model.Action{Until: "+2d 08:00"}, ""},
+		{"for only", model.DelaySpec{For: "2h30m"}, ""},
+		{"until only", model.DelaySpec{Until: "+2d 08:00"}, ""},
 		// A row carrying only the removed `ms` decodes to this: Action takes no
 		// DisallowUnknownFields, so `ms` is dropped and both slots are absent.
-		{"neither", model.Action{}, "no delay set"},
+		{"neither", model.DelaySpec{}, "no delay set"},
 		// Preferring `for` here would wait a fraction of the intended time if `until` held
 		// the real deadline, with nothing reporting it.
-		{"both", model.Action{For: "1h", Until: "+1d 08:00"}, "both"},
+		{"both", model.DelaySpec{For: "1h", Until: "+1d 08:00"}, "both"},
 		// Zero is a real value, not absence — it must not be mistaken for an unset slot.
-		{"explicit zero for", model.Action{For: float64(0)}, ""},
+		{"explicit zero for", model.DelaySpec{For: float64(0)}, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := delayArity(&tt.action)
+			err := delayArity(tt.spec)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)

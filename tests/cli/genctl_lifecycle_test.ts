@@ -62,7 +62,7 @@ function failingDef(name: string) {
       {
         id: "call",
         action: { type: "fetch", url: "http://127.0.0.1:1/x" },
-        timeout_ms: 1000,
+        timeout: 1000,
         switch: [{ goto: "end" }],
       },
     ],

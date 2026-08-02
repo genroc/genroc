@@ -94,3 +94,82 @@ func TestGenerate_DelaySlots_RejectsInterpolationByName(t *testing.T) {
 		}
 	}
 }
+
+// timeoutDef builds a one-task definition carrying the given raw JSON timeout. The action
+// is external, the one type that accepts both slots, so the grammar can be exercised
+// without the action-type rules (tested in internal/model) getting in the way.
+func timeoutDef(valueJSON string) string {
+	return `{
+		"name": "timeout-slots",
+		"input_schema": {"type":"object","properties":{"n":{"type":"integer"},"tags":{"type":"array","items":{"type":"string"}}},"required":["n","tags"]},
+		"tasks": [
+			{"id": "park", "action": {"type": "external"}, "timeout": ` + valueJSON + `, "switch": "end"}
+		]
+	}`
+}
+
+// A timeout is the delay slots aimed at a deadline, so it inherits their whole
+// classification — including the shorthand, which desugars to `for` before any of it runs.
+func TestGenerate_TimeoutSlots_Accepted(t *testing.T) {
+	for _, value := range []string{
+		// Shorthand: a literal duration, a bare number of milliseconds, an expression.
+		`"30s"`,
+		`"2h30m"`,
+		`5000`,
+		`"$: input.n"`,
+		// Long form, both slots plus tz.
+		`{"for": "1d", "tz": "Europe/Prague"}`,
+		`{"until": "fri 17:00", "tz": "Europe/Prague"}`,
+		`{"until": "2026-09-01T08:00:00+02:00"}`,
+		`{"until": "$: input.n"}`,
+	} {
+		if err := runGenerateErr(t, timeoutDef(value)); err != nil {
+			t.Errorf("timeout %s should be accepted: %v", value, err)
+		}
+	}
+}
+
+func TestGenerate_TimeoutSlots_Rejected(t *testing.T) {
+	for _, tc := range []struct{ value, want string }{
+		// The shorthand is the `for` grammar, so it inherits the unitless rejection.
+		{`"5000"`, "no unit"},
+		{`"2x"`, "unknown unit"},
+		{`{"for": "5000"}`, "no unit"},
+		// An expression that cannot be a duration, and one that resolves to nothing.
+		{`"$: input.tags"`, "number of milliseconds"},
+		{`{"until": "$: input.tags"}`, "number of unix milliseconds"},
+		{`"$: input.nope"`, ""},
+		// An interpolation yields a string at runtime, here as everywhere.
+		{`"${ input.n }s"`, "${ }"},
+		// The arity rule the two slots share, and the tz rule.
+		{`{"for": "1h", "until": "fri 17:00"}`, "mutually exclusive"},
+		{`{"tz": "Europe/Prague"}`, "one of for or until is required"},
+		{`{"for": "1d", "tz": "CET"}`, "abbreviations"},
+		// An unknown key is rejected a layer earlier, at decode, so it never reaches
+		// validation — see TestTimeout_DecodeForms in internal/model.
+	} {
+		err := runGenerateErr(t, timeoutDef(tc.value))
+		if err == nil {
+			t.Errorf("timeout %s should be rejected", tc.value)
+			continue
+		}
+		if tc.want != "" && !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("timeout %s error = %q; want it to mention %q", tc.value, err, tc.want)
+		}
+	}
+}
+
+// The label must say which construct the slot belongs to. A timeout error reading "delay
+// for" would send the author to the wrong line — the two share a checker, not a name.
+func TestGenerate_TimeoutSlots_ErrorNamesTheTimeout(t *testing.T) {
+	err := runGenerateErr(t, timeoutDef(`"2x"`))
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(err.Error(), "timeout") {
+		t.Errorf("error = %q; it should name the timeout slot", err)
+	}
+	if strings.Contains(err.Error(), "delay") {
+		t.Errorf("error = %q; it must not call a timeout a delay", err)
+	}
+}

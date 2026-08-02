@@ -101,7 +101,7 @@ child↔sidecar) contract needs:
 - **Progress / heartbeat.** Long-running custom tasks should report progress upward
   (`UpdateInstanceProgress` exists; confirm it is reachable by a running child) —
   both for observability and to distinguish "slow" from "dead".
-- **Timeouts & retries** — already present (`timeout_ms`, `on_error` retries); they
+- **Timeouts & retries** — already present (`timeout`, `on_error` retries); they
   become the load-bearing reliability layer once every custom task is a network call.
 
 ## Coordination & lifecycle (the K8s handler's hard parts)

@@ -91,7 +91,7 @@ test("crash recovery — new worker re-executes an unconfirmed task after the pr
               url: `http://localhost:${mock.port}/action`,
             },
             // Long enough that the task never times out before the crash.
-            timeout_ms: 120_000,
+            timeout: 120_000,
             switch: [{ goto: "end" }],
           },
         ],
@@ -169,7 +169,7 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
             // only_once: the engine must not re-run this on a lease takeover, since
             // the call may already have happened on the crashed worker.
             only_once: true,
-            timeout_ms: 120_000,
+            timeout: 120_000,
             switch: [{ goto: "end" }],
           },
         ],
@@ -249,7 +249,7 @@ async function pauseThenCrash(
             type: "fetch" as const,
             url: `http://localhost:${mockPort}/action`,
           },
-          timeout_ms: 120_000,
+          timeout: 120_000,
           switch: [{ goto: "end" }],
         },
         ...(opts.extraTasks ?? []),
@@ -473,7 +473,7 @@ test("crash recovery — an interrupted only_once task routes to its on_error ha
               url: `http://localhost:${charge.port}/action`,
             },
             only_once: true,
-            timeout_ms: 120_000,
+            timeout: 120_000,
             on_error: [{ code: ["only_once.interrupted"], goto: "$verify" }],
             switch: [{ goto: "end" }],
           },
@@ -560,7 +560,7 @@ test("crash recovery — a handler may deliberately re-run the interrupted task"
               url: `http://localhost:${charge.port}/action`,
             },
             only_once: true,
-            timeout_ms: 120_000,
+            timeout: 120_000,
             on_error: [{ code: ["only_once.interrupted"], goto: "$verify" }],
             switch: [{ goto: "end" }],
           },
@@ -679,7 +679,7 @@ function chargeTask(port: number, onError: unknown[]) {
     id: "charge",
     action: { type: "fetch" as const, url: `http://localhost:${port}/action` },
     only_once: true,
-    timeout_ms: 120_000,
+    timeout: 120_000,
     on_error: onError,
     switch: [{ goto: "end" }],
   };

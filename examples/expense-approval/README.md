@@ -7,7 +7,7 @@ the waiting is a task type, not an architecture.
 ```
 expense-approval
   notify          fetch     POST /notify                 tell the reviewer
-  review          external  parks until someone answers   timeout_ms: 1h
+  review          external  parks until someone answers   timeout: 1h
                     ├─ approved      ─▶ pay
                     ├─ not approved  ─▶ reject ─▶ raise expense_rejected
                     └─ external.timeout ─▶ escalate
@@ -90,23 +90,30 @@ genctl signal <instance-id> --task review --result '{"approved": true, "reviewer
 `signal` also buffers: deliver a result before the task has armed and it is held FIFO until
 the task next parks, which removes a race a token-only API would force you to handle.
 
-## Timeouts, and why the review window is a constant
+## Timeouts
 
-`timeout_ms` on the task bounds the wait, and expiring raises the catchable
+`timeout` on the task bounds the wait, and expiring raises the catchable
 `external.timeout` — so escalation is ordinary error routing, not a special mechanism:
 
 ```yaml
-timeout_ms: 3600000
+timeout: 1h
 on_error:
   - code: [external.timeout]
     goto: $escalate
 ```
 
-**`timeout_ms` is a static integer — it cannot be an expression.** The review window is
-therefore fixed by the definition, not supplied per instance. If you need a caller-supplied
-deadline today, the way to express it is a `delay` task (whose `for` / `until` *are*
-expressions) racing the approval in a sibling branch — considerably more machinery than
-this example needs.
+`timeout` takes the same grammar as a `delay`'s `for`, so the window can also be supplied
+per instance (`timeout: "$: input.review_window_ms"`) or written as a real deadline rather
+than a budget — on an external task, and only there, `until` is accepted:
+
+```yaml
+timeout:
+  until: "fri 17:00"
+  tz: Europe/Prague
+```
+
+A constant hour is the deliberate choice for this example; the point is that a fixed
+window is a choice here, not a limitation.
 
 The second park deliberately has **no** timeout. Once a request has already been escalated,
 timing out again would mean deciding by default, and the point of escalation is to get a

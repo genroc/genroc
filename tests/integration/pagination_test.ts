@@ -17,7 +17,7 @@ beforeAll(async () => {
         {
           id: "s1",
           action: { type: "fetch" as const, url: "http://localhost:19991/action" },
-          timeout_ms: 200,
+          timeout: 200,
           switch: [{ goto: "end" }],
         },
       ],

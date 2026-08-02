@@ -20,7 +20,7 @@ tasks:
         properties:
           rate: { type: number }
         required: [rate]
-    timeout_ms: 5000
+    timeout: 5000
     on_error:
       - code: [http.500, http.503]
         retries: 2

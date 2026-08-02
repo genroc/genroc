@@ -161,7 +161,7 @@ test("child — no on_error cascades to parent failure", async () => {
         {
           id: "action",
           action: { type: "fetch" as const, url: `http://localhost:${failMock.port}/action` },
-          timeout_ms: 2000,
+          timeout: 2000,
           switch: [{ goto: "end" }],
         },
       ],
@@ -202,7 +202,7 @@ test("child — failure propagates through the entire ancestor chain", async () 
         {
           id: "action",
           action: { type: "fetch" as const, url: `http://localhost:${failMock.port}/action` },
-          timeout_ms: 2000,
+          timeout: 2000,
           switch: [{ goto: "end" }],
         },
       ],
@@ -258,7 +258,7 @@ test("child — parent error contains child's error message when child fails", a
         {
           id: "action",
           action: { type: "fetch" as const, url: `http://localhost:${failMock.port}/action` },
-          timeout_ms: 2000,
+          timeout: 2000,
           switch: [{ goto: "end" }],
         },
       ],
@@ -384,7 +384,7 @@ test("child — two sequential child tasks both spawn and collect", async () => 
           {
             id: "work",
             action: { type: "fetch" as const, url: `http://localhost:${mock.port}/action` },
-            timeout_ms: 2000,
+            timeout: 2000,
             switch: [{ goto: "end" }],
           },
         ],

@@ -93,7 +93,7 @@ test("api errors — resuming a process that is not paused is 409 conflict", asy
         {
           id: "call",
           action: { type: "fetch" as const, url: `http://localhost:${mock.port}/x` },
-          timeout_ms: 2000,
+          timeout: 2000,
           switch: [{ goto: "end" }],
         },
       ],
@@ -121,7 +121,7 @@ test("api errors — retrying a completed process is 409 conflict", async () => 
         {
           id: "call",
           action: { type: "fetch" as const, url: `http://localhost:${mock.port}/x` },
-          timeout_ms: 2000,
+          timeout: 2000,
           switch: [{ goto: "end" }],
         },
       ],

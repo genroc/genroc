@@ -42,7 +42,8 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			isDelay := s.Action.Type == model.ActionTypeDelay
 			hasFor := isDelay && s.Action.For != nil
 			hasUntil := isDelay && s.Action.Until != nil
-			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasAcceptedStatus || hasOver || hasFor || hasUntil {
+			hasTimeout := !s.Timeout.IsZero()
+			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout {
 				ctx := contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, mustErr[s.ID], mayErr[s.ID]).WithDefs(defs)
 				// The child_list `over` expression must be a non-null array; each
 				// element becomes one child's input. Type-check it here so a malformed or
@@ -57,12 +58,19 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				// number, and a ${ } interpolation is rejected — so a malformed duration or
 				// instant fails at registration rather than when the task is reached.
 				if hasFor {
-					if err := checkDelaySlot(s.Action.For, ctx, s.ID, "for"); err != nil {
+					if err := checkDelaySlot(s.Action.For, ctx, s.ID, "delay", "for"); err != nil {
 						return err
 					}
 				}
 				if hasUntil {
-					if err := checkDelaySlot(s.Action.Until, ctx, s.ID, "until"); err != nil {
+					if err := checkDelaySlot(s.Action.Until, ctx, s.ID, "delay", "until"); err != nil {
+						return err
+					}
+				}
+				// A timeout is the same two slots pointed at a deadline, so it is checked the
+				// same way — a literal against the grammar, a $: expression to a number.
+				if hasTimeout {
+					if err := checkTimeout(&s.Timeout, ctx, s.ID); err != nil {
 						return err
 					}
 				}
@@ -221,8 +229,10 @@ func checkArrayTemplate(expr string, ctx schema.Schema, taskID string) (schema.S
 // a string at runtime, which is precisely the failure this syntax exists to remove. The
 // human grammar is authoring syntax — a value arriving from input or a fetch result is
 // machine-produced, and the machine representation of an instant is a number.
-func checkDelaySlot(raw any, ctx schema.Schema, taskID, slot string) error {
-	label := fmt.Sprintf("task %q delay %s", taskID, slot)
+// where names the construct the slot belongs to ("delay", "timeout") so the message points
+// at the line the author wrote.
+func checkDelaySlot(raw any, ctx schema.Schema, taskID, where, slot string) error {
+	label := fmt.Sprintf("task %q %s %s", taskID, where, slot)
 
 	// A bare number is milliseconds (for) or unix milliseconds (until): no parse, no check.
 	switch raw.(type) {
@@ -260,6 +270,32 @@ func checkDelaySlot(raw any, ctx schema.Schema, taskID, slot string) error {
 		},
 	})
 	return err
+}
+
+// checkTimeout type-checks a task's timeout: the same two slots as a delay, with the same
+// syntactic classification, plus the arity rule the two share.
+//
+// Whether a literal is *positive* is deliberately not checked here. "0s" parses, and its
+// resolved instant is the thing that has to be in the future — a check the engine makes
+// against the clock it will actually run on, since an `until` cannot be judged at
+// registration at all (the same definition would validate differently on different days,
+// which is exactly what checkDelayLiteral's clock-independence exists to prevent).
+func checkTimeout(t *model.Timeout, ctx schema.Schema, taskID string) error {
+	if t.For != nil && t.Until != nil {
+		return fmt.Errorf("task %q timeout: for and until are mutually exclusive — %q is a budget from when the task is reached, %q is a fixed deadline", taskID, "for", "until")
+	}
+	if t.For == nil && t.Until == nil {
+		return fmt.Errorf("task %q timeout: one of for or until is required (write %s for a plain duration)", taskID, `timeout: "30s"`)
+	}
+	if t.TZ != "" {
+		if _, err := delayspec.LoadLocation(t.TZ); err != nil {
+			return fmt.Errorf("task %q timeout: %v", taskID, err)
+		}
+	}
+	if t.For != nil {
+		return checkDelaySlot(t.For, ctx, taskID, "timeout", "for")
+	}
+	return checkDelaySlot(t.Until, ctx, taskID, "timeout", "until")
 }
 
 // checkDelayLiteral parses a pure literal at registration, so a typo fails when the

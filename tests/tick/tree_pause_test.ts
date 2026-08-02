@@ -50,7 +50,7 @@ beforeAll(async () => {
         type: "fetch" as const,
         url: `http://localhost:${mockPort}/action`,
       },
-      timeout_ms: 5_000,
+      timeout: 5_000,
       switch: [{ goto: "end" }],
     },
   ]);

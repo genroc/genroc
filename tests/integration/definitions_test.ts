@@ -8,7 +8,7 @@ const validDef = {
     {
       id: "step1",
       action: { type: "fetch" as const, url: "http://localhost:19990/action" },
-      timeout_ms: 1000,
+      timeout: 1000,
       switch: [{ goto: "end" }],
     },
   ],

@@ -30,7 +30,7 @@ tasks:
           time: { type: string }
           temperature_c: { type: number }
         required: [time, temperature_c]
-    timeout_ms: 15000
+    timeout: 15000
     output:
       time: "$: self.result.time"
       temperature_c: "$: self.result.temperature_c"

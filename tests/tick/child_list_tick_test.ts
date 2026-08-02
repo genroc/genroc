@@ -85,7 +85,7 @@ beforeAll(async () => {
       {
         id: "boom",
         action: { type: "fetch", url: `http://localhost:${mock.port}/action` },
-        timeout_ms: 5_000,
+        timeout: 5_000,
         switch: [{ goto: "end" }],
       },
     ],

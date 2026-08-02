@@ -34,13 +34,13 @@ test("retry failed instance — resumes from the failed task", async () => {
           {
             id: "step1",
             action: { type: "fetch" as const, url: `http://localhost:${step1Mock.port}/action` },
-            timeout_ms: 2000,
+            timeout: 2000,
             switch: [{ goto: "next" }],
           },
           {
             id: "step2",
             action: { type: "fetch" as const, url: `http://localhost:${step2Port}/action` },
-            timeout_ms: 2000,
+            timeout: 2000,
             switch: [{ goto: "end" }],
           },
         ],
@@ -88,13 +88,13 @@ test("retry on a paused instance — rejected, pointing at resume", async () => 
           {
             id: "step1",
             action: { type: "fetch" as const, url: `http://localhost:${step1Mock.port}/action` },
-            timeout_ms: 2000,
+            timeout: 2000,
             switch: [{ goto: "next" }],
           },
           {
             id: "step2",
             action: { type: "fetch" as const, url: `http://localhost:${step2Mock.port}/action` },
-            timeout_ms: 2000,
+            timeout: 2000,
             switch: [{ goto: "end" }],
           },
         ],
@@ -145,7 +145,7 @@ test("retry only_once task — rejected without force, allowed with force", asyn
             id: "charge",
             only_once: true,
             action: { type: "fetch" as const, url: `http://localhost:${chargePort}/action` },
-            timeout_ms: 2000,
+            timeout: 2000,
             switch: [{ goto: "end" }],
           },
         ],
@@ -192,7 +192,7 @@ test("retry and pause on non-root instance — rejected naming the root", async 
           {
             id: "work",
             action: { type: "fetch" as const, url: `http://localhost:${failMock.port}/action` },
-            timeout_ms: 2000,
+            timeout: 2000,
             switch: [{ goto: "end" }],
           },
         ],
@@ -258,7 +258,7 @@ test("retry with parallel children — only the failed child re-runs", async () 
           {
             id: "work",
             action: { type: "fetch" as const, url: `http://localhost:${goodMock.port}/action` },
-            timeout_ms: 2000,
+            timeout: 2000,
             switch: [{ goto: "end" }],
           },
         ],
@@ -271,7 +271,7 @@ test("retry with parallel children — only the failed child re-runs", async () 
           {
             id: "work",
             action: { type: "fetch" as const, url: `http://localhost:${badPort}/action` },
-            timeout_ms: 2000,
+            timeout: 2000,
             switch: [{ goto: "end" }],
           },
         ],

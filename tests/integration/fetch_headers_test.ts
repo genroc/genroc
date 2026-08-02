@@ -36,7 +36,7 @@ test("fetch stamps X-Genroc-Instance-Id and X-Genroc-Task-Id, and caller headers
               url: `http://localhost:${mock.port}/x`,
               headers: { "X-Trace": "abc" },
             },
-            timeout_ms: 2000,
+            timeout: 2000,
             switch: [{ goto: "end" }],
           },
         ],

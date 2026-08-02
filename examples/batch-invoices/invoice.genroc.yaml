@@ -36,7 +36,7 @@ tasks:
         properties:
           delivery_id: { type: string }
         required: [delivery_id]
-    timeout_ms: 5000
+    timeout: 5000
     on_error:
       # Permanently unsendable (no billing address, invalid customer). Retrying cannot
       # help and no sibling is affected — so it becomes this child's result.

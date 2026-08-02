@@ -29,15 +29,15 @@ tasks:
       body:
         to: reviewer
         subject: "${ input.requester } requests ${ input.amount_cents } for ${ input.purpose }"
-    timeout_ms: 5000
+    timeout: 5s
     switch: next
 
   # The park. `input` is snapshotted for the resolver — it is the ONLY thing the queue
   # exposes, so a reviewer sees the expense and never the process context.
   #
-  # timeout_ms is a static integer (it cannot be an expression), so the review window is
-  # fixed by the definition rather than supplied per instance. Expiring raises the
-  # catchable `external.timeout`.
+  # A fixed review window, written as a duration rather than a millisecond count. It
+  # could be an expression or an absolute `until` deadline instead; a constant is the
+  # deliberate choice here. Expiring raises the catchable `external.timeout`.
   - id: review
     action:
       type: external
@@ -54,7 +54,7 @@ tasks:
           reviewer: { type: string }
           note: { type: string }
         required: [approved, reviewer]
-    timeout_ms: 3600000
+    timeout: 1h
     on_error:
       - code: [external.timeout]
         goto: $escalate
@@ -78,7 +78,7 @@ tasks:
         properties:
           payment_id: { type: string }
         required: [payment_id]
-    timeout_ms: 5000
+    timeout: 5s
     output:
       payment_id: "$: self.result.payment_id"
     switch: end
@@ -92,11 +92,11 @@ tasks:
       body:
         to: manager
         subject: "escalated: ${ input.requester } is still waiting on ${ input.purpose }"
-    timeout_ms: 5000
+    timeout: 5s
     switch: next
 
-  # The second park has no timeout (0 = wait forever): once escalated, the process waits
-  # for a decision rather than deciding by default.
+  # The second park omits timeout entirely, which is how "wait forever" is spelled: once
+  # escalated, the process waits for a decision rather than deciding by default.
   - id: manager_review
     action:
       type: external

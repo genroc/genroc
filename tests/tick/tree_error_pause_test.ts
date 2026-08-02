@@ -62,7 +62,7 @@ beforeAll(async () => {
         type: "fetch" as const,
         url: `http://localhost:${failMockPort}/action`,
       },
-      timeout_ms: 5_000,
+      timeout: 5_000,
       switch: [{ goto: "end" }],
     },
   ]);
@@ -74,7 +74,7 @@ beforeAll(async () => {
         type: "fetch" as const,
         url: `http://localhost:${successMockPort}/action`,
       },
-      timeout_ms: 5_000,
+      timeout: 5_000,
       switch: [{ goto: "end" }],
     },
   ]);
@@ -194,7 +194,7 @@ test("a fails while the tree is paused — failure propagates, and resume unbloc
           type: "fetch" as const,
           url: `http://localhost:${holdMock.port}/action`,
         },
-        timeout_ms: 5_000,
+        timeout: 5_000,
         switch: [{ goto: "end" }],
       },
     ]);
