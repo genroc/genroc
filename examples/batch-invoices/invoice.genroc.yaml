@@ -66,10 +66,11 @@ tasks:
       reason: "$: error.code"
     switch: end
 
-# Exactly one of `send` / `unsendable` ran, so each slot reads both. `??` infers as the
-# UNION of its two sides and does not strip null from the left, so these stay nullable
-# however many non-null fallbacks are chained on — which is why the parent's
-# result_schema declares them nullable. See the README.
+# Exactly one of `send` / `unsendable` ran, so each slot reads both. These infer as
+# non-null: the two tasks are the process's only terminals, so between them they cover
+# every way of ending, and the inferencer types the output per terminal rather than
+# against one collapsed context. Add a third terminal that sets neither and they go back
+# to nullable, correctly. See docs/path-sensitive-output.md.
 output:
   invoice_id: "$: input.invoice_id"
   ok: "$: outputs.send.ok ?? outputs.unsendable.ok"

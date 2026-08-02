@@ -62,3 +62,14 @@ func assertJSON(t *testing.T, got any, wantJSON string) {
 		t.Errorf("schema mismatch:\n got:  %s\n want: %s", ga, gb)
 	}
 }
+
+// jsonString renders a schema as compact JSON for equality assertions that want to show
+// the whole type in the failure message rather than a diff of two trees.
+func jsonString(t *testing.T, s schema.Schema) string {
+	t.Helper()
+	b, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("marshal schema: %v", err)
+	}
+	return string(b)
+}

@@ -22,25 +22,34 @@ func taskHasOutput(s *model.Task) bool {
 	return s.Output.Present()
 }
 
-// outputContextSets returns which task outputs are required/optional at the
-// process output boundary, and whether $error is required or optional there.
-func outputContextSets(def *model.ProcessDefinition) (required, optional []string, errRequired, errOptional bool) {
+// terminalEnd is one way the process can finish: the task it ends on, the task outputs
+// guaranteed present there (must) and possibly present (may), and whether $error is.
+type terminalEnd struct {
+	task   string
+	must   map[string]bool
+	may    map[string]bool
+	errMin bool
+	errMax bool
+}
+
+// outputTerminals enumerates the process's terminal paths, one entry per way of ending.
+//
+// Keeping them apart is what lets `outputs.a.v ?? outputs.b.v` type as non-null when a
+// and b between them cover every terminal. outputContextSets collapses this list by
+// INTERSECTING the must sets, which is correct for a single required/optional answer but
+// destroys the correlation — after the intersection, "a is set here, b is set there" and
+// "neither is ever set" are indistinguishable. inferProcessOutput consumes the
+// uncollapsed list; see docs/path-sensitive-output.md.
+func outputTerminals(def *model.ProcessDefinition) []terminalEnd {
 	tasks := def.Tasks
 	n := len(tasks)
 	if n == 0 {
-		return
+		return nil
 	}
 
 	reqMap, optMap, mustErrMap, mayErrMap := computeContextSets(tasks)
 
-	type endSet struct {
-		must   map[string]bool
-		may    map[string]bool
-		errMin bool
-		errMax bool
-	}
-
-	var terminals []endSet
+	var terminals []terminalEnd
 
 	addTerminal := func(s *model.Task, includeOwnOutput bool, errMin, errMax bool) {
 		must := make(map[string]bool)
@@ -57,7 +66,7 @@ func outputContextSets(def *model.ProcessDefinition) (required, optional []strin
 		for _, id := range optMap[s.ID] {
 			may[id] = true
 		}
-		terminals = append(terminals, endSet{must: must, may: may, errMin: errMin, errMax: errMax})
+		terminals = append(terminals, terminalEnd{task: s.ID, must: must, may: may, errMin: errMin, errMax: errMax})
 	}
 
 	for i, s := range tasks {
@@ -88,6 +97,14 @@ func outputContextSets(def *model.ProcessDefinition) (required, optional []strin
 		}
 	}
 
+	return terminals
+}
+
+// outputContextSets returns which task outputs are required/optional at the process
+// output boundary, and whether $error is required or optional there — the single
+// collapsed answer, for callers that cannot use the per-terminal detail.
+func outputContextSets(def *model.ProcessDefinition) (required, optional []string, errRequired, errOptional bool) {
+	terminals := outputTerminals(def)
 	if len(terminals) == 0 {
 		return
 	}

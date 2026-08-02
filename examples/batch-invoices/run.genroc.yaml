@@ -66,9 +66,9 @@ tasks:
         type: object
         properties:
           invoice_id: { type: string }
-          ok: { type: [boolean, "null"] }
-          delivery_id: { type: [string, "null"] }
-          reason: { type: [string, "null"] }
+          ok: { type: boolean }
+          delivery_id: { type: string }
+          reason: { type: string }
         required: [invoice_id, ok]
     # Codes here are matched against what the CHILD can raise, and each pattern is
     # checked at registration against that child's raise set — a rule that could never

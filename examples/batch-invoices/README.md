@@ -112,20 +112,32 @@ therefore lives inside the child, where it can retry just that item:
 
 The parent sees a plain success; the two 503s never reach it.
 
-## Two rough edges this example runs into
+## Coalescing across branches is non-null when the branches cover every ending
 
-**`??` does not strip null.** `send-invoice` finishes on one of two tasks, so its output
-reads both:
+`send-invoice` finishes on one of two tasks, so its output reads both:
 
 ```yaml
 ok: "$: outputs.send.ok ?? outputs.unsendable.ok"
 ```
 
-`a ?? b` infers as the *union* of both sides and does not remove null from the left, so the
-result stays nullable however many non-null fallbacks are chained on. That is why the
-parent's `result_schema` declares these slots `[boolean, "null"]` rather than `boolean`. Not
-a blocker — but if a child fans out into several terminal tasks, expect its output type to
-be nullable and declare it that way upstream.
+That infers as plain `boolean`, not `boolean|null`. `send` and `unsendable` are the
+process's only terminals, so exactly one of them is always set — and the output expression
+is typed **once per terminal and joined**, which is what preserves that correlation. The
+parent's `result_schema` therefore declares `ok` as `boolean`.
+
+The precision is not a special case in `??`; it falls out of the partition, so it stays
+honest in both directions:
+
+- Add a third way to end that sets neither output, and `ok` goes back to `boolean|null` —
+  because it genuinely can be null.
+- If a branch's own output is declared nullable, the result stays nullable too: coverage
+  means the value is *present*, not that it is *non-null*.
+
+Where you do need a fallback — an uncovered terminal, a genuinely nullable branch — a
+trailing default ends the chain: `?? false`. Full design and the deliberate limit (mid-process
+task contexts are still collapsed) in [docs/path-sensitive-output.md](../../docs/path-sensitive-output.md).
+
+## One rough edge this example runs into
 
 **There is no `len()` or `filter()`.** `map` is the only builtin, so the run reports the
 collected array and leaves counting the failures to the caller. Aggregating in the definition

@@ -247,14 +247,15 @@ func TestInfer_NullCoalesce_NumericWidening(t *testing.T) {
 }
 
 func TestInfer_NullCoalesce_DifferentTypes(t *testing.T) {
-	// nullable integer ?? string → oneOf[integer, string]
+	// nullable integer ?? string → integer|string, canonicalized. The union is merged
+	// rather than left as oneOf[{integer},{string}]: oneOf means EXACTLY one, so
+	// un-merged arms that overlap describe a type no value satisfies.
 	c := ctx(t, `{
 		"type": "object",
 		"properties": { "count": {"type": "integer"} },
 		"required": []
 	}`)
-	assertSchema(t, infer(t, `count ?? "n/a"`, c),
-		`{"oneOf":[{"type":"integer"},{"type":"string"}]}`)
+	assertSchema(t, infer(t, `count ?? "n/a"`, c), `{"type":["integer","string"]}`)
 }
 
 // --- Unsupported constructs ---

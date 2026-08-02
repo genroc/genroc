@@ -32,6 +32,17 @@
   docs/delay-syntax.md). Grammars in internal/delayspec. Still open: a ceiling on the
   resolved delay, `tz` from an expression, a definition-level default timezone
 - [x] survive a frozen worker - a suspended host or a throttled container used to make the engine re-claim its own in-flight work and exit as "overwhelmed"; it now checks how long ago a lease renewal last succeeded, repairs its own leases before claiming, and declines lease takeovers for one lease period (see docs/lease-fencing.md). Still open in that doc: fencing every write on a per-grant `lease_epoch` so a stale advance's write is refused rather than clobbering — the multi-worker half, which the gate cannot cover
+- [x] path-sensitive process output - coalescing across branches that between them cover every
+  way the process can end (`outputs.a.v ?? outputs.b.v`) now types non-null. The output
+  expression is checked once per terminal and joined, instead of once against a context that
+  has already intersected the terminals' must-sets and lost the correlation. Fell out of it:
+  `??` canonicalizes its union (an un-merged `oneOf[{T},{T|null}]` overlaps, and oneOf means
+  exactly one, so it rejected every value it described), reading a property through a null
+  yields null (matching the evaluator), and `StripNull` regained its `!HasNull` contract. See
+  docs/path-sensitive-output.md. **Still open:** mid-process task contexts are still collapsed
+  — the same coalesce read from a task reachable from two branches stays nullable, because
+  that fixpoint's lattice element is one must-set and path sensitivity there needs a DNF
+  lattice with widening (§5 of that doc). Workaround is a trailing `?? default`
 - [] pause as a debugging tool: start an instance paused, then step it with tick
 
 # docs

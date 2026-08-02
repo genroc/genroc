@@ -145,6 +145,16 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 		return nil, err
 	}
 
+	// A property of null is null, not an access error. This matches the evaluator
+	// (member access on a missing value yields nil, which is what lets `a.x ?? b.x`
+	// fall through) and the all-null union case below, which already returns null
+	// rather than failing. Path-partitioned output inference relies on it: a task
+	// output that is definitely absent on a given terminal is typed {"type":"null"},
+	// and reading through it must yield null so `??` can take the other arm.
+	if isNullType(resolved) {
+		return &node{Type: SchemaType{"null"}}, nil
+	}
+
 	for _, kw := range []struct {
 		name     string
 		variants []*node
@@ -635,6 +645,14 @@ func nodeIsType(s *node, defs map[string]*node, typ string) bool {
 // declared inside a referenced definition is seen. Resolution failures degrade to the
 // structural answer.
 func hasNullResolved(s *node, defs map[string]*node) bool {
+	return hasNullGuard(s, defs, nil)
+}
+
+// hasNullGuard recurses through nested unions: a null inside oneOf[oneOf[…, null], …]
+// is still a null the value may take, and a one-level scan under-reports it — which
+// would let a caller treat a nullable type as non-null. visiting holds union nodes
+// already on the walk so a reference cycle terminates instead of recursing forever.
+func hasNullGuard(s *node, defs map[string]*node, visiting map[*node]bool) bool {
 	r, err := deref(s, defs)
 	if err != nil {
 		return hasNullType(s)
@@ -642,13 +660,20 @@ func hasNullResolved(s *node, defs map[string]*node) bool {
 	if hasNullType(r) {
 		return true
 	}
+	if visiting[r] {
+		return false
+	}
+	if len(r.OneOf) == 0 && len(r.AnyOf) == 0 {
+		return false
+	}
+	next := make(map[*node]bool, len(visiting)+1)
+	for k := range visiting {
+		next[k] = true
+	}
+	next[r] = true
 	for _, variants := range [][]*node{r.OneOf, r.AnyOf} {
 		for _, v := range variants {
-			rv, verr := deref(v, defs)
-			if verr != nil {
-				continue
-			}
-			if isNullType(rv) || rv.Type.Contains("null") {
+			if v != nil && hasNullGuard(v, defs, next) {
 				return true
 			}
 		}
@@ -737,13 +762,8 @@ func stripNull(s *node) *node {
 		return &n
 	}
 	if len(s.OneOf) > 0 {
-		var nonNull []*node
-		for _, v := range s.OneOf {
-			if !isNullType(v) {
-				nonNull = append(nonNull, v)
-			}
-		}
-		if len(nonNull) == len(s.OneOf) {
+		nonNull, changed := stripNullVariants(s.OneOf)
+		if !changed || len(nonNull) == 0 {
 			return s
 		}
 		if len(nonNull) == 1 {
@@ -754,13 +774,8 @@ func stripNull(s *node) *node {
 		return &n
 	}
 	if len(s.AnyOf) > 0 {
-		var nonNull []*node
-		for _, v := range s.AnyOf {
-			if !isNullType(v) {
-				nonNull = append(nonNull, v)
-			}
-		}
-		if len(nonNull) == len(s.AnyOf) {
+		nonNull, changed := stripNullVariants(s.AnyOf)
+		if !changed || len(nonNull) == 0 {
 			return s
 		}
 		if len(nonNull) == 1 {
@@ -771,6 +786,30 @@ func stripNull(s *node) *node {
 		return &n
 	}
 	return s
+}
+
+// stripNullVariants drops variants that are exactly null AND strips null from inside the
+// survivors, so StripNull keeps its contract (HasNull is false afterwards) on a union
+// whose nullability hides in an arm's type list rather than in a separate null arm.
+//
+// A $ref variant rides through untouched — stripNull never derefs, which is what keeps a
+// recursive type symbolic and finite. So HasNull can still see a null inside a referenced
+// definition that no wrapper here can remove; inferNullCoalesce materializes for that case.
+func stripNullVariants(vs []*node) ([]*node, bool) {
+	out := make([]*node, 0, len(vs))
+	changed := false
+	for _, v := range vs {
+		if isNullType(v) {
+			changed = true
+			continue
+		}
+		sv := stripNull(v)
+		if sv != v {
+			changed = true
+		}
+		out = append(out, sv)
+	}
+	return out, changed
 }
 
 // isEmptyNode reports whether s constrains nothing — the top type, written {}, which is

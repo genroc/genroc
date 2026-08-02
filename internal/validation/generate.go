@@ -149,11 +149,85 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 	return result, nil
 }
 
+// inferProcessOutput types the process output expression PER TERMINAL PATH and joins the
+// results, rather than once against a context that has already collapsed the paths.
+//
+// The collapse intersects the must-sets of every terminal, so two task outputs that
+// between them cover all terminals both come out merely "optional", and
+// `outputs.a.v ?? outputs.b.v` is nullable even though one of them is always set. Checked
+// per terminal, each side is either its real type or null, `??` resolves exactly as it
+// does at runtime, and the join is non-null. A terminal on which NEITHER is set still
+// contributes null, so genuinely uncovered cases stay nullable — the precision comes from
+// the partition, not from a special case in the operator. See docs/path-sensitive-output.md.
 func inferProcessOutput(def *model.ProcessDefinition, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, defs schema.Defs) (schema.Schema, error) {
-	req, opt, errReq, errOpt := outputContextSets(def)
-	ctx := contextSchema(req, opt, tasks, processInput, configSchema, errReq, errOpt).WithDefs(defs)
 	shp := shape.Shape{Raw: def.Output.Raw, Name: "output"}
-	return shp.Check(ctx)
+	terminals := outputTerminals(def)
+	if len(terminals) < 2 {
+		req, opt, errReq, errOpt := outputContextSets(def)
+		ctx := contextSchema(req, opt, tasks, processInput, configSchema, errReq, errOpt).WithDefs(defs)
+		return shp.Check(ctx)
+	}
+
+	// Task outputs reachable on at least one terminal. A reference to anything outside
+	// this set is absent everywhere, so it is left out of every per-terminal context and
+	// still reported as an access error instead of silently typing null.
+	everMay := make(map[string]bool)
+	for _, t := range terminals {
+		for id := range t.may {
+			everMay[id] = true
+		}
+	}
+
+	var (
+		joined      schema.Schema
+		ok          int
+		firstErr    error
+		firstErrTsk string
+	)
+	for _, t := range terminals {
+		var must, opt, absent []string
+		for id := range t.must {
+			must = append(must, id)
+		}
+		for id := range t.may {
+			if !t.must[id] {
+				opt = append(opt, id)
+			}
+		}
+		for id := range everMay {
+			if !t.may[id] {
+				absent = append(absent, id)
+			}
+		}
+		sort.Strings(must)
+		sort.Strings(opt)
+		sort.Strings(absent)
+
+		ctx := contextSchemaAbsent(must, opt, absent, tasks, processInput, configSchema, t.errMin, t.errMax).WithDefs(defs)
+		s, err := shp.Check(ctx)
+		if err != nil {
+			if firstErr == nil {
+				firstErr, firstErrTsk = err, t.task
+			}
+			continue
+		}
+		if ok == 0 {
+			joined = s
+		} else {
+			joined = joined.Join(s)
+		}
+		ok++
+	}
+
+	if firstErr != nil {
+		// Name the path only when another one type-checked: an expression that is simply
+		// wrong fails on every terminal and deserves its plain message, unprefixed.
+		if ok > 0 {
+			return schema.Schema{}, fmt.Errorf("on the path ending at task %q: %w", firstErrTsk, firstErr)
+		}
+		return schema.Schema{}, firstErr
+	}
+	return joined.Canonicalize(), nil
 }
 
 func collectNamedOutputs(tasks []*model.Task, named map[string]schema.Schema) {

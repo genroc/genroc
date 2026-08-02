@@ -214,7 +214,13 @@ func inferNullCoalesce(left, right Schema) (Schema, error) {
 		}
 		return Type("number"), nil
 	}
-	return OneOf(nonNullLeft, right), nil
+	// Canonicalize: an un-merged union of overlapping arms is not merely verbose, it is
+	// unsatisfiable. `boolean ?? boolean|null` would build oneOf[{boolean},{boolean|null}],
+	// and oneOf means EXACTLY one — the value `true` matches both arms, so the schema
+	// rejects every value it describes. Canonicalizing folds those into {type:[boolean,null]}.
+	// A $ref arm is left symbolic: isSimpleType requires Ref == "", so a reference blocks
+	// the merge and a recursive output type stays finite.
+	return OneOf(nonNullLeft, right).Canonicalize(), nil
 }
 
 // absorbEmptyArray collapses a union of an array with a provably-empty array

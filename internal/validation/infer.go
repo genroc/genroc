@@ -358,6 +358,18 @@ func checkAcceptedStatusShape(raw any, ctx schema.Schema, taskID string) error {
 
 
 func contextSchema(preceding []string, optional []string, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, errRequired, errOptional bool) schema.Schema {
+	return contextSchemaAbsent(preceding, optional, nil, tasks, processInput, configSchema, errRequired, errOptional)
+}
+
+// contextSchemaAbsent is contextSchema with a third category: task outputs that are
+// definitely NOT set on this path, typed {"type":"null"} rather than omitted. Omitting
+// them would make a reference an access error; typing them null makes reading through one
+// yield null, which is what lets `??` take the other arm (see lookupPropertyGuard).
+//
+// Only inferProcessOutput's per-terminal walk passes a non-empty absent list, and only
+// for tasks that ARE reachable on some other terminal — a reference to a task output no
+// path can produce stays an error rather than silently typing null.
+func contextSchemaAbsent(preceding, optional, absent []string, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, errRequired, errOptional bool) schema.Schema {
 	ctx := schema.Object()
 	if !processInput.IsZero() {
 		ctx = ctx.WithProperty("input", processInput, true)
@@ -380,6 +392,17 @@ func contextSchema(preceding []string, optional []string, tasks map[string]TaskS
 		}
 		if ts, ok := tasks[id]; ok && !ts.Output.IsZero() {
 			outputs = outputs.WithProperty(id, ts.Output, false)
+			seen[id] = true
+		}
+	}
+	for _, id := range absent {
+		if seen[id] {
+			continue
+		}
+		if ts, ok := tasks[id]; ok && !ts.Output.IsZero() {
+			// Required, so it is exactly null here rather than "maybe absent".
+			outputs = outputs.WithProperty(id, schema.Type("null"), true)
+			seen[id] = true
 		}
 	}
 	ctx = ctx.WithProperty("outputs", outputs, true)
