@@ -5,6 +5,12 @@ import { buildGenrocBinary, startGenroc, type GenrocProcess } from "../helpers/s
 import { client, startMockService, waitForInstance, tick } from "../helpers/client.ts";
 
 const TICK_PORT = 20017;
+// Its own constant, not TICK_PORT + n: the offsets landed on 20018 and 20019, which are
+// tick/logs_test.ts and tick/delay_test.ts. Both run *manual-tick* servers, and this file's
+// guard test asserts the opposite mode — so when the lifetimes overlapped, startGenroc's
+// readiness probe was answered by the neighbour's server before it noticed its own process
+// had failed to bind, and /tick was accepted instead of refused.
+const PUMP_GUARD_PORT = 20050;
 
 let genrocBin: string;
 beforeAll(async () => {
@@ -324,7 +330,7 @@ test("retry with parallel children — only the failed child re-runs", async () 
 test("tick is rejected when the engine runs the continuous pump", async () => {
   const db = join(tmpdir(), `genroc_tick_guard_${Date.now()}.db`);
   // No poll arg → server uses its default poll interval (continuous mode).
-  const genroc = await startGenroc(genrocBin, TICK_PORT + 2, db);
+  const genroc = await startGenroc(genrocBin, PUMP_GUARD_PORT, db);
   try {
     const { error } = await genroc.client.POST("/tick", { body: { advance_ms: 0 } });
     expect(error).toBeDefined();

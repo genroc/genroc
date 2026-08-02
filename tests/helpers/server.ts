@@ -1,4 +1,5 @@
 import { spawnSync, spawn, type ChildProcess } from "child_process";
+import { createServer } from "net";
 import { join } from "path";
 import { tmpdir } from "os";
 import { BASE_URL, PORT } from "./constants.ts";
@@ -66,6 +67,28 @@ function spawnProc(
   });
 }
 
+// Refuse to start on a port something else already holds. The exit check below is not
+// enough on its own: a readiness probe answered by the *other* server can win the race
+// against noticing our own process died binding, and the caller then drives someone else's
+// engine — which surfaces as an assertion about behaviour, never as a port error. Vitest
+// runs files in parallel, so this is reachable whenever two files pick the same number.
+async function assertPortFree(port: number): Promise<void> {
+  const probe = createServer();
+  await new Promise<void>((resolve, reject) => {
+    probe.once("error", (err: NodeJS.ErrnoException) =>
+      reject(
+        err.code === "EADDRINUSE"
+          ? new Error(
+              `port ${port} is already in use — another test file is serving on it; ` +
+                `give this one a port of its own`,
+            )
+          : err,
+      ),
+    );
+    probe.listen(port, () => probe.close(() => resolve()));
+  });
+}
+
 async function waitUntilReady(
   port: number,
   proc: ChildProcess,
@@ -117,6 +140,7 @@ export async function startGenroc(
   maxConcurrent?: number,
   immediateRetries?: boolean,
 ): Promise<GenrocProcess> {
+  await assertPortFree(port);
   const proc = spawnProc(bin, port, db, pgDSN, pollMs, maxConcurrent, immediateRetries);
   await waitUntilReady(port, proc);
   return {
