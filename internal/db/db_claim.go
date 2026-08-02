@@ -40,18 +40,43 @@ func (db *DB) RenewWorkerLeases(workerID string, leaseDur time.Duration) error {
 	}
 }
 
+// Takeover selects whether a claim may pick up rows whose lease expired under some
+// worker, or only rows nobody holds at all. A worker that has just discovered it was not
+// running — a suspended host, a stalled process — passes SkipTakeover for a while: its own
+// leases have lapsed on paper, so have those of any co-resident worker that froze with it,
+// and every one of them is about to be repaired by its owner. Declining to take them for
+// that window costs nothing (unowned work still flows) and avoids stealing rows whose
+// owner is alive and one renewal away from proving it. See Engine.leaseGate.
+type Takeover bool
+
+const (
+	AllowTakeover Takeover = true  // ordinary claiming: an expired lease is fair game
+	SkipTakeover  Takeover = false // claim only rows with no worker_id at all
+)
+
 // ClaimInstances atomically leases up to limit runnable instances to workerID.
 // PostgreSQL appends FOR UPDATE SKIP LOCKED so concurrent workers never block;
 // SQLite's single-writer model needs no such clause. wait_state <> 'waiting'
 // excludes parents suspended for children; both ” (none) and 'collecting' are claimable.
-func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int) ([]*model.ProcessInstance, error) {
+func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int, takeover Takeover) ([]*model.ProcessInstance, error) {
 	now := nowMillis()
 	leaseExpiry := now + leaseDur.Milliseconds()
 
+	// SkipTakeover is a bound value, not a second query: the lease cutoff drops to 0,
+	// which no stamped lease can be at or below (they are all nowMillis()+leaseDur), so
+	// `lease_expires_at <= ?` never fires and only the `worker_id IS NULL` branch of the
+	// predicate can match. The SQL text, its placeholder count and its plan stay identical
+	// in both modes — the partial runnable index is walked exactly as before, just with a
+	// more selective filter.
+	leaseCutoff := now
+	if takeover == SkipTakeover {
+		leaseCutoff = 0
+	}
+
 	ctx := context.Background()
 
-	// Shared claimable predicate. The two `?` are both `now` (retry/delay/timeout timer,
-	// lease expiry).
+	// Shared claimable predicate. The two `?` are `now` (retry/delay/timeout timer) and
+	// leaseCutoff (lease expiry — `now`, or 0 under SkipTakeover).
 	//
 	// 'paused' is absent: a paused instance is live work that is simply not advanced
 	// automatically, so it is never claimed until ResumeProcess puts it back to
@@ -94,7 +119,7 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int)
 			WHERE process_instances.id = cand.cand_id
 			RETURNING ` + instanceColumns + `, cand.prev_worker`
 
-		rows, err := db.exec.QueryContext(ctx, query, now, now, limit, workerID, leaseExpiry)
+		rows, err := db.exec.QueryContext(ctx, query, now, leaseCutoff, limit, workerID, leaseExpiry)
 		if err != nil {
 			return nil, err
 		}
@@ -138,7 +163,7 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int)
 		WHERE ` + where + `
 		ORDER BY created_at ASC, id ASC
 		LIMIT ?`
-	rows, err := raw.QueryContext(ctx, selectQ, now, now, limit)
+	rows, err := raw.QueryContext(ctx, selectQ, now, leaseCutoff, limit)
 	if err != nil {
 		return nil, err
 	}

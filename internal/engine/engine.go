@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"genroc/internal/db"
@@ -39,6 +40,11 @@ const logPruneInterval = time.Minute
 // claiming, in-flight work is drained, and Run returns this. The binary should log it
 // and exit non-zero so the worker is restarted; lowering --max-concurrent or raising
 // the lease duration prevents recurrence.
+//
+// The lease gate (see leaseGate) catches the same fault one step earlier and repairs it,
+// so this is now the backstop for what the gate cannot see — chiefly a stall that lands
+// inside the claim itself. docs/lease-fencing.md specs the rest: fencing every write on a
+// per-grant token, after which a re-claim never has to be fatal at all.
 type OverwhelmError struct {
 	InstanceID    string
 	WorkerID      string
@@ -66,6 +72,14 @@ type Engine struct {
 	wake               chan struct{} // buffer-1 nudge: "runnable work may exist, re-scan now" (see signalWork)
 	workerID           string
 	inflight           sync.Map // instance IDs this worker is currently advancing (detects overwhelm via self-reclaim)
+	// lastRenewMs is the DB-clock instant (unix millis) of the last renewal pass that
+	// completed successfully — stamped by the renewer, read by the pump. It is the
+	// worker's only evidence that the leases it holds are still alive; see leaseGate.
+	lastRenewMs atomic.Int64
+	// graceUntilMs is the DB-clock instant until which this worker declines lease
+	// takeovers, set when leaseGate finds the evidence stale. Touched only by the pump
+	// goroutine (runPump and the dispatch calls it makes), so it needs no synchronisation.
+	graceUntilMs int64
 	// schemaCache caches the inferred SchemaFile per (process,version) so logged
 	// payloads can be schema-redacted (secret fields → "***") without re-running
 	// inference on every log line. Definitions are immutable per version.
@@ -148,6 +162,88 @@ func (e *Engine) retryDelay(attempt int) time.Duration {
 	return transport.RetryDelay(attempt)
 }
 
+// renewLeases re-stamps this worker's leases and records when that last succeeded. Both
+// the renewer's ticker and the pump's repair path go through here, so lastRenewMs means
+// exactly one thing: the last moment this worker could prove its leases were alive.
+func (e *Engine) renewLeases() error {
+	if err := e.db.RenewWorkerLeases(e.workerID, e.leaseDuration); err != nil {
+		return err
+	}
+	e.lastRenewMs.Store(db.Now().UnixMilli())
+	return nil
+}
+
+// leaseGate runs immediately before every claim and answers one question: can this worker
+// still prove the leases it holds are alive? The evidence is lastRenewMs; older than one
+// lease duration and the answer is no — either the process was not running (a suspended
+// host, a frozen container, a stop-the-world stall) or it was running but could not reach
+// the database. For leases those are the same fact, and both end the same way: rows this
+// worker holds have expired on paper while it was in no position to notice.
+//
+// Left alone, the next claim then re-claims work this worker is still advancing, which the
+// engine reads as being overwhelmed and dies over — the failure this gate exists to
+// prevent. So on stale evidence it does two things and returns whether takeovers are
+// currently allowed:
+//
+//  1. Repairs: renews synchronously, right now, before claiming. Renewal matches on
+//     worker_id, so it re-stamps only rows nobody took while this worker was away; a row
+//     another worker claimed meanwhile stays theirs. In the ordinary single-worker case
+//     this restores every lease and the claim below simply does not match them, so an
+//     in-flight advance is never disturbed.
+//  2. Opens a grace window: for one lease duration the pump claims only unowned rows. A
+//     host that suspends suspends every worker on it, and on wake they all race; this
+//     worker cannot repair a peer's leases, but it can decline to take them while the peer
+//     repairs its own. Unowned work keeps flowing, so a graced worker is not idle.
+//
+// The check lives here, in the claimant, rather than in the renewer, because on resume
+// every frozen ticker fires at once and the two race. Reading the evidence at claim time
+// makes both orderings correct: if the renewer got there first the stamp is fresh and this
+// is a no-op; if it did not, the repair happens here.
+//
+// A stale stamp repairs every time it is seen, with no "once per window" bound. The only
+// way to see one twice is for the repair itself to keep failing, which means the database
+// is unreachable — and in that state the pump's own claim is failing once per poll
+// already, so a second failing query changes nothing worth a special case.
+func (e *Engine) leaseGate() db.Takeover {
+	nowMs := db.Now().UnixMilli()
+	stale := time.Duration(nowMs-e.lastRenewMs.Load()) * time.Millisecond
+
+	// A lease stamped at lastRenew dies at lastRenew+leaseDuration, so staleness reaching
+	// the lease duration is exactly the moment the evidence runs out. Trip one poll early:
+	// the gate is only consulted once per cycle, and without that margin the evidence
+	// expires between two checks and the claim in between is the one that re-claims this
+	// worker's own in-flight rows. The margin is capped at half the lease so a poll
+	// interval longer than the lease — a broken config — cannot park the worker in a
+	// permanent grace, which would stop it recovering genuinely dead workers' rows.
+	margin := e.pollEvery
+	if cap := e.leaseDuration / 2; margin > cap {
+		margin = cap
+	}
+	if stale+margin < e.leaseDuration {
+		// Evidence is good. A grace opened by an earlier trip still applies until it
+		// runs out — peers that froze alongside us have not necessarily repaired yet.
+		if nowMs < e.graceUntilMs {
+			return db.SkipTakeover
+		}
+		return db.AllowTakeover
+	}
+
+	// Log once per window rather than once per poll: while the condition persists the
+	// window is extended below, and the operator learns nothing from the repetition.
+	if nowMs >= e.graceUntilMs {
+		e.logOnly(logEvent{Level: model.LogWarn,
+			Msg: "no successful lease renewal for " + stale.Round(time.Millisecond).String() +
+				"; leases this worker holds may have lapsed - renewing them and declining takeovers for " +
+				e.leaseDuration.String(),
+			Meta: map[string]any{"worker": e.workerID, "stale_for": stale.Round(time.Millisecond).String(), "lease": e.leaseDuration.String()}})
+	}
+	e.graceUntilMs = nowMs + e.leaseDuration.Milliseconds()
+	if err := e.renewLeases(); err != nil {
+		e.logOnly(logEvent{Level: model.LogError, Msg: "repair worker leases: " + err.Error()})
+	}
+	return db.SkipTakeover
+}
+
 // Run starts the engine loop and blocks until ctx is cancelled, returning nil on a clean
 // shutdown or an *OverwhelmError if the pump could not keep up with its leases (in-flight
 // work is drained before it returns either way). When pollEvery is zero the engine does
@@ -155,6 +251,9 @@ func (e *Engine) retryDelay(attempt int) time.Duration {
 func (e *Engine) Run(ctx context.Context) error {
 	e.logOnly(logEvent{Level: model.LogInfo, Msg: "engine started", Meta: map[string]any{"poll_interval": e.pollEvery, "max_concurrent": cap(e.sem), "worker": e.workerID}})
 
+	// Seed the renewal evidence before the renewer's first tick, so a freshly started
+	// engine — which holds no leases yet — is not read as stale by its first claim.
+	e.lastRenewMs.Store(db.Now().UnixMilli())
 	go e.leaseRenewer(ctx)
 
 	if e.logCfg.Retention > 0 {
@@ -216,7 +315,11 @@ func (e *Engine) runPump(ctx context.Context) error {
 			}
 		}
 
-		insts, err := e.db.ClaimInstances(e.workerID, e.leaseDuration, slots)
+		// Check the lease evidence before claiming, never after: the whole point is to
+		// repair lapsed leases while there is still a claim to protect from them.
+		takeover := e.leaseGate()
+
+		insts, err := e.db.ClaimInstances(e.workerID, e.leaseDuration, slots, takeover)
 		// Release the slots we acquired but won't use (claimed fewer than slots).
 		for i := len(insts); i < slots; i++ {
 			<-e.sem
@@ -241,18 +344,24 @@ func (e *Engine) runPump(ctx context.Context) error {
 		// finishes). If dispatch reports overwhelm, stop claiming and return: the
 		// deferred wg.Wait drains the advances already in flight first.
 		for _, inst := range insts {
-			if err := e.dispatch(ctx, &wg, inst); err != nil {
+			dispatched, err := e.dispatch(ctx, &wg, inst, takeover == db.SkipTakeover)
+			if err != nil {
 				return err
+			}
+			if !dispatched {
+				<-e.sem // slot reserved for this instance, left to the advance already running it
 			}
 		}
 	}
 }
 
 // dispatch runs one instance's advance in its own goroutine and releases its e.sem slot
-// when done (the caller must have already reserved it). Returns an *OverwhelmError,
-// without starting an advance, if the instance is already in-flight on this worker; the
-// caller then stops the pump and drains.
-func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.ProcessInstance) error {
+// when done (the caller must have already reserved it). It reports whether it started an
+// advance: an instance already in-flight on this worker is never advanced twice, and
+// returns either an *OverwhelmError (the caller stops the pump and drains) or false with
+// no error when a grace window explains the re-claim (the caller releases the slot and
+// carries on). graced is the lease gate's verdict for this claim.
+func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.ProcessInstance, graced bool) (bool, error) {
 	// If we just re-claimed an instance this worker is still advancing, its lease
 	// expired before the advance finished: lease renewal can't keep up, so the
 	// engine is overwhelmed. This is inherent to a lease-based design — in a
@@ -261,12 +370,26 @@ func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.P
 	// stop the pump and surface the error rather than silently corrupting state.
 	// The operator should lower --max-concurrent or increase the lease duration.
 	//
-	// This detection is exact: runAdvance drops the marker only just before the
-	// write that frees the instance, so an in-flight instance is claimable only once
-	// its lease has actually expired. A re-claim that still finds the marker is
-	// therefore a genuine overwhelm, never an advance that already finished.
+	// The marker is exact about the in-flight part: runAdvance drops it only just before
+	// the write that frees the instance, so an in-flight instance is claimable only once
+	// its lease has actually expired. A re-claim that still finds the marker is therefore
+	// a real lapsed lease, never an advance that already finished.
+	//
+	// Inside a grace window it is not a verdict about capacity, though. The gate has just
+	// established that this worker was not in a position to renew — it was frozen, or cut
+	// off from the DB — and repaired what it could; a re-claim that slips through anyway
+	// (a stall that landed inside the claim itself, say) is that same event, not a
+	// misconfigured --max-concurrent. Leave the instance to the advance already running
+	// it and keep pumping: killing the worker over a resumed laptop would throw away every
+	// other in-flight advance with it.
 	if _, busy := e.inflight.LoadOrStore(inst.ID, struct{}{}); busy {
-		return &OverwhelmError{
+		if graced {
+			e.logOnly(logEvent{Level: model.LogWarn, ID: inst.ID,
+				Msg:  "re-claimed an instance still being advanced here; its lease lapsed while this worker could not renew, not because renewal fell behind — leaving it to the in-flight advance",
+				Meta: map[string]any{"worker": e.workerID, "lease": e.leaseDuration.String()}})
+			return false, nil
+		}
+		return false, &OverwhelmError{
 			InstanceID:    inst.ID,
 			WorkerID:      e.workerID,
 			Lease:         e.leaseDuration,
@@ -287,11 +410,12 @@ func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.P
 			e.logOnly(logEvent{Level: model.LogError, ID: inst.ID, Msg: "advance instance: " + err.Error()})
 		}
 	}()
-	return nil
+	return true, nil
 }
 
 // leaseRenewer renews all leases held by this worker in a single query every
 // leaseRenewInterval, in its own goroutine so renewals are never blocked by a long tick.
+// Each success re-stamps lastRenewMs, which is what the pump's lease gate reads.
 func (e *Engine) leaseRenewer(ctx context.Context) {
 	ticker := time.NewTicker(e.leaseRenewInterval)
 	defer ticker.Stop()
@@ -300,7 +424,7 @@ func (e *Engine) leaseRenewer(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := e.db.RenewWorkerLeases(e.workerID, e.leaseDuration); err != nil {
+			if err := e.renewLeases(); err != nil {
 				e.logOnly(logEvent{Level: model.LogError, Msg: "renew worker leases: " + err.Error()})
 			}
 		}
@@ -354,7 +478,10 @@ func (e *Engine) ManualTick() bool { return e.pollEvery == 0 }
 // concurrently. Returns the number of instances claimed and processed.
 func (e *Engine) Tick(ctx context.Context) (int, error) {
 	e.pruneLogs()
-	instances, err := e.db.ClaimInstances(e.workerID, e.leaseDuration, cap(e.sem))
+	// No lease gate here: a manual tick is a synchronous batch that waits for every
+	// advance it starts, so it cannot re-claim its own in-flight work, and there is no
+	// pump whose evidence could go stale between ticks.
+	instances, err := e.db.ClaimInstances(e.workerID, e.leaseDuration, cap(e.sem), db.AllowTakeover)
 	if err != nil {
 		e.logOnly(logEvent{Level: model.LogError, Msg: "claim instances: " + err.Error()})
 		return 0, err

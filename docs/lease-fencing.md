@@ -1,6 +1,15 @@
 # Lease fencing: make a lost lease harmless
 
-Status: **proposed, not implemented** (drafted 2026-08-02).
+Status: **partly implemented** (drafted 2026-08-02).
+
+- **Shipped 2026-08-02** — the stale-lease gate ([Repairing leases after a freeze](#repairing-leases-after-a-freeze)):
+  `Engine.leaseGate` / `renewLeases` / `lastRenewMs` in `internal/engine/engine.go`,
+  `db.Takeover` in `internal/db/db_claim.go`, tests in `internal/engine/lease_test.go` and
+  `TestClaimInstances_SkipTakeover`. It needs no migration and touches no write path, which
+  is why it went first — it removes the failure that prompted this document.
+- **Not implemented** — the fence itself: `lease_epoch`, the fenced write surface, the
+  renewer scoping and the `only_once` evidence chain that depends on them. Everything below
+  outside that one section still describes intended work, not current behaviour.
 
 Would touch: `internal/db/migrations/024_lease_epoch.up.sql` (new),
 `internal/db/queries.sql` (`ClaimInstances` is hand-written; `UpdateInstance`,
@@ -133,13 +142,21 @@ working, because it is the part this design can most easily break.
 
 ## `only_once`: the takeover signal must survive
 
-An interrupted `only_once` task must **not** be re-executed. It already isn't:
-`prepareAdvance` (`advance.go`) fails the instance with `errcode.EngineOnlyOnce` when it
-claims a row with `ReclaimedExpired` sitting on an `only_once` action, and `handleCallError`
-(`error.go`) applies the same rule on the error path. Failing is the only honest verdict —
+An interrupted `only_once` task must **not** be re-executed. It already isn't, at three
+enforcement points: `prepareAdvance` (`advance.go`) fails the instance with
+`errcode.EngineOnlyOnce` when it claims a running row with `ReclaimedExpired` sitting on an
+`only_once` action; `settlePausing` (`error.go`) applies the same test on the crash-recovery
+claim of a `pausing` row; and `isRetryAllowed` (`error.go`) refuses the ordinary retry of a
+reached error on such a task. Failing is the only honest verdict —
 the engine cannot distinguish "the call never left" from "the call landed and the response
 was lost" — and the failure propagates to the tree exactly like any other, so the operator
 gets `engine.only_once` on a `failed` process rather than a silent second charge.
+
+(That failure is proposed to become *catchable* rather than merely terminal — see
+[only-once-interrupted.md](only-once-interrupted.md), which renames the code to
+`only_once.interrupted` and lets `on_error` route it. Nothing in this document changes:
+the verdict is reached in the same place, by the same owner, on the same evidence. Only
+what happens after it differs.)
 
 Fencing does not weaken that, and the reason is worth stating as an invariant:
 
@@ -277,10 +294,20 @@ On a stale stamp, before claiming:
    config contract at least one renew interval, so every live peer gets a pass — and a peer
    that is genuinely dead is taken over one lease period later than it otherwise would have
    been, which is the entire cost.
-3. **At most one repair per window.** While a grace is already running, a still-stale stamp
-   does not trigger another pass. Otherwise a worker whose renewals are genuinely failing
-   would add a synchronous renewal to every poll, i.e. pile load onto the thing that is
-   already struggling.
+3. **Trips one poll early.** A lease stamped at `lastRenew` dies at
+   `lastRenew + leaseDuration`, so staleness *reaching* the lease duration is the exact
+   moment the evidence runs out — and a gate consulted once per cycle would then find it
+   already gone, with the claim in that gap being the one that re-claims this worker's own
+   rows. The threshold is therefore `stale + pollEvery >= leaseDuration`, capped at half the
+   lease so a poll interval longer than the lease (a broken config) cannot park the worker
+   in permanent grace and stop it recovering genuinely dead workers' rows.
+
+As built there is **no "one repair per window" bound**, which an earlier draft of this
+section called for. The only way to see a stale stamp twice is for the repair itself to
+keep failing, which means the database is unreachable — and in that state the pump's own
+claim is already failing once per poll, so a second failing query is not worth a special
+case, let alone one that interacts with the grace window (a bound tied to the window
+suppresses exactly the repair a short lease needs).
 
 What this deliberately cannot do: a worker that never froze detects nothing and suppresses
 nothing. A remote fleet member will take over a sleeping laptop's rows the moment their
@@ -430,7 +457,7 @@ level lets a *partial* effect commit, which is worse than either outcome on its 
 | 4.12 | during the grace window the claim takes unowned rows but skips rows carrying another worker's id; after it expires, takeover resumes | the co-resident rule — including that it suppresses *takeovers only*, so a graced worker is not idle |
 | 4.13 | a worker that did **not** freeze claims an expired peer lease immediately | the grace is triggered by detection, never by policy; a healthy fleet must not slow down because one member slept |
 | 4.14 | **a saturated worker — every `e.sem` slot busy with a long advance — never enters a grace** | the false positive the "since last renewal, not since last claim" choice exists to avoid; a busy worker's pump parks for minutes while its renewer is perfectly healthy |
-| 4.15 | a persistently stale stamp triggers **one** repair per grace window, not one per poll | the bound; without it a worker with a failing DB connection would hammer it with a synchronous renewal every poll interval |
+| 4.15 | ~~a persistently stale stamp triggers one repair per grace window~~ — **dropped**, see the note under §What it does; a repeated repair only happens when the DB is unreachable, where the pump is already failing a claim per poll | — |
 | 4.16 | a stall that leaves the monotonic clock ticking (simulate by holding the renewer off without shifting the clock) still trips the gate | that the detector reads the renewal gap and not a suspend signature — the case `freezeDetector` could not see |
 
 ### 5. `only_once` — `internal/engine/`
@@ -439,26 +466,31 @@ level lets a *partial* effect commit, which is worse than either outcome on its 
 |---|---|---|
 | 5.1 | **freeze mid-`only_once` action → instance ends `failed` with `engine.only_once`, endpoint hit exactly once** | the reason this spec exists; fails if the takeover signal is lost anywhere in §3–§4 |
 | 5.2 | the same scenario with `only_once` absent → endpoint hit twice, instance completes | that the guard is specific to `only_once` and has not silently become "never retry anything" |
-| 5.3 | `handleCallError`'s reclaim path (`error.go`) still refuses a retry for an interrupted `only_once` task | the second of the two enforcement points, easy to miss when touching the first |
+| 5.3 | `settlePausing`'s reclaim path (`error.go`) still refuses to re-run an interrupted `only_once` task, and `isRetryAllowed` still refuses its retry | the other two enforcement points, both easy to miss when touching the first |
 | 5.4 | `RetryProcess(force)` still overrides `only_once` on a tree failed this way | the documented escape hatch survives |
 | 5.5 | **single worker, freeze mid-`only_once`, repair enabled → the instance completes; the endpoint is hit exactly once and the process does not fail** | the payoff case: with the repair the lease was never lost, so there is no interrupted attempt to adjudicate. Pairs with 5.1, which is the same scenario once the lease *is* genuinely gone |
 
 ### 6. Existing tests this changes
 
-- `TestOverwhelm_GracefulExit` **becomes unconstructible as written**, and that is the
-  point. It fabricates the overwhelm by setting the renew interval to a minute so the
-  renewer never re-stamps the lease — which is exactly the stale stamp the gate now catches
-  first, repairing the lease before the claim that would have self-reclaimed it. Rewrite it
-  as the positive case: with renewal disabled the engine notices, repairs, and keeps
-  pumping; the instance still settles; `Run` returns nil.
-- `TestSuspend_NoOverwhelm` **is superseded**. Its premise is that the freeze produces a
-  self-reclaim which is then skipped; with the repair the self-reclaim does not happen at
-  all. It becomes 4.10: after the clock jump the instance keeps its lease, is never
-  reclaimed, and completes with the endpoint hit exactly once.
-- The self-reclaim skip loses its natural test with them, so cover `dispatch` directly:
-  seed the in-flight marker, call it once with the grace inactive (expect `*OverwhelmError`)
-  and once with it active (expect a skip and no error). White-box, but deterministic and
-  fast, and the branch is a backstop that no longer has a realistic end-to-end trigger.
+Done with the gate (`internal/engine/lease_test.go`, renamed from `overwhelm_test.go`):
+
+- `TestOverwhelm_GracefulExit` **became unconstructible as written**, and that was the
+  point. It fabricated the overwhelm by setting the renew interval to a minute so the
+  renewer never re-stamped the lease — exactly the stale stamp the gate now catches first,
+  repairing the lease before the claim that would have self-reclaimed it. It is now
+  `TestLeaseGate_RepairsInsteadOfExiting`: same setup, opposite assertion (§4.16 as well,
+  since no clock is shifted — the renewer simply is not running).
+- 4.10 is `TestLeaseGate_SurvivesFrozenHost`, 4.14 is
+  `TestLeaseGate_SaturatedPumpDoesNotTrip`, and 4.12/4.13 are covered at the DB layer by
+  `TestClaimInstances_SkipTakeover`. Both engine tests were verified to fail with the gate
+  disabled, reproducing the original `OverwhelmError` verbatim.
+- The self-reclaim skip lost its natural end-to-end trigger, so `TestDispatch_SelfReclaim`
+  covers it directly: seed the in-flight marker, call `dispatch` once with the grace
+  inactive (expect `*OverwhelmError`) and once with it active (expect a skip). White-box,
+  but deterministic and fast, and the branch is now a backstop.
+- `TestGracefulShutdown_ReleasesLeases` passes unchanged.
+
+Still to do with the fence: 4.1–4.9, 4.11, 4.15 and all of §1–§3 and §5.
 - `TestGracefulShutdown_ReleasesLeases` must keep passing unchanged — the held set must not
   keep a lease alive past the drain, or a restart logs spurious takeover warnings.
 
@@ -475,11 +507,11 @@ elaborate setup. Keep it in Go.
 
 - Should `lease_lost` be counted and exposed (an API field, a log summary), or is the
   per-instance audit entry enough? Leaning enough — the loud case is a stream of them.
-- Should the repair and the grace ship **before** the fence? They are independent of it —
-  no migration, no schema, no change to any write path — and on their own they turn the
-  laptop case from "reclaim, skip, warn" into "nothing happened". The fence remains the
-  correctness backstop for everything they cannot see (a stale advance whose row was taken
-  by a remote worker), so the order is a sequencing question, not a dependency one.
+- ~~Should the repair and the grace ship before the fence?~~ **Yes — done**, for the
+  reasons given: no migration, no schema, no change to any write path, and on their own
+  they turn the laptop case from "reclaim, skip, warn" into "nothing happened". The fence
+  remains the correctness backstop for everything they cannot see (a stale advance whose
+  row was taken by a remote worker while its owner was frozen).
 - Should the skipping claimant apply the `only_once` verdict **immediately** rather than
   deferring it to the next claim? It holds the current epoch, so the write would be
   legitimate, and it would fail the instance a lease-period sooner. Against: it puts a

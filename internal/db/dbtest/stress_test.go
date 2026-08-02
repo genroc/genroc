@@ -12,6 +12,7 @@ import (
 
 	"github.com/lib/pq"
 
+	dbpkg "genroc/internal/db"
 	"genroc/internal/model"
 )
 
@@ -147,7 +148,7 @@ func TestStress_ClaimInstances_MultiWorker(t *testing.T) {
 			defer wg.Done()
 			for time.Now().Before(deadline) {
 				claimedAt := time.Now()
-				instances, err := db.ClaimInstances(workerID, leaseDur, instanceCount)
+				instances, err := db.ClaimInstances(workerID, leaseDur, instanceCount, dbpkg.AllowTakeover)
 				if err != nil {
 					t.Errorf("worker %s: ClaimInstances: %v", workerID, err)
 					return
