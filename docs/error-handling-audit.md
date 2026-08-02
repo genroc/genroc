@@ -20,7 +20,7 @@ it in the name of consistency:
   without a cycle. Codes are namespaced, and the namespace carries a semantic
   guarantee: `errcode.NotReached` (`"pre."`) means the request never left, which is
   exactly what makes a retry safe for an `only_once` task
-  ([isRetryAllowed](../internal/engine/error.go#L21)). That is a property the taxonomy
+  ([isRetryAllowed](../internal/engine/error.go#L26)). That is a property the taxonomy
   *encodes*, not a naming convention.
 - **[advanceOutcome](../internal/engine/advance.go#L22)** is a sum type. The failure
   path (`failInstance`) returns the same type as the success path, so errors are values

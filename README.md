@@ -12,7 +12,16 @@ no worker while it waits.
 ## What it gives you
 
 - **Crash-safe execution.** Instances are leased to workers; a crashed worker's
-  lease expires and another worker resumes exactly where it left off.
+  lease expires and another worker resumes exactly where it left off. A worker that
+  merely *stalled* — a suspended laptop, a throttled container — notices its leases
+  went unrenewed, repairs them before claiming, and holds off taking over its peers'
+  (see [docs/lease-fencing.md](docs/lease-fencing.md)).
+- **At-most-once tasks.** A task marked `only_once` is never re-run by the engine
+  after an interruption. Instead it raises `only_once.interrupted`, which `on_error`
+  can catch — so the definition asks the system of record what actually happened and
+  then carries on, or re-runs the task deliberately. Retries are refused outright for
+  the errors nothing came back from (see
+  [docs/only-once-interrupted.md](docs/only-once-interrupted.md)).
 - **Structural control flow.** Tasks route with `switch` (`next` / `end` /
   `$goto` / conditional cases). There is no `while`/`until` — loops are expressed
   by routing back to an earlier task, which keeps every iteration a crash-safe
@@ -75,16 +84,16 @@ input_schema:
 tasks:
   - id: call
     action:
-      type: fetch                       # an HTTP call; every field is an expression
-      url: "{{ input.url }}/hello"
+      type: fetch                       # an HTTP call; every field is templated
+      url: "${ input.url }/hello"       # ${ } interpolates into a string
       body:
-        greeting: "Hello, {{ input.name }}"
+        greeting: "Hello, ${ input.name }"
       result_schema:
         type: object
         properties:
           ok: { type: boolean }
         required: [ok]
-    output: "{{ self.result }}"
+    output: "$: self.result"            # $: is one typed expression, not a string
     switch: end
 ```
 
@@ -131,9 +140,9 @@ internal/
   model/       process definition & instance types, wire encoding
   schema/      JSON-Schema subset: normalize, validate, type inference
   validation/  definition validation, context/dataflow analysis
-  expression/  the {{ ... }} expression language
+  expression/  the expression language ($: typed leaf, ${ } interpolation)
     syntax/    its grammar: AST + parser (expr-lang's lexer, our grammar)
-  template/    splitting {{ ... }} out of strings, parsed once per template
+  template/    splitting ${ } out of strings, parsed once per template
   transport/   outgoing request transports (HTTP/TCP)
   api/         HTTP handlers, action registry, OpenAPI reflection
   logview/     log formatting (basic / detail / json)

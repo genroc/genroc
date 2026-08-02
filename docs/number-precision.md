@@ -4,6 +4,8 @@ Status: implemented. The shared definition of a number lives in
 `internal/numeric`; arithmetic is in `internal/expression/ops.go`; the decode
 boundary is `numeric.Decode`/`DecodeReader`.
 
+> **Syntax note.** Examples below predate the `{{ }}` → `${ }` retarget ([typed-values.md](typed-values.md)): read `{{ x }}` as `${ x }` inside a string, or `"$: x"` where the whole leaf is one expression.
+
 ## The problem is at the door, not in the evaluator
 
 Numbers are corrupted by JSON decode/encode alone, with no expression involved:

@@ -6,6 +6,8 @@ error handling child -> parent". Revised against the shipped pause/resume design
 and removed the `cancelled`/`cancelling` statuses two of the arguments below
 leaned on.
 
+> **Syntax note.** Examples below predate the `{{ }}` → `${ }` retarget ([typed-values.md](typed-values.md)): read `{{ x }}` as `${ x }` inside a string, or `"$: x"` where the whole leaf is one expression.
+
 All three phases (§10) are built:
 
 1. **Raise and panic** — `raise`/`panic`, the `raised` status, `error_code` on
@@ -759,6 +761,10 @@ uniformly queryable.
 > and there is a small closed set of `engine.*` codes for exactly these cases:
 > `engine.expression`, `engine.config`, `engine.definition`, `engine.input`,
 > `engine.spawn`, `engine.collect`, `engine.only_once`
+>
+> (`engine.only_once` was later replaced by `only_once.interrupted`, which is
+> **catchable** — the one engine-produced code `on_error` may route. See
+> [only-once-interrupted.md](only-once-interrupted.md).)
 > ([error.go](internal/engine/error.go)). They carry a dot like every other engine
 > code, so R1's namespace split still holds.
 

@@ -4,6 +4,8 @@ Status: implemented. Grammar in `internal/expression/syntax`, evaluation in
 `internal/expression`, typing in `internal/schema/infer.go`, template splitting
 in `internal/template`. Implements `ROADMAP.md` → "map function".
 
+> **Syntax note.** Examples below predate the `{{ }}` → `${ }` retarget ([typed-values.md](typed-values.md)): read `{{ x }}` as `${ x }` inside a string, or `"$: x"` where the whole leaf is one expression.
+
 Adds four constructs to the expression language:
 
 | construct | example | result type |

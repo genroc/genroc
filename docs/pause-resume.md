@@ -90,9 +90,17 @@ path dodged this only because `FinishChild` clears a draining parent's
 
 `pausing` remains in the claim predicate purely for **crash recovery**: a worker
 that dies holding a `pausing` row leaves it leased-but-dead, and only a reclaim
-can settle it (`settlePausing`). That path re-applies the `only_once` check,
-because the interrupted task may already have executed on the dead worker and
-pausing would otherwise launder that into a silent re-execution on resume.
+can settle it (`settlePausing`).
+
+An interrupted `only_once` task is resolved on that reclaim *before* the pause
+settles, and `advance` ignores the `pausing` status to do it — the evidence
+(`ReclaimedExpired`, derived per claim from `worker_id`) does not survive the
+write that lands a pause, so a deferred decision would be made on evidence that
+no longer exists. Running the recovery handler is not time-sensitive, so the
+instance lands `paused` at whichever task the routing chose and runs it on
+resume; with no handler it fails, a failure outranking a pause as ever. See
+[only-once-interrupted.md](only-once-interrupted.md). `settlePausing` itself no
+longer asks the `only_once` question, and must not regain it.
 
 ### 3. A pending pause lands in SQL, not in Go
 
@@ -222,7 +230,7 @@ that names it:
 |---|---|
 | 1. non-destructive pause / resume is a flip | `TestResumeProcess_RestoresSubtree` (wait_state, retry_count, wake_at all preserved); `tree_pause_test.ts` — whole-tree pause, pause mid-flight, pause while `collecting` |
 | 2. `pausing` means leased | `TestPauseProcess_SingleInstance` (leased → `pausing`, unleased → `paused`); `tree_error_pause_test.ts`; parked-goes-straight-to-`paused` in `delay_test.ts` / `external_test.ts` / `tree_pause_test.ts` |
-| 2. crash recovery via `settlePausing` | `crash_recovery_test.ts` — a `pausing` instance whose worker is SIGKILLed is settled by the reclaimer without re-running the task, and the `only_once` variant fails instead of pausing |
+| 2. crash recovery via `settlePausing` | `crash_recovery_test.ts` — a `pausing` instance whose worker is SIGKILLed is settled by the reclaimer without re-running the task; the `only_once` variant fails instead of pausing, or, with an `on_error` handler, pauses *at the handler* and runs it on resume |
 | 3. the pause lands in SQL | `TestUpdateInstance_LandsPendingPause` (and that a `completed` write still wins); `TestUpdateInstanceProgress_LandsPendingPause` (parking on `external`); `TestSpawnChildrenAndWait_PausingParent` |
 | 4. a failure outranks a pause | `TestFailInstanceAndAncestors_OverridesPaused`; `TestFailInstanceAndAncestors_PausedSiblingKeepsParentWaiting`; `TestResumeProcess_FailingRootOverPausedDescendant`; `TestFinishChild_PausedParent_ArmsCollect`; the wedged-tree recovery in `tree_error_pause_test.ts` |
 | 5. timers keep running | `delay_test.ts` (delay elapsing while paused); `external_test.ts` (external timeout elapsing while paused); `pause_retry_test.ts` (retry budget untouched across a pause) |

@@ -145,18 +145,18 @@ working, because it is the part this design can most easily break.
 An interrupted `only_once` task must **not** be re-executed. It already isn't, at three
 enforcement points: `prepareAdvance` (`advance.go`) fails the instance with
 `errcode.EngineOnlyOnce` when it claims a running row with `ReclaimedExpired` sitting on an
-`only_once` action; `settlePausing` (`error.go`) applies the same test on the crash-recovery
-claim of a `pausing` row; and `isRetryAllowed` (`error.go`) refuses the ordinary retry of a
+`only_once` action; the `pausing` branch of `advance` (`advance.go`) applies the same test
+on the crash-recovery claim of a `pausing` row; and `isRetryAllowed` (`error.go`) refuses the ordinary retry of a
 reached error on such a task. Failing is the only honest verdict —
 the engine cannot distinguish "the call never left" from "the call landed and the response
 was lost" — and the failure propagates to the tree exactly like any other, so the operator
-gets `engine.only_once` on a `failed` process rather than a silent second charge.
+gets `only_once.interrupted` on a `failed` process rather than a silent second charge.
 
-(That failure is proposed to become *catchable* rather than merely terminal — see
-[only-once-interrupted.md](only-once-interrupted.md), which renames the code to
-`only_once.interrupted` and lets `on_error` route it. Nothing in this document changes:
+(That failure is now *catchable* rather than merely terminal — see
+[only-once-interrupted.md](only-once-interrupted.md), which renamed the code to
+`only_once.interrupted` and lets `on_error` route it. Nothing in this document changed:
 the verdict is reached in the same place, by the same owner, on the same evidence. Only
-what happens after it differs.)
+what happens after it differs. Code names below are written as they were at drafting.)
 
 Fencing does not weaken that, and the reason is worth stating as an invariant:
 
@@ -320,7 +320,7 @@ out; it does not extend ownership backwards through the sleep.
 | scenario | fence only | fence + repair + grace |
 |---|---|---|
 | single worker, ordinary task | advance re-runs from its last checkpoint | nothing is disturbed |
-| single worker, `only_once` task | process fails `engine.only_once` | nothing is disturbed |
+| single worker, `only_once` task | process fails `only_once.interrupted` | nothing is disturbed |
 | co-resident workers on one host | a peer may steal the row on wake | takeover suppressed for one lease period |
 | worker stalled by CPU throttling or a slow DB, not a suspend | stale write refused | same repair and grace — the gap detector does not care about the cause |
 | remote fleet, sleep longer than the lease | peer takes over, stale write refused | unchanged — correct by design |
@@ -464,9 +464,9 @@ level lets a *partial* effect commit, which is worse than either outcome on its 
 
 | # | case | guards |
 |---|---|---|
-| 5.1 | **freeze mid-`only_once` action → instance ends `failed` with `engine.only_once`, endpoint hit exactly once** | the reason this spec exists; fails if the takeover signal is lost anywhere in §3–§4 |
+| 5.1 | **freeze mid-`only_once` action → instance ends `failed` with `only_once.interrupted`, endpoint hit exactly once** | the reason this spec exists; fails if the takeover signal is lost anywhere in §3–§4 |
 | 5.2 | the same scenario with `only_once` absent → endpoint hit twice, instance completes | that the guard is specific to `only_once` and has not silently become "never retry anything" |
-| 5.3 | `settlePausing`'s reclaim path (`error.go`) still refuses to re-run an interrupted `only_once` task, and `isRetryAllowed` still refuses its retry | the other two enforcement points, both easy to miss when touching the first |
+| 5.3 | the `pausing` reclaim path still refuses to re-run an interrupted `only_once` task, and `isRetryAllowed` still refuses its retry | the other two enforcement points, both easy to miss when touching the first |
 | 5.4 | `RetryProcess(force)` still overrides `only_once` on a tree failed this way | the documented escape hatch survives |
 | 5.5 | **single worker, freeze mid-`only_once`, repair enabled → the instance completes; the endpoint is hit exactly once and the process does not fail** | the payoff case: with the repair the lease was never lost, so there is no interrupted attempt to adjudicate. Pairs with 5.1, which is the same scenario once the lease *is* genuinely gone |
 
@@ -498,7 +498,7 @@ Still to do with the fence: 4.1–4.9, 4.11, 4.15 and all of §1–§3 and §5.
 
 Nothing here is reachable through the HTTP API: there is no endpoint that freezes a worker
 or hands out a lease, and the observable difference (a `lease_lost` entry, an
-`engine.only_once` failure) is a consequence of engine-internal timing rather than of a
+`only_once.interrupted` failure) is a consequence of engine-internal timing rather than of a
 request. The one candidate — asserting `lease_lost` shows up in `GET /instances/:id/logs` —
 would test the log plumbing that dozens of e2e tests already cover, using a far more
 elaborate setup. Keep it in Go.

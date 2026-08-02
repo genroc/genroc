@@ -6,6 +6,8 @@ Status: agreed and implemented 2026-07-02. The solver lives in
 `schematest/solver_test.go`, `schematest/refcycle_test.go`,
 `validationtest/recursive_structural_test.go`.
 
+> **Syntax note.** Examples below predate the `{{ }}` → `${ }` retarget ([typed-values.md](typed-values.md)): read `{{ x }}` as `${ x }` inside a string, or `"$: x"` where the whole leaf is one expression.
+
 > Historical note: the Motivation below names the pre-redesign mechanisms
 > (`inferOutputFixpoint` and `outputorder.go`'s hand-maintained syntactic
 > graph), which no longer exist. The current joint fixpoint is `solveCluster`
