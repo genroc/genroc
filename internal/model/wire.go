@@ -162,7 +162,7 @@ type Shape = shape.Shape
 // default when a rule exists only to document a code or to cap retries.
 type ErrorCase struct {
 	Code       []string `json:"code,omitempty"        description:"Patterns matched against the error code. '%' is the only wildcard (matches any run of characters); every other character, including '_' and '.', is literal — so 'order_%' matches 'order_placed' but not 'order.placed'. Empty list = catch-all. Catchable engine codes (an action task's call reports these): http.NNN (e.g. http.500), http.timeout, pre.error, pre.timeout, output.parse, output.too_large, output.invalid, external.timeout. pre.* codes mean the call never reached the remote. Internal engine.* failures (engine.spawn, engine.collect, engine.expression, …) are terminal and are NOT routed through on_error. On a child_map/child_list task the codes instead match the codes the child processes can raise, and each pattern is checked at registration against the child's raise set. A child that failed (rather than raised) is never catchable — convert the failure into a raise inside the child."`
-	Retries    int      `json:"retries,omitempty"     description:"Number of retries before following goto or failing. 0 = no retries. On only_once:true tasks only pre.* codes (or rules with not_reached:true) may have retries > 0. Not supported on child tasks — retry inside the child, then raise."`
+	Retry      Retry    `json:"retry,omitempty,omitzero" description:"Retry policy applied before the rule routes: a bare attempt count, or an object naming any of attempts / delay / factor / max_delay. Omit for no retries. On only_once:true tasks only pre.* codes (or rules with not_reached:true) may have attempts > 0. Not supported on child tasks — retry inside the child, then raise."`
 	Goto       string   `json:"goto,omitempty"        description:"Task to route to when retries are exhausted. '$task-id' or 'end'. Omit to fail the instance."`
 	Raise      *Fault   `json:"raise,omitempty"       description:"Terminate as 'raised' with this code and message instead of routing — an anticipated condition a parent process may react to. Mutually exclusive with goto and panic."`
 	Panic      *Fault   `json:"panic,omitempty"       description:"Terminate as 'failed' with this code and message instead of routing — a defect. Nothing can catch a panic; the code exists to classify the failure, not to branch on it. Mutually exclusive with goto and raise."`
@@ -173,7 +173,7 @@ type ErrorCase struct {
 // UnmarshalJSON so the tags stay in lockstep.
 type errorCaseWire struct {
 	Code       []string `json:"code,omitempty"`
-	Retries    int      `json:"retries,omitempty"`
+	Retry      Retry    `json:"retry,omitempty,omitzero"`
 	Goto       string   `json:"goto,omitempty"`
 	Raise      *Fault   `json:"raise,omitempty"`
 	Panic      *Fault   `json:"panic,omitempty"`
@@ -181,7 +181,7 @@ type errorCaseWire struct {
 }
 
 func (e ErrorCase) MarshalJSON() ([]byte, error) {
-	w := errorCaseWire{Code: e.Code, Retries: e.Retries, Raise: e.Raise, Panic: e.Panic, NotReached: e.NotReached}
+	w := errorCaseWire{Code: e.Code, Retry: e.Retry, Raise: e.Raise, Panic: e.Panic, NotReached: e.NotReached}
 	if e.Goto != "" {
 		if e.Goto == GotoEnd {
 			w.Goto = "end"
@@ -200,14 +200,17 @@ func (e ErrorCase) MarshalJSON() ([]byte, error) {
 // SaveDefinition persists json.Marshal of the decoded struct, so a stored definition is
 // canonical and cannot carry an unknown field.
 var (
-	errorCaseFields  = map[string]bool{"code": true, "retries": true, "goto": true, "raise": true, "panic": true, "not_reached": true}
+	errorCaseFields  = map[string]bool{"code": true, "retry": true, "goto": true, "raise": true, "panic": true, "not_reached": true}
 	switchCaseFields = map[string]bool{"case": true, "goto": true, "raise": true, "panic": true}
 
-	// Advice for the two keys that are valid in the *other* list. Only reached for a key
-	// the rule itself does not accept, so a legitimate use never sees it.
+	// Advice for keys that are valid somewhere else, or used to be valid here. Only
+	// reached for a key the rule itself does not accept, so a legitimate use never sees
+	// it. `retries` is the pre-policy spelling: it would otherwise be dropped in silence,
+	// leaving a rule that still matches and still routes but never retries.
 	ruleFieldHints = map[string]string{
-		"case": `an on_error rule selects errors with "code"; "case" belongs to a switch`,
-		"code": `a switch case selects with "case"; "code" belongs to on_error`,
+		"case":    `an on_error rule selects errors with "code"; "case" belongs to a switch`,
+		"code":    `a switch case selects with "case"; "code" belongs to on_error`,
+		"retries": `renamed to "retry": write "retry": 3, or "retry": {attempts: 3, delay: "30s"} to shape the backoff`,
 	}
 )
 
@@ -244,7 +247,7 @@ func (e *ErrorCase) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	e.Code = w.Code
-	e.Retries = w.Retries
+	e.Retry = w.Retry
 	e.Raise = w.Raise
 	e.Panic = w.Panic
 	e.NotReached = w.NotReached

@@ -62,11 +62,11 @@ func matchOnError(task *model.Task, errCode errcode.Code) *model.ErrorCase {
 func (e *Engine) handleCallError(inst *model.ProcessInstance, task *model.Task, errMsg string, errCode errcode.Code) advanceOutcome {
 	matched := matchOnError(task, errCode)
 
-	if matched != nil && inst.RetryCount < matched.Retries && isRetryAllowed(task, errCode, matched) {
+	if matched != nil && inst.RetryCount < matched.Retry.Attempts && isRetryAllowed(task, errCode, matched) {
 		inst.RetryCount++
-		next := db.Now().Add(e.retryDelay(inst.RetryCount))
+		next := db.Now().Add(e.retryDelay(inst.RetryCount, matched.Retry))
 		inst.WakeAt = &next
-		retryMsg := fmt.Sprintf("%s (attempt %d/%d)", errMsg, inst.RetryCount, matched.Retries)
+		retryMsg := fmt.Sprintf("%s (attempt %d/%d)", errMsg, inst.RetryCount, matched.Retry.Attempts)
 		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: task.ID, Msg: retryMsg, Code: errCode})
 		return advanceOutcome{kind: outcomeUpdate}
 	}

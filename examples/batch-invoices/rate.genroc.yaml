@@ -23,7 +23,11 @@ tasks:
     timeout: 5000
     on_error:
       - code: [http.500, http.503]
-        retries: 2
+        retry: 2
+      # A rate provider answers 429 with a window, not a blip: the default curve would
+      # burn every attempt inside it. Start past the window and grow slowly.
+      - code: [http.429]
+        retry: { attempts: 4, delay: 30s, factor: 2, max_delay: 10m }
     output:
       rate: "$: self.result.rate"
     switch: end

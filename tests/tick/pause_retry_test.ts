@@ -53,7 +53,7 @@ beforeAll(async () => {
         type: "fetch" as const,
         url: `http://localhost:${failMockPort}/action`,
       },
-      on_error: [{ code: ["http.%"], retries: 2 }],
+      on_error: [{ code: ["http.%"], retry: 2 }],
       timeout: 5_000,
       switch: [{ goto: "end" }],
     },
@@ -67,7 +67,7 @@ beforeAll(async () => {
         type: "fetch" as const,
         url: `http://localhost:${failMockPort}/action`,
       },
-      on_error: [{ code: ["http.%"], retries: 1 }],
+      on_error: [{ code: ["http.%"], retry: 1 }],
       timeout: 5_000,
       switch: [{ goto: "end" }],
     },
@@ -113,7 +113,7 @@ test("pause while a retry is pending — the retry waits, and resume runs it", a
 test("retries exhausted — process fails; pausing a settled process is rejected", async () => {
   const id = await ctx.env.start(exhaustedName);
   try {
-    // tick: attempt 1 fails → retry 1 scheduled (retries: 1, so one more attempt allowed)
+    // tick: attempt 1 fails → retry 1 scheduled (retry: 1, so one more attempt allowed)
     await ctx.env.tick();
     expect(await ctx.env.status(id)).toBe("running");
 

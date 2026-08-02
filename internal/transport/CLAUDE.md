@@ -40,17 +40,9 @@ every call to the same endpoint. `TestClient_PoolsConnectionsPerHost` pins both 
 because reverting to `http.DefaultClient` is a textual change that compiles and degrades
 silently.
 
-## `RetryDelay` jitter may only shorten
+## The retry backoff is not here
 
-Jitter is applied to the upper half of the window (`d/2 + rand[0, d/2]`), so the returned
-delay is always **≤** the nominal `2^attempt` seconds. That is load-bearing twice over: the
-5-minute cap stays a true ceiling, and the clock-advancing integration tests still expire a
-retry timer by advancing the nominal amount. Widening the jitter above the nominal value
-breaks the second silently — as intermittent failures in tests that have nothing to do with
-retries.
-
-The exponent clamp at 9 is not cosmetic. `time.Duration` is int64 *nanoseconds*, so
-`time.Duration(1<<attempt) * time.Second` overflows the multiply at attempt 34, not at 63:
-it returned about minus forty years at 34 and a flat `0s` from 62 up. A zero or negative
-delay is a hot retry loop against an already-failing endpoint, and `retries` has no upper
-bound at registration to keep a definition out of that range.
+It moved to `internal/engine/backoff.go` when the curve became authorable per `on_error`
+rule: it takes its base, factor and ceiling from a `model.Retry`, which this package must
+not depend on. The jitter and overflow invariants moved with it — see
+[internal/engine/CLAUDE.md](../engine/CLAUDE.md).

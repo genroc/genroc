@@ -223,7 +223,7 @@ to replace the engine's generic failure text with something a human can act on:
           code: bad_credentials
           message: "credentials rejected — check GENROC_<proc>_API_TOKEN"
       - code: ["http.5%"]
-        retries: 3
+        retry: 3
         goto: $fallback
 ```
 
@@ -678,7 +678,7 @@ at the specific task where you understand what went wrong —
 ```yaml
     on_error:
       - code: ["http.503"]
-        retries: 3
+        retry: 3
         raise:
           code: psp_unavailable
           message: "the payment provider is unavailable"

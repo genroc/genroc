@@ -66,7 +66,7 @@ on_error:
   - code: [http.422]                 # permanently unsendable — no sibling is affected
     goto: $unsendable                #   → completes with ok:false
   - code: [http.500, http.503]       # transient
-    retries: 2
+    retry: 2
     goto: $unsendable
   - code: [http.423]                 # the billing period is locked — every sibling
     raise:                           #   is about to hit the same wall
@@ -100,13 +100,13 @@ completed `outputs.<id>` are readable as usual.
 
 ## Retry policy belongs in the child
 
-`retries` is not available on a `child_list` / `child_map` task. Retrying there would mean
+`retry` is not available on a `child_list` / `child_map` task. Retrying there would mean
 re-spawning the whole batch, including the children that already succeeded. Per-item retry
 therefore lives inside the child, where it can retry just that item:
 
 ```yaml
 - code: [http.500, http.503]
-  retries: 2
+  retry: 2
   goto: $unsendable
 ```
 

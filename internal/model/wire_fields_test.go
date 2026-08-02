@@ -20,7 +20,7 @@ func TestRuleDecode_UnknownFields(t *testing.T) {
 	}{
 		{
 			name:     "on_error given a switch's case",
-			json:     `{"case": ["pre.4%"], "not_reached": true, "goto": "$wait", "retries": 3}`,
+			json:     `{"case": ["pre.4%"], "not_reached": true, "goto": "$wait", "retry": 3}`,
 			into:     &ErrorCase{},
 			wantErr:  `unknown field "case"`,
 			wantHint: `an on_error rule selects errors with "code"`,
@@ -40,9 +40,18 @@ func TestRuleDecode_UnknownFields(t *testing.T) {
 		},
 		{
 			name:    "switch given a stray key",
-			json:    `[{"case": "x == 1", "retries": 2, "goto": "end"}]`,
+			json:    `[{"case": "x == 1", "retry": 2, "goto": "end"}]`,
 			into:    &SwitchMap{},
-			wantErr: `unknown field "retries"`,
+			wantErr: `unknown field "retry"`,
+		},
+		{
+			// The rename is only safe because the old key is refused: dropped in silence it
+			// leaves a rule that still matches and still routes, and never retries.
+			name:     "on_error given the pre-policy retries key",
+			json:     `{"code": ["http.500"], "retries": 3}`,
+			into:     &ErrorCase{},
+			wantErr:  `unknown field "retries"`,
+			wantHint: `renamed to "retry"`,
 		},
 	}
 	for _, tt := range tests {
@@ -65,10 +74,10 @@ func TestRuleDecode_UnknownFields(t *testing.T) {
 func TestRuleDecode_KnownFieldsSurvive(t *testing.T) {
 	var ec ErrorCase
 	if err := ec.UnmarshalJSON([]byte(
-		`{"code": ["http.409"], "retries": 2, "goto": "$handler", "not_reached": true}`)); err != nil {
+		`{"code": ["http.409"], "retry": 2, "goto": "$handler", "not_reached": true}`)); err != nil {
 		t.Fatalf("on_error: %v", err)
 	}
-	if len(ec.Code) != 1 || ec.Retries != 2 || ec.Goto != "handler" || ec.NotReached == nil || !*ec.NotReached {
+	if len(ec.Code) != 1 || ec.Retry.Attempts != 2 || ec.Goto != "handler" || ec.NotReached == nil || !*ec.NotReached {
 		t.Fatalf("on_error decoded to %+v", ec)
 	}
 	if err := (&ErrorCase{}).UnmarshalJSON([]byte(

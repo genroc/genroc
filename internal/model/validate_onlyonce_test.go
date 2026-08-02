@@ -35,18 +35,18 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 		wantHint string // an additional substring the message must carry
 	}{
 		// ── tier 1: pre.* is safe on its own, no assertion needed ────────────
-		{name: "pre.% with retries", ec: ErrorCase{Code: []string{"pre.%"}, Retries: 2}},
-		{name: "exact pre codes with retries", ec: ErrorCase{Code: []string{"pre.timeout", "pre.error"}, Retries: 2}},
-		{name: "pre.% with a redundant not_reached", ec: ErrorCase{Code: []string{"pre.%"}, NotReached: &yes, Retries: 2}},
+		{name: "pre.% with retries", ec: ErrorCase{Code: []string{"pre.%"}, Retry: RetryAttempts(2)}},
+		{name: "exact pre codes with retries", ec: ErrorCase{Code: []string{"pre.timeout", "pre.error"}, Retry: RetryAttempts(2)}},
+		{name: "pre.% with a redundant not_reached", ec: ErrorCase{Code: []string{"pre.%"}, NotReached: &yes, Retry: RetryAttempts(2)}},
 
 		// ── tier 2: a named exception, asserted with not_reached ─────────────
-		{name: "exact http code with not_reached", ec: ErrorCase{Code: []string{"http.409"}, NotReached: &yes, Retries: 2}},
-		{name: "several exact codes with not_reached", ec: ErrorCase{Code: []string{"http.409", "http.422"}, NotReached: &yes, Retries: 2}},
+		{name: "exact http code with not_reached", ec: ErrorCase{Code: []string{"http.409"}, NotReached: &yes, Retry: RetryAttempts(2)}},
+		{name: "several exact codes with not_reached", ec: ErrorCase{Code: []string{"http.409", "http.422"}, NotReached: &yes, Retry: RetryAttempts(2)}},
 		{
 			// Per-pattern tiers: the self-evidently safe wildcard and the named
 			// exception coexist, neither spoiling the other.
 			name: "pre.% alongside a named exception",
-			ec:   ErrorCase{Code: []string{"pre.%", "http.409"}, NotReached: &yes, Retries: 2},
+			ec:   ErrorCase{Code: []string{"pre.%", "http.409"}, NotReached: &yes, Retry: RetryAttempts(2)},
 		},
 
 		// ── not a retry at all: catching is always allowed ───────────────────
@@ -58,26 +58,26 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 		// ── tier 1 violation: needs an assertion ─────────────────────────────
 		{
 			name:     "http.% with retries and no assertion",
-			ec:       ErrorCase{Code: []string{"http.%"}, Retries: 2},
+			ec:       ErrorCase{Code: []string{"http.%"}, Retry: RetryAttempts(2)},
 			wantErr:  `pattern "http.%" can match errors where the call may have executed`,
 			wantHint: "add not_reached:true and name the exact codes",
 		},
 		{
 			name:     "exact http code with retries and no assertion",
-			ec:       ErrorCase{Code: []string{"http.500"}, Retries: 2},
+			ec:       ErrorCase{Code: []string{"http.500"}, Retry: RetryAttempts(2)},
 			wantErr:  `pattern "http.500" can match errors where the call may have executed`,
 			wantHint: "restrict it to pre.% patterns",
 		},
 		{
 			name:     "wildcard crossing namespaces",
-			ec:       ErrorCase{Code: []string{"s%"}, Retries: 2},
+			ec:       ErrorCase{Code: []string{"s%"}, Retry: RetryAttempts(2)},
 			wantErr:  `pattern "s%" can match errors where the call may have executed`,
 			wantHint: "not_reached:true",
 		},
 		{
 			// The offending pattern is named, not the first one in the list.
 			name:     "pre.% mixed with an unasserted wildcard",
-			ec:       ErrorCase{Code: []string{"pre.%", "http.%"}, Retries: 2},
+			ec:       ErrorCase{Code: []string{"pre.%", "http.%"}, Retry: RetryAttempts(2)},
 			wantErr:  `pattern "http.%" can match errors where the call may have executed`,
 			wantHint: "name the exact codes",
 		},
@@ -85,31 +85,31 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 		// ── tier 2 violation: an assertion has to be about something specific ─
 		{
 			name:     "not_reached on a narrow wildcard",
-			ec:       ErrorCase{Code: []string{"http.4%"}, NotReached: &yes, Retries: 2},
+			ec:       ErrorCase{Code: []string{"http.4%"}, NotReached: &yes, Retry: RetryAttempts(2)},
 			wantErr:  `pattern "http.4%" cannot be a wildcard`,
 			wantHint: `name the exact codes instead (e.g. "http.409")`,
 		},
 		{
 			name:     "not_reached on a bare wildcard",
-			ec:       ErrorCase{Code: []string{"%"}, NotReached: &yes, Retries: 2},
+			ec:       ErrorCase{Code: []string{"%"}, NotReached: &yes, Retry: RetryAttempts(2)},
 			wantErr:  `pattern "%" cannot be a wildcard`,
 			wantHint: "asserts what one specific error means",
 		},
 		{
 			name:     "not_reached on an only_once wildcard",
-			ec:       ErrorCase{Code: []string{"only_once.%"}, NotReached: &yes, Retries: 2},
+			ec:       ErrorCase{Code: []string{"only_once.%"}, NotReached: &yes, Retry: RetryAttempts(2)},
 			wantErr:  `pattern "only_once.%" cannot be a wildcard`,
 			wantHint: "name the exact codes",
 		},
 		{
 			name:     "catch-all with retries",
-			ec:       ErrorCase{Retries: 2},
+			ec:       ErrorCase{Retry: RetryAttempts(2)},
 			wantErr:  "a catch-all rule cannot have retries on an only_once task",
 			wantHint: "or add not_reached:true and name the exact codes",
 		},
 		{
 			name:     "catch-all with retries and not_reached",
-			ec:       ErrorCase{NotReached: &yes, Retries: 2},
+			ec:       ErrorCase{NotReached: &yes, Retry: RetryAttempts(2)},
 			wantErr:  "a catch-all rule cannot have retries on an only_once task",
 			wantHint: "restrict it to pre.% patterns",
 		},
@@ -120,32 +120,32 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 		// leads nowhere here.
 		{
 			name:     "http.timeout named with not_reached",
-			ec:       ErrorCase{Code: []string{"http.timeout"}, NotReached: &yes, Retries: 2},
+			ec:       ErrorCase{Code: []string{"http.timeout"}, NotReached: &yes, Retry: RetryAttempts(2)},
 			wantErr:  "http.timeout can never be retried on an only_once task, with or without not_reached",
 			wantHint: "check the system of record instead",
 		},
 		{
 			name:     "http.timeout named without not_reached",
-			ec:       ErrorCase{Code: []string{"http.timeout"}, Retries: 2},
+			ec:       ErrorCase{Code: []string{"http.timeout"}, Retry: RetryAttempts(2)},
 			wantErr:  "http.timeout can never be retried on an only_once task",
 			wantHint: "Catch it with a goto",
 		},
 		{
 			name:     "only_once.interrupted named with not_reached",
-			ec:       ErrorCase{Code: []string{"only_once.interrupted"}, NotReached: &yes, Retries: 2},
+			ec:       ErrorCase{Code: []string{"only_once.interrupted"}, NotReached: &yes, Retry: RetryAttempts(2)},
 			wantErr:  "only_once.interrupted can never be retried on an only_once task",
 			wantHint: "unknowable",
 		},
 		{
 			name:     "external.timeout named with not_reached",
-			ec:       ErrorCase{Code: []string{"external.timeout"}, NotReached: &yes, Retries: 2},
+			ec:       ErrorCase{Code: []string{"external.timeout"}, NotReached: &yes, Retry: RetryAttempts(2)},
 			wantErr:  "external.timeout can never be retried on an only_once task",
 			wantHint: "no response came back",
 		},
 		{
 			// The unknowable one is found wherever it sits in the list.
 			name:     "an unknowable code among safe ones",
-			ec:       ErrorCase{Code: []string{"pre.%", "http.409", "http.timeout"}, NotReached: &yes, Retries: 2},
+			ec:       ErrorCase{Code: []string{"pre.%", "http.409", "http.timeout"}, NotReached: &yes, Retry: RetryAttempts(2)},
 			wantErr:  "http.timeout can never be retried",
 			wantHint: "unknowable",
 		},

@@ -75,7 +75,7 @@ beforeAll(async () => {
         type: "fetch" as const,
         url: `http://localhost:${failMockPort}/action`,
       },
-      on_error: [{ code: ["http.%"], retries: 1 }],
+      on_error: [{ code: ["http.%"], retry: 1 }],
       timeout: 5_000,
       switch: [{ goto: "end" }],
     },

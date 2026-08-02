@@ -12,7 +12,6 @@ import (
 	"genroc/internal/db"
 	"genroc/internal/logview"
 	"genroc/internal/model"
-	"genroc/internal/transport"
 	"genroc/internal/validation"
 )
 
@@ -161,13 +160,6 @@ func (e *Engine) signalWork() {
 // NotifyWork tells the engine new runnable work may exist (e.g. a freshly created
 // instance), so the pump claims it without waiting for the next poll tick.
 func (e *Engine) NotifyWork() { e.signalWork() }
-
-func (e *Engine) retryDelay(attempt int) time.Duration {
-	if e.immediateRetries {
-		return 0
-	}
-	return transport.RetryDelay(attempt)
-}
 
 // renewLeases re-stamps this worker's leases and records when that last succeeded. Both
 // the renewer and the pump's repair path must go through here, or lastRenewMs stops

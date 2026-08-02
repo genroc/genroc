@@ -163,7 +163,7 @@ func TestInterrupted_UncaughtFails(t *testing.T) {
 func TestInterrupted_StoredRetryRuleIsNotRetried(t *testing.T) {
 	database := openTestDB(t)
 	id, hits := interruptedFixture(t, database, "storedretry", model.StatusRunning,
-		[]model.ErrorCase{{Code: []string{"only_once.interrupted"}, Retries: 3, Goto: "verify"}})
+		[]model.ErrorCase{{Code: []string{"only_once.interrupted"}, Retry: model.RetryAttempts(3), Goto: "verify"}})
 	interrupt(t, database, id)
 
 	if _, err := tickEngine(t, database).Tick(context.Background()); err != nil {

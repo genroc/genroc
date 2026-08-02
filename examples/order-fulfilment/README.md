@@ -87,10 +87,10 @@ So this example's first rule is the only unqualified retry it is allowed:
 
 ```yaml
 - code: [pre.error, pre.timeout]
-  retries: 3
+  retry: 3
 ```
 
-Try adding `- code: [http.500], retries: 1` to the charge task and re-applying: registration
+Try adding `- code: [http.500], retry: 1` to the charge task and re-applying: registration
 refuses it, and names the pattern. `isRetryAllowed` refuses at runtime too — validation runs
 only at registration, and definitions stored before the rule keep their `on_error` verbatim.
 

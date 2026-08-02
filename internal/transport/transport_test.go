@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"genroc/internal/errcode"
 )
@@ -107,45 +106,3 @@ func TestClient_PoolsConnectionsPerHost(t *testing.T) {
 	}
 }
 
-// nominal is the un-jittered delay RetryDelay is allowed to land under: plain 2^attempt
-// seconds, capped. Written independently of the implementation's exponent clamp — 1<<29
-// seconds is the last value that fits in a Duration, and anything past it is the cap
-// regardless.
-func nominal(attempt int) time.Duration {
-	if attempt < 0 {
-		attempt = 0
-	}
-	d := maxRetryDelay
-	if attempt < 30 {
-		if exp := time.Duration(1<<uint(attempt)) * time.Second; exp < d {
-			d = exp
-		}
-	}
-	return d
-}
-
-func TestRetryDelay_StaysWithinTheNominalWindow(t *testing.T) {
-	// Includes the attempt counts where the old shift overflowed: 63 wrapped negative and
-	// 64+ shifted to zero, both of which retried with no backoff at all.
-	for _, attempt := range []int{-1, 0, 1, 2, 8, 9, 10, 33, 62, 63, 64, 100, 1000} {
-		want := nominal(attempt)
-		for i := 0; i < 200; i++ {
-			got := RetryDelay(attempt)
-			if got < want/2 || got > want {
-				t.Fatalf("RetryDelay(%d) = %v, want within [%v, %v]: a delay outside the window is either "+
-					"a hot retry loop or a backoff past the documented ceiling", attempt, got, want/2, want)
-			}
-		}
-	}
-}
-
-func TestRetryDelay_IsJittered(t *testing.T) {
-	seen := map[time.Duration]bool{}
-	for i := 0; i < 50; i++ {
-		seen[RetryDelay(6)] = true
-	}
-	if len(seen) < 2 {
-		t.Fatalf("RetryDelay(6) returned one value across 50 calls; without jitter every instance that "+
-			"failed on the same outage wakes at the same instant (%v)", seen)
-	}
-}

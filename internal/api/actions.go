@@ -105,7 +105,7 @@ var registry = func() []actionDef {
 							ResultSchema: schemaPtr(schema.Object().
 								WithProperty("charged", schema.Type("boolean"), false)),
 						},
-						Timeout: model.TimeoutFor("5s"), OnError: []model.ErrorCase{{Retries: 3}},
+						Timeout: model.TimeoutFor("5s"), OnError: []model.ErrorCase{{Retry: model.RetryAttempts(3)}},
 						Switch: model.SwitchMap{
 							{Case: "self.output.charged == true", Goto: "$ship"},
 							{Goto: "$refund"},
@@ -115,13 +115,13 @@ var registry = func() []actionDef {
 						ID:      "ship",
 						Action:  &model.Action{Type: model.ActionTypeFetch, URL: "http://localhost:9002/ship"},
 						Switch:  model.SwitchMap{{Goto: model.GotoEnd}},
-						Timeout: model.TimeoutFor("3s"), OnError: []model.ErrorCase{{Retries: 2}},
+						Timeout: model.TimeoutFor("3s"), OnError: []model.ErrorCase{{Retry: model.RetryAttempts(2)}},
 					},
 					{
 						ID:      "refund",
 						Action:  &model.Action{Type: model.ActionTypeFetch, URL: "http://localhost:9003/refund"},
 						Switch:  model.SwitchMap{{Goto: model.GotoEnd}},
-						Timeout: model.TimeoutFor("3s"), OnError: []model.ErrorCase{{Retries: 1}},
+						Timeout: model.TimeoutFor("3s"), OnError: []model.ErrorCase{{Retry: model.RetryAttempts(1)}},
 					},
 				},
 			},

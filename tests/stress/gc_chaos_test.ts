@@ -201,7 +201,7 @@ test(
                 required: ["i", "done"],
               },
             },
-            on_error: [{ retries: 1 }],
+            on_error: [{ retry: 1 }],
             output: "$: self.result",
             switch: [
               { case: "outputs.gen.done == true", goto: "end" },

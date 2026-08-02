@@ -42,10 +42,10 @@ tasks:
       # help and no sibling is affected — so it becomes this child's result.
       - code: [http.422]
         goto: $unsendable
-      # Transient. Retry inside the child; `retries` is not available on the parent's
+      # Transient. Retry inside the child; `retry` is not available on the parent's
       # child_list task, which is why per-item retry policy belongs here.
       - code: [http.500, http.503]
-        retries: 2
+        retry: 2
         goto: $unsendable
       # The billing period is locked. Every sibling is about to hit the same wall, so
       # this is the one condition worth aborting the whole run for.

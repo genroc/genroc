@@ -113,7 +113,7 @@ gives "the whole payload as one expression" for free.
 What changes from today (`Shape = string | Record<string, Shape>`,
 `internal/model/wire.go:143-151`):
 
-- **Scalars.** `retries: 3` / `enabled: true` are literals today you'd have to spell
+- **Scalars.** `retry: 3` / `enabled: true` are literals today you'd have to spell
   `"$: 3"`. genctl already preserves numeric/bool literals through YAML→JSON
   (`cmd/genctl/input.go:80-141`), so the wire plumbing exists; `checkShape`
   (`wire.go:215-229`) must stop rejecting non-string scalars.

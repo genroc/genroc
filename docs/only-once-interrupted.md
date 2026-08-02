@@ -167,7 +167,7 @@ so there is nothing to interpret — an author writing `not_reached: true` there
 asserting domain knowledge, they are guessing.
 
 **Enforcement is at declaration, in three tiers, applied per pattern.** A rule's patterns
-are not all-or-nothing: `{code: ["pre.%", "http.409"], not_reached: true, retries: 2}` is
+are not all-or-nothing: `{code: ["pre.%", "http.409"], not_reached: true, retry: 2}` is
 legal, the wildcard passing on tier 1 and the named exception on tier 2.
 
 | tier | rule | rejected with |
@@ -205,7 +205,7 @@ verbatim and never re-validate, so `isRetryAllowed` is what actually holds the l
 them.
 
 Wildcards remain legal for **matching**. `{code: ["%"], goto: verify}` is fine and
-sometimes exactly right; `{code: ["%"], retries: 3}` is not, because `%` can match
+sometimes exactly right; `{code: ["%"], retry: 3}` is not, because `%` can match
 `http.timeout`.
 
 ## Recovering: verify, then continue
@@ -283,7 +283,7 @@ meaning "cannot be known either way". A `Code.IsUnknowable()` method mirrors
 - No schema change, no migration. `error_code` is a free-form string column.
 - Definitions with no rule for the code behave identically to today.
 - **The unknowable set tightens an existing allowance.** Today
-  `{code: ["http.%"], retries: 2, not_reached: true}` on an `only_once` task registers
+  `{code: ["http.%"], retry: 2, not_reached: true}` on an `only_once` task registers
   cleanly, because `not_reached` overrides the pattern check; afterwards it does not,
   since `http.%` can match `http.timeout`. Re-registering such a definition fails with a
   message naming the offending code, and the author narrows the pattern (`http.4%`) or

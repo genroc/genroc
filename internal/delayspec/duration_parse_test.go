@@ -84,6 +84,34 @@ func TestParseDuration_Rejects(t *testing.T) {
 	}
 }
 
+// `time.Duration` is int64 nanoseconds, so the multiply wraps well inside the range of
+// numbers an author can type. The dangerous case is not a huge or negative result but a
+// wrap that lands somewhere plausible: "5124096h" used to parse as 25 minutes, which no
+// downstream check can catch, and a retry or timeout would simply have fired 292 years
+// early with nothing reporting it.
+func TestParseDuration_RefusesValuesThatWrapTheNanosecondCounter(t *testing.T) {
+	for _, spec := range []string{
+		"5124096h",                 // wrapped to a positive 25m26s
+		"5124095h",                 // wrapped negative
+		"9223372036854775807ms",    // wrapped to -1ms
+		"1h 9223372036854775807ms", // the overflow is in the accumulation, not one component
+		"9223372036854775807w",     // the calendar half scales by 7 before AddDate sees it
+		"9223372036854775807y",     // and by 12
+	} {
+		t.Run(spec, func(t *testing.T) {
+			d, err := ParseDuration(spec)
+			if err == nil {
+				fixed, _ := d.Fixed()
+				t.Fatalf("ParseDuration(%q) was accepted and yielded %v; an out-of-range literal must be "+
+					"refused, not silently wrapped into a plausible-looking duration", spec, fixed)
+			}
+			if !strings.Contains(err.Error(), "out of range") {
+				t.Errorf("error should say the value is out of range, got: %v", err)
+			}
+		})
+	}
+}
+
 // A unitless number is the mistake an author actually makes, and either reading is
 // plausible — so the error names both rather than only refusing.
 func TestParseDuration_UnitlessErrorNamesBothReadings(t *testing.T) {

@@ -241,6 +241,32 @@ func validateFault(f *Fault, taskID, where, clause string) error {
 	return nil
 }
 
+// validateRetry checks a retry policy's internal coherence. The decoder rejects the same
+// shapes on the JSON path; this is the half that covers definitions built in Go and, more
+// importantly, the half whose message can name the task and the rule.
+func validateRetry(r Retry, taskID, where string) error {
+	if r.IsZero() {
+		return nil
+	}
+	if r.Attempts < 0 {
+		return fmt.Errorf("task %q %s: retry.attempts must not be negative", taskID, where)
+	}
+	// A curve without attempts never runs. Refused rather than defaulted, because the
+	// alternative is an authored backoff that silently does nothing.
+	if r.Attempts == 0 {
+		return fmt.Errorf("task %q %s: retry names a backoff but no attempts, so it would never retry; add attempts, or drop retry entirely", taskID, where)
+	}
+	if r.Factor != 0 && r.Factor < 1 {
+		return fmt.Errorf("task %q %s: retry.factor %g would shrink the wait after every attempt; use 1 for a constant delay", taskID, where, r.Factor)
+	}
+	// Checked against the authored slots, not against Ceiling(), which papers over exactly
+	// this by widening a default cap to fit the base.
+	if base, capped := r.Delay.Duration(), r.MaxDelay.Duration(); base > 0 && capped > 0 && capped < base {
+		return fmt.Errorf("task %q %s: retry.max_delay (%s) is shorter than retry.delay (%s), so the first wait would already be clamped and the delay never applied", taskID, where, capped, base)
+	}
+	return nil
+}
+
 // validateSwitch checks the task's switch cases: catch-all ordering, goto targets, and
 // the raise/panic clauses (R1-R3).
 func validateSwitch(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int) error {
@@ -359,8 +385,12 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 			// retry field would be silently ignored, which is worse than refusing it.
 			// (Reachability of each pattern against the child raise set is R5, checked in
 			// the validation package where children can be resolved.)
-			if ec.Retries > 0 {
-				return fmt.Errorf("task %q %s: retries is not supported on a child task; retry inside the child, then raise", s.ID, where)
+			// Refused whenever the policy names anything, not just when attempts > 0: a
+			// policy naming only a delay is still an author expecting retries. An empty
+			// one (`retry: {}` / `retry: 0`) says nothing and is left alone, exactly as an
+			// absent key is.
+			if !ec.Retry.IsZero() {
+				return fmt.Errorf("task %q %s: retry is not supported on a child task; retry inside the child, then raise", s.ID, where)
 			}
 			if ec.NotReached != nil {
 				return fmt.Errorf("task %q %s: not_reached has no meaning on a child task", s.ID, where)
@@ -375,7 +405,11 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 		// Applied per pattern, not per rule, so a rule may mix a safe pre.% with a named
 		// exception. Tier 3 is tested first, or naming http.timeout gets tier-2 advice
 		// that leads nowhere.
-		if onlyOnce && ec.Retries > 0 {
+		if err := validateRetry(ec.Retry, s.ID, where); err != nil {
+			return err
+		}
+
+		if onlyOnce && ec.Retry.Attempts > 0 {
 			notReached := ec.NotReached != nil && *ec.NotReached
 			if len(ec.Code) == 0 {
 				return fmt.Errorf("task %q %s: a catch-all rule cannot have retries on an only_once task; restrict it to pre.%% patterns, or add not_reached:true and name the exact codes that are safe to retry", s.ID, where)

@@ -23,7 +23,9 @@
 package delayspec
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -224,19 +226,52 @@ func Millis(ms int64) *Duration {
 	return &Duration{src: fmt.Sprintf("%dms", ms), fixed: time.Duration(ms) * time.Millisecond}
 }
 
+// addFixed accumulates n units into the fixed part, refusing the multiply and the add that
+// would wrap. `time.Duration` is int64 *nanoseconds*, so the wrap is reachable from a
+// literal an author could plausibly type — and it is not merely a large or negative
+// result: "5124096h" wrapped to a positive **25 minutes**, a value that passes every
+// downstream sanity check there is.
+func (d *Duration) addFixed(n int64, unit time.Duration) error {
+	if n > int64(math.MaxInt64)/int64(unit) {
+		return errDurationRange
+	}
+	add := time.Duration(n) * unit
+	if d.fixed > time.Duration(math.MaxInt64)-add {
+		return errDurationRange
+	}
+	d.fixed += add
+	return nil
+}
+
+// addCalendar is the same guard for the calendar part, whose components are scaled (a week
+// is 7 days, a year 12 months) before `time.AddDate` ever sees them.
+func addCalendar(field *int, n, scale int64) error {
+	if n > math.MaxInt64/scale {
+		return errDurationRange
+	}
+	scaled := n * scale
+	if int64(*field) > math.MaxInt64-scaled {
+		return errDurationRange
+	}
+	*field += int(scaled)
+	return nil
+}
+
+var errDurationRange = errors.New("out of range")
+
 // durUnits is ordered longest-first so that "ms" and "mo" are matched before "m".
 var durUnits = []struct {
 	suffix string
-	apply  func(*Duration, int64)
+	apply  func(*Duration, int64) error
 }{
-	{"ms", func(d *Duration, n int64) { d.fixed += time.Duration(n) * time.Millisecond }},
-	{"mo", func(d *Duration, n int64) { d.months += int(n) }},
-	{"s", func(d *Duration, n int64) { d.fixed += time.Duration(n) * time.Second }},
-	{"m", func(d *Duration, n int64) { d.fixed += time.Duration(n) * time.Minute }},
-	{"h", func(d *Duration, n int64) { d.fixed += time.Duration(n) * time.Hour }},
-	{"d", func(d *Duration, n int64) { d.days += int(n) }},
-	{"w", func(d *Duration, n int64) { d.days += int(n) * 7 }},
-	{"y", func(d *Duration, n int64) { d.months += int(n) * 12 }},
+	{"ms", func(d *Duration, n int64) error { return d.addFixed(n, time.Millisecond) }},
+	{"mo", func(d *Duration, n int64) error { return addCalendar(&d.months, n, 1) }},
+	{"s", func(d *Duration, n int64) error { return d.addFixed(n, time.Second) }},
+	{"m", func(d *Duration, n int64) error { return d.addFixed(n, time.Minute) }},
+	{"h", func(d *Duration, n int64) error { return d.addFixed(n, time.Hour) }},
+	{"d", func(d *Duration, n int64) error { return addCalendar(&d.days, n, 1) }},
+	{"w", func(d *Duration, n int64) error { return addCalendar(&d.days, n, 7) }},
+	{"y", func(d *Duration, n int64) error { return addCalendar(&d.months, n, 12) }},
 }
 
 // ParseDuration parses a `for` literal: unit-suffixed counts, concatenated, whitespace
@@ -276,7 +311,9 @@ func ParseDuration(s string) (*Duration, error) {
 		matched := false
 		for _, u := range durUnits {
 			if strings.HasPrefix(rest, u.suffix) {
-				u.apply(d, n)
+				if err := u.apply(d, n); err != nil {
+					return nil, fmt.Errorf("duration %q: %d%s is out of range; a duration cannot exceed about 292 years", raw, n, u.suffix)
+				}
 				rest, matched = rest[len(u.suffix):], true
 				break
 			}
@@ -290,6 +327,17 @@ func ParseDuration(s string) (*Duration, error) {
 		return nil, fmt.Errorf("duration %q has no components", raw)
 	}
 	return d, nil
+}
+
+// Fixed returns the duration as a plain time.Duration, and false if it carries calendar
+// components. A calendar duration has no length until a location and a start instant fix
+// it, so a caller that must do arithmetic on the value — scale it, compare it to a
+// ceiling — has to refuse one rather than pick a nominal length for it.
+func (d *Duration) Fixed() (time.Duration, bool) {
+	if d.days != 0 || d.months != 0 {
+		return 0, false
+	}
+	return d.fixed, true
 }
 
 // Resolve returns the instant this duration lands on, measured from now in loc. Calendar

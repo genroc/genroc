@@ -9,12 +9,10 @@ import (
 	"genroc/internal/errcode"
 	"genroc/internal/numeric"
 	"io"
-	"math/rand/v2"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"genroc/internal/model"
 )
@@ -25,9 +23,6 @@ import (
 // which a value externalizes to the object store, so it bounds the pathological case
 // without capping a legitimately large result.
 const MaxResponseBytes = 8 << 20
-
-// maxRetryDelay is the ceiling RetryDelay backs off to.
-const maxRetryDelay = 5 * time.Minute
 
 // client is shared by every fetch. It deliberately sets no Client.Timeout: the per-attempt
 // budget is the caller's context deadline (engine.fetchTimeout), and a second ceiling here
@@ -203,27 +198,3 @@ func ClassifyGoError(err error) errcode.Code {
 	return errcode.PreError
 }
 
-// RetryDelay returns the backoff duration for a given retry attempt: exponential, capped
-// at maxRetryDelay, then jittered within the upper half of that window.
-//
-// The jitter is what stops a fleet from re-hitting a recovering endpoint in lockstep —
-// every instance that failed on the same outage would otherwise wake at the same instant.
-// It only ever shortens the nominal delay, so the cap stays a true ceiling and a test that
-// advances the clock by the nominal amount still expires the timer.
-func RetryDelay(attempt int) time.Duration {
-	// Clamping the exponent changes no delay the un-clamped formula produced (2^9s is
-	// already past the cap) and keeps the shift away from the range where it overflows:
-	// int64 nanoseconds run out at 2^33 seconds, and a negative or wrapped Duration is a
-	// retry with no backoff at all.
-	if attempt < 0 {
-		attempt = 0
-	}
-	if attempt > 9 {
-		attempt = 9
-	}
-	d := time.Duration(1<<uint(attempt)) * time.Second
-	if d > maxRetryDelay {
-		d = maxRetryDelay
-	}
-	return d/2 + time.Duration(rand.Int64N(int64(d/2)+1))
-}

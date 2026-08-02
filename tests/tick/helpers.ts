@@ -187,15 +187,18 @@ export class TickEnv {
 // Usage:
 //   const ctx = useTickEnv(20014);
 //   test("...", async () => { await ctx.env.tick(); });
-export function useTickEnv(port: number) {
+// Pass immediateRetries: false to keep the real backoff, so a test can advance the clock
+// across a retry timer and observe how long the policy actually parked for.
+export function useTickEnv(port: number, opts: { immediateRetries?: boolean } = {}) {
   const ctx = {} as { env: TickEnv };
+  const { immediateRetries = true } = opts;
 
   beforeAll(async () => {
     const bin = await getBin();
     const db = join(tmpdir(), `genroc_tick_${Date.now()}.db`);
     // poll=0 → manual tick mode; max-concurrent=1 → one instance per tick (predictable ordering)
     // immediateRetries=true → no backoff, retries are claimable on the very next tick
-    const genroc = await startGenroc(bin, port, db, undefined, 0, 1, true);
+    const genroc = await startGenroc(bin, port, db, undefined, 0, 1, immediateRetries);
     ctx.env = new TickEnv(genroc);
   }, 60_000);
 

@@ -105,7 +105,7 @@ test("a for budget restarts on re-arm after an external.timeout retry", async ()
       id: "approval",
       action: { type: "external" },
       timeout: "1h",
-      on_error: [{ code: ["external.timeout"], retries: 1 }],
+      on_error: [{ code: ["external.timeout"], retry: 1 }],
       switch: "end",
     },
   ] as never);

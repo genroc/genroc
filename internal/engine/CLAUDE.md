@@ -37,6 +37,30 @@ Three things that break silently if you touch this:
 `errcode.MatchCode` lives in `errcode` rather than `transport` because that is the package
 that owns codes; the engine and `internal/validation` share the one implementation.
 
+## The backoff curve (`backoff.go`)
+
+An `on_error` rule's `retry` policy supplies the base delay, the growth factor and the
+ceiling; `backoff` turns them into the wait before attempt *n*. Design, and the survey of
+other engines the field set came from: [docs/retry-policy.md](../../docs/retry-policy.md).
+The registration-time rules are in [internal/model/CLAUDE.md](../model/CLAUDE.md).
+
+1. **Jitter may only shorten.** It is applied to the upper half of the window
+   (`d/2 + rand[0, d/2]`), so the returned delay is always **≤** nominal. That is
+   load-bearing twice over: the ceiling stays a true ceiling, and the clock-advancing
+   integration tests still expire a retry timer by advancing the nominal amount. Widening
+   the jitter above nominal breaks the second silently — as intermittent failures in tests
+   that have nothing to do with retries.
+2. **The growth accumulates in `float64`, and stops at the ceiling.** The predecessor
+   shifted a `time.Duration` and had to clamp the exponent by hand: `time.Duration` is
+   int64 *nanoseconds*, so `1<<attempt * time.Second` overflowed the multiply at attempt 34,
+   returning about minus forty years, and a flat `0s` from 62 up. A zero or negative delay
+   is a hot retry loop against an already-failing endpoint, and `attempts` has no upper
+   bound at registration to keep a definition out of that range. Anything that reintroduces
+   integer growth reintroduces that.
+3. **Read a policy's slots through `Base`/`Growth`/`Ceiling`, never off the struct.** An
+   unset slot is the zero value, and a zero base is that same hot loop while a zero ceiling
+   clamps every wait to nothing.
+
 ## Lease fencing (partly implemented)
 
 [docs/lease-fencing.md](../../docs/lease-fencing.md). *Live:* the stale-lease gate

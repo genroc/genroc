@@ -131,7 +131,7 @@ func TestFault_R3_TerminalClauseArity(t *testing.T) {
 	t.Run("on_error rule with none accepted", func(t *testing.T) {
 		d := def(&Task{
 			ID: "t", Action: &Action{Type: ActionTypeFetch, URL: "http://x"},
-			OnError: []ErrorCase{{Code: []string{"http.%"}, Retries: 3}},
+			OnError: []ErrorCase{{Code: []string{"http.%"}, Retry: RetryAttempts(3)}},
 			Switch:  SwitchMap{{Goto: GotoEnd}},
 		})
 		if err := d.Validate(); err != nil {
@@ -179,10 +179,22 @@ func TestFault_R4_ChildTaskOnError(t *testing.T) {
 			t.Fatalf("want empty-pattern rejection, got %v", err)
 		}
 	})
-	t.Run("retries rejected", func(t *testing.T) {
-		d := def(childTask([]ErrorCase{{Code: []string{"card_declined"}, Retries: 3, Goto: GotoEnd}}))
-		if err := d.Validate(); err == nil || !strings.Contains(err.Error(), "retries is not supported on a child task") {
-			t.Fatalf("want retries rejection, got %v", err)
+	t.Run("retry rejected", func(t *testing.T) {
+		d := def(childTask([]ErrorCase{{Code: []string{"card_declined"}, Retry: RetryAttempts(3), Goto: GotoEnd}}))
+		if err := d.Validate(); err == nil || !strings.Contains(err.Error(), "retry is not supported on a child task") {
+			t.Fatalf("want retry rejection, got %v", err)
+		}
+	})
+	t.Run("retry rejected even when it names only a backoff", func(t *testing.T) {
+		// Attempts 0 with a delay set is still an author expecting retries, so D7 must
+		// refuse the key's presence rather than a non-zero count.
+		delay, err := ParseRetryDuration("30s")
+		if err != nil {
+			t.Fatalf("ParseRetryDuration: %v", err)
+		}
+		d := def(childTask([]ErrorCase{{Code: []string{"card_declined"}, Retry: Retry{Delay: delay}, Goto: GotoEnd}}))
+		if err := d.Validate(); err == nil || !strings.Contains(err.Error(), "retry is not supported on a child task") {
+			t.Fatalf("want retry rejection, got %v", err)
 		}
 	})
 	t.Run("not_reached rejected", func(t *testing.T) {
@@ -197,7 +209,7 @@ func TestFault_R4_ChildTaskOnError(t *testing.T) {
 		d := def(&Task{
 			ID:      "call",
 			Action:  &Action{Type: ActionTypeFetch, URL: "http://x"},
-			OnError: []ErrorCase{{Code: []string{"http.5%"}, Retries: 3, Goto: GotoEnd}},
+			OnError: []ErrorCase{{Code: []string{"http.5%"}, Retry: RetryAttempts(3), Goto: GotoEnd}},
 			Switch:  SwitchMap{{Goto: GotoEnd}},
 		})
 		if err := d.Validate(); err != nil {
