@@ -43,6 +43,34 @@
   — the same coalesce read from a task reachable from two branches stays nullable, because
   that fixpoint's lattice element is one must-set and path sensitivity there needs a DNF
   lattice with widening (§5 of that doc). Workaround is a trailing `?? default`
+- [] guard narrowing - a `switch` case is currently the one expression whose meaning the type
+  system discards: a task can route on `case: "self.output.v != null"` and the routed task
+  still cannot use `v` without a `?? default` that can never be evaluated. Proposal is to
+  carry a per-reference refinement along the edge the case selects (see
+  docs/guard-narrowing.md). Tractable where the mid-process case in docs/path-sensitive-output.md
+  is not, because it refines ONE reference rather than correlating two — the same line
+  TypeScript draws. Two soundness traps recorded there: `config` is re-resolved every tick,
+  and a re-entered task overwrites its own output, so loops need a dataflow kill
+- [] enum-aware canonicalization - `mergeSimpleVariants` refuses to fold arms carrying an
+  `enum`, so a hand-written `oneOf[{string, enum:[a]}, {type:string}]` stays an overlapping
+  union that (oneOf being exactly-one) rejects "a". Latent today, mandatory before literal
+  types. Stands alone with no churn; see docs/literal-types.md §4
+- [] more precise typing: literal (singleton) types - a string literal infers as
+  `{type: string}`, losing which string it was; a declared `enum` survives navigation but
+  inference never produces one. Producing them is 4 lines; the work is the canonicalization
+  above plus ~51 Go tests of shape churn and regenerated published schemas (measured with a
+  spike). `IsSubset`/validation/arithmetic need no change. See docs/literal-types.md.
+  **Unblocks discriminated unions below**, and catches provably-false comparisons like
+  `kind == "sucess"` against a declared enum
+- [] discriminated unions (deferred, blocked on literal types) - narrow a `oneOf` by a tag
+  check (`case: 'self.output.r.kind == "success"'`) so the matched arm's fields are readable
+  and the other arm's are not. Today reading through such a union yields a nullable type (the
+  missing arm contributes null) and the tag check is ignored. The mechanism is specified in
+  docs/discriminated-unions.md and builds on guard narrowing — but a definition cannot
+  currently *build* a narrowable union: `kind: sent` types as plain `string`, so coalesced
+  branches are discriminated by shape, not by tag. Only a hand-written result_schema would be
+  narrowable, which is not worth the feature. Note `const` is not in the supported keyword
+  subset: a tag is `enum: [value]`
 - [] pause as a debugging tool: start an instance paused, then step it with tick
 
 # docs

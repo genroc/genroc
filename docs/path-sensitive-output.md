@@ -139,6 +139,10 @@ Reopen this if the mid-process case shows up in real definitions often enough to
 the lattice change. The signal to watch for: definitions carrying a `?? default` whose
 default is provably unreachable.
 
+Note that [guard-narrowing.md](guard-narrowing.md) (proposed) removes a *different* slice of
+the same annoyance and is tractable, because it refines one reference at a time rather than
+correlating two. If both existed, this section would still be open: they do not overlap.
+
 ## 6. Rejected alternative: a coverage check inside `??`
 
 Keep the single collapsed context, but give `inferNullCoalesce` access to the terminal sets;

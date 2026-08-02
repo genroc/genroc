@@ -26,6 +26,22 @@ listed below are proposals. Do not cite them as current behavior.
 - [lease-fencing.md](lease-fencing.md) — **partly implemented**, unlike the rest of this
   list: the stale-lease gate is live, the fence is not. Details in
   [internal/engine/CLAUDE.md](../internal/engine/CLAUDE.md).
+- [literal-types.md](literal-types.md) — infer `"sent"` as `enum: [sent]` rather than
+  `string`. Prerequisite for discriminated unions, and it catches provably-false comparisons.
+  The feature is not the 4-line production change but the **enum-aware canonicalization** it
+  forces: without it, `?? false` infers an overlapping `oneOf` that rejects `false`. Records
+  the number-precision constraint (a literal must keep its exact source text) and that
+  `IsSubset` needs no change.
+- [discriminated-unions.md](discriminated-unions.md) — **deferred, blocked on literal
+  types**, unlike the rest of this list, which is merely unscheduled. Narrowing a `oneOf` by
+  a tag check would work against a hand-declared union, but inference does not produce
+  literal types (`kind: sent` infers as plain `string`), so a definition cannot build a
+  narrowable union and the use case that justifies the feature is unreachable. Read §0 first.
+- [guard-narrowing.md](guard-narrowing.md) — refine a value's type from the `switch` case
+  that routed to a task, so a definition that proves `x != null` can then use `x`. Records
+  two soundness traps that are easy to miss: `config` is re-resolved every tick (so a guard
+  on it proves nothing downstream), and task outputs are overwritten on loop re-entry (so
+  refinements need a dataflow kill).
 
 ## Shipped behavior with a doc here
 
