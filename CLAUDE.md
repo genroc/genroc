@@ -161,6 +161,18 @@ keep running while an instance is paused, so a past target is a legitimate state
 These describe intended future work, **not current behavior** — do not treat them as
 describing the code as it stands:
 
+- [docs/lease-fencing.md](docs/lease-fencing.md) — make a lapsed lease harmless instead
+  of fatal: a `lease_epoch` fencing token bumped by `ClaimInstances` (never by renewal),
+  checked on every write a worker makes while holding the lease, so a stale advance's
+  write is refused rather than clobbering. Retires the fatal `OverwhelmError`, and pairs
+  the fence with a stale-lease gate: when the last successful renewal is older than a
+  lease, the pump repairs its own leases before claiming and suppresses lease takeovers
+  for one lease period, so a resumed laptop (or a throttled container) keeps the work it
+  was doing instead of merely failing safely. That gap check replaces `freezeDetector` —
+  it catches stalls that ride the monotonic clock too. Two traps it records: `worker_id` cannot serve as the token (the
+  reclaiming worker is usually the same worker), and nothing may hand a row back by
+  clearing `worker_id` — that column is the evidence `ReclaimedExpired` is derived from,
+  and erasing it re-runs `only_once` tasks that must never re-run.
 - [docs/fetch-http-surface.md](docs/fetch-http-surface.md) — two independent additions
   to `fetch`: response metadata (`self.status` / `self.headers`, which would retire the
   `http.202`-via-`on_error` trick in the polling example) and a structured `query` slot
