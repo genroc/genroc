@@ -13,7 +13,6 @@ import (
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
-// DependencyRow represents a row in process_dependencies.
 type DependencyRow struct {
 	ParentName    string
 	ParentVersion int
@@ -23,7 +22,6 @@ type DependencyRow struct {
 	ChildVersion  int
 }
 
-// StaleRefRow is returned by FindStaleRefs.
 type StaleRefRow struct {
 	ParentName     string
 	ParentVersion  int
@@ -33,7 +31,6 @@ type StaleRefRow struct {
 	ChannelVersion int
 }
 
-// VersionedDef pairs a ProcessDefinition with its server-assigned version number.
 type VersionedDef struct {
 	Version int
 	Def     *model.ProcessDefinition

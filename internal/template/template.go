@@ -167,7 +167,6 @@ func parseBlock(s string) (expr string, node syntax.Node, rest string, err error
 	}
 }
 
-// Source returns the template string this was parsed from.
 func (t *Template) Source() string { return t.src }
 
 // Static returns the template's constant value and true when it is a pure literal — not a

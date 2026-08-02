@@ -1,27 +1,25 @@
 // Package delayspec parses the human-facing literals of the delay action: `for` (a
-// duration relative to arm time) and `until` (an instant), plus the `tz` slot both
-// resolve against.
+// duration from arm time) and `until` (an instant), plus the `tz` both resolve against.
+// Grammars, decisions and edge cases: docs/delay-syntax.md.
 //
-// It has no engine or database dependency, so the calendar edge cases — DST transitions,
-// month-end overflow — are table-testable in isolation, which is where they belong.
+// No engine or database dependency, so the calendar cases are table-testable in isolation.
 //
 // Three rules govern everything here:
 //
-//   - Calendar units (d, w, mo, y) are calendar arithmetic in the target location, so "1d"
-//     means the same wall clock tomorrow — 23 or 25 hours across a DST boundary. With no
-//     tz the location is UTC, which has no transitions, so "1d" is exactly 24h: the
-//     "without tz they are fixed" rule falls out of the general case instead of being a
-//     separate one. Fixed units (ms, s, m, h) are always absolute elapsed time.
-//   - Calendar units apply before fixed ones, regardless of the order they were written
-//     in. Only a DST boundary can tell the two orders apart, and fixing the order keeps a
-//     spec's meaning independent of how it was typed.
-//   - A wall clock DST makes nonexistent (spring forward) normalizes forward; one it makes
-//     ambiguous (autumn fall-back) takes the first (earlier) occurrence — or the second,
-//     where a pattern's next match is being found and the first has already gone by.
+//   - Calendar units (d, w, mo, y) are calendar arithmetic in the target location: "1d" is
+//     the same wall clock tomorrow, 23 or 25 hours across a DST boundary. Fixed units
+//     (ms, s, m, h) are always absolute elapsed time. With no tz the location is UTC,
+//     which has no transitions, so the "without tz they are fixed" rule falls out of the
+//     general case rather than being a separate one.
+//   - Calendar units apply before fixed ones whatever order they were written in, so a
+//     spec's meaning does not depend on how it was typed.
+//   - A nonexistent wall clock (spring forward) normalizes forward; an ambiguous one
+//     (autumn fall-back) takes the first occurrence — or the second where a pattern's next
+//     match is sought and the first has gone by.
 //
-// Resolution never fails on a target in the past — the caller clamps to now. That is
-// forced by the pause design: timers keep running while an instance is paused, so an
-// `until` can legitimately resolve behind now on resume and must not turn into an error.
+// Resolution never fails on a target in the past; the caller clamps to now. Timers keep
+// running while an instance is paused, so an `until` behind now is legitimate on resume.
+
 package delayspec
 
 import (
@@ -350,8 +348,7 @@ type clockField struct {
 	base, step int
 }
 
-// only is a clock field matching exactly one value.
-func only(v int) clockField { return clockField{base: v} }
+func exactValue(v int) clockField { return clockField{base: v} }
 
 // everyValue is the stored form of "*" — from zero, in ones.
 var everyValue = clockField{base: 0, step: 1}
@@ -412,7 +409,7 @@ func ParseInstant(s string) (*Instant, error) {
 			return &Instant{
 				src: raw, kind: kindWall,
 				year: t.Year(), month: int(t.Month()), day: t.Day(),
-				hour: only(t.Hour()), min: only(t.Minute()), sec: only(t.Second()),
+				hour: exactValue(t.Hour()), min: exactValue(t.Minute()), sec: exactValue(t.Second()),
 			}, nil
 		}
 	}
@@ -533,7 +530,7 @@ func parseClock(s string, allowPattern bool) (hour, min, sec clockField, err err
 		return clockField{}, clockField{}, clockField{}, fmt.Errorf("clock %q must be HH:MM or HH:MM:SS", s)
 	}
 	bounds := []int{23, 59, 59}
-	out := []clockField{only(0), only(0), only(0)}
+	out := []clockField{exactValue(0), exactValue(0), exactValue(0)}
 	for n, p := range parts {
 		f, err := parseClockField(s, p, bounds[n], allowPattern)
 		if err != nil {
@@ -585,7 +582,7 @@ func parseClockField(clock, p string, max int, allowPattern bool) (clockField, e
 	if err != nil {
 		return clockField{}, err
 	}
-	return only(v), nil
+	return exactValue(v), nil
 }
 
 func parseClockValue(clock, p string, max int) (int, error) {
@@ -715,7 +712,6 @@ func earlier(cand, repeated time.Time, hasRepeated bool) time.Time {
 	return cand
 }
 
-// matchesDate reports whether a date satisfies the pattern's date fields.
 func (i *Instant) matchesDate(day time.Time) bool {
 	year, month, dom := day.Date()
 	return (i.year == wildcard || year == i.year) &&

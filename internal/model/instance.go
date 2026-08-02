@@ -16,10 +16,9 @@ import "time"
 // task it is holding finishes.
 //
 // raised is the third settled outcome, produced by a `raise` clause: an anticipated
-// condition the definition declared, which its parent may react to by naming the code
-// (see docs/child-error-handling.md). It is deliberately neither completed (it produced
-// no output) nor failed (it is not a defect, so it does not poison ancestors), and it
-// is not retryable — a raise is a conclusion, not an interruption.
+// condition a parent may react to by naming the code. Neither completed (it produced no
+// output) nor failed (it does not poison ancestors), and not retryable — a raise is a
+// conclusion, not an interruption. See docs/child-error-handling.md.
 type Status string
 
 const (

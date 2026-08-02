@@ -21,7 +21,6 @@ type engineService interface {
 	NotifyWork()
 }
 
-// Handlers holds business logic for all API operations.
 type Handlers struct {
 	db     *db.DB
 	engine engineService
@@ -82,7 +81,6 @@ func errReply(err error) Reply {
 	return Reply{OK: false, Error: err.Error(), Code: codeOf(err), Fields: fieldsOf(err)}
 }
 
-// reply is the shorthand for returning a freshly constructed *Error from a handler.
 func (e *Error) reply() Reply { return errReply(e) }
 
 // decodeBody unmarshals a required JSON body into T. An empty, malformed or

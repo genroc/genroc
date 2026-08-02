@@ -204,7 +204,6 @@ type InstanceSummaryResp struct {
 	UpdatedAt  string          `json:"updated_at"`
 }
 
-// InstanceStatusResp is the single-instance shape: the summary plus the full context.
 type InstanceStatusResp struct {
 	InstanceSummaryResp
 	Context map[string]any `json:"context"`

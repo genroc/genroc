@@ -8,21 +8,12 @@ import (
 	"genroc/internal/model"
 )
 
-// All engine-produced codes live in package errcode (the single source of truth). The
-// engine.* ones below are the failures the engine detects itself, as opposed to the ones a
-// call reports (http.*, pre.*, output.*, external.timeout) or an author declares with
-// panic. Every terminal failure carries a code so error_code is uniformly queryable.
-
-// isRetryAllowed reports whether a retry is safe for the given task and error.
-// For idempotent tasks (the default) retries are always governed by on_error rules.
-// For non-idempotent tasks, a retry is only allowed when we know the remote call
-// never started: a pre.* (not-reached) code, or an on_error rule with not_reached:true.
+// isRetryAllowed reports whether a retry is safe for this task and error. On an only_once
+// task that means a pre.* code or an explicit not_reached:true — except for the unknowable
+// codes, which nothing can buy back.
 //
-// The unknowable codes are the exception that not_reached cannot buy back: the request
-// left and nothing came back, so there is no error to interpret and nothing for the
-// author to assert. Registration rejects such a rule outright (validateOnError), but a
-// definition registered before that rule keeps its stored on_error verbatim and never
-// re-validates — so this test is what actually holds the line at runtime.
+// validateOnError rejects such a rule at registration, but a definition stored before that
+// rule never re-validates, so this test is what holds the line at runtime.
 func isRetryAllowed(task *model.Task, errCode errcode.Code, matched *model.ErrorCase) bool {
 	if task.OnlyOnce == nil || !*task.OnlyOnce {
 		return true
@@ -36,25 +27,19 @@ func isRetryAllowed(task *model.Task, errCode errcode.Code, matched *model.Error
 	return errCode.IsNotReached()
 }
 
-// interruptedOnlyOnce reports whether task is an only_once action whose previous attempt
-// was cut short — the question both reclaim paths ask, and the only situation that
+// interruptedOnlyOnce is the question both reclaim paths ask, and the only situation that
 // produces errcode.OnlyOnceInterrupted.
 func interruptedOnlyOnce(task *model.Task) bool {
 	return task != nil && task.Action != nil && task.OnlyOnce != nil && *task.OnlyOnce
 }
 
-// interruptedMessage is the reason text for an interrupted only_once task. It says what
-// happened to the task, not what happened to the worker: a definition has no lease to
-// reason about, and its author's question is only ever "did this take effect".
+// interruptedMessage says what happened to the task, not to the worker: a definition has
+// no lease to reason about.
 const interruptedMessage = "its previous attempt was interrupted; the engine will not re-run it"
 
-// matchOnError returns the first ErrorCase whose Code patterns match errCode,
-// or whose Code list is empty (catch-all). Returns nil when no rule matches.
-// Used for both action tasks (matching engine codes) and child tasks (matching a child's
-// raised code) — the same errcode.MatchCode, where `%` is the only wildcard, so
-// `order_%` matches `order_placed` but not `order.placed`. A child task's patterns were
-// checked at registration against the child raise set (R5), so a rule that fires here can
-// always match something the child actually raises.
+// matchOnError returns the first ErrorCase matching errCode, or the catch-all (empty Code
+// list), or nil. Serves both action tasks (engine codes) and child tasks (a child's raised
+// code) through the same matcher.
 func matchOnError(task *model.Task, errCode errcode.Code) *model.ErrorCase {
 	for i := range task.OnError {
 		c := &task.OnError[i]
@@ -70,15 +55,10 @@ func matchOnError(task *model.Task, errCode errcode.Code) *model.ErrorCase {
 	return nil
 }
 
-// handleCallError evaluates on_error rules, retries if allowed, injects $error
-// context, and routes to the matching goto or fails the instance. It returns the
-// outcome to persist (runAdvance writes it).
-// A pause needs no special case here. The on_error rules run exactly as they would
-// otherwise: a retry is scheduled with its normal backoff, and the write that persists
-// it lands the pending pause (the CASE in UpdateInstance), so the instance settles into
-// 'paused' still holding the attempt the definition granted it. Resuming continues that
-// schedule with nothing spent and nothing skipped — which is the whole difference
-// between resuming a pause and retrying a failure.
+// handleCallError evaluates on_error rules, retries if allowed, injects $error, and routes
+// to the matching goto or fails the instance, returning the outcome for runAdvance to
+// write. A pending pause needs no case here: the write that persists the outcome lands it
+// (the CASE in UpdateInstance), so a paused instance keeps the attempt it was granted.
 func (e *Engine) handleCallError(inst *model.ProcessInstance, task *model.Task, errMsg string, errCode errcode.Code) advanceOutcome {
 	matched := matchOnError(task, errCode)
 
@@ -146,18 +126,12 @@ func (e *Engine) completeViaErrorHandler(inst *model.ProcessInstance, task *mode
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// raiseInstance concludes the instance as 'raised': an anticipated condition the
-// definition declared, which the parent may react to by naming the code.
+// raiseInstance concludes the instance as 'raised': an anticipated condition the parent
+// may react to by naming the code. See docs/child-error-handling.md.
 //
-// It needs no draining state and no special plumbing. saveAndNotify branches on
-// StatusFailed, so a raised child falls through to FinishChild -- the right
-// destination, because a raise is a normal outcome and must not mark ancestors
-// 'failing'. And a raise happens at a task boundary where this instance's own children
-// have already collected, so there is nothing left to drain.
-//
-// No process output is computed: a raise is not an `end`, and its context is whatever
-// the instance had reached. That is also why a raise site is not a terminal for the
-// purpose of validating the process `output:` expression.
+// A raise must keep falling through to FinishChild rather than the failure path — it is a
+// normal outcome and must not mark ancestors 'failing'. And no process output is computed,
+// which is why a raise site is not a terminal for validating the `output:` expression.
 func (e *Engine) raiseInstance(inst *model.ProcessInstance, task *model.Task, f *model.Fault) advanceOutcome {
 	inst.Status = model.StatusRaised
 	inst.WaitState = model.WaitStateNone
@@ -168,20 +142,14 @@ func (e *Engine) raiseInstance(inst *model.ProcessInstance, task *model.Task, f 
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// panicInstance fails the instance with an authored code and message. It is exactly
-// failInstance with the author's words instead of the engine's: a panic is a defect like
-// any other, and authoring one grants it no special status -- nothing can catch it, and
-// it poisons its ancestors through the same path an engine failure does.
+// panicInstance is failInstance with the author's words: authoring a defect grants it no
+// special status, so nothing can catch it and it poisons ancestors the same way.
 func (e *Engine) panicInstance(inst *model.ProcessInstance, task *model.Task, f *model.Fault) advanceOutcome {
-	// The authored code becomes a Code here: this conversion is the one place a
-	// definition's panic clause enters the engine's error_code slot.
 	return e.failInstance(inst, errcode.Code(f.Code), f.Message)
 }
 
-// failInstance moves the instance to its failed state and returns the terminal
-// outcome (persisted by runAdvance via saveAndNotify). code is the machine-readable
-// discriminator stored in error_code; every caller must supply one, so that no failure
-// path can quietly leave the column empty.
+// failInstance moves the instance to failed and returns the terminal outcome. code is
+// required from every caller so no failure path leaves error_code empty.
 func (e *Engine) failInstance(inst *model.ProcessInstance, code errcode.Code, reason string) advanceOutcome {
 	inst.Status = model.StatusFailed
 	inst.WaitState = model.WaitStateNone
@@ -192,33 +160,24 @@ func (e *Engine) failInstance(inst *model.ProcessInstance, code errcode.Code, re
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// settlePausing lands a 'pausing' instance in 'paused' without touching anything else:
-// wait_state, wake_at, retry_count and context all carry over untouched, so resuming is
-// a status flip and the instance picks up exactly where it stopped. Timers keep running
-// while paused, so a delay or backoff that elapses meanwhile is simply due on resume.
+// settlePausing lands a 'pausing' instance in 'paused', touching nothing else so that
+// resuming is a status flip. Reached only when a worker died holding the instance; the
+// normal pause lands in SQL when the owning worker writes its finished task.
 //
-// This path is reached only when a worker died holding the instance — in the normal case
-// the pause lands in SQL when the owning worker writes its finished task.
-//
-// An interrupted only_once task never reaches here: advance() resolves that before the
-// pause, because the evidence for it (ReclaimedExpired, derived per claim from worker_id)
-// does not survive the write that settles the pause. Everything that does reach here is
-// safe to park as-is — a task that may be re-run on resume needs no evidence, only the
-// task position this instance already carries.
+// It must not regain an only_once check: advance() resolves an interrupted only_once task
+// before the pause, because the evidence (ReclaimedExpired, derived per claim from
+// worker_id) does not survive the write that settles a pause. See docs/pause-resume.md.
 func (e *Engine) settlePausing(inst *model.ProcessInstance) advanceOutcome {
 	inst.Status = model.StatusPaused
-	// The other half of inst_paused: PauseProcess logs the rows it settled directly, and
-	// this covers the leased one it could only mark 'pausing'. Same event and level, so
-	// the trail reads uniformly — every instance that becomes paused says so once.
+	// The other half of inst_paused: PauseProcess logs the rows it settled itself, this
+	// covers the leased one it could only mark 'pausing'.
 	e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventPaused, Task: inst.Task,
 		Msg: "in-flight task settled; instance paused"})
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// settleFailing finalises a draining 'failing' instance once its children have
-// settled (it only becomes claimable then). The error was already recorded when
-// the failure propagated up; saveAndNotify (via the terminal outcome) cascades the
-// settlement one level up.
+// settleFailing finalises a draining 'failing' instance once its children have settled
+// (it only becomes claimable then). The error was recorded when the failure propagated up.
 func (e *Engine) settleFailing(inst *model.ProcessInstance) advanceOutcome {
 	inst.Status = model.StatusFailed
 	inst.WaitState = model.WaitStateNone

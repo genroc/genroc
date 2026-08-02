@@ -75,8 +75,7 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 const instanceSummaryColumns = `id, process_name, process_version, retry_count,
 	status, wait_state, task, error, error_code, created_at, updated_at`
 
-// scanInstanceSummary reads one process_instances row (in instanceSummaryColumns
-// order) into a model.InstanceSummary.
+// Column order must match instanceSummaryColumns.
 func scanInstanceSummary(s interface{ Scan(...any) error }) (*model.InstanceSummary, error) {
 	var (
 		r                          model.InstanceSummary
@@ -99,8 +98,7 @@ func scanInstanceSummary(s interface{ Scan(...any) error }) (*model.InstanceSumm
 	return &r, nil
 }
 
-// scanInstance reads one process_instances row (in instanceColumns order) from a
-// *sql.Row or *sql.Rows.
+// Column order must match instanceColumns.
 func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, error) {
 	var r dbgen.ProcessInstance
 	err := s.Scan(

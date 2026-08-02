@@ -79,7 +79,7 @@ func normalize(schema *node) (*node, error) {
 				}
 			}
 		} else if nd.Anchor != "" && resourceBase == "" {
-			key := strings.Join(append(cp(path), "$anchor", nd.Anchor), "/")
+			key := strings.Join(append(cloneStrings(path), "$anchor", nd.Anchor), "/")
 			if _, exists := ctx.definitions[key]; !exists {
 				def := &defEntry{OriginalName: nd.Anchor, Node: nd}
 				ctx.definitions[key] = def
@@ -200,33 +200,33 @@ func walkTree(nd *node, path []string, fn func(*node, []string, string)) {
 		fn(n, p, resourceBase)
 		for name, prop := range n.Properties {
 			if prop != nil {
-				walk(prop, append(cp(p), "properties", name), resourceBase)
+				walk(prop, append(cloneStrings(p), "properties", name), resourceBase)
 			}
 		}
 		for name, def := range n.Defs {
 			if def != nil {
-				walk(def, append(cp(p), "$defs", name), resourceBase)
+				walk(def, append(cloneStrings(p), "$defs", name), resourceBase)
 			}
 		}
 		if n.Items != nil {
-			walk(n.Items, append(cp(p), "items"), resourceBase)
+			walk(n.Items, append(cloneStrings(p), "items"), resourceBase)
 		}
 		if n.AdditionalProperties != nil {
-			walk(n.AdditionalProperties, append(cp(p), "additionalProperties"), resourceBase)
+			walk(n.AdditionalProperties, append(cloneStrings(p), "additionalProperties"), resourceBase)
 		}
 		for i, s := range n.OneOf {
 			if s != nil {
-				walk(s, append(cp(p), "oneOf", fmt.Sprintf("%d", i)), resourceBase)
+				walk(s, append(cloneStrings(p), "oneOf", fmt.Sprintf("%d", i)), resourceBase)
 			}
 		}
 		for i, s := range n.AnyOf {
 			if s != nil {
-				walk(s, append(cp(p), "anyOf", fmt.Sprintf("%d", i)), resourceBase)
+				walk(s, append(cloneStrings(p), "anyOf", fmt.Sprintf("%d", i)), resourceBase)
 			}
 		}
 		for i, s := range n.AllOf {
 			if s != nil {
-				walk(s, append(cp(p), "allOf", fmt.Sprintf("%d", i)), resourceBase)
+				walk(s, append(cloneStrings(p), "allOf", fmt.Sprintf("%d", i)), resourceBase)
 			}
 		}
 	}
@@ -315,8 +315,7 @@ func getUniqueName(name string, existing map[string]*node) string {
 	return newName
 }
 
-// cp returns a shallow copy of a string slice to avoid append aliasing.
-func cp(s []string) []string {
+func cloneStrings(s []string) []string {
 	out := make([]string, len(s))
 	copy(out, s)
 	return out

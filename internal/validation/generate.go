@@ -11,7 +11,6 @@ import (
 	"genroc/internal/shape"
 )
 
-// TaskSchemas holds the schemas associated with a single task.
 type TaskSchemas struct {
 	ActionType model.ActionType `json:"action_type"`
 	Input      schema.Schema    `json:"input,omitzero"`

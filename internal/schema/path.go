@@ -35,7 +35,8 @@ func identifierKey(name string) bool {
 	return true
 }
 
-// JoinPath extends a rendered path with a property key.
+// JoinPath renders a non-identifier key in bracket form, so an error names the accessor
+// the author would write — headers["retry-after"], not the unparseable headers.retry-after.
 func JoinPath(path, name string) string {
 	if identifierKey(name) {
 		if path == "" {
@@ -46,7 +47,6 @@ func JoinPath(path, name string) string {
 	return path + "[" + strconv.Quote(name) + "]"
 }
 
-// JoinIndex extends a rendered path with an array index.
 func JoinIndex(path string, i int) string {
 	return path + "[" + strconv.Itoa(i) + "]"
 }

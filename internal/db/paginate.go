@@ -16,23 +16,14 @@ import (
 // renders it as e.g. "1000+").
 const pageCountCap = 1000
 
-// Bidirectional keyset (cursor) pagination shared by every list endpoint.
+// Bidirectional keyset (cursor) pagination shared by every list endpoint: sqlc cannot
+// express a dynamic ORDER BY (a column name is never a bind value), so this is a small
+// query builder. A wrapper declares a `paginator`, adds filters, and calls build(). See
+// CLAUDE.md for the shape of the result and the cursor contract.
 //
-// sqlc generates static SQL, so a dynamic ORDER BY / cursor predicate cannot be a
-// query parameter (a column name or ASC/DESC is never a bind value). This file is
-// a small query builder: a list wrapper declares a `paginator` once (its table,
-// columns, the index-backed sortable columns, and the filterable columns), adds
-// filters by column+value through typed methods, and calls build(). The builder
-// emits the whole page query (`SELECT … FROM … WHERE … ORDER BY … LIMIT ?`) plus a
-// cheap count of the rows before / after the page (two subqueries each bounded by
-// LIMIT pageCountCap+1). Column names and operators come only from the paginator's
-// whitelists; every caller value is a bound ? placeholder, so there is no injection
-// surface. ? runs through db.exec, which rewrites it to $N on Postgres, so one
-// statement works on both engines with no dialect branch.
-//
-// Navigation is bidirectional: `After` pages forward, `Before` pages backward
-// (scanned in reverse, then flipped back to display order). Each page reports the
-// (capped) items_before/items_after counts and the cursors to move either way.
+// Column names and operators come only from the paginator's whitelists and every caller
+// value is a bound ?, so there is no injection surface — keep it that way. The ? runs
+// through db.exec, which rewrites to $N on Postgres, so one statement serves both engines.
 
 // colKind tells the cursor codec how to decode a key column's value.
 type colKind int

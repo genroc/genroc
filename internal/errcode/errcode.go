@@ -14,15 +14,9 @@ import (
 )
 
 // Code is the value stored in an instance's error_code: an engine code from this package,
-// or an author's raise/panic code. It is a defined type rather than a bare string so that
-// the family test below is a method on the value, and so a plain string cannot drift into
-// a slot where a code is expected — an engine failure path that took a `string` accepted
-// any message by mistake.
-//
-// Strings stay correct at the boundaries: the value is persisted to error_code and matched
-// against on_error patterns written in YAML. Every existing literal remains valid, since an
-// untyped string constant converts implicitly; the conversions that had to be written out
-// are exactly the places a non-code string becomes a code.
+// or an author's raise/panic code. A defined type rather than a bare string so a plain
+// string cannot drift into a slot expecting a code — an untyped constant still converts
+// implicitly, so an explicit conversion marks exactly where a non-code becomes one.
 type Code string
 
 // Call codes — reported by an action's call, and CATCHABLE by on_error on the action task.
@@ -60,19 +54,12 @@ const NotReached = "pre."
 // IsNotReached reports whether c is in the pre.* "call never reached the remote" family.
 func (c Code) IsNotReached() bool { return strings.HasPrefix(string(c), NotReached) }
 
-// unknowable is NotReached's opposite pole: the codes where the request left and nothing
-// ever came back, so whether the call took effect cannot be determined -- not by the
-// engine, and not by the definition either, because there is no response to interpret.
-//
-// On an only_once task these can never be retried, and not_reached:true does not override
-// that. The flag is an assertion about what an error *means* ("a 422 from this API means
-// nothing was charged"), which is a claim only about an error that actually returned; for
-// the codes below there is nothing to make a claim about. Enforced at registration
-// (model.validateOnError) and again at runtime (engine.isRetryAllowed), because a
-// definition registered before the rule keeps its stored on_error rules verbatim.
-//
-// A slice rather than a set: it is three entries, and validation iterates it to build
-// error messages, where a stable order matters.
+// unknowable is NotReached's opposite pole: the request left and nothing came back, so
+// whether the call took effect cannot be determined by anyone. On an only_once task these
+// can never be retried and not_reached:true does not override it — see
+// docs/only-once-interrupted.md. Enforced at registration (model.validateOnError) and
+// again at runtime (engine.isRetryAllowed), which covers definitions stored before the
+// rule. A slice, not a set: validation iterates it and the order shows up in messages.
 var unknowable = []Code{OnlyOnceInterrupted, HTTPTimeout, ExternalTimeout}
 
 // Unknowable returns the codes whose outcome cannot be determined either way. The
@@ -92,17 +79,11 @@ func (c Code) IsUnknowable() bool {
 }
 
 // MatchCode reports whether the error code s matches the pattern p. '%' is the only
-// wildcard: it matches any sequence of characters (including none). Every other character
-// is literal — in particular '_' and '.' match themselves, because both are ordinary
-// characters in an error code (snake_case, and dotted engine codes like http.500 /
-// pre.timeout). This is deliberately NOT full SQL LIKE: LIKE's '_' single-char wildcard
-// is a footgun for codes that contain underscores, so `order_%` matches `order_placed` but
-// not `order.placed`.
+// wildcard; every other character is literal.
 //
-// It lives here rather than in transport because it matches codes, this package owns
-// them, and it has no genroc dependencies — which is what lets both the engine (routing
-// at runtime) and model/validation (checking patterns at registration) call the one
-// implementation. transport imports model, so model could not reach it there.
+// Deliberately NOT full SQL LIKE: LIKE's '_' single-char wildcard is a footgun for codes
+// that contain underscores, so here `order_%` matches `order_placed` but not
+// `order.placed`.
 func MatchCode(p, s string) bool {
 	for len(p) > 0 {
 		switch p[0] {

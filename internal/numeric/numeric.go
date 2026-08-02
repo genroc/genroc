@@ -1,53 +1,31 @@
 // Package numeric holds the one definition of what a number is at runtime.
 //
-// genroc forwards order ids and monetary amounts, and float64 corrupts both:
-// 0.1+0.2 != 0.3, and integers lose precision above 2^53 — including on decode
-// alone, before any expression runs. So JSON is decoded with UseNumber and every
-// numeric value is carried as its exact literal, with arithmetic and comparison
-// done in base-10.
-//
-// Evaluation (internal/expression) and validation (internal/schema) both compare
-// numbers, and they must agree; sharing this package is what stops them drifting.
+// genroc forwards order ids and monetary amounts, and float64 corrupts both: 0.1+0.2 !=
+// 0.3, and integers lose precision above 2^53 on decode alone. So JSON is decoded with
+// UseNumber and every value is carried as its exact literal, with base-10 arithmetic.
+// Evaluation and validation both compare numbers and must agree; sharing this package is
+// what stops them drifting. Rationale and the rejected alternatives:
+// docs/number-precision.md.
 //
 // # Precision
 //
-// There is deliberately no single global precision. Four policies apply, each
-// chosen so that nothing is rounded unless the mathematics forces it:
+// There is deliberately no single global precision — four policies, so nothing is rounded
+// unless the mathematics forces it:
 //
-//	literals   exact, bounded by MaxDigits. A literal is normalised to exact
-//	           decimal text at parse time, so writing a value into an expression is
-//	           as precise as receiving it as data.
-//	+ - *      exact, no rounding — a result is never approximated. Bounded only
-//	           by MaxDigits, which exists because a *looping task* iterates: it
-//	           feeds its own output back as self.previous, so `x * x` doubles the
-//	           digit count every tick. Within a single expression growth is linear
-//	           (there is no exponentiation operator — ** and ^ are rejected), but
-//	           across loop iterations it is exponential.
-//	/          rounds at 34 significant digits (IEEE 754-2008 decimal128). The
-//	           only rounding point in the language: a non-terminating quotient
-//	           has to stop somewhere, and erroring on plain 10/3 would be
-//	           surprising. See divisionPrecision in internal/expression/ops.go.
-//	%          sized to the operands, floored at the division precision. A
-//	           remainder is always smaller than the divisor so nothing is
-//	           rounded; the precision only has to carry the intermediate
-//	           quotient, which a fixed cap could not for long operands.
+//	literals   exact, bounded by MaxDigits
+//	+ - *      exact, never approximated; bounded only by MaxDigits, which exists because
+//	           a looping task feeds its own output back, so x*x doubles the digits a tick
+//	/          rounds at 34 significant digits (decimal128) — the only rounding point in
+//	           the language, since a non-terminating quotient must stop somewhere
+//	%          sized to the operands, floored at the division precision; a remainder is
+//	           smaller than its divisor, so nothing is rounded
 //
-// A single global cap governing all four was considered and rejected: applying
-// one to + - * would silently round arithmetic on a value longer than the cap —
-// an id past 34 digits would quietly lose its tail — which is the exact class of
-// corruption this package exists to remove. Applying one to literals would
-// truncate them at parse time, reintroducing the literal/data asymmetry.
+// The division precision is a constant, not a setting: genroc retries tasks and re-runs
+// children, so a precision that varied between runs or between two workers mid-deploy
+// would make the same expression yield different values on replay.
 //
-// The division precision is a constant rather than a setting for a different
-// reason: genroc retries tasks and re-runs children, so a precision that varied
-// between runs, or between two workers mid-deploy, would make the same
-// expression yield different values on replay. If it ever must vary it belongs
-// on the versioned definition, not on the server.
-//
-// MaxDigits bounds how many significant digits a value may carry, and applies to
-// both arithmetic results and literals. It is a safety bound, not a precision
-// setting: nothing is ever rounded to fit it, a value that exceeds it is an
-// error.
+// MaxDigits is a safety bound, not a precision setting: nothing is rounded to fit it, and
+// a value that exceeds it is an error.
 package numeric
 
 import (
@@ -131,7 +109,6 @@ func Equal(a, b any) bool {
 	return ok && c == 0
 }
 
-// IsIntegral reports whether v is a whole number.
 func IsIntegral(v any) bool {
 	d, ok := ToDecimal(v)
 	if !ok || d.Form != apd.Finite {

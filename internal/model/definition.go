@@ -18,7 +18,6 @@ const GotoEnd = "end"
 // non-terminal tasks; using it on the last task is a validation error.
 const GotoNext = "next"
 
-// ActionType identifies how the engine invokes a task's action.
 type ActionType string
 
 const (

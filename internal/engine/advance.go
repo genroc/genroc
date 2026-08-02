@@ -11,14 +11,10 @@ import (
 	"genroc/internal/shape"
 )
 
-// advanceOutcome is the next persisted state that advance() computes without
-// writing it to the DB. runAdvance drops the in-flight marker first, then persist
-// applies the outcome — so the lease-releasing write always happens after the
-// marker is gone, in one place, and an instance is never simultaneously free in the
-// DB and still marked in memory (which dispatch would misread as re-claiming live
-// work). advance() is a pure state machine over the instance's own row; the one
-// exception is a child spawn, which is a multi-row transaction that parks the parent
-// (non-runnable, so the marker order is irrelevant) — it persists itself and returns
+// advanceOutcome is the next persisted state that advance() computes without writing it.
+// runAdvance drops the in-flight marker before persist applies it, so an instance is never
+// free in the DB while still marked in memory — dispatch would misread that as re-claiming
+// live work. A child spawn is the exception: it commits its own transaction and returns
 // outcomeNoop.
 type advanceOutcome struct {
 	kind outcomeKind
@@ -72,32 +68,13 @@ func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) er
 	return nil
 }
 
-// advanceGuarded runs advance under a panic barrier, converting a panic into an ordinary
-// terminal failure carrying errcode.EnginePanic.
+// advanceGuarded runs advance under a panic barrier, converting a panic into a terminal
+// failure carrying errcode.EnginePanic: a panic is almost always attributable to the one
+// definition being advanced, and killing the worker punishes every other in-flight advance
+// for it. Rationale and residuals: docs/error-handling-audit.md.
 //
-// The alternative — let the panic reach the goroutine and take the worker down — is
-// defensible and is what this did before: engine state after a panic is suspect, which is
-// the same reasoning that makes an OverwhelmError stop the pump. It is rejected here
-// because the two cases differ in blast radius, which is the property that should decide
-// it. An overwhelm is a statement about the whole worker (lease renewal cannot keep up, so
-// every instance it holds is suspect). A panic under advance is almost always attributable
-// to the one definition being advanced — a nil map, a bad index, an unexpected shape in an
-// expression — and killing the process drops dozens of healthy in-flight advances to
-// punish one bad definition. Those instances are recovered only via lease expiry, and the
-// panicking one is re-claimed and panics again, so fail-fast does not even isolate it.
-//
-// Failing the instance instead makes it terminal, queryable by error_code, and visible in
-// its own audit trail with the stack that produced it — while the worker keeps its other
-// work. It is also honest about what the engine knows: it cannot advance this instance.
-//
-// The barrier deliberately covers advance() only, not persist(). A panic in the write path
-// is not definition-attributable, and there would be nothing left to write the failure
-// with, so that one still takes the process down.
-//
-// One residual: if the panic lands after a spawn transaction committed, the parent fails
-// while its children keep running. That is not new — it is true of every failInstance
-// reached after a spawn — and the children settle into a tree whose parent is already
-// failed, which the failing/collect logic tolerates.
+// The barrier must cover advance() only, never persist(). A panic in the write path is not
+// definition-attributable, and there would be nothing left to write the failure with.
 func (e *Engine) advanceGuarded(ctx context.Context, inst *model.ProcessInstance) (outcome advanceOutcome) {
 	defer func() {
 		r := recover()
@@ -169,15 +146,11 @@ func (e *Engine) prepareAdvance(inst *model.ProcessInstance) (*model.ProcessDefi
 		return nil, 0, stop(e.failInstance(inst, errcode.EngineDefinition, fmt.Sprintf("current task %q not found in definition", inst.Task)))
 	}
 
-	// Lease takeover: this instance was reclaimed from an expired lease, so its
-	// current task may have started executing on the previous owner before it
-	// crashed/stalled. Re-running is fine for idempotent tasks, but an only_once
-	// (non-idempotent) call task cannot be safely re-executed — the call may already
-	// have happened — so the engine refuses to re-run it and hands the situation to the
-	// definition as only_once.interrupted. A handler can ask the system of record what
-	// actually happened and then continue; with no handler this is the same terminal
-	// failure it has always been (handleCallError's fallthrough), and the retry branch
-	// cannot fire because the code is unknowable (isRetryAllowed).
+	// Reclaimed from an expired lease, so the current task may already have executed on
+	// the previous owner. Re-running is fine unless the task is only_once, which is handed
+	// to the definition as only_once.interrupted instead — routable, never retryable, and
+	// the same terminal failure as before when nothing catches it.
+	// See docs/only-once-interrupted.md.
 	if inst.ReclaimedExpired {
 		e.logOnly(logEvent{Level: model.LogWarn, ID: inst.ID,
 			Msg:  "reclaimed expired lease; previous owner crashed or stalled mid-task",
@@ -206,26 +179,15 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		return e.settleFailing(inst)
 	}
 	if inst.Status == model.StatusPausing {
-		// Crash recovery only: a pause normally lands in SQL when the worker holding
-		// the instance writes its finished task, so reaching a claim means that worker
-		// died mid-task.
+		// Crash recovery only: a pause normally lands in SQL when the owning worker
+		// writes its finished task, so reaching a claim means that worker died mid-task.
 		//
-		// An interrupted only_once task is resolved here rather than parked, and the
-		// pending pause is ignored while doing so, because the two have different
-		// deadlines. Deciding what to do about the interruption is time-sensitive:
-		// ReclaimedExpired is derived per claim from worker_id, and the write that
-		// settles a pause clears that column, so a decision deferred past it would be
-		// made on evidence that no longer exists. Running the handler is not
-		// time-sensitive at all — asking a payment provider whether a charge exists
-		// answers the same tomorrow.
-		//
-		// So the instance goes through the ordinary error path and the pause lands on
-		// the write it produces: setting the status to 'running' hands the decision to
-		// the CASE in UpdateInstance, which maps a 'pausing' row plus an incoming
-		// 'running' to 'paused'. A routed instance therefore parks at its handler task,
-		// paused, and runs it on resume; a terminal outcome (no handler, or an authored
-		// raise/panic) writes itself instead, which is the engine's existing rule that a
-		// failure outranks a pause.
+		// An interrupted only_once task is resolved here rather than parked, ignoring the
+		// pending pause, because its evidence (ReclaimedExpired, from worker_id) does not
+		// survive the write that settles a pause — deferring would decide on evidence
+		// that no longer exists. Writing status 'running' then lets the CASE in
+		// UpdateInstance land the pause, so a routed instance parks at its handler and
+		// runs it on resume. See docs/only-once-interrupted.md.
 		if inst.ReclaimedExpired {
 			if task := e.lookupTask(inst); interruptedOnlyOnce(task) {
 				inst.Status = model.StatusRunning
@@ -240,19 +202,11 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		return *done
 	}
 
-	// Process tasks in a loop. A call-less task (pure switch/routing) has no
-	// external side effects, so once it resolves its goto we continue to the next
-	// task in-memory without persisting — collapsing a chain of switch-only tasks
-	// into a single claim and a single DB write at the boundary. We stop and
-	// persist at the first task that has a call (child spawn or remote action), at
-	// a terminal state, or after maxInlineTasks transitions (a guard against a
-	// pathological all-switch loop holding the goroutine/lease forever).
-	//
-	// This is crash-safe: skipping persistence between call-less tasks is fine
-	// because they only re-evaluate switches against already-persisted context, so
-	// resuming from the last persisted task position is deterministic. Durable state
-	// only changes at the boundaries (spawn txn, action result, terminal save), each
-	// of which writes inst.Task — the current position in the definition's task list.
+	// A call-less task has no external side effect, so a chain of them collapses into one
+	// claim and one write: we continue in-memory and persist only at a task with a call, a
+	// terminal state, or maxInlineTasks (a guard against an all-switch loop holding the
+	// lease forever). Crash-safe because a switch only re-evaluates already-persisted
+	// context, so resuming from the last written inst.Task is deterministic.
 	const maxInlineTasks = 1000
 	for i := 0; ; i++ {
 		if idx < 0 || idx >= len(def.Tasks) {
@@ -458,9 +412,8 @@ func (e *Engine) evalSwitch(inst *model.ProcessInstance, task *model.Task, selfO
 	return nil, nil
 }
 
-// lookupTask resolves the instance's current task from its definition, returning nil
-// when the instance has no current task or the definition cannot be read. Callers that
-// need to fail on a missing definition use prepareAdvance instead; this is for the
+// Returns nil when there is no current task or the definition cannot be read. Callers
+// that must fail on a missing definition use prepareAdvance instead; this is for the
 // settle paths, which must not turn a transient read error into a failed process.
 func (e *Engine) lookupTask(inst *model.ProcessInstance) *model.Task {
 	if inst.Task == "" {

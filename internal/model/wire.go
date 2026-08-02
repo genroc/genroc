@@ -193,16 +193,13 @@ func (e ErrorCase) MarshalJSON() ([]byte, error) {
 }
 
 
-// A task's two rule lists sit next to each other and select with different keys: a switch
-// case matches a condition with "case", an on_error rule matches error codes with "code".
-// Mistyping one for the other is easy, and encoding/json's default is to drop the unknown
-// key without a word — which is not benign here. An on_error rule whose "code" was dropped
-// becomes a **catch-all**, the broadest and most dangerous shape there is, and the author
-// is then told off about a rule they did not write.
+// A switch selects with "case" and on_error with "code", so mistyping one for the other is
+// easy — and a dropped "code" silently turns an on_error rule into a catch-all, the
+// broadest shape there is. Hence the rejection, and the hints below.
 //
-// Rejecting the key is safe despite the usual rule that decoders also run over stored rows:
+// Strict decoding is safe here despite decoders also running over stored rows:
 // SaveDefinition persists json.Marshal of the decoded struct, so a stored definition is
-// canonical by construction and cannot carry a field this does not know.
+// canonical and cannot carry an unknown field.
 var (
 	errorCaseFields  = map[string]bool{"code": true, "retries": true, "goto": true, "raise": true, "panic": true, "not_reached": true}
 	switchCaseFields = map[string]bool{"case": true, "goto": true, "raise": true, "panic": true}

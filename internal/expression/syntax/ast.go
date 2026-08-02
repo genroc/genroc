@@ -28,7 +28,6 @@
 // reported against the whole expression, as they always have been.
 package syntax
 
-// Node is one node of a parsed expression.
 type Node interface{ isNode() }
 
 type (

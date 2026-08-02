@@ -162,17 +162,10 @@ func validateActionRequiredFields(s *Task) error {
 	return nil
 }
 
-// faultCodeRe is the R1 shape for an authored error code: lower_snake_case, no dots and
-// no '%'. It starts with a letter and otherwise contains letters, digits and underscores.
-//
-// The two excluded characters each carry meaning that keeps them out of authored codes:
-//   - '.' is how engine-produced codes are spelled (http.500, pre.timeout, output.invalid).
-//     Forbidding it keeps authored codes lexically distinct from engine ones, and — the
-//     stronger reason — stops a raise from just mirroring a system code: an authored error
-//     is meant to carry its own semantic name (card_declined), not re-raise http.503.
-//   - '%' is the on_error match wildcard (errcode.MatchCode); keeping it out means a
-//     code never contains a character that has meaning in a pattern, so no escaping is
-//     ever needed.
+// faultCodeRe is the R1 shape for an authored error code: lower_snake_case. The two
+// excluded characters are load-bearing — '.' spells engine codes, so forbidding it keeps
+// the namespaces distinct and stops a raise mirroring a system code; '%' is the on_error
+// wildcard, so keeping it out means no pattern ever needs escaping.
 var faultCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // validateFault enforces R1 (code shape, message present) and R2 (both literal) on one
@@ -272,16 +265,13 @@ func isChildTask(s *Task) bool {
 	return s.Action != nil && (s.Action.Type == ActionTypeChild || s.Action.Type == ActionTypeChildMap || s.Action.Type == ActionTypeChildList)
 }
 
-// validateOnError checks the task's on_error rules: the terminal-clause arity (R3), the
-// code patterns (valid LIKE, catch-all last), goto targets, and the task-kind-specific
-// rules — a child task forbids parent-side retry (D7); an action task carries the
-// only_once retry restrictions.
+// validateOnError checks a task's on_error rules: terminal-clause arity (R3), pattern
+// shape, catch-all last, goto targets, and the task-kind rules — a child task forbids
+// parent-side retry (D7), an action task carries the only_once restrictions below.
 //
-// Child and action tasks share the same LIKE code syntax: a rule matches a raised code
-// (child task) or an engine code (action task) by the same SQL LIKE semantics. The
-// difference is what the codes are checked *against* — a child task's are checked at
-// registration against the child's known raise set (R5, in the validation package), which
-// an action task's open engine-code space has no exact analogue for.
+// Both kinds share the pattern syntax; only what the codes are checked *against* differs.
+// A child task's are checked against the child's raise set (R5, in the validation package,
+// where children resolve); an action task's engine-code space is open and has no analogue.
 func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 	onlyOnce := s.OnlyOnce != nil && *s.OnlyOnce
 	child := isChildTask(s)
@@ -340,17 +330,13 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 			continue
 		}
 
-		// Retries on an only_once task, in three tiers. A pattern that can only match
-		// pre.* is safe on its own: nothing left the process. Anything else needs
-		// not_reached:true, which is the author asserting from knowledge of their own API
-		// that this particular error leaves the remote untouched -- so it must name
-		// individual codes, because an assertion about "everything matching http.%" is
-		// not an assertion, it is a hope. And a handful of codes cannot be excepted at
-		// all: nothing came back from them, so there is nothing to have knowledge about.
+		// Retries on an only_once task, in three tiers (docs/only-once-interrupted.md):
+		// pre.*-only patterns are safe alone; anything else needs not_reached:true *and*
+		// exact codes; the unknowable set is refused however it is named.
 		//
-		// The tiers are applied per pattern rather than per rule, so a rule may mix a
-		// self-evidently safe pre.% with a named exception without either spoiling the
-		// other.
+		// Applied per pattern, not per rule, so a rule may mix a safe pre.% with a named
+		// exception. Tier 3 is tested first, or naming http.timeout gets tier-2 advice
+		// that leads nowhere.
 		if onlyOnce && ec.Retries > 0 {
 			notReached := ec.NotReached != nil && *ec.NotReached
 			if len(ec.Code) == 0 {

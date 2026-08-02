@@ -234,9 +234,8 @@ index-out-of-range anywhere under `advance` — expression evaluation, JSON hand
 collect — took down the whole worker process with instances leased.
 
 That is now [`advanceGuarded`](../internal/engine/advance.go), which converts a panic
-into an ordinary terminal failure carrying `errcode.EnginePanic`. The reasoning is
-recorded on the function itself; the short version is that fail-fast is right when the
-blast radius is unknown, and here it is known and narrow. An `OverwhelmError` is a
+into an ordinary terminal failure carrying `errcode.EnginePanic`. Fail-fast is right when
+the blast radius is unknown; here it is known and narrow. An `OverwhelmError` is a
 statement about the whole worker (lease renewal cannot keep up, so everything it holds
 is suspect); a panic under advance is almost always attributable to the one definition
 being advanced, and killing the process drops dozens of healthy in-flight advances to

@@ -185,18 +185,11 @@ func (e *Engine) resolveDelay(inst *model.ProcessInstance, task *model.Task, now
 	}
 }
 
-// delayArity rejects the two slot counts that are not exactly one. Both are unreachable by
-// design — model.Validate rejects them at registration — but the decoder also runs over
-// stored rows, which never re-validate, so neither may be resolved to a default here:
-//
-//   - Neither slot: a row predating these fields (one carrying only the removed `ms`)
-//     decodes to this, since Action takes no DisallowUnknownFields. Treating it as zero is
-//     the two-day-wait-becomes-no-wait failure this syntax exists to prevent.
-//   - Both slots: preferring one silently is worse than failing. If `until` held the
-//     far-future deadline, falling back to `for` waits a fraction of the intended time and
-//     nothing anywhere reports it.
-//
-// Split from resolveDelay so both branches are testable without building an engine.
+// delayArity rejects any slot count other than exactly one. Registration rejects both
+// cases too, but the decoder also runs over stored rows that never re-validate, so neither
+// may resolve to a default: a row carrying only the removed `ms` decodes to *no* slot and
+// would wait zero, and preferring one of two slots silently waits a fraction of the
+// intended time with nothing reporting it. See docs/delay-syntax.md.
 func delayArity(a *model.Action) error {
 	switch {
 	case a.For != nil && a.Until != nil:
@@ -257,18 +250,15 @@ func (e *Engine) delayNumber(inst *model.ProcessInstance, raw any) (int64, error
 	return delayMillis(v)
 }
 
-// runExternal implements the external (pull/callback) task, with three entry states
-// told apart by wait_state and the presence of _external_result:
+// runExternal implements the external (pull/callback) task. Three entry states, told apart
+// by wait_state and the presence of _external_result:
 //
-//  1. First arrival: snapshot the input, mint a per-occurrence token, and park
-//     (wait_state='external'); timeout_ms>0 also stamps wake_at as the deadline. No worker
-//     is held while parked, and the claim won't return it until the result arrives (which
-//     clears wait_state) or the timeout fires.
-//  2. Result submitted: the resolve API cleared wait_state and stored the validated
-//     result; consume it as self.result and continue.
-//  3. Timeout: the claim only returns a parked external once wake_at passed, so wait_state
-//     still 'external' means no result arrived → external.timeout via on_error. A retry on
-//     that code re-arms the wait with a fresh token.
+//  1. First arrival — snapshot the input, mint a per-occurrence token, park on
+//     wait_state='external' (wake_at is the deadline when timeout_ms > 0).
+//  2. Result submitted — the resolve API cleared wait_state and stored the result.
+//  3. Timeout — a parked external is only claimed once wake_at passed, so still being
+//     parked means no result arrived → external.timeout, re-armed with a fresh token if
+//     the definition retries it.
 //
 // Returns (result, nil) to continue advancing, or (nil, outcome) to stop and persist.
 func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *advanceOutcome) {

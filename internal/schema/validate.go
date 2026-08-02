@@ -49,7 +49,7 @@ func conformGuard(nd *node, defs map[string]*node, data any, path string, visiti
 	}
 	if nd != nil && nd.Ref != "" {
 		if visiting[resolved] {
-			return nil, fmt.Errorf("%sschema reference cycle without structural progress", at(path))
+			return nil, fmt.Errorf("%sschema reference cycle without structural progress", pathPrefix(path))
 		}
 		next := make(map[*node]bool, len(visiting)+1)
 		for k := range visiting {
@@ -75,7 +75,7 @@ func conformGuard(nd *node, defs map[string]*node, data any, path string, visiti
 		return nil, err
 	}
 	if len(resolved.Enum) > 0 && !enumContains(resolved.Enum, data) {
-		return nil, fmt.Errorf("%svalue is not one of the permitted enum values", at(path))
+		return nil, fmt.Errorf("%svalue is not one of the permitted enum values", pathPrefix(path))
 	}
 
 	switch v := data.(type) {
@@ -112,13 +112,13 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 		val, present := v[name]
 		if !present {
 			if required[name] {
-				return nil, fmt.Errorf("%srequired property %q is missing", at(path), name)
+				return nil, fmt.Errorf("%srequired property %q is missing", pathPrefix(path), name)
 			}
 			if def := propDefault(prop, defs); def != nil {
 				// The default is conformed like a supplied value, so a filled
 				// value can never violate the schema and object defaults are
 				// normalized (pruned, nested defaults filled) consistently.
-				norm, err := conform(prop, defs, cloneJSON(def), join(path, name))
+				norm, err := conform(prop, defs, cloneJSON(def), JoinPath(path, name))
 				if err != nil {
 					return nil, fmt.Errorf("invalid schema default: %w", err)
 				}
@@ -126,7 +126,7 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 			}
 			continue // absent optional without a default is omitted
 		}
-		norm, err := conform(prop, defs, val, join(path, name))
+		norm, err := conform(prop, defs, val, JoinPath(path, name))
 		if err != nil {
 			return nil, err
 		}
@@ -139,7 +139,7 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 			if _, declared := nd.Properties[name]; declared {
 				continue
 			}
-			norm, err := conform(nd.AdditionalProperties, defs, val, join(path, name))
+			norm, err := conform(nd.AdditionalProperties, defs, val, JoinPath(path, name))
 			if err != nil {
 				return nil, err
 			}
@@ -149,13 +149,12 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 	return out, nil
 }
 
-// conformArray validates length bounds and recurses into each element.
 func conformArray(nd *node, defs map[string]*node, arr []any, path string) (any, error) {
 	if nd.MinItems != nil && len(arr) < *nd.MinItems {
-		return nil, fmt.Errorf("%sarray has %d items, fewer than minItems %d", at(path), len(arr), *nd.MinItems)
+		return nil, fmt.Errorf("%sarray has %d items, fewer than minItems %d", pathPrefix(path), len(arr), *nd.MinItems)
 	}
 	if nd.MaxItems != nil && len(arr) > *nd.MaxItems {
-		return nil, fmt.Errorf("%sarray has %d items, more than maxItems %d", at(path), len(arr), *nd.MaxItems)
+		return nil, fmt.Errorf("%sarray has %d items, more than maxItems %d", pathPrefix(path), len(arr), *nd.MaxItems)
 	}
 	out := make([]any, len(arr))
 	for i, el := range arr {
@@ -192,10 +191,10 @@ func conformUnion(branches []*node, defs map[string]*node, data any, path string
 		matches++
 	}
 	if matches == 0 {
-		return nil, fmt.Errorf("%svalue does not match any of the permitted variants: %v", at(path), firstErr)
+		return nil, fmt.Errorf("%svalue does not match any of the permitted variants: %v", pathPrefix(path), firstErr)
 	}
 	if matches > 1 {
-		return nil, fmt.Errorf("%svalue matches %d oneOf variants; exactly one is required", at(path), matches)
+		return nil, fmt.Errorf("%svalue matches %d oneOf variants; exactly one is required", pathPrefix(path), matches)
 	}
 	return match, nil
 }
@@ -211,7 +210,7 @@ func checkType(nd *node, data any, path string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("%sexpected type %s, got %s", at(path), strings.Join(nd.Type, "|"), jsonTypeName(data))
+	return fmt.Errorf("%sexpected type %s, got %s", pathPrefix(path), strings.Join(nd.Type, "|"), jsonTypeName(data))
 }
 
 func valueHasType(data any, t string) bool {
@@ -248,22 +247,22 @@ func checkScalar(nd *node, data any, path string) error {
 	if _, isNum := numeric.ToDecimal(data); isNum {
 		if nd.Minimum != nil {
 			if c, ok := numeric.Compare(data, *nd.Minimum); ok && c < 0 {
-				return fmt.Errorf("%svalue %v is less than minimum %v", at(path), data, *nd.Minimum)
+				return fmt.Errorf("%svalue %v is less than minimum %v", pathPrefix(path), data, *nd.Minimum)
 			}
 		}
 		if nd.Maximum != nil {
 			if c, ok := numeric.Compare(data, *nd.Maximum); ok && c > 0 {
-				return fmt.Errorf("%svalue %v is greater than maximum %v", at(path), data, *nd.Maximum)
+				return fmt.Errorf("%svalue %v is greater than maximum %v", pathPrefix(path), data, *nd.Maximum)
 			}
 		}
 	}
 	if s, ok := data.(string); ok {
 		n := utf8.RuneCountInString(s)
 		if nd.MinLength != nil && n < *nd.MinLength {
-			return fmt.Errorf("%sstring length %d is less than minLength %d", at(path), n, *nd.MinLength)
+			return fmt.Errorf("%sstring length %d is less than minLength %d", pathPrefix(path), n, *nd.MinLength)
 		}
 		if nd.MaxLength != nil && n > *nd.MaxLength {
-			return fmt.Errorf("%sstring length %d is greater than maxLength %d", at(path), n, *nd.MaxLength)
+			return fmt.Errorf("%sstring length %d is greater than maxLength %d", pathPrefix(path), n, *nd.MaxLength)
 		}
 	}
 	return nil
@@ -314,7 +313,6 @@ func enumContains(enum []any, data any) bool {
 	return false
 }
 
-// asFloat returns data as a float64 if it is any numeric kind.
 func asFloat(data any) (float64, bool) {
 	switch n := data.(type) {
 	case float64:
@@ -335,7 +333,6 @@ func asFloat(data any) (float64, bool) {
 	}
 }
 
-// isIntegral reports whether data is a number with no fractional part.
 func isIntegral(data any) bool { return numeric.IsIntegral(data) }
 
 // jsonTypeName names data's JSON type for error messages, reusing valueHasType so it
@@ -368,16 +365,9 @@ func cloneJSON(v any) any {
 	return out
 }
 
-// at renders a path prefix for an error message ("" at the root).
-func at(path string) string {
+func pathPrefix(path string) string {
 	if path == "" {
 		return ""
 	}
 	return path + ": "
 }
-
-// join extends a path with a child property name. Non-identifier keys take the
-// bracket form (see path.go), so the path an error reports is the accessor the
-// author would write — `headers["retry-after"]`, not the unparseable
-// `headers.retry-after`.
-func join(path, name string) string { return JoinPath(path, name) }

@@ -165,16 +165,13 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 	})
 }
 
-// subtreeCTE is a `WITH RECURSIVE subtree(id) AS (...)` clause binding the CTE
-// `subtree` to the instance with the bound id and every descendant, by walking
-// process_instances.parent_id down (riding idx_instances_parent_task, indexed on
-// both engines).
+// subtreeCTE binds `subtree` to an instance and every descendant by walking parent_id
+// (riding idx_instances_parent_task on both engines).
 //
-// The CTE is a plain SELECT and takes no row locks, so it can't deadlock. Callers
-// that mutate the tree lock the enumerated rows in a SEPARATE task,
-// ORDER BY id FOR UPDATE — the global order shared with FinishChild
-// and FailInstanceAndAncestors, which is what prevents deadlocks. (Postgres also
-// forbids FOR UPDATE inside a recursive CTE, so this split is mandatory.)
+// It takes no row locks. A caller that mutates the tree must lock the enumerated rows in a
+// SEPARATE step, ORDER BY id FOR UPDATE — the global order shared with FinishChild and
+// FailInstanceAndAncestors — or Postgres deadlocks; Postgres also forbids FOR UPDATE
+// inside a recursive CTE, so the split is mandatory either way.
 const subtreeCTE = `WITH RECURSIVE subtree(id) AS (
 	SELECT id FROM process_instances WHERE id = ?
 	UNION ALL
@@ -190,24 +187,14 @@ func (db *DB) forUpdate() string {
 	return ""
 }
 
-// PauseProcess atomically suspends an entire process tree (root + every running
-// descendant). Pausing means only "stop advancing automatically": wait_state, wake_at,
-// retry_count and context are left untouched, which is what lets ResumeProcess be a
-// plain status flip instead of the revival RetryProcess performs.
+// PauseProcess atomically suspends a process tree (root + every running descendant),
+// leaving wait_state, wake_at, retry_count and context untouched. Root-only: a descendant
+// id is rejected in favour of the root's. See docs/pause-resume.md.
 //
-// A row lands in 'pausing' only if it is currently leased, i.e. a worker is mid-task on
-// it; the pause becomes 'paused' when that task's write releases the lease (the CASE in
-// UpdateInstance/UpdateInstanceProgress). Everything else -- parked on children, on a
-// delay, on an external task -- has nothing in flight and goes straight to 'paused'.
-// That distinction is load-bearing, not cosmetic: an instance parked with
-// wait_state='waiting' is excluded from ClaimInstances, so if it were marked 'pausing'
-// no claim could ever settle it and it would hang in the draining state forever.
-//
-// Root-only: suspending is a decision about the whole tree, so a descendant id is
-// rejected with the root's. The tree is enumerated by a recursive parent_id walk
-// (subtreeCTE), then the locking CTE takes every row lock in id order -- the same order
-// as FinishChild/FailInstanceAndAncestors -- to avoid PostgreSQL deadlocks (SQLite
-// single-writer, empty lock clause).
+// Only a *leased* row may be marked 'pausing' — it lands in 'paused' when that task's
+// write releases the lease. Anything parked (on children, a delay, an external task) must
+// go straight to 'paused', because a parked row is excluded from ClaimInstances and would
+// otherwise hang in the draining state forever.
 func (db *DB) PauseProcess(ctx context.Context, id string) error {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -335,21 +322,13 @@ func (db *DB) logInstances(ids []string, event, msg string) {
 	}
 }
 
-// ResumeProcess atomically un-suspends a paused process tree. Because PauseProcess
-// preserves every other field, this is the whole operation: no revival walk, no
-// wait_state reconstruction, no only_once question -- the instances resume exactly
-// where they were, including any delay or retry-backoff timer, which kept running
-// while they were paused.
+// ResumeProcess atomically un-suspends a paused tree — a plain status flip, because
+// PauseProcess preserved everything else. 'pausing' rows are included, so a resume issued
+// before a pause landed simply un-requests it. Root-only, same lock order as PauseProcess.
 //
-// 'pausing' rows are included so a resume issued before a pause finished landing
-// simply un-requests it. Root-only, same lock order as PauseProcess.
-//
-// The precondition is on the subtree, not on the root's own status, because the two
-// can legitimately disagree: if one branch dies while the tree is paused, its ancestors
-// go 'failing' but cannot settle -- a failing parent waits for every child, and paused
-// children count as active. That leaves a failing root over paused descendants, and
-// resuming is exactly how the operator unblocks it (the branches drain, the tree
-// settles to failed, and it becomes retryable).
+// The precondition is on the subtree, not the root's own status: a branch that dies while
+// the tree is paused leaves a failing root over paused descendants, and resuming is how
+// the operator unblocks it. See docs/pause-resume.md.
 func (db *DB) ResumeProcess(ctx context.Context, id string) error {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -432,17 +411,11 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 	return fmt.Errorf("instance %q is not a root instance; %s root instance %q instead: %w", row.ID, op, stack[0], ErrInvalid)
 }
 
-// RetryProcess revives a failed root process from where its tree died: failed nodes on
-// the current path are revived in place (leaves re-run their pending task; parents
-// reconstructed as waiting for live children or collecting when all are done), while
-// completed work is never redone. force overrides only_once protection on pending tasks.
-// Root-only — a terminal root implies the whole tree has settled; draining roots are
-// rejected by the status check.
-//
-// Failed-only by design. Retrying is an override of the definition: the tree already
-// spent the on_error budget its author configured, and this hands it another attempt
-// (with force, one that skips only_once protection too). Un-suspending a paused process
-// grants nothing and is ResumeProcess, a plain status flip.
+// RetryProcess revives a failed root from where its tree died: failed nodes on the current
+// path are revived in place (leaves re-run their pending task; parents reconstructed as
+// waiting or collecting), and completed work is never redone. force overrides only_once
+// protection. Root-only, failed-only — it is an override of the definition's on_error
+// budget, which is why it must not merge with ResumeProcess. See docs/pause-resume.md.
 func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 	rootRow, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -559,15 +532,10 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 	revive = func(node *model.ProcessInstance) error {
 		switch node.Status {
 		case model.StatusCompleted, model.StatusRaised:
-			// Settled work is kept. A raised node was not interrupted -- it concluded, by
-			// design, with a declared outcome -- so it belongs here and not below: the
-			// status means the same thing at every depth, root or leaf.
-			//
-			// This does leave one case retry cannot help: a parent that failed at
-			// resolution because no rule matched a child's raised code re-resolves to the
-			// same unmatched code and fails identically. Reviving the child would not have
-			// helped either, since the missing on_error rule lives in a version-pinned
-			// definition a retry does not re-read. The fix is a new parent version.
+			// Settled work is kept, raised included: a raise concluded by design, and the
+			// status means the same at every depth. (One case retry cannot help: a parent
+			// that failed on an unmatched child code re-resolves identically, since the
+			// missing rule lives in a version-pinned definition. The fix is a new version.)
 			return nil
 		case model.StatusRunning, model.StatusFailing, model.StatusPausing, model.StatusPaused:
 			// Unreachable under a failed root: it settles only once every child is
@@ -616,14 +584,10 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 		node.Status = model.StatusRunning
 		node.WaitState = newWaitState
 		node.Error = ""
-		// Keep RetryCount (don't reset): a manual retry is a human-in-the-loop action,
-		// so the failing task — its on_error budget already spent — runs once and
-		// surfaces any failure immediately instead of grinding through more backoffs the
-		// operator can't observe. They diagnose, fix, and retry again.
-		//
-		// RetryCount also tells the two timer kinds apart: a retry-backoff parks with
-		// RetryCount > 0 (clear it so the retry runs now); a delay parks with
-		// RetryCount == 0 (keep wake_at so the delay resumes toward its deadline).
+		// RetryCount tells the two timer kinds apart: a retry-backoff parks with
+		// RetryCount > 0 (clear it so the retry runs now), a delay with RetryCount == 0
+		// (keep wake_at so it resumes toward its deadline). It is otherwise kept, so the
+		// revived task runs once and surfaces its failure instead of grinding backoffs.
 		if node.RetryCount > 0 {
 			node.WakeAt = nil
 		}

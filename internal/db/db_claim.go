@@ -40,13 +40,10 @@ func (db *DB) RenewWorkerLeases(workerID string, leaseDur time.Duration) error {
 	}
 }
 
-// Takeover selects whether a claim may pick up rows whose lease expired under some
-// worker, or only rows nobody holds at all. A worker that has just discovered it was not
-// running — a suspended host, a stalled process — passes SkipTakeover for a while: its own
-// leases have lapsed on paper, so have those of any co-resident worker that froze with it,
-// and every one of them is about to be repaired by its owner. Declining to take them for
-// that window costs nothing (unowned work still flows) and avoids stealing rows whose
-// owner is alive and one renewal away from proving it. See Engine.leaseGate.
+// Takeover selects whether a claim may pick up rows whose lease expired under some worker,
+// or only rows nobody holds. A worker that has just discovered it was not running passes
+// SkipTakeover for a while, so it does not steal rows from co-resident workers that froze
+// with it and are about to repair their own leases. See Engine.leaseGate.
 type Takeover bool
 
 const (
@@ -75,26 +72,16 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 
 	ctx := context.Background()
 
-	// Shared claimable predicate. The two `?` are `now` (retry/delay/timeout timer) and
-	// leaseCutoff (lease expiry — `now`, or 0 under SkipTakeover).
+	// Shared claimable predicate. The two `?` are `now` (timer) and leaseCutoff (lease
+	// expiry — `now`, or 0 under SkipTakeover).
 	//
-	// 'paused' is absent: a paused instance is live work that is simply not advanced
-	// automatically, so it is never claimed until ResumeProcess puts it back to
-	// 'running'. It keeps its wake_at meanwhile — timers run while paused, so a delay
-	// that elapsed during the pause fires on the next tick after resuming.
+	// 'paused' is absent by design: paused work is live, just not advanced, and keeps its
+	// wake_at. 'failing'/'pausing' ignore wake_at because they will never run their pending
+	// task again; 'pausing' is reachable only as crash recovery.
 	//
-	// A doomed instance ('failing') is drained immediately, ignoring wake_at: it will
-	// never run its pending task again, so there is no point waiting out a delay or
-	// retry-backoff timer before settling it. 'pausing' gets the same treatment, but
-	// only as crash recovery: a pause normally lands when the worker holding the
-	// instance writes its task (the CASE in UpdateInstance), and a claim is reached
-	// only if that worker died first, leaving the row draining with an expired lease.
-	//
-	// wait_state='external' (parked on an external task) is claimable only when its
-	// timeout timer is due (`wake_at <= ?`): a no-timeout external wait has wake_at NULL
-	// and must NOT be claimed (it waits for the resolve API, which un-parks it by setting
-	// wait_state='' + wake_at=NULL — caught by the last branch). Normal runnable rows
-	// (any non-external wait_state) with no timer are always claimable.
+	// A no-timeout external wait has wake_at NULL and must NOT be claimed — it waits for
+	// the resolve API, which un-parks it by clearing wait_state (caught by the last
+	// branch). That is why the wake_at IS NULL branch excludes wait_state='external'.
 	const where = `status IN ('running', 'failing', 'pausing')
 			  AND wait_state <> 'waiting'
 			  AND (status IN ('failing', 'pausing')

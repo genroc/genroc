@@ -25,7 +25,6 @@ import (
 	"genroc/internal/numeric"
 )
 
-// Eval evaluates expression against context.
 func Eval(expression string, context map[string]any) (any, error) {
 	node, err := syntax.Parse(expression)
 	if err != nil {
@@ -191,7 +190,6 @@ func evalKey(n *syntax.KeyNode, e env) (any, error) {
 	return nil, nil
 }
 
-// jsonKindOf names a runtime value's JSON kind for an error message.
 func jsonKindOf(v any) string {
 	switch v.(type) {
 	case nil:

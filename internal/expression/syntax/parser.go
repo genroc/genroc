@@ -28,7 +28,6 @@ var binaryPrec = map[string]int{
 
 var unaryOps = map[string]bool{"!": true, "-": true, "+": true}
 
-// Parse parses src into an expression tree.
 func Parse(src string) (n Node, err error) {
 	tokens, lexErr := lexer.Lex(file.NewSource(src))
 	if lexErr != nil {

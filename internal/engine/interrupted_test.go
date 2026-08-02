@@ -16,19 +16,13 @@ import (
 	"genroc/internal/model"
 )
 
-// An only_once task whose previous attempt was interrupted is never re-run by the engine.
-// These tests cover what happens instead: the situation is handed to the definition as
-// only_once.interrupted, which on_error may catch — and if it does not, the instance fails
-// exactly as it always has.
-//
-// The interruption is staged rather than simulated: a foreign worker claims the instance
-// with a lease short enough to expire immediately, which is precisely the state a crashed
-// worker leaves behind, and the engine's own claim then reports ReclaimedExpired. Manual
-// tick mode makes each advance a separate, ordered step.
+// The interruption is staged, not simulated: a foreign worker claims the instance with a
+// lease short enough to expire immediately, which is the state a crashed worker leaves
+// behind. Manual tick mode makes each advance a separate, ordered step.
 
-// interruptedFixture builds a one-shot process whose first task is an only_once fetch at a
-// URL that counts its hits, optionally carrying on_error rules, followed by a call-less
-// "verify" task that ends. It returns the instance id and the hit counter.
+// interruptedFixture builds "charge" (an only_once fetch at a hit-counting URL, with the
+// given on_error) followed by a call-less "verify", and returns the instance id and the
+// counter.
 func interruptedFixture(t *testing.T, database *db.DB, name string, status model.Status, onError []model.ErrorCase) (string, *atomic.Int32) {
 	t.Helper()
 
@@ -66,8 +60,6 @@ func interruptedFixture(t *testing.T, database *db.DB, name string, status model
 	return id, &hits
 }
 
-// interrupt leaves the instance in the state a crashed worker leaves behind: claimed by
-// somebody else, with a lease that has already expired.
 func interrupt(t *testing.T, database *db.DB, id string) {
 	t.Helper()
 	claimed, err := database.ClaimInstances("dead-worker", time.Millisecond, 10, db.AllowTakeover)
@@ -166,9 +158,8 @@ func TestInterrupted_UncaughtFails(t *testing.T) {
 	}
 }
 
-// A rule carrying retries is what a definition registered before the unknowable-set rule
-// looks like: validation would refuse it today, but stored rules never re-validate. The
-// engine must route it and never retry it.
+// What a definition registered before the unknowable-set rule looks like: validation
+// refuses this today, but stored rules never re-validate.
 func TestInterrupted_StoredRetryRuleIsNotRetried(t *testing.T) {
 	database := openTestDB(t)
 	id, hits := interruptedFixture(t, database, "storedretry", model.StatusRunning,
@@ -197,9 +188,6 @@ func TestInterrupted_StoredRetryRuleIsNotRetried(t *testing.T) {
 	}
 }
 
-// A task that is not only_once is re-run on a takeover, as it always has been. This is the
-// contrast that keeps the guard specific: nothing about this feature turns at-least-once
-// into never-retry.
 func TestInterrupted_PlainTaskStillReRuns(t *testing.T) {
 	database := openTestDB(t)
 
@@ -245,10 +233,6 @@ func TestInterrupted_PlainTaskStillReRuns(t *testing.T) {
 }
 
 // ── a pending pause ──────────────────────────────────────────────────────────
-//
-// A 'pausing' row whose worker died is the crash-recovery claim. The interruption is
-// resolved there and then — its evidence does not survive the write that settles a pause —
-// and the pause lands on whatever that resolution writes.
 
 func TestInterrupted_WhilePausing_RoutesThenPauses(t *testing.T) {
 	database := openTestDB(t)
@@ -296,8 +280,7 @@ func TestInterrupted_WhilePausing_UncaughtFails(t *testing.T) {
 	}
 }
 
-// Everything that is not an interrupted only_once task still parks untouched — the pause
-// path's original job, which must survive the branch added in front of it.
+// The pause path's original job, which must survive the branch added in front of it.
 func TestInterrupted_WhilePausing_PlainTaskJustPauses(t *testing.T) {
 	database := openTestDB(t)
 
@@ -334,10 +317,8 @@ func TestInterrupted_WhilePausing_PlainTaskJustPauses(t *testing.T) {
 	}
 }
 
-// A doomed instance is settled, not adjudicated. advance() tests 'failing' before it looks
-// at anything else, so a tree already on its way down does not stop to ask whether the task
-// it happened to be holding was only_once — and, more visibly, does not overwrite the
-// failure that started it all with an interruption it met on the way.
+// advance() tests 'failing' before anything else, so a tree on its way down is settled,
+// not adjudicated — and keeps the failure that started it.
 func TestInterrupted_FailingTreeKeepsItsOriginalCause(t *testing.T) {
 	database := openTestDB(t)
 	id, hits := interruptedFixture(t, database, "failing", model.StatusFailing,
@@ -376,8 +357,8 @@ func TestInterrupted_FailingTreeKeepsItsOriginalCause(t *testing.T) {
 	}
 }
 
-// isRetryAllowed is the runtime half of the unknowable-set ban, and the only thing
-// standing behind definitions registered before validation learned to refuse them.
+// The runtime half of the unknowable-set ban: all that stands behind definitions stored
+// before validation learned to refuse them.
 func TestIsRetryAllowed_UnknowableSet(t *testing.T) {
 	yes, no := true, false
 	assert := func(v *bool) *model.ErrorCase { return &model.ErrorCase{NotReached: v} }

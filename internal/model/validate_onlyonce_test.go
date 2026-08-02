@@ -5,14 +5,9 @@ import (
 	"testing"
 )
 
-// Retries on an only_once task are governed by three tiers, and the whole point of the
-// rules is that an author who hits one is told what to do next. So each row asserts the
-// message too, not just the verdict — a rejection that does not name the way forward is a
-// failure of this feature even when the verdict is right.
-//
-// The accepting rows matter as much as the rejecting ones: this validation is the kind
-// that quietly over-triggers, and a false positive here means a legitimate retry policy
-// cannot be expressed at all.
+// Each row asserts the message as well as the verdict: a rejection that does not name the
+// way forward is a defect even when the verdict is right. The accepting rows matter as
+// much — a false positive here means a legitimate retry policy cannot be expressed.
 func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 	yes := true
 	def := func(onlyOnce bool, ec ErrorCase) ProcessDefinition {
