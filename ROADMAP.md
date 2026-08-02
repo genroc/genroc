@@ -19,6 +19,19 @@
 - [x] map function (lambdas + object/array literals; own parser)
 - [x] think about error handling child -> parent (raise/panic, the `raised` status, error_code, child→parent catch with batch resolution — see docs/child-error-handling.md)
 - [] think about action extensivity/passability from parent
+- [x] resource limits and readiness - the five bounds a worker was missing, grouped because
+  they share a premise: a worker holds leases on everything it claimed, so a fault costs
+  every instance it was advancing, not one request. A fetch response cap (8 MiB, raising the
+  catchable `output.too_large` — an unbounded read OOM'd the worker into a crash loop that
+  also stalled up to `--max-concurrent` unrelated processes), a shared HTTP client (the
+  stdlib pools 2 connections per host, so a worker re-handshook TLS on nearly every call to
+  the same endpoint), jittered retry backoff (which also fixed an overflow: `time.Duration`
+  is int64 *nanoseconds*, so the old `2^attempt` broke at attempt 34 and returned a flat
+  `0s` — no backoff at all — from 62 up), HTTP listener timeouts + a request body cap, and
+  `GET /healthz`. See docs/resource-limits.md. **Still open** in that doc: no per-message
+  limit on the TCP/UDS envelope stream (needs framing, not a limit), no upper bound on
+  `retries` at registration, and no metrics — `/healthz` answers "is this worker serving",
+  not "how deep is the backlog"
 - [x] unknown type - a way how child can pass data to parent, without looking at it (the empty schema `{}`, narrowed by the parent's `result_schema`; no new syntax — see docs/unknown-type.md. Still open: the `infer` mode from that doc)
 - [] fetch response metadata - expose `self.status` and `self.headers` (see docs/fetch-http-surface.md part 1; retires the `http.202`-via-`on_error` trick in examples/polling-task/ and unblocks Location / Retry-After / Link)
 - [] fetch query params - a structured `query` slot (see docs/fetch-http-surface.md part 2; interpolating into the url string does no escaping, so a value with `&`/`=`/space injects a parameter)

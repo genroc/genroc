@@ -15,19 +15,19 @@ const (
 // Log event kinds emitted by the engine as it advances an instance. These are
 // the stable machine-readable identifiers; the human message lives in Message.
 const (
-	EventInstanceCreated  = "inst_created"
-	EventWorkStarted      = "work_started"     // a worker picked the instance up and began advancing it
-	EventActionStarted    = "action_started"   // an action call is about to be sent (request)
-	EventActionSucceeded  = "action_succeeded" // an action call returned successfully (response)
-	EventActionFailed     = "action_failed"    // an action call returned an error (status + error body)
-	EventTaskCompleted    = "task_completed"
-	EventRetryScheduled   = "retry_scheduled"
-	EventErrorRoute       = "error_routed"
-	EventErrorCompleted   = "error_handled"
-	EventInstanceDone     = "inst_completed"
-	EventInstanceRaised   = "inst_raised" // concluded by a `raise` clause; the parent may react to the code
-	EventInstanceFailed   = "inst_failed"
-	EventInstanceSettled  = "inst_settled"
+	EventInstanceCreated = "inst_created"
+	EventWorkStarted     = "work_started"     // a worker picked the instance up and began advancing it
+	EventActionStarted   = "action_started"   // an action call is about to be sent (request)
+	EventActionSucceeded = "action_succeeded" // an action call returned successfully (response)
+	EventActionFailed    = "action_failed"    // an action call returned an error (status + error body)
+	EventTaskCompleted   = "task_completed"
+	EventRetryScheduled  = "retry_scheduled"
+	EventErrorRoute      = "error_routed"
+	EventErrorCompleted  = "error_handled"
+	EventInstanceDone    = "inst_completed"
+	EventInstanceRaised  = "inst_raised" // concluded by a `raise` clause; the parent may react to the code
+	EventInstanceFailed  = "inst_failed"
+	EventInstanceSettled = "inst_settled"
 	// Pausing and resuming fan out over a whole subtree, so their per-instance entries
 	// (inst_paused/inst_pausing/inst_resumed) are debug, in the same high-volume class as
 	// the action_* events.
@@ -44,10 +44,10 @@ const (
 	// inside the owning worker's write, which cannot report it back without a RETURNING
 	// clause on the hottest query in the system. inst_paused does appear for that
 	// instance if the landing instead goes through the engine's crash-recovery path.
-	EventPauseRequested = "inst_pause_requested"
-	EventPaused         = "inst_paused"
-	EventPausing        = "inst_pausing"
-	EventResumed        = "inst_resumed"
+	EventPauseRequested   = "inst_pause_requested"
+	EventPaused           = "inst_paused"
+	EventPausing          = "inst_pausing"
+	EventResumed          = "inst_resumed"
 	EventChildrenSpawned  = "child_spawned"
 	EventChildrenCollect  = "child_collected"
 	EventDelayArmed       = "delay_armed"

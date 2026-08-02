@@ -9,6 +9,7 @@ import (
 	"genroc/internal/errcode"
 	"genroc/internal/numeric"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"strconv"
@@ -17,6 +18,28 @@ import (
 
 	"genroc/internal/model"
 )
+
+// MaxResponseBytes caps the body a fetch reads into memory. A worker holds leases on every
+// instance it claimed, so an OOM here strands all of them until those leases expire — one
+// endpoint streaming an unbounded body must not be able to do that. Far above the 2 KiB at
+// which a value externalizes to the object store, so it bounds the pathological case
+// without capping a legitimately large result.
+const MaxResponseBytes = 8 << 20
+
+// maxRetryDelay is the ceiling RetryDelay backs off to.
+const maxRetryDelay = 5 * time.Minute
+
+// client is shared by every fetch. It deliberately sets no Client.Timeout: the per-attempt
+// budget is the caller's context deadline (engine.fetchTimeout), and a second ceiling here
+// would silently override a task's declared timeout. The idle-connection limits are raised
+// off the stdlib defaults because MaxIdleConnsPerHost is 2 there, which makes a worker
+// re-dial — and re-handshake TLS — for nearly every call to the same endpoint.
+var client = func() *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConns = 512
+	t.MaxIdleConnsPerHost = 64
+	return &http.Client{Transport: t}
+}()
 
 // Identity headers genroc stamps on every fetch request so the receiving service can
 // correlate a call back to the instance/task that made it — the context the request
@@ -27,7 +50,8 @@ const (
 )
 
 // Response carries the result of a Send call.
-// ErrorCode is non-empty on failure ("http.404", "output.parse", "pre.timeout", etc.).
+// ErrorCode is non-empty on failure ("http.404", "output.parse", "output.too_large",
+// "pre.timeout", etc.).
 // ErrorMessage is a human-readable description of the failure (may include trimmed response body).
 // Body holds the raw decoded JSON body on success.
 // Status is the HTTP status code for a REST call (success or failure); 0 for non-HTTP transports.
@@ -81,7 +105,7 @@ func sendHTTP(ctx context.Context, url, method string, acceptedStatus []string, 
 		req.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err // caller uses ClassifyGoError
 	}
@@ -96,8 +120,20 @@ func sendHTTP(ctx context.Context, url, method string, acceptedStatus []string, 
 		return &Response{ErrorCode: errcode.HTTP(resp.StatusCode), ErrorMessage: msg, Status: resp.StatusCode}, nil
 	}
 
+	// One byte past the cap, so draining the allowance is itself the proof the body
+	// exceeded it — checked on both exits, since a body over the limit may equally well
+	// parse (a huge but valid value) or fail (a value truncated mid-token).
+	limited := &io.LimitedReader{R: resp.Body, N: MaxResponseBytes + 1}
 	var b any
-	if err := numeric.DecodeReader(resp.Body, &b); err != nil {
+	err = numeric.DecodeReader(limited, &b)
+	if limited.N <= 0 {
+		return &Response{
+			ErrorCode:    errcode.OutputTooLarge,
+			ErrorMessage: fmt.Sprintf("response body exceeds the %d-byte limit a fetch will read", MaxResponseBytes),
+			Status:       resp.StatusCode,
+		}, nil
+	}
+	if err != nil {
 		return &Response{ErrorCode: errcode.OutputParse, Status: resp.StatusCode}, nil
 	}
 	return &Response{Body: b, Status: resp.StatusCode}, nil
@@ -167,13 +203,27 @@ func ClassifyGoError(err error) errcode.Code {
 	return errcode.PreError
 }
 
-// RetryDelay returns the backoff duration for a given retry attempt (exponential, capped at 5 min).
+// RetryDelay returns the backoff duration for a given retry attempt: exponential, capped
+// at maxRetryDelay, then jittered within the upper half of that window.
+//
+// The jitter is what stops a fleet from re-hitting a recovering endpoint in lockstep —
+// every instance that failed on the same outage would otherwise wake at the same instant.
+// It only ever shortens the nominal delay, so the cap stays a true ceiling and a test that
+// advances the clock by the nominal amount still expires the timer.
 func RetryDelay(attempt int) time.Duration {
-	d := time.Duration(1<<uint(attempt)) * time.Second
-	if d > 5*time.Minute {
-		d = 5 * time.Minute
+	// Clamping the exponent changes no delay the un-clamped formula produced (2^9s is
+	// already past the cap) and keeps the shift away from the range where it overflows:
+	// int64 nanoseconds run out at 2^33 seconds, and a negative or wrapped Duration is a
+	// retry with no backoff at all.
+	if attempt < 0 {
+		attempt = 0
 	}
-	return d
+	if attempt > 9 {
+		attempt = 9
+	}
+	d := time.Duration(1<<uint(attempt)) * time.Second
+	if d > maxRetryDelay {
+		d = maxRetryDelay
+	}
+	return d/2 + time.Duration(rand.Int64N(int64(d/2)+1))
 }
-
-

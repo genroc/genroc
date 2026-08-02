@@ -17,6 +17,7 @@
 // List commands (instances, external-tasks, logs) show the newest --limit items,
 // printed oldest→newest so the most recent row is at the bottom, nearest the prompt
 // (like tail). --limit pages the server as needed to gather that many.
+//
 //	genctl pause    <instance-id>
 //	genctl resume   <instance-id>
 //	genctl retry    [--force] <instance-id>

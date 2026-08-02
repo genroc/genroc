@@ -417,10 +417,10 @@ func TestStatic(t *testing.T) {
 		{"2xx", "2xx", true},
 		{"404", "404", true},
 		{"", "", true},
-		{"a$$b", "a$b", true},          // $$ -> literal $
-		{"${ 1 }", "", false},          // interpolation is dynamic
-		{"pre${ x }post", "", false},   // mixed literal + interpolation
-		{"$: input.codes", "", false},  // typed expression leaf
+		{"a$$b", "a$b", true},         // $$ -> literal $
+		{"${ 1 }", "", false},         // interpolation is dynamic
+		{"pre${ x }post", "", false},  // mixed literal + interpolation
+		{"$: input.codes", "", false}, // typed expression leaf
 	}
 	for _, c := range cases {
 		tpl, err := Get(c.src)

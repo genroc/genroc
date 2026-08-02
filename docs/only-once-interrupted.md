@@ -159,7 +159,7 @@ And what stays outside it, where `not_reached: true` keeps working exactly as do
 | code | why the author may still assert |
 |---|---|
 | `pre.*` | the request never left; a retry is safe with no assertion needed at all |
-| `http.<status>`, `output.parse`, `output.invalid` | a response **did** arrive, so there is evidence to reason from — "a 422 from this API means nothing was charged" is a real claim about a real API |
+| `http.<status>`, `output.parse`, `output.too_large`, `output.invalid` | a response **did** arrive, so there is evidence to reason from — "a 422 from this API means nothing was charged" is a real claim about a real API |
 
 That is the line: `not_reached` is an assertion about what an error *means*, and it can
 only be made about an error that actually came back. For the set above nothing came back,

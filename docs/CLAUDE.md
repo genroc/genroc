@@ -46,5 +46,5 @@ listed below are proposals. Do not cite them as current behavior.
 ## Shipped behavior with a doc here
 
 `pause-resume.md`, `only-once-interrupted.md`, `unknown-type.md`, `delay-syntax.md`,
-`recursive-type-inference.md` describe code that exists. The invariants extracted from them
-live in the `CLAUDE.md` of the owning package.
+`recursive-type-inference.md`, `resource-limits.md` describe code that exists. The
+invariants extracted from them live in the `CLAUDE.md` of the owning package.

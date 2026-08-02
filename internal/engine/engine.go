@@ -118,7 +118,7 @@ func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateR
 	// Dereferenced objects survive on the same horizon as audit logs, so a log that
 	// references an object stays resolvable for as long as the log itself lives.
 	database.SetObjectRetention(logCfg.Retention)
-	return &Engine{
+	e := &Engine{
 		db:                 database,
 		pollEvery:          pollEvery,
 		immediateRetries:   immediateRetries,
@@ -130,6 +130,22 @@ func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateR
 		wake:               make(chan struct{}, 1),
 		workerID:           workerID,
 	}
+	// Seeded here as well as in Run: LeaseAge is served from it, and a health probe that
+	// arrives in the gap between New and Run would otherwise read the zero value as
+	// "no renewal since 1970".
+	e.lastRenewMs.Store(db.Now().UnixMilli())
+	return e
+}
+
+// WorkerID is this worker's identity in the lease columns — the value an operator
+// correlates a stuck instance against.
+func (e *Engine) WorkerID() string { return e.workerID }
+
+// LeaseAge is how long ago this worker last proved the leases it holds are still alive.
+// Growing past the lease duration is the same evidence leaseGate acts on: this worker has
+// been unable to reach the database, and the instances it claimed are being taken over.
+func (e *Engine) LeaseAge() time.Duration {
+	return time.Duration(db.Now().UnixMilli()-e.lastRenewMs.Load()) * time.Millisecond
 }
 
 // signalWork nudges the pump to re-scan immediately. Non-blocking on a buffer-1 channel:

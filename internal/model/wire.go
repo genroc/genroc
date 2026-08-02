@@ -161,7 +161,7 @@ type Shape = shape.Shape
 // (Panic) — at most one of the three; setting none fails the instance, which is the
 // default when a rule exists only to document a code or to cap retries.
 type ErrorCase struct {
-	Code       []string `json:"code,omitempty"        description:"Patterns matched against the error code. '%' is the only wildcard (matches any run of characters); every other character, including '_' and '.', is literal — so 'order_%' matches 'order_placed' but not 'order.placed'. Empty list = catch-all. Catchable engine codes (an action task's call reports these): http.NNN (e.g. http.500), http.timeout, pre.error, pre.timeout, output.parse, output.invalid, external.timeout. pre.* codes mean the call never reached the remote. Internal engine.* failures (engine.spawn, engine.collect, engine.expression, …) are terminal and are NOT routed through on_error. On a child_map/child_list task the codes instead match the codes the child processes can raise, and each pattern is checked at registration against the child's raise set. A child that failed (rather than raised) is never catchable — convert the failure into a raise inside the child."`
+	Code       []string `json:"code,omitempty"        description:"Patterns matched against the error code. '%' is the only wildcard (matches any run of characters); every other character, including '_' and '.', is literal — so 'order_%' matches 'order_placed' but not 'order.placed'. Empty list = catch-all. Catchable engine codes (an action task's call reports these): http.NNN (e.g. http.500), http.timeout, pre.error, pre.timeout, output.parse, output.too_large, output.invalid, external.timeout. pre.* codes mean the call never reached the remote. Internal engine.* failures (engine.spawn, engine.collect, engine.expression, …) are terminal and are NOT routed through on_error. On a child_map/child_list task the codes instead match the codes the child processes can raise, and each pattern is checked at registration against the child's raise set. A child that failed (rather than raised) is never catchable — convert the failure into a raise inside the child."`
 	Retries    int      `json:"retries,omitempty"     description:"Number of retries before following goto or failing. 0 = no retries. On only_once:true tasks only pre.* codes (or rules with not_reached:true) may have retries > 0. Not supported on child tasks — retry inside the child, then raise."`
 	Goto       string   `json:"goto,omitempty"        description:"Task to route to when retries are exhausted. '$task-id' or 'end'. Omit to fail the instance."`
 	Raise      *Fault   `json:"raise,omitempty"       description:"Terminate as 'raised' with this code and message instead of routing — an anticipated condition a parent process may react to. Mutually exclusive with goto and panic."`
@@ -191,7 +191,6 @@ func (e ErrorCase) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(w)
 }
-
 
 // A switch selects with "case" and on_error with "code", so mistyping one for the other is
 // easy — and a dropped "code" silently turns an on_error rule into a catch-all, the

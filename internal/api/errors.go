@@ -33,6 +33,10 @@ const (
 	// CodeUnsupported — the endpoint exists but this server is not configured to serve
 	// it (e.g. /tick outside manual-tick mode).
 	CodeUnsupported Code = "unsupported"
+	// CodeUnavailable — this server cannot serve requests right now (its database is
+	// unreachable). Unlike CodeInternal it is a statement about the whole worker, which
+	// is what makes it the right answer for a readiness probe: route elsewhere, retry.
+	CodeUnavailable Code = "unavailable"
 	// CodeInternal — anything unclassified. This is the default on purpose: an error
 	// nobody classified is a server fault until proven otherwise, which is what makes
 	// the classification pass self-driving — any path still answering 500 is a path
@@ -47,6 +51,7 @@ var statusByCode = map[Code]int{
 	CodeNotFound:    http.StatusNotFound,
 	CodeConflict:    http.StatusConflict,
 	CodeUnsupported: http.StatusNotImplemented,
+	CodeUnavailable: http.StatusServiceUnavailable,
 	CodeInternal:    http.StatusInternalServerError,
 }
 
@@ -61,7 +66,7 @@ func statusOf(c Code) int {
 // interface), which is what makes the code a documented part of the contract rather
 // than an undocumented debugging aid clients key on anyway.
 func (Code) Enum() []interface{} {
-	return []interface{}{CodeInvalid, CodeNotFound, CodeConflict, CodeUnsupported, CodeInternal}
+	return []interface{}{CodeInvalid, CodeNotFound, CodeConflict, CodeUnsupported, CodeUnavailable, CodeInternal}
 }
 
 // errorStatuses returns the HTTP statuses to document for an action, given the extra
@@ -106,6 +111,7 @@ func invalid(format string, a ...any) *Error     { return apiErrf(CodeInvalid, f
 func notFound(format string, a ...any) *Error    { return apiErrf(CodeNotFound, format, a...) }
 func conflict(format string, a ...any) *Error    { return apiErrf(CodeConflict, format, a...) }
 func unsupported(format string, a ...any) *Error { return apiErrf(CodeUnsupported, format, a...) }
+func unavailable(format string, a ...any) *Error { return apiErrf(CodeUnavailable, format, a...) }
 
 // codeOf classifies any error into a Code, in precedence order:
 //

@@ -25,6 +25,7 @@ const (
 	PreTimeout      Code = "pre.timeout"      // timed out during dial — the request never left
 	PreError        Code = "pre.error"        // dial-phase failure — the request never left
 	OutputParse     Code = "output.parse"     // the response body was not valid JSON
+	OutputTooLarge  Code = "output.too_large" // the response body exceeded the size a fetch will read
 	OutputInvalid   Code = "output.invalid"   // the response did not satisfy its result_schema
 	ExternalTimeout Code = "external.timeout" // an external task's wait deadline elapsed
 )

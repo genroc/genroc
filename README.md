@@ -47,6 +47,12 @@ no worker while it waits.
 - **Per-instance logs**, pagination, and filtering across the API.
 - **Two storage engines.** SQLite (single file, default) or PostgreSQL
   (production, concurrent workers) — same SQL, chosen at startup.
+- **Bounded by default.** A fetch response is capped (a body past the limit raises the
+  catchable `output.too_large` instead of taking the worker down with every lease it
+  holds), request bodies and connection timeouts are capped, retry backoff is jittered so
+  a recovering endpoint is not hit by the whole backlog at once, and `GET /healthz` is a
+  readiness probe that answers 503 when a worker cannot reach its database (see
+  [docs/resource-limits.md](docs/resource-limits.md)).
 
 ## Binaries
 

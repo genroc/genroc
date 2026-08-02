@@ -392,7 +392,6 @@ func checkAcceptedStatusShape(raw any, ctx schema.Schema, taskID string) error {
 	return nil
 }
 
-
 func contextSchema(preceding []string, optional []string, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, errRequired, errOptional bool) schema.Schema {
 	return contextSchemaAbsent(preceding, optional, nil, tasks, processInput, configSchema, errRequired, errOptional)
 }

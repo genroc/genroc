@@ -104,6 +104,16 @@ type ChannelStatusItem struct {
 	StaleRefs []StaleRef `json:"stale_refs,omitempty"`
 }
 
+// HealthResp is the readiness probe's body. Status is the only field a probe should key
+// on; the rest is operator context for a worker that is up but behaving oddly.
+type HealthResp struct {
+	Status     string `json:"status" description:"ok — this worker reached its database; any other outcome is a 503"`
+	Worker     string `json:"worker" description:"Worker id stamped on the leases this worker holds"`
+	Database   string `json:"database" description:"Storage engine backing this worker: sqlite or postgres"`
+	LeaseAgeMs int64  `json:"lease_age_ms" description:"Milliseconds since this worker last renewed its leases. Past --lease-duration means its claimed instances are being taken over by peers."`
+	ManualTick bool   `json:"manual_tick" description:"True when started with -poll 0: the engine only advances via POST /tick"`
+}
+
 type StartInstanceResp struct {
 	ID      string       `json:"id"`
 	Process string       `json:"process"`
@@ -187,21 +197,21 @@ type BatchApplyResult struct {
 // many instances should stay light, so it omits the (potentially large) context; it
 // is embedded in InstanceStatusResp, which adds the context for a single-instance fetch.
 type InstanceSummaryResp struct {
-	ID         string          `json:"id"`
-	Process    string          `json:"process"`
-	Version    int             `json:"version"`
-	Status     model.Status    `json:"status"`
-	WaitState  model.WaitState `json:"wait_state,omitempty"`
+	ID        string          `json:"id"`
+	Process   string          `json:"process"`
+	Version   int             `json:"version"`
+	Status    model.Status    `json:"status"`
+	WaitState model.WaitState `json:"wait_state,omitempty"`
 	// Task is where the instance sits in its definition: the task it is running, is
 	// parked on, or stopped at — and on a settled instance, the one it finished,
 	// failed or raised at. Status says what is happening to the process and
 	// wait_state says what it is waiting for; this says where.
 	Task       string `json:"task,omitempty"`
 	RetryCount int    `json:"retry_count"`
-	Error      string          `json:"error,omitempty"`
-	ErrorCode  string          `json:"error_code,omitempty"` // machine-readable discriminator for every non-success outcome; see model.ProcessInstance.ErrorCode
-	CreatedAt  string          `json:"created_at"`
-	UpdatedAt  string          `json:"updated_at"`
+	Error      string `json:"error,omitempty"`
+	ErrorCode  string `json:"error_code,omitempty"` // machine-readable discriminator for every non-success outcome; see model.ProcessInstance.ErrorCode
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
 type InstanceStatusResp struct {

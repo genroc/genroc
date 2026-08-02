@@ -10,8 +10,25 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"genroc/internal/model"
+)
+
+// Connection limits for the HTTP listener. There is deliberately no WriteTimeout: /tick
+// blocks until every instance it claimed has finished advancing, so any ceiling short
+// enough to be useful against a slow reader would also sever a legitimate long tick.
+// readHeaderTimeout is the one that matters for an unauthenticated listener anyway — it is
+// what bounds a connection that opens and then sends nothing.
+const (
+	readHeaderTimeout = 10 * time.Second
+	readTimeout       = 60 * time.Second
+	idleTimeout       = 120 * time.Second
+	shutdownTimeout   = 15 * time.Second
+	// maxRequestBytes caps a request body across every route. Comfortably above the
+	// largest definition batch anyone submits, and below the point where a body costs
+	// more to buffer than the process it describes.
+	maxRequestBytes = 10 << 20
 )
 
 // Server listens on HTTP, TCP, and/or Unix Domain Socket simultaneously.
@@ -19,10 +36,24 @@ import (
 type Server struct {
 	handlers *Handlers
 	log      *slog.Logger
+
+	// The limits above, as fields only so a test can drive them to durations it can wait
+	// for. NewServer sets every one; nothing in production overrides them.
+	readHeaderTimeout time.Duration
+	readTimeout       time.Duration
+	idleTimeout       time.Duration
+	shutdownTimeout   time.Duration
 }
 
 func NewServer(handlers *Handlers, log *slog.Logger) *Server {
-	return &Server{handlers: handlers, log: log}
+	return &Server{
+		handlers:          handlers,
+		log:               log,
+		readHeaderTimeout: readHeaderTimeout,
+		readTimeout:       readTimeout,
+		idleTimeout:       idleTimeout,
+		shutdownTimeout:   shutdownTimeout,
+	}
 }
 
 // ListenHTTP serves HTTP on addr until ctx is cancelled. Routes and Swagger docs are
@@ -34,10 +65,12 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 	for _, a := range registry {
 		a := a
 		mux.HandleFunc(a.Method+" "+a.Path, func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 			env, err := a.envelope(r)
 			if err != nil {
-				// The envelope only fails on a body that is not JSON at all, so this
-				// is always the caller's fault, never the server's.
+				// The envelope only fails on a body that is not JSON at all, or one
+				// past maxRequestBytes, so this is always the caller's fault, never
+				// the server's.
 				writeReply(w, invalid("bad request: %w", err).reply())
 				return
 			}
@@ -89,16 +122,35 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 		w.Write(data)
 	})
 
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: s.readHeaderTimeout,
+		ReadTimeout:       s.readTimeout,
+		IdleTimeout:       s.idleTimeout,
+	}
+	drained := make(chan struct{})
 	go func() {
+		defer close(drained)
 		<-ctx.Done()
-		srv.Shutdown(context.Background())
+		// Bounded: a request that never finishes must not hold the drain open past the
+		// point the supervisor is willing to wait, or the process is SIGKILLed instead.
+		shutCtx, cancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
+		defer cancel()
+		srv.Shutdown(shutCtx)
 	}()
 
 	s.log.Info("HTTP listening", "addr", addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	err := srv.ListenAndServe()
+	if !errors.Is(err, http.ErrServerClosed) {
+		// A bind failure, and one that happens before ctx is ever cancelled — so the
+		// goroutine above is still parked on ctx.Done() and waiting on it would hang.
 		return err
 	}
+	// ListenAndServe returns the moment Shutdown closes the listener, so without this the
+	// caller's WaitGroup completes while requests are still in flight and process exit
+	// severs them — a graceful shutdown that is graceful in name only.
+	<-drained
 	return nil
 }
 

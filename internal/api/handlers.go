@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"genroc/internal/numeric"
+	"time"
 
 	"genroc/internal/db"
 	"genroc/internal/model"
@@ -12,13 +13,19 @@ import (
 
 const defaultChannel = "latest"
 
-// engineService is the slice of the engine the API depends on: triggering a tick
-// and recording the instance_created audit milestone for a root instance.
+// engineService is the slice of the engine the API depends on: triggering a tick,
+// recording the instance_created audit milestone for a root instance, and the two
+// identity/liveness readings the health endpoint reports.
+//
+// Primitive returns rather than a shared struct: the dependency points api → engine only
+// through this interface, and a struct either of them owned would make that an import.
 type engineService interface {
 	Tick(ctx context.Context) (int, error)
 	ManualTick() bool
 	AuditCreated(inst *model.ProcessInstance)
 	NotifyWork()
+	WorkerID() string
+	LeaseAge() time.Duration
 }
 
 type Handlers struct {

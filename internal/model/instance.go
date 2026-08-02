@@ -26,7 +26,7 @@ const (
 	StatusCompleted Status = "completed"
 	StatusFailing   Status = "failing" // doomed by an error, draining descendants
 	StatusFailed    Status = "failed"
-	StatusRaised    Status = "raised" // concluded by a `raise` clause; catchable by the parent
+	StatusRaised    Status = "raised"  // concluded by a `raise` clause; catchable by the parent
 	StatusPausing   Status = "pausing" // pause requested, still holding an in-flight task
 	StatusPaused    Status = "paused"
 )
@@ -146,9 +146,9 @@ type InstanceSummary struct {
 	ID             string
 	ProcessName    string
 	ProcessVersion int
-	RetryCount int
-	Status     Status
-	WaitState  WaitState
+	RetryCount     int
+	Status         Status
+	WaitState      WaitState
 	// Task is the instance's position in its definition's task list — where it is
 	// running, parked or stopped, and on a settled one where it finished. Cheap (a
 	// short string on the row) and the one piece of "where is this process" that

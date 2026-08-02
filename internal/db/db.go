@@ -193,6 +193,14 @@ func bootstrapPostgres(sqldb *sql.DB) error {
 	return nil
 }
 
+// Ping verifies a connection to the database is still usable, acquiring one from the pool
+// if none is idle. It is the health endpoint's readiness check: an engine whose database is
+// unreachable can claim nothing, so a worker in that state should not be routed to.
+func (db *DB) Ping(ctx context.Context) error { return db.sqldb.PingContext(ctx) }
+
+// Dialect reports the engine backing this DB: "sqlite" or "postgres".
+func (db *DB) Dialect() string { return db.dialect }
+
 // Close flushes buffered audit-log rows, stops the flusher, and closes the pool.
 func (db *DB) Close() error {
 	close(db.logStop)

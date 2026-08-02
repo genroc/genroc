@@ -506,6 +506,19 @@ var registry = func() []actionDef {
 			},
 		},
 		{
+			Name:    "health",
+			Method:  http.MethodGet,
+			Path:    "/healthz",
+			Summary: "Readiness probe: 200 when this worker can reach its database, 503 when it cannot",
+			Tags:    []string{"Debug"},
+			Errors:  []Code{CodeUnavailable},
+			Resp: HealthResp{
+				Status: "ok", Worker: "genroc-7f3c-1", Database: "postgres",
+				LeaseAgeMs: 1200, ManualTick: false,
+			},
+			handle: func(h *Handlers, _ Envelope) Reply { return h.health() },
+		},
+		{
 			Name:    "tick",
 			Method:  http.MethodPost,
 			Path:    "/tick",

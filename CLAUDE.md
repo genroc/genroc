@@ -30,6 +30,8 @@ records failures that are silent, not compile errors.
 |---|---|
 | [internal/db/CLAUDE.md](internal/db/CLAUDE.md) | sqlc, the dual-engine (SQLite/Postgres) rules, hand-written-SQL exceptions, pagination, Postgres autovacuum bootstrap, adding a query/migration; pause/resume vs retry |
 | [internal/engine/CLAUDE.md](internal/engine/CLAUDE.md) | `only_once.interrupted` and the unknowable set at runtime; the live half of lease fencing |
+| [internal/api/CLAUDE.md](internal/api/CLAUDE.md) | the action registry as the one place to add an endpoint; shutdown drain ordering, why there is no `WriteTimeout`, the readiness endpoint's independence from the engine, adding a `Code` |
+| [internal/transport/CLAUDE.md](internal/transport/CLAUDE.md) | the fetch response cap and how overflow is detected; why the shared client carries no `Client.Timeout`; retry jitter and the exponent clamp |
 | [internal/model/CLAUDE.md](internal/model/CLAUDE.md) | `on_error` validation tiers on an `only_once` task; unknown-key rejection in `on_error` / `switch`; `timeout` decoding and its action-type rules |
 | [internal/schema/CLAUDE.md](internal/schema/CLAUDE.md) | the `unknown` type (`{}`), why there is no keyword, `NarrowsTo` |
 | [internal/delayspec/CLAUDE.md](internal/delayspec/CLAUDE.md) | `delay` and `timeout` syntax (`for` / `until` / `tz`), arity, calendar arithmetic |

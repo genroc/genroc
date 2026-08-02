@@ -62,4 +62,3 @@ func inferOutputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proce
 	}
 	return solver.Solve()
 }
-
