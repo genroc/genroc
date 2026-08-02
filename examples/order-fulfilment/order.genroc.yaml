@@ -1,0 +1,144 @@
+# Order fulfilment with a non-idempotent charge.
+#
+# The interesting task is `charge`: it is `only_once`, so the engine will never re-run it
+# on its own. If a worker dies mid-charge the next claim raises `only_once.interrupted`,
+# which routes to `reconcile` — a read-only question to the payment API, which is the
+# system of record for whether the money moved. Only that answer decides whether the order
+# ships or the charge is deliberately re-sent.
+name: place-order
+input_schema:
+  type: object
+  properties:
+    base_url: { type: string }
+    # Doubles as the payment idempotency key: the same order never charges twice, even if
+    # the definition deliberately re-sends after reconciling.
+    order_ref: { type: string }
+    customer: { type: string }
+    amount_cents: { type: integer }
+    sku: { type: string }
+    quantity: { type: integer, default: 1 }
+  required: [base_url, order_ref, customer, amount_cents, sku]
+
+tasks:
+  # Ordinary retryable work: reserving stock is idempotent per order_ref, so a blind
+  # retry is safe and the task carries a plain catch-all with retries.
+  - id: reserve
+    action:
+      type: fetch
+      url: "${ input.base_url }/inventory/reserve"
+      body:
+        order_ref: "$: input.order_ref"
+        sku: "$: input.sku"
+        quantity: "$: input.quantity"
+      result_schema:
+        type: object
+        properties:
+          reservation_id: { type: string }
+        required: [reservation_id]
+    timeout_ms: 5000
+    on_error:
+      - code: [http.409]
+        goto: $out_of_stock
+      - retries: 3
+    output:
+      reservation_id: "$: self.result.reservation_id"
+    switch: next
+
+  # The non-idempotent step. `only_once: true` means the engine guarantees at-most-once:
+  # it will not repeat this call after an interruption, and it refuses retry rules that
+  # could double-charge.
+  - id: charge
+    only_once: true
+    action:
+      type: fetch
+      url: "${ input.base_url }/payments/charge"
+      body:
+        idempotency_key: "$: input.order_ref"
+        customer: "$: input.customer"
+        amount_cents: "$: input.amount_cents"
+      result_schema:
+        type: object
+        properties:
+          charge_id: { type: string }
+        required: [charge_id]
+    timeout_ms: 10000
+    on_error:
+      # Tier 1 — a pre.* error means the request never left, so a retry cannot double
+      # charge. This is the only retry an only_once task accepts without an assertion.
+      - code: [pre.error, pre.timeout]
+        retries: 3
+      # The previous attempt was cut short (worker crash, lease expiry). The engine will
+      # not repeat it — it hands the situation to the definition instead.
+      - code: [only_once.interrupted]
+        goto: $reconcile
+      # An ordinary decline. Nothing to reconcile: the API answered.
+      - code: [http.402]
+        goto: $declined
+    output:
+      charge_id: "$: self.result.charge_id"
+    switch: next
+
+  - id: ship
+    action:
+      type: fetch
+      url: "${ input.base_url }/shipping/dispatch"
+      body:
+        order_ref: "$: input.order_ref"
+        customer: "$: input.customer"
+      result_schema:
+        type: object
+        properties:
+          tracking: { type: string }
+        required: [tracking]
+    timeout_ms: 5000
+    output:
+      tracking: "$: self.result.tracking"
+    switch: end
+
+  # Reached only from an interrupted charge. A read-only lookup keyed by the same
+  # idempotency key the charge used — the one question worth asking, because the
+  # payment API knows what the crashed worker did and this process cannot.
+  - id: reconcile
+    action:
+      type: fetch
+      method: GET
+      url: "${ input.base_url }/payments/by-key/${ input.order_ref }"
+      result_schema:
+        type: object
+        properties:
+          charged: { type: boolean }
+        required: [charged]
+    timeout_ms: 5000
+    output:
+      charged: "$: self.result.charged"
+      settled_by: reconciliation
+    switch:
+      # The money moved before the crash. Skip the charge entirely and ship.
+      - case: "self.output.charged == true"
+        goto: $ship
+      # It did not. Routing back into the task re-runs it: the engine refuses to repeat
+      # an only_once call by itself, but an authored re-entry is allowed, because the
+      # definition has now established it is safe.
+      - goto: $charge
+
+  - id: declined
+    action:
+      type: fetch
+      url: "${ input.base_url }/inventory/release"
+      body:
+        reservation_id: "$: outputs.reserve.reservation_id"
+    timeout_ms: 5000
+    switch:
+      - raise:
+          code: payment_declined
+          message: "the card was declined; stock reservation released"
+
+  - id: out_of_stock
+    switch:
+      - raise:
+          code: out_of_stock
+          message: "no stock for the requested sku"
+
+output:
+  order_ref: "$: input.order_ref"
+  tracking: "$: outputs.ship.tracking"

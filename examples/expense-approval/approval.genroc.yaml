@@ -1,0 +1,131 @@
+# Expense approval — a process that waits on a human.
+#
+# `external` parks the instance until someone outside submits a result. No worker is held
+# while it waits, so an instance can sit here for days at zero cost. The park is durable:
+# it survives restarts, because it is a row, not a goroutine.
+#
+# Two ways in for the resolver, both shown in the README:
+#   GET  /external-tasks            → the queue, with a `token` per parked task
+#   POST /external-tasks/resolve    → submit `{token, result}`
+#   POST /instances/{id}/signal     → submit `{task_id, result}` by instance id instead
+name: expense-approval
+input_schema:
+  type: object
+  properties:
+    base_url: { type: string }
+    requester: { type: string }
+    amount_cents: { type: integer }
+    purpose: { type: string }
+  required: [base_url, requester, amount_cents, purpose]
+
+tasks:
+  # The outgoing half of the handshake: tell someone there is something to review.
+  # genroc does not deliver notifications — parking and notifying are separate concerns,
+  # and only the notification needs to know about your email/Slack/ticket system.
+  - id: notify
+    action:
+      type: fetch
+      url: "${ input.base_url }/notify"
+      body:
+        to: reviewer
+        subject: "${ input.requester } requests ${ input.amount_cents } for ${ input.purpose }"
+    timeout_ms: 5000
+    switch: next
+
+  # The park. `input` is snapshotted for the resolver — it is the ONLY thing the queue
+  # exposes, so a reviewer sees the expense and never the process context.
+  #
+  # timeout_ms is a static integer (it cannot be an expression), so the review window is
+  # fixed by the definition rather than supplied per instance. Expiring raises the
+  # catchable `external.timeout`.
+  - id: review
+    action:
+      type: external
+      input:
+        requester: "$: input.requester"
+        amount_cents: "$: input.amount_cents"
+        purpose: "$: input.purpose"
+      # The submitted result is validated against this before the process resumes, so a
+      # malformed submission is rejected at the API rather than corrupting the run.
+      result_schema:
+        type: object
+        properties:
+          approved: { type: boolean }
+          reviewer: { type: string }
+          note: { type: string }
+        required: [approved, reviewer]
+    timeout_ms: 3600000
+    on_error:
+      - code: [external.timeout]
+        goto: $escalate
+    output:
+      approved: "$: self.result.approved"
+      decided_by: "$: self.result.reviewer"
+    switch:
+      - case: "self.output.approved == true"
+        goto: $pay
+      - goto: $reject
+
+  - id: pay
+    action:
+      type: fetch
+      url: "${ input.base_url }/reimburse"
+      body:
+        requester: "$: input.requester"
+        amount_cents: "$: input.amount_cents"
+      result_schema:
+        type: object
+        properties:
+          payment_id: { type: string }
+        required: [payment_id]
+    timeout_ms: 5000
+    output:
+      payment_id: "$: self.result.payment_id"
+    switch: end
+
+  # Nobody reviewed it in time. Escalation is ordinary routing — the timeout is just
+  # another error code.
+  - id: escalate
+    action:
+      type: fetch
+      url: "${ input.base_url }/notify"
+      body:
+        to: manager
+        subject: "escalated: ${ input.requester } is still waiting on ${ input.purpose }"
+    timeout_ms: 5000
+    switch: next
+
+  # The second park has no timeout (0 = wait forever): once escalated, the process waits
+  # for a decision rather than deciding by default.
+  - id: manager_review
+    action:
+      type: external
+      input:
+        requester: "$: input.requester"
+        amount_cents: "$: input.amount_cents"
+        purpose: "$: input.purpose"
+        escalated: true
+      result_schema:
+        type: object
+        properties:
+          approved: { type: boolean }
+          reviewer: { type: string }
+          note: { type: string }
+        required: [approved, reviewer]
+    output:
+      approved: "$: self.result.approved"
+      decided_by: "$: self.result.reviewer"
+    switch:
+      - case: "self.output.approved == true"
+        goto: $pay
+      - goto: $reject
+
+  - id: reject
+    switch:
+      - raise:
+          code: expense_rejected
+          message: "the expense was not approved"
+
+output:
+  requester: "$: input.requester"
+  payment_id: "$: outputs.pay.payment_id"

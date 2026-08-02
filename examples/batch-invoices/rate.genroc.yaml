@@ -1,0 +1,33 @@
+# Child: one currency rate lookup. Deliberately tiny — it exists so the parent can call
+# it twice concurrently under two names, which is what `child_map` is for: a fixed set of
+# named branches, as opposed to `child_list`'s one-per-element fan-out.
+name: fetch-rate
+input_schema:
+  type: object
+  properties:
+    base_url: { type: string }
+    currency: { type: string }
+  required: [base_url, currency]
+
+tasks:
+  - id: lookup
+    action:
+      type: fetch
+      method: GET
+      url: "${ input.base_url }/rates/${ input.currency }"
+      result_schema:
+        type: object
+        properties:
+          rate: { type: number }
+        required: [rate]
+    timeout_ms: 5000
+    on_error:
+      - code: [http.500, http.503]
+        retries: 2
+    output:
+      rate: "$: self.result.rate"
+    switch: end
+
+output:
+  currency: "$: input.currency"
+  rate: "$: outputs.lookup.rate"

@@ -1,0 +1,99 @@
+# Parent: one billing run. Two fan-outs, chosen for two different shapes of work.
+#
+#   rates     child_map  — a FIXED set of named branches, known when you write the
+#                          definition. The result is an object keyed by those names.
+#   send_all  child_list — one child per element of a runtime array. The result is an
+#                          array in `over` order, regardless of completion order.
+name: invoice-run
+input_schema:
+  type: object
+  properties:
+    base_url: { type: string }
+    period: { type: string }
+    invoices:
+      type: array
+      items:
+        type: object
+        properties:
+          invoice_id: { type: string }
+          customer: { type: string }
+          amount_cents: { type: integer }
+        required: [invoice_id, customer, amount_cents]
+  required: [base_url, period, invoices]
+
+tasks:
+  # Both branches run concurrently and the task waits for both. No worker is held while
+  # they run — the parent is parked on `waiting` until every child settles.
+  - id: rates
+    action:
+      type: child_map
+      children:
+        # A child_map types each branch on its own entry, not on the action — the
+        # branches are independent processes and need not share an output shape.
+        usd:
+          name: fetch-rate
+          input:
+            base_url: "$: input.base_url"
+            currency: usd
+          result_schema: &rate_result
+            type: object
+            properties:
+              currency: { type: string }
+              rate: { type: number }
+            required: [currency, rate]
+        eur:
+          name: fetch-rate
+          input:
+            base_url: "$: input.base_url"
+            currency: eur
+          result_schema: *rate_result
+    output:
+      usd: "$: self.result.usd.rate"
+      eur: "$: self.result.eur.rate"
+    switch: next
+
+  # One child per invoice. `over` builds each child's input, so the parent's own
+  # constants (base_url, period) are threaded onto every element — a child only ever
+  # sees the input the parent hands it.
+  - id: send_all
+    action:
+      type: child_list
+      name: send-invoice
+      over: "$: map(input.invoices, i => {base_url: input.base_url, period: input.period, invoice_id: i.invoice_id, customer: i.customer, amount_cents: i.amount_cents})"
+      # One schema for the whole batch: every element of a child_list is the same
+      # process, so they share an output shape.
+      result_schema:
+        type: object
+        properties:
+          invoice_id: { type: string }
+          ok: { type: [boolean, "null"] }
+          delivery_id: { type: [string, "null"] }
+          reason: { type: [string, "null"] }
+        required: [invoice_id, ok]
+    # Codes here are matched against what the CHILD can raise, and each pattern is
+    # checked at registration against that child's raise set — a rule that could never
+    # fire is a registration error, not a silent dead branch.
+    on_error:
+      - code: [period_closed]
+        goto: $halted
+    output: "$: self.result"
+    switch: end
+
+  # Reached only when a child raised. `error.child_index` is the slot that raised
+  # (`child_key` for a child_map); the batch produced no output, so there is nothing
+  # else of the run to read here.
+  - id: halted
+    output:
+      halted_at: "$: error.child_index"
+      code: "$: error.code"
+      detail: "$: error.message"
+    switch: end
+
+output:
+  period: "$: input.period"
+  rates: "$: outputs.rates"
+  # In the happy path this is the whole batch, in `over` order — including the children
+  # that completed with ok:false. genroc has no len()/filter() builtin, so counting the
+  # failures is the caller's job; the run reports, it does not aggregate.
+  invoices: "$: outputs.send_all ?? []"
+  halted: "$: outputs.halted.code ?? \"\""
