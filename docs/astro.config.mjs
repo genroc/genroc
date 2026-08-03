@@ -13,12 +13,12 @@ export default defineConfig({
   site: "https://genroc.org",
   base: process.env.DOCS_BASE ?? "/",
   trailingSlash: "always",
-  // The whole site is a handful of small HTML documents, so `load` — every internal link
-  // on the page, not just hovered ones — costs little and makes the first click instant on
-  // touch too. Leave `experimental.clientPrerender` off: it upgrades this to speculation-rules
+  // `prefetchAll` is what opts every internal link in; without it the strategy below applies
+  // to nothing, since it only governs links carrying a bare `data-astro-prefetch`.
+  // Leave `experimental.clientPrerender` off: it upgrades this to speculation-rules
   // *prerender*, which runs the incoming page's scripts before the click, and
   // view-transitions/ViewTransitions.astro reads the outgoing page's state at that point.
-  prefetch: { defaultStrategy: "hover" },
+  prefetch: { prefetchAll: true, defaultStrategy: "hover" },
   integrations: [mdx()],
   markdown: {
     rehypePlugins: [
