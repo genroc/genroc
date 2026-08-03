@@ -1,0 +1,25 @@
+---
+import type { MarkdownHeading } from 'astro'
+
+interface Props {
+  headings: MarkdownHeading[]
+}
+
+const { headings } = Astro.props
+const shown = headings.filter((h) => h.depth === 2 || h.depth === 3)
+---
+
+{
+  shown.length > 0 && (
+    <aside class="toc">
+      <h2>on this page</h2>
+      <ul>
+        {shown.map((h) => (
+          <li class={`depth-${h.depth}`}>
+            <a href={`#${h.slug}`}>{h.text}</a>
+          </li>
+        ))}
+      </ul>
+    </aside>
+  )
+}

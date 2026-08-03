@@ -1,0 +1,46 @@
+---
+import Logo from './Logo.astro'
+import { url } from '../lib/url'
+
+const path = Astro.url.pathname
+// `section` links duplicate the mobile drawer, so the narrow layout drops them.
+const links = [
+  { href: url('guides/getting-started'), label: 'guides', match: '/guides/', kind: 'section' },
+  { href: url('reference/tasks'), label: 'reference', match: '/reference/', kind: 'section' },
+  { href: 'https://github.com/genroc/genroc', label: 'github', match: null, kind: 'external' },
+]
+---
+
+<header class="topbar">
+  <a class="brand" href={url('/')}>
+    <Logo size="1.5em" />
+    <span>genroc</span>
+  </a>
+  <nav>
+    {
+      links.map((l) => (
+        <a
+          href={l.href}
+          data-kind={l.kind}
+          aria-current={l.match && path.includes(l.match) ? 'page' : undefined}
+        >
+          {l.label}
+        </a>
+      ))
+    }
+  </nav>
+  <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle colour theme">
+    &#9681;
+  </button>
+</header>
+
+<script is:inline>
+  document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
+    const root = document.documentElement
+    const dark = root.dataset.theme
+      ? root.dataset.theme === 'dark'
+      : matchMedia('(prefers-color-scheme: dark)').matches
+    root.dataset.theme = dark ? 'light' : 'dark'
+    localStorage.setItem('theme', root.dataset.theme)
+  })
+</script>

@@ -1,0 +1,111 @@
+---
+title: Getting started
+description: Run a server, define a process, apply it and watch an instance through to completion.
+section: guides
+order: 1
+---
+
+import Note from '../../../components/Note.astro'
+
+genroc is two binaries: `genroc`, the server that runs the engine and serves the API, and
+`genctl`, the command-line client you point at it.
+
+## Build and run a server
+
+```sh
+make build            # produces ./genroc and ./genctl
+./genroc -db genroc.db
+```
+
+That is the whole install: one process and one SQLite file. The server listens on `:8448`
+by default; `-http`, `-tcp` and `-uds` change where. For a production deployment with
+concurrent workers, point it at PostgreSQL instead — the SQL is the same either way, and
+the engine is chosen at startup:
+
+```sh
+./genroc -pg postgres://user:pass@localhost/genroc
+```
+
+`genctl` finds the server through `GENROC_SERVER`, which defaults to
+`http://localhost:8448`.
+
+## Define a process
+
+A process is a name, a schema for its input, and an ordered list of tasks. Save this as
+`greet.genroc.yaml`:
+
+```yaml
+name: greet
+input_schema:
+  type: object
+  properties:
+    url:  { type: string }
+    name: { type: string }
+  required: [url, name]
+tasks:
+  - id: call
+    action:
+      type: fetch                       # an HTTP call; every field is templated
+      url: "${ input.url }/hello"       # ${ } interpolates into a string
+      body:
+        greeting: "Hello, ${ input.name }"
+      result_schema:
+        type: object
+        properties:
+          ok: { type: boolean }
+        required: [ok]
+    output: "$: self.result"            # $: is one typed expression, not a string
+    switch: end
+```
+
+Three things in that file carry most of the language.
+
+- **`${ }` interpolates, `$:` is an expression.** `"${ input.url }/hello"` builds a string;
+  `"$: self.result"` is a single typed value — an object here, not its text. Anywhere a
+  value is expected you can write either, and the type is checked at apply time.
+- **`result_schema` types the outside world.** An HTTP response is untyped until you say
+  what it is. Once declared, the response is validated before the instance moves on, and
+  `self.result.ok` is readable and known to be a boolean.
+- **`switch` is required on every task.** It says where control goes: `next`, `end`, or
+  `$some-task`. There is no fallthrough — a task always states its own routing.
+
+## Apply, run, inspect
+
+```sh
+genctl apply -f greet.genroc.yaml
+genctl run greet --set url=https://api.example.com --set name=World
+genctl get @last          # inspect the most recent instance
+genctl logs @last         # its per-instance logs
+```
+
+`apply` registers a **version** of the definition. Applying a changed file makes version 2;
+instances already running stay on the version they started with, so a deploy never rewrites
+a process that is mid-flight.
+
+`@last` is a shorthand `genctl` accepts anywhere an instance id is expected.
+
+<Note>
+  Children must be applied before the parents that reference them — `apply` checks that the
+  child exists and that its input schema is compatible.
+</Note>
+
+## What happens when the worker dies
+
+Nothing you have to handle. Every task checkpoints to the database before and after it
+runs, and instances are leased to workers rather than owned by them. If this server is
+killed mid-`fetch`, its lease expires and any worker — the same one after a restart, or a
+different one — picks the instance up and carries on from the last checkpoint.
+
+That is also why long waits are cheap: a `delay`, a poll interval, or a task waiting on a
+human parks in the database and holds no worker while it waits.
+
+The one case that needs a decision from you is a task that must not run twice — charging a
+card, say. Mark it `only_once` and the engine will never silently re-run it after an
+interruption; it raises `only_once.interrupted` instead, for your definition to catch and
+resolve against the system of record.
+
+## Next
+
+- [Polling a remote job](../polling-a-remote-job/) — loops without a `while`, and carrying a
+  value you deliberately do not type.
+- [Tasks](../../reference/tasks/) — every field a task accepts.

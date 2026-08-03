@@ -1,0 +1,182 @@
+---
+title: Polling a remote job
+description: Write a poll loop with no while keyword, branch on an HTTP status, and hand back a payload the poller never reads.
+section: guides
+order: 2
+---
+
+import Note from '../../../components/Note.astro'
+
+Kick off a job on a remote service, then check it until it finishes. It is the shape of
+most integrations, and it exercises three things at once: a loop, branching on a status
+code, and a value that only the caller understands.
+
+The complete pair of definitions is in
+[`examples/polling-task/`](https://github.com/genroc/genroc/tree/main/examples/polling-task);
+this guide walks the parts that generalise.
+
+## A loop is routing, not a keyword
+
+genroc has no `while` or `until`. A poll loop is written by routing back to an earlier
+task:
+
+```yaml
+- id: check
+  action: { type: fetch, url: "$: input.check.url", ... }
+  switch: end
+
+- id: backoff
+  action:
+    type: delay
+    for: "$: input.poll_interval_ms"
+  switch:
+    - goto: $check
+```
+
+`check → backoff → check` is the loop. The reason it is expressed this way rather than as a
+block is that **every arc through it is a checkpoint**: the instance is persisted before the
+delay and reclaimed after it, so a worker can die on the fourteenth poll and another picks
+up on the fifteenth. A loop body held in a worker's memory could not survive that.
+
+The `delay` also holds no worker while it waits. A poll every 30 seconds for two hours
+costs no thread — the instance sits in the database with a wake-up time.
+
+## Branch on the status, because the body may say nothing
+
+A `fetch` exposes the response **body** as `self.result`. The status code is not visible to
+expressions. What is visible is that a status outside `accepted_status` becomes a catchable
+error code `http.<N>`, so status branching happens in `on_error`, not `switch`:
+
+```yaml
+- id: check
+  action:
+    type: fetch
+    url: "$: input.check.url"
+    accepted_status: "$: input.check.accepted_status"   # e.g. ["200"] → done
+    result_schema: { description: "opaque job result" }
+  on_error:
+    - code: [http.202]                                  # → still running
+      goto: $backoff
+  switch: end
+```
+
+`accepted_status` defaults to any 2xx; here it is narrowed so that **202 Accepted** — HTTP's
+own "accepted, processing not complete" — falls out as `http.202` and routes back into the
+loop. Anything else is neither done nor pending, so it fails the task and is handled by
+whatever `on_error` rule or parent catches it.
+
+<Note label="worth knowing">
+  On the polling path `check` fails every time, and a task's `output` is only computed when
+  its action *succeeds*. So a counter cannot live on `check`. Put it on `backoff`, which is
+  a `delay` and always succeeds. The same fact makes the instance log noisy: a healthy
+  20-poll run records 19 `action_failed` entries.
+</Note>
+
+## Count polls, not seconds
+
+Expressions have no wall clock, so a timeout is expressed as a **budget of attempts**. The
+`delay` task counts its own runs through `self.previous` — the output this task produced
+last time round the loop — and raises when the budget is spent:
+
+```yaml
+- id: backoff
+  action:
+    type: delay
+    for: "$: input.poll_interval_ms"
+  output:
+    attempt: "$: (self.previous.attempt ?? 0) + 1"
+  switch:
+    - case: "self.output.attempt >= input.max_attempts"
+      raise:
+        code: poll_timeout
+        message: "gave up after max_attempts polls"
+    - goto: $check
+```
+
+The wall-clock budget is then roughly `max_attempts × poll_interval_ms`. Both are ordinary
+input properties with `default:` set, which makes the process read like a function with
+default arguments — and a defaulted optional is inferred as non-nullable, so
+`input.max_attempts` needs no `??` guard.
+
+Note that the `raise` sits directly on the `switch` case. An arm either routes (`goto`) or
+terminates (`raise` / `panic`), so no extra task is needed to fail.
+
+## Give the result back untyped
+
+A poller should not know what it is polling for. But a value a process exports is normally
+typed where it is produced — declaring `{ answer: number }` inside the poller would pin a
+generic loop to one job.
+
+The empty schema `{}` is the way out. It is JSON Schema's top type, and genroc treats it as
+**unknown**: a value the process carries but never inspects.
+
+```yaml
+result_schema: { description: "opaque job result — the caller narrows this" }
+```
+
+The `description` carries no meaning to the type system; `{}` alone is identical. It is
+there because a bare `{}` cannot say whether it was deliberate. Adding any *shape* keyword —
+`type`, `properties`, `enum` — stops it being the top type.
+
+An unknown has exactly two legal moves:
+
+- **Forward it.** Export it, or nest it inside a known structure. Anything is assignable
+  *into* an unknown, so passing it up costs nothing.
+- **Narrow it.** Reading it is refused (`cannot access .answer: the value is unknown`)
+  until someone declares its shape.
+
+The caller is the one who knows, because it chose the job. It narrows on the
+`result_schema` of the task that spawns the child:
+
+```yaml
+- id: run
+  action:
+    type: child
+    name: poll-until-done
+    input: { ... }
+    result_schema:
+      type: object
+      properties:
+        result:                          # was unknown; this is the narrowing
+          type: object
+          properties:
+            answer: { type: number }
+          required: [answer]
+        attempts: { type: integer }      # already typed by the child
+      required: [result, attempts]
+```
+
+Now `self.result.result.answer` is readable — and checked, not assumed. The engine conforms
+the child's whole output against this schema when it collects it, so a payload of the wrong
+shape fails the task instead of flowing on. Undeclared keys are dropped by that same
+conform.
+
+The trade-off is *when* the check happens: the poller no longer validates the payload as it
+arrives, so a malformed one surfaces at the caller's boundary — later, and outside the
+child's own retry scope.
+
+<Note>
+  Omitting `result_schema` is not the same as declaring `{}`. An omitted schema leaves the
+  result untyped and unusable — not readable, and not exportable either — so "deliberately
+  opaque" stays distinguishable from "not yet typed".
+</Note>
+
+## Exhaustion is an error, not an output
+
+The child raises `poll_timeout` rather than returning a status field, and the parent catches
+it with `on_error` on the child task:
+
+```yaml
+on_error:
+  - code: [poll_timeout]
+    goto: $report
+```
+
+The dividing line: a result the caller **inspects** belongs in the output; a condition the
+caller **reacts to** is a raise. A raised code routes like any other error, and the `report`
+task reads it from `$error`.
+
+## Next
+
+- [Tasks](../../reference/tasks/) — `on_error`, `switch`, `output` and the action types in
+  full.

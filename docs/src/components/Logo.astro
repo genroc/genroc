@@ -1,0 +1,22 @@
+---
+import raw from '../assets/logo.svg?raw'
+
+interface Props {
+  size?: string
+  class?: string
+}
+
+const { size = '1.4em', class: className } = Astro.props
+
+// The source logo is one hard-coded ink colour on every fill and stroke. Swapping it for
+// currentColor is what lets the mark follow the theme; the prolog and the fixed 100%
+// width/height have to go with it, or the SVG sizes itself to its container instead.
+const svg = raw
+  .replace(/<\?xml[\s\S]*?\?>/, '')
+  .replace(/<!DOCTYPE[\s\S]*?>/, '')
+  .replace(/rgb\(37,\s*38,\s*34\)/g, 'currentColor')
+  .replace(/width="100%"\s+height="100%"/, `width="${size}" height="${size}" aria-hidden="true" focusable="false"`)
+  .trim()
+---
+
+<span class:list={['logo', className]} style={`--logo-size:${size}`} set:html={svg} />

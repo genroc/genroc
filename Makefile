@@ -7,7 +7,7 @@ log     ?= info
 
 # BUILD_FLAGS = CGO_ENABLED=1
 
-.PHONY: run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big swagger client clean generate
+.PHONY: run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big swagger client clean generate docs docs-build
 
 run:
 	$(BUILD_FLAGS) go run ./cmd/genroc \
@@ -66,6 +66,14 @@ bench-drain-big: client
 
 sqlc:
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
+
+# The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
+# per-version build is served from; unset means the site root.
+docs:
+	cd docs && ~/.bun/bin/bun install && ~/.bun/bin/bun run dev
+
+docs-build:
+	cd docs && ~/.bun/bin/bun install && ~/.bun/bin/bun run build
 
 clean:
 	rm -f genroc genctl $(db)

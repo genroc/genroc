@@ -1,8 +1,16 @@
 # Documentation site: a reference generated from the code that defines it
 
-Status: **proposed (2026-08-03).** Nothing here is built. The one step taken is the rename
-`docs/` → `specs/`, which freed `docs/` for the site and is why every path in the repo now
-points at `specs/`.
+Status: **partly built (2026-08-03).** The rename `docs/` → `specs/` freed `docs/` for the
+site, which is why every path in the repo now points at `specs/`. The Astro scaffold now
+lives in `docs/`: content collections with a Zod-validated frontmatter schema, the
+hand-written CSS, the two hand-written Shiki themes, direction-aware view transitions
+(§ *Navigation direction is derived*), and three seed pages (two guides, one reference).
+Built with `make docs` / `make docs-build`.
+
+Still unbuilt, and everything below still describes intent rather than behavior: Pagefind,
+the generators (§ *Generated, not written*), the genroc TextMate grammar, the React islands,
+and the versioned deployment. The reference page that exists is hand-written and is a
+stand-in for generated output.
 
 ## The gap is genre, not volume
 
@@ -147,6 +155,39 @@ one, which was a symptom of not yet having drawn the line above — if `docs/` o
 describes what landed, the field has one legal value. What may earn a place instead is
 `since:`, naming the version a behavior appeared in, once there is more than one version to
 distinguish.
+
+## Navigation direction is derived, not authored
+
+Cross-document view transitions slide the content, and the slide has to agree with where
+the reader went: left for onward, right for back, and vertically for a move between levels.
+Nothing in a URL says that — `/reference/tasks` is not "after" `/guides/getting-started` by
+any property of the string.
+
+So each page gets an **ordering key** built from the nav tree — `00` for the home page,
+`00.01.02` for the second entry of the first section — and the whole map is emitted into
+every page as JSON. Zero-padded, dot-joined, it does two jobs with one string: lexicographic
+order matches reading order (`.` sorts below every digit, so a parent precedes its children
+and a child precedes its parent's next sibling), and a parent's key is a proper prefix of
+its children's, so `b.startsWith(a + ".")` distinguishes *below* from merely *after*. Four
+directions fall out of one comparison, and reordering a page in the nav moves its slide with
+it.
+
+Equal keys are the fifth case and need their own treatment: a link to the page you are
+already on is a scroll to the top, not a page change, so cross-fading it flickers identical
+pixels against each other. There the content region is captured as a single named group and
+the chrome gives up its names, which makes the transition interpolate the content's position
+— the page glides up instead of jumping.
+
+Neither side of a navigation may reach for the Navigation API to learn where it came from.
+`navigation.activation` is Chromium-only and merely touching it throws in Safari, which
+kills the handler and leaves the transition undirected — so the previous path goes into
+`sessionStorage` on `pagehide`, and the incoming document reads it at parse time rather than
+waiting for `pagereveal`. The outgoing document is tagged from a capture-phase click
+listener, because the names it assigns are decided while *its* snapshot is captured, before
+the new document exists.
+
+The limits are worth stating: two digits per level, so a hundredth sibling would sort wrong,
+and the map is inlined per page, which is free at this size and would not be at a thousand.
 
 ## Versioning and deployment
 
