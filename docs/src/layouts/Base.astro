@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css'
 import Topbar from '../components/Topbar.astro'
+import Banner from '../components/Banner.astro'
 import Footer from '../components/Footer.astro'
 import { asset } from '../lib/url'
 import { navTree } from '../lib/nav'
@@ -91,6 +92,7 @@ const tree = await navTree()
   </head>
   <body>
     <Topbar />
+    <Banner />
     <slot />
     <Footer />
   </body>

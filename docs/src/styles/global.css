@@ -90,6 +90,7 @@ body {
    page instead of scrolling inside its own box, and every phone would render the site at
    that width. */
 .topbar,
+.banner-strip,
 .nav-drawer,
 .shell,
 .home,
@@ -157,6 +158,10 @@ summary:focus-visible {
   view-transition-name: topbar;
 }
 
+.banner-strip {
+  view-transition-name: banner;
+}
+
 footer {
   view-transition-name: footer;
 }
@@ -170,6 +175,7 @@ footer {
    it glides up instead of cross-fading identical pixels against each other. The chrome
    gives up its own names here, or it would be captured twice. */
 :root[data-vt-direction="scroll"] .topbar,
+:root[data-vt-direction="scroll"] .banner-strip,
 :root[data-vt-direction="scroll"] footer,
 :root[data-vt-direction="scroll"] .shell > .sidebar {
   view-transition-name: none;
@@ -188,6 +194,7 @@ footer {
     animation: vt-in 240ms var(--ease-out) both;
   }
   ::view-transition-group(topbar),
+  ::view-transition-group(banner),
   ::view-transition-group(footer),
   ::view-transition-group(sidebar) {
     animation-duration: 240ms;
@@ -381,6 +388,30 @@ footer {
 .theme-toggle:hover {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* --- work-in-progress banner ----------------------------------------------- */
+
+.banner-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: baseline;
+  padding: 0.4rem var(--gutter);
+  background: var(--code-bg);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.banner-strip .mark {
+  color: var(--accent);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.banner-strip .mark::before {
+  content: "! ";
 }
 
 /* --- shell ----------------------------------------------------------------- */
