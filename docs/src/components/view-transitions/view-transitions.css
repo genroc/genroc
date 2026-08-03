@@ -20,6 +20,13 @@
   navigation: auto;
 }
 
+/* The snapshot overlay hit-tests by default, so every click during the animation is
+   swallowed. Inert, it lets a quick follow-up click in the nav reach the live page
+   beneath and start the next navigation immediately. */
+::view-transition {
+  pointer-events: none;
+}
+
 :root {
   /* Borrows the site's easing token when there is one, so the transitions match the
      rest of the UI, but stands alone if this file is used on its own. */
