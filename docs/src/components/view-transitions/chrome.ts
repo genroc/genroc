@@ -10,7 +10,7 @@ export type ChromeElement = { attr: string; selector: string }
 
 export const CHROME: ChromeElement[] = [
   { attr: 'vtBanner', selector: '.banner-strip' },
-  { attr: 'vtCrumb', selector: '.page-head .crumb' },
+  { attr: 'vtDrawer', selector: '.nav-drawer' },
   { attr: 'vtSidebar', selector: '.shell > .sidebar' },
   { attr: 'vtToc', selector: '.toc' },
   { attr: 'vtFooter', selector: 'footer' },

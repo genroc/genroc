@@ -52,10 +52,11 @@ footer {
   view-transition-name: toc;
 }
 
-/* The breadcrumb sits in the content column but is navigation, and it holds the same place
-   on every page — so it stays put while the article slides under it. */
-.page-head .crumb {
-  view-transition-name: crumb;
+/* The mobile drawer is the navigation at that width, and it sits directly under the banner
+   — so it belongs to the chrome and moves with it. Only one of it and the sidebar is ever
+   rendered, so the two names never collide. */
+.nav-drawer {
+  view-transition-name: nav-drawer;
 }
 
 /* Chrome the reader could not see on one side of the navigation — a banner scrolled past,
@@ -64,7 +65,7 @@ footer {
    `exit` drops the name here so the old one simply leaves. The head script decides which
    applies by comparing visibility across the two pages. */
 :root[data-vt-banner="exit"] .banner-strip,
-:root[data-vt-crumb="exit"] .page-head .crumb,
+:root[data-vt-drawer="exit"] .nav-drawer,
 :root[data-vt-sidebar="exit"] .shell > .sidebar,
 :root[data-vt-toc="exit"] .toc,
 :root[data-vt-footer="exit"] footer {
@@ -121,7 +122,7 @@ footer {
      the topbar and banner on its way out. */
   ::view-transition-group(topbar),
   ::view-transition-group(banner),
-  ::view-transition-group(crumb),
+  ::view-transition-group(nav-drawer),
   ::view-transition-group(sidebar),
   ::view-transition-group(toc),
   ::view-transition-group(footer) {
@@ -130,22 +131,24 @@ footer {
 
   /* enter — kill the morph, then bring the new one in from its own edge. */
   :root[data-vt-banner="enter"]::view-transition-group(banner),
-  :root[data-vt-crumb="enter"]::view-transition-group(crumb),
+  :root[data-vt-drawer="enter"]::view-transition-group(nav-drawer),
   :root[data-vt-sidebar="enter"]::view-transition-group(sidebar),
   :root[data-vt-toc="enter"]::view-transition-group(toc),
   :root[data-vt-footer="enter"]::view-transition-group(footer) {
     animation: none;
   }
   :root[data-vt-banner="enter"]::view-transition-old(banner),
-  :root[data-vt-crumb="enter"]::view-transition-old(crumb),
+  :root[data-vt-drawer="enter"]::view-transition-old(nav-drawer),
   :root[data-vt-sidebar="enter"]::view-transition-old(sidebar),
   :root[data-vt-toc="enter"]::view-transition-old(toc),
   :root[data-vt-footer="enter"]::view-transition-old(footer) {
     animation: none;
     opacity: 0;
   }
+  /* The drawer arrives on the banner's animation, from the same edge — they read as one
+     band of chrome at the top of the page. */
   :root[data-vt-banner="enter"]::view-transition-new(banner),
-  :root[data-vt-crumb="enter"]::view-transition-new(crumb) {
+  :root[data-vt-drawer="enter"]::view-transition-new(nav-drawer) {
     animation: vt-chrome-in-top 260ms var(--vt-ease) both;
   }
   :root[data-vt-footer="enter"]::view-transition-new(footer) {
@@ -160,7 +163,7 @@ footer {
 
   /* exit — the name is gone on the new side, so only the old snapshot is left to leave. */
   :root[data-vt-banner="exit"]::view-transition-old(banner),
-  :root[data-vt-crumb="exit"]::view-transition-old(crumb) {
+  :root[data-vt-drawer="exit"]::view-transition-old(nav-drawer) {
     animation: vt-chrome-out-top 220ms var(--vt-ease) both;
   }
   :root[data-vt-footer="exit"]::view-transition-old(footer) {

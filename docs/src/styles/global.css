@@ -712,10 +712,6 @@ pre code {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .transcript .line,
-  .transcript .line .text {
-    animation: none;
-  }
   .card:hover {
     transform: none;
   }
