@@ -8,6 +8,30 @@ import { useTickEnv } from "./helpers.ts";
 // literal grammars are covered by internal/delayspec.
 const ctx = useTickEnv(20019);
 
+// The `delay_armed` audit rows, oldest first: each carries "<spec> -> <RFC3339 wake>", and
+// its own time is when the delay armed. Rows are flushed off the hot path (logFlushInterval
+// = 5ms), so they are not guaranteed readable the instant /tick returns — poll for `want`.
+async function armLogs(id: string, want: number) {
+  for (let attempt = 0; ; attempt++) {
+    const { data, error } = await ctx.env.client.GET("/instances/{id}/logs", {
+      params: { path: { id }, query: { limit: 100 } },
+    });
+    if (error) throw new Error(`get logs failed: ${JSON.stringify(error)}`);
+    const arms = (data!.items ?? [])
+      .filter((l) => l.event === "delay_armed")
+      .map((l) => {
+        const [spec, target] = (l.message ?? "").split(" -> ");
+        return {
+          spec: spec!,
+          at: new Date(l.time!).getTime(),
+          target: new Date(target!).getTime(),
+        };
+      });
+    if (arms.length >= want || attempt >= 50) return arms;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
 test("delay parks the instance until the clock advances past ms", async () => {
   await ctx.env.define("delay_done", [
     { id: "wait", action: { type: "delay", for: 60000 }, switch: "end" },
@@ -60,31 +84,31 @@ test("a stepped `until` arms on the field's grid, not on the arm time", async ()
   ]);
   const id = await ctx.env.start("delay_step");
 
+  const wallBeforeArm = Date.now();
   expect(await ctx.env.tick()).toBe(1); // arm
   expect(await ctx.env.status(id)).toBe("running");
 
-  const { data, error } = await ctx.env.client.GET("/instances/{id}/logs", {
-    params: { path: { id } },
-  });
-  if (error) throw new Error(`get logs failed: ${JSON.stringify(error)}`);
-  const armed = (data!.items ?? []).find((l) => l.event === "delay_armed");
+  const [armed] = await armLogs(id, 1);
   expect(armed, "the delay should have logged where it armed").toBeDefined();
+  expect(armed!.spec).toBe("*:*:0/5");
 
-  const [spec, target] = (armed!.message ?? "").split(" -> ");
-  expect(spec).toBe("*:*:0/5");
-  const at = new Date(target!);
-  expect(at.getSeconds() % 5, `armed at ${target}, off the five-second grid`).toBe(0);
+  const at = new Date(armed!.target);
+  expect(at.getSeconds() % 5, `armed at ${at.toISOString()}, off the five-second grid`).toBe(0);
   expect(at.getMilliseconds()).toBe(0);
 
   // Within one period of the arm time: a five-second schedule that resolved a minute or an
   // hour out would still be "on the grid".
-  const armedAt = new Date(armed!.time!).getTime();
-  const wait = at.getTime() - armedAt;
+  const wait = armed!.target - armed!.at;
   expect(wait).toBeGreaterThan(0);
   expect(wait).toBeLessThanOrEqual(5000);
 
-  // And it is a real timer: parked until the clock reaches it, then done.
-  expect(await ctx.env.tick()).toBe(0);
+  // And it is a real timer: parked until the clock reaches it, then done. The server clock
+  // is real time plus the /tick offset, so an arm that landed just short of a grid point is
+  // legitimately due by the time the requests above return — assert "still parked" only
+  // while the grid point is demonstrably still ahead of the elapsed wall clock.
+  if (wait - (Date.now() - wallBeforeArm) > 1000) {
+    expect(await ctx.env.tick()).toBe(0);
+  }
   await ctx.env.client.POST("/tick", { body: { advance_ms: 5000 } });
   expect(await ctx.env.status(id)).toBe("completed");
 });
@@ -104,20 +128,20 @@ test("re-arming in a loop stays on the grid instead of drifting", async () => {
   ]);
   const id = await ctx.env.start("delay_loop");
 
-  // Each round: one tick arms the delay, then the clock reaches it.
-  for (let round = 0; round < 5; round++) {
+  // Each round: one tick arms the delay, then the clock advances by that arm's own
+  // remaining wait. A flat period would instead carry the real time each round's requests
+  // took into the next round, and once that carry outgrew the first arm's sub-period offset
+  // a round would overshoot a grid point — a skipped period, read below as drift.
+  for (let round = 1; round <= 5; round++) {
     await ctx.env.tick();
-    await ctx.env.client.POST("/tick", { body: { advance_ms: 5000 } });
+    const arms = await armLogs(id, round);
+    expect(arms.length, `round ${round} did not arm`).toBeGreaterThanOrEqual(round);
+    const last = arms.at(-1)!;
+    await ctx.env.client.POST("/tick", { body: { advance_ms: last.target - last.at } });
   }
   expect(await ctx.env.status(id)).toBe("completed");
 
-  const { data, error } = await ctx.env.client.GET("/instances/{id}/logs", {
-    params: { path: { id } },
-  });
-  if (error) throw new Error(`get logs failed: ${JSON.stringify(error)}`);
-  const armed = (data!.items ?? [])
-    .filter((l) => l.event === "delay_armed")
-    .map((l) => new Date((l.message ?? "").split(" -> ")[1]!).getTime());
+  const armed = (await armLogs(id, 5)).map((a) => a.target);
 
   expect(armed.length).toBe(5);
   for (const [n, at] of armed.entries()) {
