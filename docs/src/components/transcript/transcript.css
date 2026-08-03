@@ -28,45 +28,25 @@
   color: var(--muted);
 }
 
-.transcript .line.cmd .text {
-  display: inline-block;
-}
-
-/* Two classes, both set by the script in Transcript.astro, and the split is the point.
-   `armed` is added while the document parses, so the first paint already shows the hidden
-   state — without it the finished transcript would flash before rewinding. `ready` is
-   added after the first frame, and only then do the animations start.
-   Anchoring the schedule to the first painted frame rather than to the document timeline
-   is what makes it survive a deferred first paint: a cross-document view transition holds
-   the incoming document back, and a schedule counting from document creation can be half
-   spent — or wholly spent — before anything is on screen, which reads as a blank box that
-   pops into place. Paused animations hold their backwards fill, so the wait costs nothing.
-   With no JavaScript neither class is set, no animation applies, and the transcript is
-   simply there. */
-.transcript.armed .line {
-  /* A plain fade, deliberately not `1ms steps(1)`: an instantaneous step animation is where
-     the fill value at the boundary is decided, and Chrome held some of these lines at
-     opacity 0 once they finished. Nothing here has a boundary to get wrong. */
+/* A plain fade, deliberately not `1ms steps(1)`: an instantaneous step animation is where
+   the fill value at the boundary is decided, and Chrome held some of these lines at
+   opacity 0 once they finished. Nothing here has a boundary to get wrong. */
+.transcript .line {
   animation: transcript-appear var(--appear, 120ms) ease var(--delay) both;
-  animation-play-state: paused;
 }
 
-.transcript.armed .line.out {
+.transcript .line.out {
   animation-duration: var(--dur);
 }
 
 /* Typing, by revealing the line one character-width at a time — `steps(--len)` over a
    clip-path lands each step exactly on a character boundary in a monospace font. Clipping
    rather than animating width keeps the text from being measured twice, so a stray glyph
-   cannot end up cropped. */
-.transcript.armed .line.cmd .text {
+   cannot end up cropped, and the animation reveals *from* hidden: if it never runs, the
+   text is simply there. */
+.transcript .line.cmd .text {
+  display: inline-block;
   animation: transcript-type var(--dur) steps(var(--len)) var(--delay) both;
-  animation-play-state: paused;
-}
-
-.transcript.ready .line,
-.transcript.ready .line.cmd .text {
-  animation-play-state: running;
 }
 
 @keyframes transcript-appear {
@@ -88,9 +68,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Matching the `armed` specificity, or these would lose to it. */
-  .transcript.armed .line,
-  .transcript.armed .line.cmd .text {
+  .transcript .line,
+  .transcript .line .text {
     animation: none;
   }
 }

@@ -189,6 +189,23 @@ from its own edge; disappeared → drop its name here, so the old one simply lea
 sides of that comparison are visibility, not existence, which is what makes one rule cover
 a sidebar the home page lacks and a footer that is merely below the fold.
 
+The transitions also constrain how a page *loads*: every page carries
+`<link rel="expect" href="#page-end" blocking="render">`, pointing at the footer's id — the
+last element on every page — so rendering is held until the document has fully parsed. Slow
+delivery otherwise breaks the transition in one of two ways, both reproduced: the incoming
+page misses Chrome's paint deadline and the transition is silently dropped (~400 ms of
+cold-cache latency sufficed), or worse, it activates on a *partially parsed* document and
+the animation runs against a blank body — old page slides out, black slides in, content
+pops at the end. `blocking="render"` fixes both at once: the snapshot is never partial, and
+the explicit hold extends Chrome's patience instead of exhausting it. CSS inlining and
+link prefetching were tried first and rejected — they only narrowed the race (inlining
+even lengthens the HTML the parser must stream), while the expect link names the actual
+requirement. The cost is progressive rendering, which at these page sizes is nothing; the
+footer id is the contract, and renaming it breaks all of this silently. To diagnose a
+suspect navigation, log `document.readyState` and `!!event.viewTransition` from `pagereveal`:
+`readyState: "loading"` on an incoming transition is the partial-snapshot failure, a missing
+`viewTransition` is a skip, and a skip's reason surfaces by catching `viewTransition.ready`.
+
 Neither side of a navigation may reach for the Navigation API to learn where it came from.
 `navigation.activation` is Chromium-only and merely touching it throws in Safari, which
 kills the handler and leaves the transition undirected — so the previous path goes into

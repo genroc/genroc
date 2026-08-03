@@ -28,6 +28,12 @@ const { title, description } = Astro.props
       const stored = localStorage.getItem('theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
     </script>
+    {/* Hold first render until the footer — the last element on every page — has parsed.
+        Without it, slow-arriving HTML lets a cross-document view transition activate on a
+        partially parsed document, and the animation runs against a blank body: the reader
+        sees the old page slide out, black slide in, and content pop at the end. The footer
+        id is the contract; renaming it breaks this silently. */}
+    <link rel="expect" href="#page-end" blocking="render" />
     <ViewTransitions />
   </head>
   <body>

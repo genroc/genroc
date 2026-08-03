@@ -31,7 +31,7 @@ const scheduled = lines.map((line) => {
 })
 ---
 
-<div class="transcript" data-transcript role="img" aria-label={label}>
+<div class="transcript" role="img" aria-label={label}>
   {
     scheduled.map((line) => (
       <div
@@ -43,20 +43,3 @@ const scheduled = lines.map((line) => {
     ))
   }
 </div>
-
-<script is:inline>
-  ;(function () {
-    // Runs while the document parses, so `armed` lands before the first paint and the
-    // transcript is never seen finished. `ready` waits for a painted frame, which is what
-    // anchors the schedule to the moment the page is actually visible.
-    //
-    // Selected by attribute rather than by DOM position: this script sits next to its
-    // transcript today, but anything the build inserts between them — a hoisted style, a
-    // wrapper — would silently arm the wrong element and the animation would never run.
-    // Only transcripts already parsed are matched, which is exactly the ones above.
-    for (const el of document.querySelectorAll('[data-transcript]:not(.armed)')) {
-      el.classList.add('armed')
-      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('ready')))
-    }
-  })()
-</script>
