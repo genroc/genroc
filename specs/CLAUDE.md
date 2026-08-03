@@ -3,6 +3,14 @@
 Specs and design records. **Not every doc here describes shipped behavior** — the ones
 listed below are proposals. Do not cite them as current behavior.
 
+`specs/` and `docs/` are divided by what the text asserts, not by polish or audience.
+**A spec records a decision** — why a design was chosen, what was rejected, what is still
+unsettled — and stays internal. **A doc records behavior** that shipped, in the present
+tense, for someone using the system. A spec is not a draft of a doc: nothing is promoted
+between them, and when a feature lands its documentation is written against the shipped
+behavior while the spec stays put, answering a different question. See
+[docs-site.md](docs-site.md).
+
 ## Design drafts (proposed, not implemented)
 
 - [fetch-http-surface.md](fetch-http-surface.md) — two independent additions to `fetch`:
@@ -42,6 +50,19 @@ listed below are proposals. Do not cite them as current behavior.
   two soundness traps that are easy to miss: `config` is re-resolved every tick (so a guard
   on it proves nothing downstream), and task outputs are overwritten on loop re-entry (so
   refinements need a dataflow kill).
+- [docs-site.md](docs-site.md) — the user-facing documentation site, and the only doc here
+  about **tooling rather than the language**. The gap it fills is *reference*: nothing today
+  says what `accepted_status` accepts or what `genctl promote` does. Draws the
+  spec-vs-doc line quoted above, and follows it: `docs/` is shipped behavior only, the site
+  never links into `specs/`, and the explanation a *user* needs lives in guides rather than
+  being outsourced to a spec's argument. Records why plain Astro
+  over Hugo (Chroma is vendored, so a genroc lexer is impossible), why no theme (its design
+  system is the thing being replaced), Pagefind over any hosted search, and two deployment
+  traps — `actions/deploy-pages` would delete the benchmark history on `gh-pages`, and
+  GitHub Pages' one-custom-domain-per-repo rule blocks `v1.` subdomains. A playground is
+  **not scoped**; it is mentioned only to record that islands are additive, so nothing in
+  the architecture anticipates it — plus the one fact that makes it cheap if it ever
+  happens: `internal/validation` has no `db`/`engine`/`api` dependency.
 
 ## Shipped behavior with a doc here
 
