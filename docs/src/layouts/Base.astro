@@ -4,7 +4,7 @@ import Topbar from '../components/Topbar.astro'
 import Banner from '../components/Banner.astro'
 import Footer from '../components/Footer.astro'
 import { asset } from '../lib/url'
-import { navTree } from '../lib/nav'
+import ViewTransitions from '../components/view-transitions/ViewTransitions.astro'
 
 interface Props {
   title: string
@@ -12,7 +12,6 @@ interface Props {
 }
 
 const { title, description } = Astro.props
-const tree = await navTree()
 ---
 
 <!doctype html>
@@ -29,66 +28,7 @@ const tree = await navTree()
       const stored = localStorage.getItem('theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
     </script>
-    <script is:inline type="application/json" id="nav-tree" set:html={JSON.stringify(tree)} />
-    {/* Picks the slide direction for a cross-document view transition. Inline in the head
-        because the incoming document must be tagged before the transition animates, and
-        `pagereveal` is not guaranteed to fire. */}
-    <script is:inline>
-      ;(function () {
-        const root = document.documentElement
-        const tree = JSON.parse(document.getElementById('nav-tree').textContent)
-        // Must match normPath() in src/lib/nav.ts, or every lookup misses.
-        const norm = (p) => p.replace(/#.*$/, '').replace(/\/+$/, '') || '/'
-
-        function direction(from, to) {
-          const a = tree[norm(from)]
-          const b = tree[norm(to)]
-          if (!a || !b) return ''
-          // Same page: the navigation is really a scroll to the top, so animate that
-          // rather than cross-fading a page against itself.
-          if (a === b) return 'scroll'
-          if (b.startsWith(a + '.')) return 'down'
-          if (a.startsWith(b + '.')) return 'up'
-          return b > a ? 'forward' : 'back'
-        }
-
-        function set(dir) {
-          if (dir) root.dataset.vtDirection = dir
-          else delete root.dataset.vtDirection
-        }
-
-        // Incoming side. The page we came from is remembered in sessionStorage rather than
-        // read from navigation.activation — that is the Navigation API, which only
-        // Chromium has, and touching it throws in Safari.
-        function tag() {
-          const from = sessionStorage.getItem('vt-from')
-          if (from) set(direction(from, location.pathname))
-        }
-        tag()
-        addEventListener('pagereveal', tag)
-
-        addEventListener('pagehide', () => sessionStorage.setItem('vt-from', location.pathname))
-
-        // Outgoing side. Which elements get a view-transition-name is decided in *this*
-        // document while its snapshot is captured, so the direction has to be known before
-        // the click navigates — the `scroll` mode needs the same name on both sides.
-        addEventListener(
-          'click',
-          (e) => {
-            if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-            const a = e.target && e.target.closest && e.target.closest('a[href]')
-            if (!a || a.target || a.hasAttribute('download')) return
-            const to = new URL(a.href, location.href)
-            if (to.origin !== location.origin) return
-            // A fragment link on this page scrolls without navigating; tagging it would
-            // leave a stale direction behind.
-            if (to.hash && norm(to.pathname) === norm(location.pathname)) return
-            set(direction(location.pathname, to.pathname))
-          },
-          true,
-        )
-      })()
-    </script>
+    <ViewTransitions />
   </head>
   <body>
     <Topbar />

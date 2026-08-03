@@ -1,10 +1,21 @@
 ---
 import Base from '../layouts/Base.astro'
 import Logo from '../components/Logo.astro'
+import Transcript from '../components/transcript/Transcript.astro'
+import type { TranscriptLine } from '../components/transcript/Transcript.astro'
 import { navSections } from '../lib/nav'
 import { url } from '../lib/url'
 
 const sections = await navSections()
+
+const session: TranscriptLine[] = [
+  { kind: 'cmd', text: 'genctl apply -f greet.genroc.yaml' },
+  { kind: 'out', text: 'greet: version 1 applied' },
+  { kind: 'cmd', text: 'genctl run greet --set url=https://api.example.com --set name=World' },
+  { kind: 'out', text: 'instance 01JBQ… started' },
+  { kind: 'cmd', text: 'genctl get @last' },
+  { kind: 'out', text: 'status: completed   output: {"ok": true}' },
+]
 ---
 
 <Base
@@ -28,14 +39,7 @@ const sections = await navSections()
       <span class="muted">without holding a thread or losing state.</span>
     </p>
 
-    <div class="transcript">
-      <div class="line cmd">genctl apply -f greet.genroc.yaml</div>
-      <div class="line out">greet: version 1 applied</div>
-      <div class="line cmd">genctl run greet --set url=https://api.example.com --set name=World</div>
-      <div class="line out">instance 01JBQ… started</div>
-      <div class="line cmd">genctl get @last</div>
-      <div class="line out">{'status: completed   output: {"ok": true}'}</div>
-    </div>
+    <Transcript lines={session} />
 
     {
       sections.map((s) => (

@@ -1,0 +1,45 @@
+---
+// A terminal session that types itself out once on load: commands appear character by
+// character, output arrives whole, the way a terminal behaves.
+//
+// The schedule is computed here rather than hand-tuned in CSS, so editing a line re-times
+// everything after it instead of leaving six delays to fix by hand. Each line carries its
+// slot as inline custom properties; transcript.css does the rest.
+import './transcript.css'
+
+export type TranscriptLine = { kind: 'cmd' | 'out'; text: string }
+
+interface Props {
+  lines: TranscriptLine[]
+  label?: string
+}
+
+const { lines, label = 'terminal session' } = Astro.props
+
+const CHAR_MS = 14
+const MAX_COMMAND_MS = 700 // a long command types as a burst rather than dragging the page out
+const OUTPUT_MS = 180
+const GAP_MS = 100
+const START_MS = 250
+
+let at = START_MS
+const scheduled = lines.map((line) => {
+  const duration = line.kind === 'cmd' ? Math.min(line.text.length * CHAR_MS, MAX_COMMAND_MS) : OUTPUT_MS
+  const slot = { ...line, delay: at, duration }
+  at += duration + GAP_MS
+  return slot
+})
+---
+
+<div class="transcript" role="img" aria-label={label}>
+  {
+    scheduled.map((line) => (
+      <div
+        class:list={['line', line.kind]}
+        style={`--delay:${line.delay}ms;--dur:${line.duration}ms;--len:${line.text.length}`}
+      >
+        <span class="text">{line.text}</span>
+      </div>
+    ))
+  }
+</div>

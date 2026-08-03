@@ -1,0 +1,124 @@
+---
+// Cross-document view transitions, whole feature. Drop this component from the layout and
+// the site navigates plainly; nothing else references it.
+//
+// It decides two things and writes both onto <html> for view-transitions.css to select on:
+//
+//   data-vt-direction   forward | back | down | up — where the reader moved in the nav
+//                       tree, from the ordering keys in src/lib/nav.ts
+//   data-vt-<chrome>    enter | exit — chrome that was not visible on one side of the
+//                       navigation, from the list in ./chrome.ts
+//
+// Must be rendered inside <head>: the incoming document has to be tagged before the
+// transition animates.
+import './view-transitions.css'
+import { navTree } from '../../lib/nav'
+import { CHROME } from './chrome'
+
+const data = { tree: await navTree(), chrome: CHROME }
+---
+
+<script is:inline type="application/json" id="vt-data" set:html={JSON.stringify(data)} />
+<script is:inline>
+  ;(function () {
+    const root = document.documentElement
+    const { tree, chrome } = JSON.parse(document.getElementById('vt-data').textContent)
+    // Must match normPath() in src/lib/nav.ts, or every lookup misses.
+    const norm = (p) => p.replace(/#.*$/, '').replace(/\/+$/, '') || '/'
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)')
+
+    function direction(from, to) {
+      const a = tree[norm(from)]
+      const b = tree[norm(to)]
+      if (!a || !b || a === b) return ''
+      if (b.startsWith(a + '.')) return 'down'
+      if (a.startsWith(b + '.')) return 'up'
+      return b > a ? 'forward' : 'back'
+    }
+
+    function set(dir) {
+      if (dir) root.dataset.vtDirection = dir
+      else delete root.dataset.vtDirection
+    }
+
+    function visible(selector) {
+      const el = document.querySelector(selector)
+      if (!el) return false
+      const r = el.getBoundingClientRect()
+      return r.height > 0 && r.bottom > 0 && r.top < innerHeight
+    }
+
+    function chromeState() {
+      const state = {}
+      for (const c of chrome) state[c.attr] = visible(c.selector)
+      return state
+    }
+
+    // Needs layout, so unlike the direction this cannot run while the head is parsing.
+    // DOMContentLoaded still lands before the first render opportunity, which is when the
+    // incoming snapshot is taken.
+    function tagChrome() {
+      let was = {}
+      try {
+        was = JSON.parse(sessionStorage.getItem('vt-chrome') || '{}')
+      } catch (_) {}
+      const now = chromeState()
+      for (const c of chrome) {
+        const state = now[c.attr] ? (was[c.attr] ? '' : 'enter') : was[c.attr] ? 'exit' : ''
+        if (state) root.dataset[c.attr] = state
+        else delete root.dataset[c.attr]
+      }
+    }
+
+    // Incoming side. The page we came from is remembered in sessionStorage rather than read
+    // from navigation.activation — that is the Navigation API, which only Chromium has, and
+    // touching it throws in Safari.
+    function tagDirection() {
+      const from = sessionStorage.getItem('vt-from')
+      if (from) set(direction(from, location.pathname))
+    }
+
+    tagDirection()
+    addEventListener('pagereveal', () => {
+      tagDirection()
+      tagChrome()
+    })
+    if (document.readyState === 'loading') addEventListener('DOMContentLoaded', tagChrome)
+    else tagChrome()
+
+    addEventListener('pagehide', () => {
+      sessionStorage.setItem('vt-from', location.pathname)
+      sessionStorage.setItem('vt-chrome', JSON.stringify(chromeState()))
+    })
+
+    // Outgoing side. Which elements get a view-transition-name is decided in *this* document
+    // while its snapshot is captured, so this has to run before the click navigates.
+    addEventListener(
+      'click',
+      (e) => {
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+        const a = e.target && e.target.closest && e.target.closest('a[href]')
+        if (!a || a.target || a.hasAttribute('download')) return
+        const to = new URL(a.href, location.href)
+        if (to.origin !== location.origin) return
+
+        if (norm(to.pathname) === norm(location.pathname)) {
+          // A link to the page you are already on. Reloading it to animate a snapshot of
+          // itself leaves a band where the content used to be; scrolling for real is
+          // smoother, and needs no view transition at all. A fragment keeps its default
+          // behaviour, which `scroll-behavior: smooth` already animates.
+          if (to.hash) return
+          e.preventDefault()
+          scrollTo({ top: 0, behavior: reduceMotion.matches ? 'auto' : 'smooth' })
+          return
+        }
+
+        // Leave this document's chrome fully named. A stale `exit` from the previous
+        // navigation would drop a name here and rob the next transition of its old snapshot.
+        for (const c of chrome) delete root.dataset[c.attr]
+        set(direction(location.pathname, to.pathname))
+      },
+      true,
+    )
+  })()
+</script>

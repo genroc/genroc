@@ -1,0 +1,293 @@
+/* ---------------------------------------------------------------------------
+   View transitions — cross-document, self-contained.
+
+   Loaded by ViewTransitions.astro next to it, which carries the script half.
+   Nothing else in the site needs to know this file exists; deleting the component
+   removes the feature and leaves plain navigation behind.
+
+   Two couplings to the rest of the site, and they are the whole maintenance cost:
+
+   1. The chrome selectors below (.topbar, .banner-strip, .shell > .sidebar, .toc,
+      footer) must match the CHROME list in ./chrome.ts, which measures the same
+      elements. CSS cannot read that list, so adding a piece of chrome means
+      editing both.
+   2. `data-vt-direction` and `data-vt-<name>` are written on <html> by that script.
+
+   Browsers without cross-document view transitions ignore all of it and navigate.
+   --------------------------------------------------------------------------- */
+
+@view-transition {
+  navigation: auto;
+}
+
+:root {
+  /* Borrows the site's easing token when there is one, so the transitions match the
+     rest of the UI, but stands alone if this file is used on its own. */
+  --vt-ease: var(--ease-out, cubic-bezier(0.2, 0, 0, 1));
+  --vt-slide: 24px;
+  --vt-chrome-slide: 12px;
+}
+
+/* Named elements are captured separately from `root`, which is how the chrome stays put
+   while the page content slides underneath it. The drawer holds a second .sidebar, but
+   only one of the two is ever rendered at a given width — a name on two rendered
+   elements aborts the whole transition. */
+.topbar {
+  view-transition-name: topbar;
+}
+
+.banner-strip {
+  view-transition-name: banner;
+}
+
+footer {
+  view-transition-name: footer;
+}
+
+.shell > .sidebar {
+  view-transition-name: sidebar;
+}
+
+.toc {
+  view-transition-name: toc;
+}
+
+/* The breadcrumb sits in the content column but is navigation, and it holds the same place
+   on every page — so it stays put while the article slides under it. */
+.page-head .crumb {
+  view-transition-name: crumb;
+}
+
+/* Chrome the reader could not see on one side of the navigation — a banner scrolled past,
+   a sidebar the home page does not have. Morphing it from wherever it was flies it across
+   the screen, so `enter` neutralises the morph and slides the new one a short way in, and
+   `exit` drops the name here so the old one simply leaves. The head script decides which
+   applies by comparing visibility across the two pages. */
+:root[data-vt-banner="exit"] .banner-strip,
+:root[data-vt-crumb="exit"] .page-head .crumb,
+:root[data-vt-sidebar="exit"] .shell > .sidebar,
+:root[data-vt-toc="exit"] .toc,
+:root[data-vt-footer="exit"] footer {
+  view-transition-name: none;
+}
+
+/* A link to the page you are already on never gets here — the head script turns it into a
+   real smooth scroll, which is why nothing needs to animate a page against itself. */
+
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) {
+    animation: vt-out 160ms ease both;
+  }
+  ::view-transition-new(root) {
+    animation: vt-in 240ms var(--vt-ease) both;
+  }
+  ::view-transition-group(topbar),
+  ::view-transition-group(banner),
+  ::view-transition-group(footer),
+  ::view-transition-group(sidebar) {
+    animation-duration: 240ms;
+    animation-timing-function: var(--vt-ease);
+  }
+
+  :root[data-vt-direction="forward"]::view-transition-old(root) {
+    animation: vt-exit-left 220ms var(--vt-ease) both;
+  }
+  :root[data-vt-direction="forward"]::view-transition-new(root) {
+    animation: vt-enter-right 220ms var(--vt-ease) both;
+  }
+
+  :root[data-vt-direction="back"]::view-transition-old(root) {
+    animation: vt-exit-right 220ms var(--vt-ease) both;
+  }
+  :root[data-vt-direction="back"]::view-transition-new(root) {
+    animation: vt-enter-left 220ms var(--vt-ease) both;
+  }
+
+  :root[data-vt-direction="down"]::view-transition-old(root) {
+    animation: vt-exit-up 220ms var(--vt-ease) both;
+  }
+  :root[data-vt-direction="down"]::view-transition-new(root) {
+    animation: vt-enter-down 220ms var(--vt-ease) both;
+  }
+
+  :root[data-vt-direction="up"]::view-transition-old(root) {
+    animation: vt-exit-down 220ms var(--vt-ease) both;
+  }
+  :root[data-vt-direction="up"]::view-transition-new(root) {
+    animation: vt-enter-up 220ms var(--vt-ease) both;
+  }
+
+  /* The chrome must paint above the sliding content, or the page appears to move over
+     the topbar and banner on its way out. */
+  ::view-transition-group(topbar),
+  ::view-transition-group(banner),
+  ::view-transition-group(crumb),
+  ::view-transition-group(sidebar),
+  ::view-transition-group(toc),
+  ::view-transition-group(footer) {
+    z-index: 2;
+  }
+
+  /* enter — kill the morph, then bring the new one in from its own edge. */
+  :root[data-vt-banner="enter"]::view-transition-group(banner),
+  :root[data-vt-crumb="enter"]::view-transition-group(crumb),
+  :root[data-vt-sidebar="enter"]::view-transition-group(sidebar),
+  :root[data-vt-toc="enter"]::view-transition-group(toc),
+  :root[data-vt-footer="enter"]::view-transition-group(footer) {
+    animation: none;
+  }
+  :root[data-vt-banner="enter"]::view-transition-old(banner),
+  :root[data-vt-crumb="enter"]::view-transition-old(crumb),
+  :root[data-vt-sidebar="enter"]::view-transition-old(sidebar),
+  :root[data-vt-toc="enter"]::view-transition-old(toc),
+  :root[data-vt-footer="enter"]::view-transition-old(footer) {
+    animation: none;
+    opacity: 0;
+  }
+  :root[data-vt-banner="enter"]::view-transition-new(banner),
+  :root[data-vt-crumb="enter"]::view-transition-new(crumb) {
+    animation: vt-chrome-in-top 260ms var(--vt-ease) both;
+  }
+  :root[data-vt-footer="enter"]::view-transition-new(footer) {
+    animation: vt-chrome-in-bottom 260ms var(--vt-ease) both;
+  }
+  :root[data-vt-sidebar="enter"]::view-transition-new(sidebar) {
+    animation: vt-chrome-in-left 260ms var(--vt-ease) both;
+  }
+  :root[data-vt-toc="enter"]::view-transition-new(toc) {
+    animation: vt-chrome-in-right 260ms var(--vt-ease) both;
+  }
+
+  /* exit — the name is gone on the new side, so only the old snapshot is left to leave. */
+  :root[data-vt-banner="exit"]::view-transition-old(banner),
+  :root[data-vt-crumb="exit"]::view-transition-old(crumb) {
+    animation: vt-chrome-out-top 220ms var(--vt-ease) both;
+  }
+  :root[data-vt-footer="exit"]::view-transition-old(footer) {
+    animation: vt-chrome-out-bottom 220ms var(--vt-ease) both;
+  }
+  :root[data-vt-sidebar="exit"]::view-transition-old(sidebar) {
+    animation: vt-chrome-out-left 220ms var(--vt-ease) both;
+  }
+  :root[data-vt-toc="exit"]::view-transition-old(toc) {
+    animation: vt-chrome-out-right 220ms var(--vt-ease) both;
+  }
+}
+
+@keyframes vt-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes vt-enter-right {
+  from {
+    opacity: 0;
+    transform: translateX(var(--vt-slide));
+  }
+}
+@keyframes vt-exit-left {
+  to {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--vt-slide)));
+  }
+}
+@keyframes vt-enter-left {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--vt-slide)));
+  }
+}
+@keyframes vt-exit-right {
+  to {
+    opacity: 0;
+    transform: translateX(var(--vt-slide));
+  }
+}
+@keyframes vt-enter-down {
+  from {
+    opacity: 0;
+    transform: translateY(var(--vt-slide));
+  }
+}
+@keyframes vt-exit-up {
+  to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--vt-slide)));
+  }
+}
+@keyframes vt-enter-up {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--vt-slide)));
+  }
+}
+@keyframes vt-exit-down {
+  to {
+    opacity: 0;
+    transform: translateY(var(--vt-slide));
+  }
+}
+
+/* Chrome slides a shorter distance than the page: it is arriving, not travelling. */
+@keyframes vt-chrome-in-top {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--vt-chrome-slide)));
+  }
+}
+@keyframes vt-chrome-in-bottom {
+  from {
+    opacity: 0;
+    transform: translateY(var(--vt-chrome-slide));
+  }
+}
+@keyframes vt-chrome-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--vt-chrome-slide)));
+  }
+}
+@keyframes vt-chrome-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(var(--vt-chrome-slide));
+  }
+}
+@keyframes vt-chrome-out-top {
+  to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--vt-chrome-slide)));
+  }
+}
+@keyframes vt-chrome-out-bottom {
+  to {
+    opacity: 0;
+    transform: translateY(var(--vt-chrome-slide));
+  }
+}
+@keyframes vt-chrome-out-left {
+  to {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--vt-chrome-slide)));
+  }
+}
+@keyframes vt-chrome-out-right {
+  to {
+    opacity: 0;
+    transform: translateX(var(--vt-chrome-slide));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

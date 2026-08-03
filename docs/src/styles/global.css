@@ -22,6 +22,7 @@
   --toc: 15rem;
   --gutter: 2rem;
   --ch: 0.6em;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -72,6 +73,32 @@ html {
   color: var(--fg);
   -webkit-text-size-adjust: 100%;
   scrollbar-color: var(--line-strong) transparent;
+  /* Lets a `height: auto` transition interpolate — the mobile drawer needs it. */
+  interpolate-size: allow-keywords;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Every surface that repaints when the theme flips. Links and cards are excluded on
+     purpose: they carry their own transitions, and a second rule would replace them. */
+  html,
+  body,
+  .topbar,
+  .banner-strip,
+  .nav-drawer,
+  footer,
+  pre,
+  :not(pre) > code,
+  .note,
+  .transcript,
+  .prose th,
+  .prose td,
+  .theme-toggle {
+    transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
+  }
 }
 
 body {
@@ -105,7 +132,8 @@ a {
   text-decoration-style: dotted;
   text-underline-offset: 0.25em;
   text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  transition: text-decoration-color 0.15s ease, background-color 0.15s ease;
+  transition: color 180ms var(--ease-out), text-decoration-color 180ms var(--ease-out),
+    background-color 180ms var(--ease-out), border-color 180ms var(--ease-out);
 }
 
 a:hover {
@@ -121,193 +149,6 @@ summary:focus-visible {
   border-radius: 2px;
 }
 
-/* --- view transitions ------------------------------------------------------
-   Cross-document, no JavaScript beyond the head script that reads the nav tree and
-   stamps data-vt-direction on <html>. Browsers without support just navigate.
-   --------------------------------------------------------------------------- */
-
-@view-transition {
-  navigation: auto;
-}
-
-:root {
-  --ease-out: cubic-bezier(0.2, 0, 0, 1);
-  --vt-slide: 24px;
-  --ease-spring: linear(
-    0,
-    0.115 5%,
-    0.352 10%,
-    0.593 15%,
-    0.789 20%,
-    0.924 25%,
-    1.001 30%,
-    1.046 40%,
-    1.03 50%,
-    1.01 60%,
-    1 70%,
-    0.998 80%,
-    1
-  );
-}
-
-/* Named elements are captured separately from `root`, which is how the chrome stays put
-   while the page content slides underneath it. The drawer holds a second .sidebar, but
-   only one of the two is ever rendered at a given width — a name on two rendered
-   elements aborts the whole transition. */
-.topbar {
-  view-transition-name: topbar;
-}
-
-.banner-strip {
-  view-transition-name: banner;
-}
-
-footer {
-  view-transition-name: footer;
-}
-
-.shell > .sidebar {
-  view-transition-name: sidebar;
-}
-
-/* A link to the page you are already on is a scroll to the top, not a page change. Naming
-   the whole content region as one group makes the transition interpolate its position, so
-   it glides up instead of cross-fading identical pixels against each other. The chrome
-   gives up its own names here, or it would be captured twice. */
-:root[data-vt-direction="scroll"] .topbar,
-:root[data-vt-direction="scroll"] .banner-strip,
-:root[data-vt-direction="scroll"] footer,
-:root[data-vt-direction="scroll"] .shell > .sidebar {
-  view-transition-name: none;
-}
-
-:root[data-vt-direction="scroll"] .shell,
-:root[data-vt-direction="scroll"] .home {
-  view-transition-name: page;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  ::view-transition-old(root) {
-    animation: vt-out 160ms ease both;
-  }
-  ::view-transition-new(root) {
-    animation: vt-in 240ms var(--ease-out) both;
-  }
-  ::view-transition-group(topbar),
-  ::view-transition-group(banner),
-  ::view-transition-group(footer),
-  ::view-transition-group(sidebar) {
-    animation-duration: 240ms;
-    animation-timing-function: var(--ease-out);
-  }
-
-  :root[data-vt-direction="forward"]::view-transition-old(root) {
-    animation: vt-exit-left 220ms var(--ease-out) both;
-  }
-  :root[data-vt-direction="forward"]::view-transition-new(root) {
-    animation: vt-enter-right 220ms var(--ease-out) both;
-  }
-
-  :root[data-vt-direction="back"]::view-transition-old(root) {
-    animation: vt-exit-right 220ms var(--ease-out) both;
-  }
-  :root[data-vt-direction="back"]::view-transition-new(root) {
-    animation: vt-enter-left 220ms var(--ease-out) both;
-  }
-
-  :root[data-vt-direction="down"]::view-transition-old(root) {
-    animation: vt-exit-up 220ms var(--ease-out) both;
-  }
-  :root[data-vt-direction="down"]::view-transition-new(root) {
-    animation: vt-enter-down 220ms var(--ease-out) both;
-  }
-
-  :root[data-vt-direction="up"]::view-transition-old(root) {
-    animation: vt-exit-down 220ms var(--ease-out) both;
-  }
-  :root[data-vt-direction="up"]::view-transition-new(root) {
-    animation: vt-enter-up 220ms var(--ease-out) both;
-  }
-
-  ::view-transition-group(page) {
-    animation-duration: 420ms;
-    animation-timing-function: var(--ease-spring);
-  }
-  /* root is only the chrome here, and it is identical on both sides — fading it would
-     flicker the topbar for no reason. */
-  :root[data-vt-direction="scroll"]::view-transition-old(root),
-  :root[data-vt-direction="scroll"]::view-transition-new(root) {
-    animation: none;
-  }
-}
-
-@keyframes vt-out {
-  to {
-    opacity: 0;
-  }
-}
-@keyframes vt-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-}
-@keyframes vt-enter-right {
-  from {
-    opacity: 0;
-    transform: translateX(var(--vt-slide));
-  }
-}
-@keyframes vt-exit-left {
-  to {
-    opacity: 0;
-    transform: translateX(calc(-1 * var(--vt-slide)));
-  }
-}
-@keyframes vt-enter-left {
-  from {
-    opacity: 0;
-    transform: translateX(calc(-1 * var(--vt-slide)));
-  }
-}
-@keyframes vt-exit-right {
-  to {
-    opacity: 0;
-    transform: translateX(var(--vt-slide));
-  }
-}
-@keyframes vt-enter-down {
-  from {
-    opacity: 0;
-    transform: translateY(var(--vt-slide));
-  }
-}
-@keyframes vt-exit-up {
-  to {
-    opacity: 0;
-    transform: translateY(calc(-1 * var(--vt-slide)));
-  }
-}
-@keyframes vt-enter-up {
-  from {
-    opacity: 0;
-    transform: translateY(calc(-1 * var(--vt-slide)));
-  }
-}
-@keyframes vt-exit-down {
-  to {
-    opacity: 0;
-    transform: translateY(var(--vt-slide));
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-group(*),
-  ::view-transition-old(*),
-  ::view-transition-new(*) {
-    animation: none !important;
-  }
-}
 
 /* --- topbar ---------------------------------------------------------------- */
 
@@ -495,26 +336,30 @@ footer {
   text-decoration: none;
 }
 
+/* The marker is always in the layout and only fades in, so nothing shifts sideways when
+   it appears. */
 .sidebar li a::before {
-  content: "  ";
+  content: "▸ ";
+  display: inline-block;
   white-space: pre;
   color: var(--accent);
+  opacity: 0;
+  transform: translateX(-3px);
+  transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out);
 }
 
 .sidebar li a:hover {
   color: var(--accent);
 }
 
-.sidebar li a:hover::before {
-  content: "▸ ";
-}
-
 .sidebar li a[aria-current="page"] {
   color: var(--accent);
 }
 
+.sidebar li a:hover::before,
 .sidebar li a[aria-current="page"]::before {
-  content: "▸ ";
+  opacity: 1;
+  transform: none;
 }
 
 .toc li a {
@@ -641,6 +486,7 @@ h4 {
   text-decoration: none;
   opacity: 0;
   margin-left: 0.5ch;
+  transition: opacity 180ms var(--ease-out), color 180ms var(--ease-out);
 }
 
 .heading-anchor::after {
@@ -840,11 +686,13 @@ pre code {
   padding: 0.9rem 1rem;
   text-decoration: none;
   color: var(--fg);
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: border-color 200ms var(--ease-out), background-color 200ms var(--ease-out),
+    transform 200ms var(--ease-out);
 }
 
 .card:hover {
   border-color: var(--accent);
+  background: var(--code-bg);
   text-decoration: none;
   transform: translateY(-1px);
 }
@@ -863,64 +711,21 @@ pre code {
   font-size: 0.9em;
 }
 
-/* A terminal transcript: prompts typed once on load, output revealed under them. */
-.transcript {
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: var(--code-bg);
-  padding: 0.9rem 1rem;
-  overflow-x: auto;
-  font-size: 0.92em;
-  line-height: 1.6;
-}
-
-.transcript .line {
-  white-space: pre;
-  animation: reveal 0.01s steps(1) both;
-}
-
-.transcript .line.cmd::before {
-  content: "$ ";
-  color: var(--accent);
-}
-
-.transcript .line.out {
-  color: var(--muted);
-}
-
-.transcript .line:nth-child(1) {
-  animation-delay: 0.05s;
-}
-.transcript .line:nth-child(2) {
-  animation-delay: 0.3s;
-}
-.transcript .line:nth-child(3) {
-  animation-delay: 0.4s;
-}
-.transcript .line:nth-child(4) {
-  animation-delay: 0.65s;
-}
-.transcript .line:nth-child(5) {
-  animation-delay: 0.75s;
-}
-.transcript .line:nth-child(6) {
-  animation-delay: 0.85s;
-}
-
-@keyframes reveal {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .transcript .line {
+  .transcript .line,
+  .transcript .line .text {
     animation: none;
   }
   .card:hover {
+    transform: none;
+  }
+  /* Colour transitions are harmless; the ones that move something are not. */
+  .sidebar li a::before,
+  .nav-drawer > summary::before,
+  .nav-drawer::details-content {
+    transition: none;
+  }
+  .sidebar li a::before {
     transform: none;
   }
 }
@@ -992,12 +797,32 @@ footer {
   .nav-drawer > summary::-webkit-details-marker {
     display: none;
   }
+  /* Rotating one glyph animates; swapping ▸ for ▾ cannot. */
   .nav-drawer > summary::before {
-    content: "▸ ";
+    content: "▸";
+    display: inline-block;
+    margin-right: 0.6ch;
     color: var(--accent);
+    transition: transform 200ms var(--ease-out);
   }
   .nav-drawer[open] > summary::before {
-    content: "▾ ";
+    transform: rotate(90deg);
+  }
+  /* Chromium and Safari can transition the disclosure box itself; elsewhere it opens
+     instantly, which is the pre-existing behaviour. */
+  @supports selector(details::details-content) {
+    .nav-drawer::details-content {
+      block-size: 0;
+      overflow: clip;
+      opacity: 0;
+      transition: block-size 260ms var(--ease-out), opacity 200ms var(--ease-out),
+        content-visibility 260ms allow-discrete;
+      transition-behavior: allow-discrete;
+    }
+    .nav-drawer[open]::details-content {
+      block-size: auto;
+      opacity: 1;
+    }
   }
   .nav-drawer .sidebar {
     display: block;

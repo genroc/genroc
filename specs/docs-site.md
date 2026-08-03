@@ -172,11 +172,22 @@ its children's, so `b.startsWith(a + ".")` distinguishes *below* from merely *af
 directions fall out of one comparison, and reordering a page in the nav moves its slide with
 it.
 
-Equal keys are the fifth case and need their own treatment: a link to the page you are
-already on is a scroll to the top, not a page change, so cross-fading it flickers identical
-pixels against each other. There the content region is captured as a single named group and
-the chrome gives up its names, which makes the transition interpolate the content's position
-— the page glides up instead of jumping.
+Equal keys get no transition at all. A link to the page you are already on is a scroll to
+the top, not a page change, so the click handler cancels the navigation and scrolls for
+real. The alternative — capture the content as a named group and let the transition
+interpolate its position — was built first and looks wrong: the snapshot slides as one
+rigid image, so a band of background opens under the fixed chrome, and the page is reloaded
+to animate a picture of itself.
+
+Direction is not the only thing a transition has to know. The topbar, banner, sidebar, TOC
+and footer are captured as named elements so they hold still while the content slides — but
+a named element the reader *could not see* is the bad case: morphing it from wherever it was
+flies it across the screen, so a banner scrolled past a thousand pixels ago drops in from
+far above. Each one therefore records whether it was on screen, and the arriving page
+compares that against its own: appeared → neutralise the morph and slide it a short way in
+from its own edge; disappeared → drop its name here, so the old one simply leaves. Both
+sides of that comparison are visibility, not existence, which is what makes one rule cover
+a sidebar the home page lacks and a footer that is merely below the fold.
 
 Neither side of a navigation may reach for the Navigation API to learn where it came from.
 `navigation.activation` is Chromium-only and merely touching it throws in Safari, which
