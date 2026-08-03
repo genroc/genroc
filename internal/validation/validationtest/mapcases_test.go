@@ -23,7 +23,7 @@ import (
 // mapRowsInput is the process input reused across the map tests: an array of
 // rows with a string code and an integer count. Reshaping it with map + an
 // object literal is the motivating use case for the feature
-// (docs/map-expressions.md).
+// (specs/map-expressions.md).
 const mapRowsInput = `{
 	"type": "object",
 	"properties": {

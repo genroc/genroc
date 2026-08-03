@@ -17,7 +17,7 @@ import (
 //
 // Wherever the expression is translatable, the result is cross-checked against
 // real expr-lang: our `x => body` is exactly expr-lang's `{let x = #; body}`
-// (see docs/map-expressions.md). The cases where we deliberately diverge
+// (see specs/map-expressions.md). The cases where we deliberately diverge
 // (optional chaining on null, division by zero, map over nulls) say so and skip
 // the oracle rather than encoding expr-lang's answer.
 //

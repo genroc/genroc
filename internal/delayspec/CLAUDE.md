@@ -5,7 +5,7 @@
 A `delay` action takes exactly one of **`for`** (a duration from arm time) or **`until`**
 (an instant), plus an optional **`tz`**. The old `ms` slot was removed outright before the
 first release — `ms: "30000"` is now `for: 30000`. Full design, decisions and open
-questions: [docs/delay-syntax.md](../../docs/delay-syntax.md). The grammars live in this
+questions: [specs/delay-syntax.md](../../specs/delay-syntax.md). The grammars live in this
 package, deliberately free of engine and DB dependencies so the calendar edge cases are
 table-testable.
 

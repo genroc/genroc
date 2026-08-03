@@ -37,7 +37,7 @@ const logPruneInterval = time.Minute
 // drains, and the binary should exit non-zero to be restarted.
 //
 // leaseGate catches the same fault a step earlier and repairs it, so this is the backstop
-// for what the gate cannot see. docs/lease-fencing.md.
+// for what the gate cannot see. specs/lease-fencing.md.
 type OverwhelmError struct {
 	InstanceID    string
 	WorkerID      string
@@ -182,7 +182,7 @@ func (e *Engine) renewLeases() error {
 // at once and the two race; checking here makes both orderings correct.
 //
 // Why a repair rather than an exit, why the grace covers co-resident workers, and why
-// there is no once-per-window bound: docs/lease-fencing.md.
+// there is no once-per-window bound: specs/lease-fencing.md.
 func (e *Engine) leaseGate() db.Takeover {
 	nowMs := db.Now().UnixMilli()
 	stale := time.Duration(nowMs-e.lastRenewMs.Load()) * time.Millisecond
@@ -333,7 +333,7 @@ func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.P
 	// never an advance that already finished. Outside a grace window that means renewal
 	// cannot keep up. Inside one the gate has just established this worker could not renew
 	// at all, so the same event is not a verdict about capacity and must not kill a worker
-	// full of healthy advances. docs/lease-fencing.md.
+	// full of healthy advances. specs/lease-fencing.md.
 	if _, busy := e.inflight.LoadOrStore(inst.ID, struct{}{}); busy {
 		if graced {
 			e.logOnly(logEvent{Level: model.LogWarn, ID: inst.ID,

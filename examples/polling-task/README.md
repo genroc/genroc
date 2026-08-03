@@ -19,7 +19,7 @@ polling-example (parent)
 ```
 
 This is the child → parent error-handling contract (see
-[`docs/child-error-handling.md`](../../docs/child-error-handling.md)): success is an
+[`specs/child-error-handling.md`](../../specs/child-error-handling.md)): success is an
 **output**, but running out of attempts is an anticipated error the child **raises** by a
 named code, and the parent's `on_error` on the child task **catches** it — routing to a
 `report` task that reads the raised error from `$error`. A result the caller inspects would

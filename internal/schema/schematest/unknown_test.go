@@ -12,7 +12,7 @@ import (
 // for a value carried but never inspected. A dedicated `type: unknown` spelling was
 // built and then dropped: it would have been the only thing genroc accepts that a
 // standard validator rejects, and since it was erased at parse it never reached the
-// stored definition anyway (see docs/unknown-type.md). These tests pin the behaviours
+// stored definition anyway (see specs/unknown-type.md). These tests pin the behaviours
 // that make {} usable as a type, and the narrowing relation that lets it re-enter the
 // typed world.
 

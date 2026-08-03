@@ -70,7 +70,7 @@ tasks:
 # non-null: the two tasks are the process's only terminals, so between them they cover
 # every way of ending, and the inferencer types the output per terminal rather than
 # against one collapsed context. Add a third terminal that sets neither and they go back
-# to nullable, correctly. See docs/path-sensitive-output.md.
+# to nullable, correctly. See specs/path-sensitive-output.md.
 output:
   invoice_id: "$: input.invoice_id"
   ok: "$: outputs.send.ok ?? outputs.unsendable.ok"

@@ -131,7 +131,7 @@ that name.
 
 ### Where this sits in the two-mode split
 
-Per `docs/recursive-type-inference.md` §2, **`map`'s source position is
+Per `specs/recursive-type-inference.md` §2, **`map`'s source position is
 look-inside** — reading `items` requires resolution. The body is neither mode: it
 is inferred in a child scope and may stay symbolic, and a `$ref` surviving into
 `Array(...)` sits under `items`, which the productivity rule already counts as

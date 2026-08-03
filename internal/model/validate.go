@@ -398,7 +398,7 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 			continue
 		}
 
-		// Retries on an only_once task, in three tiers (docs/only-once-interrupted.md):
+		// Retries on an only_once task, in three tiers (specs/only-once-interrupted.md):
 		// pre.*-only patterns are safe alone; anything else needs not_reached:true *and*
 		// exact codes; the unknowable set is refused however it is named.
 		//

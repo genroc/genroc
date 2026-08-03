@@ -22,7 +22,7 @@ import (
 // follow. While a member is mid-computation, readers inside the cycle see its
 // running estimate wrapped nullable (the null seed before the first pass) —
 // nullability lives at the use site; the finalized definition is the exact
-// type. See docs/recursive-type-inference.md.
+// type. See specs/recursive-type-inference.md.
 type Solver struct {
 	defs    Defs
 	members map[string]*solverMember

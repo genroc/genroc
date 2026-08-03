@@ -74,7 +74,7 @@ type ChildEntry struct {
 // A result_schema is also the one place an unknown is narrowed: a slot left as `{}`
 // (the top type — carried, never read) becomes readable when a consumer restates its
 // shape here, and the value is conformed against that shape at runtime.
-// See docs/unknown-type.md.
+// See specs/unknown-type.md.
 //
 // AcceptedStatus (fetch only): a shape evaluating to an array of HTTP status patterns
 // treated as non-errors ("2xx".."5xx" or a 3-digit code). Defaults to any 2xx.

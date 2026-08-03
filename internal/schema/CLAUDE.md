@@ -5,7 +5,7 @@
 "Unknown" — a value a process carries but never inspects — is spelled `{}`, the empty
 schema. There is **no keyword**: `{}` is JSON Schema's top type and every code path
 already handles it. Full design, ledger and open questions:
-[docs/unknown-type.md](../../docs/unknown-type.md); worked example in
+[specs/unknown-type.md](../../specs/unknown-type.md); worked example in
 [examples/polling-task/](../../examples/polling-task/).
 
 Three things to know before touching it:

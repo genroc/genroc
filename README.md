@@ -15,13 +15,13 @@ no worker while it waits.
   lease expires and another worker resumes exactly where it left off. A worker that
   merely *stalled* — a suspended laptop, a throttled container — notices its leases
   went unrenewed, repairs them before claiming, and holds off taking over its peers'
-  (see [docs/lease-fencing.md](docs/lease-fencing.md)).
+  (see [specs/lease-fencing.md](specs/lease-fencing.md)).
 - **At-most-once tasks.** A task marked `only_once` is never re-run by the engine
   after an interruption. Instead it raises `only_once.interrupted`, which `on_error`
   can catch — so the definition asks the system of record what actually happened and
   then carries on, or re-runs the task deliberately. Retries are refused outright for
   the errors nothing came back from (see
-  [docs/only-once-interrupted.md](docs/only-once-interrupted.md)).
+  [specs/only-once-interrupted.md](specs/only-once-interrupted.md)).
 - **Structural control flow.** Tasks route with `switch` (`next` / `end` /
   `$goto` / conditional cases). There is no `while`/`until` — loops are expressed
   by routing back to an earlier task, which keeps every iteration a crash-safe
@@ -35,10 +35,10 @@ no worker while it waits.
   nothing else changed — timers keep running, so it carries on exactly where it
   stopped. Retrying is the separate, deliberate act of granting a *failed* tree
   an attempt its definition did not authorise (see
-  [docs/pause-resume.md](docs/pause-resume.md)).
+  [specs/pause-resume.md](specs/pause-resume.md)).
 - **Typed data flow.** Process input, task outputs, and child results are
   described with a strict JSON-Schema subset, and output types are *inferred* —
-  including recursive shapes (see [docs/recursive-type-inference.md](docs/recursive-type-inference.md)).
+  including recursive shapes (see [specs/recursive-type-inference.md](specs/recursive-type-inference.md)).
 - **Config vars & secrets.** Per-process / global config is read from the
   environment (`GENROC_<PROCESS>_<NAME>`, `GENROC_GLOBAL_<NAME>`); values marked
   `secret` are redacted from logs.
@@ -52,7 +52,7 @@ no worker while it waits.
   holds), request bodies and connection timeouts are capped, retry backoff is jittered so
   a recovering endpoint is not hit by the whole backlog at once, and `GET /healthz` is a
   readiness probe that answers 503 when a worker cannot reach its database (see
-  [docs/resource-limits.md](docs/resource-limits.md)).
+  [specs/resource-limits.md](specs/resource-limits.md)).
 
 ## Binaries
 
@@ -153,7 +153,7 @@ internal/
   api/         HTTP handlers, action registry, OpenAPI reflection
   logview/     log formatting (basic / detail / json)
 tests/         TypeScript end-to-end integration tests
-docs/          design docs
+specs/         design docs and specs
 ```
 
 ## Benchmarks

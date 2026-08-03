@@ -135,7 +135,7 @@ honest in both directions:
 
 Where you do need a fallback — an uncovered terminal, a genuinely nullable branch — a
 trailing default ends the chain: `?? false`. Full design and the deliberate limit (mid-process
-task contexts are still collapsed) in [docs/path-sensitive-output.md](../../docs/path-sensitive-output.md).
+task contexts are still collapsed) in [specs/path-sensitive-output.md](../../specs/path-sensitive-output.md).
 
 ## One rough edge this example runs into
 

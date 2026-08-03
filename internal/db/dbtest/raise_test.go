@@ -10,7 +10,7 @@ import (
 )
 
 // The lifecycle consequences of the 'raised' status, which are the parts of
-// docs/child-error-handling.md §11 that break silently rather than loudly.
+// specs/child-error-handling.md §11 that break silently rather than loudly.
 //
 // A raise is a *settled outcome*, not an interruption. Everything below follows from
 // that one sentence, but each falls in a different place, so each is pinned separately.

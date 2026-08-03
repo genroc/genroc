@@ -7,7 +7,7 @@ It raises **`only_once.interrupted`** — the one engine-produced code that `on_
 catch — so a definition can ask the system of record what actually happened and then
 continue, or deliberately route back into the task to re-run it. Uncaught, it is the same
 terminal failure it always was. Design and rejected alternatives:
-[docs/only-once-interrupted.md](../../docs/only-once-interrupted.md).
+[specs/only-once-interrupted.md](../../specs/only-once-interrupted.md).
 
 The registration-time half of this rule (the three retry tiers, unknown-key rejection)
 lives in `internal/model` — see [internal/model/CLAUDE.md](../model/CLAUDE.md).
@@ -41,7 +41,7 @@ that owns codes; the engine and `internal/validation` share the one implementati
 
 An `on_error` rule's `retry` policy supplies the base delay, the growth factor and the
 ceiling; `backoff` turns them into the wait before attempt *n*. Design, and the survey of
-other engines the field set came from: [docs/retry-policy.md](../../docs/retry-policy.md).
+other engines the field set came from: [specs/retry-policy.md](../../specs/retry-policy.md).
 The registration-time rules are in [internal/model/CLAUDE.md](../model/CLAUDE.md).
 
 1. **Jitter may only shorten.** It is applied to the upper half of the window
@@ -63,7 +63,7 @@ The registration-time rules are in [internal/model/CLAUDE.md](../model/CLAUDE.md
 
 ## Lease fencing (partly implemented)
 
-[docs/lease-fencing.md](../../docs/lease-fencing.md). *Live:* the stale-lease gate
+[specs/lease-fencing.md](../../specs/lease-fencing.md). *Live:* the stale-lease gate
 (`Engine.leaseGate`). Before every claim the pump checks how long ago a renewal last
 succeeded; on stale evidence it repairs its own leases and passes `db.SkipTakeover` for one
 lease period, so a resumed laptop or a throttled container keeps the work it was doing

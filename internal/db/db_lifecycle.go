@@ -189,7 +189,7 @@ func (db *DB) forUpdate() string {
 
 // PauseProcess atomically suspends a process tree (root + every running descendant),
 // leaving wait_state, wake_at, retry_count and context untouched. Root-only: a descendant
-// id is rejected in favour of the root's. See docs/pause-resume.md.
+// id is rejected in favour of the root's. See specs/pause-resume.md.
 //
 // Only a *leased* row may be marked 'pausing' — it lands in 'paused' when that task's
 // write releases the lease. Anything parked (on children, a delay, an external task) must
@@ -328,7 +328,7 @@ func (db *DB) logInstances(ids []string, event, msg string) {
 //
 // The precondition is on the subtree, not the root's own status: a branch that dies while
 // the tree is paused leaves a failing root over paused descendants, and resuming is how
-// the operator unblocks it. See docs/pause-resume.md.
+// the operator unblocks it. See specs/pause-resume.md.
 func (db *DB) ResumeProcess(ctx context.Context, id string) error {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -415,7 +415,7 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 // path are revived in place (leaves re-run their pending task; parents reconstructed as
 // waiting or collecting), and completed work is never redone. force overrides only_once
 // protection. Root-only, failed-only — it is an override of the definition's on_error
-// budget, which is why it must not merge with ResumeProcess. See docs/pause-resume.md.
+// budget, which is why it must not merge with ResumeProcess. See specs/pause-resume.md.
 func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 	rootRow, err := db.loadInstanceRow(ctx, id)
 	if err != nil {

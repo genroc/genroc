@@ -813,7 +813,7 @@ func stripNullVariants(vs []*node) ([]*node, bool) {
 }
 
 // isEmptyNode reports whether s constrains nothing — the top type, written {}, which is
-// how "unknown" is spelled (see docs/unknown-type.md). Root $defs are deliberately
+// how "unknown" is spelled (see specs/unknown-type.md). Root $defs are deliberately
 // ignored: a node carrying only a resolution context (as navigation's sub-schemas do)
 // still accepts any value.
 //

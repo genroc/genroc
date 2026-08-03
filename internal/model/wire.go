@@ -18,7 +18,7 @@ import (
 // Both fields are literals, never expressions: a computed code would make a
 // definition's raise set uncomputable and error_code unqueryable, and a computed
 // message would smuggle data across a process boundary that this design exists to
-// keep closed. See docs/child-error-handling.md §2.1 and R2.
+// keep closed. See specs/child-error-handling.md §2.1 and R2.
 type Fault struct {
 	Code    string `json:"code"    validate:"required" description:"Error code, lower_snake_case, no dots (dots are reserved for engine-produced codes). A literal — never an expression."`
 	Message string `json:"message" validate:"required" description:"Human-readable message explaining the condition. A literal string — never an expression."`

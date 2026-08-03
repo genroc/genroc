@@ -1,6 +1,6 @@
 // Package delayspec parses the human-facing literals of the delay action: `for` (a
 // duration from arm time) and `until` (an instant), plus the `tz` both resolve against.
-// Grammars, decisions and edge cases: docs/delay-syntax.md.
+// Grammars, decisions and edge cases: specs/delay-syntax.md.
 //
 // No engine or database dependency, so the calendar cases are table-testable in isolation.
 //

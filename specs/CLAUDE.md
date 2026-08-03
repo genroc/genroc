@@ -1,4 +1,4 @@
-# docs/
+# specs/
 
 Specs and design records. **Not every doc here describes shipped behavior** — the ones
 listed below are proposals. Do not cite them as current behavior.

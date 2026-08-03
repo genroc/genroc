@@ -2,7 +2,7 @@
 
 ## Comments
 
-Specs live in `docs/`. A comment earns its place only by answering *what would someone
+Specs live in `specs/`. A comment earns its place only by answering *what would someone
 editing this line get wrong* — an invariant, an ordering constraint, a coupling to code
 they cannot see from here. If nothing would go wrong, delete it.
 
@@ -11,7 +11,7 @@ they cannot see from here. If nothing would go wrong, delete it.
   first. A comment that re-words the name is worse than none: it is a second thing to
   keep true.
 - One to three lines. Longer means it is a doc: move it there and leave a pointer.
-- Never restate the code, and never re-derive a design `docs/` already argues.
+- Never restate the code, and never re-derive a design `specs/` already argues.
 - A rejected alternative is worth a clause only when it is the one-line "fix" someone
   would plausibly apply ("do not clear `worker_id` here — it is the evidence
   `ReclaimedExpired` derives from"); the argument itself stays in the doc.
@@ -35,7 +35,7 @@ records failures that are silent, not compile errors.
 | [internal/model/CLAUDE.md](internal/model/CLAUDE.md) | `on_error` validation tiers on an `only_once` task; unknown-key rejection in `on_error` / `switch`; `timeout` decoding and its action-type rules |
 | [internal/schema/CLAUDE.md](internal/schema/CLAUDE.md) | the `unknown` type (`{}`), why there is no keyword, `NarrowsTo` |
 | [internal/delayspec/CLAUDE.md](internal/delayspec/CLAUDE.md) | `delay` and `timeout` syntax (`for` / `until` / `tz`), arity, calendar arithmetic |
-| [docs/CLAUDE.md](docs/CLAUDE.md) | which docs are **proposals, not current behavior** |
+| [specs/CLAUDE.md](specs/CLAUDE.md) | which docs are **proposals, not current behavior** |
 
 ## Build / test
 

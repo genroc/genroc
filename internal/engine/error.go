@@ -127,7 +127,7 @@ func (e *Engine) completeViaErrorHandler(inst *model.ProcessInstance, task *mode
 }
 
 // raiseInstance concludes the instance as 'raised': an anticipated condition the parent
-// may react to by naming the code. See docs/child-error-handling.md.
+// may react to by naming the code. See specs/child-error-handling.md.
 //
 // A raise must keep falling through to FinishChild rather than the failure path — it is a
 // normal outcome and must not mark ancestors 'failing'. And no process output is computed,
@@ -166,7 +166,7 @@ func (e *Engine) failInstance(inst *model.ProcessInstance, code errcode.Code, re
 //
 // It must not regain an only_once check: advance() resolves an interrupted only_once task
 // before the pause, because the evidence (ReclaimedExpired, derived per claim from
-// worker_id) does not survive the write that settles a pause. See docs/pause-resume.md.
+// worker_id) does not survive the write that settles a pause. See specs/pause-resume.md.
 func (e *Engine) settlePausing(inst *model.ProcessInstance) advanceOutcome {
 	inst.Status = model.StatusPaused
 	// The other half of inst_paused: PauseProcess logs the rows it settled itself, this

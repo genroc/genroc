@@ -17,7 +17,7 @@ import (
 // maps on contact, and resolves each cycle with a joint fixpoint (members
 // seeded null, re-inferred, joined until stable). There is no separately
 // maintained dependency graph to keep in sync with what inference actually
-// reads. See docs/recursive-type-inference.md.
+// reads. See specs/recursive-type-inference.md.
 func inferOutputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, processInput, configSchema schema.Schema,
 	defs schema.Defs, required, optional map[string][]string, mustErr, mayErr map[string]bool) error {
 

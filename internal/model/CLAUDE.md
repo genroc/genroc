@@ -5,7 +5,7 @@
 `validateOnError` (`validate.go`) is the registration-time half of the `only_once` rule;
 the runtime half and the unknowable set are in
 [internal/engine/CLAUDE.md](../engine/CLAUDE.md). Design and rejected alternatives:
-[docs/only-once-interrupted.md](../../docs/only-once-interrupted.md).
+[specs/only-once-interrupted.md](../../specs/only-once-interrupted.md).
 
 1. **Retries on an `only_once` task are three tiers, applied per pattern.** A pattern
    matching only `pre.*` is safe alone; anything else needs `not_reached: true` **and must
@@ -60,7 +60,7 @@ wake-up, so both decode to the same `DelaySpec` (`for` / `until` / `tz`) and sha
 
 An `on_error` rule's `retry` is `{attempts, delay, factor, max_delay}`, with the scalar
 `retry: 3` desugaring to `{attempts: 3}`. Design and the survey behind the field set:
-[docs/retry-policy.md](../../docs/retry-policy.md). The curve itself is
+[specs/retry-policy.md](../../specs/retry-policy.md). The curve itself is
 [internal/engine/CLAUDE.md](../engine/CLAUDE.md). Four things that break silently:
 
 1. **The pre-policy `retries` key must stay in `ruleFieldHints`.** It is the one rename in

@@ -5,7 +5,7 @@
 //
 // Authored codes (raise / panic) are deliberately NOT here: those are user-defined,
 // lower_snake_case, and forbidden from containing a dot — which is exactly what keeps them
-// distinct from the dotted engine codes below. See docs/child-error-handling.md.
+// distinct from the dotted engine codes below. See specs/child-error-handling.md.
 package errcode
 
 import (
@@ -37,7 +37,7 @@ func HTTP(status int) Code { return Code(fmt.Sprintf("http.%d", status)) }
 // Catchable engine codes — produced by the engine rather than by a call, but routed
 // through on_error like a call code. There is exactly one, and the family is named after
 // the declaration that produces it rather than after a subject, because that is the only
-// thing that can produce it: see docs/only-once-interrupted.md.
+// thing that can produce it: see specs/only-once-interrupted.md.
 const (
 	// OnlyOnceInterrupted means an only_once task's previous attempt was interrupted --
 	// the worker executing it stopped without recording an outcome -- so the engine will
@@ -58,7 +58,7 @@ func (c Code) IsNotReached() bool { return strings.HasPrefix(string(c), NotReach
 // unknowable is NotReached's opposite pole: the request left and nothing came back, so
 // whether the call took effect cannot be determined by anyone. On an only_once task these
 // can never be retried and not_reached:true does not override it — see
-// docs/only-once-interrupted.md. Enforced at registration (model.validateOnError) and
+// specs/only-once-interrupted.md. Enforced at registration (model.validateOnError) and
 // again at runtime (engine.isRetryAllowed), which covers definitions stored before the
 // rule. A slice, not a set: validation iterates it and the order shows up in messages.
 var unknowable = []Code{OnlyOnceInterrupted, HTTPTimeout, ExternalTimeout}

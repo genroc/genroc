@@ -15,7 +15,7 @@ Tests: `internal/engine/interrupted_test.go`, `internal/model/validate_onlyonce_
 `internal/errcode/match_test.go`, `tests/integration/idempotent_test.ts`, and the
 interrupted-recovery tests at the end of `tests/integration/crash_recovery_test.ts`.
 
-`docs/child-error-handling.md` still lists `engine.only_once` in its historical code
+`specs/child-error-handling.md` still lists `engine.only_once` in its historical code
 table; it is a record of what was decided then, not of current behaviour.
 
 ## The gap

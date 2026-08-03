@@ -266,7 +266,7 @@ func TestPathSensitive_PathSpecificErrorNamesThePath(t *testing.T) {
 func TestPathSensitive_TaskContextsAreStillCollapsed(t *testing.T) {
 	// Documents the deliberate limit. Mid-process contexts come from a fixpoint whose
 	// lattice element is ONE must-set; making them path-sensitive needs a DNF lattice and
-	// is deferred (see docs/path-sensitive-output.md). Inside `c`, the same coalesce that
+	// is deferred (see specs/path-sensitive-output.md). Inside `c`, the same coalesce that
 	// is non-null at the output boundary is still nullable here.
 	def := `{
 		"name": "task_ctx",

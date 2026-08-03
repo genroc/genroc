@@ -54,7 +54,7 @@ sqlc reads the migrations directory directly, so no extra step is needed for que
 
 ## Process lifecycle: pause/resume vs retry
 
-Full rationale, prior art and known gaps: [docs/pause-resume.md](../../docs/pause-resume.md).
+Full rationale, prior art and known gaps: [specs/pause-resume.md](../../specs/pause-resume.md).
 The invariants below are the ones that break silently if you touch this code.
 
 `paused` is **not an outcome**. It means only "does not advance automatically" — the

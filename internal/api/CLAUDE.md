@@ -5,7 +5,7 @@ registry in `actions.go` — **add an endpoint there, not in `server.go`**. `Lis
 iterates the registry; the handwritten `mux.HandleFunc` blocks below it are the docs and
 spec routes only.
 
-Connection limits and readiness: [docs/resource-limits.md](../../docs/resource-limits.md).
+Connection limits and readiness: [specs/resource-limits.md](../../specs/resource-limits.md).
 The rest of this file is the part that breaks silently.
 
 ## `ListenHTTP` must wait for the drain, and must not wait after a bind failure

@@ -71,7 +71,7 @@ func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) er
 // advanceGuarded runs advance under a panic barrier, converting a panic into a terminal
 // failure carrying errcode.EnginePanic: a panic is almost always attributable to the one
 // definition being advanced, and killing the worker punishes every other in-flight advance
-// for it. Rationale and residuals: docs/error-handling-audit.md.
+// for it. Rationale and residuals: specs/error-handling-audit.md.
 //
 // The barrier must cover advance() only, never persist(). A panic in the write path is not
 // definition-attributable, and there would be nothing left to write the failure with.
@@ -150,7 +150,7 @@ func (e *Engine) prepareAdvance(inst *model.ProcessInstance) (*model.ProcessDefi
 	// the previous owner. Re-running is fine unless the task is only_once, which is handed
 	// to the definition as only_once.interrupted instead — routable, never retryable, and
 	// the same terminal failure as before when nothing catches it.
-	// See docs/only-once-interrupted.md.
+	// See specs/only-once-interrupted.md.
 	if inst.ReclaimedExpired {
 		e.logOnly(logEvent{Level: model.LogWarn, ID: inst.ID,
 			Msg:  "reclaimed expired lease; previous owner crashed or stalled mid-task",
@@ -187,7 +187,7 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		// survive the write that settles a pause — deferring would decide on evidence
 		// that no longer exists. Writing status 'running' then lets the CASE in
 		// UpdateInstance land the pause, so a routed instance parks at its handler and
-		// runs it on resume. See docs/only-once-interrupted.md.
+		// runs it on resume. See specs/only-once-interrupted.md.
 		if inst.ReclaimedExpired {
 			if task := e.lookupTask(inst); interruptedOnlyOnce(task) {
 				inst.Status = model.StatusRunning

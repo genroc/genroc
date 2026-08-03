@@ -158,7 +158,7 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 // per terminal, each side is either its real type or null, `??` resolves exactly as it
 // does at runtime, and the join is non-null. A terminal on which NEITHER is set still
 // contributes null, so genuinely uncovered cases stay nullable — the precision comes from
-// the partition, not from a special case in the operator. See docs/path-sensitive-output.md.
+// the partition, not from a special case in the operator. See specs/path-sensitive-output.md.
 func inferProcessOutput(def *model.ProcessDefinition, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, defs schema.Defs) (schema.Schema, error) {
 	shp := shape.Shape{Raw: def.Output.Raw, Name: "output"}
 	terminals := outputTerminals(def)

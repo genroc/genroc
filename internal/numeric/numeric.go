@@ -5,7 +5,7 @@
 // UseNumber and every value is carried as its exact literal, with base-10 arithmetic.
 // Evaluation and validation both compare numbers and must agree; sharing this package is
 // what stops them drifting. Rationale and the rejected alternatives:
-// docs/number-precision.md.
+// specs/number-precision.md.
 //
 // # Precision
 //

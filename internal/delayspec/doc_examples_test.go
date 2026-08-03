@@ -7,14 +7,14 @@ import (
 	"testing"
 )
 
-// docs/delay-syntax.md carries the syntax reference — every accepted spelling in one place,
+// specs/delay-syntax.md carries the syntax reference — every accepted spelling in one place,
 // and a table of the ones that are turned away. A reference nobody executes is a reference
 // that rots, so this reads the file and runs both halves through the parser.
 //
 // It is deliberately literal-minded: it extracts what the document *shows the reader*, so a
 // spelling that stops working, or one the document forgot to update, fails here rather than
 // in someone's definition.
-const syntaxDoc = "../../docs/delay-syntax.md"
+const syntaxDoc = "../../specs/delay-syntax.md"
 
 // The heading that splits the file: everything above shows syntax that must parse,
 // the table below it shows syntax that must not.

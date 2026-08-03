@@ -1,6 +1,6 @@
 # internal/transport
 
-Design and the failures these prevent: [docs/resource-limits.md](../../docs/resource-limits.md).
+Design and the failures these prevent: [specs/resource-limits.md](../../specs/resource-limits.md).
 Everything below breaks silently — none of it is a compile error.
 
 ## The response cap detects overflow by draining an allowance of `N+1`

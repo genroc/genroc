@@ -18,7 +18,7 @@ import "time"
 // raised is the third settled outcome, produced by a `raise` clause: an anticipated
 // condition a parent may react to by naming the code. Neither completed (it produced no
 // output) nor failed (it does not poison ancestors), and not retryable — a raise is a
-// conclusion, not an interruption. See docs/child-error-handling.md.
+// conclusion, not an interruption. See specs/child-error-handling.md.
 type Status string
 
 const (

@@ -12,7 +12,7 @@ import (
 // The curve a Retry falls back to slot by slot: 1s, doubling, ceiling 5m — what Temporal
 // and Step Functions default to. The ceiling is deliberately absolute rather than relative
 // to the base the way Temporal's is: theirs is bounded by a wall-clock activity timeout,
-// and genroc has no such budget behind it. See docs/retry-policy.md.
+// and genroc has no such budget behind it. See specs/retry-policy.md.
 const (
 	DefaultRetryDelay    = 1 * time.Second
 	DefaultRetryFactor   = 2.0

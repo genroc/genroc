@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// The registration rules for raise/panic (docs/child-error-handling.md §3) and the
+// The registration rules for raise/panic (specs/child-error-handling.md §3) and the
 // derived raise set (§2.3).
 //
 // R1/R2 exist so that a code is usable as a filterable discriminator and a message can

@@ -1,6 +1,6 @@
 // Generation-level tests for recursive output types: exact collapse of
 // degenerate cycles, kept structural recursion (self and mutual), and mixed
-// computational/structural output maps. See docs/recursive-type-inference.md.
+// computational/structural output maps. See specs/recursive-type-inference.md.
 package validationtest
 
 import (

@@ -249,7 +249,7 @@ func (e *Engine) fetchTimeout(inst *model.ProcessInstance, task *model.Task, now
 // cases too, but the decoder also runs over stored rows that never re-validate, so neither
 // may resolve to a default: a row carrying only the removed `ms` decodes to *no* slot and
 // would wait zero, and preferring one of two slots silently waits a fraction of the
-// intended time with nothing reporting it. See docs/delay-syntax.md.
+// intended time with nothing reporting it. See specs/delay-syntax.md.
 //
 // A Timeout guards its own absence before calling this (an absent timeout is legitimate,
 // unlike an absent delay), so reaching here with neither slot set is the same corruption

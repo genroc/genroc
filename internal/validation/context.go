@@ -39,7 +39,7 @@ type terminalEnd struct {
 // INTERSECTING the must sets, which is correct for a single required/optional answer but
 // destroys the correlation — after the intersection, "a is set here, b is set there" and
 // "neither is ever set" are indistinguishable. inferProcessOutput consumes the
-// uncollapsed list; see docs/path-sensitive-output.md.
+// uncollapsed list; see specs/path-sensitive-output.md.
 func outputTerminals(def *model.ProcessDefinition) []terminalEnd {
 	tasks := def.Tasks
 	n := len(tasks)

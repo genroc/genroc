@@ -1,5 +1,5 @@
 // Solver tests: demand ordering, cycle detection on contact, the joint
-// fixpoint, collapse-or-keep, and determinism. See docs/recursive-type-inference.md.
+// fixpoint, collapse-or-keep, and determinism. See specs/recursive-type-inference.md.
 package schematest
 
 import (

@@ -1,6 +1,6 @@
 // Tests for recursive-$defs handling: CheckDoc productivity, the conform cycle
 // guard, ref-aware joins, and secret taint carried on $ref nodes.
-// See docs/recursive-type-inference.md.
+// See specs/recursive-type-inference.md.
 package schematest
 
 import (
