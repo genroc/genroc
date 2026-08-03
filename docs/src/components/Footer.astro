@@ -5,6 +5,8 @@ import { url } from '../lib/url'
 <footer id="page-end">
   <span>genroc — a durable process orchestrator</span>
   <a href="https://github.com/genroc/genroc">source</a>
-  <a href="https://genroc.org/bench/">benchmarks</a>
+  {/* Same origin in production, so prefetchAll would pull it in; the benchmark app is a
+      separate artifact the deploy only preserves. */}
+  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a>
   <a href={url('/')}>docs home</a>
 </footer>
