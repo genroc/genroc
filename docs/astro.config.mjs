@@ -5,12 +5,12 @@ import rehypeSlug from 'rehype-slug'
 import rehypeAutolinkHeadings from 'rehype-autolink-headings'
 import { light, dark } from './src/shiki-theme.ts'
 
-// `base` is set by the deploy workflow: `/genroc/` for the live site (project pages),
-// a versioned subpath for an archived build; every asset and link on the site must
-// therefore be resolved through `url()` in src/lib/url.ts rather than written
-// root-absolute.
+// The live site serves from the apex of genroc.org (public/CNAME), so `base` is `/`;
+// the deploy workflow overrides DOCS_BASE only for an archived build at a versioned
+// subpath. Every asset and link must therefore be resolved through `url()` in
+// src/lib/url.ts rather than written root-absolute.
 export default defineConfig({
-  site: 'https://genroc.github.io',
+  site: 'https://genroc.org',
   base: process.env.DOCS_BASE ?? '/',
   trailingSlash: 'always',
   integrations: [mdx()],
