@@ -52,6 +52,13 @@ type pageQuery struct {
 	Before string `query:"before" description:"Cursor from a previous page's page.previous_cursor — fetch the previous page"`
 }
 
+// millisQuery reads a unix-millis time bound. An absent or unparseable value is 0, which
+// every list reads as "unbounded on that side" — the same as omitting the parameter.
+func millisQuery(r *http.Request, key string) int64 {
+	ms, _ := strconv.ParseInt(r.URL.Query().Get(key), 10, 64)
+	return ms
+}
+
 func paginationFrom(r *http.Request) Pagination {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
@@ -131,15 +138,23 @@ var registry = func() []actionDef {
 			},
 		},
 		{
-			Name:      "list_definitions",
-			Method:    http.MethodGet,
-			Path:      "/definitions",
-			Summary:   "List all registered process definitions",
-			Tags:      []string{"Definitions"},
-			PathQuery: struct{ pageQuery }{},
-			Resp:      PageResp[DefinitionSummary]{},
+			Name:    "list_definitions",
+			Method:  http.MethodGet,
+			Path:    "/definitions",
+			Summary: "List all registered process definitions (newest registered first)",
+			Tags:    []string{"Definitions"},
+			PathQuery: struct {
+				CreatedAfter  int64 `query:"created_after" description:"Only versions registered at/after this unix-millis timestamp"`
+				CreatedBefore int64 `query:"created_before" description:"Only versions registered strictly before this unix-millis timestamp"`
+				pageQuery
+			}{},
+			Resp: PageResp[DefinitionSummary]{},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
-				b, _ := json.Marshal(ListDefinitionsReq{Pagination: paginationFrom(r)})
+				b, _ := json.Marshal(ListDefinitionsReq{
+					CreatedAfter:  millisQuery(r, "created_after"),
+					CreatedBefore: millisQuery(r, "created_before"),
+					Pagination:    paginationFrom(r),
+				})
 				return Envelope{Action: "list_definitions", Payload: b}, nil
 			},
 			handle: func(h *Handlers, env Envelope) Reply {
@@ -172,16 +187,24 @@ var registry = func() []actionDef {
 			Summary: "List process instances",
 			Tags:    []string{"Instances"},
 			PathQuery: struct {
-				Status    string `query:"status" enum:"running,completed,failing,failed,raised,pausing,paused" description:"Filter by status"`
-				ErrorCode string `query:"error_code" description:"Filter by exact error code. Authored codes (from a raise or panic clause) are lower_snake_case; engine-produced codes contain a dot, e.g. http.500, pre.timeout, engine.spawn."`
+				Status        string `query:"status" enum:"running,completed,failing,failed,raised,pausing,paused" description:"Filter by status"`
+				ErrorCode     string `query:"error_code" description:"Filter by exact error code. Authored codes (from a raise or panic clause) are lower_snake_case; engine-produced codes contain a dot, e.g. http.500, pre.timeout, engine.spawn."`
+				CreatedAfter  int64  `query:"created_after" description:"Only instances created at/after this unix-millis timestamp"`
+				CreatedBefore int64  `query:"created_before" description:"Only instances created strictly before this unix-millis timestamp"`
+				UpdatedAfter  int64  `query:"updated_after" description:"Only instances updated at/after this unix-millis timestamp"`
+				UpdatedBefore int64  `query:"updated_before" description:"Only instances updated strictly before this unix-millis timestamp"`
 				pageQuery
 			}{},
 			Resp: PageResp[InstanceSummaryResp]{},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
 				b, _ := json.Marshal(ListInstancesReq{
-					Status:     r.URL.Query().Get("status"),
-					ErrorCode:  r.URL.Query().Get("error_code"),
-					Pagination: paginationFrom(r),
+					Status:        r.URL.Query().Get("status"),
+					ErrorCode:     r.URL.Query().Get("error_code"),
+					CreatedAfter:  millisQuery(r, "created_after"),
+					CreatedBefore: millisQuery(r, "created_before"),
+					UpdatedAfter:  millisQuery(r, "updated_after"),
+					UpdatedBefore: millisQuery(r, "updated_before"),
+					Pagination:    paginationFrom(r),
 				})
 				return Envelope{Action: "list_instances", Payload: b}, nil
 			},
@@ -338,29 +361,30 @@ var registry = func() []actionDef {
 			Name:    "list_instance_logs",
 			Method:  http.MethodGet,
 			Path:    "/instances/{id}/logs",
-			Summary: "Get the execution audit trail for a process instance (oldest first)",
+			Summary: "Get the execution audit trail for a process instance (newest first)",
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID        string `path:"id" format:"uuid"`
-				Level     string `query:"level" enum:"debug,info,warn,error" description:"Filter by log level"`
-				Since     int64  `query:"since" description:"Only logs at/after this unix-millis timestamp"`
-				Recursive bool   `query:"recursive" description:"Include the whole process subtree, keyed on the root instance"`
-				Resolve   bool   `query:"resolve" description:"Inline full externalized payloads; default false returns a preview + data_ref"`
+				ID            string `path:"id" format:"uuid"`
+				Level         string `query:"level" enum:"debug,info,warn,error" description:"Filter by log level"`
+				CreatedAfter  int64  `query:"created_after" description:"Only logs at/after this unix-millis timestamp"`
+				CreatedBefore int64  `query:"created_before" description:"Only logs strictly before this unix-millis timestamp"`
+				Recursive     bool   `query:"recursive" description:"Include the whole process subtree, keyed on the root instance"`
+				Resolve       bool   `query:"resolve" description:"Inline full externalized payloads; default false returns a preview + data_ref"`
 				pageQuery
 			}{},
 			Resp: PageResp[LogEntryResp]{},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
 				q := r.URL.Query()
-				since, _ := strconv.ParseInt(q.Get("since"), 10, 64)
 				recursive, _ := strconv.ParseBool(q.Get("recursive"))
 				resolve, _ := strconv.ParseBool(q.Get("resolve"))
 				b, _ := json.Marshal(ListLogsReq{
-					Level:      q.Get("level"),
-					Since:      since,
-					Recursive:  recursive,
-					Resolve:    resolve,
-					Pagination: paginationFrom(r),
+					Level:         q.Get("level"),
+					CreatedAfter:  millisQuery(r, "created_after"),
+					CreatedBefore: millisQuery(r, "created_before"),
+					Recursive:     recursive,
+					Resolve:       resolve,
+					Pagination:    paginationFrom(r),
 				})
 				return Envelope{Action: "list_instance_logs", ID: r.PathValue("id"), Payload: b}, nil
 			},
@@ -452,9 +476,11 @@ var registry = func() []actionDef {
 			Summary: "List instances parked on an external task (the external-task queue); never exposes process context",
 			Tags:    []string{"External Tasks"},
 			PathQuery: struct {
-				Process string `query:"process" description:"Filter by process name"`
-				Version int    `query:"version" description:"Filter by process version (0 = any)"`
-				Task    string `query:"task" description:"Filter by task id"`
+				Process       string `query:"process" description:"Filter by process name"`
+				Version       int    `query:"version" description:"Filter by process version (0 = any)"`
+				Task          string `query:"task" description:"Filter by task id"`
+				UpdatedAfter  int64  `query:"updated_after" description:"Only tasks parked at/after this unix-millis timestamp (updated_at is the park time and this list's sort)"`
+				UpdatedBefore int64  `query:"updated_before" description:"Only tasks parked strictly before this unix-millis timestamp"`
 				pageQuery
 			}{},
 			Resp: PageResp[ExternalTaskResp]{},
@@ -462,10 +488,12 @@ var registry = func() []actionDef {
 				q := r.URL.Query()
 				version, _ := strconv.Atoi(q.Get("version"))
 				b, _ := json.Marshal(ListExternalTasksReq{
-					Process:    q.Get("process"),
-					Version:    version,
-					Task:       q.Get("task"),
-					Pagination: paginationFrom(r),
+					Process:       q.Get("process"),
+					Version:       version,
+					Task:          q.Get("task"),
+					UpdatedAfter:  millisQuery(r, "updated_after"),
+					UpdatedBefore: millisQuery(r, "updated_before"),
+					Pagination:    paginationFrom(r),
 				})
 				return Envelope{Action: "list_external_tasks", Payload: b}, nil
 			},

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	dbgen "genroc/internal/db/gen"
 	"genroc/internal/model"
@@ -32,8 +33,9 @@ type StaleRefRow struct {
 }
 
 type VersionedDef struct {
-	Version int
-	Def     *model.ProcessDefinition
+	Version   int
+	Def       *model.ProcessDefinition
+	CreatedAt time.Time // when this version was registered; the default listing sort
 }
 
 // ── Process Definitions ───────────────────────────────────────────────────────
@@ -132,37 +134,48 @@ func (db *DB) LatestVersion(name string) (int, error) {
 // name, keyed on the (name, version) PRIMARY KEY (its unique tiebreaker), so the
 // keyset rides the PK index.
 var definitionPaginator = paginator{
-	table:   "process_definitions",
-	columns: "name, version, definition",
+	table:      "process_definitions",
+	columns:    "name, version, definition, created_at",
+	filterCols: []string{"created_at"},
 	sorts: map[string]sortMode{
-		"name": {{"name", kindText}, {"version", kindInt}},
+		// created carries name+version too: created_at alone is not unique, and a keyset
+		// cursor on a non-total order can skip or repeat a row at the page boundary.
+		"created": {{"created_at", kindInt}, {"name", kindText}, {"version", kindInt}},
+		"name":    {{"name", kindText}, {"version", kindInt}},
 	},
-	defSort:  "name",
-	defDesc:  false,
+	defSort:  "created",
+	defDesc:  true, // newest first, as every list endpoint defaults; name is opt-in
 	defLimit: 20,
 	maxLimit: 100,
 }
 
 func definitionCursorVals(sort string, vd VersionedDef) []any {
-	return []any{vd.Def.Name, int64(vd.Version)}
+	if sort == "name" {
+		return []any{vd.Def.Name, int64(vd.Version)}
+	}
+	return []any{vd.CreatedAt.UnixMilli(), vd.Def.Name, int64(vd.Version)}
 }
 
-func (db *DB) ListDefinitions(req PageReq) ([]VersionedDef, PageInfo, error) {
-	b, err := definitionPaginator.query(req).build()
+// ListDefinitions returns a page of stored definitions, newest-registered first, bounded
+// by a Window on created_at (zero = unbounded). Pass PageReq.Sort "name" for the
+// alphabetical order instead — the window still applies, but it is then a filter rather
+// than the seek the caller is walking by.
+func (db *DB) ListDefinitions(created Window, req PageReq) ([]VersionedDef, PageInfo, error) {
+	b, err := created.apply(definitionPaginator.query(req), "created_at").build()
 	if err != nil {
 		return nil, PageInfo{}, err
 	}
 	return runPage(db, b, func(s rowScanner) (VersionedDef, error) {
 		var name, definition string
-		var version int64
-		if err := s.Scan(&name, &version, &definition); err != nil {
+		var version, createdAt int64
+		if err := s.Scan(&name, &version, &definition, &createdAt); err != nil {
 			return VersionedDef{}, err
 		}
 		var def model.ProcessDefinition
 		if err := json.Unmarshal([]byte(definition), &def); err != nil {
 			return VersionedDef{}, err
 		}
-		return VersionedDef{Version: int(version), Def: &def}, nil
+		return VersionedDef{Version: int(version), Def: &def, CreatedAt: toTime(createdAt)}, nil
 	}, definitionCursorVals)
 }
 

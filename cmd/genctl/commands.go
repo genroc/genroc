@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -11,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -447,8 +447,9 @@ func runInstancesCmd(server string, args []string) {
 	statusFlag := fs.String("status", "", "filter by status (running, completed, failing, failed, raised, pausing, paused)")
 	codeFlag := fs.String("error-code", "", "filter by exact error code (e.g. card_declined, http.500)")
 	sortFlag := fs.String("sort", "created", "sort key: created or updated (most recently active)")
-	limitFlag := fs.Int("limit", 20, "show the newest N instances (pages the server as needed)")
-	jsonFlag := fs.Bool("json", false, "print the raw items as a JSON array (honors --limit)")
+	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04); bounds whichever column --sort selects")
+	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
+	jsonFlag := fs.Bool("json", false, "print the raw items as a JSON array")
 	fs.Parse(args)
 
 	q := url.Values{}
@@ -459,15 +460,29 @@ func runInstancesCmd(server string, args []string) {
 		q.Set("status", *statusFlag)
 	}
 	q.Set("sort", *sortFlag)
+	// The only list with a choice of sort, so the only one where --since has a column to
+	// pair with: "updated" bounds updated_at, anything else the default created_at.
+	sinceCol := "created_at"
+	if *sortFlag == "updated" {
+		sinceCol = "updated_at"
+	}
+	limit := applyWindow(q, *sinceFlag, *untilFlag, sinceCol, listCap)
 	u := *serverFlag + "/instances?" + q.Encode()
+	note := func(capped bool) {
+		noteCapped(capped, fmt.Sprintf("the newest %d instances", listCap), "--since")
+	}
 
 	if *jsonFlag {
-		items, err := listNewest[json.RawMessage](u, *limitFlag)
+		var items []json.RawMessage
+		capped, err := fetchOrdered(u, limit, newestFirst, func(page []json.RawMessage) error {
+			items = append(items, page...)
+			return nil
+		})
 		if err != nil {
 			fatal("%v", err)
 		}
-		slices.Reverse(items)
 		printJSONItems(items)
+		note(capped)
 		return
 	}
 
@@ -482,29 +497,110 @@ func runInstancesCmd(server string, args []string) {
 		UpdatedAt string `json:"updated_at"`
 	}
 
-	rows, err := listNewest[instanceRow](u, *limitFlag)
+	// A tabwriter sizes its columns from everything written before Flush, so this one
+	// cannot stream: it buffers whichever way the rows arrive, and the header is written
+	// lazily so an empty list says so instead of printing a bare header.
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	rows := 0
+	capped, err := fetchOrdered(u, limit, newestFirst, func(page []instanceRow) error {
+		for _, r := range page {
+			if rows == 0 {
+				fmt.Fprintln(w, "ID\tSTATUS\tPROCESS\tUPDATED\tCREATED\tCODE\tERROR")
+			}
+			rows++
+			errMsg := r.Error
+			if len(errMsg) > 50 {
+				errMsg = errMsg[:47] + "..."
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s@v%d\t%s\t%s\t%s\t%s\n",
+				r.ID, r.Status, r.Process, r.Version,
+				shortTime(r.UpdatedAt), shortTime(r.CreatedAt), r.ErrorCode, errMsg)
+		}
+		return nil
+	})
 	if err != nil {
 		fatal("%v", err)
 	}
-	if len(rows) == 0 {
+	if rows == 0 {
 		fmt.Println("no instances")
 		return
 	}
-	// Newest-first from the server; reverse so the most recent row prints last (bottom).
-	slices.Reverse(rows)
+	w.Flush()
+	note(capped)
+}
+
+// runDefinitionsCmd lists the registry, newest-registered first like every other list.
+// --sort name gives the alphabetical order instead, but --since still bounds created_at:
+// under that sort it is a filter rather than the point the walk starts from, so it does
+// not lift the cap.
+func runDefinitionsCmd(server string, args []string) {
+	fs := flag.NewFlagSet("definitions", flag.ExitOnError)
+	serverFlag := addServerFlag(fs, server)
+	sortFlag := fs.String("sort", "created", "sort key: created (newest registered first) or name")
+	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04)")
+	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
+	jsonFlag := fs.Bool("json", false, "print the raw items as a JSON array")
+	fs.Parse(args)
+
+	q := url.Values{}
+	q.Set("sort", *sortFlag)
+	limit := applyWindow(q, *sinceFlag, *untilFlag, "created_at", listCap)
+	// Under --sort name the cap keeps the *first* N alphabetically, not the last, and
+	// --since still lifts it — created_at is then a filter over the window rather than
+	// the point the walk starts from, but the walk (A→Z) is finite either way.
+	dir := newestFirst
+	shown := "the newest %d definitions"
+	if *sortFlag == "name" {
+		dir, shown = firstFirst, "the first %d definitions"
+	}
+	u := *serverFlag + "/definitions?" + q.Encode()
+	note := func(capped bool) {
+		noteCapped(capped, fmt.Sprintf(shown, listCap), "--since")
+	}
+
+	if *jsonFlag {
+		var items []json.RawMessage
+		capped, err := fetchOrdered(u, limit, dir, func(page []json.RawMessage) error {
+			items = append(items, page...)
+			return nil
+		})
+		if err != nil {
+			fatal("%v", err)
+		}
+		printJSONItems(items)
+		note(capped)
+		return
+	}
+
+	type defRow struct {
+		Name      string   `json:"name"`
+		Version   int      `json:"version"`
+		CreatedAt string   `json:"created_at"`
+		Raises    []string `json:"raises"`
+	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tSTATUS\tPROCESS\tUPDATED\tCREATED\tCODE\tERROR")
-	for _, r := range rows {
-		errMsg := r.Error
-		if len(errMsg) > 50 {
-			errMsg = errMsg[:47] + "..."
+	rows := 0
+	capped, err := fetchOrdered(u, limit, dir, func(page []defRow) error {
+		for _, r := range page {
+			if rows == 0 {
+				fmt.Fprintln(w, "NAME\tVERSION\tREGISTERED\tRAISES")
+			}
+			rows++
+			fmt.Fprintf(w, "%s\tv%d\t%s\t%s\n",
+				r.Name, r.Version, shortTime(r.CreatedAt), strings.Join(r.Raises, ", "))
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s@v%d\t%s\t%s\t%s\t%s\n",
-			r.ID, r.Status, r.Process, r.Version,
-			shortTime(r.UpdatedAt), shortTime(r.CreatedAt), r.ErrorCode, errMsg)
+		return nil
+	})
+	if err != nil {
+		fatal("%v", err)
+	}
+	if rows == 0 {
+		fmt.Println("no definitions")
+		return
 	}
 	w.Flush()
+	note(capped)
 }
 
 func runExternalTasksCmd(server string, args []string) {
@@ -513,7 +609,8 @@ func runExternalTasksCmd(server string, args []string) {
 	processFlag := fs.String("process", "", "filter by process name")
 	versionFlag := fs.Int("version", 0, "filter by process version (0 = any)")
 	taskFlag := fs.String("task", "", "filter by task id")
-	limitFlag := fs.Int("limit", 20, "show the newest N waiting tasks (pages the server as needed)")
+	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04)")
+	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
 	jsonFlag := fs.Bool("json", false, "print the raw items as a JSON array (includes each task's input and result_schema)")
 	fs.Parse(args)
 
@@ -527,18 +624,27 @@ func runExternalTasksCmd(server string, args []string) {
 	if *taskFlag != "" {
 		q.Set("task", *taskFlag)
 	}
+	// updated_at is the park time — the WAITING column and this queue's only sort.
+	limit := applyWindow(q, *sinceFlag, *untilFlag, "updated_at", listCap)
 	u := *serverFlag + "/external-tasks"
 	if enc := q.Encode(); enc != "" {
 		u += "?" + enc
 	}
+	note := func(capped bool) {
+		noteCapped(capped, fmt.Sprintf("the newest %d waiting tasks", listCap), "--since")
+	}
 
 	if *jsonFlag {
-		items, err := listNewest[json.RawMessage](u, *limitFlag)
+		var items []json.RawMessage
+		capped, err := fetchOrdered(u, limit, newestFirst, func(page []json.RawMessage) error {
+			items = append(items, page...)
+			return nil
+		})
 		if err != nil {
 			fatal("%v", err)
 		}
-		slices.Reverse(items)
 		printJSONItems(items)
+		note(capped)
 		return
 	}
 
@@ -552,38 +658,101 @@ func runExternalTasksCmd(server string, args []string) {
 		WaitingSince string `json:"waiting_since"`
 	}
 
-	rows, err := listNewest[taskRow](u, *limitFlag)
+	// TOKEN goes last (it is long) and is what you pass to `genctl resolve`.
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	rows := 0
+	capped, err := fetchOrdered(u, limit, newestFirst, func(page []taskRow) error {
+		for _, r := range page {
+			if rows == 0 {
+				fmt.Fprintln(w, "WAITING\tPROCESS\tTASK\tTOKEN")
+			}
+			rows++
+			fmt.Fprintf(w, "%s\t%s@v%d\t%s\t%s\n",
+				shortTime(r.WaitingSince), r.Process, r.Version, r.TaskID, r.Token)
+		}
+		return nil
+	})
 	if err != nil {
 		fatal("%v", err)
 	}
-	if len(rows) == 0 {
+	if rows == 0 {
 		fmt.Println("no external tasks waiting")
 		return
 	}
-	// Newest-first from the server; reverse so the most recent row prints last (bottom).
-	slices.Reverse(rows)
-
-	// TOKEN goes last (it is long) and is what you pass to `genctl resolve`.
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "WAITING\tPROCESS\tTASK\tTOKEN")
-	for _, r := range rows {
-		fmt.Fprintf(w, "%s\t%s@v%d\t%s\t%s\n",
-			shortTime(r.WaitingSince), r.Process, r.Version, r.TaskID, r.Token)
-	}
 	w.Flush()
+	note(capped)
+}
+
+// Caps for a list command that names no start point. Every list here is potentially
+// unbounded, so an unqualified read shows a slice rather than dumping the lot; the
+// command's start flag (--since, or --from where the sort is by name) lifts it by saying
+// where to begin. Deliberately not a --limit: one control per list, and it is the one
+// that says where to start rather than how much to stop at.
+//
+// logs is larger because a trail is read as a trail — a screenful of audit rows is rarely
+// the whole story — while the others are tables you scan.
+const (
+	logTailDefault = 200
+	listCap        = 20
+)
+
+// noteCapped tells the reader on stderr that the cap dropped rows, naming the flag that
+// reaches past it. stderr so it never lands in a pipe beside the rows; silent when nothing
+// was dropped, so it can never send anyone chasing rows that do not exist.
+func noteCapped(capped bool, shown, lift string) {
+	if capped {
+		fmt.Fprintf(os.Stderr, "genctl: showing %s — pass %s to read further\n", shown, lift)
+	}
+}
+
+// applyWindow turns --since/--until into the endpoint's bounds on col ("created_at" or
+// "updated_at") and returns the limit to fetch with: listCap while no start point is
+// named, 0 once one is, since naming where to begin is what lifts the cap.
+//
+// Only --since lifts it. --until alone still bounds the read but leaves it capped, which
+// is the useful reading: the newest N rows before that instant, i.e. what was happening
+// then. The two compose without a special case — a window with both ends is a bounded
+// forward walk.
+//
+// col must be the column the active sort keys on. The API takes each column's bounds
+// separately rather than one pair it resolves itself, so pairing them is the caller's job:
+// bounding created_at while ordering by updated_at would scatter the window through rows
+// outside it, and the forward walk would skip and resume across the gaps.
+func applyWindow(q url.Values, since, until, col string, cap int) int {
+	prefix := strings.TrimSuffix(col, "_at")
+	set := func(flag, value, suffix string) {
+		ms, err := parseWhen(flag, value)
+		if err != nil {
+			fatal("%v", err)
+		}
+		q.Set(prefix+suffix, strconv.FormatInt(ms, 10))
+	}
+	if until != "" {
+		set("--until", until, "_before")
+	}
+	if since == "" {
+		return cap
+	}
+	set("--since", since, "_after")
+	return 0
 }
 
 func runLogsCmd(server string, args []string) {
 	fs := flag.NewFlagSet("logs", flag.ExitOnError)
 	serverFlag := addServerFlag(fs, server)
 	levelFlag := fs.String("level", "", "filter by level (debug, info, warn, error); empty = all")
-	sinceFlag := fs.Int64("since", 0, "only logs at/after this unix-millis timestamp")
-	limitFlag := fs.Int("limit", 200, "show the newest N log entries (pages the server as needed)")
+	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04); empty = the newest 200 entries")
+	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
 	recursiveFlag := fs.Bool("recursive", false, "include the whole process subtree (root instance id)")
 	resolveFlag := fs.Bool("resolve", false, "inline full externalized payloads instead of a preview + reference")
 	modeFlag := fs.String("mode", "detail", "output: basic (no data body), detail (+ data), or json (one JSON object per line, untruncated)")
+	timeFlag := fs.String("time", "clock", "time column: clock (15:04:05, with a day separator per date) or full (2006-01-02 15:04:05 +02:00); both render in the local zone ($TZ)")
 	id := instanceIDAndFlags(fs, args)
 	mode, err := logview.ParseMode(*modeFlag)
+	if err != nil {
+		fatal("%v", err)
+	}
+	style, err := logview.ParseTimeStyle(*timeFlag)
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -592,9 +761,8 @@ func runLogsCmd(server string, args []string) {
 	if *levelFlag != "" {
 		q.Set("level", *levelFlag)
 	}
-	if *sinceFlag > 0 {
-		q.Set("since", strconv.FormatInt(*sinceFlag, 10))
-	}
+	// created_at is a trail's only order, so --since needs no column to pair with.
+	limit := applyWindow(q, *sinceFlag, *untilFlag, "created_at", logTailDefault)
 	if *recursiveFlag {
 		q.Set("recursive", "true")
 	}
@@ -606,18 +774,33 @@ func runLogsCmd(server string, args []string) {
 		u += "?" + enc
 	}
 
+	// Buffered so a long trail costs one write per page rather than one per row; the
+	// flush at each page boundary is what keeps the output streaming. fatal() exits
+	// without unwinding, so every error path flushes first.
+	out := bufio.NewWriter(os.Stdout)
+	fatalFlushing := func(format string, args ...any) {
+		out.Flush()
+		fatal(format, args...)
+	}
+	noteIfCapped := func(capped bool) {
+		noteCapped(capped, fmt.Sprintf("the newest %d entries", logTailDefault), "--since")
+	}
+
 	// json mode dumps each entry as the server's JSON, one per line (JSONL):
 	// everything, untruncated, pipe-friendly (jq).
 	if mode == logview.ModeJSON {
-		items, err := listNewest[json.RawMessage](u, *limitFlag)
+		capped, err := fetchOrdered(u, limit, newestFirst, func(items []json.RawMessage) error {
+			for _, it := range items {
+				out.Write(it)
+				out.WriteByte('\n')
+			}
+			return out.Flush()
+		})
 		if err != nil {
-			fatal("%v", err)
+			fatalFlushing("%v", err)
 		}
-		slices.Reverse(items) // oldest→newest, so the most recent line prints last
-		for _, it := range items {
-			os.Stdout.Write(it)
-			os.Stdout.Write([]byte("\n"))
-		}
+		out.Flush()
+		noteIfCapped(capped)
 		return
 	}
 
@@ -637,40 +820,51 @@ func runLogsCmd(server string, args []string) {
 		DataRef  *logDataRef    `json:"data_ref"`
 		Meta     map[string]any `json:"meta"`
 	}
-	// The newest --limit entries, gathered across pages, then reversed so they read
-	// oldest→newest with the most recent line at the bottom, nearest the prompt (tail).
-	rows, err := listNewest[logRow](u, *limitFlag)
-	if err != nil {
-		fatal("%v", err)
-	}
-	if len(rows) == 0 {
-		return
-	}
-	slices.Reverse(rows)
-
 	// Render via the shared logview column layout — the same one the server console
-	// uses, so a row reads identically in either place. The CLI adds a header (it has
-	// the whole page) and shows the ID column only with --recursive (a single-instance view
-	// repeats one id). The data body is shown only in detail mode.
-	fmt.Println(logview.Header(*recursiveFlag))
-	for _, l := range rows {
-		t, _ := parseTime(l.Time)
-		// An externalized payload comes back as a bare {ref, size} reference with no
-		// inline body — show the reference itself in the body's place (rendered raw via
-		// the leading "{"). Pass --resolve to fetch and inline the full value instead.
-		data := l.Data
-		if data == "" && l.DataRef != nil {
-			if b, err := json.Marshal(l.DataRef); err == nil {
-				data = string(b)
+	// uses, so a row reads identically in either place. The CLI adds a header and shows
+	// the ID column only with --recursive (a single-instance view repeats one id). The
+	// data body is shown only in detail mode.
+	//
+	// The header is emitted before the first row rather than up front, so an empty trail
+	// prints nothing at all. day carries the last date rendered across calls so each new
+	// calendar day gets a DateBreak, and its empty zero value makes the first one
+	// unconditional; a style that puts the date in the column suppresses them all. Both
+	// of fetchOrdered's paths render through this, so a tail and a stream read alike.
+	header, day := false, ""
+	capped, err := fetchOrdered(u, limit, newestFirst, func(rows []logRow) error {
+		for _, l := range rows {
+			if !header {
+				fmt.Fprintln(out, logview.Header(style, *recursiveFlag))
+				header = true
 			}
+			t, ok := parseTime(l.Time)
+			if d := t.Format("2006-01-02"); ok && !style.CarriesDate() && d != day {
+				fmt.Fprintln(out, logview.DateBreak(t))
+				day = d
+			}
+			// An externalized payload comes back as a bare {ref, size} reference with no
+			// inline body — show the reference itself in the body's place (rendered raw via
+			// the leading "{"). Pass --resolve to fetch and inline the full value instead.
+			data := l.Data
+			if data == "" && l.DataRef != nil {
+				if b, err := json.Marshal(l.DataRef); err == nil {
+					data = string(b)
+				}
+			}
+			rec := logview.Record{Event: l.Event, Task: l.Task, Msg: l.Message, Code: l.Code, Data: data, Meta: l.Meta}
+			idTag := ""
+			if *recursiveFlag {
+				idTag = shortID(l.Instance)
+			}
+			fmt.Fprintln(out, logview.RenderEvent(style, t, l.Level, idTag, l.Event, l.Task, rec.Detail(mode), *recursiveFlag))
 		}
-		rec := logview.Record{Event: l.Event, Task: l.Task, Msg: l.Message, Code: l.Code, Data: data, Meta: l.Meta}
-		idTag := ""
-		if *recursiveFlag {
-			idTag = shortID(l.Instance)
-		}
-		fmt.Println(logview.RenderEvent(t, l.Level, idTag, l.Event, l.Task, rec.Detail(mode), *recursiveFlag))
+		return out.Flush()
+	})
+	if err != nil {
+		fatalFlushing("%v", err)
 	}
+	out.Flush()
+	noteIfCapped(capped)
 }
 
 func inputValidationError(err error) (string, bool) {

@@ -60,9 +60,11 @@ func TestListLogs_OrderAndFilters(t *testing.T) {
 			if len(all) != 4 {
 				t.Fatalf("expected 4 logs for inst-1, got %d", len(all))
 			}
+			// Newest first, like every list endpoint: a bare read is "the most recent",
+			// and a caller wanting the trail in reading order asks for order=asc.
 			wantOrder := []string{
-				model.EventActionStarted, model.EventRetryScheduled,
-				model.EventActionSucceeded, model.EventInstanceDone,
+				model.EventInstanceDone, model.EventActionSucceeded,
+				model.EventRetryScheduled, model.EventActionStarted,
 			}
 			for i, w := range wantOrder {
 				if all[i].Event != w {
@@ -70,8 +72,17 @@ func TestListLogs_OrderAndFilters(t *testing.T) {
 				}
 			}
 			// The raw data string round-trips unchanged.
-			if all[0].Data != model.EventActionStarted {
+			if all[0].Data != model.EventInstanceDone {
 				t.Errorf("data not preserved: %q", all[0].Data)
+			}
+			// Ascending is the same four rows read the other way — the direction is the
+			// caller's, not the storage's.
+			asc, _, err := b.db.ListLogs("inst-1", dbpkg.LogQuery{Page: dbpkg.PageReq{Desc: new(bool)}})
+			if err != nil {
+				t.Fatalf("ListLogs(asc): %v", err)
+			}
+			if len(asc) != 4 || asc[0].Event != model.EventActionStarted || asc[3].Event != model.EventInstanceDone {
+				t.Errorf("ascending order = %+v", asc)
 			}
 
 			// Level filter.
@@ -83,10 +94,10 @@ func TestListLogs_OrderAndFilters(t *testing.T) {
 				t.Fatalf("level filter: want 1 retry_scheduled, got %+v", warns)
 			}
 
-			// Since filter (inclusive).
-			recent, _, err := b.db.ListLogs("inst-1", dbpkg.LogQuery{Since: 3000})
+			// created_after bound (inclusive).
+			recent, _, err := b.db.ListLogs("inst-1", dbpkg.LogQuery{Created: dbpkg.Window{After: 3000}})
 			if err != nil {
-				t.Fatalf("ListLogs(since): %v", err)
+				t.Fatalf("ListLogs(created_after): %v", err)
 			}
 			if len(recent) != 2 {
 				t.Fatalf("since filter: want 2, got %d", len(recent))
@@ -126,8 +137,10 @@ func TestListLogs_CursorPagination(t *testing.T) {
 			if len(page2) != 2 {
 				t.Fatalf("page2: want 2, got %d", len(page2))
 			}
-			// Pages must not overlap and must stay ordered.
-			if !page2[0].CreatedAt.After(last.CreatedAt) {
+			// Pages must not overlap and must stay ordered. The default is newest-first,
+			// so "forward" walks backward in time — the cursor advances in display order,
+			// whichever direction that is.
+			if !page2[0].CreatedAt.Before(last.CreatedAt) {
 				t.Errorf("cursor did not advance: page1 last=%v page2 first=%v",
 					last.CreatedAt, page2[0].CreatedAt)
 			}
@@ -192,9 +205,12 @@ func TestListLogs_CursorTiebreaker(t *testing.T) {
 			if len(collected) != n {
 				t.Fatalf("collected %d ids, want %d (no skips/dupes)", len(collected), n)
 			}
+			// Newest-first is the default, and every row shares a created_at, so the id
+			// tiebreaker alone carries the order — strictly descending, with no row
+			// repeated or skipped at a page boundary.
 			for i := 1; i < len(collected); i++ {
-				if collected[i-1] >= collected[i] {
-					t.Errorf("ids not strictly ascending at %d: %s >= %s", i, collected[i-1], collected[i])
+				if collected[i-1] <= collected[i] {
+					t.Errorf("ids not strictly descending at %d: %s <= %s", i, collected[i-1], collected[i])
 				}
 			}
 		})

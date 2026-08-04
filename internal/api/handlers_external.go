@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"genroc/internal/db"
 	"genroc/internal/idgen"
 	"genroc/internal/model"
 	"genroc/internal/schema"
@@ -16,7 +17,8 @@ func (h *Handlers) listExternalTasks(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	instances, info, err := h.db.ListExternalTasks(req.Process, req.Version, req.Task, req.page())
+	instances, info, err := h.db.ListExternalTasks(req.Process, req.Version, req.Task,
+		db.Window{After: req.UpdatedAfter, Before: req.UpdatedBefore}, req.page())
 	if err != nil {
 		return errReply(err)
 	}

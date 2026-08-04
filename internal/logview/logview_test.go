@@ -1,6 +1,10 @@
 package logview
 
 import (
+	"bytes"
+	"context"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 )
@@ -66,17 +70,100 @@ func TestRenderEvent(t *testing.T) {
 	ts := time.Date(2026, 1, 2, 15, 4, 5, 0, time.UTC)
 
 	// With id (tree): fixed-width columns, JSON body rendered raw, status from meta.
-	got := RenderEvent(ts, "info", "abc123", rec.Event, "fetch", rec.Detail(ModeDetail), true)
+	got := RenderEvent(TimeClock, ts, "info", "abc123", rec.Event, "fetch", rec.Detail(ModeDetail), true)
 	want := "15:04:05  INFO   abc123  action_succeeded  fetch           status=200 result={\"slept\":5000}"
 	if got != want {
 		t.Errorf("RenderEvent(tree):\n got %q\nwant %q", got, want)
 	}
 
 	// basic mode drops the data body.
-	got = RenderEvent(ts, "info", "abc123", rec.Event, "fetch", rec.Detail(ModeBasic), true)
+	got = RenderEvent(TimeClock, ts, "info", "abc123", rec.Event, "fetch", rec.Detail(ModeBasic), true)
 	want = "15:04:05  INFO   abc123  action_succeeded  fetch           status=200"
 	if got != want {
 		t.Errorf("RenderEvent(basic):\n got %q\nwant %q", got, want)
+	}
+
+	// The zero value is the console's layout, so a caller with no opinion cannot
+	// silently render a zero-width time column.
+	if got, clock := RenderEvent("", ts, "info", "", rec.Event, "fetch", nil, false),
+		RenderEvent(TimeClock, ts, "info", "", rec.Event, "fetch", nil, false); got != clock {
+		t.Errorf("zero TimeStyle:\n got %q\nwant %q (TimeClock)", got, clock)
+	}
+}
+
+func TestTimeStyle(t *testing.T) {
+	for _, s := range []string{"clock", "full"} {
+		if _, err := ParseTimeStyle(s); err != nil {
+			t.Errorf("ParseTimeStyle(%q) errored: %v", s, err)
+		}
+	}
+	if _, err := ParseTimeStyle("relative"); err == nil {
+		t.Error("ParseTimeStyle(relative) should error")
+	}
+	// Only the dated style suppresses DateBreak; getting this backwards prints the date
+	// twice, or not at all.
+	if TimeClock.CarriesDate() || !TimeFull.CarriesDate() {
+		t.Error("CarriesDate should be false for clock, true for full")
+	}
+
+	ts := time.Date(2026, 1, 2, 15, 4, 5, 0, time.UTC)
+	rec := Record{Event: "action_succeeded", Meta: map[string]any{"status": float64(200)}}
+	// The full style widens the time column by exactly its extra layout, so every later
+	// column stays aligned with its header rather than drifting right by a few spaces.
+	// UTC must render as "+00:00", not "Z" — a one-character offset would shorten the
+	// column for exactly the readers running under TZ=UTC.
+	got := RenderEvent(TimeFull, ts, "info", "", rec.Event, "fetch", rec.Detail(ModeBasic), false)
+	want := "2026-01-02 15:04:05 +00:00  INFO   action_succeeded  fetch           status=200"
+	if got != want {
+		t.Errorf("RenderEvent(full):\n got %q\nwant %q", got, want)
+	}
+	// Every zone yields the same width, so the columns never shift with the reader's TZ.
+	for _, loc := range []string{"UTC", "Europe/Prague", "Asia/Kathmandu"} {
+		zone, err := time.LoadLocation(loc)
+		if err != nil {
+			t.Skipf("no tzdata for %s: %v", loc, err)
+		}
+		if w := len(ts.In(zone).Format(TimeFull.layout())); w != TimeFull.width() {
+			t.Errorf("%s renders %d chars, but the column is %d wide", loc, w, TimeFull.width())
+		}
+	}
+	for _, style := range []TimeStyle{TimeClock, TimeFull} {
+		header, row := Header(style, false), RenderEvent(style, ts, "info", "", rec.Event, "fetch", nil, false)
+		if i, j := strings.Index(header, "EVENT"), strings.Index(row, "action_succeeded"); i != j {
+			t.Errorf("%s: EVENT header at %d but its column at %d — the widths disagree", style, i, j)
+		}
+	}
+}
+
+func TestDateBreak(t *testing.T) {
+	ts := time.Date(2026, 8, 4, 15, 4, 5, 0, time.UTC)
+	// The zone rides along: under TimeClock this line is the only place it can appear,
+	// and without it a trail read from another machine is silently shifted.
+	if got := DateBreak(ts); got != "--- 2026-08-04 +00:00 ---" {
+		t.Errorf("DateBreak = %q", got)
+	}
+	zone, err := time.LoadLocation("Europe/Prague")
+	if err != nil {
+		t.Skipf("no tzdata: %v", err)
+	}
+	// 15:04 UTC is the 4th in Prague too, but the date is the local one, not the stamp's.
+	if got := DateBreak(ts.In(zone)); got != "--- 2026-08-04 +02:00 ---" {
+		t.Errorf("DateBreak(Prague) = %q", got)
+	}
+	// An offset, not an abbreviation: "CST" is Shanghai here and Chicago below, fourteen
+	// hours apart, and Kathmandu has no abbreviation at all. Matching delayspec's `tz`.
+	for _, tc := range []struct{ zone, want string }{
+		{"Asia/Shanghai", "+08:00"},
+		{"America/Chicago", "-05:00"},
+		{"Asia/Kathmandu", "+05:45"},
+	} {
+		loc, err := time.LoadLocation(tc.zone)
+		if err != nil {
+			t.Skipf("no tzdata for %s: %v", tc.zone, err)
+		}
+		if got, want := DateBreak(ts.In(loc)), "--- 2026-08-04 "+tc.want+" ---"; got != want {
+			t.Errorf("DateBreak(%s) = %q, want %q", tc.zone, got, want)
+		}
 	}
 }
 
@@ -105,6 +192,33 @@ func TestRenderJSON(t *testing.T) {
 	want = `{"level":"info","msg":"engine started","time":"2026-01-02T15:04:05Z","worker":"w1"}`
 	if got != want {
 		t.Errorf("RenderJSON(free):\n got %s\nwant %s", got, want)
+	}
+}
+
+// The console must render UTC whatever zone the host runs in — otherwise a fleet's logs
+// interleave by wall clock and stop collating, and nothing in the output would say why.
+func TestHandlerRendersUTC(t *testing.T) {
+	zone, err := time.LoadLocation("Asia/Kathmandu") // +05:45: no whole-hour coincidence
+	if err != nil {
+		t.Skipf("no tzdata: %v", err)
+	}
+	stamped := time.Date(2026, 8, 4, 15, 4, 5, 0, time.UTC).In(zone)
+
+	for _, tc := range []struct {
+		mode Mode
+		want string
+	}{
+		{ModeBasic, "15:04:05"},                     // not 20:49:05, the host's clock
+		{ModeJSON, `"time":"2026-08-04T15:04:05Z"`}, // Z, matching the API's stamps
+	} {
+		var buf bytes.Buffer
+		h := NewHandler(&buf, slog.LevelInfo, tc.mode)
+		if err := h.Handle(context.Background(), slog.NewRecord(stamped, slog.LevelInfo, "engine started", 0)); err != nil {
+			t.Fatalf("Handle(%s): %v", tc.mode, err)
+		}
+		if !strings.Contains(buf.String(), tc.want) {
+			t.Errorf("%s rendered %q, want it to contain %q", tc.mode, buf.String(), tc.want)
+		}
 	}
 }
 

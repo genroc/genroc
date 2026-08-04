@@ -91,8 +91,10 @@ async function getLogs(
   id: string,
   query?: { level?: "debug" | "info" | "warn" | "error"; recursive?: boolean },
 ) {
+  // order=asc: the endpoint sorts newest-first like every list, while these tests assert
+  // the event sequence in the order the engine produced it.
   const { data, error } = await ctx.env.client.GET("/instances/{id}/logs", {
-    params: { path: { id }, query },
+    params: { path: { id }, query: { ...query, order: "asc" } },
   });
   if (error) throw new Error(`get logs failed: ${JSON.stringify(error)}`);
   return data!.items ?? [];

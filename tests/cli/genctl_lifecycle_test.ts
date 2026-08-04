@@ -201,9 +201,9 @@ test("config get — unset server prints (not set); unknown key errors", () => {
   expect(bad.stderr).toContain("unknown config key");
 });
 
-// ── newest-at-bottom display + --limit tail window ──────────────────────────────
+// ── newest-at-bottom display + the --since read window ──────────────────────────
 
-// A three-task process — enough ordered log entries to exercise the --limit tail.
+// A three-task process — enough ordered log entries to exercise the --since window.
 function threeTaskDef(name: string) {
   return {
     name,
@@ -215,9 +215,18 @@ function threeTaskDef(name: string) {
   };
 }
 
-// Fetch log-entry timestamps (ms) in the order genctl prints them (top → bottom).
-function logTimes(id: string, extra: string[] = []): number[] {
-  return runCli(bin, ["logs", id, "--mode", "json", ...extra])
+// genctl renders and parses timestamps in the local zone, so a UTC-derived date is off
+// by one for part of every day — build the expected date the same way genctl does.
+function localDate(at = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}`;
+}
+
+// Fetch log-entry timestamps (ms) in the order genctl prints them (top → bottom). env
+// lets a caller pin TZ, so a timestamp built in UTC can be passed back as --since/--until
+// and mean the same instant genctl reads it as.
+function logTimes(id: string, extra: string[] = [], env: Record<string, string> = {}): number[] {
+  return runCli(bin, ["logs", id, "--mode", "json", ...extra], env)
     .stdout.trim()
     .split("\n")
     .filter(Boolean)
@@ -236,20 +245,127 @@ test("logs — entries print oldest→newest, newest at the bottom", async () =>
   expect(times).toEqual([...times].sort((a, b) => a - b));
 });
 
-test("logs --limit — keeps the newest N, still oldest→newest (tail)", async () => {
-  const name = uid("tail");
+test("logs — the cap is a default, not a flag; --since is the only reach-back control", async () => {
+  const name = uid("nolimit");
   runCli(bin, ["apply", "-f", writeDefs([threeTaskDef(name)])]);
   const id = startedID(runCli(bin, ["run", name]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
 
-  const all = logTimes(id, ["--limit", "100"]);
+  // A trail under the cap reads the same either way, and never claims it was truncated.
+  const bare = runCli(bin, ["logs", id, "--mode", "json"]);
+  expect(bare.stderr).not.toContain("--since");
+  expect(logTimes(id)).toEqual(logTimes(id, ["--since", "1h"]));
+
+  // --limit is gone: the flag error is what points at --since in its place.
+  const stale = runCli(bin, ["logs", id, "--limit", "2"]);
+  expect(stale.ok).toBe(false);
+  expect(stale.stderr).toContain("not defined: -limit");
+  expect(stale.stderr).toContain("-since");
+});
+
+test("logs --since — a duration and a date bound the window; the future is empty", async () => {
+  const name = uid("since");
+  runCli(bin, ["apply", "-f", writeDefs([threeTaskDef(name)])]);
+  const id = startedID(runCli(bin, ["run", name]).stdout);
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const all = logTimes(id);
+  expect(all.length).toBeGreaterThanOrEqual(3);
+  // A window that contains the run returns it whole, whether given as a duration back
+  // from now or as a calendar date.
+  expect(logTimes(id, ["--since", "1h"])).toEqual(all);
+  expect(logTimes(id, ["--since", localDate()])).toEqual(all);
+
+  const tomorrow = localDate(new Date(Date.now() + 86_400_000));
+  expect(logTimes(id, ["--since", tomorrow])).toEqual([]);
+});
+
+test("logs --until — bounds the far end; [since, until) is half-open", async () => {
+  const name = uid("until");
+  runCli(bin, ["apply", "-f", writeDefs([threeTaskDef(name)])]);
+  const id = startedID(runCli(bin, ["run", name]).stdout);
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const all = logTimes(id, ["--since", "1h"]);
   expect(all.length).toBeGreaterThanOrEqual(3);
 
-  const tail2 = logTimes(id, ["--limit", "2"]);
-  expect(tail2.length).toBe(2);
-  // --limit keeps the two most-recent entries, displayed chronologically — i.e. the
-  // last two of the full list. This is the whole point: a limit is a tail, not a head.
-  expect(tail2).toEqual(all.slice(-2));
+  // An --until at the second entry's instant excludes that entry: the far end is
+  // exclusive, so walking hour by hour never counts a boundary row twice.
+  const cut = new Date(all[1]).toISOString().slice(0, 19).replace("T", " ");
+  const before = logTimes(id, ["--since", "1h", "--until", cut], { TZ: "UTC" });
+  const cutMs = new Date(`${cut}Z`).getTime();
+  expect(before.every((t) => t < cutMs)).toBe(true);
+
+  // The window's two halves partition the whole, with no row lost or repeated.
+  const after = logTimes(id, ["--since", cut], { TZ: "UTC" });
+  expect(before.length + after.length).toBe(logTimes(id, ["--since", "1h"], { TZ: "UTC" }).length);
+
+  // A window that closes before anything happened is empty.
+  expect(logTimes(id, ["--since", "1h", "--until", "2000-01-01"])).toEqual([]);
+});
+
+test("logs --since — a bare integer is rejected, not read as epoch millis", () => {
+  // A concrete (nonexistent) id: --since is parsed before any request, so the id never
+  // reaches the server and the test does not depend on @last being recorded.
+  const r = runCli(bin, ["logs", "00000000-0000-0000-0000-000000000000", "--since", "30"]);
+  expect(r.ok).toBe(false);
+  expect(r.stderr).toContain("invalid --since");
+});
+
+test("logs — a date break precedes the first row of each day", async () => {
+  const name = uid("datebreak");
+  runCli(bin, ["apply", "-f", writeDefs([threeTaskDef(name)])]);
+  const id = startedID(runCli(bin, ["run", name]).stdout);
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const lines = runCli(bin, ["logs", id]).stdout.trim().split("\n");
+  const breaks = lines.filter((l) => l.startsWith("--- "));
+  // One run finishes within a day, so exactly one break — emitted even though every
+  // entry is from today, since the columns carry no date of their own. The zone is a
+  // numeric offset, never an abbreviation ("CST" is two zones fourteen hours apart).
+  expect(breaks.length).toBe(1);
+  expect(breaks[0]).toMatch(new RegExp(`^--- ${localDate()} [+-]\\d{2}:\\d{2} ---$`));
+  expect(lines[0]).toContain("TIME");
+  expect(lines[1]).toBe(breaks[0]);
+});
+
+test("logs — $TZ moves both the rendered times and --since together", async () => {
+  const name = uid("tz");
+  runCli(bin, ["apply", "-f", writeDefs([threeTaskDef(name)])]);
+  const id = startedID(runCli(bin, ["run", name]).stdout);
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const utc = runCli(bin, ["logs", id, "--time", "full"], { TZ: "UTC" }).stdout.trim().split("\n");
+  expect(utc[1]).toMatch(/ \+00:00 {2}/);
+  expect(utc.find((l) => l.startsWith("--- "))).toBeUndefined();
+
+  // The round trip that matters: a timestamp read off a row, passed back as --since
+  // under the same TZ, must still select that row.
+  const stamp = utc[1].slice(0, 16); // "2026-08-04 09:43"
+  const back = runCli(bin, ["logs", id, "--time", "full", "--since", stamp], { TZ: "UTC" });
+  expect(back.stdout).toContain(utc[1]);
+});
+
+test("logs --time full — the date moves into the column and the separators go away", async () => {
+  const name = uid("timefull");
+  runCli(bin, ["apply", "-f", writeDefs([threeTaskDef(name)])]);
+  const id = startedID(runCli(bin, ["run", name]).stdout);
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const lines = runCli(bin, ["logs", id, "--time", "full"]).stdout.trim().split("\n");
+  // Exactly one place carries the date: with it in the column there are no separators.
+  expect(lines.filter((l) => l.startsWith("--- "))).toEqual([]);
+  // Every row is dated and carries its offset — a full timestamp with no zone is only
+  // exact to whoever ran the command.
+  for (const l of lines.slice(1)) {
+    expect(l).toMatch(new RegExp(`^${localDate()} \\d{2}:\\d{2}:\\d{2} [+-]\\d{2}:\\d{2}  `));
+  }
+  // The widened time column shifts every later column with it, header included.
+  expect(lines[0].indexOf("LEVEL")).toBe(lines[1].indexOf("INFO"));
+
+  const bad = runCli(bin, ["logs", id, "--time", "iso"]);
+  expect(bad.ok).toBe(false);
+  expect(bad.stderr).toContain("invalid time style");
 });
 
 test("instances — the newest run prints last (oldest→newest)", async () => {
@@ -258,9 +374,12 @@ test("instances — the newest run prints last (oldest→newest)", async () => {
   const ids = [0, 1, 2].map(() => startedID(runCli(bin, ["run", name]).stdout));
   for (const id of ids) expect(await waitForInstance(id)).toBe("completed");
 
-  // A generous limit so all three fall inside the recent window on the shared server.
+  // --since lifts the cap, so all three are present however busy the shared server is.
+  // This is also the uncapped (forward-streaming) path: instances defaults to
+  // newest-first server-side, so it is the one list that would come back reversed if the
+  // walk inherited that default instead of asking for ascending.
   const arr = JSON.parse(
-    runCli(bin, ["instances", "--json", "--limit", "200"]).stdout,
+    runCli(bin, ["instances", "--json", "--since", "1h"]).stdout,
   ) as { id: string }[];
   const posOf = (id: string) => arr.findIndex((it) => it.id === id);
 
@@ -269,9 +388,73 @@ test("instances — the newest run prints last (oldest→newest)", async () => {
   // Created oldest→newest as ids[0],ids[1],ids[2]; displayed oldest→newest, so the
   // first-created appears above the last-created (newest nearest the prompt).
   expect(posOf(ids[0])).toBeLessThan(posOf(ids[2]));
+
+  // The capped path must agree with the uncapped one on direction, not just on contents.
+  const capped = JSON.parse(runCli(bin, ["instances", "--json"]).stdout) as {
+    created_at: string;
+  }[];
+  const times = capped.map((i) => new Date(i.created_at).getTime());
+  expect(times).toEqual([...times].sort((a, b) => a - b));
 });
 
-test("external-tasks — newest waiting task prints last; --limit keeps the newest", async () => {
+test("instances --since — bounds the column --sort selects, and rejects a bare integer", async () => {
+  const name = uid("since_inst");
+  runCli(bin, ["apply", "-f", writeDefs([switchDef(name)])]);
+  const id = startedID(runCli(bin, ["run", name]).stdout);
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const idsIn = (extra: string[]) =>
+    (JSON.parse(runCli(bin, ["instances", "--json", ...extra]).stdout) as { id: string }[])
+      .map((i) => i.id);
+
+  // Present under either sort key within the window, absent beyond it.
+  expect(idsIn(["--since", "1h"])).toContain(id);
+  expect(idsIn(["--since", "1h", "--sort", "updated"])).toContain(id);
+  const tomorrow = localDate(new Date(Date.now() + 86_400_000));
+  expect(idsIn(["--since", tomorrow])).toEqual([]);
+
+  const bad = runCli(bin, ["instances", "--since", "30"]);
+  expect(bad.ok).toBe(false);
+  expect(bad.stderr).toContain("invalid --since");
+});
+
+test("definitions — newest registered first; --sort name gives the alphabetical order", () => {
+  // Applied in one call, so both share a registration instant and only the name order is
+  // predictable between them; zzz_ vs aaa_ is independent of the random suffix.
+  const stem = uid("defs");
+  const alpha = `${stem}_aaa`;
+  const omega = `${stem}_zzz`;
+  runCli(bin, ["apply", "-f", writeDefs([switchDef(omega), switchDef(alpha)])]);
+
+  const names = (extra: string[] = []) =>
+    (JSON.parse(runCli(bin, ["definitions", "--json", ...extra]).stdout) as { name: string }[])
+      .map((d) => d.name);
+
+  // --since lifts the cap, so both are reachable however many definitions the server holds.
+  const recent = names(["--since", "1h"]);
+  expect(recent).toContain(alpha);
+  expect(recent).toContain(omega);
+
+  // Same window under the name sort, now alphabetical rather than by registration — the
+  // one list offering a non-time sort. --since lifts the cap here too, so the shared
+  // server's other definitions cannot push these two off the page.
+  const byName = names(["--since", "1h", "--sort", "name"]);
+  expect(byName).toContain(alpha);
+  expect(byName).toContain(omega);
+  expect(byName.indexOf(alpha)).toBeLessThan(byName.indexOf(omega));
+  expect(byName).toEqual([...byName].sort());
+
+  // The table carries the registration time the default sort is keyed on.
+  const table = runCli(bin, ["definitions", "--since", "1h"]).stdout.trim().split("\n");
+  expect(table[0]).toContain("NAME");
+  expect(table[0]).toContain("REGISTERED");
+
+  const bad = runCli(bin, ["definitions", "--since", "30"]);
+  expect(bad.ok).toBe(false);
+  expect(bad.stderr).toContain("invalid --since");
+});
+
+test("external-tasks — newest waiting task prints last; --since lifts the cap", async () => {
   const name = uid("etorder");
   runCli(bin, ["apply", "-f", writeDefs([externalDef(name)])]);
 
@@ -300,13 +483,13 @@ test("external-tasks — newest waiting task prints last; --limit keeps the newe
   expect(all.length).toBe(3);
   expect(posOf(all, ids[0])).toBeLessThan(posOf(all, ids[2]));
 
-  // --limit keeps the newest N (tail): the oldest task drops out, order preserved.
-  const two = tokens(["--limit", "2"]);
-  expect(two.length).toBe(2);
-  expect(posOf(two, ids[0])).toBe(-1); // oldest dropped
-  expect(posOf(two, ids[1])).toBeGreaterThanOrEqual(0);
-  expect(posOf(two, ids[2])).toBeGreaterThanOrEqual(0);
-  expect(posOf(two, ids[1])).toBeLessThan(posOf(two, ids[2]));
+  // --since lifts the cap and streams forward; same rows, same oldest→newest direction
+  // as the capped path above, which reaches them by reversing a descending fetch.
+  const within = tokens(["--since", "1h"]);
+  expect(within).toEqual(all);
+  // A window that starts after they parked is empty, not merely reordered.
+  const tomorrow = localDate(new Date(Date.now() + 86_400_000));
+  expect(tokens(["--since", tomorrow])).toEqual([]);
 
   // Resolve all three so they don't linger parked on the shared server.
   for (const id of ids) {

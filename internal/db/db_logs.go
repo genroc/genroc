@@ -12,12 +12,12 @@ import (
 )
 
 // LogQuery holds the optional filters shared by ListLogs and ListTreeLogs plus
-// the pagination request. The zero value (empty Level, zero Since, zero Page)
-// returns the first page from the beginning.
+// the pagination request. The zero value (empty Level, zero Created, zero Page)
+// returns the first page of the newest logs.
 type LogQuery struct {
-	Level string
-	Since int64 // unix millis; 0 = from the start
-	Page  PageReq
+	Level   string
+	Created Window // on created_at, a trail's only sort
+	Page    PageReq
 }
 
 // logPaginator is the pagination policy for logs. Only time order is offered: the
@@ -34,7 +34,7 @@ var logPaginator = paginator{
 		"created": {{"pl.created_at", kindInt}, {"pl.id", kindText}},
 	},
 	defSort:  "created",
-	defDesc:  false, // oldest first
+	defDesc:  true, // newest first, as every list endpoint defaults
 	defLimit: 20,
 	maxLimit: 100,
 }
@@ -193,11 +193,10 @@ SELECT 1` + treeLogsJoin
 
 func (db *DB) ListLogs(instanceID string, opts LogQuery) ([]*model.LogEntry, PageInfo, error) {
 	db.flushLogs() // make any buffered rows for this instance visible to the read
-	b, err := logPaginator.query(opts.Page).
+	q := logPaginator.query(opts.Page).
 		Eq("pl.instance_id", instanceID).
-		EqIf("pl.level", opts.Level, opts.Level != "").
-		GteIf("pl.created_at", opts.Since, opts.Since > 0).
-		build()
+		EqIf("pl.level", opts.Level, opts.Level != "")
+	b, err := opts.Created.apply(q, "pl.created_at").build()
 	if err != nil {
 		return nil, PageInfo{}, err
 	}
@@ -212,9 +211,9 @@ func (db *DB) ListLogs(instanceID string, opts LogQuery) ([]*model.LogEntry, Pag
 // shared paginator via buildSource.
 func (db *DB) ListTreeLogs(rootID string, opts LogQuery) ([]*model.LogEntry, PageInfo, error) {
 	db.flushLogs() // make any buffered rows for the subtree visible to the read
-	b, err := logPaginator.query(opts.Page).
-		EqIf("pl.level", opts.Level, opts.Level != "").
-		GteIf("pl.created_at", opts.Since, opts.Since > 0).
+	q := logPaginator.query(opts.Page).
+		EqIf("pl.level", opts.Level, opts.Level != "")
+	b, err := opts.Created.apply(q, "pl.created_at").
 		buildSource(treeLogsPrefix, treeLogsCountInner, []any{rootID})
 	if err != nil {
 		return nil, PageInfo{}, err

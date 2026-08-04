@@ -59,7 +59,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 
 			// Default: created desc -> newest created first: c, b, a.
-			got, info, err := b.db.ListInstances("", "", dbpkg.PageReq{})
+			got, info, err := b.db.ListInstances("", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances: %v", err)
 			}
@@ -80,7 +80,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 
 			// updated desc -> most recently active first: a (just updated), c, b.
-			byUpdated, info, err := b.db.ListInstances("", "", dbpkg.PageReq{Sort: "updated"})
+			byUpdated, info, err := b.db.ListInstances("", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{Sort: "updated"})
 			if err != nil {
 				t.Fatalf("ListInstances updated: %v", err)
 			}
@@ -92,12 +92,58 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 
 			// Status filter narrows the page.
-			completed, _, err := b.db.ListInstances("completed", "", dbpkg.PageReq{})
+			completed, _, err := b.db.ListInstances("completed", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances completed: %v", err)
 			}
 			if len(completed) != 1 || completed[0].ID != a.ID {
 				t.Errorf("status filter = %v, want [%s]", summaryIDs(completed), a.ID)
+			}
+
+			// The two bounds are independent columns, not one "since" resolved against
+			// the sort, and 'a' is the row that tells them apart: created first, updated
+			// last. The same instant therefore selects different sets.
+			//
+			// Read the bound off a DB row, not off saveInstance's return — that struct is
+			// the one handed to SaveInstance and never carries the stamped timestamps, so
+			// its zero CreatedAt would make the bound <= 0 and skip the filter entirely.
+			at := got[1].CreatedAt.UnixMilli() // b's created_at (got is c, b, a)
+			byCreated, _, err := b.db.ListInstances("", "", dbpkg.Window{After: at}, dbpkg.Window{}, dbpkg.PageReq{})
+			if err != nil {
+				t.Fatalf("ListInstances created_after: %v", err)
+			}
+			// created_at >= b's: c and b. 'a' was created before it.
+			if want := []string{c.ID, bb.ID}; !equalStrs(summaryIDs(byCreated), want) {
+				t.Errorf("created_after = %v, want %v", summaryIDs(byCreated), want)
+			}
+			byUpdatedAfter, _, err := b.db.ListInstances("", "", dbpkg.Window{}, dbpkg.Window{After: at}, dbpkg.PageReq{Sort: "updated"})
+			if err != nil {
+				t.Fatalf("ListInstances updated_after: %v", err)
+			}
+			// updated_at >= the same instant: all three, because 'a' was touched after.
+			if want := []string{a.ID, c.ID, bb.ID}; !equalStrs(summaryIDs(byUpdatedAfter), want) {
+				t.Errorf("updated_after = %v, want %v", summaryIDs(byUpdatedAfter), want)
+			}
+			// Both at once intersect rather than one winning — they are plain filters, and
+			// only the one matching the sort is the point a forward walk starts from.
+			both, _, err := b.db.ListInstances("", "", dbpkg.Window{After: at}, dbpkg.Window{After: at}, dbpkg.PageReq{Sort: "updated"})
+			if err != nil {
+				t.Fatalf("ListInstances both bounds: %v", err)
+			}
+			if want := []string{c.ID, bb.ID}; !equalStrs(summaryIDs(both), want) {
+				t.Errorf("both bounds = %v, want %v (a fails created_at)", summaryIDs(both), want)
+			}
+
+			// A window is half-open: Before excludes a row sitting exactly on it, so
+			// [a.created, b.created) is 'a' alone and adjacent windows never double-count
+			// the boundary row.
+			half, _, err := b.db.ListInstances("", "",
+				dbpkg.Window{After: got[2].CreatedAt.UnixMilli(), Before: at}, dbpkg.Window{}, dbpkg.PageReq{})
+			if err != nil {
+				t.Fatalf("ListInstances half-open: %v", err)
+			}
+			if want := []string{a.ID}; !equalStrs(summaryIDs(half), want) {
+				t.Errorf("[a, b) = %v, want %v — Before must exclude its own instant", summaryIDs(half), want)
 			}
 		})
 	}

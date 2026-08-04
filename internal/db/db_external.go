@@ -23,26 +23,30 @@ var externalPaginator = paginator{
 	table:      "process_instances",
 	columns:    instanceColumns,
 	baseWhere:  "wait_state = 'external' AND status = 'running'",
-	filterCols: []string{"process_name", "process_version", "task"},
+	filterCols: []string{"process_name", "process_version", "task", "updated_at"},
 	sorts: map[string]sortMode{
 		"updated": {{"updated_at", kindInt}, {"id", kindText}},
 	},
+	// updated, not created: updated_at is when the instance parked, which is what the
+	// queue is ordered by and what idx_external_queue covers. created_at would order by
+	// when instances started, which for a wait queue is a different question.
 	defSort:  "updated",
-	defDesc:  false,
+	defDesc:  true, // newest first, as every list endpoint defaults
 	defLimit: 20,
 	maxLimit: 100,
 }
 
 // ListExternalTasks returns a page of instances parked on an external task, filtered
-// by process name/version (empty/0 = any) and current task id (empty = any). task is
-// the current-task column (the resolvable task id for a parked instance), so it
-// filters in SQL — pages stay full and the before/after counts stay accurate.
-func (db *DB) ListExternalTasks(processName string, processVersion int, task string, req PageReq) ([]*model.ProcessInstance, PageInfo, error) {
-	b, err := externalPaginator.query(req).
+// by process name/version (empty/0 = any), current task id (empty = any), and a Window on
+// updated_at — the park time, and this list's only sort (zero = unbounded). task is the
+// current-task column (the resolvable task id for a parked instance), so it filters in
+// SQL — pages stay full and the before/after counts stay accurate.
+func (db *DB) ListExternalTasks(processName string, processVersion int, task string, updated Window, req PageReq) ([]*model.ProcessInstance, PageInfo, error) {
+	q := externalPaginator.query(req).
 		EqIf("process_name", processName, processName != "").
 		EqIf("process_version", int64(processVersion), processVersion != 0).
-		EqIf("task", task, task != "").
-		build()
+		EqIf("task", task, task != "")
+	b, err := updated.apply(q, "updated_at").build()
 	if err != nil {
 		return nil, PageInfo{}, err
 	}

@@ -35,9 +35,9 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	opts := db.LogQuery{
-		Level: req.Level,
-		Since: req.Since,
-		Page:  req.page(),
+		Level:   req.Level,
+		Created: db.Window{After: req.CreatedAfter, Before: req.CreatedBefore},
+		Page:    req.page(),
 	}
 	var (
 		logs []*model.LogEntry

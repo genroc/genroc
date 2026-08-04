@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -146,6 +148,72 @@ func TestInputValidationError(t *testing.T) {
 	}
 	if _, ok := inputValidationError(fmt.Errorf("server: process not found")); ok {
 		t.Error("non-validation error should not match")
+	}
+}
+
+func TestParseWhen(t *testing.T) {
+	// A duration counts back from now; the sign is ignored, since "--since -2h" and
+	// "--since 2h" are the same intent.
+	for _, s := range []string{"2h", "-2h"} {
+		got, err := parseWhen("--since", s)
+		if err != nil {
+			t.Fatalf("parseWhen(%q): %v", s, err)
+		}
+		if want := time.Now().Add(-2 * time.Hour).UnixMilli(); got < want-5_000 || got > want+5_000 {
+			t.Errorf("parseWhen(%q) = %d, want ~%d (2h back from now)", s, got, want)
+		}
+	}
+	// A zone-less timestamp is read in the local zone, not UTC — the whole point of the
+	// flag is that a user types the wall clock they see.
+	for _, s := range []string{"2026-07-31", "2026-07-31 00:00", "2026-07-31T00:00:00"} {
+		got, err := parseWhen("--since", s)
+		if err != nil {
+			t.Fatalf("parseWhen(%q): %v", s, err)
+		}
+		want := time.Date(2026, 7, 31, 0, 0, 0, 0, time.Local).UnixMilli()
+		if got != want {
+			t.Errorf("parseWhen(%q) = %d, want %d (local midnight)", s, got, want)
+		}
+	}
+	// An explicit zone is honored over the local one.
+	if got, err := parseWhen("--since", "2026-07-31T00:00:00Z"); err != nil || got != time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC).UnixMilli() {
+		t.Errorf("parseWhen(RFC3339) = (%d, %v), want the instant the zone names", got, err)
+	}
+	// A bare integer must not be read as epoch millis: "--since 30" means half an hour
+	// to whoever types it, and returning the whole trail instead would be silent.
+	for _, s := range []string{"30", "1754308800000", "yesterday", ""} {
+		if _, err := parseWhen("--since", s); err == nil {
+			t.Errorf("parseWhen(%q) succeeded, want an error", s)
+		}
+	}
+	// The error names the flag the user actually typed, so --until does not report --since.
+	_, err := parseWhen("--until", "nope")
+	if err == nil || !strings.Contains(err.Error(), "--until") {
+		t.Errorf("parseWhen(--until) error = %v, want it to name --until", err)
+	}
+}
+
+func TestApplyWindow(t *testing.T) {
+	// --until alone bounds the read but keeps the cap: the newest N before that instant
+	// is the useful reading, and only --since names a place to walk forward from.
+	q := url.Values{}
+	if got := applyWindow(q, "", "2026-07-31", "created_at", 20); got != 20 {
+		t.Errorf("limit with --until only = %d, want 20 (still capped)", got)
+	}
+	if q.Get("created_before") == "" || q.Get("created_after") != "" {
+		t.Errorf("--until only set %v, want created_before alone", q)
+	}
+
+	// --since lifts the cap, and the column decides the parameter names.
+	q = url.Values{}
+	if got := applyWindow(q, "2026-07-01", "2026-07-31", "updated_at", 20); got != 0 {
+		t.Errorf("limit with --since = %d, want 0 (uncapped)", got)
+	}
+	if q.Get("updated_after") == "" || q.Get("updated_before") == "" {
+		t.Errorf("both bounds on updated_at = %v", q)
+	}
+	if q.Get("created_after") != "" || q.Get("created_before") != "" {
+		t.Errorf("bounded the wrong column: %v", q)
 	}
 }
 

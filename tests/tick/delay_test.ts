@@ -13,8 +13,10 @@ const ctx = useTickEnv(20019);
 // = 5ms), so they are not guaranteed readable the instant /tick returns — poll for `want`.
 async function armLogs(id: string, want: number) {
   for (let attempt = 0; ; attempt++) {
+    // order=asc: the endpoint sorts newest-first like every list, but these assertions
+    // read the trail in the order it happened, and arms.at(-1) means the latest arm.
     const { data, error } = await ctx.env.client.GET("/instances/{id}/logs", {
-      params: { path: { id }, query: { limit: 100 } },
+      params: { path: { id }, query: { limit: 100, order: "asc" } },
     });
     if (error) throw new Error(`get logs failed: ${JSON.stringify(error)}`);
     const arms = (data!.items ?? [])

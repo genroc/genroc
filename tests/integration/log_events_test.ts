@@ -28,8 +28,10 @@ test("logs — inst_created carries input, inst_completed carries output", async
   const id = started!.id;
   await waitForInstance(id);
 
+  // order=asc: the endpoint sorts newest-first like every list, and the last assertion
+  // here is about which event opens the trail.
   const { data, error } = await client.GET("/instances/{id}/logs", {
-    params: { path: { id }, query: { limit: 100 } },
+    params: { path: { id }, query: { limit: 100, order: "asc" } },
   });
   expect(error).toBeUndefined();
   const items = data!.items ?? [];

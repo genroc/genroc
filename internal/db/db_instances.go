@@ -27,7 +27,7 @@ var instancePaginator = paginator{
 		"created": {{"created_at", kindInt}, {"id", kindText}},
 		"updated": {{"updated_at", kindInt}, {"id", kindText}},
 	},
-	filterCols: []string{"status", "error_code"},
+	filterCols: []string{"status", "error_code", "created_at", "updated_at"},
 	defSort:    "created",
 	defDesc:    true, // newest first
 	defLimit:   20,
@@ -452,12 +452,16 @@ func (db *DB) GetInstance(id string) (*model.ProcessInstance, error) {
 }
 
 // ListInstances returns a page of instance summaries, optionally filtered by status
-// (empty = all). Summaries omit the context blob — use GetInstance for full detail.
-func (db *DB) ListInstances(status, errorCode string, req PageReq) ([]*model.InstanceSummary, PageInfo, error) {
-	b, err := instancePaginator.query(req).
+// (empty = all), error code, and a Window on either timestamp (zero = unbounded). The two
+// windows are separate rather than one resolved against the active sort: a caller walking
+// forward pairs its bound with the sort it ordered by, and naming the column keeps that
+// pairing the caller's to state instead of this function's to guess.
+// Summaries omit the context blob — use GetInstance for full detail.
+func (db *DB) ListInstances(status, errorCode string, created, updated Window, req PageReq) ([]*model.InstanceSummary, PageInfo, error) {
+	q := instancePaginator.query(req).
 		EqIf("status", status, status != "").
-		EqIf("error_code", errorCode, errorCode != "").
-		build()
+		EqIf("error_code", errorCode, errorCode != "")
+	b, err := updated.apply(created.apply(q, "created_at"), "updated_at").build()
 	if err != nil {
 		return nil, PageInfo{}, err
 	}

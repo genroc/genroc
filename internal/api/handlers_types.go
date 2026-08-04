@@ -121,13 +121,23 @@ type StartInstanceResp struct {
 	Status  model.Status `json:"status"`
 }
 
+// Every list takes its time bounds as {col}_after / {col}_before, in unix millis, forming
+// the half-open range [after, before) — see db.Window for why the far end is exclusive.
+// Zero means unbounded on that side.
+
 type ListDefinitionsReq struct {
+	CreatedAfter  int64 `json:"created_after"`  // only versions registered at/after this timestamp
+	CreatedBefore int64 `json:"created_before"` // only versions registered strictly before it
 	Pagination
 }
 
 type ListInstancesReq struct {
-	Status    string `json:"status"`     // optional filter: running, completed, failing, failed, raised, pausing, paused
-	ErrorCode string `json:"error_code"` // optional filter: exact error code (authored or engine)
+	Status        string `json:"status"`         // optional filter: running, completed, failing, failed, raised, pausing, paused
+	ErrorCode     string `json:"error_code"`     // optional filter: exact error code (authored or engine)
+	CreatedAfter  int64  `json:"created_after"`  // only instances created at/after this timestamp
+	CreatedBefore int64  `json:"created_before"` // only instances created strictly before it
+	UpdatedAfter  int64  `json:"updated_after"`  // only instances updated at/after this timestamp
+	UpdatedBefore int64  `json:"updated_before"` // only instances updated strictly before it
 	Pagination
 }
 
@@ -139,6 +149,9 @@ type ListExternalTasksReq struct {
 	Process string `json:"process"` // optional: filter by process name
 	Version int    `json:"version"` // optional: filter by process version (0 = any)
 	Task    string `json:"task"`    // optional: filter by task id
+	// updated_at is the park time and this list's sort, so there is no created_* pair.
+	UpdatedAfter  int64 `json:"updated_after"`  // only tasks parked at/after this timestamp
+	UpdatedBefore int64 `json:"updated_before"` // only tasks parked strictly before it
 	Pagination
 }
 
@@ -166,10 +179,11 @@ type SignalInstanceReq struct {
 }
 
 type ListLogsReq struct {
-	Level     string `json:"level"`     // optional filter: debug, info, warn, error
-	Since     int64  `json:"since"`     // optional: only logs at/after this unix-millis timestamp
-	Recursive bool   `json:"recursive"` // include the whole process subtree, keyed on the root instance
-	Resolve   bool   `json:"resolve"`   // inline full externalized payloads instead of preview + data_ref
+	Level         string `json:"level"`          // optional filter: debug, info, warn, error
+	CreatedAfter  int64  `json:"created_after"`  // only logs at/after this timestamp
+	CreatedBefore int64  `json:"created_before"` // only logs strictly before it
+	Recursive     bool   `json:"recursive"`      // include the whole process subtree, keyed on the root instance
+	Resolve       bool   `json:"resolve"`        // inline full externalized payloads instead of preview + data_ref
 	Pagination
 }
 
@@ -178,8 +192,9 @@ type TickReq struct {
 }
 
 type DefinitionSummary struct {
-	Name    string `json:"name"`
-	Version int    `json:"version"`
+	Name      string `json:"name"`
+	Version   int    `json:"version"`
+	CreatedAt string `json:"created_at"` // RFC3339 registration time; the default listing sort
 	// Raises is the set of error codes this definition can raise, derived by scanning
 	// its raise clauses. There is no `errors:` declaration block to read, so this is the
 	// answer to "what can this process raise?" and therefore to "what may a parent write

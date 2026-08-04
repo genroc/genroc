@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"sort"
+	"time"
 
 	"genroc/internal/db"
 	"genroc/internal/model"
@@ -50,13 +51,19 @@ func (h *Handlers) listDefinitions(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	defs, info, err := h.db.ListDefinitions(req.page())
+	defs, info, err := h.db.ListDefinitions(
+		db.Window{After: req.CreatedAfter, Before: req.CreatedBefore}, req.page())
 	if err != nil {
 		return errReply(err)
 	}
 	summaries := make([]DefinitionSummary, len(defs))
 	for i, d := range defs {
-		summaries[i] = DefinitionSummary{Name: d.Def.Name, Version: d.Version, Raises: d.Def.Raises()}
+		summaries[i] = DefinitionSummary{
+			Name:      d.Def.Name,
+			Version:   d.Version,
+			CreatedAt: d.CreatedAt.Format(time.RFC3339Nano),
+			Raises:    d.Def.Raises(),
+		}
 	}
 	return okReply(PageResp[DefinitionSummary]{Items: summaries, Page: info})
 }
