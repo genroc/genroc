@@ -25,6 +25,26 @@ export function localDate(at = new Date()): string {
   return `${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())}`;
 }
 
+/**
+ * A local "YYYY-MM-DD HH:MM:SS" stamp, the form --since/--until parse. Second resolution,
+ * matching the flags' own precision.
+ */
+export function localStamp(at = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${localDate(at)} ${p(at.getHours())}:${p(at.getMinutes())}:${p(at.getSeconds())}`;
+}
+
+/**
+ * Freeze the population a list read sees, so two reads compare like for like on a server
+ * the other suites are writing to. Waits past a second boundary, then returns a stamp to
+ * pass as --until: every row created from that second onward is excluded from every read
+ * using it, whenever those reads happen.
+ */
+export async function frozenUntil(): Promise<string> {
+  await new Promise((r) => setTimeout(r, 1100));
+  return localStamp();
+}
+
 /** An id no instance will ever have, for the not-found paths. */
 export const missingID = "00000000-0000-0000-0000-000000000000";
 

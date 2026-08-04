@@ -294,9 +294,6 @@ func (h *Handlers) resolveChildVersion(childName string, childVersion int, taskI
 	return v, nil
 }
 
-// cascadeUpdate repeatedly creates new versions of processes on channel whose deps point
-// at superseded versions, until fixpoint; allUpdated accumulates the resolved versions.
-
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 // topoSort returns definitions sorted leaves-first so child refs are resolved

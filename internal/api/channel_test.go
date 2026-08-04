@@ -19,7 +19,7 @@ func batchApply(h *Handlers, channel string, defs ...any) Reply {
 //
 // This stays a Go test because it asserts dependency baking via GetDependencyVersion,
 // which no HTTP endpoint exposes. The rest of the channel/apply behavior is covered
-// end-to-end by tests/integration/channels_test.ts and tests/cli/genctl_test.ts.
+// end-to-end by tests/integration/channels_test.ts and tests/cli/definitions_test.ts.
 func TestApplyBatch_VersionedSelfRefCreatesDep(t *testing.T) {
 	h, cleanup := newTestHandlers(t)
 	defer cleanup()

@@ -325,7 +325,6 @@ func (db *DB) GetDependencyVersion(parentName string, parentVersion int, taskID 
 	return int(v), nil
 }
 
-
 func (db *DB) FindStaleRefs(channel string) ([]StaleRefRow, error) {
 	rows, err := db.q.FindStaleRefs(context.Background(), channel)
 	if err != nil {

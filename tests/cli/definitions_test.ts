@@ -1,7 +1,15 @@
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
 import { client } from "../helpers/client.ts";
-import { childDef, listCap, raisingDef, restDef, switchDef, uid } from "../helpers/genctl.ts";
+import {
+  childDef,
+  frozenUntil,
+  listCap,
+  raisingDef,
+  restDef,
+  switchDef,
+  uid,
+} from "../helpers/genctl.ts";
 
 // The definition entity: `apply` and `validate` that write it, and `definitions` that
 // reads it back. Every flag of all three, plus the columns the table commits to.
@@ -218,9 +226,7 @@ test("definitions — the cap keeps listCap rows and says so; --since lifts both
   expect(full.stderr).toBe("");
 });
 
-test("definitions — under --sort name the cap keeps the first N, not the last", () => {
-  // A newest-N cap on an A→Z list would show the tail of the alphabet: right count,
-  // wrong rows. Two names bracketing the range make the direction visible.
+test("definitions — under --sort name the cap keeps the first N, not the last", async () => {
   const stem = uid("dircap");
   runCli(bin, [
     "apply", "-f",
@@ -231,18 +237,22 @@ test("definitions — under --sort name the cap keeps the first N, not the last"
     ),
   ]);
 
-  // Compared against the same list read uncapped, not against a JS sort: only the
-  // database can say what name order is (its collation, which differs between engines).
-  // A window starting before any definition existed lifts the cap over that same set.
-  const all = defs(["--since", "2000-01-01", "--sort", "name"]).map((d) => d.name);
-  const capped = defs(["--sort", "name"]).map((d) => d.name);
+  // Compared against the same list read uncapped, never against a JS sort: only the
+  // database can say what name order is, and the engines' collations disagree.
+  //
+  // Both reads share an --until cutoff so they see the same rows. Without it this races:
+  // the other suites apply definitions continuously, and one landing between the two
+  // reads shifts the second list by a row. --since lifts the cap over that same window.
+  const until = await frozenUntil();
+  const all = defs(["--since", "2000-01-01", "--until", until, "--sort", "name"]).map((d) => d.name);
+  const capped = defs(["--until", until, "--sort", "name"]).map((d) => d.name);
 
   expect(capped.length).toBe(listCap);
   expect(all.length).toBeGreaterThan(listCap);
   // A prefix, not a suffix — a newest-N cap on an A→Z list would return the right count
   // from the wrong end of the alphabet.
   expect(capped).toEqual(all.slice(0, listCap));
-});
+}, 15_000);
 
 test("definitions — an empty result says so, and --json prints []", () => {
   // A window in the distant past can match nothing, whatever else the server holds.
