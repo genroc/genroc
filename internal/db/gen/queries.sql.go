@@ -175,58 +175,6 @@ func (q *Queries) FailAncestors(ctx context.Context, arg FailAncestorsParams) er
 	return err
 }
 
-const findParentsOf = `-- name: FindParentsOf :many
-SELECT pd.parent_name, pc.version AS parent_version, defp.definition AS parent_definition,
-       pd.child_name, pd.child_version AS baked_version
-FROM process_dependencies pd
-JOIN process_channels pc ON pc.name = pd.parent_name AND pc.channel = ?1
-JOIN process_definitions defp ON defp.name = pd.parent_name AND defp.version = pc.version
-WHERE pd.parent_version = pc.version
-  AND pd.child_name IN (SELECT value FROM json_each(?2))
-`
-
-type FindParentsOfParams struct {
-	Channel string
-	Names   interface{}
-}
-
-type FindParentsOfRow struct {
-	ParentName       string
-	ParentVersion    int64
-	ParentDefinition string
-	ChildName        string
-	BakedVersion     int64
-}
-
-func (q *Queries) FindParentsOf(ctx context.Context, arg FindParentsOfParams) ([]FindParentsOfRow, error) {
-	rows, err := q.db.QueryContext(ctx, findParentsOf, arg.Channel, arg.Names)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []FindParentsOfRow
-	for rows.Next() {
-		var i FindParentsOfRow
-		if err := rows.Scan(
-			&i.ParentName,
-			&i.ParentVersion,
-			&i.ParentDefinition,
-			&i.ChildName,
-			&i.BakedVersion,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const findStaleRefs = `-- name: FindStaleRefs :many
 SELECT pd.parent_name, pc.version AS parent_version,
        pd.task_id, pd.child_name,

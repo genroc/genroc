@@ -42,6 +42,37 @@ The resulting error surfaces through `envelope` as a 400 `invalid`, carrying the
 definition is a 400 either way, which is what made the first version of the regression test
 pass with the cap removed.
 
+## `applyBatch` plans, then commits — a write in the planning loop reintroduces partial applies
+
+An apply is one logical change. `applyBatch` therefore runs in two passes: the loop decides
+and validates every definition, appending `db.DefinitionWrite` entries and nothing else,
+and `db.ApplyDefinitions` then writes the lot in a single transaction.
+
+The passes exist because validation is interleaved by nature — a definition validates
+against the versions its batch siblings resolved to, held in `batchVersions`. The original
+loop saved each definition as it validated it, so the first rejection had already committed
+everything before it: one `apply` landed partially, leaving parents pointing at children
+that were never stored.
+
+Two things follow, and both are silent when broken:
+
+- **Nothing in the planning loop may write.** Anything added there — a channel pointer, a
+  dependency row, a "just this one" save — restores exactly the partial-apply bug the two
+  passes exist to remove, and only for batches that fail after that point.
+- **Channel pointers are decided during planning** (`channelsFor`), not derived mid-commit.
+  Whether the default channel needs setting is a question about state *before* the batch,
+  and asking it inside the transaction would read rows that transaction is writing.
+
+`db.ApplyDefinitions` judges nothing — it writes what it is given. Validation belongs to the
+planning pass alone.
+
+There is deliberately **no cascade**: applying a child does not re-register its parents.
+A parent keeps the child version baked into it until it is applied again, and `status`
+reports the resulting drift as a stale ref. Re-introducing an auto-update would mean
+planning parents too, and a parent revalidates against its children's *new* versions —
+versions that exist only in the plan, so its getter would need to resolve from there rather
+than from the DB.
+
 ## The health endpoint must not consult the engine
 
 `health()` reaches its verdict from `db.Ping` alone and returns before touching

@@ -6,17 +6,9 @@ function uid(prefix: string) {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
 }
 
-async function applyBatch(
-  defs: object[],
-  channel = "latest",
-  autoUpdateParents = false,
-) {
+async function applyBatch(defs: object[], channel = "latest") {
   const { data, error } = await client.PUT("/definitions/batch", {
-    body: {
-      channel,
-      auto_update_parents: autoUpdateParents,
-      definitions: defs,
-    } as never,
+    body: { channel, definitions: defs } as never,
   });
   if (error) throw new Error(`applyBatch failed: ${JSON.stringify(error)}`);
   return data as Array<{ name: string; version: number; saved: boolean }>;
@@ -101,71 +93,6 @@ test("channels — explicit version takes priority over channel", async () => {
     body: { process: name, version: 2, channel: "stable" } as never,
   });
   expect((inst as { version: number }).version).toBe(2);
-});
-
-// ── auto-update-parents ───────────────────────────────────────────────────────
-
-test("channels — auto-update-parents cascades to dependent process on same channel", async () => {
-  const childName = uid("child");
-  const parentName = uid("parent");
-
-  await applyBatch(
-    [switchDef(childName), childDef(parentName, childName)],
-    "stable",
-  );
-
-  // Update child on stable; parent should be auto-bumped.
-  const results = await applyBatch(
-    [
-      {
-        ...switchDef(childName),
-        tasks: [{ id: "s2", switch: [{ goto: "end" }] }],
-      },
-    ],
-    "stable",
-    true,
-  );
-
-  const parentResult = results.find((r) => r.name === parentName);
-  expect(parentResult).toBeDefined();
-  expect(parentResult!.version).toBeGreaterThanOrEqual(2);
-
-  // New parent instance on stable should run the bumped version.
-  const { data: inst } = await client.POST("/instances", {
-    body: { process: parentName, channel: "stable" } as never,
-  });
-  expect((inst as { version: number }).version).toBeGreaterThanOrEqual(2);
-});
-
-test("channels — auto-update-parents does not touch other channels", async () => {
-  const childName = uid("child");
-  const parentName = uid("parent");
-
-  // Parent on "stable", child on both.
-  await applyBatch([switchDef(childName)], "latest");
-  await applyBatch(
-    [switchDef(childName), childDef(parentName, childName)],
-    "stable",
-  );
-
-  // Update child on "latest" only.
-  await applyBatch(
-    [
-      {
-        ...switchDef(childName),
-        tasks: [{ id: "s2", switch: [{ goto: "end" }] }],
-      },
-    ],
-    "latest",
-    true,
-  );
-
-  // stable/parent should still be v1.
-  const { data: channels } = await client.GET("/channels", {
-    params: { query: { name: parentName } },
-  });
-  const stable = (channels?.items ?? []).find((e) => e.channel === "stable");
-  expect(stable?.version).toBe(1);
 });
 
 // ── channel_status ────────────────────────────────────────────────────────────
@@ -356,8 +283,8 @@ test("channels — dedup reuses an older version, not just the latest", async ()
 
   // child@v1 + parent@v1 (deps: child@v1).
   await applyBatch([switchDef(child), childDef(parent, child)], "latest");
-  // Advance child → v2, cascade parent → v2.
-  await applyBatch([switchDefV2(child)], "latest", true);
+  // Advance both: the parent's deps resolve child@v2 in-batch, so its hash changes too.
+  await applyBatch([switchDefV2(child), childDef(parent, child)], "latest");
 
   // Original content to a fresh channel: child matches v1, parent resolves child@v1 → matches v1.
   const res = await applyBatch([switchDef(child), childDef(parent, child)], "staging");
@@ -401,9 +328,9 @@ test("channels — parent with omitted child version resolves to the child's cha
 
 // ── batch validation errors ─────────────────────────────────────────────────────
 
-async function rawBatch(defs: object[], channel = "latest", autoUpdateParents = false) {
+async function rawBatch(defs: object[], channel = "latest") {
   return client.PUT("/definitions/batch", {
-    body: { channel, auto_update_parents: autoUpdateParents, definitions: defs } as never,
+    body: { channel, definitions: defs } as never,
   });
 }
 
@@ -434,58 +361,6 @@ test("channels — a dependency cycle in a batch is rejected", async () => {
   expect(error).toBeDefined();
   expect(JSON.stringify(error)).toContain("cycle");
   expect(data).toBeUndefined();
-});
-
-// ── auto-update-parents cascade variants ────────────────────────────────────────
-
-test("channels — auto-update cascades through multiple levels (leaf→parent→grandparent)", async () => {
-  const leaf = uid("leaf");
-  const parent = uid("parent");
-  const grand = uid("grand");
-
-  await applyBatch(
-    [switchDef(leaf), childDef(parent, leaf), childDef(grand, parent)],
-    "latest",
-  );
-
-  const res = await applyBatch([switchDefV2(leaf)], "latest", true);
-  const g = res.find((r) => r.name === grand);
-  expect(g).toBeDefined();
-  expect(g!.version).toBeGreaterThanOrEqual(2);
-});
-
-test("channels — cascade fires for a stale parent even when the child dedups", async () => {
-  const child = uid("child");
-  const parent = uid("parent");
-
-  // child@v1 + parent@v1.
-  await applyBatch([switchDef(child), childDef(parent, child)], "latest");
-  // Advance child → v2 without auto-update; parent is now stale.
-  await applyBatch([switchDefV2(child)], "latest");
-
-  // Re-apply child@v2 (dedups) WITH auto-update — cascade must still update the parent.
-  const res = await applyBatch([switchDefV2(child)], "latest", true);
-  const c = res.find((r) => r.name === child);
-  expect(c?.saved).toBe(false);
-  expect(c?.version).toBe(2);
-  const p = res.find((r) => r.name === parent);
-  expect(p).toBeDefined();
-  expect(p!.version).toBeGreaterThanOrEqual(2);
-  expect(await channelVersion(parent, "latest")).toBeGreaterThanOrEqual(2);
-});
-
-test("channels — cascade reuses an existing parent version instead of creating a redundant one", async () => {
-  const child = uid("child");
-  const parent = uid("parent");
-
-  // child@v1 + parent@v1, then child→v2 + parent→v2 (cascade) on latest.
-  await applyBatch([switchDef(child), childDef(parent, child)], "latest");
-  await applyBatch([switchDefV2(child)], "latest", true);
-
-  // Apply the already-existing content to a new channel — nothing should be saved.
-  const res = await applyBatch([switchDefV2(child), childDef(parent, child)], "staging", true);
-  for (const r of res) expect(r.saved).toBe(false);
-  expect(await channelVersion(parent, "staging")).toBe(2);
 });
 
 // ── promote / start_instance edge cases ─────────────────────────────────────────

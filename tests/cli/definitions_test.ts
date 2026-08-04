@@ -67,25 +67,6 @@ test("apply — without --channel the default channel is latest", async () => {
   expect((data?.items ?? []).find((e) => e.channel === "latest")?.version).toBe(1);
 });
 
-test("apply --auto-update-parents — a child bump rolls its parents on the same channel", () => {
-  const child = uid("child");
-  const parent = uid("parent");
-  const channel = uid("ch");
-  runCli(bin, [
-    "apply", "-f", writeDefs([switchDef(child), childDef(parent, child)]), "--channel", channel,
-  ]);
-
-  const child2 = { ...switchDef(child), tasks: [{ id: "s2", switch: [{ goto: "end" }] }] };
-  const r = runCli(bin, [
-    "apply", "-f", writeDefs([child2]), "--channel", channel, "--auto-update-parents",
-  ]);
-
-  expect(r.stdout).toContain(`saved: ${child}@v2`);
-  // The parent is re-emitted because it was rebuilt against the new child, which is the
-  // whole point of the flag — without it the parent keeps pointing at v1.
-  expect(r.stdout).toContain(parent);
-});
-
 test("apply — a self-referential process is accepted", () => {
   const name = uid("recursive");
   expect(runCli(bin, ["apply", "-f", writeDefs([childDef(name, name)])]).stdout).toContain(
@@ -93,18 +74,45 @@ test("apply — a self-referential process is accepted", () => {
   );
 });
 
-test("apply — an invalid definition fails the call, and is NOT rolled back", () => {
+test("apply — one invalid definition rolls the whole batch back", () => {
   const good = uid("good");
   // tasks must not be empty, so the second document is rejected.
   const r = runCli(bin, ["apply", "-f", writeDefs([switchDef(good), { name: uid("bad"), tasks: [] }])]);
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain("genctl:");
 
-  // Documenting current behaviour, not endorsing it: applyBatch saves each definition
-  // inside its loop with no enclosing transaction, so everything ahead of the failure in
-  // topological order is already persisted when the call reports failure. One `apply`
-  // therefore lands partially — flip this assertion if the batch is made atomic.
-  expect(defs(["--since", "1h"]).some((d) => d.name === good)).toBe(true);
+  // A batch is one logical change: everything is validated before anything is written, so
+  // a rejection anywhere leaves the registry exactly as it was. A partial apply would
+  // leave parents pointing at children that were never stored.
+  expect(defs(["--since", "1h"]).some((d) => d.name === good)).toBe(false);
+  expect(runCli(bin, ["channel", "list", good]).stdout.trim()).toBe("");
+});
+
+test("apply — a batch that fails late leaves no version of anything it named", () => {
+  // The invalid document sorts after several valid ones, so under the old
+  // save-as-you-go loop every earlier definition was already committed.
+  const names = [uid("aa"), uid("bb"), uid("cc")];
+  const r = runCli(bin, [
+    "apply", "-f",
+    writeDefs([...names.map(switchDef), { name: uid("zz_bad"), tasks: [] }]),
+  ]);
+  expect(r.ok).toBe(false);
+
+  const applied = defs(["--since", "1h"]).map((d) => d.name);
+  for (const n of names) expect(applied).not.toContain(n);
+});
+
+test("apply — a rejected re-apply leaves the existing version untouched", () => {
+  const name = uid("keep");
+  runCli(bin, ["apply", "-f", writeDefs([switchDef(name)])]);
+
+  // A valid v2 alongside a rejected sibling: neither lands, and v1 keeps the channel.
+  const v2 = { ...switchDef(name), tasks: [{ id: "s2", switch: [{ goto: "end" }] }] };
+  const r = runCli(bin, ["apply", "-f", writeDefs([v2, { name: uid("bad"), tasks: [] }])]);
+  expect(r.ok).toBe(false);
+
+  expect(defs(["--since", "1h"]).filter((d) => d.name === name).map((d) => d.version)).toEqual([1]);
+  expect(runCli(bin, ["channel", "list", name]).stdout).toContain("latest -> v1");
 });
 
 // ── validate ────────────────────────────────────────────────────────────────────
@@ -152,20 +160,26 @@ test("definitions --json — the raw rows carry name, version and created_at", (
 
 // ── definitions: ordering and bounds ────────────────────────────────────────────
 
-test("definitions --sort — created is newest-first by default, name is alphabetical", () => {
+test("definitions --sort — name is alphabetical, created is registration order", () => {
   const stem = uid("sort");
   const [alpha, omega] = [`${stem}_aaa`, `${stem}_zzz`];
-  // One apply, so they share a registration instant and only the name order is decided.
-  runCli(bin, ["apply", "-f", writeDefs([switchDef(omega), switchDef(alpha)])]);
+  // Registered zzz first, so the two orders disagree — which is what makes --sort
+  // observable rather than incidentally the same list.
+  runCli(bin, ["apply", "-f", writeDefs([switchDef(omega)])]);
+  runCli(bin, ["apply", "-f", writeDefs([switchDef(alpha)])]);
 
+  // Only the relative position of these two names is asserted, never the shape of the
+  // whole list. Two reasons: the server is shared, so rows appear between calls; and the
+  // rows come back in the *database's* collation, which the engines disagree on — SQLite
+  // compares bytes ("big_values" < "bigctx", "_" being 0x5F) while Postgres under
+  // en_US.utf8 demotes punctuation and yields the reverse. These names differ only after
+  // a shared stem, so their order holds under either.
   const byName = defs(["--since", "1h", "--sort", "name"]).map((d) => d.name);
   expect(byName.indexOf(alpha)).toBeLessThan(byName.indexOf(omega));
-  expect(byName).toEqual([...byName].sort());
 
-  // The default sort is by registration, so it need not be alphabetical at all.
+  // The default sort is by registration, where the order is the other way round.
   const byCreated = defs(["--since", "1h"]).map((d) => d.name);
-  expect(byCreated).toContain(alpha);
-  expect(byCreated).toContain(omega);
+  expect(byCreated.indexOf(omega)).toBeLessThan(byCreated.indexOf(alpha));
 });
 
 test("definitions --since / --until — bound created_at, half-open", () => {
@@ -217,9 +231,17 @@ test("definitions — under --sort name the cap keeps the first N, not the last"
     ),
   ]);
 
+  // Compared against the same list read uncapped, not against a JS sort: only the
+  // database can say what name order is (its collation, which differs between engines).
+  // A window starting before any definition existed lifts the cap over that same set.
+  const all = defs(["--since", "2000-01-01", "--sort", "name"]).map((d) => d.name);
   const capped = defs(["--sort", "name"]).map((d) => d.name);
+
   expect(capped.length).toBe(listCap);
-  expect(capped).toEqual([...capped].sort());
+  expect(all.length).toBeGreaterThan(listCap);
+  // A prefix, not a suffix — a newest-N cap on an A→Z list would return the right count
+  // from the wrong end of the alphabet.
+  expect(capped).toEqual(all.slice(0, listCap));
 });
 
 test("definitions — an empty result says so, and --json prints []", () => {

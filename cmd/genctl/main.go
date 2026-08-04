@@ -4,7 +4,7 @@
 //
 // Usage:
 //
-//	genctl apply    -f file.yaml [-f file2.yaml ...] [--channel latest] [--auto-update-parents]
+//	genctl apply    -f file.yaml [-f file2.yaml ...] [--channel latest]
 //	genctl validate -f file.yaml [-f file2.yaml ...]
 //	genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
 //	genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [-q]
@@ -202,7 +202,7 @@ func instanceIDAndFlags(fs *flag.FlagSet, args []string) string {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `Usage:
-  genctl apply    -f file.yaml [-f file2.yaml ...] [--channel latest] [--auto-update-parents]
+  genctl apply    -f file.yaml [-f file2.yaml ...] [--channel latest]
   genctl validate -f file.yaml [-f file2.yaml ...]
   genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
   genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [-q]

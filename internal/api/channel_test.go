@@ -5,11 +5,10 @@ import (
 	"testing"
 )
 
-func batchApply(h *Handlers, channel string, autoUpdate bool, defs ...any) Reply {
+func batchApply(h *Handlers, channel string, defs ...any) Reply {
 	payload, _ := json.Marshal(map[string]any{
-		"channel":             channel,
-		"auto_update_parents": autoUpdate,
-		"definitions":         defs,
+		"channel":     channel,
+		"definitions": defs,
 	})
 	return h.Handle(Envelope{Action: "put_definitions_batch", Payload: payload})
 }
@@ -37,7 +36,7 @@ func TestApplyBatch_VersionedSelfRefCreatesDep(t *testing.T) {
 			}, "switch": []any{map[string]any{"goto": "end"}}},
 		},
 	}
-	batchApply(h, "latest", false, v1)
+	batchApply(h, "latest", v1)
 
 	// v2: references recursive@v1 explicitly via child_map — both self-ref variants.
 	v2 := map[string]any{
@@ -52,7 +51,7 @@ func TestApplyBatch_VersionedSelfRefCreatesDep(t *testing.T) {
 			}, "switch": []any{map[string]any{"goto": "end"}}},
 		},
 	}
-	r := batchApply(h, "latest", false, v2)
+	r := batchApply(h, "latest", v2)
 	if !r.OK {
 		t.Fatalf("apply v2 failed: %s", r.Error)
 	}

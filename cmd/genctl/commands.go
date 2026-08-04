@@ -27,7 +27,6 @@ func runApplyCmd(server string, args []string) {
 	fs.Var(&files, "f", "definition file (YAML or JSON); repeat for multiple files")
 	serverFlag := addServerFlag(fs, server)
 	channelFlag := fs.String("channel", "latest", "channel to apply definitions to")
-	autoUpdateFlag := fs.Bool("auto-update-parents", false, "auto-update parent processes on the same channel")
 	fs.Parse(args)
 
 	if len(files) == 0 {
@@ -41,9 +40,8 @@ func runApplyCmd(server string, args []string) {
 	}
 
 	body := map[string]any{
-		"channel":             *channelFlag,
-		"auto_update_parents": *autoUpdateFlag,
-		"definitions":         defs,
+		"channel":     *channelFlag,
+		"definitions": defs,
 	}
 
 	var resp []struct {

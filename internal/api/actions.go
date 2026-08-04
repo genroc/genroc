@@ -216,11 +216,10 @@ var registry = func() []actionDef {
 			Name:    "put_definitions_batch",
 			Method:  http.MethodPut,
 			Path:    "/definitions/batch",
-			Summary: "Apply process definitions to a channel with optional auto-update of dependents",
+			Summary: "Apply process definitions to a channel, atomically",
 			Tags:    []string{"Definitions"},
 			Req: PutDefinitionsBatchReq{
-				Channel:           "latest",
-				AutoUpdateParents: false,
+				Channel: "latest",
 				Definitions: []model.ProcessDefinition{
 					{
 						Name:  "child_process",

@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"sort"
 	"time"
@@ -77,15 +76,6 @@ func (h *Handlers) resolveDefaultVersion(process string) (int, error) {
 	return h.db.LatestVersion(process)
 }
 
-// ensureLatestChannel creates the "latest" channel (pointing at version) when absent, so
-// a bare process reference always resolves via a channel; a no-op when it already exists.
-func (h *Handlers) ensureLatestChannel(name string, version int) error {
-	if _, err := h.db.GetChannel(name, defaultChannel); err == nil {
-		return nil
-	}
-	return h.db.SaveChannel(name, defaultChannel, version)
-}
-
 // batchGetter resolves definitions from an in-memory batch first, then falls back to the DB.
 // This lets child-process references within the same batch validate correctly.
 type batchGetter struct {
@@ -118,14 +108,22 @@ func (h *Handlers) putDefinitions(raw json.RawMessage) Reply {
 	if req.Channel == "" {
 		req.Channel = defaultChannel
 	}
-	results, err := h.applyBatch(req.Definitions, req.Channel, req.AutoUpdateParents)
+	results, err := h.applyBatch(req.Definitions, req.Channel)
 	if err != nil {
 		return errReply(err)
 	}
 	return okReply(results)
 }
 
-func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string, autoUpdateParents bool) ([]BatchApplyResult, error) {
+// applyBatch registers a batch of definitions: it decides and validates every one of
+// them first, then commits the lot in a single transaction.
+//
+// The two passes are not a style choice. Validation of a definition depends on the
+// versions its batch siblings resolved to, so an interleaved save/validate loop had
+// already written everything ahead of the first rejection — one `apply` landed partially,
+// leaving parents pointing at children that were never stored. Nothing below the planning
+// pass may write, and nothing in the commit may judge.
+func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string) ([]BatchApplyResult, error) {
 	ptrs := make([]*model.ProcessDefinition, len(defs))
 	for i := range defs {
 		ptrs[i] = &defs[i]
@@ -136,13 +134,15 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string, au
 		return nil, invalid("%w", err)
 	}
 
-	// batchVersions tracks the resolved version for each process in this batch.
+	// batchVersions tracks the resolved version for each process in this batch. It is
+	// filled during planning, so a sibling validating against it sees the version the
+	// commit will write rather than what the DB currently holds.
 	batchVersions := make(map[string]int, len(sorted))
-	// oldChannelVersions records what the channel pointed to before this apply,
-	// used later to find parents that need cascading updates.
-	oldChannelVersions := make(map[string]int, len(sorted))
 
-	var results []BatchApplyResult
+	var (
+		plan    []db.DefinitionWrite
+		results []BatchApplyResult
+	)
 
 	for _, def := range sorted {
 		// Normalize schemas to canonical form before any comparison or storage.
@@ -160,21 +160,13 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string, au
 			return nil, fmt.Errorf("%s: %w", def.Name, err)
 		}
 
-		// Track old channel pointer for cascade detection.
-		if currentV, chErr := h.db.GetChannel(def.Name, channel); chErr == nil {
-			oldChannelVersions[def.Name] = currentV
-		}
-
 		// Content dedup: compute hash and look up any existing version with identical content.
 		rawNew, _ := json.Marshal(def)
 		hash := contentHash(rawNew, newDeps)
 		if v, err := h.db.FindVersionByHash(def.Name, hash); err == nil {
-			if err := h.db.SaveChannel(def.Name, channel, v); err != nil {
-				return nil, fmt.Errorf("channel %s: %w", def.Name, err)
-			}
-			if err := h.ensureLatestChannel(def.Name, v); err != nil {
-				return nil, fmt.Errorf("ensure latest %s: %w", def.Name, err)
-			}
+			plan = append(plan, db.DefinitionWrite{
+				Name: def.Name, Version: v, Channels: h.channelsFor(def.Name, channel),
+			})
 			batchVersions[def.Name] = v
 			results = append(results, BatchApplyResult{Name: def.Name, Version: v, Saved: false})
 			continue
@@ -201,27 +193,35 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string, au
 			return nil, fmt.Errorf("%s: %w", def.Name, err)
 		}
 
-		if err := h.db.SaveDefinition(def, newVersion, newDeps, hash, channel); err != nil {
-			return nil, fmt.Errorf("save %s: %w", def.Name, err)
-		}
-		if err := h.ensureLatestChannel(def.Name, newVersion); err != nil {
-			return nil, fmt.Errorf("ensure latest %s: %w", def.Name, err)
-		}
+		plan = append(plan, db.DefinitionWrite{
+			Def: def, Name: def.Name, Version: newVersion, Deps: newDeps, Hash: hash,
+			Channels: h.channelsFor(def.Name, channel),
+		})
 		batchVersions[def.Name] = newVersion
 		results = append(results, BatchApplyResult{Name: def.Name, Version: newVersion, Saved: true})
 	}
 
-	if autoUpdateParents {
-		// Include all submitted processes so cascade fires even when child deduplicates.
-		// FindStaleParents filters to only actually-stale parents, so this is safe.
-		cascadeResults, err := h.cascadeUpdate(channel, maps.Clone(batchVersions), batchVersions)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, cascadeResults...)
+	if err := h.db.ApplyDefinitions(plan); err != nil {
+		return nil, fmt.Errorf("apply: %w", err)
 	}
-
 	return results, nil
+}
+
+// channelsFor lists the channel pointers a batch entry must set: the requested channel,
+// plus the default one when the process does not have it yet (a process is always
+// reachable through `latest`).
+//
+// Read here rather than during the commit: whether `latest` already exists is a question
+// about the state before the batch, and asking it mid-transaction would read rows the
+// same transaction is writing.
+func (h *Handlers) channelsFor(name, channel string) []string {
+	channels := []string{channel}
+	if channel != defaultChannel {
+		if _, err := h.db.GetChannel(name, defaultChannel); err != nil {
+			channels = append(channels, defaultChannel)
+		}
+	}
+	return channels
 }
 
 // buildResolvedDeps returns dependency rows for a def's child/child_map/child_list tasks,
@@ -296,85 +296,6 @@ func (h *Handlers) resolveChildVersion(childName string, childVersion int, taskI
 
 // cascadeUpdate repeatedly creates new versions of processes on channel whose deps point
 // at superseded versions, until fixpoint; allUpdated accumulates the resolved versions.
-func (h *Handlers) cascadeUpdate(channel string, changedVersions map[string]int, allUpdated map[string]int) ([]BatchApplyResult, error) {
-	var results []BatchApplyResult
-
-	var lastCurrent []db.VersionedDef
-	for {
-		stale, current, err := h.db.FindParentsOf(channel, allUpdated)
-		if err != nil {
-			return nil, fmt.Errorf("cascade: find parents: %w", err)
-		}
-		lastCurrent = current
-
-		foundUpdate := false
-		for _, vd := range stale {
-			if _, alreadyUpdated := allUpdated[vd.Def.Name]; alreadyUpdated {
-				continue
-			}
-
-			latestV, err := h.db.LatestVersion(vd.Def.Name)
-			if err != nil {
-				latestV = 0
-			}
-			newVersion := latestV + 1
-
-			newDeps, err := h.buildResolvedDeps(vd.Def, newVersion, channel, allUpdated)
-			if err != nil {
-				return nil, fmt.Errorf("auto-update %s: %w", vd.Def.Name, err)
-			}
-
-			// Content dedup via hash: reuse any existing version with identical snapshot.
-			rawNew, _ := json.Marshal(vd.Def)
-			hash := contentHash(rawNew, newDeps)
-			if reuseV, err := h.db.FindVersionByHash(vd.Def.Name, hash); err == nil {
-				if err := h.db.SaveChannel(vd.Def.Name, channel, reuseV); err != nil {
-					return nil, fmt.Errorf("auto-update channel %s: %w", vd.Def.Name, err)
-				}
-				allUpdated[vd.Def.Name] = reuseV
-				results = append(results, BatchApplyResult{Name: vd.Def.Name, Version: reuseV, Saved: false})
-				foundUpdate = true
-				continue
-			}
-
-			defForValidation := applyDepsToDefCopy(vd.Def, newDeps)
-			getter := &batchGetter{db: h.db}
-			// A cascade that cannot re-validate a parent is a consequence of the batch
-			// the caller submitted, so it reports as invalid with the parent named.
-			if _, err := validation.Generate(defForValidation); err != nil {
-				return nil, invalid("auto-update %s: schema incompatible after child upgrade: %w", vd.Def.Name, err)
-			}
-			if err := validation.ValidateChildProcessRefs(defForValidation, newVersion, getter); err != nil {
-				return nil, invalid("auto-update %s: child input incompatible after upgrade: %w", vd.Def.Name, err)
-			}
-
-			if err := h.db.SaveDefinition(vd.Def, newVersion, newDeps, hash, channel); err != nil {
-				return nil, fmt.Errorf("auto-update save %s: %w", vd.Def.Name, err)
-			}
-
-			allUpdated[vd.Def.Name] = newVersion
-			results = append(results, BatchApplyResult{Name: vd.Def.Name, Version: newVersion, Saved: true})
-			foundUpdate = true
-		}
-
-		if !foundUpdate {
-			break
-		}
-	}
-
-	// Report up-to-date parents from the final iteration so they appear in output.
-	reported := make(map[string]bool, len(results))
-	for _, r := range results {
-		reported[r.Name] = true
-	}
-	for _, vd := range lastCurrent {
-		if !reported[vd.Def.Name] {
-			results = append(results, BatchApplyResult{Name: vd.Def.Name, Version: vd.Version, Saved: false})
-		}
-	}
-
-	return results, nil
-}
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 

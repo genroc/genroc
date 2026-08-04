@@ -40,6 +40,115 @@ type VersionedDef struct {
 
 // ── Process Definitions ───────────────────────────────────────────────────────
 
+// DefinitionWrite is one definition's outcome in a batch apply, as decided before any of
+// them is written. Def nil means the content already exists at Version and only the
+// channel pointers move; otherwise Version is inserted with Deps.
+//
+// Channels are listed rather than derived because whether the default channel needs
+// setting is a question about state *before* the batch — answering it mid-commit would
+// read rows the same commit is writing.
+type DefinitionWrite struct {
+	Def      *model.ProcessDefinition
+	Name     string
+	Version  int
+	Deps     []DependencyRow
+	Hash     string
+	Channels []string
+}
+
+// ApplyDefinitions commits a whole planned batch in one transaction: either every
+// definition, dependency and channel pointer lands, or none does.
+//
+// A batch is one logical change — an apply that half-succeeds leaves a registry whose
+// parents point at children that were never written. Callers must therefore decide and
+// validate every entry first; nothing here judges a definition, it only writes what it
+// is given.
+func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
+	if len(writes) == 0 {
+		return nil
+	}
+	type marshalled struct {
+		w    DefinitionWrite
+		data string
+	}
+	// Marshal before opening the transaction: a failure here is the caller's data, and
+	// holding a write transaction open across avoidable work costs the single SQLite
+	// writer for no reason.
+	rows := make([]marshalled, 0, len(writes))
+	for _, w := range writes {
+		data := ""
+		if w.Def != nil {
+			b, err := json.Marshal(w.Def)
+			if err != nil {
+				return fmt.Errorf("marshal %s: %w", w.Name, err)
+			}
+			data = string(b)
+		}
+		rows = append(rows, marshalled{w: w, data: data})
+	}
+
+	ctx := context.Background()
+	now := nowMillis()
+	if err := db.withTx(ctx, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
+		for _, r := range rows {
+			if r.w.Def != nil {
+				if err := qtx.InsertDefinition(ctx, dbgen.InsertDefinitionParams{
+					Name:        r.w.Name,
+					Version:     int64(r.w.Version),
+					Definition:  r.data,
+					ContentHash: r.w.Hash,
+					CreatedAt:   now,
+				}); err != nil {
+					return fmt.Errorf("insert %s@v%d: %w", r.w.Name, r.w.Version, err)
+				}
+				if err := qtx.DeleteDependencies(ctx, dbgen.DeleteDependenciesParams{
+					ParentName:    r.w.Name,
+					ParentVersion: int64(r.w.Version),
+				}); err != nil {
+					return fmt.Errorf("clear deps %s@v%d: %w", r.w.Name, r.w.Version, err)
+				}
+				for _, d := range r.w.Deps {
+					if err := qtx.InsertDependency(ctx, dbgen.InsertDependencyParams{
+						ParentName:    d.ParentName,
+						ParentVersion: int64(d.ParentVersion),
+						TaskID:        d.TaskID,
+						ChildKey:      d.ChildKey,
+						ChildName:     d.ChildName,
+						ChildVersion:  int64(d.ChildVersion),
+					}); err != nil {
+						return fmt.Errorf("dep %s -> %s: %w", r.w.Name, d.ChildName, err)
+					}
+				}
+			}
+			for _, channel := range r.w.Channels {
+				if channel == "" {
+					continue
+				}
+				if err := qtx.UpsertChannel(ctx, dbgen.UpsertChannelParams{
+					Name:      r.w.Name,
+					Channel:   channel,
+					Version:   int64(r.w.Version),
+					UpdatedAt: now,
+				}); err != nil {
+					return fmt.Errorf("channel %s@%s: %w", r.w.Name, channel, err)
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	// Only after the commit: InsertDefinition upserts, so a re-registered (name, version)
+	// can carry different content than a reader cached. Dropping the entry before the
+	// commit would let a concurrent read repopulate it from the pre-commit row.
+	for _, r := range rows {
+		if r.w.Def != nil {
+			db.defCache.Delete(defKey{name: r.w.Name, version: r.w.Version})
+		}
+	}
+	return nil
+}
+
 // SaveDefinition persists a new process definition version with its dependencies.
 // If channel is non-empty, the channel pointer is updated in the same transaction
 // so a crash cannot leave a definition saved without a channel pointing to it.
@@ -141,7 +250,12 @@ var definitionPaginator = paginator{
 		// created carries name+version too: created_at alone is not unique, and a keyset
 		// cursor on a non-total order can skip or repeat a row at the page boundary.
 		"created": {{"created_at", kindInt}, {"name", kindText}, {"version", kindInt}},
-		"name":    {{"name", kindText}, {"version", kindInt}},
+		// The only text sort in the codebase, so the only one whose result depends on the
+		// engine's collation: SQLite compares bytes, Postgres uses the database's locale
+		// and demotes punctuation, so "big_values" and "bigctx" swap between them. Both
+		// are self-consistent — ORDER BY and the keyset predicate share the collation, so
+		// paging never skips or repeats — but a test cannot assert an order of its own.
+		"name": {{"name", kindText}, {"version", kindInt}},
 	},
 	defSort:  "created",
 	defDesc:  true, // newest first, as every list endpoint defaults; name is opt-in
@@ -211,60 +325,6 @@ func (db *DB) GetDependencyVersion(parentName string, parentVersion int, taskID 
 	return int(v), nil
 }
 
-// FindParentsOf returns all processes on channel that have deps referencing any
-// of the given children. stale = dep version doesn't match the target; current = matches.
-// A parent is stale if ANY of its relevant deps are mismatched.
-func (db *DB) FindParentsOf(channel string, childVersions map[string]int) (stale, current []VersionedDef, err error) {
-	if len(childVersions) == 0 {
-		return nil, nil, nil
-	}
-	names := make([]string, 0, len(childVersions))
-	for name := range childVersions {
-		names = append(names, name)
-	}
-	namesJSON, err := json.Marshal(names)
-	if err != nil {
-		return nil, nil, err
-	}
-	rows, err := db.q.FindParentsOf(context.Background(), dbgen.FindParentsOfParams{
-		Channel: channel,
-		Names:   string(namesJSON),
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	type entry struct {
-		version int
-		def     string // raw definition JSON, carried by every row of this parent
-		isStale bool
-	}
-	byName := make(map[string]*entry)
-	for _, r := range rows {
-		e := byName[r.ParentName]
-		if e == nil {
-			e = &entry{version: int(r.ParentVersion), def: r.ParentDefinition}
-			byName[r.ParentName] = e
-		}
-		if int(r.BakedVersion) != childVersions[r.ChildName] {
-			e.isStale = true
-		}
-	}
-
-	for name, e := range byName {
-		var def model.ProcessDefinition
-		if err := json.Unmarshal([]byte(e.def), &def); err != nil {
-			return nil, nil, fmt.Errorf("unmarshal definition %q v%d: %w", name, e.version, err)
-		}
-		vd := VersionedDef{Version: e.version, Def: &def}
-		if e.isStale {
-			stale = append(stale, vd)
-		} else {
-			current = append(current, vd)
-		}
-	}
-	return stale, current, nil
-}
 
 func (db *DB) FindStaleRefs(channel string) ([]StaleRefRow, error) {
 	rows, err := db.q.FindStaleRefs(context.Background(), channel)

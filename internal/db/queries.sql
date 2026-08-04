@@ -224,15 +224,6 @@ FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id);
 
--- name: FindParentsOf :many
-SELECT pd.parent_name, pc.version AS parent_version, defp.definition AS parent_definition,
-       pd.child_name, pd.child_version AS baked_version
-FROM process_dependencies pd
-JOIN process_channels pc ON pc.name = pd.parent_name AND pc.channel = sqlc.arg(channel)
-JOIN process_definitions defp ON defp.name = pd.parent_name AND defp.version = pc.version
-WHERE pd.parent_version = pc.version
-  AND pd.child_name IN (SELECT value FROM json_each(sqlc.arg(names)));
-
 -- name: FailAncestors :exec
 -- Paused ancestors are included: a failure is a real outcome and must not be hidden
 -- by a suspension. A child that dies while the tree is paused (its in-flight task was

@@ -55,9 +55,8 @@ type StartInstanceReq struct {
 }
 
 type PutDefinitionsBatchReq struct {
-	Definitions       []model.ProcessDefinition `json:"definitions"`
-	Channel           string                    `json:"channel"` // default "latest"
-	AutoUpdateParents bool                      `json:"auto_update_parents"`
+	Definitions []model.ProcessDefinition `json:"definitions"`
+	Channel     string                    `json:"channel"` // default "latest"
 }
 
 type ChannelEntry struct {
