@@ -550,14 +550,17 @@ Done with the fence (2026-08-05):
   overwhelm_recovery_test.ts): the crippled worker must ride out the pressure with zero
   supervisor restarts, survive two SIGKILLs, and every tree must still aggregate exactly.
 
-### Not at the e2e layer, and why
+### The e2e layer
 
-Nothing here is reachable through the HTTP API: there is no endpoint that freezes a worker
-or hands out a lease, and the observable difference (a `lease_lost` entry, an
-`only_once.interrupted` failure) is a consequence of engine-internal timing rather than of a
-request. The one candidate — asserting `lease_lost` shows up in `GET /instances/:id/logs` —
-would test the log plumbing that dozens of e2e tests already cover, using a far more
-elaborate setup. Keep it in Go.
+Written before the fence shipped, this section argued nothing here was reachable over
+HTTP. The fence changed that: `/tick advance_ms` is the sleep, a concurrent second manual
+tick is the wake (a true self-reclaim — same process, same worker id), a test-controlled
+blocking mock holds the first advance in flight, and every verdict is API-visible —
+`error_code`, endpoint hit counts, `lease_lost` in `GET /instances/:id/logs`.
+`tests/tick/lease_fence_test.ts` covers both task classes (only_once adjudicated once;
+plain re-run, stale write refused). Pre-fence this test was unwritable: the frozen tick's
+write would have clobbered the verdict. The **gate** half stays in Go — `Tick`
+deliberately has no gate, so its repair path has no HTTP surface.
 
 ## Open questions
 
