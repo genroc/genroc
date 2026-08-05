@@ -193,7 +193,7 @@ it, and the line below is what differs.</p>
 
 
 
-<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>upgradable</code></td><td>an instance running the old version could continue under the new one, and consumers still get the shape they expect</td></tr><tr><td><code>breaking</code></td><td>one of those two failed; the reason says which</td></tr><tr><td><code>nothing changed</code></td><td>both sides resolve to the same version</td></tr><tr><td><code>new</code></td><td>only the target side carries it, so nothing is running it</td></tr></tbody></table>
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>upgradable</code></td><td>an instance running the old version could continue under the new one, and consumers still get the shape they expect</td></tr><tr><td><code>breaking</code></td><td>one of those two failed; the reason says which</td></tr><tr><td><code>nothing changed</code></td><td>both sides resolve to the same version, or a submitted document is identical to what is deployed</td></tr><tr><td><code>new</code></td><td>only the target side carries it, so nothing is running it</td></tr></tbody></table>
 <p>The second form is the one to reach for before a deploy: it compares the documents <code>apply</code>
 would take against what is currently on a channel, so you see the answer without writing
 anything. Every form names <strong>both</strong> sides — defaulting one would hide which two documents
@@ -258,6 +258,11 @@ not moving — and carrying it over is what keeps the parent/child check working
 bundle names a parent but not the child it calls.</p>
 <p>A process that resolves to the <strong>same version on both sides</strong> also reads <code>nothing to compare</code>: comparing a document with itself is a tautology. In a channel-to-channel report
 that is most of the rows.</p>
+<p>A <strong>submitted</strong> document has no version, so the numbers cannot answer that — its content is
+compared against what is deployed instead, and an unchanged bundle reads <code>nothing changed</code>
+rather than as an upgrade of nothing. Two <em>stored</em> versions are left to their numbers, which
+say more than their documents do: a version also pins the child versions it runs, so two
+identical documents at different versions are genuinely different processes.</p>
 <p>Neither <code>nothing to compare</code> nor <code>new process</code> can break anything, so neither drags the
 top-level verdict down. Only real incompatibilities — and versions whose own inference
 fails, reported as <code>unanalysable</code> — do that.</p>
@@ -293,6 +298,11 @@ Shape-compatible and behaviourally different is a normal outcome.</li>
 <li><strong>Redaction.</strong> A property that stops being <code>secret: true</code> becomes visible over the API,
 for data stored long before the change. Only the <code>input_schema</code> / <code>config_schema</code> slot
 reports it.</li>
+<li><strong>A field that may be absent.</strong> Adding an optional field to a task’s <code>output</code> is
+compatible — not because the two shapes match, but because the gap is one that can be
+closed mechanically: the value is nullable, so an upgrade writes the explicit null in.
+Making that same field <em>required</em> is a break, because then the value is non-null and there
+is nothing to write.</li>
 <li><strong><code>only_once</code>.</strong> Removing it from a task whose previous attempt was interrupted lets that
 task re-run, and the side effect happens twice. Read the <code>only_once</code> slot before moving
 instances a worker died holding.</li>
