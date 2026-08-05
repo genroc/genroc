@@ -15,8 +15,18 @@ import (
 // accepts any number with no fractional part (JSON decodes all numbers to float64). The
 // result shares no maps or slices with the input. A nil or empty {} schema passes data
 // through; $refs resolve against the schema's own $defs, so it should be normalized first.
-func (s Schema) Validate(data any) (any, error) {
-	return conform(s.n, s.rootDefs(), data, "")
+func (s Schema) Validate(data any, mode ...ConformMode) (any, error) {
+	return conformGuard(s.n, s.rootDefs(), data, "", nil, firstMode(mode))
+}
+
+// firstMode reads the optional mode argument, defaulting to Strict so that every existing
+// caller — an input, an action result, a collected child output — keeps checking documents
+// exactly as before.
+func firstMode(mode []ConformMode) ConformMode {
+	if len(mode) == 0 {
+		return Strict
+	}
+	return mode[0]
 }
 
 // ValidateAt is At(path) followed by Validate: it checks data against the subschema at
@@ -33,8 +43,41 @@ func (s Schema) ValidateAt(path string, data any) (any, error) {
 // conform is the recursive validator/normalizer. path is data's dotted location within
 // the root value (empty at the root), used only for error messages.
 func conform(nd *node, defs map[string]*node, data any, path string) (any, error) {
-	return conformGuard(nd, defs, data, path, nil)
+	return conformGuard(nd, defs, data, path, nil, Strict)
 }
+
+// ConformMode selects what a walk of schema-and-value is FOR. There is one traversal
+// because there is one set of rules about where a value lives inside a schema —
+// combinators before types, $refs with a cycle guard, open maps versus closed objects,
+// unions picked by which branch the value satisfies — and a second walk beside it would
+// have to rediscover all of them and then stay in step forever.
+type ConformMode int
+
+const (
+	// Strict is the default: a document check at a boundary. An absent required property
+	// is rejected whatever its type, and undeclared keys are stripped.
+	Strict ConformMode = iota
+
+	// FillAbsentAsNull turns the walk into a MIGRATION, and is the other half of the
+	// relation of the same name: that decides a version gap is closable, this closes it.
+	// The two must accept exactly the same gaps, or a comparison promises an upgrade that
+	// then fails. Three rules differ from Strict, each deliberate:
+	//
+	//   - an absent required property whose type admits null is written in as null rather
+	//     than rejected — absence and null navigate identically, so this is the one gap
+	//     that can be closed without inventing anything;
+	//   - undeclared keys are KEPT. Stripping is a check's job; a migration must not
+	//     destroy data it does not understand, and a stale output from a dropped task is
+	//     exactly that;
+	//   - declared defaults are NOT filled, so the walk closes exactly what the relation
+	//     accepts and nothing more. Filling them would unlock the required-with-default
+	//     case, but only if the relation were taught to accept it in the same change.
+	//
+	// It still ERRORS on anything else it cannot conform. A migration that quietly handed
+	// back the value it was given would let an upgrade report success over data that does
+	// not fit the version it was moved to.
+	FillAbsentAsNull
+)
 
 // conformGuard is conform with a same-position cycle guard: visiting holds the resolved
 // nodes already expanded at the current value position (no object/array descent since),
@@ -42,7 +85,7 @@ func conform(nd *node, defs map[string]*node, data any, path string) (any, error
 // fails instead of recursing forever. Stored schemas decode without CheckDoc, so the
 // validator guards itself. Descending into a property or element starts a fresh set —
 // value depth was consumed, so revisiting a node there is productive recursion.
-func conformGuard(nd *node, defs map[string]*node, data any, path string, visiting map[*node]bool) (any, error) {
+func conformGuard(nd *node, defs map[string]*node, data any, path string, visiting map[*node]bool, mode ConformMode) (any, error) {
 	resolved, err := deref(nd, defs)
 	if err != nil {
 		return nil, err
@@ -65,10 +108,10 @@ func conformGuard(nd *node, defs map[string]*node, data any, path string, visiti
 	// Combinators take precedence: a nullable complex value is modelled as
 	// oneOf:[X, {type:null}], and discriminated unions as anyOf/oneOf of objects.
 	if len(resolved.AnyOf) > 0 {
-		return conformUnion(resolved.AnyOf, defs, data, path, false, visiting)
+		return conformUnion(resolved.AnyOf, defs, data, path, false, visiting, mode)
 	}
 	if len(resolved.OneOf) > 0 {
-		return conformUnion(resolved.OneOf, defs, data, path, true, visiting)
+		return conformUnion(resolved.OneOf, defs, data, path, true, visiting, mode)
 	}
 
 	if err := checkType(resolved, data, path); err != nil {
@@ -83,12 +126,12 @@ func conformGuard(nd *node, defs map[string]*node, data any, path string, visiti
 		return nil, nil
 	case map[string]any:
 		if isObjectSchema(resolved) {
-			return conformObject(resolved, defs, v, path)
+			return conformObject(resolved, defs, v, path, mode)
 		}
 		return v, nil
 	case []any:
 		if resolved.Items != nil || resolved.Type.Contains("array") {
-			return conformArray(resolved, defs, v, path)
+			return conformArray(resolved, defs, v, path, mode)
 		}
 		return v, nil
 	default:
@@ -102,7 +145,7 @@ func conformGuard(nd *node, defs map[string]*node, data any, path string, visiti
 // conformObject keeps declared properties (filling defaults for absent optionals,
 // erroring on absent required) and recurses into present values. Undeclared keys are
 // stripped for a closed object, or conformed against AdditionalProperties for an open map.
-func conformObject(nd *node, defs map[string]*node, v map[string]any, path string) (any, error) {
+func conformObject(nd *node, defs map[string]*node, v map[string]any, path string, mode ConformMode) (any, error) {
 	required := make(map[string]bool, len(nd.Required))
 	for _, r := range nd.Required {
 		required[r] = true
@@ -112,13 +155,19 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 		val, present := v[name]
 		if !present {
 			if required[name] {
+				// The one gap a migration closes: absence and null navigate the same way,
+				// so a nullable slot can be written in rather than rejected.
+				if mode == FillAbsentAsNull && hasNullResolved(prop, defs) {
+					out[name] = nil
+					continue
+				}
 				return nil, fmt.Errorf("%srequired property %q is missing", pathPrefix(path), name)
 			}
-			if def := propDefault(prop, defs); def != nil {
+			if def := propDefault(prop, defs); def != nil && mode == Strict {
 				// The default is conformed like a supplied value, so a filled
 				// value can never violate the schema and object defaults are
 				// normalized (pruned, nested defaults filled) consistently.
-				norm, err := conform(prop, defs, cloneJSON(def), JoinPath(path, name))
+				norm, err := conformGuard(prop, defs, cloneJSON(def), JoinPath(path, name), nil, mode)
 				if err != nil {
 					return nil, fmt.Errorf("invalid schema default: %w", err)
 				}
@@ -126,30 +175,35 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 			}
 			continue // absent optional without a default is omitted
 		}
-		norm, err := conform(prop, defs, val, JoinPath(path, name))
+		norm, err := conformGuard(prop, defs, val, JoinPath(path, name), nil, mode)
 		if err != nil {
 			return nil, err
 		}
 		out[name] = norm
 	}
 	// Undeclared keys: dropped for a closed object; validated against the
-	// additionalProperties subschema and kept for an open map.
-	if nd.AdditionalProperties != nil {
-		for name, val := range v {
-			if _, declared := nd.Properties[name]; declared {
-				continue
-			}
-			norm, err := conform(nd.AdditionalProperties, defs, val, JoinPath(path, name))
+	// additionalProperties subschema and kept for an open map. A migration keeps them
+	// either way — stripping is a conform's job, and losing a value nobody declared is
+	// exactly what an upgrade must not do.
+	for name, val := range v {
+		if _, declared := nd.Properties[name]; declared {
+			continue
+		}
+		switch {
+		case nd.AdditionalProperties != nil:
+			norm, err := conformGuard(nd.AdditionalProperties, defs, val, JoinPath(path, name), nil, mode)
 			if err != nil {
 				return nil, err
 			}
 			out[name] = norm
+		case mode == FillAbsentAsNull:
+			out[name] = val
 		}
 	}
 	return out, nil
 }
 
-func conformArray(nd *node, defs map[string]*node, arr []any, path string) (any, error) {
+func conformArray(nd *node, defs map[string]*node, arr []any, path string, mode ConformMode) (any, error) {
 	if nd.MinItems != nil && len(arr) < *nd.MinItems {
 		return nil, fmt.Errorf("%sarray has %d items, fewer than minItems %d", pathPrefix(path), len(arr), *nd.MinItems)
 	}
@@ -158,7 +212,7 @@ func conformArray(nd *node, defs map[string]*node, arr []any, path string) (any,
 	}
 	out := make([]any, len(arr))
 	for i, el := range arr {
-		norm, err := conform(nd.Items, defs, el, JoinIndex(path, i))
+		norm, err := conformGuard(nd.Items, defs, el, JoinIndex(path, i), nil, mode)
 		if err != nil {
 			return nil, err
 		}
@@ -170,14 +224,14 @@ func conformArray(nd *node, defs map[string]*node, arr []any, path string) (any,
 // conformUnion normalizes data against a oneOf/anyOf: anyOf returns the first branch
 // that validates; oneOf requires exactly one (zero or several is an error). Branches
 // keep the value at the same position, so the caller's visiting set carries through.
-func conformUnion(branches []*node, defs map[string]*node, data any, path string, exactlyOne bool, visiting map[*node]bool) (any, error) {
+func conformUnion(branches []*node, defs map[string]*node, data any, path string, exactlyOne bool, visiting map[*node]bool, mode ConformMode) (any, error) {
 	var (
 		firstErr error
 		match    any
 		matches  int
 	)
 	for _, b := range branches {
-		res, err := conformGuard(b, defs, data, path, visiting)
+		res, err := conformGuard(b, defs, data, path, visiting, mode)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err

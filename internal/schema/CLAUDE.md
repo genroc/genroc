@@ -41,7 +41,12 @@ One pair deliberately bridges the two, and it is a pair:
 
 - `IsSubsetAbsentAsNull` decides a version gap is closable — super may require a nullable
   property that sub does not.
-- `FillAbsentAsNull` closes it, inserting the explicit null.
+- `Validate(data, FillAbsentAsNull)` closes it, inserting the explicit null.
+
+The second is a **mode on Validate**, not a function beside it, and it returns
+`(any, error)` like every other conform. That matters: a migration that quietly handed back
+the value it was given would let an upgrade report success over data that does not fit the
+version it was moved to.
 
 **They must accept exactly the same gaps.** A relation that tolerates more than the fill can
 close promises a migration that then fails to conform; a fill that closes more is dead code.
@@ -51,15 +56,26 @@ passes a STRICT conform, which is the claim the whole thing rests on. It also pi
 properties that make a migration built on it safe: the fill is idempotent, only ever adds
 (undeclared keys included, which a conform would strip), and preserves validity.
 
-Two traps it exists to catch, both already found once:
+**There is ONE walk of schema-and-value, and the fill is a mode on it** (`ConformMode` in
+`validate.go`), not a second traversal beside it. The rules about where a value lives
+inside a schema — combinators before types, `$ref`s with a cycle guard, open maps versus
+closed objects, unions picked by which branch the value actually satisfies — are subtle
+enough that a parallel walker rediscovers them badly and then has to stay in step forever.
+The first attempt here was exactly that, and it reached its type switch before consulting a
+union's variants, so a union of objects silently filled nothing while the relation happily
+accepted the gap.
 
-- **A union node carries no properties of its own**, so a fill that reaches its type switch
-  before consulting its variants silently fills nothing — the relation accepts the gap and
-  the migration quietly does not close it.
-- **A `required` name whose property is never declared** has no type to call nullable. Any
-  map index that misses hands `HasNull` the zero Schema, so it answers false rather than
-  panicking; a caller that guards the index instead is relying on every future caller doing
-  the same, and the one that did not crashed a live endpoint. Neither is a licence to relax
+The mode differs from `Strict` in three ways, all deliberate: an absent required nullable
+is written in rather than rejected; undeclared keys are KEPT (stripping is a conform's job,
+and a stale key from a dropped task is real data); and declared defaults are NOT filled, so
+the walk closes exactly what the relation accepts and nothing more. Filling defaults would
+unlock the required-with-default case — but only if the relation were taught to accept it in
+the same change.
+
+**A `required` name whose property is never declared** has no type to call nullable. Any map
+index that misses hands `HasNull` the zero Schema, so `hasNullGuard` answers false rather
+than panicking. Guarding at the call site instead relies on every future caller remembering,
+and the one that did not crashed a live endpoint. Neither is a licence to relax
 `required` anywhere else: at a slot with a runtime conform behind it, absence is still a
 rejection.
 

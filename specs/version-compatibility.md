@@ -37,7 +37,7 @@ not what happens when the two sides disagree about which processes exist. As bui
   that reads are forgiving (`evalMember` returns null for a missing key, but
   `conformObject` rejects an absent required key whatever its type — the two are
   independent by design). It is that the gap is mechanically closable:
-  `Schema.IsSubsetAbsentAsNull` decides it is, and `Schema.FillAbsentAsNull` closes it by
+  `Schema.IsSubsetAbsentAsNull` decides it is, and `Validate(v, schema.FillAbsentAsNull)` closes it by
   writing the explicit null, which an upgrade runs the stored state through. The verdict
   therefore claims *we know how to move this data*, not *the shapes match*. The two must
   accept exactly the same gaps, and a relation tolerating more than the fill can close is

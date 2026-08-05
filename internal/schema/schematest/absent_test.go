@@ -198,8 +198,14 @@ func TestAbsentAsNull_FillClosesEveryGapItAccepted(t *testing.T) {
 			if _, err := new.Validate(value); err == nil {
 				t.Fatal("the value already conforms to the new schema, so the fill is not being tested")
 			}
-			if _, err := new.Validate(new.FillAbsentAsNull(value)); err != nil {
+			filled, err := new.Validate(value, schema.FillAbsentAsNull)
+			if err != nil {
 				t.Fatalf("the fill must close the gap the relation accepted: %v", err)
+			}
+			// ...and what it produced must satisfy a STRICT check. This is the claim an
+			// upgrade makes, end to end.
+			if _, err := new.Validate(filled); err != nil {
+				t.Fatalf("the filled value does not conform strictly: %v", err)
 			}
 		})
 	}
@@ -274,7 +280,7 @@ func TestAbsentAsNull_RefusesWhatCannotBeClosed(t *testing.T) {
 
 // ── the fill on its own ───────────────────────────────────────────────────────
 
-func TestAbsentAsNull_FillLeavesValuesAlone(t *testing.T) {
+func TestAbsentAsNull_FillLeavesAcceptedValuesUntouched(t *testing.T) {
 	cases := []struct {
 		name   string
 		schema string
@@ -291,44 +297,24 @@ func TestAbsentAsNull_FillLeavesValuesAlone(t *testing.T) {
 			value:  `{"a":"x","b":null}`,
 		},
 		{
-			name:   "a required property that is not nullable",
-			schema: `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"number"}},"required":["a","b"]}`,
-			value:  `{"a":"x"}`,
-		},
-		{
 			name:   "an OPTIONAL nullable property, which was never demanded",
 			schema: `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":["number","null"]}},"required":["a"]}`,
 			value:  `{"a":"x"}`,
 		},
 		{
-			name:   "undeclared keys, which a conform would strip and a migration must not",
+			name:   "an optional property with a DEFAULT, which a strict check would fill",
+			schema: `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"number","default":7}},"required":["a"]}`,
+			value:  `{"a":"x"}`,
+		},
+		{
+			name:   "undeclared keys, which a strict check strips and a migration must not",
 			schema: `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`,
 			value:  `{"a":"x","stale":"kept"}`,
 		},
 		{
-			name:   "a scalar where the schema describes an object",
-			schema: `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":["number","null"]}},"required":["a","b"]}`,
-			value:  `"not an object"`,
-		},
-		{
-			name:   "an array where the schema describes an object",
-			schema: `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":["number","null"]}},"required":["a","b"]}`,
-			value:  `[1,2]`,
-		},
-		{
-			name:   "an object where the schema describes an array",
-			schema: `{"type":"array","items":{"type":"object","properties":{"b":{"type":["number","null"]}},"required":["b"]}}`,
-			value:  `{"a":"x"}`,
-		},
-		{
-			name:   "null",
-			schema: `{"type":"object","properties":{"b":{"type":["number","null"]}},"required":["b"]}`,
-			value:  `null`,
-		},
-		{
-			name:   "a union variant the value does not match, whose keys must not leak in",
-			schema: `{"anyOf":[{"type":"object","properties":{"x":{"type":"number"},"y":{"type":["string","null"]}},"required":["x","y"]},{"type":"string"}]}`,
-			value:  `"a string"`,
+			name:   "undeclared keys nested inside a declared one",
+			schema: `{"type":"object","properties":{"a":{"type":"object","properties":{"b":{"type":"string"}},"required":["b"]}},"required":["a"]}`,
+			value:  `{"a":{"b":"x","stale":1}}`,
 		},
 	}
 	for _, c := range cases {
@@ -336,21 +322,76 @@ func TestAbsentAsNull_FillLeavesValuesAlone(t *testing.T) {
 			s := mustSchema(t, c.schema)
 			value := decodeValue(t, c.value)
 			before := valueJSON(t, value)
-			if after := valueJSON(t, s.FillAbsentAsNull(value)); after != before {
+			filled, err := s.Validate(value, schema.FillAbsentAsNull)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if after := valueJSON(t, filled); after != before {
 				t.Fatalf("value changed:\n before: %s\n after:  %s", before, after)
 			}
 		})
 	}
 }
 
-// The zero Schema has nothing to say about a value, and must not panic on one.
+// A migration that quietly handed back the value it was given would let an upgrade report
+// success over data that does not fit the version it was moved to. So everything the fill
+// cannot close is REPORTED, not passed through.
+func TestAbsentAsNull_FillReportsWhatItCannotClose(t *testing.T) {
+	cases := []struct {
+		name   string
+		schema string
+		value  string
+	}{
+		{
+			name:   "a required property that is not nullable, so there is nothing to invent",
+			schema: `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"number"}},"required":["a","b"]}`,
+			value:  `{"a":"x"}`,
+		},
+		{
+			name:   "a scalar where the schema describes an object",
+			schema: `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`,
+			value:  `"not an object"`,
+		},
+		{
+			name:   "an array where the schema describes an object",
+			schema: `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`,
+			value:  `[1,2]`,
+		},
+		{
+			name:   "null where the schema does not admit it",
+			schema: `{"type":"object","properties":{"b":{"type":["number","null"]}},"required":["b"]}`,
+			value:  `null`,
+		},
+		{
+			name:   "a value matching no union variant",
+			schema: `{"anyOf":[{"type":"object","properties":{"x":{"type":"number"}},"required":["x"]},{"type":"string"}]}`,
+			value:  `[1]`,
+		},
+		{
+			name:   "a property whose type changed under it",
+			schema: `{"type":"object","properties":{"a":{"type":"number"}},"required":["a"]}`,
+			value:  `{"a":"still a string"}`,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := mustSchema(t, c.schema)
+			if _, err := s.Validate(decodeValue(t, c.value), schema.FillAbsentAsNull); err == nil {
+				t.Fatal("the fill cannot close this, so it must say so rather than pass the value through")
+			}
+		})
+	}
+}
+
+// The zero Schema constrains nothing, so a value passes through it untouched.
 func TestAbsentAsNull_FillOnTheZeroSchema(t *testing.T) {
 	var zero schema.Schema
-	if got := valueJSON(t, zero.FillAbsentAsNull(decodeValue(t, `{"a":1}`))); got != `{"a":1}` {
-		t.Fatalf("got %s", got)
+	got, err := zero.Validate(decodeValue(t, `{"a":1}`), schema.FillAbsentAsNull)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if zero.FillAbsentAsNull(nil) != nil {
-		t.Fatal("nil must stay nil")
+	if valueJSON(t, got) != `{"a":1}` {
+		t.Fatalf("got %s", valueJSON(t, got))
 	}
 }
 
@@ -362,8 +403,11 @@ func TestAbsentAsNull_FillPicksTheMatchingUnionVariant(t *testing.T) {
 		{"type":"object","properties":{"kind":{"type":"string","enum":["a"]},"av":{"type":["number","null"]}},"required":["kind","av"]},
 		{"type":"object","properties":{"kind":{"type":"string","enum":["b"]},"bv":{"type":["string","null"]}},"required":["kind","bv"]}]}`)
 
-	got := valueJSON(t, s.FillAbsentAsNull(decodeValue(t, `{"kind":"b"}`)))
-	if got != `{"bv":null,"kind":"b"}` {
+	filled, err := s.Validate(decodeValue(t, `{"kind":"b"}`), schema.FillAbsentAsNull)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := valueJSON(t, filled); got != `{"bv":null,"kind":"b"}` {
 		t.Fatalf("the b-variant's key must be filled and the a-variant's left out, got %s", got)
 	}
 }
@@ -401,8 +445,14 @@ func TestAbsentAsNull_FillIsIdempotent(t *testing.T) {
 	for _, g := range gaps {
 		t.Run(g.name, func(t *testing.T) {
 			s := mustSchema(t, g.new)
-			once := s.FillAbsentAsNull(decodeValue(t, g.value))
-			twice := s.FillAbsentAsNull(once)
+			once, err := s.Validate(decodeValue(t, g.value), schema.FillAbsentAsNull)
+			if err != nil {
+				t.Fatalf("first fill: %v", err)
+			}
+			twice, err := s.Validate(once, schema.FillAbsentAsNull)
+			if err != nil {
+				t.Fatalf("second fill: %v", err)
+			}
 			if a, b := valueJSON(t, once), valueJSON(t, twice); a != b {
 				t.Fatalf("second fill changed the value:\n once:  %s\n twice: %s", a, b)
 			}
@@ -417,7 +467,11 @@ func TestAbsentAsNull_FillOnlyEverAdds(t *testing.T) {
 		t.Run(g.name, func(t *testing.T) {
 			s := mustSchema(t, g.new)
 			value := decodeValue(t, g.value)
-			assertKeptEverything(t, value, s.FillAbsentAsNull(value), "")
+			filled, err := s.Validate(value, schema.FillAbsentAsNull)
+			if err != nil {
+				t.Fatalf("fill: %v", err)
+			}
+			assertKeptEverything(t, value, filled, "")
 		})
 	}
 }
@@ -458,11 +512,18 @@ func TestAbsentAsNull_FillPreservesValidity(t *testing.T) {
 	for _, g := range gaps {
 		t.Run(g.name, func(t *testing.T) {
 			s := mustSchema(t, g.new)
-			filled := s.FillAbsentAsNull(decodeValue(t, g.value))
+			filled, err := s.Validate(decodeValue(t, g.value), schema.FillAbsentAsNull)
+			if err != nil {
+				t.Fatalf("fill: %v", err)
+			}
 			if _, err := s.Validate(filled); err != nil {
 				t.Fatalf("filled value does not conform: %v", err)
 			}
-			if _, err := s.Validate(s.FillAbsentAsNull(filled)); err != nil {
+			refilled, err := s.Validate(filled, schema.FillAbsentAsNull)
+			if err != nil {
+				t.Fatalf("re-filling an already-conforming value failed: %v", err)
+			}
+			if _, err := s.Validate(refilled); err != nil {
 				t.Fatalf("re-filling an already-conforming value broke it: %v", err)
 			}
 		})

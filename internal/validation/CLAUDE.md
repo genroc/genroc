@@ -34,8 +34,8 @@ Three rules the comparison itself depends on:
 The continuation checks use `IsSubsetAbsentAsNull`, which tolerates the new version
 requiring a property the old one did not **when that property's type admits null**. The
 justification is NOT that reads happen to be forgiving — it is that
-`Schema.FillAbsentAsNull` closes exactly that gap by writing the null in, and an upgrade
-runs the stored state through it. The verdict says *we know how to move this data*, which is
+`Validate(data, schema.FillAbsentAsNull)` closes exactly that gap by writing the null in,
+and an upgrade runs the stored state through it. The verdict says *we know how to move this data*, which is
 a claim with something behind it.
 
 The two are a pair and must accept the same gaps; `schematest/absent_test.go` is what holds
