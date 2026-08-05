@@ -1,0 +1,29 @@
+# The motivating change. A fixed URL changes the shape of nothing in flight, so it must
+# stay compatible — and be reported as a changed slot, because the checker cannot tell a
+# typo fix from pointing at a different service.
+apply:
+  - channel: url_a
+    definitions:
+      - name: url_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+  - channel: url_b
+    definitions:
+      - name: url_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://y/ship
+            switch: end
+run: [--from, url_a, --to, url_b]
+
+expect: |
+  PROCESS   VERDICT
+  url_proc  upgradable
+
+  exit 0

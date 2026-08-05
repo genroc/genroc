@@ -1032,52 +1032,93 @@ func leadingArgs(fs *flag.FlagSet, args []string) []string {
 	return append(pos, fs.Args()...)
 }
 
-// compatCaveat is printed under every report. The check compares inferred schemas, not
-// meaning: dollars → cents is `number` before and after and comes back compatible, so the
-// changed-slot list is the deliverable and this says so where it will be read.
-const compatCaveat = "shape only — a change of meaning (dollars → cents, a reused enum member, a new id namespace)\n" +
-	"compares equal. Read the changed slots; the verdict cannot."
+// parseSelector turns the repeated values of one --from/--to into the selector the API
+// takes. A side is EITHER one channel OR one-or-more name@version entries, where the
+// version may itself be a channel ("kid@stable").
+//
+// Mixing the two is refused rather than merged: a channel already names a version for
+// every process, so adding one entry is ambiguous about whether it overrides or extends.
+func parseSelector(side string, values []string) map[string]any {
+	channels, pins := 0, map[string]any{}
+	for _, v := range values {
+		name, ref, ok := strings.Cut(v, "@")
+		if !ok {
+			channels++
+			continue
+		}
+		if name == "" || ref == "" {
+			fatal("--%s %q: expected name@version or name@channel", side, v)
+		}
+		if _, dup := pins[name]; dup {
+			// Silently keeping one would compare a version the user did not choose.
+			fatal("--%s names %q twice; a side carries one version per process", side, name)
+		}
+		if n, err := strconv.Atoi(ref); err == nil {
+			pins[name] = n
+		} else {
+			pins[name] = ref
+		}
+	}
+	switch {
+	case channels > 0 && len(pins) > 0:
+		fatal("--%s mixes a channel with name@version entries; a side is one or the other", side)
+	case channels > 1:
+		fatal("--%s names more than one channel; a side carries one version per process", side)
+	case channels == 1:
+		return map[string]any{"channel": values[0]}
+	case len(pins) > 0:
+		return map[string]any{"versions": pins}
+	}
+	return nil
+}
 
 func runCompatCmd(server string, args []string) {
 	fs := flag.NewFlagSet("compat", flag.ExitOnError)
-	var files multiFlag
+	var files, fromFlag, toFlag multiFlag
 	fs.Var(&files, "f", "definition file to compare against --from (YAML or JSON); repeat for multiple files")
+	fs.Var(&fromFlag, "from", "the side instances are running now: a channel, or name@version (repeatable)")
+	fs.Var(&toFlag, "to", "the side to compare against: a channel, or name@version (repeatable)")
 	serverFlag := addServerFlag(fs, server)
-	fromFlag := fs.String("from", "", "the side instances are running now (a channel name)")
-	toFlag := fs.String("to", "", "the side to compare against (a channel name)")
 	jsonFlag := fs.Bool("json", false, "print the raw report")
+	allowBreakingOutput := fs.Bool("allow-breaking-output", false,
+		"treat a broken output contract as upgradable: the process output changed shape, but no "+
+			"running instance is affected. Affects the verdict and the exit code, not --json")
 	pos := leadingArgs(fs, args)
 
-	from := map[string]any{}
-	to := map[string]any{}
+	var from, to map[string]any
 	process := ""
 	switch {
 	case len(files) > 0:
-		if *fromFlag == "" {
+		if len(toFlag) > 0 {
+			fatal("-f already names the target side; drop --to")
+		}
+		if len(fromFlag) == 0 {
 			fatal("--from is required with -f: naming only one side hides which two documents were compared")
 		}
 		defs, err := loadDefs(files)
 		if err != nil {
 			fatal("%v", err)
 		}
-		from["channel"], to["definitions"] = *fromFlag, defs
+		from, to = parseSelector("from", fromFlag), map[string]any{"definitions": defs}
 		if len(pos) == 1 {
 			process = pos[0]
 		}
 	case len(pos) == 3:
+		// Sugar for the single-process case. The server closes each side over the child
+		// versions that version was registered against, so this still compares the graph.
 		fromV, err := strconv.Atoi(pos[1])
 		toV, err2 := strconv.Atoi(pos[2])
 		if err != nil || err2 != nil {
 			fatal("usage: genctl compat <process> <from-version> <to-version>")
 		}
 		process = pos[0]
-		from["versions"] = map[string]int{process: fromV}
-		to["versions"] = map[string]int{process: toV}
+		from = map[string]any{"versions": map[string]any{process: fromV}}
+		to = map[string]any{"versions": map[string]any{process: toV}}
 	default:
-		if *fromFlag == "" || *toFlag == "" {
-			fatal("usage: genctl compat <process> <from> <to> | compat -f <file> --from <channel> | compat --from <channel> --to <channel> [<process>]")
+		if len(fromFlag) == 0 || len(toFlag) == 0 {
+			fatal("usage: genctl compat <process> <from> <to> | compat -f <file> --from <sel> | compat --from <sel> --to <sel> [<process>]")
 		}
-		from["channel"], to["channel"] = *fromFlag, *toFlag
+		from, to = parseSelector("from", fromFlag), parseSelector("to", toFlag)
 		if len(pos) == 1 {
 			process = pos[0]
 		}
@@ -1101,161 +1142,199 @@ func runCompatCmd(server string, args []string) {
 	if err := call(*serverFlag+"/definitions/compat", http.MethodPost, body, &resp); err != nil {
 		fatal("%v", err)
 	}
-	printCompatReport(resp)
+	printCompatReport(resp, *allowBreakingOutput)
 }
 
 type compatReport struct {
-	Compatible bool `json:"compatible"`
-	Processes  []struct {
-		Name             string `json:"name"`
-		From             *int   `json:"from"`
-		To               *int   `json:"to"`
-		Compatible       bool   `json:"compatible"`
-		OutputCompatible bool   `json:"output_compatible"`
-		OutputReason     string `json:"output_reason"`
-		Input            struct {
-			Compatible bool   `json:"compatible"`
-			Reason     string `json:"reason"`
-		} `json:"input"`
-		Tasks []struct {
-			Task       string   `json:"task"`
-			Compatible bool     `json:"compatible"`
-			Reason     string   `json:"reason"`
-			Changed    []string `json:"changed"`
-		} `json:"tasks"`
-		RemovedTasks []string `json:"removed_tasks"`
-		AddedTasks   []string `json:"added_tasks"`
-		Changed      []string `json:"changed"`
-	} `json:"processes"`
-	Children []struct {
-		Parent        string `json:"parent"`
-		ParentVersion *int   `json:"parent_version"`
-		Task          string `json:"task"`
-		ChildKey      string `json:"child_key"`
-		Child         string `json:"child"`
-		Compatible    bool   `json:"compatible"`
-		Reason        string `json:"reason"`
-	} `json:"children"`
-	Unanalysable []compatIssue `json:"unanalysable"`
-	Unpaired     []compatIssue `json:"unpaired"`
+	Compatible bool            `json:"compatible"`
+	Processes  []compatProcess `json:"processes"`
 }
 
-type compatIssue struct {
-	Name    string `json:"name"`
-	Version *int   `json:"version"`
-	Side    string `json:"side"`
-	Reason  string `json:"reason"`
+type compatProcess struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	From   int    `json:"from"`
+	To     int    `json:"to"`
+	// Side and Reason are set only on an unanalysable row.
+	Side   string `json:"side"`
+	Reason string `json:"reason"`
+	// Compatible is instance continuation; OutputCompatible is the consumer contract. They
+	// run in opposite directions, which is why the server keeps them apart.
+	Compatible       bool   `json:"compatible"`
+	OutputCompatible bool   `json:"output_compatible"`
+	OutputReason     string `json:"output_reason"`
+	Input            struct {
+		Compatible bool   `json:"compatible"`
+		Reason     string `json:"reason"`
+	} `json:"input"`
+	Tasks        []compatTask `json:"tasks"`
+	RemovedTasks []string     `json:"removed_tasks"`
+	AddedTasks   []string     `json:"added_tasks"`
+	Changed      []string     `json:"changed"`
 }
 
-// versionLabel renders a resolved version, or "(new)" for a submitted document that has
-// no version yet.
-func versionLabel(v *int) string {
-	if v == nil {
-		return "(new)"
-	}
-	return fmt.Sprintf("v%d", *v)
-}
-
-func yesNo(ok bool) string {
-	if ok {
-		return "yes"
-	}
-	return "NO"
-}
-
-func printCompatReport(r compatReport) {
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PROCESS\tFROM\tTO\tCONTINUE\tOUTPUT\tREASON")
-	for _, p := range r.Processes {
-		// The two verdicts run in opposite directions and are never folded: CONTINUE is
-		// whether a running instance could carry on, OUTPUT whether a consumer written
-		// against the old shape still gets what it expects.
-		reason := p.Input.Reason
-		for _, t := range p.Tasks {
-			if reason == "" && !t.Compatible {
-				reason = fmt.Sprintf("task %q: %s", t.Task, t.Reason)
-			}
-		}
-		if reason == "" && len(p.RemovedTasks) > 0 {
-			reason = "removed task(s): " + strings.Join(p.RemovedTasks, ", ")
-		}
-		if reason == "" {
-			reason = p.OutputReason
-		}
-		if reason == "" {
-			reason = "-"
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", p.Name,
-			versionLabel(p.From), versionLabel(p.To),
-			yesNo(p.Compatible), yesNo(p.OutputCompatible), reason)
-	}
-	w.Flush()
-
-	for _, p := range r.Processes {
-		lines := changedLines(p.Changed, p.Tasks, p.AddedTasks, p.RemovedTasks)
-		if len(lines) == 0 {
-			continue
-		}
-		fmt.Printf("\nchanged in %s %s → %s:\n", p.Name, versionLabel(p.From), versionLabel(p.To))
-		for _, l := range lines {
-			fmt.Printf("  %s\n", l)
-		}
-	}
-
-	if len(r.Children) > 0 {
-		// Their own block: a parent/child break is not a fact about either document
-		// alone, so it cannot be a column on either one's row.
-		fmt.Println("\nparent/child pairs:")
-		cw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(cw, "  PARENT\tTASK\tCHILD\tFITS\tREASON")
-		for _, c := range r.Children {
-			child := c.Child
-			if c.ChildKey != "" {
-				child = fmt.Sprintf("%s[%s]", c.Child, c.ChildKey)
-			}
-			reason := c.Reason
-			if reason == "" {
-				reason = "-"
-			}
-			fmt.Fprintf(cw, "  %s %s\t%s\t%s\t%s\t%s\n",
-				c.Parent, versionLabel(c.ParentVersion), c.Task, child, yesNo(c.Compatible), reason)
-		}
-		cw.Flush()
-	}
-
-	for _, u := range r.Unpaired {
-		fmt.Printf("\nunpaired: %s %s exists only on the %s side\n", u.Name, versionLabel(u.Version), u.Side)
-	}
-	for _, u := range r.Unanalysable {
-		fmt.Printf("\nunanalysable: %s %s (%s side): %s\n", u.Name, versionLabel(u.Version), u.Side, u.Reason)
-	}
-
-	fmt.Printf("\n%s\n", compatCaveat)
-	if !r.Compatible {
-		os.Exit(1)
-	}
-}
-
-func changedLines(defChanged []string, tasks []struct {
+type compatTask struct {
 	Task       string   `json:"task"`
 	Compatible bool     `json:"compatible"`
 	Reason     string   `json:"reason"`
 	Changed    []string `json:"changed"`
-}, added, removed []string) []string {
-	var lines []string
-	for _, slot := range defChanged {
-		lines = append(lines, slot)
+}
+
+// versionLabel renders a resolved version, or "(new)" for a side carrying none — a
+// submitted document, which has no version until it is applied.
+func versionLabel(v int) string {
+	if v == 0 {
+		return "(new)"
 	}
-	for _, t := range tasks {
-		if len(t.Changed) > 0 {
-			lines = append(lines, fmt.Sprintf("task %q: %s", t.Task, strings.Join(t.Changed, ", ")))
+	return fmt.Sprintf("v%d", v)
+}
+
+// Verdicts as an operator acts on them. The server reports two — whether running instances
+// can continue, and whether consumers still get the shape they were written against —
+// because they run in opposite directions and answer different questions. A table column is
+// a decision, so they are folded into one word here and the detail block below says what
+// broke.
+const (
+	verdictUpgradable = "upgradable"
+	verdictUnchanged  = "nothing changed"
+	verdictBreaking   = "breaking"
+	verdictNew        = "new"
+	// A version that failed its own inference was compared against nothing, so it is
+	// breaking-by-default: an answer indistinguishable from "checked, and fine" is worse
+	// than no report.
+	verdictUnanalysable = "unanalysable"
+)
+
+// verdictOf folds one process's row. allowBreakingOutput tolerates a broken output
+// contract: the process output changed shape, but nothing running is affected, so an
+// operator who has already dealt with the consumers can say so.
+func verdictOf(p compatProcess, allowBreakingOutput bool) string {
+	switch p.Status {
+	case "nothing_to_compare":
+		return verdictUnchanged
+	case "new":
+		return verdictNew
+	case "unanalysable":
+		return verdictUnanalysable
+	}
+	if p.Compatible && (p.OutputCompatible || allowBreakingOutput) {
+		return verdictUpgradable
+	}
+	return verdictBreaking
+}
+
+// issue is one thing that broke: where in an instance's data it shows (a context path),
+// which definition slot changed under it, and what differs.
+type issue struct {
+	path  string
+	where string
+	msg   string
+}
+
+func (i issue) String() string {
+	head := i.path
+	if head == "" {
+		head = "(whole context)"
+	}
+	if i.where != "" {
+		head += "  (" + i.where + ")"
+	}
+	return head
+}
+
+// issuesOf collects everything that broke, not just the first: a report that stops at one
+// sends the reader round the loop once per problem.
+func issuesOf(p compatProcess, allowBreakingOutput bool) []issue {
+	var out []issue
+	add := func(reason string) {
+		if reason == "" {
+			return
+		}
+		path, msg := splitReason(reason)
+		out = append(out, issue{path: path, where: slotFor(p, path), msg: msg})
+	}
+	if !p.Input.Compatible {
+		add(p.Input.Reason)
+	}
+	for _, t := range p.Tasks {
+		if !t.Compatible {
+			add(t.Reason)
 		}
 	}
-	for _, id := range removed {
-		lines = append(lines, fmt.Sprintf("task %q removed", id))
+	for _, id := range p.RemovedTasks {
+		out = append(out, issue{path: "tasks." + id, msg: "removed; an instance there has nowhere to continue"})
 	}
-	for _, id := range added {
-		lines = append(lines, fmt.Sprintf("task %q added", id))
+	if !p.OutputCompatible && !allowBreakingOutput {
+		add(p.OutputReason)
 	}
-	return lines
+	if p.Status == "unanalysable" {
+		out = append(out, issue{path: p.Side + " side", msg: p.Reason})
+	}
+	return out
+}
+
+// splitReason peels the leading path off a reason. A path never contains a space, which is
+// what separates "outputs.charge.amount: number → string" from a whole-context message that
+// happens to contain a colon.
+func splitReason(reason string) (path, msg string) {
+	i := strings.Index(reason, ": ")
+	if i <= 0 || strings.Contains(reason[:i], " ") {
+		return "", reason
+	}
+	return reason[:i], reason[i+2:]
+}
+
+// slotFor names the definition slot under a context path, and only where that is certain:
+// an outputs.<id> value is produced by task <id>, and input comes from input_schema.
+// A process output can be fed from several places at once, so it gets no annotation rather
+// than a guess at which one.
+func slotFor(p compatProcess, path string) string {
+	switch {
+	case strings.HasPrefix(path, "outputs."):
+		id := strings.SplitN(strings.TrimPrefix(path, "outputs."), ".", 2)[0]
+		for _, t := range p.Tasks {
+			if t.Task == id && len(t.Changed) > 0 {
+				return fmt.Sprintf("task %q, %s", id, strings.Join(t.Changed, ", "))
+			}
+		}
+	case strings.HasPrefix(path, "input"):
+		for _, slot := range p.Changed {
+			if slot == "input_schema" {
+				return slot
+			}
+		}
+	}
+	return ""
+}
+
+func printCompatReport(r compatReport, allowBreakingOutput bool) {
+	breaking := false
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "PROCESS\tVERDICT")
+	for _, p := range r.Processes {
+		verdict := verdictOf(p, allowBreakingOutput)
+		if verdict == verdictBreaking || verdict == verdictUnanalysable {
+			breaking = true
+		}
+		fmt.Fprintf(w, "%s\t%s\n", p.Name, verdict)
+	}
+	w.Flush()
+
+	// Detail only where something broke. A clean run is a clean run; the table is the
+	// answer, and printing every slot that merely differs buries the ones that matter.
+	for _, p := range r.Processes {
+		issues := issuesOf(p, allowBreakingOutput)
+		if len(issues) == 0 {
+			continue
+		}
+		fmt.Printf("\n%s %s → %s\n", p.Name, versionLabel(p.From), versionLabel(p.To))
+		for _, i := range issues {
+			fmt.Printf("  %s:\n    %s\n", i, i.msg)
+		}
+	}
+
+	if breaking {
+		os.Exit(1)
+	}
 }

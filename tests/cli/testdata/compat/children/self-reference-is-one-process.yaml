@@ -1,0 +1,38 @@
+# A process that calls itself compares like any other: one document on both ends, and the
+# dependency closure has no separate child to pull in.
+apply:
+  - channel: self_a
+    definitions:
+      - name: self_proc
+        input_schema: {type: object, properties: {depth: {type: integer}}, required: [depth]}
+        tasks:
+          - id: recurse
+            action:
+              type: child
+              name: self_proc
+              input:
+                depth: '$: input.depth'
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+        output: {id: '$: ''a'''}
+  - channel: self_b
+    definitions:
+      - name: self_proc
+        input_schema: {type: object, properties: {depth: {type: integer}}, required: [depth]}
+        tasks:
+          - id: recurse
+            action:
+              type: child
+              name: self_proc
+              input:
+                depth: '$: input.depth'
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+        output: {id: '$: ''b'''}
+run: [--from, self_a, --to, self_b]
+
+expect: |
+  PROCESS    VERDICT
+  self_proc  upgradable
+
+  exit 0

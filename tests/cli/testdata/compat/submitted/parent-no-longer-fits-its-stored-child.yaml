@@ -1,0 +1,41 @@
+# The bundle names a parent but not the child it calls, and tightens the result_schema that
+# child's output has to satisfy. The child is resolved from the registry, so validation
+# catches it before any comparison runs — which is the check you most want before deploying
+# a parent on its own.
+apply:
+  - channel: tighten_a
+    definitions:
+      - name: tighten_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: tighten_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: tighten_kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+submit:
+  - name: tighten_boss
+    tasks:
+      - id: work
+        action:
+          type: child
+          name: tighten_kid
+          result_schema: {type: object, properties: {id: {type: integer}}, required: [id]}
+        switch: end
+run: [--from, tighten_a]
+
+expect: |
+  --- stderr ---
+  genctl: server: tighten_boss: task "work": child: the child's output type is not compatible with the declared result_schema
+
+  exit 1

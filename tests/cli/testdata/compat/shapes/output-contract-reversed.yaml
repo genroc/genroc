@@ -1,0 +1,40 @@
+# The consumer check runs the other way round and is never folded into the continuation
+# verdict: a caller written against a number output must not silently start receiving a
+# string. CONTINUE stays yes while OUTPUT goes NO — which is the whole reason there are
+# two columns.
+apply:
+  - channel: contract_a
+    definitions:
+      - name: contract_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+              result_schema: {type: object, properties: {amount: {type: number}}, required: [amount]}
+            output: {amount: '$: self.result.amount'}
+            switch: end
+        output: {total: '$: outputs.charge.amount'}
+  - channel: contract_b
+    definitions:
+      - name: contract_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+              result_schema: {type: object, properties: {amount: {type: string}}, required: [amount]}
+            output: {amount: '$: self.result.amount'}
+            switch: end
+        output: {total: '$: outputs.charge.amount'}
+run: [--from, contract_a, --to, contract_b]
+
+expect: |
+  PROCESS        VERDICT
+  contract_proc  breaking
+
+  contract_proc v1 → v2
+    output.total:
+      number → string
+
+  exit 1

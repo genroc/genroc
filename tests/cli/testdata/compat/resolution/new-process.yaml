@@ -1,0 +1,37 @@
+# Only the target side carries it. No previous version exists, so nothing is being
+# upgraded and nothing can break — reported, not refused, and it must not drag the
+# roll-up down.
+apply:
+  - channel: arrival_a
+    definitions:
+      - name: arrival_existing
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+  - channel: arrival_b
+    definitions:
+      - name: arrival_existing
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://y
+            switch: end
+      - name: arrival_arrival
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://z
+            switch: end
+run: [--from, arrival_a, --to, arrival_b]
+
+expect: |
+  PROCESS           VERDICT
+  arrival_arrival   new
+  arrival_existing  upgradable
+
+  exit 0

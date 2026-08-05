@@ -1,0 +1,45 @@
+# An input property old instances never had. Refused, and the reason names the property
+# — a bare "incompatible" tells an operator nothing actionable. Reported once, at
+# definition level, rather than once per task.
+apply:
+  - channel: reqin_a
+    definitions:
+      - name: reqin_proc
+        input_schema: {type: object, properties: {order_id: {type: integer}}, required: [order_id]}
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+            switch: next
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+  - channel: reqin_b
+    definitions:
+      - name: reqin_proc
+        input_schema: {type: object, properties: {order_id: {type: integer}, currency: {type: string}}, required: [order_id, currency]}
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+            switch: next
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+run: [--from, reqin_a, --to, reqin_b]
+
+expect: |
+  PROCESS     VERDICT
+  reqin_proc  breaking
+
+  reqin_proc v1 → v2
+    input.currency  (input_schema):
+      newly required field
+
+  exit 1

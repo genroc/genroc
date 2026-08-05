@@ -1,0 +1,72 @@
+# A task that now calls a different process is a different call entirely, not a moved
+# child. There is no pair to check; the action.name slot is what reports it.
+apply:
+  - channel: swap_a
+    definitions:
+      - name: swap_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: swap_other
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://z
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: swap_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: swap_kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+  - channel: swap_b
+    definitions:
+      - name: swap_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: swap_other
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://z
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: swap_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: swap_other
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+run: [--from, swap_a, --to, swap_b]
+
+expect: |
+  PROCESS     VERDICT
+  swap_boss   upgradable
+  swap_kid    nothing changed
+  swap_other  nothing changed
+
+  exit 0

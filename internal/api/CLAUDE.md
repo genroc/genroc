@@ -73,6 +73,29 @@ planning parents too, and a parent revalidates against its children's *new* vers
 versions that exist only in the plan, so its getter would need to resolve from there rather
 than from the DB.
 
+## Compat resolution: two tables, and what a missing counterpart means
+
+`handlers_compat.go` turns two selectors into two `name → version` tables and reconciles
+them. The comparison itself judges; this decides what is answerable.
+[specs/version-compatibility.md](../../specs/version-compatibility.md) is the design.
+
+- **An entry is explicit or implicit, and that is the whole rule.** Explicit = the caller
+  named it (a `versions` entry, or a submitted document). Implicit = it arrived via a
+  channel listing or as some other version's pinned child. An explicit entry with no
+  counterpart is an **error**; an implicit one is **carried over** at its current version.
+  Naming a process and getting silence is a mistake worth catching; a process that came
+  along for the ride is simply not moving.
+- **Submitted documents are validated first**, through the same pass `POST
+  /definitions/validate` runs (`validateSubmitted`). A document that does not analyse has
+  nothing to compare, and "unanalysable" is a worse answer than the one validate gives.
+  Stored versions are not re-validated — see
+  [internal/validation/CLAUDE.md](../validation/CLAUDE.md).
+- **`closeOverDependencies` makes a named parent compare the graph it runs**, not the parent
+  alone. An entry already in the table always wins, or the result would depend on map
+  iteration order.
+- **`-f` and an explicit `--to` are refused together.** Both define the target side, and
+  silently preferring one compares something the caller did not ask for.
+
 ## The health endpoint must not consult the engine
 
 `health()` reaches its verdict from `db.Ping` alone and returns before touching

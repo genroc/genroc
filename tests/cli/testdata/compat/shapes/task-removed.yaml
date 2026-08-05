@@ -1,0 +1,36 @@
+# An instance sitting on a task the new version does not have has nowhere to continue.
+apply:
+  - channel: taskrm_a
+    definitions:
+      - name: taskrm_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+            switch: next
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+  - channel: taskrm_b
+    definitions:
+      - name: taskrm_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+            switch: end
+run: [--from, taskrm_a, --to, taskrm_b]
+
+expect: |
+  PROCESS      VERDICT
+  taskrm_proc  breaking
+
+  taskrm_proc v1 → v2
+    tasks.ship:
+      removed; an instance there has nowhere to continue
+
+  exit 1

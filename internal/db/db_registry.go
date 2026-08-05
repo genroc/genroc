@@ -325,6 +325,30 @@ func (db *DB) GetDependencyVersion(parentName string, parentVersion int, taskID 
 	return int(v), nil
 }
 
+// ChildPin is one child version a definition version was registered against.
+type ChildPin struct {
+	Name    string
+	Version int
+}
+
+// ListDependencies returns every child version (parentName, parentVersion) is pinned to.
+// Self-references are absent by construction: buildResolvedDeps excludes them, because the
+// engine runs a self-call at the caller's own version rather than a recorded one.
+func (db *DB) ListDependencies(parentName string, parentVersion int) ([]ChildPin, error) {
+	rows, err := db.q.ListDependencies(context.Background(), dbgen.ListDependenciesParams{
+		ParentName:    parentName,
+		ParentVersion: int64(parentVersion),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ChildPin, len(rows))
+	for i, r := range rows {
+		out[i] = ChildPin{Name: r.ChildName, Version: int(r.ChildVersion)}
+	}
+	return out, nil
+}
+
 func (db *DB) FindStaleRefs(channel string) ([]StaleRefRow, error) {
 	rows, err := db.q.FindStaleRefs(context.Background(), channel)
 	if err != nil {

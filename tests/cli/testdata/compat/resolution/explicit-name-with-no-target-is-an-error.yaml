@@ -1,0 +1,27 @@
+# You asked about a process and there is nothing to answer with. Refused rather than
+# reported, because the alternative is a clean-looking report about a question that was
+# never actually asked.
+apply:
+  - channel: orphan_a
+    definitions:
+      - name: orphan_alpha
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+      - name: orphan_beta
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://y
+            switch: end
+run: [--from, orphan_alpha@1, --from, orphan_beta@1, --to, orphan_alpha@1]
+
+expect: |
+  --- stderr ---
+  genctl: server: named on the from side but absent from the to side: [orphan_beta]; name a target version for each, or drop them from --from
+
+  exit 1

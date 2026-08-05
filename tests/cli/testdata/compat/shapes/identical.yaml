@@ -1,0 +1,29 @@
+# Byte-identical content is deduplicated on apply, so the second batch reuses v1 rather
+# than minting v2 — and a process resolving to the same version on both sides has
+# nothing to compare. This is what an unchanged process looks like in every real report.
+apply:
+  - channel: same_a
+    definitions:
+      - name: same_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+  - channel: same_b
+    definitions:
+      - name: same_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+run: [--from, same_a, --to, same_b]
+
+expect: |
+  PROCESS    VERDICT
+  same_proc  nothing changed
+
+  exit 0

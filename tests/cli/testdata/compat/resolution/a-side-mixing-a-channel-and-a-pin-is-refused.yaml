@@ -1,0 +1,19 @@
+# A channel already names a version for every process, so adding one entry is ambiguous
+# about whether it overrides or extends. Refused rather than merged.
+apply:
+  - channel: mixsel_a
+    definitions:
+      - name: mixsel_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+run: [--from, mixsel_a, --from, mixsel_proc@1, --to, mixsel_proc@1]
+
+expect: |
+  --- stderr ---
+  genctl: --from mixes a channel with name@version entries; a side is one or the other
+
+  exit 1

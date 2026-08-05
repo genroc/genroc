@@ -471,6 +471,26 @@ func (h *Handlers) validateDefinitions(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
+	schemas, err := h.validateSubmitted(defs)
+	if err != nil {
+		return errReply(err)
+	}
+	return okReply(schemas)
+}
+
+// validateSubmitted runs the checks a document must pass before it means anything: struct
+// tags, schema inference, and child references resolved against its own batch first and the
+// registry second.
+//
+// Every caller that takes documents from a user runs this before doing anything else with
+// them. A comparison in particular: telling someone their unparseable definition is
+// "unanalysable" when `validate` would have named the task and the expression is a worse
+// answer to the same question.
+//
+// Everything here is a verdict on the submitted document, so all of it is invalid — never
+// internal. The %w keeps a *model.ValidationError reachable through the name prefix, so its
+// per-field detail survives to the reply.
+func (h *Handlers) validateSubmitted(defs []model.ProcessDefinition) ([]validation.SchemaFile, error) {
 	ptrs := make([]*model.ProcessDefinition, len(defs))
 	for i := range defs {
 		ptrs[i] = &defs[i]
@@ -478,20 +498,17 @@ func (h *Handlers) validateDefinitions(raw json.RawMessage) Reply {
 	getter := &batchGetter{batch: ptrs, versions: map[string]int{}, db: h.db}
 	schemas := make([]validation.SchemaFile, 0, len(ptrs))
 	for _, def := range ptrs {
-		// Everything here is a verdict on the submitted document, so all of it is
-		// invalid — never internal. The %w keeps a *model.ValidationError reachable
-		// through the name prefix so its per-field detail survives to the reply.
 		if err := def.Validate(); err != nil {
-			return invalid("%s: %w", def.Name, err).reply()
+			return nil, invalid("%s: %w", def.Name, err)
 		}
 		sf, err := validation.Generate(def)
 		if err != nil {
-			return invalid("%s: %w", def.Name, err).reply()
+			return nil, invalid("%s: %w", def.Name, err)
 		}
 		if err := validation.ValidateChildProcessRefs(def, 0, getter); err != nil {
-			return invalid("%s: %w", def.Name, err).reply()
+			return nil, invalid("%s: %w", def.Name, err)
 		}
 		schemas = append(schemas, sf)
 	}
-	return okReply(schemas)
+	return schemas, nil
 }

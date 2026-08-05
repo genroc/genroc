@@ -92,7 +92,7 @@ func schemaPtr(s schema.Schema) *schema.Schema { return &s }
 // registry is the authoritative list of all actions.
 // Order here determines order in Swagger.
 var registry = func() []actionDef {
-	v1, v3 := 1, 3
+	v1 := 1
 	return []actionDef{
 		{
 			Name:    "put_definition",
@@ -332,18 +332,17 @@ var registry = func() []actionDef {
 			Errors:  []Code{CodeNotFound},
 			Req: CompatReq{
 				From:    CompatSelector{Channel: "latest"},
-				To:      CompatSelector{Versions: map[string]int{"order_pipeline": 3}},
+				To:      CompatSelector{Versions: map[string]VersionRef{"order_pipeline": {Version: 3}}},
 				Process: "order_pipeline",
 			},
 			Resp: CompatResp{
 				Compatible: true,
-				Processes: []CompatProcessResp{{
-					Report: validation.Report{
-						Name: "order_pipeline", Compatible: true, OutputCompatible: true,
-						Input: validation.SlotVerdict{Compatible: true},
-						Tasks: []validation.TaskVerdict{{Task: "ship", Compatible: true, Changed: []string{"action.url"}}},
-					},
-					From: &v1, To: &v3,
+				Processes: []validation.Report{{
+					Name: "order_pipeline", Status: validation.StatusCompared,
+					FromVersion: 1, ToVersion: 3,
+					Compatible: true, OutputCompatible: true,
+					Input: validation.SlotVerdict{Compatible: true},
+					Tasks: []validation.TaskVerdict{{Task: "ship", Compatible: true, Changed: []string{"action.url"}}},
 				}},
 			},
 			handle: func(h *Handlers, env Envelope) Reply {

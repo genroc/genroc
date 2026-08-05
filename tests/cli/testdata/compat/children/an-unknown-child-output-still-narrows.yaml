@@ -1,0 +1,44 @@
+# A child may leave a value untyped ({}, the top type) and let the parent restate its shape
+# in result_schema; collect conforms the value at runtime, which is what makes that sound.
+# Changing the child must therefore not report the parent's narrowing as a break.
+apply:
+  - channel: unknown_a
+    definitions:
+      - name: unknown_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x
+              result_schema: {}
+            output: {payload: '$: self.result'}
+            switch: end
+        output: {payload: '$: outputs.run.payload'}
+      - name: unknown_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: unknown_kid
+              result_schema: {type: object, properties: {payload: {type: object, properties: {ticket: {type: string}}, required: [ticket]}}, required: [payload]}
+            switch: end
+  - channel: unknown_b
+    definitions:
+      - name: unknown_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://y
+              result_schema: {}
+            output: {payload: '$: self.result'}
+            switch: end
+        output: {payload: '$: outputs.run.payload'}
+run: [--from, unknown_a, --to, unknown_b]
+
+expect: |
+  PROCESS       VERDICT
+  unknown_boss  nothing changed
+  unknown_kid   upgradable
+
+  exit 0

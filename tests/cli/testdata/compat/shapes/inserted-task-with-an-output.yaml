@@ -1,0 +1,51 @@
+# The documented false alarm. The comparison never sees an instance, so a new main-line
+# task carrying an output is required at every later task and every old context lacking
+# it reads as different — even though nothing reads it. Pinned as EXPECTED: the
+# correction (demand-pruning) belongs to a layer that knows where an instance sits, and
+# every such correction may only turn "different" into "tolerable".
+apply:
+  - channel: insert_a
+    definitions:
+      - name: insert_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+            switch: next
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+  - channel: insert_b
+    definitions:
+      - name: insert_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+            switch: next
+          - id: audit
+            action:
+              type: fetch
+              url: http://x/audit
+            output: {seen: '$: true'}
+            switch: next
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+run: [--from, insert_a, --to, insert_b]
+
+expect: |
+  PROCESS      VERDICT
+  insert_proc  breaking
+
+  insert_proc v1 → v2
+    outputs.audit:
+      newly required field
+
+  exit 1

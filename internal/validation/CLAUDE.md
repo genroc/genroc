@@ -29,41 +29,31 @@ Three rules the comparison itself depends on:
 3. **`config` is stripped from every context.** It is re-resolved from the environment on
    every tick, so nothing persisted corresponds to it and there is nothing to compare.
 
-## The two `$defs` pools must stay separate
+## Nothing may vanish from a report, and nothing unjudged may look judged
 
-`subsetWith` takes `subDefs` and `superDefs` separately, so each side dereferences its own —
-which is what lets two independently-generated contexts be compared even though
-`uniqueDefName` may name the same concept differently. **Merging the pools silently compares
-a schema against itself.**
+`CompareSet` iterates the **union** of both sides' names, not the target's. A process the
+target side does not carry would otherwise disappear silently — and the caller is expected
+to have carried it over, so a disappearance means the caller has a bug the report would
+hide. It gets a row saying there was nothing to compare it against.
 
-The trap is `WithDefs`, which **replaces** a root pool rather than merging into it. A
-`result_schema` is self-contained after `Normalize` (its shared definitions are baked into
-its own root `$defs`), so it is compared **bare** — attaching the other side's pool to it
-strips its own, and every `$ref` inside then resolves to nothing or, worse, to a same-named
-definition that means something else.
+**One row per process, whatever became of it.** An unanalysable version is a row with that
+status rather than a list of its own, so a reader never crosses two arrays to find out what
+happened to a name — and the row already carries the versions, which is what says *which* of
+the two failed.
 
-## Changed slots are a field comparison, not a schema question
+**A process's status comes from its versions alone, and only a pair actually being compared
+is analysed.** That ordering is load-bearing, not an optimisation: a registry accumulates
+definitions validated under the rules of their day, so analysing everything up front lets an
+unchanged, unasked-about process fail to analyse and drag a report about two *other* versions
+down with it.
 
-`changedslots.go` is its own file so that "which slots differ" never acquires opinions about
-which differences matter — the verdicts are blind to meaning (dollars → cents is `number`
-either way), and this list is what lets a reader supply the judgement.
-
-**Adding a field to `model.Action`, `model.Task` or `model.ProcessDefinition` means adding
-it here too, and nothing fails if you forget** — the slot silently stops being reported.
-`changedslots_test.go` enumerates all three structs against the slot lists to make that
-loud; a field that genuinely cannot differ goes in `notASlot` **with its reason**, not into
-silence.
-
-## Diagnostics decompose above `isSubset`, deliberately
-
-`isSubset` returns a `bool` and sits on every hot validation path, so threading an error
-through it would be a large change to load-bearing code for one caller. `explainer`
-(`compat.go`) instead re-runs the check slot by slot and one level into properties, which
-yields `outputs.charge.amount: number → string` and `input.currency: newly required` from
-unmodified calls. Its depth is bounded because a recursive schema has no bottom to reach.
-
-`explainer.swap` renders the arrow old → new even when the check runs new ⊆ old (the output
-contract): the reader is asking what they changed, not which direction the subset ran.
+Every row carries a `CompareStatus`, and `compared` is the only value under which the
+verdicts mean anything. `nothing_to_compare` (both sides at one version) and `new` (no
+previous version) set the verdict fields to true because there is nothing to fail — which is
+exactly why the status has to be there, and why the renderer prints dashes rather than
+"yes" for them. Neither contributes to the roll-up: a deployed channel always carries
+processes a bundle does not, so counting them would report almost every real comparison
+as incompatible.
 
 ## Pointers
 

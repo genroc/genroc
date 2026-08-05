@@ -1,0 +1,23 @@
+# The ordinary path: the bundle validates, so the comparison runs. A submitted document has
+# no version yet, which is what "(new)" means in the TO column.
+apply:
+  - channel: bundle_a
+    definitions:
+      - name: bundle_proc
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x/ship}
+            switch: end
+submit:
+  - name: bundle_proc
+    tasks:
+      - id: ship
+        action: {type: fetch, url: http://y/ship}
+        switch: end
+run: [--from, bundle_a]
+
+expect: |
+  PROCESS      VERDICT
+  bundle_proc  upgradable
+
+  exit 0

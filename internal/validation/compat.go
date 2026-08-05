@@ -9,10 +9,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// Side names which of the two compared sets a finding came from. A cross-document
-// finding (the parent/child pairing) or an unanalysable version is a fact about one
-// side, and the versions are the caller's selectors — so the side is named here and
-// resolved to a version above.
+// Side names which of the two compared sets a finding came from. An unanalysable version
+// is a fact about one side, and the versions are the caller's selectors — so the side is
+// named here and resolved to a version above.
 type Side string
 
 const (
@@ -36,9 +35,21 @@ type TaskVerdict struct {
 	Changed    []string `json:"changed,omitempty"`
 }
 
-// Report is Compare's verdict for one process.
+// Report is Compare's verdict for one process. Status says whether the verdicts below it
+// mean anything: a process with nothing to compare, or one with no previous version,
+// carries no judgement and must not be read as having passed one.
 type Report struct {
-	Name string `json:"name"`
+	Name   string        `json:"name"`
+	Status CompareStatus `json:"status,omitempty"`
+	// FromVersion / ToVersion are what the caller's selectors landed on. Absent means the
+	// side carries no version for this name: a submitted document, or a side that does not
+	// carry it at all — Status is what tells those apart.
+	FromVersion int `json:"from,omitempty"`
+	ToVersion   int `json:"to,omitempty"`
+	// Side and Reason are set only on an unanalysable row, naming the version that failed
+	// its own inference and why.
+	Side   Side   `json:"side,omitempty"`
+	Reason string `json:"reason,omitempty"`
 	// Compatible is instance continuation: every context the old definition can present
 	// at a task is one the new definition accepts there, plus the input contract, plus
 	// no task disappearing under an instance.
@@ -64,44 +75,50 @@ type Report struct {
 	Changed []string `json:"changed,omitempty"`
 }
 
-// ChildPairVerdict is one row of the parent/child pairing check: whichever of the two
-// moved, does its data still fit the side that did not. ParentSide says which document
-// the parent was taken from, which is what distinguishes the two mixed rows.
-type ChildPairVerdict struct {
-	Parent     string `json:"parent"`
-	ParentSide Side   `json:"parent_side"`
-	Task       string `json:"task"`
-	ChildKey   string `json:"child_key,omitempty"`
-	Child      string `json:"child"`
-	Compatible bool   `json:"compatible"`
-	Reason     string `json:"reason,omitempty"`
+// SideEntry is one process on one side of a comparison, as the caller resolved it.
+// Version is what the caller's selector landed on; 0 means a submitted document that has
+// no version yet, which is always treated as having moved — it is the thing being asked
+// about.
+type SideEntry struct {
+	Def     *model.ProcessDefinition
+	Version int
 }
 
-// Unanalysable is a version whose own inference failed. Old rows were validated under
-// the rules of their day, so Generate can fail on one — that is a per-version verdict,
-// not a failure of the whole report.
-type Unanalysable struct {
-	Name   string `json:"name"`
-	Side   Side   `json:"side"`
-	Reason string `json:"reason"`
-}
+// CompareStatus says why a process row reads the way it does, so a row with no verdict
+// is never mistaken for one that was checked and passed.
+type CompareStatus string
 
-// Unpaired is a process named on one side only: there is nothing to compare it against,
-// and dropping it would let silence read as agreement.
-type Unpaired struct {
-	Name string `json:"name"`
-	Side Side   `json:"side"`
-}
+const (
+	// StatusCompared — both sides carry it, at different versions. The verdicts mean
+	// something.
+	StatusCompared CompareStatus = "compared"
+	// StatusNothingToCompare — both sides resolve to the same version, so comparing it
+	// would be comparing a document with itself. This is the common case in a
+	// channel-wide report: most processes do not move between two channels.
+	StatusNothingToCompare CompareStatus = "nothing_to_compare"
+	// StatusNew — only the target side carries it. No previous version exists, so
+	// nothing is being upgraded and there is nothing that could break.
+	StatusNew CompareStatus = "new"
+	// StatusUnanalysable — a version whose own inference failed. Old rows were validated
+	// under the rules of their day, so this is a per-version verdict rather than a failure
+	// of the whole report. It still makes the roll-up false: it was compared against
+	// nothing, and an answer indistinguishable from "checked, and fine" is worse than none.
+	StatusUnanalysable CompareStatus = "unanalysable"
+)
 
-// SetReport is CompareSet's whole answer. Compatible is the conjunction over everything
-// below it, and an unanalysable or unpaired entry makes it false, never true — a
-// top-level answer indistinguishable from "checked, and fine" is worse than no report.
+// SetReport is CompareSet's whole answer. Compatible is the conjunction over the rows
+// that were actually compared: a process with nothing to compare, or one that is new,
+// cannot break anything and must not drag the roll-up down — otherwise almost every real
+// comparison reports false, since a deployed channel always carries processes a bundle
+// does not. An unanalysable version DOES make it false: it was compared against nothing,
+// and an answer indistinguishable from "checked, and fine" is worse than no report.
 type SetReport struct {
-	Compatible   bool               `json:"compatible"`
-	Processes    []Report           `json:"processes"`
-	Children     []ChildPairVerdict `json:"children,omitempty"`
-	Unanalysable []Unanalysable     `json:"unanalysable,omitempty"`
-	Unpaired     []Unpaired         `json:"unpaired,omitempty"`
+	Compatible bool `json:"compatible"`
+	// Processes carries exactly one row per name on either side, whatever became of it.
+	// An unanalysable version is a row here too rather than a list of its own: every
+	// process has one place to look, and a reader never has to cross-reference two arrays
+	// to find out what happened to a name.
+	Processes []Report `json:"processes"`
 }
 
 // TaskContexts returns the context schema at every task of def, keyed by task id: the
@@ -255,173 +272,73 @@ func compareOutput(oldA, newA analysis) (bool, string) {
 	return true, ""
 }
 
-// CompareSet is Compare over a name-paired set, plus the parent/child pairing check that
-// no single-process comparison can compute: it needs old[parent] with new[child] AND
-// new[parent] with old[child] in one frame, which is why the set form exists rather than
-// being left to the client. A single pair is CompareSet with one entry.
+// CompareSet is Compare over a name-paired set. A single pair is CompareSet with one entry.
 //
-// Nothing is dropped. A version that no longer analyses is reported unanalysable, and a
-// name present on one side only is reported unpaired; both make the roll-up false.
-func CompareSet(old, new map[string]*model.ProcessDefinition) (SetReport, error) {
+// The caller resolves each side to a table of one version per process name and reconciles
+// the two before calling. What arrives here is already paired; this decides what is worth
+// comparing and what the verdicts are.
+func CompareSet(old, new map[string]SideEntry) (SetReport, error) {
 	report := SetReport{Compatible: true, Processes: []Report{}}
 
-	analysed := map[Side]map[string]analysis{SideFrom: {}, SideTo: {}}
-	for _, side := range []struct {
-		defs map[string]*model.ProcessDefinition
-		side Side
-	}{{old, SideFrom}, {new, SideTo}} {
-		for _, name := range sortedNames(side.defs) {
-			a, err := analyze(side.defs[name])
-			if err != nil {
-				report.Unanalysable = append(report.Unanalysable,
-					Unanalysable{Name: name, Side: side.side, Reason: err.Error()})
-				report.Compatible = false
-				continue
-			}
-			analysed[side.side][name] = a
-		}
-	}
+	// Every name on either side gets a row, and the status comes from the versions alone —
+	// no inference needed. Analysis happens only for a pair that is actually being
+	// compared, which is what keeps an unchanged process from being judged at all: a
+	// registry accumulates definitions validated under older rules, and one of those
+	// failing to analyse must not make a report about two OTHER versions come back false.
+	for _, name := range unionOfNames(old, new) {
+		from, inOld := old[name]
+		to, inNew := new[name]
 
-	for _, name := range sortedNames(old) {
-		if _, ok := new[name]; !ok {
-			report.Unpaired = append(report.Unpaired, Unpaired{Name: name, Side: SideFrom})
-			report.Compatible = false
+		row := Report{Name: name, FromVersion: from.Version, ToVersion: to.Version}
+		unjudged := func(status CompareStatus) {
+			row.Status, row.Compatible, row.OutputCompatible = status, true, true
+			row.Input = SlotVerdict{Compatible: true}
+			report.Processes = append(report.Processes, row)
 		}
-	}
-	for _, name := range sortedNames(new) {
-		if _, ok := old[name]; !ok {
-			report.Unpaired = append(report.Unpaired, Unpaired{Name: name, Side: SideTo})
-			report.Compatible = false
+		switch {
+		case !inOld:
+			// No previous version exists, so nothing is being upgraded and nothing can break.
+			unjudged(StatusNew)
+			continue
+		case !inNew, !moved(from, to):
+			// Either the caller did not carry it over, or both sides landed on one version;
+			// comparing a document with itself is a tautology.
+			unjudged(StatusNothingToCompare)
+			continue
 		}
-	}
 
-	for _, name := range sortedNames(new) {
-		o, okOld := analysed[SideFrom][name]
-		n, okNew := analysed[SideTo][name]
-		if !okOld || !okNew {
-			continue // unpaired or unanalysable, and already reported as such
+		oldA, err := analyze(from.Def)
+		if err != nil {
+			report.unanalysable(row, SideFrom, err)
+			continue
 		}
-		r := compare(o, n)
+		newA, err := analyze(to.Def)
+		if err != nil {
+			report.unanalysable(row, SideTo, err)
+			continue
+		}
+
+		r := compare(oldA, newA)
+		r.Status, r.FromVersion, r.ToVersion = StatusCompared, from.Version, to.Version
 		if !r.Compatible || !r.OutputCompatible {
 			report.Compatible = false
 		}
 		report.Processes = append(report.Processes, r)
 	}
 
-	report.Children = childPairVerdicts(analysed[SideFrom], analysed[SideTo])
-	for _, c := range report.Children {
-		if !c.Compatible {
-			report.Compatible = false
-		}
-	}
 	return report, nil
 }
 
-// childPairVerdicts is the cross-document half. One schema governs both steps of a child
-// call — the child produces its output, and collect conforms that against the parent's
-// result_schema as the parent currently stands, which is also the type the parent reads it
-// at. So the constraint is outC.NarrowsTo(S_parent), NarrowsTo because that conform is
-// real, matching checkChildOutputType.
-//
-// The case where both sides move needs no row here: applied together, buildResolvedDeps
-// bakes the new parent onto the new child and ValidateChildProcessRefs checks exactly
-// this. What is left is the pair where one moved and the other did not, and the symmetry
-// of the two rows is the sign the model is right — a pair is compatible when whichever
-// side moved still fits the one that did not.
-//
-// Scope is bounded by what was submitted: a child whose counterpart is not in the set is
-// skipped, and covered instead by the gate, from its parent row's pinned version. A
-// self-reference is the same check with one process, and is single-level, so unlike
-// topoSort it needs no cycle guard.
-func childPairVerdicts(oldA, newA map[string]analysis) []ChildPairVerdict {
-	var out []ChildPairVerdict
-	for _, parent := range sortedAnalysisNames(newA) {
-		oldParent, ok := oldA[parent]
-		if !ok {
-			continue
-		}
-		oldTasks := tasksByID(oldParent.def)
-		for _, nt := range newA[parent].def.Tasks {
-			ot, ok := oldTasks[nt.ID]
-			if !ok {
-				continue // a task with no counterpart has no in-flight batch to pair
-			}
-			oldSlots := childSlotsByKey(ot)
-			for _, ns := range childSlots(nt) {
-				os, ok := oldSlots[ns.key]
-				// A slot whose child name changed is a different call entirely; the
-				// changed-slot list reports it and there is no pair to check.
-				if !ok || os.name != ns.name {
-					continue
-				}
-				row := func(parentSide Side, parentSchema *schema.Schema, childSide map[string]analysis) {
-					child, ok := childSide[ns.name]
-					if !ok || parentSchema == nil {
-						return
-					}
-					childOut, hasOut, err := schemaFileOutput(child.sf)
-					if err != nil || !hasOut {
-						return
-					}
-					v := ChildPairVerdict{
-						Parent: parent, ParentSide: parentSide, Task: nt.ID,
-						ChildKey: ns.key, Child: ns.name, Compatible: true,
-					}
-					// parentSchema is used bare: Normalize leaves every result_schema
-					// self-contained, its shared definitions baked into its own root
-					// $defs — and WithDefs REPLACES a root pool rather than merging, so
-					// attaching the child's here would silently strip the parent's.
-					if reason := narrowExplainer.explain("output", childOut, *parentSchema, 0); reason != "" {
-						v.Compatible, v.Reason = false, reason
-					}
-					out = append(out, v)
-				}
-				row(SideFrom, os.schema, newA) // only the child moved
-				row(SideTo, ns.schema, oldA)   // only the parent moved
-			}
-		}
-	}
-	return out
+func (r *SetReport) unanalysable(row Report, side Side, err error) {
+	row.Status, row.Side, row.Reason = StatusUnanalysable, side, err.Error()
+	r.Processes = append(r.Processes, row)
+	r.Compatible = false
 }
 
-// childSlot is one child call a task makes: the key it is reached by ("" for a single
-// child or a list fan-out), the process it names, and the result_schema the parent
-// declares for it.
-type childSlot struct {
-	key    string
-	name   string
-	schema *schema.Schema
-}
-
-func childSlots(t *model.Task) []childSlot {
-	if t.Action == nil {
-		return nil
-	}
-	switch t.Action.Type {
-	case model.ActionTypeChild, model.ActionTypeChildList:
-		return []childSlot{{name: t.Action.Name, schema: t.Action.ResultSchema}}
-	case model.ActionTypeChildMap:
-		keys := make([]string, 0, len(t.Action.Children))
-		for k := range t.Action.Children {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		out := make([]childSlot, 0, len(keys))
-		for _, k := range keys {
-			e := t.Action.Children[k]
-			out = append(out, childSlot{key: k, name: e.Name, schema: e.ResultSchema})
-		}
-		return out
-	}
-	return nil
-}
-
-func childSlotsByKey(t *model.Task) map[string]childSlot {
-	out := map[string]childSlot{}
-	for _, s := range childSlots(t) {
-		out[s.key] = s
-	}
-	return out
+// moved reports whether a process differs between the two sides. A submitted document has
+// no version yet and always counts as moved — it is the thing being asked about.
+func moved(from, to SideEntry) bool {
+	return from.Version == 0 || to.Version == 0 || from.Version != to.Version
 }
 
 func tasksByID(def *model.ProcessDefinition) map[string]*model.Task {
@@ -432,7 +349,23 @@ func tasksByID(def *model.ProcessDefinition) map[string]*model.Task {
 	return out
 }
 
-func sortedNames(m map[string]*model.ProcessDefinition) []string {
+// unionOfNames returns every process named on either side, sorted.
+func unionOfNames(a, b map[string]SideEntry) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range []map[string]SideEntry{a, b} {
+		for k := range m {
+			if !seen[k] {
+				seen[k] = true
+				out = append(out, k)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func sortedEntries(m map[string]SideEntry) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
@@ -441,7 +374,7 @@ func sortedNames(m map[string]*model.ProcessDefinition) []string {
 	return out
 }
 
-func sortedAnalysisNames(m map[string]analysis) []string {
+func sortedNames(m map[string]*model.ProcessDefinition) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
@@ -459,9 +392,6 @@ func sortedAnalysisNames(m map[string]analysis) []string {
 // isSubset returns a bool and sits on every hot validation path, so making it explain
 // itself would be a large change to load-bearing code for one caller.
 type explainer struct {
-	// narrow runs the check as NarrowsTo — an unknown in the sub position is accepted,
-	// sound only where a runtime conform stands behind it (a child's result_schema).
-	narrow bool
 	// swap renders the arrow old → new even when the check runs new ⊆ old. The reader is
 	// asking what they changed, not which direction the subset ran in.
 	swap bool
@@ -470,7 +400,6 @@ type explainer struct {
 var (
 	forwardExplainer = explainer{}
 	reverseExplainer = explainer{swap: true}
-	narrowExplainer  = explainer{narrow: true}
 )
 
 // maxExplainDepth bounds the descent: a recursive schema has no bottom to reach, and one
@@ -478,9 +407,6 @@ var (
 const maxExplainDepth = 4
 
 func (e explainer) fits(sub, super schema.Schema) bool {
-	if e.narrow {
-		return sub.NarrowsTo(super)
-	}
 	return sub.IsSubset(super)
 }
 
@@ -499,7 +425,7 @@ func (e explainer) explain(path string, sub, super schema.Schema, depth int) str
 		sort.Strings(superRequired)
 		for _, f := range superRequired {
 			if !subRequired[f] {
-				return joinPath(path, f) + ": newly required"
+				return joinPath(path, f) + ": newly required field"
 			}
 		}
 

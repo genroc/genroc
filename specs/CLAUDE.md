@@ -73,6 +73,7 @@ exists. The invariants extracted from them live in the `CLAUDE.md` of the owning
 `version-compatibility.md` is **half** of each: its comparison is shipped — `Compare` /
 `CompareSet` in `internal/validation`, `POST /definitions/compat`, `genctl compat` — while
 its **upgrade** half (the gate, the boundary rules, the tree closure, the one-column write,
-the two upgrade endpoints) is still a proposal, as is everything in its §10. Its §5a
+the two upgrade endpoints) is still a proposal, as is everything in its §10 and its §5b
+parent/child pairing. Its §5a
 prerequisite (dropping `_spawn_result_schema`) landed with the comparison, so the address of
 a child's `result_schema` in `unknown-type.md` is historical.

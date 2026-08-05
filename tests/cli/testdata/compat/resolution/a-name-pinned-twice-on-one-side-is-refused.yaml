@@ -1,0 +1,28 @@
+# A side carries one version per process; silently keeping one would compare a version
+# nobody chose.
+apply:
+  - channel: twice_a
+    definitions:
+      - name: twice_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+  - channel: twice_b
+    definitions:
+      - name: twice_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://y
+            switch: end
+run: [--from, twice_proc@1, --from, twice_proc@2, --to, twice_proc@2]
+
+expect: |
+  --- stderr ---
+  genctl: --from names "twice_proc" twice; a side carries one version per process
+
+  exit 1

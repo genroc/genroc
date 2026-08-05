@@ -1,14 +1,37 @@
 # Version compatibility and instance upgrade
 
-**Status: partly implemented.** §1–§3 and §5a–§5b — the two-document comparison, the
-changed-slot report and the parent/child pairing — are built (`internal/validation/compat.go`,
-`POST /definitions/compat`, `genctl compat`), and shipped behavior is documented in `docs/`
-(reference → Version compatibility). The invariants that break silently live in
+**Status: partly implemented.** §1–§3 and §5a — the two-document comparison and the
+changed-slot report — are built (`internal/validation/compat.go`, `POST /definitions/compat`,
+`genctl compat`), and shipped behavior is documented in `docs/` (reference → Version
+compatibility). The invariants that break silently live in
 [internal/validation/CLAUDE.md](../internal/validation/CLAUDE.md).
+
+**§5b's pairing check is NOT built**, and the report has no parent/child block. Submitted
+documents are validated before they are compared instead, which covers the case that
+mattered without a second table: `ValidateChildProcessRefs` already checks a submitted
+parent's `result_schema` against the child it resolves to. What that does not cover is the
+mixed pair between two *stored* versions — an old parent against a new child — which
+surfaces less precisely, as the child's own output contract breaking (§3b).
 
 **The upgrade half is not built**: the gate (§3c), the boundary rules (§4), the tree closure
 (§5c), the one-column write (§6) and the two upgrade endpoints and `genctl upgrade` (§8).
 Nothing in §10 is built either. This document stays as the design record for all of it.
+
+**Resolution went further than §8 describes**, because §8 only says what a selector is and
+not what happens when the two sides disagree about which processes exist. As built:
+
+- `--from` / `--to` are repeatable; an entry is `name@<version|channel>`, and a side is
+  either one channel or one-or-more pins.
+- Each side is closed transitively over the child versions its definitions were registered
+  against, so a parent is never judged without the children it calls. An explicit pin wins
+  over one a dependency supplies.
+- A process explicitly named on one side with no counterpart is an **error**. One that
+  arrived implicitly is **carried over** at its current version — which is what keeps §5b's
+  pairing rows computable when a bundle names a parent but not its child.
+- A process only on the target side is `new`; one resolving to the same version on both
+  sides is `nothing_to_compare`. Neither contributes to the roll-up, so `unpaired`-as-a-
+  failure (which would fire on almost every real comparison) is gone.
+- Submitted documents are validated first; the error is validate's, verbatim.
 
 1. **Compatibility** — given two versions of a process, decide whether an instance running
    the older one could continue under the newer one without a data-shaped failure.

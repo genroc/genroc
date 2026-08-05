@@ -1,0 +1,24 @@
+# The submitted parent calls a process that exists nowhere — not in its own bundle, and not
+# in the registry. Refused as validate refuses it, rather than compared against a resolution
+# that silently found nothing.
+apply:
+  - channel: badref_a
+    definitions:
+      - name: badref_boss
+        tasks:
+          - id: work
+            action: {type: fetch, url: http://x}
+            switch: end
+submit:
+  - name: badref_boss
+    tasks:
+      - id: work
+        action: {type: child, name: badref_missing}
+        switch: end
+run: [--from, badref_a]
+
+expect: |
+  --- stderr ---
+  genctl: server: badref_boss: task "work": child: no definitions found for "badref_missing": not found
+
+  exit 1

@@ -1,0 +1,18 @@
+# Defaulting the other would hide which two documents were compared.
+apply:
+  - channel: oneside_a
+    definitions:
+      - name: oneside_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+run: [--from, oneside_a]
+
+expect: |
+  --- stderr ---
+  genctl: usage: genctl compat <process> <from> <to> | compat -f <file> --from <sel> | compat --from <sel> --to <sel> [<process>]
+
+  exit 1

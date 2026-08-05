@@ -1,0 +1,33 @@
+# Tasks match by id because it is the only handle there is. A rename reads as one
+# removal plus one addition; nothing could validate a claim that two differently-named
+# tasks are the same one.
+apply:
+  - channel: taskren_a
+    definitions:
+      - name: taskren_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+  - channel: taskren_b
+    definitions:
+      - name: taskren_proc
+        tasks:
+          - id: dispatch
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+run: [--from, taskren_a, --to, taskren_b]
+
+expect: |
+  PROCESS       VERDICT
+  taskren_proc  breaking
+
+  taskren_proc v1 → v2
+    tasks.ship:
+      removed; an instance there has nowhere to continue
+
+  exit 1

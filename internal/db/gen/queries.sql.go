@@ -660,6 +660,49 @@ func (q *Queries) LatestVersion(ctx context.Context, name string) (interface{}, 
 	return max, err
 }
 
+const listDependencies = `-- name: ListDependencies :many
+SELECT DISTINCT child_name, child_version FROM process_dependencies
+WHERE parent_name = ?1
+  AND parent_version = ?2
+ORDER BY child_name
+`
+
+type ListDependenciesParams struct {
+	ParentName    string
+	ParentVersion int64
+}
+
+type ListDependenciesRow struct {
+	ChildName    string
+	ChildVersion int64
+}
+
+// Every child version one definition version was registered against. A comparison uses
+// it to close a named process over the versions it actually runs, so a parent is never
+// judged without the children it calls.
+func (q *Queries) ListDependencies(ctx context.Context, arg ListDependenciesParams) ([]ListDependenciesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDependencies, arg.ParentName, arg.ParentVersion)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDependenciesRow
+	for rows.Next() {
+		var i ListDependenciesRow
+		if err := rows.Scan(&i.ChildName, &i.ChildVersion); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const loadDefinitionsOnChannel = `-- name: LoadDefinitionsOnChannel :many
 
 SELECT pc.version, pd.definition

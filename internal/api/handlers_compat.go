@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"genroc/internal/db"
 	"genroc/internal/model"
@@ -13,12 +14,48 @@ import (
 // needs no upgrade machinery, which is why it was built first and why it is useful without
 // the rest. Design, and the full list of what a shape check cannot see:
 // specs/version-compatibility.md.
+//
+// Everything below the comparison itself is resolution: turning two selectors into two
+// tables of one version per process, and reconciling them. That is where a comparison
+// becomes answerable or refuses to guess.
+
+// resolvedEntry is one process on one side, with the thing that decides what a missing
+// counterpart means: whether the caller named it, or it came along.
+type resolvedEntry struct {
+	def     *model.ProcessDefinition
+	version int // 0 = a submitted document, which has no version yet
+	// explicit is true when the caller named this process — as a versions entry or a
+	// submitted document. An implicit entry arrived via a channel listing or by being
+	// pinned as some other version's child.
+	explicit bool
+}
+
+type resolvedSide map[string]resolvedEntry
 
 func (h *Handlers) definitionsCompat(raw json.RawMessage) Reply {
 	req, err := decodeBody[CompatReq](raw)
 	if err != nil {
 		return errReply(err)
 	}
+	if len(req.To.Definitions) > 0 && (req.To.Channel != "" || len(req.To.Versions) > 0) {
+		// -f and an explicit target both define the same side; silently preferring one
+		// would compare something the caller did not ask for.
+		return invalid("to: submitted definitions already name the target side").reply()
+	}
+	// Validate submitted documents before comparing them. A document that does not parse
+	// or whose child refs do not resolve has no schemas to compare, and reporting that as
+	// "unanalysable" would answer a question `validate` answers properly — naming the task
+	// and the expression. Stored versions are NOT re-validated: they passed under the rules
+	// of their day, and one that no longer analyses is a per-version verdict, not a
+	// rejection of the request.
+	for _, sel := range []CompatSelector{req.From, req.To} {
+		if len(sel.Definitions) > 0 {
+			if _, err := h.validateSubmitted(sel.Definitions); err != nil {
+				return errReply(err)
+			}
+		}
+	}
+
 	from, err := h.resolveCompatSide(req.From, "from", req.Process)
 	if err != nil {
 		return errReply(err)
@@ -27,26 +64,59 @@ func (h *Handlers) definitionsCompat(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
+	if err := reconcile(from, to); err != nil {
+		return errReply(err)
+	}
 
-	oldDefs, oldVersions := byName(from)
-	newDefs, newVersions := byName(to)
-
-	// Compat does not validate. A submitted document's child refs are unresolved and
-	// Generate does not need them — only ValidateChildProcessRefs does, and that has its
-	// own endpoint. Keeping batch resolution out is what stops this growing a second copy
-	// of applyBatch's planning pass; a document that cannot be analysed is reported as
-	// such rather than rejected.
-	report, err := validation.CompareSet(oldDefs, newDefs)
+	report, err := validation.CompareSet(entriesFor(from), entriesFor(to))
 	if err != nil {
 		return errReply(err)
 	}
-	return okReply(compatResp(report, oldVersions, newVersions))
+	return okReply(compatResp(report))
 }
 
-// resolveCompatSide turns one selector into the definitions it names. Exactly one of the
-// three forms may be set: naming two would leave the pairing ambiguous, and naming none
+// reconcile settles what each side missing a process means, and is the only place a
+// comparison refuses rather than reporting.
+//
+// The asymmetry is deliberate: naming a process and getting silence is a mistake worth
+// catching, while a process that came along for the ride and is absent from the target is
+// simply not moving, so it is carried over and reported as unchanged.
+func reconcile(from, to resolvedSide) error {
+	var orphans []string
+	for name, e := range from {
+		if _, ok := to[name]; ok {
+			continue
+		}
+		if e.explicit {
+			orphans = append(orphans, name)
+			continue
+		}
+		to[name] = resolvedEntry{def: e.def, version: e.version}
+	}
+	if len(orphans) > 0 {
+		sort.Strings(orphans)
+		return invalid("named on the from side but absent from the to side: %v; "+
+			"name a target version for each, or drop them from --from", orphans)
+	}
+	// A process on the to side only is NEW: no previous version exists, so nothing is
+	// being upgraded and nothing can break. It is reported, not refused, and not carried
+	// backwards — inventing a from-side entry would fabricate a comparison.
+	return nil
+}
+
+func entriesFor(side resolvedSide) map[string]validation.SideEntry {
+	out := make(map[string]validation.SideEntry, len(side))
+	for name, e := range side {
+		out[name] = validation.SideEntry{Def: e.def, Version: e.version}
+	}
+	return out
+}
+
+// resolveCompatSide turns one selector into the table it names, then closes that table
+// over the child versions its definitions were registered against. Exactly one of the
+// three forms may be set: naming two would leave the resolution ambiguous, and naming none
 // hides which documents were compared behind a default.
-func (h *Handlers) resolveCompatSide(sel CompatSelector, side, process string) ([]db.VersionedDef, error) {
+func (h *Handlers) resolveCompatSide(sel CompatSelector, side, process string) (resolvedSide, error) {
 	forms := 0
 	for _, set := range []bool{sel.Channel != "", len(sel.Versions) > 0, len(sel.Definitions) > 0} {
 		if set {
@@ -60,97 +130,113 @@ func (h *Handlers) resolveCompatSide(sel CompatSelector, side, process string) (
 		return nil, invalid("%s: name exactly one of channel, versions or definitions", side)
 	}
 
-	var defs []db.VersionedDef
+	out := resolvedSide{}
 	switch {
 	case sel.Channel != "":
 		loaded, err := h.db.LoadDefinitionsOnChannel(sel.Channel)
 		if err != nil {
 			return nil, fmt.Errorf("%s: channel %q: %w", side, sel.Channel, err)
 		}
-		defs = loaded
+		for _, vd := range loaded {
+			out[vd.Def.Name] = resolvedEntry{def: vd.Def, version: vd.Version}
+		}
 	case len(sel.Versions) > 0:
-		for name, version := range sel.Versions {
+		for name, ref := range sel.Versions {
+			version, err := h.resolveVersionRef(name, ref)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", side, err)
+			}
 			def, err := h.db.GetDefinition(name, version)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", side, err)
 			}
-			defs = append(defs, db.VersionedDef{Version: version, Def: def})
+			out[name] = resolvedEntry{def: def, version: version, explicit: true}
 		}
 	default:
 		// Version 0 is how a submitted document says it has none yet; compatResp renders
 		// that as null rather than inventing the version an apply would assign.
 		for i := range sel.Definitions {
-			defs = append(defs, db.VersionedDef{Def: &sel.Definitions[i]})
+			d := &sel.Definitions[i]
+			out[d.Name] = resolvedEntry{def: d, explicit: true}
 		}
 	}
 
+	if err := h.closeOverDependencies(out); err != nil {
+		return nil, fmt.Errorf("%s: %w", side, err)
+	}
 	if process != "" {
-		scoped, err := subtree(defs, process)
+		scoped, err := h.scopeToSubtree(out, process)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", side, err)
 		}
-		defs = scoped
+		out = scoped
 	}
-	return defs, nil
+	return out, nil
 }
 
-func byName(defs []db.VersionedDef) (map[string]*model.ProcessDefinition, map[string]int) {
-	byname := make(map[string]*model.ProcessDefinition, len(defs))
-	versions := make(map[string]int, len(defs))
-	for _, vd := range defs {
-		byname[vd.Def.Name] = vd.Def
-		versions[vd.Def.Name] = vd.Version
+func (h *Handlers) resolveVersionRef(name string, ref VersionRef) (int, error) {
+	if ref.Channel == "" {
+		return ref.Version, nil
 	}
-	return byname, versions
+	return h.db.GetChannel(name, ref.Channel)
 }
 
-// versionOf renders a resolved version for the response: nil for a submitted document,
-// which has none, and nil for a name the side does not carry at all.
-func versionOf(versions map[string]int, name string) *int {
-	v, ok := versions[name]
-	if !ok || v == 0 {
-		return nil
+// closeOverDependencies adds, transitively, the child version each entry was registered
+// against, so naming a parent compares the graph it runs rather than the parent alone.
+//
+// An entry already in the table wins: it is either what the caller named, or a pin some
+// other version reached first, and re-resolving it would make the result depend on map
+// iteration order. That is also what terminates the walk on a self-referencing or mutually
+// recursive process.
+func (h *Handlers) closeOverDependencies(side resolvedSide) error {
+	queue := make([]resolvedEntry, 0, len(side))
+	for _, e := range side {
+		queue = append(queue, e)
 	}
-	return &v
-}
-
-func compatResp(r validation.SetReport, oldVersions, newVersions map[string]int) CompatResp {
-	resp := CompatResp{Compatible: r.Compatible, Processes: make([]CompatProcessResp, 0, len(r.Processes))}
-	for _, p := range r.Processes {
-		resp.Processes = append(resp.Processes, CompatProcessResp{
-			Report: p,
-			From:   versionOf(oldVersions, p.Name),
-			To:     versionOf(newVersions, p.Name),
-		})
-	}
-	for _, c := range r.Children {
-		versions := newVersions
-		if c.ParentSide == validation.SideFrom {
-			versions = oldVersions
+	for len(queue) > 0 {
+		e := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if e.version == 0 {
+			continue // a submitted document is not registered, so it has no pins
 		}
-		resp.Children = append(resp.Children, CompatChildResp{
-			Parent:        c.Parent,
-			ParentVersion: versionOf(versions, c.Parent),
-			Task:          c.Task,
-			ChildKey:      c.ChildKey,
-			Child:         c.Child,
-			Compatible:    c.Compatible,
-			Reason:        c.Reason,
-		})
+		pins, err := h.db.ListDependencies(e.def.Name, e.version)
+		if err != nil {
+			return err
+		}
+		for _, p := range pins {
+			if _, have := side[p.Name]; have {
+				continue
+			}
+			def, err := h.db.GetDefinition(p.Name, p.Version)
+			if err != nil {
+				return fmt.Errorf("pinned child %q v%d: %w", p.Name, p.Version, err)
+			}
+			added := resolvedEntry{def: def, version: p.Version}
+			side[p.Name] = added
+			queue = append(queue, added)
+		}
 	}
-	for _, u := range r.Unanalysable {
-		resp.Unanalysable = append(resp.Unanalysable, compatIssue(u.Name, u.Side, u.Reason, oldVersions, newVersions))
-	}
-	for _, u := range r.Unpaired {
-		resp.Unpaired = append(resp.Unpaired, compatIssue(u.Name, u.Side, "", oldVersions, newVersions))
-	}
-	return resp
+	return nil
 }
 
-func compatIssue(name string, side validation.Side, reason string, oldVersions, newVersions map[string]int) CompatIssueResp {
-	versions := newVersions
-	if side == validation.SideFrom {
-		versions = oldVersions
+// scopeToSubtree narrows a side to one process and the children it reaches, so a large
+// channel can be asked a small question.
+func (h *Handlers) scopeToSubtree(side resolvedSide, process string) (resolvedSide, error) {
+	defs := make([]db.VersionedDef, 0, len(side))
+	for _, e := range side {
+		defs = append(defs, db.VersionedDef{Version: e.version, Def: e.def})
 	}
-	return CompatIssueResp{Name: name, Version: versionOf(versions, name), Side: string(side), Reason: reason}
+	kept, err := subtree(defs, process)
+	if err != nil {
+		return nil, err
+	}
+	out := resolvedSide{}
+	for _, vd := range kept {
+		out[vd.Def.Name] = side[vd.Def.Name]
+	}
+	return out, nil
+}
+
+func compatResp(r validation.SetReport) CompatResp {
+	return CompatResp{Compatible: r.Compatible, Processes: r.Processes}
 }

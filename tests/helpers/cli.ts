@@ -116,6 +116,10 @@ function jsonToYaml(value: unknown, indent = 0): string {
         }
         if (Array.isArray(v) && (v as unknown[]).length === 0)
           return `${pad}${k}: []`;
+        // The empty object is genroc's unknown type, so it is a real value a definition
+        // carries. Block style would put the `{}` at column 0 and break the document.
+        if (!Array.isArray(v) && Object.keys(v as object).length === 0)
+          return `${pad}${k}: {}`;
         // Objects and non-empty arrays always use block (next-line) style.
         return `${pad}${k}:\n${jsonToYaml(v, indent + 1)}`;
       })

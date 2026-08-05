@@ -1,0 +1,20 @@
+# Both sides resolve to the same version, so comparing it would be comparing a document
+# with itself. It prints dashes, not "yes": it was not judged, and a column that looks
+# like a pass would be a lie. This is the common case in a channel-wide report.
+apply:
+  - channel: noop_a
+    definitions:
+      - name: noop_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+run: [--from, noop_proc@1, --to, noop_proc@1]
+
+expect: |
+  PROCESS    VERDICT
+  noop_proc  nothing changed
+
+  exit 0

@@ -1,0 +1,25 @@
+# A submitted document is validated before anything is compared. This one reads an output
+# no task produces, so there are no schemas to compare — and answering "unanalysable" would
+# be a worse version of what validate already says properly, naming the task and the
+# expression.
+apply:
+  - channel: badexpr_a
+    definitions:
+      - name: badexpr_proc
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x}
+            switch: end
+submit:
+  - name: badexpr_proc
+    tasks:
+      - id: ship
+        action: {type: fetch, url: "http://x/${ outputs.nope.v }"}
+        switch: end
+run: [--from, badexpr_a]
+
+expect: |
+  --- stderr ---
+  genctl: server: badexpr_proc: task "ship" url: template expression " outputs.nope.v ": cannot access .nope: schema has no properties
+
+  exit 1

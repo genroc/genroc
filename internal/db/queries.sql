@@ -33,6 +33,15 @@ WHERE parent_name = sqlc.arg(parent_name)
   AND task_id = sqlc.arg(task_id)
   AND child_key = sqlc.arg(child_key);
 
+-- name: ListDependencies :many
+-- Every child version one definition version was registered against. A comparison uses
+-- it to close a named process over the versions it actually runs, so a parent is never
+-- judged without the children it calls.
+SELECT DISTINCT child_name, child_version FROM process_dependencies
+WHERE parent_name = sqlc.arg(parent_name)
+  AND parent_version = sqlc.arg(parent_version)
+ORDER BY child_name;
+
 -- name: UpsertChannel :exec
 INSERT INTO process_channels (name, channel, version, updated_at)
 VALUES (sqlc.arg(name), sqlc.arg(channel), sqlc.arg(version), sqlc.arg(updated_at))

@@ -1,0 +1,47 @@
+# A child that stops producing a field breaks its output contract the other way round —
+# the field is newly required of whoever reads it, rather than a type that changed.
+apply:
+  - channel: unread_a
+    definitions:
+      - name: unread_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x
+              result_schema: {type: object, properties: {id: {type: string}, note: {type: string}}, required: [id, note]}
+            output: {id: '$: self.result.id', note: '$: self.result.note'}
+            switch: end
+        output: {id: '$: outputs.run.id', note: '$: outputs.run.note'}
+      - name: unread_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: unread_kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+  - channel: unread_b
+    definitions:
+      - name: unread_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+run: [--from, unread_a, --to, unread_b]
+
+expect: |
+  PROCESS      VERDICT
+  unread_boss  nothing changed
+  unread_kid   breaking
+
+  unread_kid v1 → v2
+    output.note:
+      newly required field
+
+  exit 1

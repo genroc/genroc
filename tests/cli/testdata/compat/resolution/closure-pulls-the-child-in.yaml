@@ -1,0 +1,52 @@
+# Naming a parent alone still compares the graph: the side is closed over the child
+# versions that parent version was registered against. Without it the report would have
+# no pairing rows and read as clean — the same trap as not asking the question at all.
+apply:
+  - channel: closure_a
+    definitions:
+      - name: closure_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: closure_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: closure_kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+  - channel: closure_b
+    definitions:
+      - name: closure_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://y
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: closure_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: closure_kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+run: [closure_boss, 1, 2]
+
+expect: |
+  PROCESS       VERDICT
+  closure_boss  upgradable
+  closure_kid   upgradable
+
+  exit 0

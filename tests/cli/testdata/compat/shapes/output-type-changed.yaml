@@ -1,0 +1,46 @@
+# charge projects an output ship can read, so the break lands AT ship — never at charge,
+# whose own output is not yet in its entry context.
+apply:
+  - channel: outtype_a
+    definitions:
+      - name: outtype_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+              result_schema: {type: object, properties: {amount: {type: number}}, required: [amount]}
+            output: {amount: '$: self.result.amount'}
+            switch: next
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+  - channel: outtype_b
+    definitions:
+      - name: outtype_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+              result_schema: {type: object, properties: {amount: {type: string}}, required: [amount]}
+            output: {amount: '$: self.result.amount'}
+            switch: next
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+run: [--from, outtype_a, --to, outtype_b]
+
+expect: |
+  PROCESS       VERDICT
+  outtype_proc  breaking
+
+  outtype_proc v1 → v2
+    outputs.charge.amount  (task "charge", action.result_schema):
+      number → string
+
+  exit 1

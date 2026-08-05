@@ -1,0 +1,28 @@
+# An entry's version may itself be a channel, so a set can pin some processes and follow
+# a channel for others without a second field.
+apply:
+  - channel: pinchan_a
+    definitions:
+      - name: pinchan_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+  - channel: pinchan_b
+    definitions:
+      - name: pinchan_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://y
+            switch: end
+run: [--from, pinchan_proc@pinchan_a, --to, pinchan_proc@pinchan_b]
+
+expect: |
+  PROCESS       VERDICT
+  pinchan_proc  upgradable
+
+  exit 0

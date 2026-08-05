@@ -1,0 +1,35 @@
+# The same break, tolerated. --allow-breaking-output is for an operator who has already
+# dealt with the consumers: the verdict becomes upgradable and the exit code 0, but the
+# reason still shows, because the break was permitted rather than absent.
+apply:
+  - channel: allowed_a
+    definitions:
+      - name: allowed_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+              result_schema: {type: object, properties: {amount: {type: number}}, required: [amount]}
+            output: {amount: '$: self.result.amount'}
+            switch: end
+        output: {total: '$: outputs.charge.amount'}
+  - channel: allowed_b
+    definitions:
+      - name: allowed_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+              result_schema: {type: object, properties: {amount: {type: string}}, required: [amount]}
+            output: {amount: '$: self.result.amount'}
+            switch: end
+        output: {total: '$: outputs.charge.amount'}
+run: [--from, allowed_a, --to, allowed_b, --allow-breaking-output]
+
+expect: |
+  PROCESS       VERDICT
+  allowed_proc  upgradable
+
+  exit 0

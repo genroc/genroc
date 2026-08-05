@@ -19,17 +19,38 @@ strand running work is visible before it is deployed rather than after.
 
 ```
 genctl compat <process> <from-version> <to-version>
-genctl compat -f ./processes/*.yaml --from latest
 genctl compat --from stable --to latest [<process>]
+genctl compat --from boss@1 --from kid@1 --to boss@2 --to kid@3
+genctl compat -f ./processes/*.yaml --from latest
 ```
 
-```
-PROCESS         FROM  TO  CONTINUE  OUTPUT  REASON
-order_pipeline  v2    v3  yes       yes     -
+`--from` and `--to` are repeatable. A side is **either** one channel **or** one-or-more
+`name@version` pins, where the version may itself be a channel (`kid@stable`). Mixing the
+two on one side is refused: a channel already names a version for every process, so adding
+one entry is ambiguous about whether it overrides or extends.
 
-changed in order_pipeline v2 → v3:
-  task "ship": action.url
 ```
+PROCESS         VERDICT
+order_pipeline  upgradable
+invoice         breaking
+
+invoice v1 → v4
+  outputs.charge.amount  (task "charge", action.result_schema):
+    number → string
+```
+
+A clean run is the table alone. Detail prints only where something broke: the path is where
+it shows in an instance's data, the parenthesis is the definition slot that changed under
+it, and the line below is what differs.
+
+One verdict per process:
+
+| | |
+|---|---|
+| `upgradable` | an instance running the old version could continue under the new one, and consumers still get the shape they expect |
+| `breaking` | one of those two failed; the reason says which |
+| `nothing changed` | both sides resolve to the same version |
+| `new` | only the target side carries it, so nothing is running it |
 
 The second form is the one to reach for before a deploy: it compares the documents `apply`
 would take against what is currently on a channel, so you see the answer without writing
@@ -39,24 +60,81 @@ were compared.
 `compat` exits non-zero when anything is incompatible, so it drops straight into a
 pipeline.
 
-### Two verdicts, never folded into one
+Definitions submitted with `-f` are **validated first**, exactly as `genctl validate` does.
+A document that does not parse, whose expressions do not type-check, or whose child
+references do not resolve is refused with that error — naming the task and the expression —
+rather than compared and reported as unanalysable. Stored versions are not re-validated:
+they passed under the rules of their day.
 
-`CONTINUE` and `OUTPUT` answer opposite questions and are deliberately reported separately:
+That validation is also where a submitted parent's `result_schema` is checked against the
+child it resolves to, which is the check worth having when a bundle deploys a parent on its
+own.
 
-- **`CONTINUE`** — could an instance running the old version carry on under the new one?
+### A comparison covers the graph, not one process
+
+Whatever you name is closed over the child versions those definitions were **registered
+against**, so a parent is never judged without the children it calls:
+
+```
+genctl compat order_pipeline 2 3
+```
+
+...resolves the `from` side to `order_pipeline@2` plus whatever child versions it was
+registered with, and the `to` side to `order_pipeline@3` plus its own. A pin you write
+yourself wins over one a dependency supplies. Nothing is hidden — the table prints a row
+per process, so a child pulled in shows up with its own versions even though you only
+named the parent.
+
+This matters because without it a parent compared alone produces no parent/child rows and
+reads as clean, which is indistinguishable from a genuine all-clear.
+
+### What a missing counterpart means
+
+Each side resolves to a table of one version per process, and the two are reconciled:
+
+| on `from` | on `to` | outcome |
+|---|---|---|
+| you named it | present | compared |
+| you named it | **absent** | **error** — you asked about it and there is nothing to answer with |
+| it came along | absent | carried over at its current version; the row reads `nothing to compare` |
+| absent | either | `new process` — no previous version exists, so nothing is being upgraded |
+
+The asymmetry is deliberate. Naming a process and getting silence is a mistake worth
+catching; a process that came along for the ride and is absent from your bundle is simply
+not moving — and carrying it over is what keeps the parent/child check working when a
+bundle names a parent but not the child it calls.
+
+A process that resolves to the **same version on both sides** also reads `nothing to
+compare`: comparing a document with itself is a tautology. In a channel-to-channel report
+that is most of the rows.
+
+Neither `nothing to compare` nor `new process` can break anything, so neither drags the
+top-level verdict down. Only real incompatibilities — and versions whose own inference
+fails, reported as `unanalysable` — do that.
+
+### Two questions behind one verdict
+
+`breaking` covers two checks that run in opposite directions, and the API reports them
+separately (`compatible` and `output_compatible`) because they are genuinely different
+questions:
+
+- **Continuation** — could an instance running the old version carry on under the new one?
   Every value the old definition can have produced must be one the new definition accepts.
-- **`OUTPUT`** — does the new version still honour the contract its consumers were written
-  against? Here the direction reverses: a parent's `result_schema` and an API caller were
-  written against the *old* output shape, so every value the new version can produce must
-  be one the old one could.
+- **The output contract** — does the new version still honour what its consumers were
+  written against? Here the direction reverses: a parent's `result_schema` and an API caller
+  were written against the *old* output shape, so every value the new version can produce
+  must be one the old one could.
 
-A single boolean over two opposite-direction checks would mean nothing, so there isn't one.
+`--allow-breaking-output` tolerates the second. It is for the case where the process output
+changed shape but nothing running is affected and you have already dealt with the consumers:
+the verdict becomes `upgradable` and the exit code 0. It changes the rendered verdict and
+the exit code only, never `--json`.
 
-### The changed-slot list is the deliverable
+### The changed slot is named, because the verdict cannot judge meaning
 
-The verdict compares inferred schemas. The list of slots that differ — `action.url`,
-`action.result_schema`, `output`, `switch`, `on_error`, `timeout`, `only_once`,
-`input_schema`, `config_schema` — is what lets you judge the changes the check cannot.
+Each broken path names the definition slot that changed under it — `action.result_schema`,
+`output`, `switch`, `on_error`, `timeout`, `only_once`, `input_schema`, `config_schema`. The
+full per-slot list is in the JSON (`--json`), on every process, whether or not it broke.
 
 <Note>
 **This is a shape check, not a review.** Dollars → cents is `number` before and after and
@@ -89,29 +167,11 @@ POST /definitions/compat
 Each side is a **selector** — `channel`, explicit `versions`, or submitted `definitions` —
 resolving to one version per process name, paired by name. A triple of
 `{process, from, to}` cannot name a graph, which is why the request is shaped this way.
+A `versions` entry may be a number or a channel name: `{"versions": {"boss": 2, "kid":
+"stable"}}`.
 
-A process named on one side only is reported `unpaired`, and a version whose own inference
-fails is reported `unanalysable`. Both make the top-level `compatible` **false**, never
-true: an answer indistinguishable from "checked, and fine" would be worse than no report.
-
-## Parent and child, compared in one frame
-
-One check genuinely spans two processes, and no single-process comparison can compute it: a
-parent declares a `result_schema` for each child it calls, and the child's output is
-conformed against it when the batch is collected. So when only one of the two moves,
-whichever moved must still fit the one that did not.
-
-`compat` reports both directions as their own block, because a break there is not a fact
-about either document alone:
-
-```
-parent/child pairs:
-  PARENT              TASK  CHILD    FITS  REASON
-  order_pipeline v2   work  invoice  yes   -
-  order_pipeline v3   work  invoice  yes   -
-```
-
-This is tighter than the output contract above, and that is why it earns its place: a child
-that drops a field fails its general output contract, but a parent whose `result_schema`
-never named that field is unaffected — and only a check holding both documents at once can
-say so.
+The response is one row per process named on either side, whatever became of it —
+`{compatible, processes}` and nothing more. Each row carries a `status` (`compared`,
+`nothing_to_compare`, `new`, `unanalysable`) alongside its verdicts, so a row that was never
+judged is not mistaken for one that passed, and a version that failed its own inference is
+found where you would look for it rather than in a second array.

@@ -1,0 +1,48 @@
+# Only the child moved, so its own output contract is what breaks: a consumer written
+# against a string id would now receive an integer. The parent did not move and reads
+# "nothing to compare".
+apply:
+  - channel: widen_a
+    definitions:
+      - name: widen_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: widen_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: widen_kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+  - channel: widen_b
+    definitions:
+      - name: widen_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x
+              result_schema: {type: object, properties: {id: {type: integer}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+run: [--from, widen_a, --to, widen_b]
+
+expect: |
+  PROCESS     VERDICT
+  widen_boss  nothing changed
+  widen_kid   breaking
+
+  widen_kid v1 → v2
+    output.id:
+      string → integer
+
+  exit 1

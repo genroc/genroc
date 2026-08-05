@@ -1,0 +1,31 @@
+# ACCEPTED. The new definition is the author's stated policy, so a flipped only_once
+# applies and is reported as a slot rather than refused. The direction that bites is
+# removal: a task whose previous attempt was interrupted may then re-run, and the side
+# effect happens twice.
+apply:
+  - channel: once_a
+    definitions:
+      - name: once_proc
+        tasks:
+          - id: charge
+            only_once: true
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+  - channel: once_b
+    definitions:
+      - name: once_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+run: [--from, once_a, --to, once_b]
+
+expect: |
+  PROCESS    VERDICT
+  once_proc  upgradable
+
+  exit 0

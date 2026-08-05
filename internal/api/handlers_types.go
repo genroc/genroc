@@ -1,6 +1,9 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"genroc/internal/db"
 	"genroc/internal/model"
 	"genroc/internal/schema"
@@ -91,12 +94,41 @@ type ChannelStatusReq struct {
 	Channel string `json:"channel"`
 }
 
+// VersionRef is one entry's version: a number, or the name of a channel to resolve it
+// through. It decodes from either JSON form (3 or "latest") so a selector can pin some
+// processes and follow a channel for others without a second field.
+type VersionRef struct {
+	Version int
+	Channel string
+}
+
+func (v VersionRef) MarshalJSON() ([]byte, error) {
+	if v.Channel != "" {
+		return json.Marshal(v.Channel)
+	}
+	return json.Marshal(v.Version)
+}
+
+func (v *VersionRef) UnmarshalJSON(data []byte) error {
+	if err := json.Unmarshal(data, &v.Version); err == nil {
+		return nil
+	}
+	if err := json.Unmarshal(data, &v.Channel); err != nil {
+		return fmt.Errorf("version must be a number or a channel name: %w", err)
+	}
+	return nil
+}
+
 // CompatSelector resolves to one version per process name. A triple of
 // {process, from, to} cannot name a graph, so each side of a comparison is a selector and
 // the two are paired by process name. Exactly one field may be set.
+//
+// Whatever a selector names is closed over the child versions those definitions were
+// registered against, so a parent is never judged without the children it calls. An
+// entry named here wins over one a dependency pins.
 type CompatSelector struct {
 	Channel     string                    `json:"channel,omitempty"      description:"Every process on this channel, at the version the channel points at."`
-	Versions    map[string]int            `json:"versions,omitempty"     description:"Explicit process name → version."`
+	Versions    map[string]VersionRef     `json:"versions,omitempty"     description:"Process name → version number, or a channel name to resolve it through."`
 	Definitions []model.ProcessDefinition `json:"definitions,omitempty"  description:"Documents that are not stored yet — the ones an apply would take. They have no version, so they report version null."`
 }
 
@@ -108,43 +140,13 @@ type CompatReq struct {
 	Process string `json:"process,omitempty"`
 }
 
-// CompatResp is the whole verdict. Compatible is the conjunction over everything below
-// it, and an unanalysable or unpaired entry makes it false, never true.
+// CompatResp is the whole verdict: one row per process named on either side, whatever
+// became of it. Compatible is the conjunction over the rows that were actually compared —
+// a process with nothing to compare, or one that is new, cannot break anything — plus any
+// version that failed its own inference.
 type CompatResp struct {
-	Compatible   bool                `json:"compatible"`
-	Processes    []CompatProcessResp `json:"processes"`
-	Children     []CompatChildResp   `json:"children,omitempty"`
-	Unanalysable []CompatIssueResp   `json:"unanalysable,omitempty"`
-	Unpaired     []CompatIssueResp   `json:"unpaired,omitempty"`
-}
-
-// CompatProcessResp is one process's pair of verdicts. `compatible` is instance
-// continuation and `output_compatible` is the consumer contract; they run in opposite
-// directions and are deliberately never folded into one answer.
-type CompatProcessResp struct {
-	validation.Report
-	From *int `json:"from"` // null when the side carried a submitted document
-	To   *int `json:"to"`
-}
-
-// CompatChildResp is one parent/child pairing row. parent_version is what distinguishes
-// the two rows a version move produces — whichever side moved must still fit the one that
-// did not — so a break here is not a fact about either document alone.
-type CompatChildResp struct {
-	Parent        string `json:"parent"`
-	ParentVersion *int   `json:"parent_version"`
-	Task          string `json:"task"`
-	ChildKey      string `json:"child_key,omitempty"`
-	Child         string `json:"child"`
-	Compatible    bool   `json:"compatible"`
-	Reason        string `json:"reason,omitempty"`
-}
-
-type CompatIssueResp struct {
-	Name    string `json:"name"`
-	Version *int   `json:"version"`
-	Side    string `json:"side"` // from | to
-	Reason  string `json:"reason,omitempty"`
+	Compatible bool                `json:"compatible"`
+	Processes  []validation.Report `json:"processes"`
 }
 
 type StaleRef struct {

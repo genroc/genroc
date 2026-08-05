@@ -1,0 +1,29 @@
+# An optional input parameter is the other change this feature exists for.
+apply:
+  - channel: optin_a
+    definitions:
+      - name: optin_proc
+        input_schema: {type: object, properties: {order_id: {type: integer}}, required: [order_id]}
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+  - channel: optin_b
+    definitions:
+      - name: optin_proc
+        input_schema: {type: object, properties: {order_id: {type: integer}, note: {type: string}}, required: [order_id]}
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x/ship
+            switch: end
+run: [--from, optin_a, --to, optin_b]
+
+expect: |
+  PROCESS     VERDICT
+  optin_proc  upgradable
+
+  exit 0
