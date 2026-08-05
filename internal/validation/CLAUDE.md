@@ -29,6 +29,34 @@ Three rules the comparison itself depends on:
 3. **`config` is stripped from every context.** It is re-resolved from the environment on
    every tick, so nothing persisted corresponds to it and there is nothing to compare.
 
+## Upgradable means the gap is closable, not that the shapes match
+
+The continuation checks use `IsSubsetAbsentAsNull`, which tolerates the new version
+requiring a property the old one did not **when that property's type admits null**. The
+justification is NOT that reads happen to be forgiving — it is that
+`Schema.FillAbsentAsNull` closes exactly that gap by writing the null in, and an upgrade
+runs the stored state through it. The verdict says *we know how to move this data*, which is
+a claim with something behind it.
+
+The two are a pair and must accept the same gaps; `schematest/absent_test.go` is what holds
+them together. **A relation that tolerates more than the fill can close is the dangerous
+direction** — it promises an upgrade that then fails to conform.
+
+Which checks get it is decided by whether anything conforms the value afterwards:
+
+- **`readExplainer`** — the per-task contexts and the input. An instance's stored context is
+  read, and its input was conformed once at creation and never again, so the fill is the
+  only thing that ever has to touch them.
+- **`contractExplainer`** — the output contract, deliberately STRICT. Its consumers include
+  a waiting parent, which conforms the child's output against its `result_schema` at collect,
+  and nothing migrates the value on that path. Relaxing there would promise what the runtime
+  refuses.
+
+Two things would break this if they land without revisiting it: conforming the input on
+upgrade (specs §10) makes the input relaxation unsound, and the gate's external-result rule
+(§4) belongs on the relaxed side, because a submitted result is read back as `self.result`
+rather than re-conformed.
+
 ## Nothing may vanish from a report, and nothing unjudged may look judged
 
 `CompareSet` iterates the **union** of both sides' names, not the target's. A process the
@@ -40,6 +68,12 @@ hide. It gets a row saying there was nothing to compare it against.
 status rather than a list of its own, so a reader never crosses two arrays to find out what
 happened to a name — and the row already carries the versions, which is what says *which* of
 the two failed.
+
+**A version number says more than its document does.** Two stored versions with identical
+documents are still different processes: a version also pins the child versions it runs, so
+`nothing changed` is decided by the numbers there. A *submitted* document has no number, so
+that one case falls back to comparing documents (`documentsDiffer`) — which is also why that
+comparison includes task ORDER, since `switch: next` routes by position.
 
 **A process's status comes from its versions alone, and only a pair actually being compared
 is analysed.** That ordering is load-bearing, not an optimisation: a registry accumulates

@@ -216,6 +216,17 @@ func (s Schema) IsSubset(super Schema) bool {
 	return isSubset(s.n, super.n)
 }
 
+// IsSubsetAbsentAsNull is IsSubset with one rule relaxed: super may require a property
+// whose type admits null without sub requiring it. A missing key and a null one navigate
+// identically, so where a value is READ rather than conformed the two are one case.
+//
+// Sound only where nothing validates the value against super — a runtime conform DOES
+// reject a missing required key, so this must not stand in for IsSubset at a slot that has
+// one. Both schemas must be normalized.
+func (s Schema) IsSubsetAbsentAsNull(super Schema) bool {
+	return absentAsNullSubset(s.n, super.n)
+}
+
 // NarrowsTo is IsSubset with unknowns admitted: every unknown (the empty schema {}) in
 // s is accepted by whatever super declares at that position, at any depth. It answers
 // "could this value be narrowed to super?", not "is it already super?" — so it is sound

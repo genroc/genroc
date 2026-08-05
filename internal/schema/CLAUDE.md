@@ -31,6 +31,38 @@ Three things to know before touching it:
    own registration rather than become undecodable. `validTypes` is exactly the JSON
    Schema `simpleTypes` enum.
 
+## `required` and nullable are independent, and one pair bridges them
+
+`conformObject` rejects an absent required property whatever its type, while `evalMember`
+returns null for a missing key. So `required` governs **documents at a boundary** and
+nullability governs **reads** — two different questions, and nothing may quietly merge them.
+
+One pair deliberately bridges the two, and it is a pair:
+
+- `IsSubsetAbsentAsNull` decides a version gap is closable — super may require a nullable
+  property that sub does not.
+- `FillAbsentAsNull` closes it, inserting the explicit null.
+
+**They must accept exactly the same gaps.** A relation that tolerates more than the fill can
+close promises a migration that then fails to conform; a fill that closes more is dead code.
+`schematest/absent_test.go` asserts both directions over every gap shape — nested, array
+items, open maps, `$ref`, recursive, inside a union variant — including that the filled value
+passes a STRICT conform, which is the claim the whole thing rests on. It also pins the
+properties that make a migration built on it safe: the fill is idempotent, only ever adds
+(undeclared keys included, which a conform would strip), and preserves validity.
+
+Two traps it exists to catch, both already found once:
+
+- **A union node carries no properties of its own**, so a fill that reaches its type switch
+  before consulting its variants silently fills nothing — the relation accepts the gap and
+  the migration quietly does not close it.
+- **A `required` name whose property is never declared** has no type to call nullable. Any
+  map index that misses hands `HasNull` the zero Schema, so it answers false rather than
+  panicking; a caller that guards the index instead is relying on every future caller doing
+  the same, and the one that did not crashed a live endpoint. Neither is a licence to relax
+`required` anywhere else: at a slot with a runtime conform behind it, absence is still a
+rejection.
+
 An **omitted** `result_schema` is a third state, not a synonym for unknown: the result
 stays untyped and unexportable, so "I meant it to be opaque" stays distinguishable from
 "I forgot". The `infer` mode in that doc (inherit the child's computed output) is

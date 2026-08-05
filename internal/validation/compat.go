@@ -212,7 +212,7 @@ func compare(oldA, newA analysis) Report {
 		// type is position-independent, and the must-analysis is monotone along a path,
 		// so anything reachable from here is satisfied by what was checked here plus what
 		// the new definition produces on the way. See the spec's §2.
-		if reason := forwardExplainer.explain("", oldA.contexts[t.ID], newA.contexts[t.ID], 0); reason != "" {
+		if reason := readExplainer.explain("", oldA.contexts[t.ID], newA.contexts[t.ID], 0); reason != "" {
 			v.Compatible, v.Reason = false, reason
 			r.Compatible = false
 		}
@@ -240,7 +240,9 @@ func compareInput(oldA, newA analysis) SlotVerdict {
 		}
 		return o.WithDefs(a.sf.Defs)
 	}
-	if reason := forwardExplainer.explain("", wrap(oldA), wrap(newA), 0); reason != "" {
+	// An existing instance's input was validated once, at creation, under the schema of the
+	// day; nothing re-validates it. So it is read from here on, like the rest of the row.
+	if reason := readExplainer.explain("", wrap(oldA), wrap(newA), 0); reason != "" {
 		return SlotVerdict{Reason: reason}
 	}
 	return SlotVerdict{Compatible: true}
@@ -266,7 +268,7 @@ func compareOutput(oldA, newA analysis) (bool, string) {
 	if !hasOld || !hasNew {
 		return true, ""
 	}
-	if reason := reverseExplainer.explain("output", newOut, oldOut, 0); reason != "" {
+	if reason := contractExplainer.explain("output", newOut, oldOut, 0); reason != "" {
 		return false, reason
 	}
 	return true, ""
@@ -305,6 +307,27 @@ func CompareSet(old, new map[string]SideEntry) (SetReport, error) {
 			// comparing a document with itself is a tautology.
 			unjudged(StatusNothingToCompare)
 			continue
+		}
+
+		// A submitted document has no version, so version equality cannot say whether it
+		// changed — the documents themselves have to. Two STORED versions are left to their
+		// numbers, which say MORE than the documents do: a version also pins the child
+		// versions it runs, so two identical documents at different versions are genuinely
+		// different processes. Normalizing first is what makes a raw submitted document and
+		// a canonical stored one comparable at all.
+		if from.Version == 0 || to.Version == 0 {
+			if err := from.Def.Normalize(); err != nil {
+				report.unanalysable(row, SideFrom, err)
+				continue
+			}
+			if err := to.Def.Normalize(); err != nil {
+				report.unanalysable(row, SideTo, err)
+				continue
+			}
+			if !documentsDiffer(from.Def, to.Def) {
+				unjudged(StatusNothingToCompare)
+				continue
+			}
 		}
 
 		oldA, err := analyze(from.Def)
@@ -392,14 +415,27 @@ func sortedNames(m map[string]*model.ProcessDefinition) []string {
 // isSubset returns a bool and sits on every hot validation path, so making it explain
 // itself would be a large change to load-bearing code for one caller.
 type explainer struct {
+	// absentAsNull stops requiring the presence of a nullable property. It is sound ONLY
+	// where the value is read and never conformed — conformObject rejects an absent
+	// required key whatever its type, so a slot with a runtime conform behind it must not
+	// use this.
+	absentAsNull bool
 	// swap renders the arrow old → new even when the check runs new ⊆ old. The reader is
 	// asking what they changed, not which direction the subset ran in.
 	swap bool
 }
 
 var (
-	forwardExplainer = explainer{}
-	reverseExplainer = explainer{swap: true}
+	// readExplainer is for the continuation checks. An instance's stored context and its
+	// stored input are READ from here on — nothing re-validates them — so a key that is
+	// simply absent reads as null, and a nullable slot demanding presence would refuse
+	// data that works.
+	readExplainer = explainer{absentAsNull: true}
+	// contractExplainer is for the output contract, and is deliberately STRICT. Its
+	// consumers include a waiting parent, which conforms the value against its
+	// result_schema — and that conform rejects an absent required key however nullable its
+	// type. Relaxing here would promise what the runtime refuses.
+	contractExplainer = explainer{swap: true}
 )
 
 // maxExplainDepth bounds the descent: a recursive schema has no bottom to reach, and one
@@ -407,6 +443,9 @@ var (
 const maxExplainDepth = 4
 
 func (e explainer) fits(sub, super schema.Schema) bool {
+	if e.absentAsNull {
+		return sub.IsSubsetAbsentAsNull(super)
+	}
 	return sub.IsSubset(super)
 }
 
@@ -421,15 +460,23 @@ func (e explainer) explain(path string, sub, super schema.Schema, depth int) str
 		for _, f := range sub.Required() {
 			subRequired[f] = true
 		}
+		superProps := super.Properties()
 		superRequired := append([]string(nil), super.Required()...)
 		sort.Strings(superRequired)
 		for _, f := range superRequired {
-			if !subRequired[f] {
-				return joinPath(path, f) + ": newly required field"
+			if subRequired[f] {
+				continue
 			}
+			// Mirrors the subset rule exactly, `declared` included: a required name with no
+			// property has no type to call nullable, and a message naming a break the check
+			// tolerates is worse than none — it sends a reader after a non-problem.
+			if prop, declared := superProps[f]; e.absentAsNull && declared && prop.HasNull() {
+				continue
+			}
+			return joinPath(path, f) + ": newly required field"
 		}
 
-		subProps, superProps := sub.Properties(), super.Properties()
+		subProps := sub.Properties()
 		names := make([]string, 0, len(superProps))
 		for name := range superProps {
 			names = append(names, name)

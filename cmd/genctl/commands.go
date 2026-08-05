@@ -1246,12 +1246,21 @@ func (i issue) String() string {
 // sends the reader round the loop once per problem.
 func issuesOf(p compatProcess, allowBreakingOutput bool) []issue {
 	var out []issue
+	// One difference in the data surfaces at EVERY task that can see it, so the same line
+	// would otherwise repeat once per reader. It is a fact about the value, not about who
+	// reads it.
+	seen := map[issue]bool{}
 	add := func(reason string) {
 		if reason == "" {
 			return
 		}
 		path, msg := splitReason(reason)
-		out = append(out, issue{path: path, where: slotFor(p, path), msg: msg})
+		i := issue{path: path, where: slotFor(p, path), msg: msg}
+		if seen[i] {
+			return
+		}
+		seen[i] = true
+		out = append(out, i)
 	}
 	if !p.Input.Compatible {
 		add(p.Input.Reason)

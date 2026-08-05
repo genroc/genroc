@@ -32,6 +32,26 @@ not what happens when the two sides disagree about which processes exist. As bui
   sides is `nothing_to_compare`. Neither contributes to the roll-up, so `unpaired`-as-a-
   failure (which would fire on almost every real comparison) is gone.
 - Submitted documents are validated first; the error is validate's, verbatim.
+- **"Upgradable" was redefined, and §6 gains a data write.** A property the new version
+  requires whose type admits **null** no longer breaks the comparison. The reason is not
+  that reads are forgiving (`evalMember` returns null for a missing key, but
+  `conformObject` rejects an absent required key whatever its type — the two are
+  independent by design). It is that the gap is mechanically closable:
+  `Schema.IsSubsetAbsentAsNull` decides it is, and `Schema.FillAbsentAsNull` closes it by
+  writing the explicit null, which an upgrade runs the stored state through. The verdict
+  therefore claims *we know how to move this data*, not *the shapes match*. The two must
+  accept exactly the same gaps, and a relation tolerating more than the fill can close is
+  the dangerous direction.
+
+  This makes §6 no longer strictly a one-column write, but it costs far less than §10's
+  input conform: the fill only ADDS keys, never strips or rewrites, so no data is
+  destroyed and a downgrade leaves at most a stale `x: null` that the old version ignores
+  (§7.5). §10's conform is still deferred for its own reason — it drops properties the new
+  version stopped declaring.
+
+  Applied only where nothing conforms the value afterwards: the per-task contexts and the
+  input. The output contract stays STRICT, because a waiting parent conforms a child's
+  output against its `result_schema` at collect and nothing migrates it on that path.
 
 1. **Compatibility** — given two versions of a process, decide whether an instance running
    the older one could continue under the newer one without a data-shaped failure.

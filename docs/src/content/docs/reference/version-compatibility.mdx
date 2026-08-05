@@ -49,7 +49,7 @@ One verdict per process:
 |---|---|
 | `upgradable` | an instance running the old version could continue under the new one, and consumers still get the shape they expect |
 | `breaking` | one of those two failed; the reason says which |
-| `nothing changed` | both sides resolve to the same version |
+| `nothing changed` | both sides resolve to the same version, or a submitted document is identical to what is deployed |
 | `new` | only the target side carries it, so nothing is running it |
 
 The second form is the one to reach for before a deploy: it compares the documents `apply`
@@ -108,6 +108,12 @@ A process that resolves to the **same version on both sides** also reads `nothin
 compare`: comparing a document with itself is a tautology. In a channel-to-channel report
 that is most of the rows.
 
+A **submitted** document has no version, so the numbers cannot answer that — its content is
+compared against what is deployed instead, and an unchanged bundle reads `nothing changed`
+rather than as an upgrade of nothing. Two *stored* versions are left to their numbers, which
+say more than their documents do: a version also pins the child versions it runs, so two
+identical documents at different versions are genuinely different processes.
+
 Neither `nothing to compare` nor `new process` can break anything, so neither drags the
 top-level verdict down. Only real incompatibilities — and versions whose own inference
 fails, reported as `unanalysable` — do that.
@@ -151,6 +157,11 @@ Four more things it does not see:
 - **Redaction.** A property that stops being `secret: true` becomes visible over the API,
   for data stored long before the change. Only the `input_schema` / `config_schema` slot
   reports it.
+- **A field that may be absent.** Adding an optional field to a task's `output` is
+  compatible — not because the two shapes match, but because the gap is one that can be
+  closed mechanically: the value is nullable, so an upgrade writes the explicit null in.
+  Making that same field *required* is a break, because then the value is non-null and there
+  is nothing to write.
 - **`only_once`.** Removing it from a task whose previous attempt was interrupted lets that
   task re-run, and the side effect happens twice. Read the `only_once` slot before moving
   instances a worker died holding.

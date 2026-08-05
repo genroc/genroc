@@ -1,0 +1,35 @@
+# A schema may list a name in `required` that its `properties` never declares — registration
+# accepts it, so it reaches the comparison. There is no type there to call nullable, so the
+# gap is unclosable and must be refused rather than tolerated.
+#
+# Reaching it used to panic the handler: the nullable test was handed the nil node a bare map
+# index returns. The unit test in schematest pins the relation's answer; this pins that the
+# endpoint survives being asked, which is the layer a user could reach it from.
+apply:
+  - channel: ghost_a
+    definitions:
+      - name: ghost_proc
+        input_schema: {type: object, properties: {a: {type: string}}, required: [a]}
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x}
+            switch: end
+  - channel: ghost_b
+    definitions:
+      - name: ghost_proc
+        input_schema: {type: object, properties: {a: {type: string}}, required: [a, ghost]}
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x}
+            switch: end
+run: [--from, ghost_a, --to, ghost_b]
+
+expect: |
+  PROCESS     VERDICT
+  ghost_proc  breaking
+
+  ghost_proc v1 → v2
+    input.ghost  (input_schema):
+      newly required field
+
+  exit 1

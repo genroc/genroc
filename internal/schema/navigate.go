@@ -653,8 +653,14 @@ func hasNullResolved(s *node, defs map[string]*node) bool {
 // would let a caller treat a nullable type as non-null. visiting holds union nodes
 // already on the walk so a reference cycle terminates instead of recursing forever.
 func hasNullGuard(s *node, defs map[string]*node, visiting map[*node]bool) bool {
+	// A nil node is the zero Schema — no declared type, so nothing that admits null. It
+	// reaches here from any map index that missed, which is an ordinary way to ask "is the
+	// property at this name nullable"; panicking on it would make every such caller guard.
+	if s == nil {
+		return false
+	}
 	r, err := deref(s, defs)
-	if err != nil {
+	if err != nil || r == nil {
 		return hasNullType(s)
 	}
 	if hasNullType(r) {

@@ -5,10 +5,35 @@ import (
 	"strings"
 )
 
+// subsetMode carries the rules that differ between the three subset relations. Each is a
+// deliberate relaxation with a stated reason, and each is sound only where that reason
+// holds — see narrowsTo and absentAsNullSubset.
+type subsetMode struct {
+	// narrow admits an unknown in sub position — see narrowsTo.
+	narrow bool
+	// absentAsNull stops requiring the presence of a nullable property — see
+	// absentAsNullSubset.
+	absentAsNull bool
+}
+
 // isSubset reports whether every value valid under sub is also valid under super.
 // Both schemas must be normalized (flat $defs at root, only #/$defs/<name> refs).
 func isSubset(sub, super *node) bool {
-	return subsetWith(sub, super, false)
+	return subsetWith(sub, super, subsetMode{})
+}
+
+// absentAsNullSubset is isSubset with one rule relaxed: super may require a property whose
+// type admits null without sub requiring it too. It is the relation for a consumer that
+// READS a value rather than validating a document — a missing key and a null one are
+// indistinguishable to navigation, so demanding presence there asserts something no reader
+// can observe, and refusing on it rejects data that works.
+//
+// Sound ONLY where nothing conforms the value against super. Where something does —
+// ValidateInput, a submitted external result, a collected child output — a missing required
+// key IS rejected at runtime, and accepting it here would promise what the runtime refuses.
+// Its one caller is the version comparison, which reads two documents and conforms nothing.
+func absentAsNullSubset(sub, super *node) bool {
+	return subsetWith(sub, super, subsetMode{absentAsNull: true})
 }
 
 // narrowsTo is isSubset with one rule flipped: an unknown ({}) anywhere in sub is
@@ -19,10 +44,10 @@ func isSubset(sub, super *node) bool {
 // the parent's result_schema). Everywhere else {} ⊄ T stands, so an unknown cannot
 // reach a typed slot unchecked.
 func narrowsTo(sub, super *node) bool {
-	return subsetWith(sub, super, true)
+	return subsetWith(sub, super, subsetMode{narrow: true})
 }
 
-func subsetWith(sub, super *node, narrow bool) bool {
+func subsetWith(sub, super *node, mode subsetMode) bool {
 	var subDefs, superDefs map[string]*node
 	if sub != nil {
 		subDefs = sub.Defs
@@ -31,10 +56,10 @@ func subsetWith(sub, super *node, narrow bool) bool {
 		superDefs = super.Defs
 	}
 	ctx := &subsetCtx{
-		subDefs:   subDefs,
-		superDefs: superDefs,
-		visiting:  make(map[string]bool),
-		narrow:    narrow,
+		subDefs:    subDefs,
+		superDefs:  superDefs,
+		visiting:   make(map[string]bool),
+		subsetMode: mode,
 	}
 	return ctx.check(sub, super)
 }
@@ -43,8 +68,7 @@ type subsetCtx struct {
 	subDefs   map[string]*node
 	superDefs map[string]*node
 	visiting  map[string]bool
-	// narrow admits an unknown in sub position — see narrowsTo.
-	narrow bool
+	subsetMode
 }
 
 func (ctx *subsetCtx) check(sub, super *node) bool {
@@ -180,13 +204,23 @@ func typeAllowed(subType string, superTypes SchemaType) bool {
 }
 
 func (ctx *subsetCtx) checkObject(sub, super *node) bool {
-	superReq := stringSet(super.Required)
 	subReq := stringSet(sub.Required)
 
-	for f := range superReq {
-		if !subReq[f] {
-			return false
+	for _, f := range super.Required {
+		if subReq[f] {
+			continue
 		}
+		// A nullable property need not be present when the value is only read: absence and
+		// null navigate the same way, so the two are one case rather than two.
+		//
+		// `declared` is load-bearing twice: a required name with no property has no type to
+		// call nullable — so nothing could fill it, and the fill agrees by skipping it — and
+		// hasNullResolved nil-derefs on the node a bare map index would hand it.
+		if prop, declared := super.Properties[f]; ctx.absentAsNull && declared &&
+			hasNullResolved(prop, ctx.superDefs) {
+			continue
+		}
+		return false
 	}
 
 	if super.Properties != nil {

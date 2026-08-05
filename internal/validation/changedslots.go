@@ -3,6 +3,7 @@ package validation
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 
 	"genroc/internal/model"
 )
@@ -84,6 +85,36 @@ func changedTaskSlots(old, new *model.Task) []string {
 		}
 	}
 	return changed
+}
+
+// documentsDiffer reports whether two definitions differ anywhere this package reports.
+// It is the content half of "nothing changed": two versions can carry identical content
+// under different numbers, and a submitted document carries no number at all.
+//
+// Task ORDER counts. `switch: next` routes by position, so moving a task changes where
+// control goes while every per-task slot still compares equal.
+func documentsDiffer(old, new *model.ProcessDefinition) bool {
+	if len(changedDefinitionSlots(old, new)) > 0 {
+		return true
+	}
+	if !slices.Equal(taskIDs(old), taskIDs(new)) {
+		return true
+	}
+	newTasks := tasksByID(new)
+	for _, t := range old.Tasks {
+		if len(changedTaskSlots(t, newTasks[t.ID])) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func taskIDs(def *model.ProcessDefinition) []string {
+	out := make([]string, len(def.Tasks))
+	for i, t := range def.Tasks {
+		out[i] = t.ID
+	}
+	return out
 }
 
 func changedDefinitionSlots(old, new *model.ProcessDefinition) []string {

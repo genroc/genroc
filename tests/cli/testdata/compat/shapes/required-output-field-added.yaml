@@ -1,0 +1,52 @@
+# The same field made REQUIRED is a different question: the projected value is non-null, so
+# an old row that lacks the key cannot satisfy it. Breaking — and reported ONCE, though both
+# downstream tasks can see it, because it is a fact about the value rather than the reader.
+apply:
+  - channel: reqfield_a
+    definitions:
+      - name: reqfield_proc
+        tasks:
+          - id: fetch
+            action:
+              type: fetch
+              url: http://x/w
+              result_schema: {type: object, properties: {time: {type: string}}, required: [time]}
+            output: {time: "$: self.result.time"}
+            switch: next
+          - id: report
+            action: {type: fetch, url: http://x/r}
+            output: {seen: "$: outputs.fetch.time"}
+            switch: next
+          - id: archive
+            action: {type: fetch, url: http://x/a}
+            switch: end
+  - channel: reqfield_b
+    definitions:
+      - name: reqfield_proc
+        tasks:
+          - id: fetch
+            action:
+              type: fetch
+              url: http://x/w
+              result_schema:
+                {type: object, properties: {time: {type: string}, extra: {type: number}}, required: [time, extra]}
+            output: {time: "$: self.result.time", extra: "$: self.result.extra"}
+            switch: next
+          - id: report
+            action: {type: fetch, url: http://x/r}
+            output: {seen: "$: outputs.fetch.time"}
+            switch: next
+          - id: archive
+            action: {type: fetch, url: http://x/a}
+            switch: end
+run: [--from, reqfield_a, --to, reqfield_b]
+
+expect: |
+  PROCESS        VERDICT
+  reqfield_proc  breaking
+
+  reqfield_proc v1 → v2
+    outputs.fetch.extra  (task "fetch", output, action.result_schema):
+      newly required field
+
+  exit 1

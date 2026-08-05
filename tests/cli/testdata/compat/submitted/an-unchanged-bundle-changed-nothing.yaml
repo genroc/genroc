@@ -1,0 +1,24 @@
+# Submitting a document identical to what is deployed. A submitted document has no version,
+# so version equality cannot answer whether it changed — the documents themselves have to,
+# or an unchanged bundle would read as an upgrade of nothing.
+apply:
+  - channel: nochange_a
+    definitions:
+      - name: nochange_proc
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x/ship}
+            switch: end
+submit:
+  - name: nochange_proc
+    tasks:
+      - id: ship
+        action: {type: fetch, url: http://x/ship}
+        switch: end
+run: [--from, nochange_a]
+
+expect: |
+  PROCESS        VERDICT
+  nochange_proc  nothing changed
+
+  exit 0

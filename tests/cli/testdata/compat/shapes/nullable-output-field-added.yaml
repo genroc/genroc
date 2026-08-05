@@ -1,0 +1,49 @@
+# A field added to a task output but NOT required is nullable, and an old row simply lacks
+# the key. Navigation yields null either way, so no reader can tell absence from a stored
+# null — requiring presence would refuse data that works. The two downstream readers make
+# the point twice over: one difference in the data is reported once, not once per reader.
+apply:
+  - channel: nullfield_a
+    definitions:
+      - name: nullfield_proc
+        tasks:
+          - id: fetch
+            action:
+              type: fetch
+              url: http://x/w
+              result_schema: {type: object, properties: {time: {type: string}}, required: [time]}
+            output: {time: "$: self.result.time"}
+            switch: next
+          - id: report
+            action: {type: fetch, url: http://x/r}
+            output: {seen: "$: outputs.fetch.time"}
+            switch: next
+          - id: archive
+            action: {type: fetch, url: http://x/a}
+            switch: end
+  - channel: nullfield_b
+    definitions:
+      - name: nullfield_proc
+        tasks:
+          - id: fetch
+            action:
+              type: fetch
+              url: http://x/w
+              result_schema:
+                {type: object, properties: {time: {type: string}, extra: {type: number}}, required: [time]}
+            output: {time: "$: self.result.time", extra: "$: self.result.extra"}
+            switch: next
+          - id: report
+            action: {type: fetch, url: http://x/r}
+            output: {seen: "$: outputs.fetch.time"}
+            switch: next
+          - id: archive
+            action: {type: fetch, url: http://x/a}
+            switch: end
+run: [--from, nullfield_a, --to, nullfield_b]
+
+expect: |
+  PROCESS         VERDICT
+  nullfield_proc  upgradable
+
+  exit 0
