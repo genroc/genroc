@@ -37,6 +37,37 @@ Three things that break silently if you touch this:
 `errcode.MatchCode` lives in `errcode` rather than `transport` because that is the package
 that owns codes; the engine and `internal/validation` share the one implementation.
 
+## advance decides, persist writes
+
+`advance()` writes no state. Everything a step changes travels back in `advanceOutcome` —
+including rows that are not the instance's own (a spawned batch, an external wait) — and
+`persist` applies it in **one transaction**, which is also the only place the lease is
+released. That is what makes "one advance, one commit" checkable by reading `persist` alone,
+and it is load-bearing for three things that break silently if a path starts writing for
+itself again:
+
+1. **The in-flight marker.** `runAdvance` drops it immediately *before* every write and
+   never after. The reverse order leaves the row claimable while still marked, and
+   `dispatch` reads that as re-claiming live work and takes the worker down over an
+   instance it had in fact finished with. Dropping it early is safe in the other direction:
+   nothing can be handed a row whose lease this worker still holds.
+2. **A refused write is the instance's failure, not the worker's.** Spawning and arming can
+   fail on the state of the row (a parent already parked, a vanished instance), so
+   `runAdvance` converts those into `engine.spawn` via `failInstance` and writes that —
+   the verdict those paths reached themselves when they still wrote for themselves.
+   `advanceOutcome.writeVerb` is what marks the two.
+3. **The one outcome that keeps the lease.** An external arm is a read-modify-write: the
+   database decides under the instance row lock whether to park or to consume a signal that
+   reached the task first, and that atomicity is why a signal racing the arm cannot be lost.
+   On a consume, `persist` hands the result back in memory and asks for another advance pass
+   (`continued = true`, which skips the session-scoped `work_started` and reclaim handling).
+   Each pass consumes one buffered signal, so the loop terminates.
+
+Logs are deliberately outside this: `audit()` writes each line as the advance runs, in its
+own transaction, so a crash leaves a trail of what the worker was doing even when nothing
+committed. The audits for spawn and arm are the exception — they run *after* their commit so
+they can never name children that do not exist.
+
 ## The backoff curve (`backoff.go`)
 
 An `on_error` rule's `retry` policy supplies the base delay, the growth factor and the

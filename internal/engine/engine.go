@@ -342,9 +342,12 @@ func (e *Engine) runPump(ctx context.Context) error {
 // or, inside a grace window, false with no error so the caller releases the slot and
 // carries on. graced is the lease gate's verdict for this claim.
 func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.ProcessInstance, graced bool) (bool, error) {
-	// The marker is exact: runAdvance drops it only just before the write that frees the
+	// The marker is exact: runAdvance drops it just before the write that frees the
 	// instance, so finding it here means a lease genuinely lapsed under a live advance —
-	// never an advance that already finished. Outside a grace window that means renewal
+	// never an advance that already finished. That holds only while advance() itself
+	// writes nothing (see advanceOutcome); a path that persists for itself frees the row
+	// with the marker still set, and this reads a finished advance as a fatal overwhelm.
+	// Outside a grace window that means renewal
 	// cannot keep up. Inside one the gate has just established this worker could not renew
 	// at all, so the same event is not a verdict about capacity and must not kill a worker
 	// full of healthy advances. specs/lease-fencing.md.

@@ -377,20 +377,6 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 		}
 		wakeAt = &deadline
 	}
-	consumed, result, err := e.db.ArmExternalOrConsumeSignal(ctx, inst, task.ID, token, input, wakeAt)
-	if err != nil {
-		return nil, stop(e.failInstance(inst, errcode.EngineSpawn, fmt.Sprintf("task %q arm: %v", task.ID, err)))
-	}
-	if consumed {
-		// A buffered signal fed the task immediately. Continue advancing with it as the
-		// result; ArmExternalOrConsumeSignal kept this worker's lease, so the normal
-		// progress/terminal write at the end of advance releases it — the instance never
-		// sits claimable while still in flight.
-		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventExternalResolved, Task: task.ID, Msg: "buffered"})
-		return result, nil
-	}
-	// Parked. ArmExternalOrConsumeSignal persisted the parked state and released the lease,
-	// so (like a child spawn) advance returns noop and writes nothing further.
 	armedMsg := "token=" + token
 	if hasDeadline {
 		// Both the source spec and the instant it resolved to: a calendar deadline is
@@ -398,8 +384,28 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 		// logs both.
 		armedMsg += fmt.Sprintf(" timeout=%s -> %s", spec, deadline.Format(time.RFC3339))
 	}
-	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventExternalArmed, Task: task.ID, Msg: armedMsg})
-	return nil, stop(advanceOutcome{kind: outcomeNoop})
+	// Whether this parks or feeds the task a signal that arrived first is the database's to
+	// decide under the instance row lock — that is what makes a signal racing the arm
+	// impossible to lose — so the intent travels to persist rather than being acted on here.
+	// A consumed signal comes back through phase 2 above, on a second advance pass.
+	return nil, stop(advanceOutcome{kind: outcomeArm, arm: &externalArm{
+		taskID:   task.ID,
+		token:    token,
+		input:    input,
+		wakeAt:   wakeAt,
+		armedMsg: armedMsg,
+	}})
+}
+
+// externalArm is an external wait for persist to install: either it parks the instance on
+// the wait, or it finds a signal that reached the task before the process did and consumes
+// that instead. armedMsg is built here because only advance holds the resolved timeout spec.
+type externalArm struct {
+	taskID   string
+	token    string
+	input    any
+	wakeAt   *time.Time
+	armedMsg string
 }
 
 // delayMillis coerces an evaluated delay value to a whole number of milliseconds. Note the

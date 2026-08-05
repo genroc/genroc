@@ -108,22 +108,10 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 	inst.RetryCount = 0
 	inst.WakeAt = nil
 
-	// A child spawn is a multi-row transaction that parks the parent atomically, so
-	// it persists itself here rather than through runAdvance. The parent ends
-	// 'waiting' (non-runnable), so dropping the marker after this write is harmless;
-	// it reports outcomeNoop so runAdvance does no further write. On failure it
-	// transitions to the terminal outcome instead.
-	if err := e.db.SpawnChildrenAndWait(ctx, inst, children); err != nil {
-		return nil, stop(e.failInstance(inst, errcode.EngineSpawn, fmt.Sprintf("task %q spawn: %v", task.ID, err)))
-	}
-
-	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventChildrenSpawned, Task: task.ID, Msg: fmt.Sprintf("%d children", len(children))})
-	// Each spawned child is its own process: record its creation + input so its
-	// subtree trail bookends the same way a root's does.
-	for _, c := range children {
-		e.AuditCreated(c)
-	}
-	return nil, stop(advanceOutcome{kind: outcomeNoop})
+	// The batch travels to persist, which inserts it in the same transaction that parks
+	// this parent — the children and the wait state have to land together or a crash
+	// between them strands one side.
+	return nil, stop(advanceOutcome{kind: outcomeSpawn, children: children})
 }
 
 // resolveChildVersion picks the version to spawn a child at: a non-zero declared version
