@@ -27,7 +27,7 @@ func main() {
 	tcpAddr := flag.String("tcp", "", "TCP listen address, e.g. 127.0.0.1:9090 (empty to disable)")
 	udsPath := flag.String("uds", "", "Unix socket path, e.g. /tmp/genroc.sock (empty to disable)")
 	pollMs := flag.Int("poll", 500, "Engine poll interval in milliseconds")
-	maxConcurrent := flag.Int("max-concurrent", 200, "Max instances advanced concurrently. Too high overwhelms the DB/lease renewer and the engine will exit; raise --lease-duration or the DB connection pool before raising this much further.")
+	maxConcurrent := flag.Int("max-concurrent", 200, "Max instances advanced concurrently. Too high overwhelms the DB/lease renewer and in-flight work starts losing its leases (lease_lost audit entries); raise --lease-duration or the DB connection pool before raising this much further.")
 	immediateRetries := flag.Bool("immediate-retries", false, "Disable retry backoff (retries fire instantly); for testing only")
 	leaseDuration := flag.Duration("lease-duration", 10*time.Second, "How long a claimed instance is leased to a worker before another worker may reclaim it on crash")
 	leaseRenewInterval := flag.Duration("lease-renew-interval", 3*time.Second, "How often a worker re-stamps its leases; must be comfortably shorter than --lease-duration")
@@ -99,12 +99,10 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		// Run drains in-flight work before returning. A non-nil error (engine
-		// overwhelmed) means this worker can't keep up: wind everything down and
-		// exit non-zero so the supervisor restarts it.
-		if err := eng.Run(ctx); err != nil {
-			fatal("engine stopped with fatal error", err)
-		}
+		// Run drains in-flight work before returning, and nothing it encounters is
+		// fatal: a worker that cannot keep its leases alive repairs them or has its
+		// stale writes refused (lease_lost), it does not exit. specs/lease-fencing.md.
+		eng.Run(ctx)
 	}()
 
 	if *pprofAddr != "" {

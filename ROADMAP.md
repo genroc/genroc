@@ -56,7 +56,8 @@
   **removed** rather than deprecated, which was only possible pre-release (see
   specs/delay-syntax.md). Grammars in internal/delayspec. Still open: a ceiling on the
   resolved delay, `tz` from an expression, a definition-level default timezone
-- [x] survive a frozen worker - a suspended host or a throttled container used to make the engine re-claim its own in-flight work and exit as "overwhelmed"; it now checks how long ago a lease renewal last succeeded, repairs its own leases before claiming, and declines lease takeovers for one lease period (see specs/lease-fencing.md). Still open in that doc: fencing every write on a per-grant `lease_epoch` so a stale advance's write is refused rather than clobbering — the multi-worker half, which the gate cannot cover
+- [x] survive a frozen worker - a suspended host or a throttled container used to make the engine re-claim its own in-flight work and exit as "overwhelmed"; it now checks how long ago a lease renewal last succeeded, repairs its own leases before claiming, and declines lease takeovers for one lease period (see specs/lease-fencing.md)
+- [x] fence every write on a per-grant `lease_epoch` - the multi-worker half the gate cannot cover: a claim bumps the epoch, every lease-holding write carries it, and a stale advance's write is refused (a `lease_lost` audit entry) rather than clobbering the new owner's state. The fatal "overwhelmed" exit is retired with it - lease pressure repairs or refuses, it never kills the worker (see specs/lease-fencing.md)
 - [x] path-sensitive process output - coalescing across branches that between them cover every
   way the process can end (`outputs.a.v ?? outputs.b.v`) now types non-null. The output
   expression is checked once per terminal and joined, instead of once against a context that

@@ -31,9 +31,6 @@ behavior while the spec stays put, answering a different question. See
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the
   child-as-activity contract (idempotency, cancel, versioning).
-- [lease-fencing.md](lease-fencing.md) — **partly implemented**, unlike the rest of this
-  list: the stale-lease gate is live, the fence is not. Details in
-  [internal/engine/CLAUDE.md](../internal/engine/CLAUDE.md).
 - [literal-types.md](literal-types.md) — infer `"sent"` as `enum: [sent]` rather than
   `string`. Prerequisite for discriminated unions, and it catches provably-false comparisons.
   The feature is not the 4-line production change but the **enum-aware canonicalization** it
@@ -67,8 +64,9 @@ behavior while the spec stays put, answering a different question. See
 ## Shipped behavior with a doc here
 
 `pause-resume.md`, `only-once-interrupted.md`, `unknown-type.md`, `delay-syntax.md`,
-`recursive-type-inference.md`, `resource-limits.md`, `retry-policy.md` describe code that
-exists. The invariants extracted from them live in the `CLAUDE.md` of the owning package.
+`recursive-type-inference.md`, `resource-limits.md`, `retry-policy.md`,
+`lease-fencing.md` describe code that exists. The invariants extracted from them live in
+the `CLAUDE.md` of the owning package.
 
 `version-compatibility.md` is **half** of each: its comparison is shipped — `Compare` /
 `CompareSet` in `internal/validation`, `POST /definitions/compat`, `genctl compat` — while

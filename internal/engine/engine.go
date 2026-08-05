@@ -32,25 +32,6 @@ type LogConfig struct {
 
 const logPruneInterval = time.Minute
 
-// OverwhelmError is returned by Run when this worker re-claimed an instance it was still
-// advancing, meaning lease renewal cannot keep up. The pump stops claiming, in-flight work
-// drains, and the binary should exit non-zero to be restarted.
-//
-// leaseGate catches the same fault a step earlier and repairs it, so this is the backstop
-// for what the gate cannot see. specs/lease-fencing.md.
-type OverwhelmError struct {
-	InstanceID    string
-	WorkerID      string
-	Lease         time.Duration
-	MaxConcurrent int
-}
-
-func (e *OverwhelmError) Error() string {
-	return fmt.Sprintf("engine overwhelmed: re-claimed instance %s still being advanced by worker %s; "+
-		"lease renewal cannot keep up (lease=%s, max_concurrent=%d). Lower --max-concurrent or increase the lease duration.",
-		e.InstanceID, e.WorkerID, e.Lease, e.MaxConcurrent)
-}
-
 // Engine is the main orchestration loop. It polls the database for pending
 // instances and advances each one task at a time.
 type Engine struct {
@@ -64,7 +45,14 @@ type Engine struct {
 	sem                chan struct{}
 	wake               chan struct{} // buffer-1 nudge: "runnable work may exist, re-scan now" (see signalWork)
 	workerID           string
-	inflight           sync.Map // instance IDs this worker is currently advancing (detects overwhelm via self-reclaim)
+	inflight           sync.Map // instance IDs this worker is currently advancing (detects self-reclaim)
+	// held is the instance IDs whose leases the renewer keeps alive: inserted on claim,
+	// removed only when runAdvance returns — after the final persist, so a lease always
+	// outlives the write it protects (the inflight marker, by contrast, drops before
+	// every write). A row that leaves this set expires on its own with worker_id still
+	// set, which is how a skipped self-reclaim hands the row back without destroying
+	// the only_once evidence. specs/lease-fencing.md.
+	held sync.Map
 	// lastRenewMs is DB-clock millis of the last successful renewal pass: the worker's
 	// only evidence that the leases it holds are alive. Written by the renewer, read by
 	// the pump. Every lease this worker holds expires at lastRenewMs+leaseDuration or
@@ -163,16 +151,19 @@ func (e *Engine) signalWork() {
 // instance), so the pump claims it without waiting for the next poll tick.
 func (e *Engine) NotifyWork() { e.signalWork() }
 
-// renewLeases re-stamps this worker's leases and records when that last succeeded. Both
-// the renewer and the pump's repair path must go through here, or lastRenewMs stops
-// meaning "the last moment this worker could prove its leases were alive".
+// renewLeases re-stamps the leases in this worker's held set and records when that last
+// succeeded. Both the renewer and the pump's repair path must go through here, or
+// lastRenewMs stops meaning "the last moment this worker could prove its leases were
+// alive".
 //
 // The stamp is the instant the renewal derived its expiries from, which the renewal
 // reports; reading the clock here instead would date the evidence from after a write that
 // can outlast the gate's margin, and the gate would then hand out a takeover cutoff past
 // leases that had already lapsed.
 func (e *Engine) renewLeases() error {
-	renewedAt, err := e.db.RenewWorkerLeases(e.workerID, e.leaseDuration)
+	var ids []string
+	e.held.Range(func(k, _ any) bool { ids = append(ids, k.(string)); return true })
+	renewedAt, err := e.db.RenewWorkerLeases(e.workerID, ids, e.leaseDuration)
 	if err != nil {
 		return err
 	}
@@ -234,11 +225,12 @@ func (e *Engine) leaseGate() db.Takeover {
 	return db.SkipTakeover
 }
 
-// Run starts the engine loop and blocks until ctx is cancelled, returning nil on a clean
-// shutdown or an *OverwhelmError if the pump could not keep up with its leases. In-flight
-// work is drained before it returns either way. When pollEvery is zero the engine does not
-// auto-tick; call Tick explicitly.
-func (e *Engine) Run(ctx context.Context) error {
+// Run starts the engine loop and blocks until ctx is cancelled; in-flight work is drained
+// before it returns. When pollEvery is zero the engine does not auto-tick; call Tick
+// explicitly. Nothing the pump encounters is fatal anymore: a lease it cannot keep alive
+// is repaired by the gate or refused at the write by the fence (a lease_lost audit entry),
+// never an exit. specs/lease-fencing.md.
+func (e *Engine) Run(ctx context.Context) {
 	e.logOnly(logEvent{Level: model.LogInfo, Msg: "engine started", Meta: map[string]any{"poll_interval": e.pollEvery, "max_concurrent": cap(e.sem), "worker": e.workerID}})
 
 	// Seed before the renewer's first tick, or a freshly started engine reads as stale.
@@ -253,22 +245,17 @@ func (e *Engine) Run(ctx context.Context) error {
 		e.logOnly(logEvent{Level: model.LogInfo, Msg: "engine in manual tick mode"})
 		<-ctx.Done()
 		e.logOnly(logEvent{Level: model.LogInfo, Msg: "engine stopped"})
-		return nil
+		return
 	}
 
-	err := e.runPump(ctx)
-	if err != nil {
-		e.logOnly(logEvent{Level: model.LogError, Msg: err.Error()})
-	} else {
-		e.logOnly(logEvent{Level: model.LogInfo, Msg: "engine stopped"})
-	}
-	return err
+	e.runPump(ctx)
+	e.logOnly(logEvent{Level: model.LogInfo, Msg: "engine stopped"})
 }
 
 // runPump is the continuous claim/dispatch loop used when pollEvery > 0. Unlike Tick it
 // never waits for a batch to finish, topping up work as slots free, so a slow instance
 // never stalls the others. e.sem is both the concurrency bound and the idle detector.
-func (e *Engine) runPump(ctx context.Context) error {
+func (e *Engine) runPump(ctx context.Context) {
 	ticker := time.NewTicker(e.pollEvery)
 	defer ticker.Stop()
 
@@ -283,7 +270,7 @@ func (e *Engine) runPump(ctx context.Context) error {
 		select {
 		case e.sem <- struct{}{}:
 		case <-ctx.Done():
-			return nil
+			return
 		}
 		slots := 1
 	fill:
@@ -301,6 +288,12 @@ func (e *Engine) runPump(ctx context.Context) error {
 		takeover := e.leaseGate()
 
 		insts, err := e.db.ClaimInstances(e.workerID, e.leaseDuration, slots, takeover)
+		// Into the held set immediately, before anything else can delay the dispatch
+		// loop: a renewal pass that runs in this gap would otherwise stamp lastRenewMs
+		// past leases it never saw, undermining the gate's floor by the gap's width.
+		for _, inst := range insts {
+			e.held.Store(inst.ID, struct{}{})
+		}
 		// Release the slots we acquired but won't use (claimed fewer than slots).
 		for i := len(insts); i < slots; i++ {
 			<-e.sem
@@ -314,7 +307,7 @@ func (e *Engine) runPump(ctx context.Context) error {
 			// children, an un-parked parent, or a newly created instance).
 			select {
 			case <-ctx.Done():
-				return nil
+				return
 			case <-e.wake:
 			case <-ticker.C:
 			}
@@ -322,14 +315,9 @@ func (e *Engine) runPump(ctx context.Context) error {
 		}
 
 		// Each dispatch consumes one pre-acquired slot (released when the advance
-		// finishes). If dispatch reports overwhelm, stop claiming and return: the
-		// deferred wg.Wait drains the advances already in flight first.
+		// finishes).
 		for _, inst := range insts {
-			dispatched, err := e.dispatch(ctx, &wg, inst, takeover == db.SkipTakeover)
-			if err != nil {
-				return err
-			}
-			if !dispatched {
+			if !e.dispatch(ctx, &wg, inst, takeover == db.SkipTakeover) {
 				<-e.sem // slot reserved for this instance, left to the advance already running it
 			}
 		}
@@ -338,32 +326,34 @@ func (e *Engine) runPump(ctx context.Context) error {
 
 // dispatch runs one instance's advance in its own goroutine and releases its e.sem slot
 // when done (the caller must have reserved it). It reports whether it started an advance:
-// an instance already in-flight here is never advanced twice, returning an *OverwhelmError
-// or, inside a grace window, false with no error so the caller releases the slot and
-// carries on. graced is the lease gate's verdict for this claim.
-func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.ProcessInstance, graced bool) (bool, error) {
+// an instance already in-flight here is never advanced twice — the claim is left to the
+// running advance, whose write the re-claim has already doomed (the fence refuses it, the
+// row expires once it leaves the held set, and the next claim takes it with the takeover
+// evidence intact). graced is the lease gate's verdict for this claim; it decides only
+// how the skip reads, not what happens.
+func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.ProcessInstance, graced bool) bool {
 	// The marker is exact: runAdvance drops it just before the write that frees the
 	// instance, so finding it here means a lease genuinely lapsed under a live advance —
 	// never an advance that already finished. That holds only while advance() itself
 	// writes nothing (see advanceOutcome); a path that persists for itself frees the row
-	// with the marker still set, and this reads a finished advance as a fatal overwhelm.
-	// Outside a grace window that means renewal
-	// cannot keep up. Inside one the gate has just established this worker could not renew
-	// at all, so the same event is not a verdict about capacity and must not kill a worker
-	// full of healthy advances. specs/lease-fencing.md.
+	// with the marker still set, and this reads a finished advance as a self-reclaim.
+	// Outside a grace window that means renewal cannot keep up — an operator problem,
+	// logged as such. Inside one the gate has just established this worker could not
+	// renew at all, so the same event is not a verdict about capacity.
+	// specs/lease-fencing.md.
 	if _, busy := e.inflight.LoadOrStore(inst.ID, struct{}{}); busy {
 		if graced {
 			e.logOnly(logEvent{Level: model.LogWarn, ID: inst.ID,
 				Msg:  "re-claimed an instance still being advanced here; its lease lapsed while this worker could not renew, not because renewal fell behind — leaving it to the in-flight advance",
 				Meta: map[string]any{"worker": e.workerID, "lease": e.leaseDuration.String()}})
-			return false, nil
+		} else {
+			e.logOnly(logEvent{Level: model.LogError, ID: inst.ID,
+				Msg: fmt.Sprintf("re-claimed an instance still being advanced here; lease renewal cannot keep up (lease=%s, max_concurrent=%d). "+
+					"Lower --max-concurrent or increase the lease duration. Leaving it to the in-flight advance, whose write will now be refused (lease_lost)",
+					e.leaseDuration, cap(e.sem)),
+				Meta: map[string]any{"worker": e.workerID, "lease": e.leaseDuration.String()}})
 		}
-		return false, &OverwhelmError{
-			InstanceID:    inst.ID,
-			WorkerID:      e.workerID,
-			Lease:         e.leaseDuration,
-			MaxConcurrent: cap(e.sem),
-		}
+		return false
 	}
 	wg.Add(1)
 	// No recover() here on purpose: the barrier is one level down in advanceGuarded, where
@@ -377,7 +367,7 @@ func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.P
 			e.logOnly(logEvent{Level: model.LogError, ID: inst.ID, Msg: "advance instance: " + err.Error()})
 		}
 	}()
-	return true, nil
+	return true
 }
 
 // leaseRenewer renews this worker's leases every leaseRenewInterval, in its own goroutine
@@ -449,11 +439,21 @@ func (e *Engine) Tick(ctx context.Context) (int, error) {
 		e.logOnly(logEvent{Level: model.LogError, Msg: "claim instances: " + err.Error()})
 		return 0, err
 	}
-	var wg sync.WaitGroup
+	// Into the held set before dispatching, same as runPump, so the renewer (running
+	// even in manual-tick mode) keeps these leases alive for however long the batch takes.
 	for _, inst := range instances {
+		e.held.Store(inst.ID, struct{}{})
+	}
+	var wg sync.WaitGroup
+	for i, inst := range instances {
 		select {
 		case e.sem <- struct{}{}:
 		case <-ctx.Done():
+			// Never dispatched, so nothing will remove them from the held set: drop the
+			// rest here or their leases are renewed forever and the rows never hand back.
+			for _, undispatched := range instances[i:] {
+				e.held.Delete(undispatched.ID)
+			}
 			wg.Wait()
 			return 0, ctx.Err()
 		}

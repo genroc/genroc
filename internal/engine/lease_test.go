@@ -3,7 +3,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -147,8 +146,8 @@ func TestLeaseGate_RepairsInsteadOfExiting(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	done := make(chan error, 1)
-	go func() { done <- eng.Run(ctx) }()
+	done := make(chan struct{})
+	go func() { eng.Run(ctx); close(done) }()
 
 	waitTerminal(t, database, id, 10*time.Second)
 
@@ -162,17 +161,14 @@ func TestLeaseGate_RepairsInsteadOfExiting(t *testing.T) {
 	}
 
 	select {
-	case err := <-done:
-		t.Fatalf("engine stopped while its leases were unrenewable instead of repairing them: %v", err)
+	case <-done:
+		t.Fatal("engine stopped while its leases were unrenewable instead of repairing them")
 	default:
 	}
 
 	cancel()
 	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("expected a clean shutdown, got %T: %v", err, err)
-		}
+	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("engine did not shut down within 10s")
 	}
@@ -217,8 +213,8 @@ func TestLeaseGate_SurvivesFrozenHost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	done := make(chan error, 1)
-	go func() { done <- eng.Run(ctx) }()
+	done := make(chan struct{})
+	go func() { eng.Run(ctx); close(done) }()
 
 	select {
 	case <-hit:
@@ -257,10 +253,7 @@ func TestLeaseGate_SurvivesFrozenHost(t *testing.T) {
 
 	cancel()
 	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("engine stopped over a resumed host instead of carrying on: %T: %v", err, err)
-		}
+	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("engine did not shut down within 10s")
 	}
@@ -293,8 +286,8 @@ func TestLeaseGate_SaturatedPumpDoesNotTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	done := make(chan error, 1)
-	go func() { done <- eng.Run(ctx) }()
+	done := make(chan struct{})
+	go func() { eng.Run(ctx); close(done) }()
 
 	waitTerminal(t, database, id, 10*time.Second)
 	cancel()
@@ -311,19 +304,23 @@ func TestLeaseGate_SaturatedPumpDoesNotTrip(t *testing.T) {
 // which rows are its own — was true only at the first. Nothing bounds the gap between them
 // (a stop-the-world pause, a descheduled goroutine, a slow claim ahead of this one), so the
 // verdict has to carry the instant it was decided at rather than let the claim re-derive
-// one. Here the whole lease elapses in the gap, which without that is the fatal case: the
-// worker re-claims a row it is still advancing and dies of *OverwhelmError.
+// one. Here the whole lease elapses in the gap, which without that is the losing case: the
+// worker re-claims a row it is still advancing, dooming the in-flight advance's write for
+// nothing (the fence refuses it as lease_lost).
 func TestLeaseGate_VerdictOutlivesTheDelayBeforeTheClaim(t *testing.T) {
 	database := openTestDB(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	eng := New(database, 10*time.Millisecond, 2, true /* immediateRetries */, 100*time.Millisecond, time.Minute, LogConfig{}, log)
 
 	// No server: the pump never runs, so this worker's lease on the row is the only thing
-	// under test. seedInstance's URL is never fetched.
+	// under test. seedInstance's URL is never fetched. The claim is manual, so the held
+	// set is seeded manually too — as the pump does on every claim — or the scoped
+	// renewal below would skip the row and the floor this test rests on would not hold.
 	id := seedInstance(t, database, "pinned", "http://127.0.0.1:1")
 	if claimed, err := database.ClaimInstances(eng.WorkerID(), eng.leaseDuration, 1, db.AllowTakeover()); err != nil || len(claimed) != 1 {
 		t.Fatalf("setup claim: err=%v, count=%d", err, len(claimed))
 	}
+	eng.held.Store(id, struct{}{})
 
 	// Renew rather than rely on New's seed: the setup above is several writes, and on a
 	// loaded machine they can outlast the lease, leaving the gate stale before it is asked.
@@ -346,33 +343,31 @@ func TestLeaseGate_VerdictOutlivesTheDelayBeforeTheClaim(t *testing.T) {
 }
 
 // TestDispatch_SelfReclaim covers the backstop directly, because the gate makes it
-// unreachable end-to-end: a re-claim of an instance this worker is still advancing is
-// fatal in the ordinary case (renewal genuinely cannot keep up) and a skip inside a grace
-// window (the worker has just established it was not in a position to renew at all).
+// unreachable end-to-end: a re-claim of an instance this worker is still advancing never
+// starts a second advance, whatever the grace verdict. The two verdicts differ only in
+// how the skip reads — an error-level capacity warning outside a grace window (renewal
+// genuinely cannot keep up), a warn-level note inside one (the worker has just
+// established it was not in a position to renew at all). Neither kills the worker: the
+// doomed advance's write is the fence's problem now, not the process's.
 func TestDispatch_SelfReclaim(t *testing.T) {
-	eng := New(openTestDB(t), time.Millisecond, 2, true, 0, 0, LogConfig{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	logs := &syncBuffer{}
+	eng := New(openTestDB(t), time.Millisecond, 2, true, 0, 0, LogConfig{}, slog.New(slog.NewTextHandler(logs, nil)))
 	inst := &model.ProcessInstance{ID: "already-advancing"}
 	eng.inflight.Store(inst.ID, struct{}{})
 
 	var wg sync.WaitGroup
-	dispatched, err := eng.dispatch(context.Background(), &wg, inst, false /* graced */)
-	if dispatched {
+	if eng.dispatch(context.Background(), &wg, inst, false /* graced */) {
 		t.Error("dispatched a second advance for an instance already in flight")
 	}
-	var oe *OverwhelmError
-	if !errors.As(err, &oe) {
-		t.Fatalf("expected *OverwhelmError outside a grace window, got %T: %v", err, err)
-	}
-	if oe.InstanceID != inst.ID {
-		t.Errorf("OverwhelmError names instance %q, want %q", oe.InstanceID, inst.ID)
+	if s := logs.String(); !strings.Contains(s, "lease renewal cannot keep up") {
+		t.Errorf("an ungraced self-reclaim must warn the operator about capacity; logs:\n%s", s)
 	}
 
-	dispatched, err = eng.dispatch(context.Background(), &wg, inst, true /* graced */)
-	if dispatched {
+	if eng.dispatch(context.Background(), &wg, inst, true /* graced */) {
 		t.Error("dispatched a second advance for an instance already in flight")
 	}
-	if err != nil {
-		t.Fatalf("expected a skip inside a grace window, got %T: %v", err, err)
+	if s := logs.String(); !strings.Contains(s, "could not renew") {
+		t.Errorf("a graced self-reclaim must read as a freeze note, not a capacity verdict; logs:\n%s", s)
 	}
 }
 

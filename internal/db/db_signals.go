@@ -14,11 +14,13 @@ import (
 
 // ArmExternalOrConsumeSignal is the engine's atomic entry into an external task. Under
 // the instance row lock (shared with DeliverSignal, so the two never interleave) it
-// either consumes the oldest buffered signal — writing it as _external_result so
-// advance() resumes, keeping the lease so the row stays non-claimable mid-advance — or
-// parks the instance (wait_state='external', per-occurrence token + input in _external)
-// and releases the lease. Pop-and-write is one commit, so a crash before the engine's
-// progress write still resumes via runExternal phase 2; the signal is never lost.
+// either consumes the oldest buffered signal — a progress checkpoint that stores it as
+// _external_result and releases the lease, so the next claim resumes via runExternal
+// phase 2 — or parks the instance (wait_state='external', per-occurrence token + input
+// in _external), also releasing. Pop-and-write is one commit, so the signal is never
+// lost: a crash after it finds the result on the row, a refused (stale-lease) write
+// rolls the pop back into the queue. Both branches end the work session; no outcome
+// keeps the lease.
 func (db *DB) ArmExternalOrConsumeSignal(ctx context.Context, inst *model.ProcessInstance, taskID, token string, input any, wakeAt *time.Time) (consumed bool, result any, err error) {
 	tx, qtx, raw, err := db.beginTx(ctx, nil)
 	if err != nil {
@@ -50,25 +52,41 @@ func (db *DB) ArmExternalOrConsumeSignal(ctx context.Context, inst *model.Proces
 	now := nowMillis()
 
 	if popErr == nil {
-		// A buffered signal was waiting: consume it now. SetExternalResult writes the result
-		// durably but leaves worker_id/lease untouched, so this worker keeps the lease and
-		// the instance stays non-claimable until the engine finishes advancing and releases it.
+		// A buffered signal was waiting: consume it now, as an ordinary progress
+		// checkpoint — the result lands in external_data and the lease is RELEASED, so
+		// the work session ends and the next claim resumes via runExternal phase 2 on
+		// the durable copy. (Uniform with every other persist: no outcome keeps the
+		// lease.) Fenced on the engine's grant: a stale arm must not consume the
+		// signal, and the refused write rolls the pop back with it, so the signal
+		// stays queued — at its FIFO position — for whoever owns the instance now.
 		var p any
 		if err := json.Unmarshal([]byte(resultStr), &p); err != nil {
 			return false, nil, fmt.Errorf("decode buffered signal: %w", err)
 		}
-		cd := cloneContext(inst.ContextData)
-		cd[model.CtxExternalResult] = p
-		delete(cd, model.CtxExternal)
-		extData, err := encodeExternalData(cd)
+		inst.ContextData[model.CtxExternalResult] = p
+		delete(inst.ContextData, model.CtxExternal)
+		inst.WaitState = model.WaitStateNone
+		inst.WakeAt = nil
+		cols, err := db.persistContext(ctx, qtx, inst, now)
 		if err != nil {
 			return false, nil, err
 		}
-		if err := qtx.SetExternalResult(ctx, dbgen.SetExternalResultParams{
-			ExternalData: extData,
-			UpdatedAt:    now,
+		if err := requireFenced(qtx.UpdateInstanceProgress(ctx, dbgen.UpdateInstanceProgressParams{
 			ID:           inst.ID,
-		}); err != nil {
+			Task:         inst.Task,
+			OutputsData:  cols.OutputsData,
+			ErrorData:    cols.ErrorData,
+			ExternalData: cols.ExternalData,
+			EngineState:  cols.EngineState,
+			RetryCount:   int64(inst.RetryCount),
+			WakeAt:       sql.NullInt64{},
+			WaitState:    string(model.WaitStateNone),
+			UpdatedAt:    now,
+			LeaseEpoch:   inst.LeaseEpoch,
+		})); err != nil {
+			if errors.Is(err, ErrLeaseLost) {
+				return false, nil, err
+			}
 			return false, nil, fmt.Errorf("consume buffered signal: %w", err)
 		}
 		if err := tx.Commit(); err != nil {
@@ -89,7 +107,10 @@ func (db *DB) ArmExternalOrConsumeSignal(ctx context.Context, inst *model.Proces
 		return false, nil, err
 	}
 	params := updateInstanceParams(inst, cols, now)
-	if err := qtx.UpdateInstance(ctx, params); err != nil {
+	if err := requireFenced(qtx.UpdateInstance(ctx, params)); err != nil {
+		if errors.Is(err, ErrLeaseLost) {
+			return false, nil, err
+		}
 		return false, nil, fmt.Errorf("park external: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -189,14 +210,4 @@ func (db *DB) CountBufferedSignals(instanceID, taskID string) (int, error) {
 		TaskID:     taskID,
 	})
 	return int(n), err
-}
-
-// cloneContext returns a shallow copy of a context map, so callers can add/remove a
-// top-level key for a DB write without mutating the engine's in-memory instance.
-func cloneContext(m map[string]any) map[string]any {
-	c := make(map[string]any, len(m)+1)
-	for k, v := range m {
-		c[k] = v
-	}
-	return c
 }

@@ -79,7 +79,7 @@ VALUES
      sqlc.arg(status), sqlc.arg(wait_state), sqlc.arg(error), sqlc.arg(error_code),
      sqlc.arg(created_at), sqlc.arg(updated_at));
 
--- name: UpdateInstance :exec
+-- name: UpdateInstance :execrows
 -- input_data is intentionally NOT written: the process input is immutable after
 -- creation, so re-writing it every update would be pure churn.
 --
@@ -88,6 +88,11 @@ VALUES
 -- claim -- so the decision is made in SQL against the row's current value. Guarding
 -- on the incoming status keeps real outcomes winning: a task that completes or fails
 -- the process writes that, and only a still-running instance settles into 'paused'.
+--
+-- The lease_epoch predicate is the fence: zero rows means the grant this write was
+-- made under is gone, and the caller rolls back with ErrLeaseLost. Callers holding
+-- no lease (RetryProcess) bind the epoch they read under the row lock, where it
+-- cannot move. See specs/lease-fencing.md.
 UPDATE process_instances
 SET task             = sqlc.arg(task),
     outputs_data     = sqlc.arg(outputs_data),
@@ -106,9 +111,9 @@ SET task             = sqlc.arg(task),
     updated_at       = sqlc.arg(updated_at),
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch);
 
--- name: UpdateInstanceProgress :exec
+-- name: UpdateInstanceProgress :execrows
 -- Mid-process write: neither input_data (immutable) nor output_data (only set on
 -- completion, which goes through UpdateInstance with a status change) is touched.
 --
@@ -117,6 +122,8 @@ WHERE id = sqlc.arg(id);
 -- also the write that parks on a delay or an external task, so a pause requested
 -- while the instance was mid-task settles even though it is about to become
 -- unclaimable on wait_state.
+--
+-- lease_epoch: see UpdateInstance.
 UPDATE process_instances
 SET task             = sqlc.arg(task),
     outputs_data     = sqlc.arg(outputs_data),
@@ -130,18 +137,18 @@ SET task             = sqlc.arg(task),
     updated_at       = sqlc.arg(updated_at),
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch);
 
 -- name: GetInstance :one
 -- Column order matches the process_instances row struct (context columns then task then
--- error_code, appended by migrations 019, 020 and 023) so sqlc returns
--- dbgen.ProcessInstance directly. That is why error_code trails the list instead of
--- sitting beside `error`: the order is the table's, not a reading order.
+-- error_code then lease_epoch, appended by migrations 019, 020, 023 and 025) so sqlc
+-- returns dbgen.ProcessInstance directly. That is why error_code trails the list instead
+-- of sitting beside `error`: the order is the table's, not a reading order.
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code
+       error_code, lease_epoch
 FROM process_instances
 WHERE id = sqlc.arg(id);
 
@@ -166,9 +173,12 @@ RETURNING result;
 
 -- name: SetExternalResult :exec
 -- Un-parks an external task by storing the submitted/buffered result in external_data
--- and clearing the wait. It does NOT touch worker_id/lease: callers run it under the
--- instance row lock and either the instance is parked (lease already NULL) or the
--- engine is mid-arm and must keep its lease until it finishes advancing.
+-- and clearing the wait. Its callers (ResolveExternalTask, DeliverSignal) act on a
+-- PARKED row under the instance row lock: no lease is held by anyone, so there is no
+-- grant to fence against and worker_id/lease are left untouched -- clearing them would
+-- destroy the ReclaimedExpired evidence a crashed prior owner may have left. The
+-- engine's own consume path does not come through here; it writes the result via the
+-- fenced UpdateInstanceProgress like any other checkpoint.
 UPDATE process_instances
 SET external_data = sqlc.arg(external_data),
     wait_state   = '',
@@ -181,16 +191,24 @@ SELECT COUNT(*) FROM process_signals
 WHERE instance_id = sqlc.arg(instance_id) AND task_id = sqlc.arg(task_id);
 
 -- name: RenewWorkerLeasesChunk :execrows
--- Renews up to chunk_size of this worker's leases, soonest-to-expire first, that
--- are not already stamped to new_expiry. Called in a loop (one small transaction
--- per chunk) so a row locked by an in-flight advance stalls only its chunk, never
--- every lease at once. The new_expiry predicate makes each row eligible once per
--- pass, so the loop terminates.
+-- Renews up to chunk_size of the listed leases, soonest-to-expire first, that are not
+-- already stamped to new_expiry. Called in a loop (one small transaction per chunk) so
+-- a row locked by an in-flight advance stalls only its chunk, never every lease at
+-- once. The new_expiry predicate makes each row eligible once per pass, so the loop
+-- terminates. It deliberately does NOT touch lease_epoch: a renewal extends a grant,
+-- it does not create one -- bumping here would fence out the very advance it rescues.
+--
+-- ids scopes the renewal to rows this worker still intends to write (its held set).
+-- A row it stopped advancing drops off the list, expires on its own with worker_id
+-- still set, and the next claim reports ReclaimedExpired -- the only_once evidence.
+-- The worker_id guard stays so an id whose row was meanwhile taken over (or freed and
+-- re-granted elsewhere) is never re-stamped.
 UPDATE process_instances
 SET lease_expires_at = sqlc.arg(new_expiry)
 WHERE id IN (
     SELECT pi.id FROM process_instances pi
-    WHERE pi.worker_id = sqlc.arg(worker_id)
+    WHERE pi.id IN (SELECT value FROM json_each(sqlc.arg(ids)))
+      AND pi.worker_id = sqlc.arg(worker_id)
       AND pi.lease_expires_at < sqlc.arg(new_expiry)
     ORDER BY pi.lease_expires_at ASC
     LIMIT sqlc.arg(chunk_size)
@@ -228,7 +246,7 @@ SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code
+       error_code, lease_epoch
 FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id);

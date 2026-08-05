@@ -45,14 +45,19 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 		}
 		parentFound := err == nil
 
-		// Save child as terminal.
+		// Save child as terminal. The fence sits on this write: a refused child write
+		// rolls the parent wake below back with it, so a stale worker can neither
+		// clobber the child nor wake a parent over work it no longer owns.
 		now := nowMillis()
 		cols, err := db.persistContext(ctx, qtx, child, now)
 		if err != nil {
 			return err
 		}
 		childParams := updateInstanceParams(child, cols, now)
-		if err := qtx.UpdateInstance(ctx, childParams); err != nil {
+		if err := requireFenced(qtx.UpdateInstance(ctx, childParams)); err != nil {
+			if errors.Is(err, ErrLeaseLost) {
+				return err
+			}
 			return fmt.Errorf("save child: %w", err)
 		}
 
@@ -109,8 +114,10 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 		if err != nil {
 			return err
 		}
+		// The fence sits on the child's own write; FailAncestors and the parent wake
+		// below derive their right to run from it and roll back with it.
 		childParams := updateInstanceParams(child, cols, now)
-		if err := qtx.UpdateInstance(ctx, childParams); err != nil {
+		if err := requireFenced(qtx.UpdateInstance(ctx, childParams)); err != nil {
 			return err
 		}
 
@@ -605,7 +612,10 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 		// references are unchanged, so no object pin/deref is needed. input_data is
 		// immutable and not written by UpdateInstance.
 		raw := rawRows[node.ID]
-		if err := qtx.UpdateInstance(ctx, dbgen.UpdateInstanceParams{
+		// An operator verb holds no lease; it binds the epoch read under the tree lock
+		// above, where no claim can move it (SKIP LOCKED passes over locked rows), so
+		// this write never legitimately fences out.
+		if _, err := qtx.UpdateInstance(ctx, dbgen.UpdateInstanceParams{
 			ID:          node.ID,
 			Task:        raw.Task,
 			OutputsData: raw.OutputsData,
@@ -627,6 +637,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 			Error:        "",
 			ErrorCode:    "",
 			UpdatedAt:    now,
+			LeaseEpoch:   raw.LeaseEpoch,
 		}); err != nil {
 			return fmt.Errorf("revive instance %q: %w", node.ID, err)
 		}
@@ -687,12 +698,14 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			}
 		}
 
-		// Suspend parent: keep status, set wait_state='waiting'.
+		// Suspend parent: keep status, set wait_state='waiting'. The fence sits here,
+		// and the child inserts above roll back with it: there is no world where the
+		// children exist and the parent was never parked.
 		parentCols, err := db.persistContext(ctx, qtx, parent, now)
 		if err != nil {
 			return err
 		}
-		if err := qtx.UpdateInstance(ctx, dbgen.UpdateInstanceParams{
+		if err := requireFenced(qtx.UpdateInstance(ctx, dbgen.UpdateInstanceParams{
 			ID:           parent.ID,
 			Task:         parent.Task,
 			OutputsData:  parentCols.OutputsData,
@@ -707,7 +720,11 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			Error:        parent.Error,
 			ErrorCode:    parent.ErrorCode,
 			UpdatedAt:    now,
-		}); err != nil {
+			LeaseEpoch:   parent.LeaseEpoch,
+		})); err != nil {
+			if errors.Is(err, ErrLeaseLost) {
+				return err
+			}
 			return fmt.Errorf("suspend parent: %w", err)
 		}
 

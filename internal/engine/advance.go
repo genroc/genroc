@@ -2,10 +2,12 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime/debug"
 
+	"genroc/internal/db"
 	"genroc/internal/errcode"
 	"genroc/internal/model"
 	"genroc/internal/shape"
@@ -50,28 +52,23 @@ func (o advanceOutcome) writeVerb() string {
 // loop with this outcome; a nil *advanceOutcome means "continue".
 func stop(o advanceOutcome) *advanceOutcome { return &o }
 
-// persist applies an advance outcome in one transaction — the only place an advance writes,
-// and the only place it releases its lease.
-//
-// It reports whether advance must run again. Only an external arm asks for that, and only
-// when the database turned out to be holding a signal that arrived before the process
-// reached the task: consuming it keeps the lease, so the result is handed to a second pass
-// rather than to a second claim. Each such pass consumes one buffered signal, so the loop in
-// runAdvance always terminates.
-func (e *Engine) persist(ctx context.Context, inst *model.ProcessInstance, o advanceOutcome) (bool, error) {
+// persist applies an advance outcome in one transaction — the only place an advance writes.
+// Every outcome releases the lease in that same transaction; the work session ends here,
+// unconditionally, and whatever the outcome made runnable is picked up by a claim.
+func (e *Engine) persist(ctx context.Context, inst *model.ProcessInstance, o advanceOutcome) error {
 	switch o.kind {
 	case outcomeTerminal:
-		return false, e.saveAndNotify(inst)
+		return e.saveAndNotify(inst)
 	case outcomeProgress:
-		return false, e.db.UpdateInstanceProgress(inst)
+		return e.db.UpdateInstanceProgress(inst)
 	case outcomeUpdate:
-		return false, e.db.UpdateInstance(inst)
+		return e.db.UpdateInstance(inst)
 	case outcomeSpawn:
-		return false, e.persistSpawn(ctx, inst, o.children)
+		return e.persistSpawn(ctx, inst, o.children)
 	case outcomeArm:
 		return e.persistArm(ctx, inst, o.arm)
 	default:
-		return false, fmt.Errorf("unknown advance outcome %d", o.kind)
+		return fmt.Errorf("unknown advance outcome %d", o.kind)
 	}
 }
 
@@ -92,64 +89,82 @@ func (e *Engine) persistSpawn(ctx context.Context, inst *model.ProcessInstance, 
 }
 
 // persistArm installs the external wait, or consumes a signal that beat the process to the
-// task. Both branches are one transaction; only the park releases the lease.
-func (e *Engine) persistArm(ctx context.Context, inst *model.ProcessInstance, a *externalArm) (bool, error) {
-	consumed, result, err := e.db.ArmExternalOrConsumeSignal(ctx, inst, a.taskID, a.token, a.input, a.wakeAt)
+// task. Both branches are one transaction and both release the lease: a consume stores the
+// result on the row — the same keys the resolve API leaves behind — and the next claim
+// resumes via runExternal's phase 2. The extern_resolved audit here marks the consume; the
+// phase-2 pass logs its own when it reads the result.
+func (e *Engine) persistArm(ctx context.Context, inst *model.ProcessInstance, a *externalArm) error {
+	consumed, _, err := e.db.ArmExternalOrConsumeSignal(ctx, inst, a.taskID, a.token, a.input, a.wakeAt)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if !consumed {
 		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventExternalArmed, Task: a.taskID, Msg: a.armedMsg})
-		return false, nil
+		return nil
 	}
-	// The write kept the lease, so the result is handed back in memory for the next pass —
-	// the same keys the resolve API leaves behind, read by runExternal's phase 2.
-	inst.ContextData[model.CtxExternalResult] = result
-	delete(inst.ContextData, model.CtxExternal)
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventExternalResolved, Task: a.taskID, Msg: "buffered"})
-	return true, nil
+	return nil
 }
 
 // runAdvance advances one instance and persists the result. Because advance writes nothing,
 // this is the only place the in-flight marker and the lease move, and they move in this
-// order: the marker comes off *before* every write, never after. The reverse leaves the row
-// claimable while still marked, which dispatch reads as re-claiming live work and takes the
-// worker down over an instance it had in fact finished with. Dropping it early is safe in
-// the other direction — nothing can be handed a row whose lease we still hold.
-// (For Tick, which keeps no marker, the delete is a harmless no-op.)
+// order: the marker comes off *before* the write, never after. The reverse leaves the row
+// claimable while still marked, which dispatch reads as re-claiming live work — a skipped
+// dispatch and a doomed write over an instance it had in fact finished with. Dropping it
+// early is safe in the other direction — nothing can be handed a row whose lease we still
+// hold. (For Tick, which keeps no marker, the delete is a harmless no-op.)
+//
+// The held entry, by contrast, drops only on return — after the persist — so the renewer
+// keeps the lease alive through the write it protects. Dropping it at the start of
+// persist would let a long write outlive its own lease and fence itself out.
 func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) error {
-	for continued := false; ; continued = true {
-		outcome := e.advanceGuarded(ctx, inst, continued)
-		e.inflight.Delete(inst.ID)
-		again, err := e.persist(ctx, inst, outcome)
-		if err != nil {
-			verb := outcome.writeVerb()
-			if verb == "" {
-				return err
-			}
-			// The write these two paths asked for is part of the step, so failing it fails
-			// the instance rather than the worker — the verdict advance itself reached back
-			// when they still wrote for themselves. failInstance only touches memory, so
-			// the terminal state it produces is written the ordinary way.
-			fail := e.failInstance(inst, errcode.EngineSpawn, fmt.Sprintf("task %q %s: %v", inst.Task, verb, err))
-			if _, err := e.persist(ctx, inst, fail); err != nil {
-				return err
-			}
-			break
+	defer e.held.Delete(inst.ID)
+	outcome := e.advanceGuarded(ctx, inst)
+	e.inflight.Delete(inst.ID)
+	if err := e.persist(ctx, inst, outcome); err != nil {
+		// A refused write means the grant this advance ran under is gone: the row
+		// belongs to a newer claim, and anything written now — including a failure —
+		// is the clobber the fence exists to prevent. Drop the outcome.
+		if errors.Is(err, db.ErrLeaseLost) {
+			e.auditLeaseLost(inst)
+			return nil
 		}
-		if !again {
-			break
+		verb := outcome.writeVerb()
+		if verb == "" {
+			return err
 		}
-		// The lease was kept, so this instance is still ours and still being advanced.
-		e.inflight.Store(inst.ID, struct{}{})
+		// The write these two paths asked for is part of the step, so failing it fails
+		// the instance rather than the worker — the verdict advance itself reached back
+		// when they still wrote for themselves. failInstance only touches memory, so
+		// the terminal state it produces is written the ordinary way.
+		fail := e.failInstance(inst, errcode.EngineSpawn, fmt.Sprintf("task %q %s: %v", inst.Task, verb, err))
+		if err := e.persist(ctx, inst, fail); err != nil {
+			if errors.Is(err, db.ErrLeaseLost) {
+				e.auditLeaseLost(inst)
+				return nil
+			}
+			return err
+		}
 	}
 	// A persisted advance may have produced immediately-runnable work: this instance
-	// again (a running checkpoint), children spawned by a parked parent, or a parent
-	// un-parked by this instance finishing. Nudge the pump to re-scan now rather than
-	// idle until the next tick. A spurious nudge (nothing actually runnable) costs only
-	// one empty claim, so signalling unconditionally keeps this correct and simple.
+	// again (a running checkpoint or a consumed buffered signal), children spawned by a
+	// parked parent, or a parent un-parked by this instance finishing. Nudge the pump to
+	// re-scan now rather than idle until the next tick. A spurious nudge (nothing
+	// actually runnable) costs only one empty claim, so signalling unconditionally keeps
+	// this correct and simple.
 	e.signalWork()
 	return nil
+}
+
+// auditLeaseLost records a dropped outcome on the instance's own trail. The write is
+// unfenced on purpose: it must land regardless of who owns the row now, because it is the
+// only trace of the abandoned attempt — and a stream of them is the load signal that used
+// to be the fatal overwhelm exit.
+func (e *Engine) auditLeaseLost(inst *model.ProcessInstance) {
+	e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventLeaseLost, Task: inst.Task,
+		Msg: "lease lost mid-advance; outcome dropped — the instance was re-granted while this worker was still advancing it. " +
+			"A stream of these means lease renewal cannot keep up: lower --max-concurrent or increase --lease-duration",
+		Meta: map[string]any{"worker": e.workerID, "lease": e.leaseDuration.String(), "epoch": inst.LeaseEpoch}})
 }
 
 // advanceGuarded runs advance under a panic barrier, converting a panic into a terminal
@@ -159,7 +174,7 @@ func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) er
 //
 // The barrier must cover advance() only, never persist(). A panic in the write path is not
 // definition-attributable, and there would be nothing left to write the failure with.
-func (e *Engine) advanceGuarded(ctx context.Context, inst *model.ProcessInstance, continued bool) (outcome advanceOutcome) {
+func (e *Engine) advanceGuarded(ctx context.Context, inst *model.ProcessInstance) (outcome advanceOutcome) {
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -193,19 +208,14 @@ func (e *Engine) advanceGuarded(ctx context.Context, inst *model.ProcessInstance
 		e.audit(inst, logEvent{Level: model.LogError, Event: model.EventInstanceFailed, Task: inst.Task,
 			Msg: reason, Code: errcode.EnginePanic, Data: stack})
 	}()
-	return e.advance(ctx, inst, continued)
+	return e.advance(ctx, inst)
 }
 
-// prepareAdvance runs the once-per-tick setup before the task loop: load the definition,
+// prepareAdvance runs the once-per-claim setup before the task loop: load the definition,
 // resolve config from the environment, locate the current task, handle a lease-takeover
 // reclaim (failing an interrupted only_once task), and emit work_started. Returns the
 // definition and task index, or a non-nil outcome the caller must return immediately.
-//
-// continued marks a second pass within the same work session (persist consumed a buffered
-// signal and handed the result back). The session-scoped parts are skipped then: the reclaim
-// was resolved on the first pass, and work_started reports a worker picking the instance up,
-// which happened once.
-func (e *Engine) prepareAdvance(inst *model.ProcessInstance, continued bool) (*model.ProcessDefinition, int, *advanceOutcome) {
+func (e *Engine) prepareAdvance(inst *model.ProcessInstance) (*model.ProcessDefinition, int, *advanceOutcome) {
 	// Load the definition once for the whole tick: it drives config resolution and
 	// is the source of truth for the task list (the instance stores only its current
 	// task id; successors are implied by definition order). An instance whose
@@ -240,7 +250,7 @@ func (e *Engine) prepareAdvance(inst *model.ProcessInstance, continued bool) (*m
 	// to the definition as only_once.interrupted instead — routable, never retryable, and
 	// the same terminal failure as before when nothing catches it.
 	// See specs/only-once-interrupted.md.
-	if inst.ReclaimedExpired && !continued {
+	if inst.ReclaimedExpired {
 		e.logOnly(logEvent{Level: model.LogWarn, ID: inst.ID,
 			Msg:  "reclaimed expired lease; previous owner crashed or stalled mid-task",
 			Meta: map[string]any{"task": inst.Task, "process": inst.ProcessName}})
@@ -250,9 +260,9 @@ func (e *Engine) prepareAdvance(inst *model.ProcessInstance, continued bool) (*m
 	}
 
 	// work_started: a worker has picked this instance up and is about to work its
-	// current task. One per work session (a resume after parking emits it again),
-	// tagged with the worker so the unified log shows who is doing what.
-	if idx >= 0 && !continued {
+	// current task. One per claim (a resume after parking emits it again), tagged with
+	// the worker so the unified log shows who is doing what.
+	if idx >= 0 {
 		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventWorkStarted, Task: inst.Task, Meta: map[string]any{"worker": e.workerID}})
 	}
 
@@ -263,7 +273,7 @@ func (e *Engine) prepareAdvance(inst *model.ProcessInstance, continued bool) (*m
 // persist (it does no lease-releasing write — runAdvance does). Each task may have a call
 // and/or a switch: the call runs first, then the switch evaluates with the call's output
 // as "self"; a matching case jumps to the named task, else the next task in the queue runs.
-func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance, continued bool) advanceOutcome {
+func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advanceOutcome {
 	if inst.Status == model.StatusFailing {
 		return e.settleFailing(inst)
 	}
@@ -286,7 +296,7 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance, conti
 		return e.settlePausing(inst)
 	}
 
-	def, idx, done := e.prepareAdvance(inst, continued)
+	def, idx, done := e.prepareAdvance(inst)
 	if done != nil {
 		return *done
 	}

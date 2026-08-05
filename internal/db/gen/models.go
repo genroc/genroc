@@ -56,6 +56,7 @@ type ProcessInstance struct {
 	EngineState    string
 	Task           string
 	ErrorCode      string
+	LeaseEpoch     int64
 }
 
 type ProcessLog struct {

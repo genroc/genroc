@@ -114,6 +114,12 @@ type ProcessInstance struct {
 	WorkerID       *string
 	LeaseExpiresAt *time.Time
 
+	// LeaseEpoch is the fencing token this instance was granted under: bumped only by
+	// ClaimInstances (never by renewal), bound into every lease-holding write, so a
+	// write from a superseded grant is refused (db.ErrLeaseLost) instead of clobbering.
+	// See specs/lease-fencing.md.
+	LeaseEpoch int64
+
 	// Config is the configuration namespace resolved from the OS environment at
 	// the start of each tick (see ProcessDefinition.ResolveConfig). It is exposed
 	// to expressions as "config" but is transient: never persisted to the DB and

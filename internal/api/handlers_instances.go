@@ -73,7 +73,10 @@ func (h *Handlers) startInstance(raw json.RawMessage) Reply {
 		Task:           def.Tasks[0].ID,
 		ContextData:    map[string]any{"input": input, "outputs": map[string]any{}, "error": nil},
 		Status:         model.StatusRunning,
-		CreatedAt:      time.Now(),
+		// Cosmetic: SaveInstance stamps created_at/updated_at from the DB clock
+		// (nowMillis) regardless. Set from the same clock so nothing here can drift
+		// from what the row will actually say under a shifted test clock.
+		CreatedAt: db.Now(),
 	}
 
 	if err := h.db.SaveInstance(inst); err != nil {

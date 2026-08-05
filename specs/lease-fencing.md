@@ -1,24 +1,29 @@
 # Lease fencing: make a lost lease harmless
 
-Status: **partly implemented** (drafted 2026-08-02).
+Status: **implemented** (drafted 2026-08-02; gate shipped 2026-08-02, fence shipped
+2026-08-05).
 
 - **Shipped 2026-08-02** — the stale-lease gate ([Repairing leases after a freeze](#repairing-leases-after-a-freeze)):
   `Engine.leaseGate` / `renewLeases` / `lastRenewMs` in `internal/engine/engine.go`,
   `db.Takeover` in `internal/db/db_claim.go`, tests in `internal/engine/lease_test.go` and
   `TestClaimInstances_SkipTakeover`. It needs no migration and touches no write path, which
   is why it went first — it removes the failure that prompted this document.
-- **Not implemented** — the fence itself: `lease_epoch`, the fenced write surface, the
-  renewer scoping and the `only_once` evidence chain that depends on them. Everything below
-  outside that one section still describes intended work, not current behaviour.
-
-Would touch: `internal/db/migrations/024_lease_epoch.up.sql` (new),
-`internal/db/queries.sql` (`ClaimInstances` is hand-written; `UpdateInstance`,
-`UpdateInstanceProgress`, `SetExternalResult`, `RenewWorkerLeasesChunk`),
-`internal/db/db_claim.go`,
-`internal/db/db_instances.go`, `internal/db/db_lifecycle.go`,
-`internal/db/db_signals.go`, `internal/db/errors.go`, `internal/model/instance.go`,
-`internal/model/logs.go`, `internal/engine/engine.go`, `internal/engine/advance.go`,
-`cmd/genroc/main.go`.
+- **Shipped 2026-08-05** — the fence: `lease_epoch` (migration 025 — the doc below says
+  024, which was taken by the time it landed), the fenced write surface, the held-set
+  renewer scoping, `db.ErrLeaseLost`, the `lease_lost` audit event, and the retirement of
+  the fatal `OverwhelmError` (the type is deleted; `Engine.Run` returns nothing). Tests:
+  `internal/db/dbtest/lease_epoch_test.go` (§1–§3), `internal/engine/fence_test.go`
+  (§4–§5), and `tests/stress/lease_pressure_test.ts` (the reshaped overwhelm stress test —
+  the worker now must *survive* the pressure that used to kill it).
+- One deliberate deviation (2026-08-05, revised the same day): the doc below says the
+  consume branch fences `SetExternalResult` and keeps the lease for a second advance
+  pass. As shipped, the consume is instead an ordinary fenced `UpdateInstanceProgress`
+  that RELEASES the lease — the result lands durably in `external_data` and the next
+  claim resumes via `runExternal` phase 2. The keep-the-lease special case was retired
+  for uniformity ("no outcome keeps the lease"), at the cost of one claim round trip per
+  pre-buffered signal; the pop still rolls back with a refused write, so the signal is
+  never lost. `SetExternalResult` is therefore unfenced: its only callers act on parked
+  rows under the instance row lock, where no grant exists to check.
 
 ## Motivation
 
@@ -92,7 +97,7 @@ leased row inside a transaction; the fence goes on that row's UPDATE and nowhere
 | `FinishChild` | child's `UpdateInstance` | `WakeParent` |
 | `FailInstanceAndAncestors` | child's `UpdateInstance` | `FailAncestors`, `WakeParent` |
 | `SpawnChildrenAndWait` | parent's `UpdateInstance` | every `InsertInstance` for the batch |
-| `ArmExternalOrConsumeSignal` | `SetExternalResult` (consume) / `UpdateInstance` (park) | `PopOldestSignal` |
+| `ArmExternalOrConsumeSignal` | `UpdateInstanceProgress` (consume) / `UpdateInstance` (park) | `PopOldestSignal` |
 
 Because the fence sits **inside** each transaction, a lost lease cannot leak partial
 effects. The two that matter:
@@ -520,9 +525,30 @@ Done with the gate (`internal/engine/lease_test.go`, renamed from `overwhelm_tes
   but deterministic and fast, and the branch is now a backstop.
 - `TestGracefulShutdown_ReleasesLeases` passes unchanged.
 
-Still to do with the fence: 4.1–4.9, 4.11, 4.15 and all of §1–§3 and §5.
-- `TestGracefulShutdown_ReleasesLeases` must keep passing unchanged — the held set must not
-  keep a lease alive past the drain, or a restart logs spurious takeover warnings.
+Done with the fence (2026-08-05):
+
+- §1–§3 are `internal/db/dbtest/lease_epoch_test.go`, both engines. 3.3 rides
+  `TestRenewLease_ReportsWhatItWrote` (1000 ids through 100-row chunks); §2.8 has no
+  black-box detector — the object diff rides the same transaction as the fenced write,
+  and the gc_chaos stress test asserts the reachability invariant.
+- §4/§5 are `internal/engine/fence_test.go`: 4.1–4.3/4.9 =
+  `TestRunAdvance_LeaseLostDropsOutcome`, 4.4/4.7 (+3.4 end to end) =
+  `TestSelfReclaim_RowHandsBackAndCompletes`, 4.8/5.1 =
+  `TestFence_TakeoverVerdictOutlivesTheFrozenWorker`, 5.5 =
+  `TestLeaseGate_RepairSavesOnlyOnceThroughFreeze`. 4.11 is pinned at the DB layer (§1.3,
+  §3.5) and end-to-end by `TestLeaseGate_SurvivesFrozenHost`, which now completes only
+  because the repair leaves the epoch alone. 4.5/4.6 have no test of their own: the
+  held-set lifetime and marker order are each one line in `runAdvance`, and
+  `TestSelfReclaim_RowHandsBackAndCompletes` fails if either moves.
+- 5.2–5.4 predate the fence: `TestInterrupted_PlainTaskStillReRuns`,
+  `TestInterrupted_StoredRetryRuleIsNotRetried` / the `pausing` branch tests, and the
+  RetryProcess force tests in `pause_retry_test.go`.
+- `TestDispatch_SelfReclaim` now asserts the skip in both grace states (the error return
+  is gone); `TestGracefulShutdown_ReleasesLeases` passes unchanged — the held set does not
+  keep a lease alive past the drain.
+- The stress half is `tests/stress/lease_pressure_test.ts` (was
+  overwhelm_recovery_test.ts): the crippled worker must ride out the pressure with zero
+  supervisor restarts, survive two SIGKILLs, and every tree must still aggregate exactly.
 
 ### Not at the e2e layer, and why
 

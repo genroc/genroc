@@ -163,7 +163,8 @@ export interface WorkerOpts {
 }
 
 export interface SupervisedWorker {
-  restarts: () => number; // times the process exited and was brought back (overwhelm evidence)
+  restarts: () => number; // times the process exited and was brought back
+  crash: () => void; // SIGKILL — the supervisor notices the exit and respawns
   stop: () => Promise<void>;
 }
 
@@ -187,10 +188,11 @@ function workerArgs(port: number, o: WorkerOpts): string[] {
 
 // startSupervisedWorker runs one genroc worker process and restarts it whenever it
 // exits — exactly what a process supervisor (systemd, k8s) does for a worker fleet.
-// A worker that overwhelms its lease renewer exits non-zero; the supervisor brings
-// it back with a fresh pid (so its abandoned leases expire and are reclaimed). This
-// is how overwhelm recovery actually works in production, modelled honestly with
-// real processes rather than emulated in-process.
+// Nothing inside the engine exits on its own anymore (lease pressure is repaired by
+// the gate or refused per-write by the fence — see specs/lease-fencing.md), so
+// restarts() counts only real deaths: a crash() here, an OOM kill in production. The
+// supervisor brings the worker back with a fresh pid, its abandoned leases expire,
+// and the restarted process reclaims them.
 export async function startSupervisedWorker(
   bin: string,
   port: number,
@@ -213,6 +215,7 @@ export async function startSupervisedWorker(
   await waitUntilReady(port, proc);
   return {
     restarts: () => restarts,
+    crash: () => proc.kill("SIGKILL"),
     stop: () =>
       new Promise<void>((resolve) => {
         stopped = true;

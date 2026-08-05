@@ -63,7 +63,7 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 	call_stack, retry_count, wake_at, status, error,
 	created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
 	input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-	error_code`
+	error_code, lease_epoch`
 
 // instanceSummaryColumns is the lightweight projection used by ListInstances: no
 // context_data/task/call_stack, so a list never reads or unmarshals a
@@ -106,7 +106,7 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 		&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.Error,
 		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
 		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
-		&r.ErrorCode,
+		&r.ErrorCode, &r.LeaseEpoch,
 	)
 	return r, err
 }
@@ -344,7 +344,21 @@ func updateInstanceParams(inst *model.ProcessInstance, cols contextCols, now int
 		Error:        inst.Error,
 		ErrorCode:    inst.ErrorCode,
 		UpdatedAt:    now,
+		LeaseEpoch:   inst.LeaseEpoch,
 	}
+}
+
+// requireFenced converts a fenced write's rows-affected into the fence verdict: zero
+// rows means the grant this write was made under is gone, and the caller's transaction
+// rolls back with ErrLeaseLost.
+func requireFenced(n int64, err error) error {
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrLeaseLost
+	}
+	return nil
 }
 
 // insertInstanceParams builds InsertInstance params from inst + already-encoded
@@ -404,7 +418,7 @@ func (db *DB) UpdateInstance(inst *model.ProcessInstance) error {
 		if err != nil {
 			return err
 		}
-		return qtx.UpdateInstance(ctx, updateInstanceParams(inst, cols, now))
+		return requireFenced(qtx.UpdateInstance(ctx, updateInstanceParams(inst, cols, now)))
 	})
 }
 
@@ -424,7 +438,7 @@ func (db *DB) UpdateInstanceProgress(inst *model.ProcessInstance) error {
 		if err != nil {
 			return err
 		}
-		return qtx.UpdateInstanceProgress(ctx, dbgen.UpdateInstanceProgressParams{
+		return requireFenced(qtx.UpdateInstanceProgress(ctx, dbgen.UpdateInstanceProgressParams{
 			ID:           inst.ID,
 			Task:         inst.Task,
 			OutputsData:  cols.OutputsData,
@@ -435,7 +449,8 @@ func (db *DB) UpdateInstanceProgress(inst *model.ProcessInstance) error {
 			WakeAt:       fromTimePtr(inst.WakeAt),
 			WaitState:    string(inst.WaitState),
 			UpdatedAt:    now,
-		})
+			LeaseEpoch:   inst.LeaseEpoch,
+		}))
 	})
 }
 
@@ -518,6 +533,7 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 		WakeAt:         toTimePtr(r.WakeAt),
 		WorkerID:       nullStringPtr(r.WorkerID),
 		LeaseExpiresAt: toTimePtr(r.LeaseExpiresAt),
+		LeaseEpoch:     r.LeaseEpoch,
 	}
 	cd, loaded, err := decodeContext(r)
 	if err != nil {

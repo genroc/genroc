@@ -48,20 +48,25 @@ itself again:
 
 1. **The in-flight marker.** `runAdvance` drops it immediately *before* every write and
    never after. The reverse order leaves the row claimable while still marked, and
-   `dispatch` reads that as re-claiming live work and takes the worker down over an
-   instance it had in fact finished with. Dropping it early is safe in the other direction:
-   nothing can be handed a row whose lease this worker still holds.
+   `dispatch` reads that as re-claiming live work over an instance it had in fact finished
+   with: it skips the dispatch, no advance ever removes the fresh claim's held entry, and
+   the renewer keeps the row leased forever — a wedged instance. Dropping it early is safe
+   in the other direction: nothing can be handed a row whose lease this worker still holds.
 2. **A refused write is the instance's failure, not the worker's.** Spawning and arming can
    fail on the state of the row (a parent already parked, a vanished instance), so
    `runAdvance` converts those into `engine.spawn` via `failInstance` and writes that —
    the verdict those paths reached themselves when they still wrote for themselves.
    `advanceOutcome.writeVerb` is what marks the two.
-3. **The one outcome that keeps the lease.** An external arm is a read-modify-write: the
-   database decides under the instance row lock whether to park or to consume a signal that
-   reached the task first, and that atomicity is why a signal racing the arm cannot be lost.
-   On a consume, `persist` hands the result back in memory and asks for another advance pass
-   (`continued = true`, which skips the session-scoped `work_started` and reclaim handling).
-   Each pass consumes one buffered signal, so the loop terminates.
+3. **Every outcome releases the lease — no exceptions.** The external arm is still the one
+   read-modify-write: the database decides under the instance row lock whether to park or
+   to consume a signal that reached the task first, and that atomicity is why a signal
+   racing the arm cannot be lost. But a consume is an ordinary checkpoint: the result
+   lands durably on the row (`_external_result`, the same keys the resolve API leaves
+   behind) in the same fenced write that releases the lease, and the NEXT claim resumes
+   via `runExternal` phase 2. There used to be a keep-the-lease + second-pass special
+   case here; it was retired for uniformity — do not reintroduce it, and specifically do
+   not "optimize" by continuing to advance in memory after a consume, because the freed
+   row is instantly claimable and you would be racing your own successor.
 
 Logs are deliberately outside this: `audit()` writes each line as the advance runs, in its
 own transaction, so a crash leaves a trail of what the worker was doing even when nothing
@@ -92,29 +97,48 @@ The registration-time rules are in [internal/model/CLAUDE.md](../model/CLAUDE.md
    unset slot is the zero value, and a zero base is that same hot loop while a zero ceiling
    clamps every wait to nothing.
 
-## Lease fencing (partly implemented)
+## Lease fencing (live: gate + fence)
 
-[specs/lease-fencing.md](../../specs/lease-fencing.md). *Live:* the stale-lease gate
-(`Engine.leaseGate`). Before every claim the pump checks how long ago a renewal last
-succeeded; on stale evidence it repairs its own leases and passes `db.SkipTakeover` for one
-lease period, so a resumed laptop or a throttled container keeps the work it was doing
-instead of re-claiming its own in-flight rows and dying of `OverwhelmError`.
+[specs/lease-fencing.md](../../specs/lease-fencing.md). Two layers, and nothing a worker
+meets under lease pressure is fatal anymore — `Engine.Run` returns nothing, and the old
+`OverwhelmError` exit is gone. Do not reintroduce an exit path: a stream of `lease_lost`
+audit entries is the replacement telemetry, and the stress test
+(`tests/stress/lease_pressure_test.ts`) asserts the worker *survives* the very
+configuration that used to kill it.
 
-The gate rules its own rows out of a takeover on one invariant — **every lease this worker
-holds expires at `lastRenewMs + leaseDuration` or later** — and both halves of it are a
-clock read that has to happen at the right moment. `lastRenewMs` is stamped from the instant
-the renewal *derived* its expiries from (`RenewWorkerLeases` returns it), never the clock
-after the write; and the gate hands `ClaimInstances` the *instant* it decided at rather than
-a flag the query resolves against its own clock. Either one read late credits the worker
-with lease life it never wrote, and the pump then re-claims a row it is still advancing —
-which is fatal, and only under load, which is where the reads run late.
+**The gate** (`Engine.leaseGate`) runs before every claim: on stale renewal evidence it
+repairs its own leases and passes `db.SkipTakeover` for one lease period. It rules its own
+rows out of a takeover on one invariant — **every lease this worker holds expires at
+`lastRenewMs + leaseDuration` or later** — and both halves are a clock read at the right
+moment. `lastRenewMs` is stamped from the instant the renewal *derived* its expiries from
+(`RenewWorkerLeases` returns it), never the clock after the write; and the gate hands
+`ClaimInstances` the *instant* it decided at, not a flag the query resolves against its
+own clock. Either one read late credits the worker with lease life it never wrote.
 
-*Still proposal:* the fence — a `lease_epoch` token bumped by `ClaimInstances` (never by renewal)
-and checked on every write a worker makes while holding the lease, so a stale advance's
-write is refused rather than clobbering. Two traps the doc records: `worker_id` cannot
-serve as the token (the reclaiming worker is usually the same worker), and nothing may hand
-a row back by clearing `worker_id` — that column is the evidence `ReclaimedExpired` is
-derived from, and erasing it re-runs `only_once` tasks that must never re-run.
+**The fence** is `lease_epoch`: bumped ONLY by `ClaimInstances` (a claim is a grant),
+bound into every lease-holding write, checked via rows-affected (`requireFenced`,
+`db.ErrLeaseLost`). Five things that break silently:
+
+1. **Renewal must never bump the epoch.** A renewal extends a grant; bumping would fence
+   a worker out of its own writes every few seconds — and the gate's repair pass would
+   destroy the very advance it rescues.
+2. **`worker_id` cannot serve as the token** — the reclaiming worker is usually the same
+   worker — and nothing may hand a row back by clearing it: that column is the evidence
+   `ReclaimedExpired` derives from, and erasing it re-runs `only_once` tasks. The
+   hand-back is the *renewer scoping* instead: `renewLeases` renews only `Engine.held`
+   (inserted on claim, removed when `runAdvance` returns — after the final persist, so a
+   lease always outlives the write it protects). A row that leaves the set expires on its
+   own with `worker_id` intact.
+3. **A fence loss drops the outcome** (`runAdvance`): no retry, and specifically no
+   `failInstance` — writing a failure is the clobber under another name. The only trace
+   is the unfenced `lease_lost` audit entry.
+4. **The fence sits inside each write's transaction**, so a lost lease leaks no partial
+   effects: a stale spawn inserts no children, a stale arm-consume rolls its signal pop
+   back (FIFO position preserved), a stale `FinishChild`/`FailInstanceAndAncestors` wakes
+   and poisons nothing.
+5. **Operator verbs are not grants.** Pause/resume/retry/resolve/deliver leave the epoch
+   alone; `RetryProcess` binds the epoch it read under the tree lock (where it cannot
+   move), so its writes never legitimately fence out.
 
 ## A collected child is conformed against the parent's CURRENT task
 

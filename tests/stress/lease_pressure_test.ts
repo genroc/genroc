@@ -7,41 +7,50 @@ import {
 } from "../helpers/server.ts";
 import { listAllInstances } from "../helpers/client.ts";
 
-// Single-worker overwhelm + recovery, against real Postgres processes.
+// Single-worker lease pressure + crash recovery, against real Postgres processes.
+// (Formerly overwhelm_recovery_test.ts, built around the fatal OverwhelmError exit;
+// the lease fence retired that exit, and this asserts what replaced it.)
 //
-// A worker that can't keep its leases alive under load re-claims its own in-flight
-// work, detects it (engine.OverwhelmError), and exits non-zero by design; a
-// supervisor restarts it. We drive that on purpose with ONE processing worker at a
-// time, which is the honest way to test it: with a single worker there is no peer to
-// steal an expired lease, so nothing is ever advanced by two workers at once — the
-// overwhelm-exit fires (and fires immediately, since the worker always re-claims its
-// own lapsed lease), the in-flight work drains, and on restart the abandoned leases
-// expire and are reclaimed. No double-processing, so a correct engine loses nothing.
+// A worker that cannot keep its leases alive under load no longer dies: the stale-lease
+// gate repairs its own leases before claiming, and any advance whose row was re-granted
+// mid-flight has its write refused (a lease_lost audit entry) instead of clobbering or
+// killing the process — see specs/lease-fencing.md. Phase 1 drives exactly that state on
+// purpose: ONE processing worker with a tiny lease, huge concurrency and a starved pool,
+// churning under pressure that used to be fatal, and the assertion is that its
+// supervisor NEVER has to restart it. Phase 1b then kills that worker twice (SIGKILL —
+// an OOM kill, the one way a worker still dies), so the abandoned-lease → expiry →
+// reclaim path runs end to end across real process boundaries.
 //
-//   Phase 1 (overwhelm): one supervised worker with a tiny lease and a starved pool
-//   churns through the trees, overwhelming and being restarted by the supervisor.
+// A single processing worker at a time is the honest way to run this: with no peer to
+// steal an expired lease, nothing is ever advanced by two workers at once, so a correct
+// engine loses nothing however hard it thrashes. An API-only node (--poll 0: serves
+// HTTP, never advances) keeps the API reachable throughout, and is never a second
+// processor.
+//
+//   Phase 1 (pressure): a supervised worker with a tiny lease and a starved pool churns
+//   the trees; the fence and the gate keep it alive — zero supervisor restarts.
+//   Phase 1b (crashes): SIGKILL it twice; the supervisor brings it back each time and
+//   the restarted process reclaims the abandoned leases.
 //   Phase 2 (recovery): it is replaced by one normally-configured worker that drives
 //   every tree to completion.
 //
-// An API-only node (--poll 0: serves HTTP, never advances) keeps the API reachable
-// while the processing worker crash-loops, and is never a second processor.
-//
-// Asserted after recovery: the overwhelm actually happened (>=1 restart), every
-// instance is terminal, every root completed, and each tree aggregated to its exact
-// size — overwhelm churn never dropped or double-counted a subtree.
+// Asserted after recovery: the worker survived the pressure (0 unforced restarts, 2
+// forced ones), every instance is terminal, every root completed, and each tree
+// aggregated to its exact size — pressure churn and kills never dropped or
+// double-counted a subtree.
 //
 // Postgres only (a worker fleet is a Postgres deployment). It also needs the database
-// to itself: any foreign worker polling the same DSN is a second processor, which both
-// voids the single-processor premise above and drains the trees before the crippled
-// worker can overwhelm on them. The stress project therefore runs in its own vitest
-// invocation, with no other project's shared server alive — see vitest.config.ts.
+// to itself: any foreign worker polling the same DSN is a second processor, which voids
+// the single-processor premise above. The stress project therefore runs in its own
+// vitest invocation, with no other project's shared server alive — see vitest.config.ts.
 
 const DSN = process.env.POSTGRES_DSN;
 
 const ROOT_COUNT = 8;
 const TTL = 4; // each root -> 2^(TTL+1)-1 = 31 instances; 16 leaves runnable at once
 const NODES_PER_ROOT = 2 ** (TTL + 1) - 1;
-const OVERWHELM_DEADLINE_MS = 25_000; // wait up to this long for the worker to overwhelm
+const PRESSURE_MS = 8_000; // how long the crippled worker churns before we check on it
+const CRASHES = 2;
 const SETTLE_MS = 60_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -53,7 +62,7 @@ const isTerminal = (s?: string) => s === "completed" || s === "failed";
 let binPromise: Promise<string> | undefined;
 const genrocBin = () => (binPromise ??= buildGenrocBinary());
 
-describe.runIf(!!DSN)("single-worker overwhelm recovery — postgres", () => {
+describe.runIf(!!DSN)("single-worker lease pressure — postgres", () => {
   let control: GenrocProcess; // --poll 0: serves the API, never advances
   let recovery: GenrocProcess | undefined;
   let bin = "";
@@ -69,10 +78,10 @@ describe.runIf(!!DSN)("single-worker overwhelm recovery — postgres", () => {
   });
 
   test(
-    "a single worker survives a forced overwhelm and finishes exactly once",
+    "a single worker rides out lease pressure, survives two kills, and finishes exactly once",
     async () => {
       const api = control.client;
-      const processName = `overwhelm_${crypto.randomUUID()}`;
+      const processName = `pressure_${crypto.randomUUID()}`;
 
       await api.PUT("/definitions", {
         body: {
@@ -126,12 +135,10 @@ describe.runIf(!!DSN)("single-worker overwhelm recovery — postgres", () => {
         },
       });
 
-      // Phase 1: a single overwhelm-prone worker — tiny lease, huge concurrency,
-      // starved pool — so its renewer falls behind, it re-claims its own in-flight
-      // work, and the supervisor restarts it. The lease must stay shorter than how long
-      // an advance is stuck waiting on the starved pool; since batched audit logging cut
-      // each advance to ~1 DB round-trip (from ~6), the lease was tightened and the
-      // concurrency raised to keep that margin negative and reliably overwhelm.
+      // Phase 1: a single pressure-prone worker — tiny lease, huge concurrency, starved
+      // pool — so advances routinely outlive their leases. Before the fence this
+      // configuration was built to die (the overwhelm exit); now the gate repairs what
+      // it can and the fence refuses the rest, and the process must simply keep going.
       const worker = await startSupervisedWorker(bin, 8941, {
         pgDSN: DSN!,
         pollMs: 1,
@@ -151,16 +158,26 @@ describe.runIf(!!DSN)("single-worker overwhelm recovery — postgres", () => {
         rootIds.push(data!.id);
       }
 
-      // Wait until the worker has actually overwhelmed at least once (it re-claims its
-      // own lapsed lease and the supervisor restarts it), rather than guessing a window.
-      const overwhelmDeadline = Date.now() + OVERWHELM_DEADLINE_MS;
-      while (worker.restarts() === 0 && Date.now() < overwhelmDeadline) {
-        await sleep(200);
+      await sleep(PRESSURE_MS);
+      expect(
+        worker.restarts(),
+        "lease pressure must not be fatal: the gate repairs and the fence refuses stale writes, the worker never exits",
+      ).toBe(0);
+
+      // Phase 1b: the one way a worker still dies — killed from outside. Each kill
+      // abandons whatever leases were in flight; the supervisor's replacement reclaims
+      // them once they expire.
+      for (let i = 1; i <= CRASHES; i++) {
+        worker.crash();
+        const deadline = Date.now() + 10_000;
+        while (worker.restarts() < i && Date.now() < deadline) {
+          await sleep(100);
+        }
+        expect(worker.restarts(), `the supervisor restarted the worker after kill #${i}`).toBe(i);
+        await sleep(1_500); // let the replacement claim and churn before the next kill
       }
       await worker.stop();
-      const restarts = worker.restarts();
-      console.log(`single worker overwhelmed and restarted ${restarts} time(s)`);
-      expect(restarts, "the worker actually overwhelmed and was restarted").toBeGreaterThan(0);
+      console.log(`worker survived ${PRESSURE_MS}ms of lease pressure and ${CRASHES} forced kill(s)`);
 
       // Phase 2: one normal worker recovers everything (a different processor, but
       // still only ever one at a time — no peer can double-advance).
@@ -178,7 +195,7 @@ describe.runIf(!!DSN)("single-worker overwhelm recovery — postgres", () => {
           const r = byId.get(id);
           if (r?.status === "completed") continue;
           rootsCompleted = false;
-          // Retry only takes a `failed` root; the overwhelm churn never pauses
+          // Retry only takes a `failed` root; the pressure churn never pauses
           // anything, so there is nothing to resume here.
           if (r?.status === "failed") {
             await api

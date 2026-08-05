@@ -25,6 +25,33 @@ Exceptions (hand-written in Go, not in `queries.sql`):
 
 The hand-written persistence layer is split across `db_*.go` files by domain (`db_registry.go`, `db_instances.go`, `db_claim.go`, `db_lifecycle.go`); `db.go` holds the `DB` type, connection setup, and time/null helpers.
 
+### The lease fence (`lease_epoch`)
+
+Design: [specs/lease-fencing.md](../../specs/lease-fencing.md); the engine half is in
+[internal/engine/CLAUDE.md](../engine/CLAUDE.md). The DB-layer rules that break silently:
+
+- **`ClaimInstances` is the only place `lease_epoch` moves** — a claim is a grant.
+  Renewal must never bump it (a worker would fence itself out of its own writes, and the
+  gate's repair would destroy the advance it rescues); operator verbs
+  (pause/resume/retry/resolve/deliver) must not either.
+- **Every lease-holding write carries `AND lease_epoch = ?` and goes through
+  `requireFenced`** (0 rows → `ErrLeaseLost`, whole transaction rolls back). The fence
+  sits *inside* each transaction on the leased row's own UPDATE, so a lost lease leaks no
+  partial effects — that placement is what tests like "a refused arm leaves the popped
+  signal at its FIFO position" pin down.
+- **`RetryProcess` binds the epoch it read under the tree lock** — a no-op predicate,
+  since no claim can move it under `SKIP LOCKED`. `SetExternalResult` is deliberately
+  unfenced: its only callers (`ResolveExternalTask`, `DeliverSignal`) act on a parked row
+  under the instance row lock, where no grant exists to check; the engine's own consume
+  path writes through the fenced `UpdateInstanceProgress` instead. A fenced write that
+  matches no row for *any* reason (including a vanished row) reads as `ErrLeaseLost`:
+  either way the row is not the caller's to write.
+- **`RenewWorkerLeases` takes an explicit id list** (the engine's held set) intersected
+  with `worker_id`. The scoping is the hand-back mechanism — an unlisted row expires with
+  `worker_id` intact, which is the `ReclaimedExpired`/`only_once` evidence — so nothing
+  here may "clean up" by clearing `worker_id`, and the `worker_id` guard keeps a repair
+  from resurrecting a lease on a row someone else now owns.
+
 ### PostgreSQL runtime setup
 
 `open()` in `db.go` runs a Postgres-only bootstrap (the `if dialect == "postgres"` block) after migrations: the `json_each` helper function and **aggressive autovacuum on `process_instances`**. (Tree enumeration uses a recursive `parent_id` walk, so there is no `call_stack` GIN index.)

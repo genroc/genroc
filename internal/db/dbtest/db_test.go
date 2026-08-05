@@ -82,7 +82,7 @@ func testBackends(t *testing.T) []backend {
 		ctx := context.Background()
 		// process_dependencies has an FK to process_definitions, so it must be
 		// cleared first to avoid a constraint violation on Postgres.
-		for _, table := range []string{"process_logs", "process_objects", "process_dependencies", "process_instances", "process_channels", "process_definitions"} {
+		for _, table := range []string{"process_logs", "process_objects", "process_signals", "process_dependencies", "process_instances", "process_channels", "process_definitions"} {
 			if _, err := sharedPgRaw.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 				t.Fatalf("reset %s: %v", table, err)
 			}
@@ -260,7 +260,7 @@ func TestRenewLease_Extends(t *testing.T) {
 
 			time.Sleep(20 * time.Millisecond)
 
-			if _, err := b.db.RenewWorkerLeases("worker-A", time.Second); err != nil {
+			if _, err := b.db.RenewWorkerLeases("worker-A", []string{"inst-1"}, time.Second); err != nil {
 				t.Fatalf("RenewWorkerLeases: %v", err)
 			}
 
@@ -290,15 +290,18 @@ func TestRenewLease_ReportsWhatItWrote(t *testing.T) {
 			// discrepancy this test is about is the duration of the write, and one row
 			// renews inside a millisecond on both engines.
 			const rows = 1000
+			ids := make([]string, 0, rows)
 			for i := 0; i < rows; i++ {
-				insertRunning(t, b.db, fmt.Sprintf("inst-%03d", i))
+				id := fmt.Sprintf("inst-%03d", i)
+				insertRunning(t, b.db, id)
+				ids = append(ids, id)
 			}
 			if claimed, err := b.db.ClaimInstances("worker-A", 30*time.Millisecond, rows, dbpkg.AllowTakeover()); err != nil || len(claimed) != rows {
 				t.Fatalf("claim: err=%v, count=%d", err, len(claimed))
 			}
 
 			const leaseDur = time.Second
-			renewedAt, err := b.db.RenewWorkerLeases("worker-A", leaseDur)
+			renewedAt, err := b.db.RenewWorkerLeases("worker-A", ids, leaseDur)
 			if err != nil {
 				t.Fatalf("RenewWorkerLeases: %v", err)
 			}
@@ -351,7 +354,7 @@ func TestRenewLease_WrongWorker(t *testing.T) {
 				t.Fatalf("claim: %v", err)
 			}
 
-			if _, err := b.db.RenewWorkerLeases("worker-Z", time.Second); err != nil {
+			if _, err := b.db.RenewWorkerLeases("worker-Z", []string{"inst-1"}, time.Second); err != nil {
 				t.Fatalf("RenewWorkerLeases (wrong worker): %v", err)
 			}
 

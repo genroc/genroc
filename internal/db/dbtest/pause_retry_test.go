@@ -471,11 +471,16 @@ func TestFailInstanceAndAncestors_OverridesPaused(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInstW(t, b.db, "grand", model.StatusPaused, model.WaitStateWaiting, "", nil, "")
 			insertInstW(t, b.db, "parent", model.StatusPausing, model.WaitStateWaiting, "grand", []string{"grand"}, "")
-			// leaf is already failed and triggers ancestor failure propagation
+			// The leaf must exist as a row: its own write is the fenced one, and a write
+			// that matches no row reads as a lost lease (which is correct — a vanished
+			// row is equally not this worker's to write).
+			insertInst(t, b.db, "leaf", model.StatusRunning, "parent", []string{"grand", "parent"}, "")
 			leaf := &model.ProcessInstance{
-				ID:        "leaf",
-				CallStack: []string{"grand", "parent"},
-				Error:     "boom",
+				ID:          "leaf",
+				ContextData: map[string]any{},
+				Status:      model.StatusFailed,
+				CallStack:   []string{"grand", "parent"},
+				Error:       "boom",
 			}
 
 			if err := b.db.FailInstanceAndAncestors(leaf); err != nil {
@@ -502,10 +507,13 @@ func TestFailInstanceAndAncestors_AlreadyFailed(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "parent", model.StatusFailed, "", nil, "original error")
+			insertInst(t, b.db, "leaf", model.StatusRunning, "parent", []string{"parent"}, "")
 			leaf := &model.ProcessInstance{
-				ID:        "leaf",
-				CallStack: []string{"parent"},
-				Error:     "new error",
+				ID:          "leaf",
+				ContextData: map[string]any{},
+				Status:      model.StatusFailed,
+				CallStack:   []string{"parent"},
+				Error:       "new error",
 			}
 
 			if err := b.db.FailInstanceAndAncestors(leaf); err != nil {

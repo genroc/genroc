@@ -71,7 +71,7 @@ func TestAdvance_SpawnWritesNothingUntilPersist(t *testing.T) {
 	id := spawnFixture(t, database, "spawn-pure")
 	inst := claimOne(t, database, eng, id)
 
-	outcome := eng.advanceGuarded(context.Background(), inst, false)
+	outcome := eng.advanceGuarded(context.Background(), inst)
 	if outcome.kind != outcomeSpawn {
 		t.Fatalf("expected a spawn outcome, got kind %d", outcome.kind)
 	}
@@ -94,7 +94,7 @@ func TestAdvance_SpawnWritesNothingUntilPersist(t *testing.T) {
 		t.Error("advance released the lease itself; only persist may hand the instance on")
 	}
 
-	if _, err := eng.persist(context.Background(), inst, outcome); err != nil {
+	if err := eng.persist(context.Background(), inst, outcome); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
 
@@ -141,7 +141,7 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 	}
 	inst := claimOne(t, database, eng, id)
 
-	outcome := eng.advanceGuarded(context.Background(), inst, false)
+	outcome := eng.advanceGuarded(context.Background(), inst)
 	if outcome.kind != outcomeArm {
 		t.Fatalf("expected an arm outcome, got kind %d", outcome.kind)
 	}
@@ -160,12 +160,8 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 		t.Error("advance released the lease itself; only persist may hand the instance on")
 	}
 
-	again, err := eng.persist(context.Background(), inst, outcome)
-	if err != nil {
+	if err := eng.persist(context.Background(), inst, outcome); err != nil {
 		t.Fatalf("persist: %v", err)
-	}
-	if again {
-		t.Error("persist asked for another pass with no buffered signal to consume")
 	}
 	after, err := database.GetInstance(id)
 	if err != nil {
@@ -215,12 +211,12 @@ func TestRunAdvance_SpawnFailureFailsTheInstance(t *testing.T) {
 	}
 }
 
-// TestPersistArm_ConsumesBufferedSignalAndAsksForAnotherPass covers the one outcome that
-// keeps the lease. A signal that reached the task before the process did is consumed by the
-// same transaction that would otherwise have parked the instance — that atomicity is what
-// makes a signal racing the arm impossible to lose — so the result comes back in memory for
-// a second advance pass rather than through a second claim.
-func TestPersistArm_ConsumesBufferedSignalAndAsksForAnotherPass(t *testing.T) {
+// TestPersistArm_ConsumeStoresResultAndReleases: a signal that reached the task before the
+// process did is consumed by the same transaction that would otherwise have parked the
+// instance — that atomicity is what makes a signal racing the arm impossible to lose. The
+// consume is an ordinary checkpoint: the result lands durably on the row, the lease is
+// released, and the NEXT claim reads it via runExternal phase 2. No outcome keeps the lease.
+func TestPersistArm_ConsumeStoresResultAndReleases(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)
 	ctx := context.Background()
@@ -252,30 +248,36 @@ func TestPersistArm_ConsumesBufferedSignalAndAsksForAnotherPass(t *testing.T) {
 	}
 
 	inst := claimOne(t, database, eng, id)
-	outcome := eng.advanceGuarded(ctx, inst, false)
+	outcome := eng.advanceGuarded(ctx, inst)
 	if outcome.kind != outcomeArm {
 		t.Fatalf("expected an arm outcome, got kind %d", outcome.kind)
 	}
 
-	again, err := eng.persist(ctx, inst, outcome)
-	if err != nil {
+	if err := eng.persist(ctx, inst, outcome); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
-	if !again {
-		t.Fatal("persist consumed the buffered signal but did not ask for the pass that uses it")
-	}
-	if _, ok := inst.ContextData[model.CtxExternalResult]; !ok {
-		t.Fatal("the consumed result was not handed back in memory; the next pass has nothing to read")
-	}
-	if got, err := database.GetInstance(id); err != nil {
+	after, err := database.GetInstance(id)
+	if err != nil {
 		t.Fatalf("GetInstance: %v", err)
-	} else if got.WorkerID == nil {
-		t.Error("consuming released the lease; the instance is still being advanced here")
+	}
+	if _, ok := after.ContextData[model.CtxExternalResult]; !ok {
+		t.Fatal("the consumed result is not on the row; a crash here would lose the signal")
+	}
+	if after.WorkerID != nil {
+		t.Errorf("consuming kept the lease held by %q; every persist ends the work session", *after.WorkerID)
+	}
+	if after.WaitState != model.WaitStateNone {
+		t.Errorf("consuming parked the instance (wait_state %q); it must stay claimable", after.WaitState)
 	}
 
-	// The second pass is what runAdvance would run, and it must finish the process.
-	if _, err := eng.persist(ctx, inst, eng.advanceGuarded(ctx, inst, true)); err != nil {
-		t.Fatalf("persist (second pass): %v", err)
+	// The next claim — a fresh session, not a continuation — reads the stored result via
+	// runExternal phase 2 and finishes the process.
+	next := claimOne(t, database, eng, id)
+	if next.ReclaimedExpired {
+		t.Fatal("the post-consume claim read as a takeover; the consume must release the lease cleanly")
+	}
+	if err := eng.runAdvance(ctx, next); err != nil {
+		t.Fatalf("second session: %v", err)
 	}
 	got, err := database.GetInstance(id)
 	if err != nil {

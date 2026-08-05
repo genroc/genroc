@@ -38,9 +38,9 @@ export default defineConfig({
         // the postgres project's globalSetup server is a full worker (poll on,
         // max-concurrent 200) against the same database, so while it is alive it
         // claims and advances the stress suites' instances too. That both breaks
-        // their premise — overwhelm_recovery asserts exactly one processor exists,
+        // their premise — lease_pressure asserts exactly one processor exists,
         // so no peer can steal a lapsed lease — and drains their trees, starving
-        // the overwhelm-prone worker of the in-flight work it must overwhelm on.
+        // the crippled worker of the in-flight work it must thrash on.
         // Selecting only this project skips the other projects' globalSetup, so
         // nothing but the suite's own fleet is on the database.
         test: {

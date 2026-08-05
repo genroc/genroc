@@ -16,22 +16,37 @@ import (
 // single bulk UPDATE would block all renewals behind one contended row).
 const renewChunkSize = 100
 
-// RenewWorkerLeases re-stamps all of this worker's leases to now+leaseDur, in
-// small chunks (soonest-to-expire first). Each chunk is its own transaction, so
-// renewals make progress even while in-flight advances hold row locks.
+// RenewWorkerLeases re-stamps this worker's leases on the listed instances to
+// now+leaseDur, in small chunks (soonest-to-expire first). Each chunk is its own
+// transaction, so renewals make progress even while in-flight advances hold row locks.
+//
+// ids is the worker's held set — the rows it still intends to write. Scoping to it is
+// what hands a row back after a skipped self-reclaim: a row no longer listed stops
+// being renewed, expires on its own with worker_id still set, and the next claim
+// derives ReclaimedExpired from that — the only_once evidence. An empty list still
+// runs one (no-op) chunk, so a successful renewal always proves the database was
+// reachable at the returned instant.
 //
 // It returns the instant those expiries were derived from — every row it re-stamped, in
 // whichever chunk, runs to exactly that instant plus leaseDur. A caller recording when it
 // last proved its leases alive must record this and never the clock after the call: the
 // renewal itself can take longer than the margin a staleness check leaves itself, and the
 // worker would then credit its leases with time it never wrote.
-func (db *DB) RenewWorkerLeases(workerID string, leaseDur time.Duration) (time.Time, error) {
+func (db *DB) RenewWorkerLeases(workerID string, ids []string, leaseDur time.Duration) (time.Time, error) {
+	idsJSON, err := json.Marshal(ids)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if ids == nil {
+		idsJSON = []byte("[]") // json_each needs an array, not null
+	}
 	renewedAt := nowMillis()
 	newExpiry := sql.NullInt64{Int64: renewedAt + leaseDur.Milliseconds(), Valid: true}
 	worker := sql.NullString{String: workerID, Valid: true}
 	for {
 		n, err := db.q.RenewWorkerLeasesChunk(context.Background(), dbgen.RenewWorkerLeasesChunkParams{
 			NewExpiry: newExpiry,
+			Ids:       string(idsJSON),
 			WorkerID:  worker,
 			ChunkSize: renewChunkSize,
 		})
@@ -58,7 +73,8 @@ func (db *DB) RenewWorkerLeases(workerID string, leaseDur time.Duration) (time.T
 // pump pins it to the moment it last proved its own leases alive), so anything scheduled in
 // between — a GC pause, a descheduled goroutine — delays the claim without widening what it
 // may take. Re-reading the clock here would let that delay re-claim rows this worker is
-// still advancing, which is fatal (engine.OverwhelmError).
+// still advancing — dooming the in-flight advance's write for nothing (the fence refuses
+// it as ErrLeaseLost).
 type Takeover int64
 
 // SkipTakeover claims only rows with no worker_id at all: no stamped lease can be at or
@@ -78,6 +94,12 @@ func TakeoverBefore(t time.Time) Takeover { return Takeover(t.UnixMilli()) }
 // PostgreSQL appends FOR UPDATE SKIP LOCKED so concurrent workers never block;
 // SQLite's single-writer model needs no such clause. wait_state <> 'waiting'
 // excludes parents suspended for children; both ” (none) and 'collecting' are claimable.
+//
+// This is the ONLY place lease_epoch moves: a claim is a grant, and the bump is what
+// fences out whoever held the previous one. Renewal must never bump (it would fence out
+// the advance it rescues) and revival paths need no bump of their own — any stale
+// advance was already fenced by the claim that took the row over and produced the
+// failure being revived.
 func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int, takeover Takeover) ([]*model.ProcessInstance, error) {
 	now := nowMillis()
 	leaseExpiry := now + leaseDur.Milliseconds()
@@ -118,7 +140,8 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 				LIMIT ? FOR UPDATE SKIP LOCKED
 			)
 			UPDATE process_instances
-			SET worker_id = ?, lease_expires_at = ?
+			SET worker_id = ?, lease_expires_at = ?,
+			    lease_epoch = process_instances.lease_epoch + 1
 			FROM cand
 			WHERE process_instances.id = cand.cand_id
 			RETURNING ` + instanceColumns + `, cand.prev_worker`
@@ -138,7 +161,7 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 				&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.Error,
 				&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
 				&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
-				&r.ErrorCode,
+				&r.ErrorCode, &r.LeaseEpoch,
 				&prevWorker,
 			); err != nil {
 				return nil, err
@@ -202,18 +225,21 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 		return nil, err
 	}
 	if _, err := raw.ExecContext(ctx,
-		`UPDATE process_instances SET worker_id = ?, lease_expires_at = ?
+		`UPDATE process_instances SET worker_id = ?, lease_expires_at = ?,
+		    lease_epoch = lease_epoch + 1
 		 WHERE id IN (SELECT value FROM json_each(?))`,
 		workerID, leaseExpiry, string(idsJSON)); err != nil {
 		return nil, err
 	}
 
-	// Reflect the new lease state on the returned instances.
+	// Reflect the new lease state on the returned instances; the epoch was scanned
+	// before the UPDATE, so the new grant is old+1 (atomic under the single writer).
 	newLease := toTime(leaseExpiry)
 	w := workerID
 	for _, inst := range result {
 		inst.WorkerID = &w
 		inst.LeaseExpiresAt = &newLease
+		inst.LeaseEpoch++
 	}
 	return result, tx.Commit()
 }

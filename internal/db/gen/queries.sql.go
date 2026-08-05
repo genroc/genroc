@@ -265,7 +265,7 @@ SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code
+       error_code, lease_epoch
 FROM process_instances
 WHERE parent_id = ?1
   AND spawn_task_id = ?2
@@ -309,6 +309,7 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.EngineState,
 			&i.Task,
 			&i.ErrorCode,
+			&i.LeaseEpoch,
 		); err != nil {
 			return nil, err
 		}
@@ -379,15 +380,15 @@ SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code
+       error_code, lease_epoch
 FROM process_instances
 WHERE id = ?1
 `
 
 // Column order matches the process_instances row struct (context columns then task then
-// error_code, appended by migrations 019, 020 and 023) so sqlc returns
-// dbgen.ProcessInstance directly. That is why error_code trails the list instead of
-// sitting beside `error`: the order is the table's, not a reading order.
+// error_code then lease_epoch, appended by migrations 019, 020, 023 and 025) so sqlc
+// returns dbgen.ProcessInstance directly. That is why error_code trails the list instead
+// of sitting beside `error`: the order is the table's, not a reading order.
 func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, error) {
 	row := q.db.QueryRowContext(ctx, getInstance, id)
 	var i ProcessInstance
@@ -415,6 +416,7 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.EngineState,
 		&i.Task,
 		&i.ErrorCode,
+		&i.LeaseEpoch,
 	)
 	return i, err
 }
@@ -830,26 +832,40 @@ UPDATE process_instances
 SET lease_expires_at = ?1
 WHERE id IN (
     SELECT pi.id FROM process_instances pi
-    WHERE pi.worker_id = ?2
+    WHERE pi.id IN (SELECT value FROM json_each(?2))
+      AND pi.worker_id = ?3
       AND pi.lease_expires_at < ?1
     ORDER BY pi.lease_expires_at ASC
-    LIMIT ?3
+    LIMIT ?4
 )
 `
 
 type RenewWorkerLeasesChunkParams struct {
 	NewExpiry sql.NullInt64
+	Ids       interface{}
 	WorkerID  sql.NullString
 	ChunkSize int64
 }
 
-// Renews up to chunk_size of this worker's leases, soonest-to-expire first, that
-// are not already stamped to new_expiry. Called in a loop (one small transaction
-// per chunk) so a row locked by an in-flight advance stalls only its chunk, never
-// every lease at once. The new_expiry predicate makes each row eligible once per
-// pass, so the loop terminates.
+// Renews up to chunk_size of the listed leases, soonest-to-expire first, that are not
+// already stamped to new_expiry. Called in a loop (one small transaction per chunk) so
+// a row locked by an in-flight advance stalls only its chunk, never every lease at
+// once. The new_expiry predicate makes each row eligible once per pass, so the loop
+// terminates. It deliberately does NOT touch lease_epoch: a renewal extends a grant,
+// it does not create one -- bumping here would fence out the very advance it rescues.
+//
+// ids scopes the renewal to rows this worker still intends to write (its held set).
+// A row it stopped advancing drops off the list, expires on its own with worker_id
+// still set, and the next claim reports ReclaimedExpired -- the only_once evidence.
+// The worker_id guard stays so an id whose row was meanwhile taken over (or freed and
+// re-granted elsewhere) is never re-stamped.
 func (q *Queries) RenewWorkerLeasesChunk(ctx context.Context, arg RenewWorkerLeasesChunkParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, renewWorkerLeasesChunk, arg.NewExpiry, arg.WorkerID, arg.ChunkSize)
+	result, err := q.db.ExecContext(ctx, renewWorkerLeasesChunk,
+		arg.NewExpiry,
+		arg.Ids,
+		arg.WorkerID,
+		arg.ChunkSize,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -872,9 +888,12 @@ type SetExternalResultParams struct {
 }
 
 // Un-parks an external task by storing the submitted/buffered result in external_data
-// and clearing the wait. It does NOT touch worker_id/lease: callers run it under the
-// instance row lock and either the instance is parked (lease already NULL) or the
-// engine is mid-arm and must keep its lease until it finishes advancing.
+// and clearing the wait. Its callers (ResolveExternalTask, DeliverSignal) act on a
+// PARKED row under the instance row lock: no lease is held by anyone, so there is no
+// grant to fence against and worker_id/lease are left untouched -- clearing them would
+// destroy the ReclaimedExpired evidence a crashed prior owner may have left. The
+// engine's own consume path does not come through here; it writes the result via the
+// fenced UpdateInstanceProgress like any other checkpoint.
 func (q *Queries) SetExternalResult(ctx context.Context, arg SetExternalResultParams) error {
 	_, err := q.db.ExecContext(ctx, setExternalResult, arg.ExternalData, arg.UpdatedAt, arg.ID)
 	return err
@@ -897,7 +916,7 @@ func (q *Queries) UnpinObject(ctx context.Context, arg UnpinObjectParams) error 
 	return err
 }
 
-const updateInstance = `-- name: UpdateInstance :exec
+const updateInstance = `-- name: UpdateInstance :execrows
 UPDATE process_instances
 SET task             = ?1,
     outputs_data     = ?2,
@@ -916,7 +935,7 @@ SET task             = ?1,
     updated_at       = ?13,
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = ?14
+WHERE id = ?14 AND lease_epoch = ?15
 `
 
 type UpdateInstanceParams struct {
@@ -934,6 +953,7 @@ type UpdateInstanceParams struct {
 	ErrorCode    string
 	UpdatedAt    int64
 	ID           string
+	LeaseEpoch   int64
 }
 
 // input_data is intentionally NOT written: the process input is immutable after
@@ -944,8 +964,13 @@ type UpdateInstanceParams struct {
 // claim -- so the decision is made in SQL against the row's current value. Guarding
 // on the incoming status keeps real outcomes winning: a task that completes or fails
 // the process writes that, and only a still-running instance settles into 'paused'.
-func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) error {
-	_, err := q.db.ExecContext(ctx, updateInstance,
+//
+// The lease_epoch predicate is the fence: zero rows means the grant this write was
+// made under is gone, and the caller rolls back with ErrLeaseLost. Callers holding
+// no lease (RetryProcess) bind the epoch they read under the row lock, where it
+// cannot move. See specs/lease-fencing.md.
+func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateInstance,
 		arg.Task,
 		arg.OutputsData,
 		arg.OutputData,
@@ -960,11 +985,15 @@ func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) 
 		arg.ErrorCode,
 		arg.UpdatedAt,
 		arg.ID,
+		arg.LeaseEpoch,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const updateInstanceProgress = `-- name: UpdateInstanceProgress :exec
+const updateInstanceProgress = `-- name: UpdateInstanceProgress :execrows
 UPDATE process_instances
 SET task             = ?1,
     outputs_data     = ?2,
@@ -978,7 +1007,7 @@ SET task             = ?1,
     updated_at       = ?9,
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = ?10
+WHERE id = ?10 AND lease_epoch = ?11
 `
 
 type UpdateInstanceProgressParams struct {
@@ -992,6 +1021,7 @@ type UpdateInstanceProgressParams struct {
 	WaitState    string
 	UpdatedAt    int64
 	ID           string
+	LeaseEpoch   int64
 }
 
 // Mid-process write: neither input_data (immutable) nor output_data (only set on
@@ -1002,8 +1032,10 @@ type UpdateInstanceProgressParams struct {
 // also the write that parks on a delay or an external task, so a pause requested
 // while the instance was mid-task settles even though it is about to become
 // unclaimable on wait_state.
-func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstanceProgressParams) error {
-	_, err := q.db.ExecContext(ctx, updateInstanceProgress,
+//
+// lease_epoch: see UpdateInstance.
+func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstanceProgressParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateInstanceProgress,
 		arg.Task,
 		arg.OutputsData,
 		arg.ErrorData,
@@ -1014,8 +1046,12 @@ func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstance
 		arg.WaitState,
 		arg.UpdatedAt,
 		arg.ID,
+		arg.LeaseEpoch,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertChannel = `-- name: UpsertChannel :exec

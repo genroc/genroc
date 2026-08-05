@@ -54,6 +54,12 @@ const (
 	EventExternalArmed    = "extern_armed"
 	EventExternalResolved = "extern_resolved"
 	EventExternalTimeout  = "extern_timeout"
+	// EventLeaseLost marks an advance whose write was refused by the lease fence: the
+	// row was re-granted while this worker was still advancing it, and the outcome was
+	// dropped. It is what explains a work_started with no matching completion in the
+	// timeline, and the telemetry that replaced the fatal overwhelm exit — a worker that
+	// genuinely cannot keep its leases alive emits a stream of these instead of dying.
+	EventLeaseLost = "lease_lost"
 )
 
 // LogEntry is one persisted line of an instance's execution audit trail.
