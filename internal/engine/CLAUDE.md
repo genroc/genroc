@@ -67,8 +67,18 @@ The registration-time rules are in [internal/model/CLAUDE.md](../model/CLAUDE.md
 (`Engine.leaseGate`). Before every claim the pump checks how long ago a renewal last
 succeeded; on stale evidence it repairs its own leases and passes `db.SkipTakeover` for one
 lease period, so a resumed laptop or a throttled container keeps the work it was doing
-instead of re-claiming its own in-flight rows and dying of `OverwhelmError`. *Still
-proposal:* the fence — a `lease_epoch` token bumped by `ClaimInstances` (never by renewal)
+instead of re-claiming its own in-flight rows and dying of `OverwhelmError`.
+
+The gate rules its own rows out of a takeover on one invariant — **every lease this worker
+holds expires at `lastRenewMs + leaseDuration` or later** — and both halves of it are a
+clock read that has to happen at the right moment. `lastRenewMs` is stamped from the instant
+the renewal *derived* its expiries from (`RenewWorkerLeases` returns it), never the clock
+after the write; and the gate hands `ClaimInstances` the *instant* it decided at rather than
+a flag the query resolves against its own clock. Either one read late credits the worker
+with lease life it never wrote, and the pump then re-claims a row it is still advancing —
+which is fatal, and only under load, which is where the reads run late.
+
+*Still proposal:* the fence — a `lease_epoch` token bumped by `ClaimInstances` (never by renewal)
 and checked on every write a worker makes while holding the lease, so a stale advance's
 write is refused rather than clobbering. Two traps the doc records: `worker_id` cannot
 serve as the token (the reclaiming worker is usually the same worker), and nothing may hand

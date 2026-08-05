@@ -91,7 +91,7 @@ func TestResolveExternalTask_RejectsWhenLeased(t *testing.T) {
 			insertExternalParked(t, b.db, "inst-to", token, &past) // timeout already due
 
 			// A worker claims it (the timeout firing) -> a live lease.
-			claimed, err := b.db.ClaimInstances("worker-timeout", 30*time.Second, 10, dbpkg.AllowTakeover)
+			claimed, err := b.db.ClaimInstances("worker-timeout", 30*time.Second, 10, dbpkg.AllowTakeover())
 			if err != nil {
 				t.Fatalf("ClaimInstances: %v", err)
 			}
@@ -116,7 +116,7 @@ func TestClaim_ExternalNoTimeoutNotClaimable(t *testing.T) {
 			past := time.Now().Add(-time.Minute)
 			insertExternalParked(t, b.db, "inst-due", "inst-due.n", &past) // timeout due
 
-			claimed, err := b.db.ClaimInstances("worker-x", 10*time.Second, 10, dbpkg.AllowTakeover)
+			claimed, err := b.db.ClaimInstances("worker-x", 10*time.Second, 10, dbpkg.AllowTakeover())
 			if err != nil {
 				t.Fatalf("ClaimInstances: %v", err)
 			}

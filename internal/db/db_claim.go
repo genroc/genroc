@@ -19,8 +19,15 @@ const renewChunkSize = 100
 // RenewWorkerLeases re-stamps all of this worker's leases to now+leaseDur, in
 // small chunks (soonest-to-expire first). Each chunk is its own transaction, so
 // renewals make progress even while in-flight advances hold row locks.
-func (db *DB) RenewWorkerLeases(workerID string, leaseDur time.Duration) error {
-	newExpiry := sql.NullInt64{Int64: nowMillis() + leaseDur.Milliseconds(), Valid: true}
+//
+// It returns the instant those expiries were derived from — every row it re-stamped, in
+// whichever chunk, runs to exactly that instant plus leaseDur. A caller recording when it
+// last proved its leases alive must record this and never the clock after the call: the
+// renewal itself can take longer than the margin a staleness check leaves itself, and the
+// worker would then credit its leases with time it never wrote.
+func (db *DB) RenewWorkerLeases(workerID string, leaseDur time.Duration) (time.Time, error) {
+	renewedAt := nowMillis()
+	newExpiry := sql.NullInt64{Int64: renewedAt + leaseDur.Milliseconds(), Valid: true}
 	worker := sql.NullString{String: workerID, Valid: true}
 	for {
 		n, err := db.q.RenewWorkerLeasesChunk(context.Background(), dbgen.RenewWorkerLeasesChunkParams{
@@ -29,27 +36,43 @@ func (db *DB) RenewWorkerLeases(workerID string, leaseDur time.Duration) error {
 			ChunkSize: renewChunkSize,
 		})
 		if err != nil {
-			return err
+			return time.Time{}, err
 		}
 		// Fewer than a full chunk renewed → no eligible leases remain. Renewed rows
 		// are stamped to newExpiry, so they no longer match the chunk's predicate;
 		// the eligible set shrinks each pass, guaranteeing termination.
 		if n < renewChunkSize {
-			return nil
+			return toTime(renewedAt), nil
 		}
 	}
 }
 
-// Takeover selects whether a claim may pick up rows whose lease expired under some worker,
-// or only rows nobody holds. A worker that has just discovered it was not running passes
-// SkipTakeover for a while, so it does not steal rows from co-resident workers that froze
-// with it and are about to repair their own leases. See Engine.leaseGate.
-type Takeover bool
+// Takeover is how far back a claim may reach for rows some worker still holds: such a row
+// is claimable only if its lease expired at or before this instant (db-clock millis).
+// A worker that has just discovered it was not running passes SkipTakeover for a while, so
+// it does not steal rows from co-resident workers that froze with it and are about to
+// repair their own leases. See Engine.leaseGate.
+//
+// It is an instant supplied by the caller rather than a flag the claim resolves against its
+// own clock, and that is the whole point: the caller decides from evidence that ages (the
+// pump pins it to the moment it last proved its own leases alive), so anything scheduled in
+// between — a GC pause, a descheduled goroutine — delays the claim without widening what it
+// may take. Re-reading the clock here would let that delay re-claim rows this worker is
+// still advancing, which is fatal (engine.OverwhelmError).
+type Takeover int64
 
-const (
-	AllowTakeover Takeover = true  // ordinary claiming: an expired lease is fair game
-	SkipTakeover  Takeover = false // claim only rows with no worker_id at all
-)
+// SkipTakeover claims only rows with no worker_id at all: no stamped lease can be at or
+// below zero (they are all nowMillis()+leaseDur), so the lease_expires_at branch of the
+// claim predicate never fires.
+const SkipTakeover Takeover = 0
+
+// AllowTakeover is ordinary claiming from a caller with nothing to protect: any lease
+// expired as of now is fair game. Callers holding leases of their own must pin the cutoff
+// with TakeoverBefore instead.
+func AllowTakeover() Takeover { return TakeoverBefore(Now()) }
+
+// TakeoverBefore claims rows whose lease expired at or before t, alongside unheld rows.
+func TakeoverBefore(t time.Time) Takeover { return Takeover(t.UnixMilli()) }
 
 // ClaimInstances atomically leases up to limit runnable instances to workerID.
 // PostgreSQL appends FOR UPDATE SKIP LOCKED so concurrent workers never block;
@@ -59,21 +82,15 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 	now := nowMillis()
 	leaseExpiry := now + leaseDur.Milliseconds()
 
-	// SkipTakeover is a bound value, not a second query: the lease cutoff drops to 0,
-	// which no stamped lease can be at or below (they are all nowMillis()+leaseDur), so
-	// `lease_expires_at <= ?` never fires and only the `worker_id IS NULL` branch of the
-	// predicate can match. The SQL text, its placeholder count and its plan stay identical
-	// in both modes — the partial runnable index is walked exactly as before, just with a
-	// more selective filter.
-	leaseCutoff := now
-	if takeover == SkipTakeover {
-		leaseCutoff = 0
-	}
+	// The takeover mode is a bound value, not a second query: the SQL text, its placeholder
+	// count and its plan stay identical whatever the cutoff — the partial runnable index is
+	// walked exactly as before, just with a more selective filter.
+	leaseCutoff := int64(takeover)
 
 	ctx := context.Background()
 
-	// Shared claimable predicate. The two `?` are `now` (timer) and leaseCutoff (lease
-	// expiry — `now`, or 0 under SkipTakeover).
+	// Shared claimable predicate. The two `?` are `now` (timer, read here) and leaseCutoff
+	// (lease expiry, pinned by the caller — see Takeover).
 	//
 	// 'paused' is absent by design: paused work is live, just not advanced, and keeps its
 	// wake_at. 'failing'/'pausing' ignore wake_at because they will never run their pending

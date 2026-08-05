@@ -3,6 +3,7 @@ package dbtest
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
 	"testing"
@@ -132,7 +133,7 @@ func TestClaimInstances_Basic(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			insertRunning(t, b.db, "inst-1")
 
-			got, err := b.db.ClaimInstances("worker-A", 10*time.Second, 10, dbpkg.AllowTakeover)
+			got, err := b.db.ClaimInstances("worker-A", 10*time.Second, 10, dbpkg.AllowTakeover())
 			if err != nil {
 				t.Fatalf("ClaimInstances: %v", err)
 			}
@@ -156,11 +157,11 @@ func TestClaimInstances_SkipsLiveLease(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			insertRunning(t, b.db, "inst-1")
 
-			if _, err := b.db.ClaimInstances("worker-A", 10*time.Second, 10, dbpkg.AllowTakeover); err != nil {
+			if _, err := b.db.ClaimInstances("worker-A", 10*time.Second, 10, dbpkg.AllowTakeover()); err != nil {
 				t.Fatalf("first claim: %v", err)
 			}
 
-			got, err := b.db.ClaimInstances("worker-B", 10*time.Second, 10, dbpkg.AllowTakeover)
+			got, err := b.db.ClaimInstances("worker-B", 10*time.Second, 10, dbpkg.AllowTakeover())
 			if err != nil {
 				t.Fatalf("second claim: %v", err)
 			}
@@ -178,13 +179,13 @@ func TestClaimInstances_ReclaimsExpiredLease(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			insertRunning(t, b.db, "inst-1")
 
-			if _, err := b.db.ClaimInstances("worker-A", 10*time.Millisecond, 10, dbpkg.AllowTakeover); err != nil {
+			if _, err := b.db.ClaimInstances("worker-A", 10*time.Millisecond, 10, dbpkg.AllowTakeover()); err != nil {
 				t.Fatalf("first claim: %v", err)
 			}
 
 			time.Sleep(20 * time.Millisecond) // let the lease expire
 
-			got, err := b.db.ClaimInstances("worker-B", 10*time.Second, 10, dbpkg.AllowTakeover)
+			got, err := b.db.ClaimInstances("worker-B", 10*time.Second, 10, dbpkg.AllowTakeover())
 			if err != nil {
 				t.Fatalf("reclaim: %v", err)
 			}
@@ -209,7 +210,7 @@ func TestClaimInstances_SkipTakeover(t *testing.T) {
 			insertRunning(t, b.db, "b-unowned") // never claimed
 
 			// created_at ordering (then id) makes this deterministic: a-held is first.
-			claimed, err := b.db.ClaimInstances("worker-A", 10*time.Millisecond, 1, dbpkg.AllowTakeover)
+			claimed, err := b.db.ClaimInstances("worker-A", 10*time.Millisecond, 1, dbpkg.AllowTakeover())
 			if err != nil || len(claimed) != 1 || claimed[0].ID != "a-held" {
 				t.Fatalf("setup claim: err=%v, got %d rows (%v)", err, len(claimed), claimed)
 			}
@@ -232,7 +233,7 @@ func TestClaimInstances_SkipTakeover(t *testing.T) {
 
 			// The expired row is still there, still carrying its owner, and is taken on
 			// the next ordinary claim — the grace delays a takeover, it does not cancel it.
-			got, err = b.db.ClaimInstances("worker-B", 10*time.Second, 10, dbpkg.AllowTakeover)
+			got, err = b.db.ClaimInstances("worker-B", 10*time.Second, 10, dbpkg.AllowTakeover())
 			if err != nil {
 				t.Fatalf("AllowTakeover claim: %v", err)
 			}
@@ -253,24 +254,88 @@ func TestRenewLease_Extends(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			insertRunning(t, b.db, "inst-1")
 
-			if _, err := b.db.ClaimInstances("worker-A", 30*time.Millisecond, 10, dbpkg.AllowTakeover); err != nil {
+			if _, err := b.db.ClaimInstances("worker-A", 30*time.Millisecond, 10, dbpkg.AllowTakeover()); err != nil {
 				t.Fatalf("claim: %v", err)
 			}
 
 			time.Sleep(20 * time.Millisecond)
 
-			if err := b.db.RenewWorkerLeases("worker-A", time.Second); err != nil {
+			if _, err := b.db.RenewWorkerLeases("worker-A", time.Second); err != nil {
 				t.Fatalf("RenewWorkerLeases: %v", err)
 			}
 
 			time.Sleep(20 * time.Millisecond) // original lease would have expired here
 
-			got, err := b.db.ClaimInstances("worker-B", 10*time.Second, 10, dbpkg.AllowTakeover)
+			got, err := b.db.ClaimInstances("worker-B", 10*time.Second, 10, dbpkg.AllowTakeover())
 			if err != nil {
 				t.Fatalf("competitor claim: %v", err)
 			}
 			if len(got) != 0 {
 				t.Errorf("expected 0 instances after successful renewal, got %d", len(got))
+			}
+		})
+	}
+}
+
+// TestRenewLease_ReportsWhatItWrote pins the contract the stale-lease gate reads renewals
+// through: the instant a renewal returns is the one its expiries were derived from, so
+// renewedAt+leaseDur is exactly where every renewed row now expires — never later than it.
+// A caller that dates the evidence from after the write instead (the clock on return)
+// credits its leases with however long the write took, and then hands out takeover cutoffs
+// that reach past leases which have already lapsed.
+func TestRenewLease_ReportsWhatItWrote(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			// Over the renewal's chunk size, so the pass is several transactions: the
+			// discrepancy this test is about is the duration of the write, and one row
+			// renews inside a millisecond on both engines.
+			const rows = 1000
+			for i := 0; i < rows; i++ {
+				insertRunning(t, b.db, fmt.Sprintf("inst-%03d", i))
+			}
+			if claimed, err := b.db.ClaimInstances("worker-A", 30*time.Millisecond, rows, dbpkg.AllowTakeover()); err != nil || len(claimed) != rows {
+				t.Fatalf("claim: err=%v, count=%d", err, len(claimed))
+			}
+
+			const leaseDur = time.Second
+			renewedAt, err := b.db.RenewWorkerLeases("worker-A", leaseDur)
+			if err != nil {
+				t.Fatalf("RenewWorkerLeases: %v", err)
+			}
+
+			inst, err := b.db.GetInstance("inst-000")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			if want := renewedAt.Add(leaseDur); !inst.LeaseExpiresAt.Equal(want) {
+				t.Errorf("renewal reported %v, so the lease should run to %v; it runs to %v — a gate trusting the reported instant would think the lease alive for %v longer than it is",
+					renewedAt, want, *inst.LeaseExpiresAt, want.Sub(*inst.LeaseExpiresAt))
+			}
+		})
+	}
+}
+
+// TestClaimInstances_CutoffIsTheCallersNotTheClaims verifies that a caller's takeover
+// cutoff is honoured verbatim: a lease that expires between the caller deciding and this
+// claim running is not swept in. That is what lets a worker holding leases of its own claim
+// safely however long it is delayed in between — see Engine.leaseGate.
+func TestClaimInstances_CutoffIsTheCallersNotTheClaims(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertRunning(t, b.db, "inst-1")
+			if _, err := b.db.ClaimInstances("worker-A", 30*time.Millisecond, 10, dbpkg.AllowTakeover()); err != nil {
+				t.Fatalf("claim: %v", err)
+			}
+
+			cutoff := dbpkg.TakeoverBefore(dbpkg.Now()) // decided while worker-A's lease is alive
+			time.Sleep(50 * time.Millisecond)           // ...and acted on after it has expired
+
+			got, err := b.db.ClaimInstances("worker-B", 10*time.Second, 10, cutoff)
+			if err != nil {
+				t.Fatalf("claim: %v", err)
+			}
+			if len(got) != 0 {
+				t.Errorf("claimed %d rows against a cutoff older than their expiry; the cutoff must bound the claim, not be re-derived from its own clock", len(got))
 			}
 		})
 	}
@@ -282,17 +347,17 @@ func TestRenewLease_WrongWorker(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			insertRunning(t, b.db, "inst-1")
 
-			if _, err := b.db.ClaimInstances("worker-A", 30*time.Millisecond, 10, dbpkg.AllowTakeover); err != nil {
+			if _, err := b.db.ClaimInstances("worker-A", 30*time.Millisecond, 10, dbpkg.AllowTakeover()); err != nil {
 				t.Fatalf("claim: %v", err)
 			}
 
-			if err := b.db.RenewWorkerLeases("worker-Z", time.Second); err != nil {
+			if _, err := b.db.RenewWorkerLeases("worker-Z", time.Second); err != nil {
 				t.Fatalf("RenewWorkerLeases (wrong worker): %v", err)
 			}
 
 			time.Sleep(40 * time.Millisecond)
 
-			got, err := b.db.ClaimInstances("worker-B", 10*time.Second, 10, dbpkg.AllowTakeover)
+			got, err := b.db.ClaimInstances("worker-B", 10*time.Second, 10, dbpkg.AllowTakeover())
 			if err != nil {
 				t.Fatalf("reclaim: %v", err)
 			}
@@ -310,7 +375,7 @@ func TestUpdateInstance_ClearsLease(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			insertRunning(t, b.db, "inst-1")
 
-			claimed, err := b.db.ClaimInstances("worker-A", 10*time.Second, 10, dbpkg.AllowTakeover)
+			claimed, err := b.db.ClaimInstances("worker-A", 10*time.Second, 10, dbpkg.AllowTakeover())
 			if err != nil || len(claimed) != 1 {
 				t.Fatalf("claim: err=%v, count=%d", err, len(claimed))
 			}

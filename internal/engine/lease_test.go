@@ -305,6 +305,46 @@ func TestLeaseGate_SaturatedPumpDoesNotTrip(t *testing.T) {
 	}
 }
 
+// TestLeaseGate_VerdictOutlivesTheDelayBeforeTheClaim covers what separates a gate verdict
+// from a flag: the pump decides it may take over expired leases at one instant and the
+// claim runs at another, and everything the gate knows — how stale its evidence is, and so
+// which rows are its own — was true only at the first. Nothing bounds the gap between them
+// (a stop-the-world pause, a descheduled goroutine, a slow claim ahead of this one), so the
+// verdict has to carry the instant it was decided at rather than let the claim re-derive
+// one. Here the whole lease elapses in the gap, which without that is the fatal case: the
+// worker re-claims a row it is still advancing and dies of *OverwhelmError.
+func TestLeaseGate_VerdictOutlivesTheDelayBeforeTheClaim(t *testing.T) {
+	database := openTestDB(t)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	eng := New(database, 10*time.Millisecond, 2, true /* immediateRetries */, 100*time.Millisecond, time.Minute, LogConfig{}, log)
+
+	// No server: the pump never runs, so this worker's lease on the row is the only thing
+	// under test. seedInstance's URL is never fetched.
+	id := seedInstance(t, database, "pinned", "http://127.0.0.1:1")
+	if claimed, err := database.ClaimInstances(eng.WorkerID(), eng.leaseDuration, 1, db.AllowTakeover()); err != nil || len(claimed) != 1 {
+		t.Fatalf("setup claim: err=%v, count=%d", err, len(claimed))
+	}
+
+	// Renew rather than rely on New's seed: the setup above is several writes, and on a
+	// loaded machine they can outlast the lease, leaving the gate stale before it is asked.
+	if err := eng.renewLeases(); err != nil {
+		t.Fatalf("renewLeases: %v", err)
+	}
+	takeover := eng.leaseGate() // evidence is fresh here, so this is a takeover verdict
+	if takeover == db.SkipTakeover {
+		t.Fatal("the gate declined a takeover on evidence renewed a moment ago; this test needs the takeover verdict")
+	}
+	time.Sleep(2 * eng.leaseDuration) // the claim is delayed past the lease it holds
+
+	got, err := database.ClaimInstances(eng.WorkerID(), eng.leaseDuration, 1, takeover)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("the claim re-took instance %s, which this worker still held when the gate approved the takeover", id)
+	}
+}
+
 // TestDispatch_SelfReclaim covers the backstop directly, because the gate makes it
 // unreachable end-to-end: a re-claim of an instance this worker is still advancing is
 // fatal in the ordinary case (renewal genuinely cannot keep up) and a skip inside a grace

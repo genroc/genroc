@@ -253,6 +253,16 @@ is. Older than one `leaseDuration` and the worker cannot prove its leases are al
 it was not running, or it was running but could not reach the database, and for this purpose
 those are the same fact.
 
+The stamp is the instant the renewal **derived its new expiries from**, not the clock when
+the write returned — `RenewWorkerLeases` reports the former for exactly this reason. The two
+differ by however long the renewal took, and dating the evidence from the later one credits
+every lease with time that was never written: the worker then reads as fresh for that much
+longer than its leases actually live, which is precisely the interval in which the gate
+approves a claim over rows it is still advancing. It is a real fault, not a test artifact —
+the renewal is a write against a loaded queue table, and the amount by which it can overrun
+a poll interval is unbounded. The invariant to preserve: **every lease this worker holds
+expires no earlier than `lastRenew + leaseDuration`.** Everything below rests on it.
+
 Three choices inside that, each of which has a wrong-looking neighbour:
 
 - **The renewal gap, not the wall-vs-monotonic drift** the shipped `freezeDetector`
@@ -296,11 +306,21 @@ On a stale stamp, before claiming:
    been, which is the entire cost.
 3. **Trips one poll early.** A lease stamped at `lastRenew` dies at
    `lastRenew + leaseDuration`, so staleness *reaching* the lease duration is the exact
-   moment the evidence runs out — and a gate consulted once per cycle would then find it
-   already gone, with the claim in that gap being the one that re-claims this worker's own
-   rows. The threshold is therefore `stale + pollEvery >= leaseDuration`, capped at half the
-   lease so a poll interval longer than the lease (a broken config) cannot park the worker
-   in permanent grace and stop it recovering genuinely dead workers' rows.
+   moment the evidence runs out, and a gate consulted once per cycle would find it already
+   gone. Tripping a poll early repairs the lease while it is still alive, rather than after
+   a peer has had a cycle's worth of chances to take the row. The threshold is therefore
+   `stale + pollEvery >= leaseDuration`, capped at half the lease so a poll interval longer
+   than the lease (a broken config) cannot park the worker in permanent grace and stop it
+   recovering genuinely dead workers' rows.
+4. **Hands down an instant, not a verdict.** What the gate approves is a *cutoff*: rows
+   whose lease had already expired when it read its evidence. `ClaimInstances` binds that
+   value rather than re-deriving one from its own clock, so the arbitrary and unbounded gap
+   between the check and the query — a stop-the-world pause, a descheduled goroutine, a slow
+   claim ahead of this one — delays the claim without widening what it may take. Since the
+   gate approves a takeover only while `now < lastRenew + leaseDuration - margin`, and every
+   lease this worker holds outlives `lastRenew + leaseDuration`, no such claim can reach its
+   own rows however late it runs. A boolean flag cannot express this: it defers the
+   comparison to a clock read that happens after the decision it belongs to.
 
 As built there is **no "one repair per window" bound**, which an earlier draft of this
 section called for. The only way to see a stale stamp twice is for the repair itself to
@@ -326,12 +346,19 @@ out; it does not extend ownership backwards through the sleep.
 | remote fleet, sleep longer than the lease | peer takes over, stale write refused | unchanged — correct by design |
 
 Residual: a freeze that lands *inside* `ClaimInstances` is detected only after the claim
-returns, by which point our own rows may already carry a new epoch. The pump sits parked for
-almost all of its cycle and inside that query for microseconds, so this is a rare tail, and
-it degrades to the "fence only" column — safe, just wasteful. Closing it completely would
-mean excluding the in-flight id set from the claim predicate
-(`NOT IN (SELECT value FROM json_each(?))` on the hottest query in the system, against the
-partial index migration 010 exists to keep cheap). Not worth it for the tail.
+returns, by which point our own rows may already carry a new epoch. It cannot cost us a row
+— the cutoff was fixed before the call (§4 above) — so it degrades to the "fence only"
+column: safe, just wasteful. Closing it completely would mean excluding the in-flight id set
+from the claim predicate (`NOT IN (SELECT value FROM json_each(?))` on the hottest query in
+the system, against the partial index migration 010 exists to keep cheap). Not worth it for
+the tail.
+
+The other residual is the one place the `lastRenew + leaseDuration` floor is not exact: a
+renewal that lands between a claim's clock read and its commit re-stamps every row *except*
+the one being claimed, which then expires that much earlier than the floor claims. The gap
+is one claim transaction wide, and to actually cost a row it would have to exceed
+`leaseDuration - margin` — ten seconds on the defaults, by which point nothing about this
+worker is healthy. The margin covers it; do not read the floor as exact.
 
 ## What this retires
 
@@ -361,18 +388,21 @@ partial index migration 010 exists to keep cheap). Not worth it for the tail.
   SQL, no dialect branch. The Postgres claim already returns the row via `RETURNING`; the
   SQLite select-then-update path computes the new epoch in Go as `old + 1`, the same way
   it already reflects `worker_id` / `lease_expires_at` onto the returned instances.
-- **Suppressing takeovers needs no second query.** `ClaimInstances` takes a
-  `Takeover`-typed flag; under `SkipTakeover` the *bound value* for the lease cutoff drops
-  from `now` to `0`. No stamped lease can be at or below 0 (they are all
+- **Suppressing takeovers needs no second query.** `ClaimInstances` takes a `Takeover` — the
+  instant the caller decided from, as the *bound value* for the lease cutoff. `SkipTakeover`
+  is its zero value: no stamped lease can be at or below 0 (they are all
   `nowMillis() + leaseDur`), so `lease_expires_at <= ?` never fires and only the
   `worker_id IS NULL` branch of the predicate can match. The SQL text, its placeholder
-  count and its plan are identical in both modes, on both engines — the partial index
+  count and its plan are identical whatever the cutoff, on both engines — the partial index
   migration 010 tunes is walked exactly as before, just with a more selective filter.
-- **The stale-lease gate is two fields**: an `atomic.Int64` of db-clock millis stamped by
-  the renewer after each successful pass (and once in `Run`, before the renewer starts, so
-  a young engine is not instantly "stale"), and a plain `int64` grace deadline touched only
-  by the pump goroutine. Both use `db.Now()`, not `time.Now()` — the clock leases live in,
-  and the one a test can shift.
+  `AllowTakeover()` (a call, resolving to `Now()`) stays available for callers holding no
+  leases of their own to protect — `Tick`, and the tests.
+- **The stale-lease gate is two fields**: an `atomic.Int64` of db-clock millis stamped from
+  each successful renewal pass — the instant that pass derived its expiries from, see
+  §Detecting it — (and once in `Run`, before the renewer starts, so a young engine is not
+  instantly "stale"), and a plain `int64` grace deadline touched only by the pump goroutine.
+  Both use `db.Now()`, not `time.Now()` — the clock leases live in, and the one a test can
+  shift.
 - **The renewer** keeps its chunked one-transaction-per-chunk shape and its
   `lease_expires_at < new_expiry` termination predicate; only the row selection changes,
   from `worker_id = ?` to an ID list intersected with `worker_id = ?` (the `worker_id`

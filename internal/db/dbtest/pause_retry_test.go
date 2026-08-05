@@ -81,7 +81,7 @@ func insertInstW(t *testing.T, db *dbpkg.DB, id string, status model.Status, wai
 // take a lease, so the fixture stays engine-agnostic (no hand-written UPDATE).
 func lease(t *testing.T, db *dbpkg.DB, id string) {
 	t.Helper()
-	claimed, err := db.ClaimInstances("test-worker", time.Minute, 10, dbpkg.AllowTakeover)
+	claimed, err := db.ClaimInstances("test-worker", time.Minute, 10, dbpkg.AllowTakeover())
 	if err != nil {
 		t.Fatalf("ClaimInstances: %v", err)
 	}

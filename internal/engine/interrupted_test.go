@@ -62,7 +62,7 @@ func interruptedFixture(t *testing.T, database *db.DB, name string, status model
 
 func interrupt(t *testing.T, database *db.DB, id string) {
 	t.Helper()
-	claimed, err := database.ClaimInstances("dead-worker", time.Millisecond, 10, db.AllowTakeover)
+	claimed, err := database.ClaimInstances("dead-worker", time.Millisecond, 10, db.AllowTakeover())
 	if err != nil {
 		t.Fatalf("stage interruption: %v", err)
 	}

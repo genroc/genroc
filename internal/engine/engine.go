@@ -67,7 +67,9 @@ type Engine struct {
 	inflight           sync.Map // instance IDs this worker is currently advancing (detects overwhelm via self-reclaim)
 	// lastRenewMs is DB-clock millis of the last successful renewal pass: the worker's
 	// only evidence that the leases it holds are alive. Written by the renewer, read by
-	// the pump.
+	// the pump. Every lease this worker holds expires at lastRenewMs+leaseDuration or
+	// later, which is what lets leaseGate rule out its own rows — see renewLeases for the
+	// half of that invariant which is easy to break.
 	lastRenewMs atomic.Int64
 	// graceUntilMs is touched only by the pump goroutine, so it needs no synchronisation.
 	graceUntilMs int64
@@ -164,11 +166,17 @@ func (e *Engine) NotifyWork() { e.signalWork() }
 // renewLeases re-stamps this worker's leases and records when that last succeeded. Both
 // the renewer and the pump's repair path must go through here, or lastRenewMs stops
 // meaning "the last moment this worker could prove its leases were alive".
+//
+// The stamp is the instant the renewal derived its expiries from, which the renewal
+// reports; reading the clock here instead would date the evidence from after a write that
+// can outlast the gate's margin, and the gate would then hand out a takeover cutoff past
+// leases that had already lapsed.
 func (e *Engine) renewLeases() error {
-	if err := e.db.RenewWorkerLeases(e.workerID, e.leaseDuration); err != nil {
+	renewedAt, err := e.db.RenewWorkerLeases(e.workerID, e.leaseDuration)
+	if err != nil {
 		return err
 	}
-	e.lastRenewMs.Store(db.Now().UnixMilli())
+	e.lastRenewMs.Store(renewedAt.UnixMilli())
 	return nil
 }
 
@@ -176,7 +184,12 @@ func (e *Engine) renewLeases() error {
 // worker cannot prove the leases it holds are alive, so it renews them synchronously and
 // then declines lease takeovers (db.SkipTakeover) for one lease duration.
 //
-// Two things break if changed. It must read the *renewal* gap, not the claim gap — a
+// Its verdict is a cutoff pinned to the instant it read the evidence, never "whatever the
+// clock says when the claim runs" — every lease this worker holds outlives that instant by
+// construction, so however long the claim is delayed after this returns, it cannot take a
+// row this worker is still advancing.
+//
+// Two more things break if changed. It must read the *renewal* gap, not the claim gap — a
 // saturated pump legitimately parks on e.sem for minutes with healthy leases. And it must
 // run in the claimant rather than the renewer, because on resume every frozen ticker fires
 // at once and the two race; checking here makes both orderings correct.
@@ -184,13 +197,14 @@ func (e *Engine) renewLeases() error {
 // Why a repair rather than an exit, why the grace covers co-resident workers, and why
 // there is no once-per-window bound: specs/lease-fencing.md.
 func (e *Engine) leaseGate() db.Takeover {
-	nowMs := db.Now().UnixMilli()
+	now := db.Now()
+	nowMs := now.UnixMilli()
 	stale := time.Duration(nowMs-e.lastRenewMs.Load()) * time.Millisecond
 
-	// Trip one poll early: the gate is consulted once per cycle, so without the margin the
-	// evidence expires between two checks and the claim in between re-claims this worker's
-	// own in-flight rows. Capped at half the lease so a poll interval longer than the lease
-	// cannot park the worker in a permanent grace, never recovering dead workers' rows.
+	// Trip one poll early, so a lease is repaired while it is still alive rather than after
+	// a peer has had a poll's worth of chances to take the row. Capped at half the lease so
+	// a poll interval longer than the lease cannot park the worker in a permanent grace,
+	// never recovering dead workers' rows.
 	margin := e.pollEvery
 	if cap := e.leaseDuration / 2; margin > cap {
 		margin = cap
@@ -201,7 +215,7 @@ func (e *Engine) leaseGate() db.Takeover {
 		if nowMs < e.graceUntilMs {
 			return db.SkipTakeover
 		}
-		return db.AllowTakeover
+		return db.TakeoverBefore(now)
 	}
 
 	// Once per window, not once per poll: the window is extended below while the
@@ -427,7 +441,7 @@ func (e *Engine) Tick(ctx context.Context) (int, error) {
 	e.pruneLogs()
 	// No lease gate: a tick waits for every advance it starts, so it cannot re-claim its
 	// own in-flight work.
-	instances, err := e.db.ClaimInstances(e.workerID, e.leaseDuration, cap(e.sem), db.AllowTakeover)
+	instances, err := e.db.ClaimInstances(e.workerID, e.leaseDuration, cap(e.sem), db.AllowTakeover())
 	if err != nil {
 		e.logOnly(logEvent{Level: model.LogError, Msg: "claim instances: " + err.Error()})
 		return 0, err
