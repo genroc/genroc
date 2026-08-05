@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Getting started — genroc</title><meta name="description" content="Run a server, define a process, apply it and watch an instance through to completion."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Version compatibility — genroc</title><meta name="description" content="Compare two versions of a process before deploying it — what the check catches, what it cannot see, and why there are two verdicts rather than one."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
       const stored = localStorage.getItem('theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
     </script><link rel="expect" href="#page-end" blocking="render"><script type="application/json" id="vt-data">{"tree":{"/":"00","/guides/getting-started":"00.01.01","/guides/polling-a-remote-job":"00.01.02","/reference/tasks":"00.02.01","/reference/version-compatibility":"00.02.02"},"chrome":[{"attr":"vtBanner","selector":".banner-strip"},{"attr":"vtDrawer","selector":".nav-drawer"},{"attr":"vtSidebar","selector":".shell > .sidebar"},{"attr":"vtToc","selector":".toc"},{"attr":"vtFooter","selector":"footer"}]}</script> <script>
@@ -131,7 +131,7 @@
             <path d="M253.08,85.35C253.367,85.35 253.647,85.327 253.92,85.28C255.933,84.953 257.57,85.493 258.83,86.9C259.035,87.128 259.372,87.19 259.65,87.05L276.96,78.13C277.019,78.099 277.084,78.083 277.151,78.083C277.376,78.083 277.561,78.268 277.561,78.493C277.561,78.502 277.561,78.511 277.56,78.52C277.533,78.953 277.52,83.403 277.52,91.87C277.527,100.343 277.543,104.797 277.57,105.23C277.571,105.239 277.571,105.248 277.571,105.257C277.571,105.482 277.386,105.667 277.161,105.667C277.094,105.667 277.029,105.651 276.97,105.62L259.65,96.71C259.372,96.57 259.035,96.632 258.83,96.86C257.57,98.273 255.933,98.817 253.92,98.49C253.647,98.443 253.37,98.42 253.09,98.42C252.81,98.42 252.533,98.443 252.26,98.49C250.247,98.817 248.61,98.277 247.35,96.87C247.145,96.642 246.808,96.58 246.53,96.72L229.22,105.64C229.161,105.671 229.096,105.687 229.029,105.687C228.804,105.687 228.619,105.502 228.619,105.277C228.619,105.268 228.619,105.259 228.62,105.25C228.647,104.817 228.657,100.367 228.65,91.9C228.65,83.427 228.637,78.973 228.61,78.54C228.609,78.531 228.609,78.522 228.609,78.513C228.609,78.288 228.794,78.103 229.019,78.103C229.086,78.103 229.151,78.119 229.21,78.15L246.53,87.06C246.807,87.193 247.139,87.127 247.34,86.9C248.6,85.493 250.237,84.953 252.25,85.28C252.523,85.327 252.8,85.35 253.08,85.35Z" style="fill:currentColor;fill-rule:nonzero;"/>
         </g>
     </g>
-</svg></span> <span>genroc</span> </a> <nav> <a href="/guides/getting-started/" data-kind="section" aria-current="page"> guides </a><a href="/reference/tasks/" data-kind="section"> reference </a><a href="https://github.com/genroc/genroc" data-kind="external"> github </a> </nav> <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle colour theme">
+</svg></span> <span>genroc</span> </a> <nav> <a href="/guides/getting-started/" data-kind="section"> guides </a><a href="/reference/tasks/" data-kind="section" aria-current="page"> reference </a><a href="https://github.com/genroc/genroc" data-kind="external"> github </a> </nav> <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle colour theme">
 &#9681;
 </button> </header> <script>
   document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
@@ -142,78 +142,81 @@
     root.dataset.theme = dark ? 'light' : 'dark'
     localStorage.setItem('theme', root.dataset.theme)
   })
-</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>guides</h2> <ul> <li> <a href="/guides/getting-started/" aria-current="page"> Getting started </a> </li><li> <a href="/guides/polling-a-remote-job/"> Polling a remote job </a> </li> </ul> </section><section> <h2>reference</h2> <ul> <li> <a href="/reference/tasks/"> Tasks </a> </li><li> <a href="/reference/version-compatibility/"> Version compatibility </a> </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>guides</h2> <ul> <li> <a href="/guides/getting-started/" aria-current="page"> Getting started </a> </li><li> <a href="/guides/polling-a-remote-job/"> Polling a remote job </a> </li> </ul> </section><section> <h2>reference</h2> <ul> <li> <a href="/reference/tasks/"> Tasks </a> </li><li> <a href="/reference/version-compatibility/"> Version compatibility </a> </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a> / guides </p> <h1>Getting started</h1> <p>Run a server, define a process, apply it and watch an instance through to completion.</p> </div>  <p>genroc is two binaries: <code>genroc</code>, the server that runs the engine and serves the API, and
-<code>genctl</code>, the command-line client you point at it.</p>
-<h2 id="build-and-run-a-server">Build and run a server<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#build-and-run-a-server"><span></span></a></h2>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">make</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> build</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">            # produces ./genroc and ./genctl</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">./genroc</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> -db</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> genroc.db</span></span></code></pre>
-<p>That is the whole install: one process and one SQLite file. The server listens on <code>:8448</code>
-by default; <code>-http</code>, <code>-tcp</code> and <code>-uds</code> change where. For a production deployment with
-concurrent workers, point it at PostgreSQL instead — the SQL is the same either way, and
-the engine is chosen at startup:</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">./genroc</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> -pg</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> postgres://user:pass@localhost/genroc</span></span></code></pre>
-<p><code>genctl</code> finds the server through <code>GENROC_SERVER</code>, which defaults to
-<code>http://localhost:8448</code>.</p>
-<h2 id="define-a-process">Define a process<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#define-a-process"><span></span></a></h2>
-<p>A process is a name, a schema for its input, and an ordered list of tasks. Save this as
-<code>greet.genroc.yaml</code>:</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> greet</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input_schema</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  properties</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  required</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">tasks</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> call</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> fetch</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">                       # an HTTP call; every field is templated</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">${ input.url }/hello</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">       # ${ } interpolates into a string</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      body</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        greeting</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">Hello, ${ input.name }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      result_schema</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        properties</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">          ok</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> boolean</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        required</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">ok</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">$: self.result</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">            # $: is one typed expression, not a string</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> end</span></span></code></pre>
-<p>Three things in that file carry most of the language.</p>
+</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>guides</h2> <ul> <li> <a href="/guides/getting-started/"> Getting started </a> </li><li> <a href="/guides/polling-a-remote-job/"> Polling a remote job </a> </li> </ul> </section><section> <h2>reference</h2> <ul> <li> <a href="/reference/tasks/"> Tasks </a> </li><li> <a href="/reference/version-compatibility/" aria-current="page"> Version compatibility </a> </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>guides</h2> <ul> <li> <a href="/guides/getting-started/"> Getting started </a> </li><li> <a href="/guides/polling-a-remote-job/"> Polling a remote job </a> </li> </ul> </section><section> <h2>reference</h2> <ul> <li> <a href="/reference/tasks/"> Tasks </a> </li><li> <a href="/reference/version-compatibility/" aria-current="page"> Version compatibility </a> </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a> / reference </p> <h1>Version compatibility</h1> <p>Compare two versions of a process before deploying it — what the check catches, what it cannot see, and why there are two verdicts rather than one.</p> </div>  <p>An instance pins the definition version it started on, and keeps it for life. That is what
+makes a running process predictable — but it also means a fixed URL, a new header or an
+optional input parameter strands every instance already in flight until it finishes. For a
+process parked on an <code>external</code> task, that can be weeks.</p>
+<p><code>genctl compat</code> compares two versions and reports what changed, so a change that would
+strand running work is visible before it is deployed rather than after.</p>
+<h2 id="comparing-two-versions">Comparing two versions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#comparing-two-versions"><span></span></a></h2>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>genctl compat &lt;process&gt; &lt;from-version&gt; &lt;to-version&gt;</span></span>
+<span class="line"><span>genctl compat -f ./processes/*.yaml --from latest</span></span>
+<span class="line"><span>genctl compat --from stable --to latest [&lt;process&gt;]</span></span></code></pre>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>PROCESS         FROM  TO  CONTINUE  OUTPUT  REASON</span></span>
+<span class="line"><span>order_pipeline  v2    v3  yes       yes     -</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>changed in order_pipeline v2 → v3:</span></span>
+<span class="line"><span>  task &quot;ship&quot;: action.url</span></span></code></pre>
+<p>The second form is the one to reach for before a deploy: it compares the documents <code>apply</code>
+would take against what is currently on a channel, so you see the answer without writing
+anything. Every form names <strong>both</strong> sides — defaulting one would hide which two documents
+were compared.</p>
+<p><code>compat</code> exits non-zero when anything is incompatible, so it drops straight into a
+pipeline.</p>
+<h3 id="two-verdicts-never-folded-into-one">Two verdicts, never folded into one<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#two-verdicts-never-folded-into-one"><span></span></a></h3>
+<p><code>CONTINUE</code> and <code>OUTPUT</code> answer opposite questions and are deliberately reported separately:</p>
 <ul>
-<li><strong><code>${ }</code> interpolates, <code>$:</code> is an expression.</strong> <code>&quot;${ input.url }/hello&quot;</code> builds a string;
-<code>&quot;$: self.result&quot;</code> is a single typed value — an object here, not its text. Anywhere a
-value is expected you can write either, and the type is checked at apply time.</li>
-<li><strong><code>result_schema</code> types the outside world.</strong> An HTTP response is untyped until you say
-what it is. Once declared, the response is validated before the instance moves on, and
-<code>self.result.ok</code> is readable and known to be a boolean.</li>
-<li><strong><code>switch</code> is required on every task.</strong> It says where control goes: <code>next</code>, <code>end</code>, or
-<code>$some-task</code>. There is no fallthrough — a task always states its own routing.</li>
+<li><strong><code>CONTINUE</code></strong> — could an instance running the old version carry on under the new one?
+Every value the old definition can have produced must be one the new definition accepts.</li>
+<li><strong><code>OUTPUT</code></strong> — does the new version still honour the contract its consumers were written
+against? Here the direction reverses: a parent’s <code>result_schema</code> and an API caller were
+written against the <em>old</em> output shape, so every value the new version can produce must
+be one the old one could.</li>
 </ul>
-<h2 id="apply-run-inspect">Apply, run, inspect<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#apply-run-inspect"><span></span></a></h2>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> apply</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> -f</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> greet.genroc.yaml</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> run</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> greet</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --set</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> url=https://api.example.com</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --set</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> name=World</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> get</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> @last</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">          # inspect the most recent instance</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> logs</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> @last</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">         # its per-instance logs</span></span></code></pre>
-<p><code>apply</code> registers a <strong>version</strong> of the definition. Applying a changed file makes version 2;
-instances already running stay on the version they started with, so a deploy never rewrites
-a process that is mid-flight.</p>
-<p><code>@last</code> is a shorthand <code>genctl</code> accepts anywhere an instance id is expected.</p>
-<div class="note"> <p><span class="note-label">note</span></p> <p>Children must be applied before the parents that reference them — <code>apply</code> checks that the
-child exists and that its input schema is compatible.</p> </div>
-<h2 id="what-happens-when-the-worker-dies">What happens when the worker dies<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-happens-when-the-worker-dies"><span></span></a></h2>
-<p>Nothing you have to handle. Every task checkpoints to the database before and after it
-runs, and instances are leased to workers rather than owned by them. If this server is
-killed mid-<code>fetch</code>, its lease expires and any worker — the same one after a restart, or a
-different one — picks the instance up and carries on from the last checkpoint.</p>
-<p>That is also why long waits are cheap: a <code>delay</code>, a poll interval, or a task waiting on a
-human parks in the database and holds no worker while it waits.</p>
-<p>The one case that needs a decision from you is a task that must not run twice — charging a
-card, say. Mark it <code>only_once</code> and the engine will never silently re-run it after an
-interruption; it raises <code>only_once.interrupted</code> instead, for your definition to catch and
-resolve against the system of record.</p>
-<h2 id="next">Next<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#next"><span></span></a></h2>
+<p>A single boolean over two opposite-direction checks would mean nothing, so there isn’t one.</p>
+<h3 id="the-changed-slot-list-is-the-deliverable">The changed-slot list is the deliverable<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-changed-slot-list-is-the-deliverable"><span></span></a></h3>
+<p>The verdict compares inferred schemas. The list of slots that differ — <code>action.url</code>,
+<code>action.result_schema</code>, <code>output</code>, <code>switch</code>, <code>on_error</code>, <code>timeout</code>, <code>only_once</code>,
+<code>input_schema</code>, <code>config_schema</code> — is what lets you judge the changes the check cannot.</p>
+<div class="note"> <p><span class="note-label">note</span></p> <p><strong>This is a shape check, not a review.</strong> Dollars → cents is <code>number</code> before and after and
+comes back compatible. So is a reused enum member, or an id that moved to a new namespace.
+The check catches the <em>accidental</em> break — a required input appearing, an output whose type
+changed. It does not certify a migration.</p> </div>
+<p>Four more things it does not see:</p>
 <ul>
-<li><a href="../polling-a-remote-job/">Polling a remote job</a> — loops without a <code>while</code>, and carrying a
-value you deliberately do not type.</li>
-<li><a href="../../reference/tasks/">Tasks</a> — every field a task accepts.</li>
-</ul>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#build-and-run-a-server">Build and run a server</a></li><li class="depth-2"><a href="#define-a-process">Define a process</a></li><li class="depth-2"><a href="#apply-run-inspect">Apply, run, inspect</a></li><li class="depth-2"><a href="#what-happens-when-the-worker-dies">What happens when the worker dies</a></li><li class="depth-2"><a href="#next">Next</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
+<li><strong>Routing.</strong> New <code>switch</code> conditions decide where an instance goes next.
+Shape-compatible and behaviourally different is a normal outcome.</li>
+<li><strong>Side effects already performed.</strong> The old URL was already called.</li>
+<li><strong>Redaction.</strong> A property that stops being <code>secret: true</code> becomes visible over the API,
+for data stored long before the change. Only the <code>input_schema</code> / <code>config_schema</code> slot
+reports it.</li>
+<li><strong><code>only_once</code>.</strong> Removing it from a task whose previous attempt was interrupted lets that
+task re-run, and the side effect happens twice. Read the <code>only_once</code> slot before moving
+instances a worker died holding.</li>
+</ul>
+<h2 id="over-http">Over HTTP<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#over-http"><span></span></a></h2>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>POST /definitions/compat</span></span>
+<span class="line"><span>{&quot;from&quot;: {&quot;channel&quot;: &quot;latest&quot;},</span></span>
+<span class="line"><span> &quot;to&quot;:   {&quot;versions&quot;: {&quot;order_pipeline&quot;: 3}},</span></span>
+<span class="line"><span> &quot;process&quot;: &quot;order_pipeline&quot;}</span></span></code></pre>
+<p>Each side is a <strong>selector</strong> — <code>channel</code>, explicit <code>versions</code>, or submitted <code>definitions</code> —
+resolving to one version per process name, paired by name. A triple of
+<code>{process, from, to}</code> cannot name a graph, which is why the request is shaped this way.</p>
+<p>A process named on one side only is reported <code>unpaired</code>, and a version whose own inference
+fails is reported <code>unanalysable</code>. Both make the top-level <code>compatible</code> <strong>false</strong>, never
+true: an answer indistinguishable from “checked, and fine” would be worse than no report.</p>
+<h2 id="parent-and-child-compared-in-one-frame">Parent and child, compared in one frame<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#parent-and-child-compared-in-one-frame"><span></span></a></h2>
+<p>One check genuinely spans two processes, and no single-process comparison can compute it: a
+parent declares a <code>result_schema</code> for each child it calls, and the child’s output is
+conformed against it when the batch is collected. So when only one of the two moves,
+whichever moved must still fit the one that did not.</p>
+<p><code>compat</code> reports both directions as their own block, because a break there is not a fact
+about either document alone:</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>parent/child pairs:</span></span>
+<span class="line"><span>  PARENT              TASK  CHILD    FITS  REASON</span></span>
+<span class="line"><span>  order_pipeline v2   work  invoice  yes   -</span></span>
+<span class="line"><span>  order_pipeline v3   work  invoice  yes   -</span></span></code></pre>
+<p>This is tighter than the output contract above, and that is why it earns its place: a child
+that drops a field fails its general output contract, but a parent whose <code>result_schema</code>
+never named that field is unaffected — and only a check holding both documents at once can
+say so.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#comparing-two-versions">Comparing two versions</a></li><li class="depth-3"><a href="#two-verdicts-never-folded-into-one">Two verdicts, never folded into one</a></li><li class="depth-3"><a href="#the-changed-slot-list-is-the-deliverable">The changed-slot list is the deliverable</a></li><li class="depth-2"><a href="#over-http">Over HTTP</a></li><li class="depth-2"><a href="#parent-and-child-compared-in-one-frame">Parent and child, compared in one frame</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
