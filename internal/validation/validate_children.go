@@ -202,8 +202,8 @@ func validateChildEntry(taskID string, label string, p model.ChildEntry, ctx sch
 // unknown (the empty schema {}) in the child's output is accepted by whatever
 // the parent declares there. That is this slot's privilege and nowhere else's — the
 // parent's result_schema is the one place a child result is conformed at runtime
-// (resolveAndValidateChildOutput → validateChildOutput, from the schema stashed in
-// _spawn_result_schema at spawn), so the narrowing is backed by a real check instead of
+// (resolveAndValidateChildOutput, reading this slot from the parent's pinned definition
+// when the batch is collected), so the narrowing is backed by a real check instead of
 // being taken on faith. An unknown handed to a typed *input* stays rejected, since
 // nothing conforms it there. Untyped remains not a subset of typed in every other
 // position, exactly as an untyped input is not accepted by a typed input_schema.

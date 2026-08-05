@@ -153,32 +153,32 @@ func (e *Engine) buildChildOutput(task *model.Task, siblings []*model.ProcessIns
 	}
 	switch task.Action.Type {
 	case model.ActionTypeChild:
-		return e.buildSingleChildOutput(siblings)
+		return e.buildSingleChildOutput(task, siblings)
 	case model.ActionTypeChildList:
-		return e.buildListChildOutput(siblings)
+		return e.buildListChildOutput(task, siblings)
 	default:
-		return e.buildMapChildOutput(siblings)
+		return e.buildMapChildOutput(task, siblings)
 	}
 }
 
 // buildSingleChildOutput returns the one child's output unwrapped — the child result is
 // the task result directly, not keyed (child_map) or arrayed (child_list). Validated
 // against the declared result_schema and resolved from the object store when externalized.
-func (e *Engine) buildSingleChildOutput(siblings []*model.ProcessInstance) (any, error) {
+func (e *Engine) buildSingleChildOutput(task *model.Task, siblings []*model.ProcessInstance) (any, error) {
 	if len(siblings) != 1 {
 		return nil, fmt.Errorf("child task expected exactly one child, got %d", len(siblings))
 	}
-	return e.resolveAndValidateChildOutput(siblings[0])
+	return e.resolveAndValidateChildOutput(task.Action.ResultSchema, siblings[0])
 }
 
 // buildMapChildOutput returns each sibling's output keyed by its child key, validated
 // against the declared result_schema (if any) and resolved from the object store when
 // externalized.
-func (e *Engine) buildMapChildOutput(siblings []*model.ProcessInstance) (any, error) {
+func (e *Engine) buildMapChildOutput(task *model.Task, siblings []*model.ProcessInstance) (any, error) {
 	result := make(map[string]any, len(siblings))
 	for _, child := range siblings {
 		key, _ := child.ContextData["_spawn_child_key"].(string)
-		output, err := e.resolveAndValidateChildOutput(child)
+		output, err := e.resolveAndValidateChildOutput(task.Action.Children[key].ResultSchema, child)
 		if err != nil {
 			return nil, err
 		}
@@ -192,14 +192,14 @@ func (e *Engine) buildMapChildOutput(siblings []*model.ProcessInstance) (any, er
 // guaranteeing result order matches the `over` array regardless of scan order. Each is
 // validated against the declared result_schema and resolved from the object store if
 // externalized.
-func (e *Engine) buildListChildOutput(siblings []*model.ProcessInstance) (any, error) {
+func (e *Engine) buildListChildOutput(task *model.Task, siblings []*model.ProcessInstance) (any, error) {
 	result := make([]any, len(siblings))
 	for _, child := range siblings {
 		idx, ok := spawnIndex(child)
 		if !ok || idx < 0 || idx >= len(siblings) {
 			return nil, fmt.Errorf("child process %q has an invalid _spawn_index", child.ID)
 		}
-		output, err := e.resolveAndValidateChildOutput(child)
+		output, err := e.resolveAndValidateChildOutput(task.Action.ResultSchema, child)
 		if err != nil {
 			return nil, err
 		}
@@ -209,21 +209,29 @@ func (e *Engine) buildListChildOutput(siblings []*model.ProcessInstance) (any, e
 }
 
 // resolveAndValidateChildOutput reads a completed child's projected output, resolving it
-// from the object store if externalized and validating it against the child's stored
-// (already-normalized) result_schema when declared. Shared by the map and list collectors.
-func (e *Engine) resolveAndValidateChildOutput(child *model.ProcessInstance) (any, error) {
+// from the object store if externalized and conforming it to resultSchema when the parent
+// declares one.
+//
+// The schema comes from the parent's task as it stands now, never from a copy taken at
+// spawn: an upgraded parent must collect against the version it is running, and the
+// conform normalizes, so a stale schema would silently strip a field both sides had
+// already agreed to add. The external path resolves it the same way, from the pinned
+// definition. See specs/version-compatibility.md §5a.
+func (e *Engine) resolveAndValidateChildOutput(resultSchema *schema.Schema, child *model.ProcessInstance) (any, error) {
 	output, err := e.resolveValue(child, child.ContextData["output"])
 	if err != nil {
 		return nil, err
 	}
-	if schemaRaw, _ := child.ContextData["_spawn_result_schema"].(string); schemaRaw != "" {
-		normalized, err := validateChildOutput(schemaRaw, output)
-		if err != nil {
-			return nil, fmt.Errorf("child process %q (%s) output validation: %v", child.ID, child.ProcessName, err)
-		}
-		output = normalized
+	if resultSchema == nil {
+		return output, nil
 	}
-	return output, nil
+	// Stored definitions are normalized before they are written, so the schema is used
+	// as-is rather than re-normalized per collected child.
+	normalized, err := resultSchema.Validate(output)
+	if err != nil {
+		return nil, fmt.Errorf("child process %q (%s) output validation: %v", child.ID, child.ProcessName, err)
+	}
+	return normalized, nil
 }
 
 // spawnIndex reads a child's _spawn_index. It round-trips through JSON (engine_state),
@@ -244,17 +252,4 @@ func spawnIndex(child *model.ProcessInstance) (int, bool) {
 		return int(n), err == nil
 	}
 	return 0, false
-}
-
-// validateChildOutput parses the child's stored (already-normalized) result_schema and
-// validates the child output against it, returning the normalized output (undeclared keys
-// dropped, defaults filled).
-func validateChildOutput(schemaRaw string, output any) (any, error) {
-	raw, err := schema.Parse([]byte(schemaRaw))
-	if err != nil {
-		return nil, fmt.Errorf("schema validation error: %w", err)
-	}
-	// The stored schema was normalized before the spawn marshaled it, so it can be
-	// used directly without a re-normalize pass per collected child.
-	return raw.AssumeNormalized().Validate(output)
 }

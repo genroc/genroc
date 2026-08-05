@@ -116,9 +116,9 @@ An `unknown` enters the typed world only by being **narrowed** with a concrete
 schema, and the narrowing is **runtime-checked**. The narrowing point already
 existed in the syntax: the **`result_schema` on the action that produced the
 value.** For a child, the parent writes `result_schema` on the child action; the
-child's actual output is conformed against it at collect time (`_spawn_result_schema`,
-`internal/engine/child.go` → `resolveAndValidateChildOutput`,
-`internal/engine/collect.go`), so the narrowing is sound.
+child's actual output is conformed against it at collect time
+(`resolveAndValidateChildOutput`, `internal/engine/collect.go`, reading the slot from
+the parent's pinned definition), so the narrowing is sound.
 
 The **one rule added** is: allow a `result_schema` to narrow a `{}` result — i.e.
 permit `{} → T` **through a `result_schema` only** (runtime-conformed), while
@@ -275,11 +275,13 @@ page it sits on. `validTypes` is exactly the JSON Schema `simpleTypes` enum.
   bug independent of this feature, still unfixed. *(open)*
 
 **Settled while building:** the child-output conform *is* uniform. All three
-spawn paths stash `_spawn_result_schema` (`internal/engine/child.go`) and all three
 collectors — `buildSingleChildOutput` / `buildMapChildOutput` /
-`buildListChildOutput` — funnel through `resolveAndValidateChildOutput`, so
-narrowing is backed by a real check for `child`, `child_map` and `child_list`
-alike.
+`buildListChildOutput` — funnel through `resolveAndValidateChildOutput`, each passing
+the `result_schema` its own action slot declares, so narrowing is backed by a real
+check for `child`, `child_map` and `child_list` alike. (The schema was originally
+copied onto every child row at spawn as `_spawn_result_schema`; it is now read from
+the parent's task — see version-compatibility.md §5a for why. The argument is
+unchanged; only the schema's address is.)
 
 ---
 

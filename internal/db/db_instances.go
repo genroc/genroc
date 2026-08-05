@@ -292,11 +292,10 @@ func encodeEngineState(cd map[string]any) (string, error) {
 // engineStateKeys maps the engine-internal context keys to their engine_state field
 // names (and back, in decodeContext).
 var engineStateKeys = map[string]string{
-	"_children":            "children",
-	"_spawn_action_type":   "spawn_action_type",
-	"_spawn_child_key":     "spawn_child_key",
-	"_spawn_index":         "spawn_index",
-	"_spawn_result_schema": "spawn_result_schema",
+	"_children":          "children",
+	"_spawn_action_type": "spawn_action_type",
+	"_spawn_child_key":   "spawn_child_key",
+	"_spawn_index":       "spawn_index",
 }
 
 func toStringSlice(v any) []string {

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -148,8 +147,9 @@ func (e *Engine) resolveChildVersion(inst *model.ProcessInstance, taskID, name s
 // newChildInstance builds a running child ProcessInstance rooted at parent. id is the
 // caller-assigned sibling id (base+i, so siblings sort after the parent and among
 // themselves in spawn order). spawnCtx carries the per-type discriminant keys
-// (_spawn_action_type plus _spawn_child_key / _spawn_index, and _spawn_result_schema when
-// declared), merged over the common child context.
+// (_spawn_action_type plus _spawn_child_key / _spawn_index), merged over the common child
+// context. Nothing per-*task* belongs there — the collector holds the parent's task and
+// reads its slots from the definition.
 func newChildInstance(parent *model.ProcessInstance, task *model.Task, def *model.ProcessDefinition, version int, input any, callStack []string, id string, spawnCtx map[string]any) *model.ProcessInstance {
 	childCtx := map[string]any{
 		"input":        input,
@@ -198,11 +198,6 @@ func (e *Engine) buildSingleChild(inst *model.ProcessInstance, task *model.Task,
 	spawnCtx := map[string]any{
 		"_spawn_action_type": string(model.ActionTypeChild),
 	}
-	if task.Action.ResultSchema != nil {
-		if b, err := json.Marshal(task.Action.ResultSchema); err == nil {
-			spawnCtx["_spawn_result_schema"] = string(b)
-		}
-	}
 	base := idgen.ChildBase(inst.ID)
 	return newChildInstance(inst, task, def, version, input, callStack, idgen.Add(base, 0).String(), spawnCtx), nil
 }
@@ -245,11 +240,6 @@ func (e *Engine) buildMapChildren(ctx context.Context, inst *model.ProcessInstan
 			"_spawn_action_type": string(model.ActionTypeChildMap),
 			"_spawn_child_key":   key,
 		}
-		if entry.ResultSchema != nil {
-			if b, err := json.Marshal(entry.ResultSchema); err == nil {
-				spawnCtx["_spawn_result_schema"] = string(b)
-			}
-		}
 		children = append(children, newChildInstance(inst, task, def, version, input, callStack, idgen.Add(base, uint64(i)).String(), spawnCtx))
 	}
 	return children, nil
@@ -284,13 +274,6 @@ func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInsta
 		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q child_list: over did not evaluate to an array (got %T)", task.ID, arrVal)))
 	}
 
-	var resultSchema string
-	if task.Action.ResultSchema != nil {
-		if b, err := json.Marshal(task.Action.ResultSchema); err == nil {
-			resultSchema = string(b)
-		}
-	}
-
 	// One base id (sorts after the parent); siblings are base, base+1, … in element
 	// order, so the batch sorts after the parent and among itself in input order.
 	base := idgen.ChildBase(inst.ID)
@@ -303,9 +286,6 @@ func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInsta
 		spawnCtx := map[string]any{
 			"_spawn_action_type": string(model.ActionTypeChildList),
 			"_spawn_index":       i,
-		}
-		if resultSchema != "" {
-			spawnCtx["_spawn_result_schema"] = resultSchema
 		}
 		children = append(children, newChildInstance(inst, task, def, version, input, callStack, idgen.Add(base, uint64(i)).String(), spawnCtx))
 	}
