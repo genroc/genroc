@@ -150,34 +150,137 @@ process parked on an <code>external</code> task, that can be weeks.</p>
 strand running work is visible before it is deployed rather than after.</p>
 <h2 id="comparing-two-versions">Comparing two versions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#comparing-two-versions"><span></span></a></h2>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>genctl compat &lt;process&gt; &lt;from-version&gt; &lt;to-version&gt;</span></span>
-<span class="line"><span>genctl compat -f ./processes/*.yaml --from latest</span></span>
-<span class="line"><span>genctl compat --from stable --to latest [&lt;process&gt;]</span></span></code></pre>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>PROCESS         FROM  TO  CONTINUE  OUTPUT  REASON</span></span>
-<span class="line"><span>order_pipeline  v2    v3  yes       yes     -</span></span>
+<span class="line"><span>genctl compat --from stable --to latest [&lt;process&gt;]</span></span>
+<span class="line"><span>genctl compat --from boss@1 --from kid@1 --to boss@2 --to kid@3</span></span>
+<span class="line"><span>genctl compat -f ./processes/*.yaml --from latest</span></span></code></pre>
+<p><code>--from</code> and <code>--to</code> are repeatable. A side is <strong>either</strong> one channel <strong>or</strong> one-or-more
+<code>name@version</code> pins, where the version may itself be a channel (<code>kid@stable</code>). Mixing the
+two on one side is refused: a channel already names a version for every process, so adding
+one entry is ambiguous about whether it overrides or extends.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>PROCESS         VERDICT</span></span>
+<span class="line"><span>order_pipeline  upgradable</span></span>
+<span class="line"><span>invoice         breaking</span></span>
 <span class="line"><span></span></span>
-<span class="line"><span>changed in order_pipeline v2 → v3:</span></span>
-<span class="line"><span>  task &quot;ship&quot;: action.url</span></span></code></pre>
+<span class="line"><span>invoice v1 → v4</span></span>
+<span class="line"><span>  outputs.charge.amount  (task &quot;charge&quot;, action.result_schema):</span></span>
+<span class="line"><span>    number → string</span></span></code></pre>
+<p>A clean run is the table alone. Detail prints only where something broke: the path is where
+it shows in an instance’s data, the parenthesis is the definition slot that changed under
+it, and the line below is what differs.</p>
+<p>One verdict per process:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>upgradable</code></td><td>an instance running the old version could continue under the new one, and consumers still get the shape they expect</td></tr><tr><td><code>breaking</code></td><td>one of those two failed; the reason says which</td></tr><tr><td><code>nothing changed</code></td><td>both sides resolve to the same version</td></tr><tr><td><code>new</code></td><td>only the target side carries it, so nothing is running it</td></tr></tbody></table>
 <p>The second form is the one to reach for before a deploy: it compares the documents <code>apply</code>
 would take against what is currently on a channel, so you see the answer without writing
 anything. Every form names <strong>both</strong> sides — defaulting one would hide which two documents
 were compared.</p>
 <p><code>compat</code> exits non-zero when anything is incompatible, so it drops straight into a
 pipeline.</p>
-<h3 id="two-verdicts-never-folded-into-one">Two verdicts, never folded into one<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#two-verdicts-never-folded-into-one"><span></span></a></h3>
-<p><code>CONTINUE</code> and <code>OUTPUT</code> answer opposite questions and are deliberately reported separately:</p>
+<p>Definitions submitted with <code>-f</code> are <strong>validated first</strong>, exactly as <code>genctl validate</code> does.
+A document that does not parse, whose expressions do not type-check, or whose child
+references do not resolve is refused with that error — naming the task and the expression —
+rather than compared and reported as unanalysable. Stored versions are not re-validated:
+they passed under the rules of their day.</p>
+<p>That validation is also where a submitted parent’s <code>result_schema</code> is checked against the
+child it resolves to, which is the check worth having when a bundle deploys a parent on its
+own.</p>
+<h3 id="a-comparison-covers-the-graph-not-one-process">A comparison covers the graph, not one process<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#a-comparison-covers-the-graph-not-one-process"><span></span></a></h3>
+<p>Whatever you name is closed over the child versions those definitions were <strong>registered
+against</strong>, so a parent is never judged without the children it calls:</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>genctl compat order_pipeline 2 3</span></span></code></pre>
+<p>…resolves the <code>from</code> side to <code>order_pipeline@2</code> plus whatever child versions it was
+registered with, and the <code>to</code> side to <code>order_pipeline@3</code> plus its own. A pin you write
+yourself wins over one a dependency supplies. Nothing is hidden — the table prints a row
+per process, so a child pulled in shows up with its own versions even though you only
+named the parent.</p>
+<p>This matters because without it a parent compared alone produces no parent/child rows and
+reads as clean, which is indistinguishable from a genuine all-clear.</p>
+<h3 id="what-a-missing-counterpart-means">What a missing counterpart means<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-a-missing-counterpart-means"><span></span></a></h3>
+<p>Each side resolves to a table of one version per process, and the two are reconciled:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>on <code>from</code></th><th>on <code>to</code></th><th>outcome</th></tr></thead><tbody><tr><td>you named it</td><td>present</td><td>compared</td></tr><tr><td>you named it</td><td><strong>absent</strong></td><td><strong>error</strong> — you asked about it and there is nothing to answer with</td></tr><tr><td>it came along</td><td>absent</td><td>carried over at its current version; the row reads <code>nothing to compare</code></td></tr><tr><td>absent</td><td>either</td><td><code>new process</code> — no previous version exists, so nothing is being upgraded</td></tr></tbody></table>
+<p>The asymmetry is deliberate. Naming a process and getting silence is a mistake worth
+catching; a process that came along for the ride and is absent from your bundle is simply
+not moving — and carrying it over is what keeps the parent/child check working when a
+bundle names a parent but not the child it calls.</p>
+<p>A process that resolves to the <strong>same version on both sides</strong> also reads <code>nothing to compare</code>: comparing a document with itself is a tautology. In a channel-to-channel report
+that is most of the rows.</p>
+<p>Neither <code>nothing to compare</code> nor <code>new process</code> can break anything, so neither drags the
+top-level verdict down. Only real incompatibilities — and versions whose own inference
+fails, reported as <code>unanalysable</code> — do that.</p>
+<h3 id="two-questions-behind-one-verdict">Two questions behind one verdict<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#two-questions-behind-one-verdict"><span></span></a></h3>
+<p><code>breaking</code> covers two checks that run in opposite directions, and the API reports them
+separately (<code>compatible</code> and <code>output_compatible</code>) because they are genuinely different
+questions:</p>
 <ul>
-<li><strong><code>CONTINUE</code></strong> — could an instance running the old version carry on under the new one?
+<li><strong>Continuation</strong> — could an instance running the old version carry on under the new one?
 Every value the old definition can have produced must be one the new definition accepts.</li>
-<li><strong><code>OUTPUT</code></strong> — does the new version still honour the contract its consumers were written
-against? Here the direction reverses: a parent’s <code>result_schema</code> and an API caller were
-written against the <em>old</em> output shape, so every value the new version can produce must
-be one the old one could.</li>
+<li><strong>The output contract</strong> — does the new version still honour what its consumers were
+written against? Here the direction reverses: a parent’s <code>result_schema</code> and an API caller
+were written against the <em>old</em> output shape, so every value the new version can produce
+must be one the old one could.</li>
 </ul>
-<p>A single boolean over two opposite-direction checks would mean nothing, so there isn’t one.</p>
-<h3 id="the-changed-slot-list-is-the-deliverable">The changed-slot list is the deliverable<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-changed-slot-list-is-the-deliverable"><span></span></a></h3>
-<p>The verdict compares inferred schemas. The list of slots that differ — <code>action.url</code>,
-<code>action.result_schema</code>, <code>output</code>, <code>switch</code>, <code>on_error</code>, <code>timeout</code>, <code>only_once</code>,
-<code>input_schema</code>, <code>config_schema</code> — is what lets you judge the changes the check cannot.</p>
+<p><code>--allow-breaking-output</code> tolerates the second. It is for the case where the process output
+changed shape but nothing running is affected and you have already dealt with the consumers:
+the verdict becomes <code>upgradable</code> and the exit code 0. It changes the rendered verdict and
+the exit code only, never <code>--json</code>.</p>
+<h3 id="the-changed-slot-is-named-because-the-verdict-cannot-judge-meaning">The changed slot is named, because the verdict cannot judge meaning<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-changed-slot-is-named-because-the-verdict-cannot-judge-meaning"><span></span></a></h3>
+<p>Each broken path names the definition slot that changed under it — <code>action.result_schema</code>,
+<code>output</code>, <code>switch</code>, <code>on_error</code>, <code>timeout</code>, <code>only_once</code>, <code>input_schema</code>, <code>config_schema</code>. The
+full per-slot list is in the JSON (<code>--json</code>), on every process, whether or not it broke.</p>
 <div class="note"> <p><span class="note-label">note</span></p> <p><strong>This is a shape check, not a review.</strong> Dollars → cents is <code>number</code> before and after and
 comes back compatible. So is a reused enum member, or an id that moved to a new namespace.
 The check catches the <em>accidental</em> break — a required input appearing, an output whose type
@@ -201,22 +304,10 @@ instances a worker died holding.</li>
 <span class="line"><span> &quot;process&quot;: &quot;order_pipeline&quot;}</span></span></code></pre>
 <p>Each side is a <strong>selector</strong> — <code>channel</code>, explicit <code>versions</code>, or submitted <code>definitions</code> —
 resolving to one version per process name, paired by name. A triple of
-<code>{process, from, to}</code> cannot name a graph, which is why the request is shaped this way.</p>
-<p>A process named on one side only is reported <code>unpaired</code>, and a version whose own inference
-fails is reported <code>unanalysable</code>. Both make the top-level <code>compatible</code> <strong>false</strong>, never
-true: an answer indistinguishable from “checked, and fine” would be worse than no report.</p>
-<h2 id="parent-and-child-compared-in-one-frame">Parent and child, compared in one frame<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#parent-and-child-compared-in-one-frame"><span></span></a></h2>
-<p>One check genuinely spans two processes, and no single-process comparison can compute it: a
-parent declares a <code>result_schema</code> for each child it calls, and the child’s output is
-conformed against it when the batch is collected. So when only one of the two moves,
-whichever moved must still fit the one that did not.</p>
-<p><code>compat</code> reports both directions as their own block, because a break there is not a fact
-about either document alone:</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>parent/child pairs:</span></span>
-<span class="line"><span>  PARENT              TASK  CHILD    FITS  REASON</span></span>
-<span class="line"><span>  order_pipeline v2   work  invoice  yes   -</span></span>
-<span class="line"><span>  order_pipeline v3   work  invoice  yes   -</span></span></code></pre>
-<p>This is tighter than the output contract above, and that is why it earns its place: a child
-that drops a field fails its general output contract, but a parent whose <code>result_schema</code>
-never named that field is unaffected — and only a check holding both documents at once can
-say so.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#comparing-two-versions">Comparing two versions</a></li><li class="depth-3"><a href="#two-verdicts-never-folded-into-one">Two verdicts, never folded into one</a></li><li class="depth-3"><a href="#the-changed-slot-list-is-the-deliverable">The changed-slot list is the deliverable</a></li><li class="depth-2"><a href="#over-http">Over HTTP</a></li><li class="depth-2"><a href="#parent-and-child-compared-in-one-frame">Parent and child, compared in one frame</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
+<code>{process, from, to}</code> cannot name a graph, which is why the request is shaped this way.
+A <code>versions</code> entry may be a number or a channel name: <code>{&quot;versions&quot;: {&quot;boss&quot;: 2, &quot;kid&quot;: &quot;stable&quot;}}</code>.</p>
+<p>The response is one row per process named on either side, whatever became of it —
+<code>{compatible, processes}</code> and nothing more. Each row carries a <code>status</code> (<code>compared</code>,
+<code>nothing_to_compare</code>, <code>new</code>, <code>unanalysable</code>) alongside its verdicts, so a row that was never
+judged is not mistaken for one that passed, and a version that failed its own inference is
+found where you would look for it rather than in a second array.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#comparing-two-versions">Comparing two versions</a></li><li class="depth-3"><a href="#a-comparison-covers-the-graph-not-one-process">A comparison covers the graph, not one process</a></li><li class="depth-3"><a href="#what-a-missing-counterpart-means">What a missing counterpart means</a></li><li class="depth-3"><a href="#two-questions-behind-one-verdict">Two questions behind one verdict</a></li><li class="depth-3"><a href="#the-changed-slot-is-named-because-the-verdict-cannot-judge-meaning">The changed slot is named, because the verdict cannot judge meaning</a></li><li class="depth-2"><a href="#over-http">Over HTTP</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
