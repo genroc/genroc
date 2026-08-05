@@ -277,11 +277,9 @@ func compareOutput(oldA, newA analysis) (bool, string) {
 func CompareSet(old, new map[string]SideEntry) (SetReport, error) {
 	report := SetReport{Compatible: true, Processes: []Report{}}
 
-	// Every name on either side gets a row, and the status comes from the versions alone —
-	// no inference needed. Analysis happens only for a pair that is actually being
-	// compared, which is what keeps an unchanged process from being judged at all: a
-	// registry accumulates definitions validated under older rules, and one of those
-	// failing to analyse must not make a report about two OTHER versions come back false.
+	// Every name on either side gets a row; status comes from versions alone. Analysis runs
+	// only for pairs actually compared — a legacy version failing to analyse must not make a
+	// report about two OTHER versions come back false.
 	for _, name := range unionOfNames(old, new) {
 		from, inOld := old[name]
 		to, inNew := new[name]
@@ -304,12 +302,9 @@ func CompareSet(old, new map[string]SideEntry) (SetReport, error) {
 			continue
 		}
 
-		// A submitted document has no version, so version equality cannot say whether it
-		// changed — the documents themselves have to. Two STORED versions are left to their
-		// numbers, which say MORE than the documents do: a version also pins the child
-		// versions it runs, so two identical documents at different versions are genuinely
-		// different processes. Normalizing first is what makes a raw submitted document and
-		// a canonical stored one comparable at all.
+		// A submitted document has no version, so the documents must decide; two STORED versions
+		// are left to their numbers, which say MORE (a version pins child versions, so identical
+		// documents at different versions differ). Normalizing makes raw and canonical comparable.
 		if from.Version == 0 || to.Version == 0 {
 			if err := from.Def.Normalize(); err != nil {
 				report.unanalysable(row, SideFrom, err)
@@ -403,12 +398,9 @@ func sortedNames(m map[string]*model.ProcessDefinition) []string {
 
 // ── diagnostics ───────────────────────────────────────────────────────────────
 
-// explainer names the first place one schema fails to fit another, decomposing slot by
-// slot and then into properties within the failing slot.
-//
-// It decomposes ABOVE the subset check rather than threading an error through it:
-// isSubset returns a bool and sits on every hot validation path, so making it explain
-// itself would be a large change to load-bearing code for one caller.
+// explainer names the first place one schema fails to fit another, decomposing ABOVE the
+// subset check — isSubset returns a bool on every hot validation path, and making it
+// explain itself is a big change to load-bearing code for one caller.
 type explainer struct {
 	// absentAsNull stops requiring the presence of a nullable property. It is sound ONLY
 	// where the value is read and never conformed — conformObject rejects an absent

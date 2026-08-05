@@ -109,11 +109,9 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 	return nil, stop(advanceOutcome{kind: outcomeSpawn, children: children})
 }
 
-// resolveChildVersion picks the version to spawn a child at: a non-zero declared version
-// wins; else a self-reference (same process name) inherits the parent's version, and a
-// cross-process reference uses the version pinned for this task at registration
-// (GetDependencyVersion), falling back to the child's latest published version. depKey is
-// the child_map key ("" for child_list).
+// resolveChildVersion: a non-zero declared version wins; else a self-reference inherits
+// the parent's version; else the version pinned at registration, falling back to the
+// child's latest. depKey is the child_map key ("" for child_list).
 func (e *Engine) resolveChildVersion(inst *model.ProcessInstance, taskID, name string, declared int, depKey string) (int, error) {
 	if declared != 0 {
 		return declared, nil
@@ -127,12 +125,9 @@ func (e *Engine) resolveChildVersion(inst *model.ProcessInstance, taskID, name s
 	return e.db.LatestVersion(name)
 }
 
-// newChildInstance builds a running child ProcessInstance rooted at parent. id is the
-// caller-assigned sibling id (base+i, so siblings sort after the parent and among
-// themselves in spawn order). spawnCtx carries the per-type discriminant keys
-// (_spawn_action_type plus _spawn_child_key / _spawn_index), merged over the common child
-// context. Nothing per-*task* belongs there — the collector holds the parent's task and
-// reads its slots from the definition.
+// newChildInstance builds a running child. id is base+i so siblings sort after the parent
+// in spawn order; spawnCtx carries only per-CHILD discriminants (_spawn_action_type,
+// _spawn_child_key/_spawn_index) — per-task data lives on the parent's definition.
 func newChildInstance(parent *model.ProcessInstance, task *model.Task, def *model.ProcessDefinition, version int, input any, callStack []string, id string, spawnCtx map[string]any) *model.ProcessInstance {
 	childCtx := map[string]any{
 		"input":        input,
@@ -156,11 +151,9 @@ func newChildInstance(parent *model.ProcessInstance, task *model.Task, def *mode
 	}
 }
 
-// buildSingleChild resolves the definition, evaluates the input, and constructs the one
-// ProcessInstance a "child" task spawns. It carries no slot discriminant (there is a
-// single child, so no _spawn_child_key / _spawn_index); its output is collected unwrapped.
-// Persists nothing; a non-nil outcome means the parent failed and the caller must stop and
-// persist it.
+// buildSingleChild constructs the one instance a "child" task spawns — no slot
+// discriminant, output collected unwrapped. Persists nothing; a non-nil outcome means the
+// parent failed and the caller must stop and persist it.
 func (e *Engine) buildSingleChild(inst *model.ProcessInstance, task *model.Task, callStack []string) (*model.ProcessInstance, *advanceOutcome) {
 	version, err := e.resolveChildVersion(inst, task.ID, task.Action.Name, task.Action.Version, "")
 	if err != nil {
@@ -228,11 +221,9 @@ func (e *Engine) buildMapChildren(ctx context.Context, inst *model.ProcessInstan
 	return children, nil
 }
 
-// buildListChildren evaluates the child_list `over` expression to an array and builds one
-// child per element, in order (each element is that child's input). Returns an empty slice
-// (no error) when `over` yields an empty array or null — the caller handles the empty
-// fan-out. Persists nothing; a non-nil outcome means the parent failed and the caller must
-// stop and persist it.
+// buildListChildren evaluates `over` to an array, one child per element in order. Empty
+// array or null yields an empty slice, no error (the caller handles the empty fan-out).
+// Persists nothing; a non-nil outcome fails the parent.
 func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInstance, task *model.Task, callStack []string) ([]*model.ProcessInstance, *advanceOutcome) {
 	version, err := e.resolveChildVersion(inst, task.ID, task.Action.Name, task.Action.Version, "")
 	if err != nil {

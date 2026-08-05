@@ -1,357 +1,150 @@
 # Recovering an interrupted `only_once` task
 
-Status: **implemented 2026-08-02** (drafted the same day). Everything below "The gap"
-describes current behaviour; the gap itself describes what it replaced.
-
-Code: `internal/errcode/errcode.go` (the code, the unknowable set, `MatchCode`),
-`internal/engine/advance.go` (`prepareAdvance` and the `pausing` branch of `advance`),
-`internal/engine/error.go` (`isRetryAllowed`, `settlePausing`, `interruptedOnlyOnce`),
-`internal/model/validate.go` (`validateOnError`), `internal/model/definition.go` and
-`wire.go` (the `only_once` / `not_reached` descriptions the editor schema is generated
-from).
-
-Tests: `internal/engine/interrupted_test.go`, `internal/model/validate_onlyonce_test.go`
-(the retry-tier matrix), the only_once cases in `internal/model/definition_test.go`,
-`internal/errcode/match_test.go`, `tests/integration/idempotent_test.ts`, and the
-interrupted-recovery tests at the end of `tests/integration/crash_recovery_test.ts`.
-
-`specs/child-error-handling.md` still lists `engine.only_once` in its historical code
-table; it is a record of what was decided then, not of current behaviour.
+Status: **implemented 2026-08-02.** Runtime invariants live in
+[internal/engine/CLAUDE.md](../internal/engine/CLAUDE.md) and
+[internal/model/CLAUDE.md](../internal/model/CLAUDE.md); this file records the design.
+Tests: `interrupted_test.go`, `validate_onlyonce_test.go` (the tier matrix),
+`idempotent_test.ts`, `crash_recovery_test.ts`.
 
 ## The gap
 
-When a worker is interrupted mid-task — it crashed, or froze long enough to lose its
-lease — the next worker to claim the instance sees `ReclaimedExpired` and re-runs the
-task. That is at-least-once, and it is correct for the default case.
-
-`only_once: true` opts out: the engine refuses to re-run, because the call may already
-have happened, and fails the instance with `engine.only_once`. Correct, and terminal —
-`engine.*` codes are never routed through `on_error`, so a definition cannot react.
-
-Terminal is the wrong stopping point. The engine genuinely cannot know whether the charge
-went through; **the definition's author often can** — by asking the payment provider
-whether that idempotency key exists, by looking the order up, by reading back the row the
-call was supposed to write. What the author needs is a place to put that question. The
-outcome should be *recoverable but never blindly repeatable*: no automatic retry ever, and
-a re-run only after the definition has checked and decided.
+Reclaim-and-re-run is correct at-least-once behaviour, and `only_once: true` opts out —
+but the old opt-out failed the instance with a terminal `engine.only_once`. Terminal is
+the wrong stopping point: the *engine* cannot know whether the charge went through, but
+the author often can — by asking the system of record. The outcome should be
+*recoverable but never blindly repeatable*: no automatic retry ever; a re-run only after
+the definition has checked and decided.
 
 ## The code: `only_once.interrupted`
 
-A new catchable code, in a family of its own named after the declaration that produces it.
+A catchable code in a family of its own, named after the declaration that produces it.
+Rejected families, each a trap worth keeping written down:
+
+- **Not `pre.*`** — that prefix is a retry-safety *assertion* (`IsNotReached`), and a
+  `pre.interrupted` would make `pre.%` rules auto-retry the one error that must never be.
+- **Not `engine.*`** — documented as never-routed; one catchable member turns a clean
+  invariant into an exception list.
+- **Not `task.*`/`call.*`** — a general family invites general membership; naming it
+  after the declaration keeps the set self-limiting.
+
+So `errcode.go` has a third section: an engine-produced (dotted) code that is
+nonetheless catchable. The message keeps the author's vocabulary ("its previous attempt
+was interrupted; the engine will not re-run it") — a definition should not know what a
+lease is.
+
+## Raise sites, and the pending-pause interaction
+
+Two sites: `prepareAdvance` (claim of a running instance) and the `pausing` branch of
+`advance` (crash-recovery claim). The pausing case follows one rule:
+
+> **The interruption is resolved immediately; the pause lands at the next stable
+> boundary.**
+
+The two halves have different deadlines: the verdict's evidence (`ReclaimedExpired`,
+derived from `worker_id`) does not survive the write that settles a pause, while
+*running* the handler answers the same tomorrow. So the instance goes through the normal
+router, ignoring the pausing status: unmatched → terminal failure (a failure outranks a
+pause); `raise`/`panic`/`goto: end` → terminal; `goto: <task>` → parks at the handler,
+**paused**, and runs it on resume — no new Go branch, because the routed checkpoint
+writes status `running` and the `UpdateInstance` CASE lands the pause (the "pause lands
+in SQL" invariant, applied to a path that used to opt out). `$error` survives the wait
+as ordinary persisted context. `settlePausing` keeps only its original job, and a
+non-`only_once` interrupted task still just parks and re-runs on resume.
+
+## What a matching rule may do
+
+Everything a call-error rule may: `goto`/`raise`/`panic`/`end`; wildcards and catch-alls
+may match it (the author's risk, as with every code — note an already-registered
+catch-all on an `only_once` task changes behaviour under this feature, a runtime change
+for existing rows); uncaught is the same terminal failure as before. `retries` is
+refused — see the unknowable set. Mechanically `handleCallError` minus the retry branch;
+`$error.task` names the interrupted task; no `work_started` for it (the handler emits
+its own).
+
+## The unknowable set
+
+The retry ban is drawn around the property, not the code: **a retry is refused when the
+definition cannot, even in principle, know whether the call took effect** — the request
+left and nothing came back. Members: `only_once.interrupted`, `http.timeout`,
+`external.timeout` (armed, deadline passed, nothing learned — the member most worth a
+second opinion, since `only_once` external tasks are rare). Outside it, `not_reached:
+true` keeps working: `pre.*` (never left; safe with no assertion), and any code where a
+response *arrived* (`http.<status>`, `output.*`) — there is evidence to assert about.
+`not_reached` is an assertion about what an error means, and for the set nothing came
+back, so there is nothing to interpret.
+
+**Enforcement: three tiers at declaration, per pattern** (a rule may mix a safe `pre.%`
+with a named exception):
+
+1. a pattern that can only match `pre.*` is safe alone;
+2. anything else needs `not_reached: true` **and exact codes** — an assertion about a
+   wildcard is a hope, not an assertion;
+3. an unknowable-set member is refused however named. Checked first, so naming
+   `http.timeout` gets "hopeless", not tier-2 advice; and since tier 2 admits only
+   literals, tier 3 is exact membership — no wildcard matching in validation.
+
+Alongside: `on_error` and `switch` reject unknown keys naming the right list (`code` vs
+`case`) — a silently dropped selector used to turn a rule into a catch-all. Safe over
+stored rows because stored definitions are canonical re-marshals. Every rejection names
+the offending pattern *and* the fix; the validation matrix asserts both, and runs every
+case against a non-`only_once` task where all must pass. The runtime refusal
+(`isRetryAllowed`) is not redundant: pre-rule definitions never re-validate.
+
+Wildcards stay legal for **matching**: `{code: ["%"], goto: verify}` is fine;
+`{code: ["%"], retry: 3}` is not.
+
+## Recovering: verify, then continue
 
 ```yaml
 - id: charge_card
   only_once: true
   action: { type: fetch, url: "https://psp.example/charge" }
   on_error:
-    - code: [only_once.interrupted]
-      goto: verify_charge
-```
-
-The name is deliberately narrow rather than general. Three families were rejected for
-concrete reasons, and each is a trap worth keeping written down:
-
-- **Not `pre.*`.** That prefix is not a description, it is a retry-safety *assertion*:
-  `Code.IsNotReached` and `patternOnlyMatchesPre` use it to authorise retries on
-  `only_once` tasks. A `pre.interrupted` would make `pre.%` rules retry the one error that
-  must never be retried automatically.
-- **Not `engine.*`.** That family is documented in `errcode.go` as terminal and never
-  routed. Making one member catchable turns a clean invariant into an exception list.
-- **Not `task.*` or `call.*`.** A general family invites general membership, and this
-  event is not general: it exists only because a task declared `only_once`. Naming the
-  family after the declaration keeps the set self-limiting — anything else in it would
-  also have to be a consequence of that same guard.
-
-So `errcode.go` grows a third section beside "call codes" and "engine-internal codes": a
-code the **engine** produces (dotted, like every engine code) that is nonetheless
-**catchable** (routed through `on_error`, like a call code).
-
-The message keeps the author's vocabulary rather than the engine's — a definition should
-not have to know what a lease is:
-
-> `task "charge_card" is only_once and its previous attempt was interrupted; the engine will not re-run it`
-
-## Where it is raised, and what a pending pause does to it
-
-The guard has two sites: `prepareAdvance` (`advance.go`), on the claim of a **running**
-instance, and `settlePausing` (`error.go`), on the crash-recovery claim of a **pausing**
-one — a row whose worker died mid-task after an operator asked the tree to stop. Both
-carry `only_once.interrupted`; `errcode.EngineOnlyOnce` is retired.
-
-The pausing case looks like it needs special handling and does not. The rule:
-
-> **An interruption is resolved immediately; the pause lands at the next stable boundary.**
-
-The two halves are separable because they have different deadlines. Deciding *what to do
-about the interruption* is time-sensitive: `ReclaimedExpired` is derived per claim from
-`worker_id` and never persisted, and the write that settles a pause clears that column, so
-a decision deferred past this write is a decision made on evidence that no longer exists.
-Actually *running* the handler is not time-sensitive at all — asking a payment provider
-whether a charge exists answers the same tomorrow.
-
-So `settlePausing` stops asking the `only_once` question and the pausing status is ignored
-for the purpose of answering it: the instance goes through the same router the running path
-uses, and lands wherever that router says, paused. Concretely:
-
-| routed to | result |
-|---|---|
-| nothing matched | terminal failure — a failure outranks a pause, which is already the engine's rule (`FailAncestors` deliberately includes `paused`/`pausing` rows) |
-| `raise` / `panic` / `goto: end` | terminal likewise; there is nothing left to suspend |
-| `goto: <task>` | the instance parks at the handler task, **paused**, and runs it on resume |
-
-The last row needs no new Go branch, which is the good part. A routed `goto` returns the
-ordinary running checkpoint, and `UpdateInstance`'s `CASE` turns row-status `pausing` plus
-incoming status `running` into `paused` — the existing mechanism, unchanged, doing exactly
-what it is for. This is invariant 1 from CLAUDE.md ("a pending pause lands in SQL, not in
-Go") applied to a path that used to opt out of it. `$error` survives the wait because it is
-persisted in `error_data` like any other context, so the handler reads it on resume.
-
-What remains in `settlePausing` afterwards is only its original job: land the pause. An
-interrupted task that is *not* `only_once` still parks and re-runs on resume, unchanged —
-at-least-once needs no evidence, so there is nothing to decide before the pause.
-
-Two consequences worth naming. A definition that routes back into the interrupted task
-(`goto: $charge_card`) parks paused *on that task* and re-runs it on resume without the
-guard firing, which is the author's decision taken at pause time rather than at resume
-time — the same sanctioned re-entry described below. And an operator who pauses a tree
-containing an interrupted `only_once` task may find it settled as `failed` rather than
-`paused`; that is not new (it is today's behaviour) and it is what "a failure outranks a
-pause" means.
-
-## What a matching rule may do
-
-- **`goto`, `raise`, `panic`, `goto: end`** all behave exactly as they do for a call error.
-- **Wildcards and catch-alls may match it.** `%` is the author's risk, consistent with how
-  every other code is matched; there is no exactness gate. One consequence to accept
-  knowingly: an *already registered* definition with a catch-all `on_error` on an
-  `only_once` task changes behaviour under this feature — what used to fail terminally now
-  routes to that handler. Definitions are immutable per version, so this is a runtime
-  behaviour change for existing rows, not a re-registration.
-- **Uncaught is unchanged**: no matching rule means the same terminal failure as today,
-  with the same phrase in `error`.
-- **`retries` is refused** — for this code and for every other error nothing came back
-  from. See the next section.
-
-Mechanically it is `handleCallError` minus the retry branch: match, inject
-`$error = {task, message, code}`, then route. `$error.task` is what tells the handler
-*which* task was interrupted. No `work_started` is emitted for the interrupted task —
-the handler task emits its own on the next claim.
-
-## The unknowable set: where `not_reached` stops being an option
-
-`only_once.interrupted` is not the only error an `only_once` task can meet where retrying
-is a coin flip, and it would be strange to ban the retry here while allowing it on the
-error one line over that means the same thing operationally. So the rule is drawn around
-the property, not the code:
-
-> **A retry is refused when the definition cannot, even in principle, know whether the
-> call took effect** — which is exactly when the request left and no response ever came
-> back.
-
-| code | why it is in the set |
-|---|---|
-| `only_once.interrupted` | the worker vanished mid-task; nothing was recorded anywhere |
-| `http.timeout` | connected, and no response ever arrived — the server may have processed it |
-| `external.timeout` | an occurrence was armed and nobody resolved it before the deadline (routed through `handleCallError` like any call error, so it is subject to the same rules) |
-
-And what stays outside it, where `not_reached: true` keeps working exactly as documented:
-
-| code | why the author may still assert |
-|---|---|
-| `pre.*` | the request never left; a retry is safe with no assertion needed at all |
-| `http.<status>`, `output.parse`, `output.too_large`, `output.invalid` | a response **did** arrive, so there is evidence to reason from — "a 422 from this API means nothing was charged" is a real claim about a real API |
-
-That is the line: `not_reached` is an assertion about what an error *means*, and it can
-only be made about an error that actually came back. For the set above nothing came back,
-so there is nothing to interpret — an author writing `not_reached: true` there is not
-asserting domain knowledge, they are guessing.
-
-**Enforcement is at declaration, in three tiers, applied per pattern.** A rule's patterns
-are not all-or-nothing: `{code: ["pre.%", "http.409"], not_reached: true, retry: 2}` is
-legal, the wildcard passing on tier 1 and the named exception on tier 2.
-
-| tier | rule | rejected with |
-|---|---|---|
-| 1 | a pattern that can only match `pre.*` is safe on its own — nothing left the process | — |
-| 2 | anything else needs `not_reached: true`, **and must name exact codes**: an assertion about "everything matching `http.%`" is not an assertion, it is a hope | *"pattern %q cannot be a wildcard; name the exact codes instead"* |
-| 3 | a member of the unknowable set is refused however it is named, with or without `not_reached` | *"%s can never be retried … Catch it with a goto and check the system of record instead"* |
-
-Tier 3 is checked first, so naming `http.timeout` gets the reason it is hopeless rather
-than tier-2 advice that leads nowhere. And because tier 2 admits only literals, tier 3 is
-an exact set-membership test — no wildcard matching in validation at all. An earlier draft
-matched every pattern against every member, which over-reported (a wildcard was blamed for
-"matching `only_once.interrupted`" when the real objection is that it is a wildcard) and
-under-explained.
-
-A rule can only be judged on what it says, so `on_error` and `switch` now reject a key they
-do not define, naming the list it belongs to. The two select with different words — `code`
-for errors, `case` for a condition — and `encoding/json` used to drop the mistyped one in
-silence, which turned an on_error rule into a **catch-all** and then reported a catch-all
-problem the author never wrote. (Safe despite decoders also running over stored rows:
-`SaveDefinition` persists `json.Marshal` of the decoded struct, so a stored definition is
-canonical by construction. The check found a mis-keyed rule in this repo's own test
-fixtures on its first run.)
-
-Each message names both the offending pattern and the way forward, which is the property
-the validation matrix in `internal/model/validate_onlyonce_test.go` asserts alongside the
-verdict: a rejection that does not say what to write instead is a defect even when the
-verdict is right. The same matrix runs every case against a task **without** `only_once`,
-where all of them must be accepted — these tiers exist only for at-most-once, and a false
-positive means a legitimate retry policy cannot be expressed at all.
-
-The runtime refusal stays as well, and it is not redundant. Validation runs at
-registration; definitions registered before this rule keep their stored `on_error` rules
-verbatim and never re-validate, so `isRetryAllowed` is what actually holds the line for
-them.
-
-Wildcards remain legal for **matching**. `{code: ["%"], goto: verify}` is fine and
-sometimes exactly right; `{code: ["%"], retry: 3}` is not, because `%` can match
-`http.timeout`.
-
-## Recovering: verify, then continue
-
-The intended shape, and the reason retries are banned rather than merely discouraged:
-
-```yaml
-- id: charge_card
-  only_once: true
-  action: { type: fetch, url: "https://psp.example/charge", ... }
-  on_error:
     - code: [only_once.interrupted, http.timeout]   # both mean "outcome unknown"
       goto: verify_charge
-  switch: [{ goto: receipt }]
-
-- id: verify_charge                      # ask the system of record, not the engine
+- id: verify_charge
   action: { type: fetch, url: "https://psp.example/charges/${ order_id }" }
   switch:
-    - case: $: self.exists                # it did happen — carry on
+    - case: $: self.exists
       goto: receipt
-    - goto: charge_card                   # it did not — re-run it, deliberately
+    - goto: charge_card        # did not happen — re-run, deliberately
 ```
 
-The rule lists **both** unknowable codes, and handlers generally should. The two arise
-differently — a worker that vanished versus a server that never answered — but they leave
-the definition in the same position, with the same question to ask and the same place to
-ask it. A handler that catches only `only_once.interrupted` leaves the far more common
-`http.timeout` falling through to a plain failure on the very task that can least afford
-one.
+Handlers should list **both** unknowable HTTP-path codes: they arise differently but
+leave the definition in the same position. The re-entry is sanctioned: the guard runs
+once per claim in `prepareAdvance` against the parked task; a routed `goto` ends the
+advance, so a later `goto` back executes as an ordinary first attempt — the engine never
+repeats on its own, the definition may once it has established safety. Not expressible:
+"assume it succeeded and continue with its output" — the lost attempt recorded nothing,
+so a handler concluding it happened must produce the value itself (as `verify_charge`
+does by reading it back).
 
-The re-entry on the last line works and is sanctioned: the `only_once` guard is evaluated
-**once per claim**, in `prepareAdvance`, against the task the instance was parked on — not
-on every entry into a task. A routed `goto` persists and ends the advance, so the handler
-runs under a fresh, clean claim where `ReclaimedExpired` is false; a later `goto` back into
-`charge_card` executes it as an ordinary first attempt. That is exactly the distinction
-being drawn: the engine will never repeat the call on its own, and the definition may, once
-it has established that repeating is safe.
+## Implementation notes
 
-**What cannot be expressed:** "assume it succeeded and continue with its output". The
-interrupted attempt recorded nothing, so there is no `self` to resume with. A handler that
-concludes the call did happen must produce the equivalent value itself — which is what
-`verify_charge` above does by reading the charge back, its own output taking the place of
-the lost one.
-
-## Implementation note: where the matcher has to live
-
-The declaration check needs to ask "can this pattern match this code", which was
-`transport.MatchCode` — and `internal/model` cannot import `internal/transport`, because
-transport imports model. Three ways out were considered:
-
-1. **Move the matcher into `errcode`** — taken. It matches codes, `errcode` is the package
-   that owns codes, and it has no genroc dependencies, so the engine and the child-raise
-   checks in `internal/validation` reach the one implementation. The move turned out to be
-   total rather than a forward: `accepted_status` patterns, the other thing that looked
-   like a caller, do not use it, so nothing was left behind in transport.
-
-   The import cycle that forced the question then dissolved: tier 2 admits only literal
-   codes, so `validateOnError` compares them with `IsUnknowable` and needs no matcher at
-   all. The move stands on where the code belongs rather than on who could reach it.
-2. Do the check in `internal/validation`, which may import both. Rejected: the other
-   `only_once` retry rules live in `model/validate.go`, and splitting one rule set across
-   two packages is how it drifts.
-3. Reimplement a matcher in model. No.
-
-The set itself belongs in `errcode` beside `NotReached`, and the two read as the pair they
-are: `NotReached` is the prefix meaning "definitely did not happen", and this is the list
-meaning "cannot be known either way". A `Code.IsUnknowable()` method mirrors
-`Code.IsNotReached()`.
-
-## Compatibility
-
-- Instances that already failed carry the string `engine.only_once` in `error_code`
-  forever; dashboards and alerts filtering on it need updating. The prose in `error` still
-  contains "only_once", so `crash_recovery_test.ts`'s existing assertion survives.
-- No schema change, no migration. `error_code` is a free-form string column.
-- Definitions with no rule for the code behave identically to today.
-- **The unknowable set tightens an existing allowance.** Today
-  `{code: ["http.%"], retry: 2, not_reached: true}` on an `only_once` task registers
-  cleanly, because `not_reached` overrides the pattern check; afterwards it does not,
-  since `http.%` can match `http.timeout`. Re-registering such a definition fails with a
-  message naming the offending code, and the author narrows the pattern (`http.4%`) or
-  drops the retry. Versions already registered keep running — validation happens at
-  registration — which is why the runtime refusal is load-bearing rather than belt-and-braces.
-- `only_once` is the fallback for APIs that cannot deduplicate. Where the remote accepts an
-  idempotency key, sending one from process input (`${ input.order_id }`) makes a retry
-  safe outright, and none of this applies. genroc cannot synthesise such a key itself: the
-  expression environment is `input`, `outputs`, `self`, `error`, `config` — there is no
-  engine-provided run identity (see Open questions).
-
-## Testing
-
-- `tests/integration/crash_recovery_test.ts` already has the exact harness: worker 1 takes
-  an `only_once` task whose mock hangs forever, gets SIGKILLed mid-request, and worker 2
-  reclaims. Extend it with a definition that routes `only_once.interrupted` to a verify
-  task and assert the handler ran, the process completed, and the mock's action endpoint
-  was hit exactly once — the re-run must be the *handler's* decision, visible as a separate
-  request to the verify endpoint.
-- A second e2e for the deliberate re-run: verify says "did not happen", the definition
-  gotos back, and the action endpoint is hit a second time — proving the guard does not
-  re-fire on an authored re-entry.
-- The pausing variant, which `pause_retry_test.ts` and the crash suite can be combined
-  into: pause the tree, SIGKILL the worker mid-`only_once` task, let the reclaim happen,
-  and assert the instance settles at **`paused` parked on the handler task** — not on the
-  interrupted one, and not `running`. Then resume and assert the handler runs. The
-  uncaught variant of the same setup must settle `failed`, as it does today.
-- Go, `internal/model`: a table over the unknowable set × pattern shapes — `%`, `http.%`,
-  `only_once.%`, the literal code, and a near-miss that must still register (`http.4%`,
-  `pre.%`) — each with and without `not_reached: true`, asserting that the flag never
-  rescues a rule that can match the set. Plus the unchanged cases: `pre.%` + retries
-  registers, `http.500` + retries + `not_reached` registers.
-- Go, `internal/engine`: uncaught → terminal with the code; matched `goto` → routed with
-  `$error` populated; a stored rule carrying `retries` (as a pre-rule definition would) →
-  routed, never retried — the runtime half of the ban.
+- The matcher lives in `errcode` (it matches codes; `errcode` owns codes; no
+  dependencies) — moved from transport totally, not forwarded. The import cycle that
+  forced the question dissolved once tier 2 admitted only literals, so the move stands
+  on ownership. `IsUnknowable()` mirrors `IsNotReached()`.
+- Compatibility: old rows keep `engine.only_once` in `error_code` forever (dashboards
+  update; the prose still says "only_once"). No migration. The set *tightens* an old
+  allowance: `{code: ["http.%"], retry, not_reached}` used to register and now fails at
+  re-registration with the offending code named; already-registered versions keep
+  running, which is why the runtime refusal is load-bearing.
+- `only_once` is the fallback for APIs without idempotency keys; where the remote
+  accepts one, sending it from input makes retries safe outright. genroc cannot
+  synthesise a key — no engine-provided run identity in the expression environment.
 
 ## Open questions
 
-- ~~Should the pause path become catchable too?~~ **Yes, and it needs no new state** — see
-  above. Two rejected approaches are worth recording, because both look reasonable and
-  both are worse: persisting an "interrupted" marker (a column or an `engine_state` field)
-  so the verdict survives the pause, and having `settlePausing` park the instance *without*
-  clearing `worker_id` so `ReclaimedExpired` re-derives on resume. The second is the
-  smaller of the two and nearly works — pause and resume write only `status`, so a stale
-  `worker_id` does survive them — but it leaves a live worker's id on a paused row, which
-  `RenewWorkerLeases` would renew forever, so it depends on the renewer scoping specced in
-  [lease-fencing.md](lease-fencing.md). Resolving the interruption immediately makes both
-  unnecessary: nothing has to survive the pause because nothing is deferred.
-- **Is `external.timeout` really in the unknowable set?** It is here by the principle
-  rather than by demand: an armed occurrence whose deadline passed tells the engine nothing
-  about whether the external actor acted, which is the same epistemic state as a response
-  that never came. But `only_once` on an external task is a less-trodden combination than
-  `only_once` on a fetch, so it is the member of the set most worth a second opinion.
-- **Should a stable run identity be exposed to expressions?** The idempotency-key path
-  above is the better answer whenever the remote supports it, and today an author can only
-  build a key out of their own input. An engine-provided identity (the instance id, or a
-  per-task attempt token) would make the key derivable for any process. It is a change to
-  the expression environment, so it belongs in its own design rather than smuggled in here.
-- **Is there a third outcome between "fail" and "route"?** A definition with no handler for
-  an unknowable error currently fails the tree, and recovery is `RetryProcess(force)` — an
-  operator verb applied to a dead process. A state meaning "stopped, needs a human, resume
-  when decided" would fit this case better than either. It is a lifecycle change, not an
-  error-model one, so it is noted rather than proposed.
-- **Should `$error` say more than the code?** A handler currently learns *which* task was
-  interrupted but nothing about how far it got — there is nothing to learn, since the
-  attempt recorded nothing. If action-level metadata (`self.status`, the `fetch` surface
-  draft) ever lands, an attempt that got as far as a response would be a different, richer
-  case than this one.
-- **Does the family stay a family of one?** If a second `only_once.*` code never appears,
-  the family is really just a two-word name — which is fine, and cheaper than having
-  guessed at a general one.
+- Rejected alternatives for the pause path, recorded because both look reasonable:
+  persisting an "interrupted" marker, and parking without clearing `worker_id` (nearly
+  works, but leaves a live worker's id for the renewer to renew forever — depends on the
+  lease-fencing renewer scoping). Resolving immediately makes both unnecessary.
+- Should a stable run identity be exposed to expressions (making idempotency keys
+  derivable for any process)? Its own design — a change to the expression environment.
+- Is there a third outcome between "fail" and "route" — "stopped, needs a human"? A
+  lifecycle change, noted not proposed.
+- Should `$error` say more than the code? Only meaningful if action-level response
+  metadata lands (fetch-http-surface).
+- The family may stay a family of one; that is fine and cheaper than a guessed general
+  name.

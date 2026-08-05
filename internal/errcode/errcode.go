@@ -55,12 +55,10 @@ const NotReached = "pre."
 // IsNotReached reports whether c is in the pre.* "call never reached the remote" family.
 func (c Code) IsNotReached() bool { return strings.HasPrefix(string(c), NotReached) }
 
-// unknowable is NotReached's opposite pole: the request left and nothing came back, so
-// whether the call took effect cannot be determined by anyone. On an only_once task these
-// can never be retried and not_reached:true does not override it — see
-// specs/only-once-interrupted.md. Enforced at registration (model.validateOnError) and
-// again at runtime (engine.isRetryAllowed), which covers definitions stored before the
-// rule. A slice, not a set: validation iterates it and the order shows up in messages.
+// unknowable is NotReached's opposite pole: the request left, nothing came back, so the
+// outcome is undeterminable — never retryable on only_once, not_reached does not override.
+// Enforced at registration AND runtime (pre-rule definitions never re-validate). A slice:
+// validation iterates it and order shows in messages.
 var unknowable = []Code{OnlyOnceInterrupted, HTTPTimeout, ExternalTimeout}
 
 // Unknowable returns the codes whose outcome cannot be determined either way. The

@@ -196,11 +196,9 @@ func addServerFlag(fs *flag.FlagSet, def string) *string {
 	return fs.String("server", def, "genroc server base URL ($GENROC_SERVER)")
 }
 
-// instanceIDAndFlags parses an instance subcommand's args, where the instance id
-// may sit before or after the flags. A leading non-flag token is taken as the id
-// (so `get <id> --json` keeps working); otherwise a trailing positional is used (so
-// `pause --server X <id>` works too). The id must be given explicitly — a concrete
-// id or "@last"; a missing one is an error (see resolveInstanceID).
+// instanceIDAndFlags parses an instance subcommand where the id may sit before or after
+// the flags (`get <id> --json` and `pause --server X <id>` both work). The id must be
+// explicit — a concrete id or "@last" (see resolveInstanceID).
 func instanceIDAndFlags(fs *flag.FlagSet, args []string) string {
 	var id string
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {

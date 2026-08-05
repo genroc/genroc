@@ -19,10 +19,6 @@ behavior while the spec stays put, answering a different question. See
   (string interpolation into a URL does no escaping). Each part carries its own
   compatibility argument; both are additive. Notes a blocker: hyphenated header names
   are unreadable because the parser accepts only integer literals in `[...]`.
-- [typed-values.md](typed-values.md) — generalize `Shape` into a typed value authorable as
-  literal YAML (expression leaves) **or** a single expression, checked against a schema via
-  `inferShape`→`IsSubset`; applies to action payloads / `input`, with editor autocomplete
-  from a generated JSON Schema.
 - [error-extensions.md](error-extensions.md) — three considered-and-declined extensions to
   the child error model (batch-shape routing, a diagnostic payload on `raise`, opt-in
   exhaustiveness). Unlike the others these are **open questions, not intended work** — each
@@ -65,7 +61,8 @@ behavior while the spec stays put, answering a different question. See
 
 `pause-resume.md`, `only-once-interrupted.md`, `unknown-type.md`, `delay-syntax.md`,
 `recursive-type-inference.md`, `resource-limits.md`, `retry-policy.md`,
-`lease-fencing.md` describe code that exists. The invariants extracted from them live in
+`lease-fencing.md`, `typed-values.md`, `map-expressions.md`, `number-precision.md`,
+`error-handling-audit.md`, `child-error-handling.md` describe code that exists. The invariants extracted from them live in
 the `CLAUDE.md` of the owning package.
 
 `version-compatibility.md` is **half** of each: its comparison is shipped — `Compare` /

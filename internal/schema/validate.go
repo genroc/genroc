@@ -66,12 +66,10 @@ const (
 	FillAbsentAsNull
 )
 
-// conformGuard is conform with a same-position cycle guard: visiting holds the resolved
-// nodes already expanded at the current value position (no object/array descent since),
-// so a $ref back to one is a schema cycle with no structural progress and the branch
-// fails instead of recursing forever. Stored schemas decode without CheckDoc, so the
-// validator guards itself. Descending into a property or element starts a fresh set —
-// value depth was consumed, so revisiting a node there is productive recursion.
+// conformGuard: visiting holds nodes expanded at the current value position, so a $ref
+// back to one is a no-progress schema cycle and the branch fails instead of recursing
+// forever (stored schemas decode without CheckDoc). Descent into a property/element
+// starts fresh — value depth was consumed.
 func conformGuard(nd *node, defs map[string]*node, data any, path string, visiting map[*node]bool, mode ConformMode) (any, error) {
 	resolved, err := deref(nd, defs)
 	if err != nil {
@@ -388,12 +386,9 @@ func jsonTypeName(data any) string {
 	return fmt.Sprintf("%T", data)
 }
 
-// cloneJSON deep-copies a JSON value so a schema default can be handed out
-// without sharing mutable state with the schema.
-// cloneJSON deep-copies a value so a filled default is never aliased into two
-// documents. The decode preserves exact numeric literals — a plain Unmarshal here
-// would undo the exactness the schema decode just established, silently rounding
-// a large default back to float64.
+// cloneJSON deep-copies so a filled default is never aliased into two documents, decoding
+// with exact numeric literals — a plain Unmarshal here would silently undo the exactness
+// the schema decode just established.
 func cloneJSON(v any) any {
 	b, err := json.Marshal(v)
 	if err != nil {

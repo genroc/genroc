@@ -250,11 +250,9 @@ var definitionPaginator = paginator{
 		// created carries name+version too: created_at alone is not unique, and a keyset
 		// cursor on a non-total order can skip or repeat a row at the page boundary.
 		"created": {{"created_at", kindInt}, {"name", kindText}, {"version", kindInt}},
-		// The only text sort in the codebase, so the only one whose result depends on the
-		// engine's collation: SQLite compares bytes, Postgres uses the database's locale
-		// and demotes punctuation, so "big_values" and "bigctx" swap between them. Both
-		// are self-consistent — ORDER BY and the keyset predicate share the collation, so
-		// paging never skips or repeats — but a test cannot assert an order of its own.
+		// The only text sort in the codebase, so the only one collation-dependent: SQLite compares
+		// bytes, Postgres uses the locale. Each engine is self-consistent (paging never skips or
+		// repeats), but no test may assert a text order of its own.
 		"name": {{"name", kindText}, {"version", kindInt}},
 	},
 	defSort:  "created",

@@ -13,11 +13,10 @@ import (
 	"genroc/internal/shape"
 )
 
-// advanceOutcome is the next persisted state that advance() computes without writing it.
-// Everything a step changes travels here — including rows that are not this instance's —
-// so that persist is the only writer and one advance is one transaction. Nothing else may
-// write: a path that persists for itself escapes the marker and lease discipline in
-// runAdvance, which is how an instance ends up free in the DB while still marked in memory.
+// advanceOutcome is the next persisted state advance() computes without writing —
+// everything a step changes travels here, so persist is the only writer and one advance
+// is one transaction. A path that writes for itself escapes the marker/lease discipline
+// in runAdvance (see CLAUDE.md).
 type advanceOutcome struct {
 	kind     outcomeKind
 	children []*model.ProcessInstance // outcomeSpawn: inserted alongside the parent's park
@@ -135,12 +134,9 @@ func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) er
 			return err
 		}
 	}
-	// A persisted advance may have produced immediately-runnable work: this instance
-	// again (a running checkpoint or a consumed buffered signal), children spawned by a
-	// parked parent, or a parent un-parked by this instance finishing. Nudge the pump to
-	// re-scan now rather than idle until the next tick. A spurious nudge (nothing
-	// actually runnable) costs only one empty claim, so signalling unconditionally keeps
-	// this correct and simple.
+	// A persisted advance may have made work runnable now (this instance again, spawned
+	// children, an un-parked parent) — nudge the pump instead of idling until the tick.
+	// A spurious nudge costs one empty claim, so signalling unconditionally stays simple.
 	e.signalWork()
 	return nil
 }
@@ -225,11 +221,9 @@ func (e *Engine) prepareAdvance(inst *model.ProcessInstance) (*model.ProcessDefi
 		return nil, 0, stop(e.failInstance(inst, errcode.EngineDefinition, fmt.Sprintf("current task %q not found in definition", inst.Task)))
 	}
 
-	// Reclaimed from an expired lease, so the current task may already have executed on
-	// the previous owner. Re-running is fine unless the task is only_once, which is handed
-	// to the definition as only_once.interrupted instead — routable, never retryable, and
-	// the same terminal failure as before when nothing catches it.
-	// See specs/only-once-interrupted.md.
+	// Reclaimed from an expired lease: the task may already have run on the previous owner.
+	// Re-running is fine unless only_once — handed to the definition as only_once.interrupted
+	// (routable, never retryable; uncaught = the same terminal failure). specs/only-once-interrupted.md.
 	if inst.ReclaimedExpired {
 		e.logOnly(logEvent{Level: model.LogWarn, ID: inst.ID,
 			Msg:  "reclaimed expired lease; previous owner crashed or stalled mid-task",
@@ -276,11 +270,9 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		return *done
 	}
 
-	// A call-less task has no external side effect, so a chain of them collapses into one
-	// claim and one write: we continue in-memory and persist only at a task with a call, a
-	// terminal state, or maxInlineTasks (a guard against an all-switch loop holding the
-	// lease forever). Crash-safe because a switch only re-evaluates already-persisted
-	// context, so resuming from the last written inst.Task is deterministic.
+	// A call-less task chain collapses into one claim and one write (bounded by maxInlineTasks
+	// against an all-switch loop). Crash-safe: a switch only re-evaluates persisted context,
+	// so resuming from the last written inst.Task is deterministic.
 	const maxInlineTasks = 1000
 	for i := 0; ; i++ {
 		if idx < 0 || idx >= len(def.Tasks) {

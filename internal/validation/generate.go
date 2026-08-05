@@ -52,12 +52,9 @@ func buildSchemaContext(def *model.ProcessDefinition) (defs schema.Defs, tasks m
 			return
 		}
 	}
-	// Process-level $defs reach the generation pool through the schemas that use
-	// them: FlattenNamed hoists the input schema's baked copies here, and
-	// actionResultType/childMapOutputSchema MergeInto the pool when a result
-	// schema is embedded in a context — renaming safely on collision, so the
-	// generated names seeded above always keep theirs. Unused definitions simply
-	// never arrive.
+	// Process-level $defs reach the pool through the schemas that use them (FlattenNamed
+	// hoists; MergeInto renames safely on collision, so generated names keep theirs). Unused
+	// definitions never arrive.
 	tasks = make(map[string]TaskSchemas)
 	collectTaskRefs(def.Tasks, tasks)
 	if _, ok := named["input"]; ok {
@@ -243,11 +240,9 @@ func collectTaskRefs(tasks []*model.Task, out map[string]TaskSchemas) {
 	}
 }
 
-// childMapOutputSchema types a child_map result as an object with one property per child
-// that declares a result_schema. A child WITHOUT a result_schema is omitted entirely — its
-// output is not accessible or exportable (there is no permissive fallback). The bool return
-// reports whether any child declared a result_schema; when none did, the whole result is
-// untyped (routable in a switch, not exportable), like a schema-less child/child_list.
+// childMapOutputSchema: one property per child that declares a result_schema; a child
+// without one is omitted entirely (not accessible, not exportable — no permissive
+// fallback). ok=false when none declared: the whole result is untyped, like a schema-less child.
 func childMapOutputSchema(s *model.Task, defs schema.Defs) (schema.Schema, bool, error) {
 	keys := make([]string, 0, len(s.Action.Children))
 	for key := range s.Action.Children {

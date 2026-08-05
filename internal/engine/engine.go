@@ -50,11 +50,10 @@ type Engine struct {
 	// runAdvance returns, so a lease always outlives the write it protects. A row that
 	// leaves the set expires with worker_id intact — the hand-back path. specs/lease-fencing.md.
 	held sync.Map
-	// lastRenewMs is DB-clock millis of the last successful renewal pass: the worker's
-	// only evidence that the leases it holds are alive. Written by the renewer, read by
-	// the pump. Every lease this worker holds expires at lastRenewMs+leaseDuration or
-	// later, which is what lets leaseGate rule out its own rows — see renewLeases for the
-	// half of that invariant which is easy to break.
+	// lastRenewMs: DB-clock millis of the last successful renewal — the worker's only
+	// evidence its leases are alive. Written by the renewer, read by the pump; every held
+	// lease expires at lastRenewMs+leaseDuration or later, the invariant leaseGate rests on
+	// (renewLeases has the fragile half).
 	lastRenewMs atomic.Int64
 	// graceUntilMs is touched only by the pump goroutine, so it needs no synchronisation.
 	graceUntilMs int64

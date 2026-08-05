@@ -58,11 +58,9 @@ type parser struct {
 	src    string
 	tokens []lexer.Token
 	pos    int
-	// lambdaOK marks that the expression about to be parsed sits in a builtin's
-	// lambda slot. parsePrimary consumes it, so it does not leak into nested
-	// expressions: map(xs, [x => 1]) must reject the lambda inside the array.
-	// Without this a lambda parses anywhere and only fails later with no source
-	// quote and no caret.
+	// lambdaOK marks a builtin's lambda slot; parsePrimary consumes it so it cannot leak into
+	// nested expressions (map(xs, [x => 1]) must reject the inner lambda). Without it a
+	// lambda parses anywhere and fails later with no source quote or caret.
 	lambdaOK bool
 }
 
@@ -180,11 +178,9 @@ func (p *parser) parsePostfix(base Node) Node {
 			idx := p.cur()
 			closes := p.peek().Kind == lexer.Bracket && p.peek().Value == "]"
 			switch {
-			// A string subscript is property access spelled so that a key which is
-			// not an identifier — "retry-after", "content-type" — is reachable at
-			// all; `.retry-after` lexes as subtraction. It desugars to the very node
-			// the dot form produces, so inference, evaluation and the ref walkers
-			// never learn the difference.
+			// A string subscript is property access spelled so a non-identifier key
+			// ("retry-after") is reachable at all — `.retry-after` lexes as subtraction. It
+			// desugars to the dot form's node, so nothing downstream learns the difference.
 			case idx.Kind == lexer.String && closes:
 				p.next()
 				p.next()

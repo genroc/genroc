@@ -43,11 +43,9 @@ type logEvent struct {
 // can never abort an advance.
 func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 	ev.ID = inst.ID
-	// Scrub every secret value (config + input + output, identified by the taint
-	// schemas) from the log before it is emitted or stored. A single sink here is
-	// the robust choice: genroc expressions have no functions, so a secret always
-	// appears verbatim (or as a substring) in any logged value — there is no way for
-	// it to reach a log line in a form a string-replace would miss.
+	// Scrub every secret value (config + input + output, via the taint schemas) at this one
+	// sink: expressions have no functions, so a secret always appears verbatim in any logged
+	// value — nothing can reach a log line in a form a string-replace would miss.
 	if secrets := e.contextSecrets(inst); len(secrets) > 0 {
 		ev.Data = redactSecrets(ev.Data, secrets)
 		ev.Msg = redactSecrets(ev.Msg, secrets)
@@ -274,11 +272,9 @@ func truncateStr(s string, max int) string {
 	return s
 }
 
-// encodeLogData renders a (secret-scrubbed) log payload into the data column: a small
-// payload is stored inline as an envelope, a large one is written to a log object and
-// stored as a reference plus a short preview, so the high-churn process_logs table never
-// holds a huge value. Best-effort: a failed object write falls back to a truncated inline
-// preview.
+// encodeLogData renders a scrubbed payload into the data column: small inline, large as a
+// log object + short preview, so high-churn process_logs never holds a huge value.
+// Best-effort: a failed object write falls back to a truncated inline preview.
 func (e *Engine) encodeLogData(instanceID, full string) string {
 	if full == "" {
 		return ""

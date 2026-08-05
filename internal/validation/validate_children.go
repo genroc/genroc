@@ -154,11 +154,9 @@ func validateChildEntry(taskID string, label string, p model.ChildEntry, ctx sch
 		return fmt.Errorf("%s: %w", prefix, err)
 	}
 
-	// Input compatibility is only checkable when the child declares an input schema; the
-	// output check runs regardless, so it is not gated behind the input one. CheckWith
-	// infers the input shape, normalizes it against the shared defs, and subset-checks it
-	// against the child's input_schema; the Result hook names the mismatch with the child's
-	// identity. An absent input is an empty object.
+	// Input compatibility is checkable only when the child declares an input schema; the
+	// output check runs regardless (not gated behind it). CheckWith infers, normalizes over
+	// shared defs, subset-checks; an absent input is an empty object.
 	if child.InputSchema != nil {
 		var raw any = map[string]any{}
 		if p.Input.Present() {
@@ -198,12 +196,9 @@ func checkChildOutputType(prefix string, child *model.ProcessDefinition, resultS
 	return nil
 }
 
-// processOutputType infers a definition's process output and resolves it to a concrete
-// schema. ok is false when the definition declares no output or the inference produced
-// none — its output type is open, and every caller here treats that as nothing to check.
-//
-// Generate returns ProcessOutput as a $ref into its own $defs, so the resolve is what
-// makes the returned schema comparable against one built from another pool.
+// processOutputType infers and RESOLVES the definition's output (Generate returns a $ref
+// into its own $defs; resolving makes it comparable against another pool). ok=false =
+// no declared output = open type = nothing to check, at every caller.
 func processOutputType(def *model.ProcessDefinition) (schema.Schema, bool, error) {
 	if !def.Output.Present() {
 		return schema.Schema{}, false, nil

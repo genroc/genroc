@@ -121,11 +121,9 @@ func (e *Engine) buildTaskData(inst *model.ProcessInstance, task *model.Task) (a
 	return e.evalShape(inst, shape.Shape{Raw: task.Action.Input.Raw}, nil)
 }
 
-// runDelay implements the delay action. First entry (WakeAt nil, reset on every task
-// transition) evaluates the duration and parks by stamping wake_at (the progress outcome
-// releases the worker); the claim loop re-claims once the timer elapses. Re-entry (WakeAt
-// set, so the claim guarantees the timer is due) returns nil to continue to the switch.
-// A non-nil outcome means it parked or failed (the caller stops and persists it).
+// runDelay: first entry (WakeAt nil, reset per task transition) evaluates and parks by
+// stamping wake_at; re-entry (WakeAt set ⇒ the claim guarantees the timer is due) returns
+// nil to continue. A non-nil outcome parked or failed — caller stops and persists.
 func (e *Engine) runDelay(inst *model.ProcessInstance, task *model.Task) *advanceOutcome {
 	if inst.WakeAt == nil {
 		now := db.Now()
@@ -451,11 +449,9 @@ func (e *Engine) resolveHeaders(inst *model.ProcessInstance, call *model.Action)
 	return resolved, nil
 }
 
-// resolveAcceptedStatus evaluates the fetch AcceptedStatus shape to a list of status
-// patterns. The shape may be a literal array of templated values or a single expression
-// yielding an array; either way it must resolve to an array, whose elements are coerced to
-// strings. Returns nil when the call sets no accepted_status (matchAcceptedStatus then
-// defaults to any 2xx).
+// resolveAcceptedStatus evaluates the fetch accepted_status shape to status patterns: a
+// literal array of templated values or one expression yielding an array; elements coerced
+// to strings. nil when unset (matchAcceptedStatus then defaults to any 2xx).
 func (e *Engine) resolveAcceptedStatus(inst *model.ProcessInstance, call *model.Action) ([]string, error) {
 	if !call.AcceptedStatus.Present() {
 		return nil, nil

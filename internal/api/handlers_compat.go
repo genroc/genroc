@@ -37,12 +37,9 @@ func (h *Handlers) definitionsCompat(raw json.RawMessage) Reply {
 		// would compare something the caller did not ask for.
 		return invalid("to: submitted definitions already name the target side").reply()
 	}
-	// Validate submitted documents before comparing them. A document that does not parse
-	// or whose child refs do not resolve has no schemas to compare, and reporting that as
-	// "unanalysable" would answer a question `validate` answers properly — naming the task
-	// and the expression. Stored versions are NOT re-validated: they passed under the rules
-	// of their day, and one that no longer analyses is a per-version verdict, not a
-	// rejection of the request.
+	// Validate submitted documents before comparing ("unanalysable" is a worse answer than
+	// validate's, which names the task and expression). Stored versions are NOT re-validated:
+	// they passed under the rules of their day; one that no longer analyses is a per-version verdict.
 	for _, sel := range []CompatSelector{req.From, req.To} {
 		if len(sel.Definitions) > 0 {
 			if _, err := h.validateSubmitted(sel.Definitions); err != nil {
@@ -70,12 +67,9 @@ func (h *Handlers) definitionsCompat(raw json.RawMessage) Reply {
 	return okReply(compatResp(report))
 }
 
-// reconcile settles what each side missing a process means, and is the only place a
-// comparison refuses rather than reporting.
-//
-// The asymmetry is deliberate: naming a process and getting silence is a mistake worth
-// catching, while a process that came along for the ride and is absent from the target is
-// simply not moving, so it is carried over and reported as unchanged.
+// reconcile settles what a missing counterpart means — the only place a comparison refuses.
+// Deliberately asymmetric: naming a process and getting silence is a mistake worth catching;
+// an implicit arrival with no target is simply not moving, so it carries over.
 func reconcile(from, to resolvedSide) error {
 	var orphans []string
 	for name, e := range from {

@@ -1010,12 +1010,9 @@ func leadingArgs(fs *flag.FlagSet, args []string) []string {
 	return append(pos, fs.Args()...)
 }
 
-// parseSelector turns the repeated values of one --from/--to into the selector the API
-// takes. A side is EITHER one channel OR one-or-more name@version entries, where the
-// version may itself be a channel ("kid@stable").
-//
-// Mixing the two is refused rather than merged: a channel already names a version for
-// every process, so adding one entry is ambiguous about whether it overrides or extends.
+// parseSelector turns one --from/--to's repeated values into the API selector: EITHER one
+// channel OR name@<version|channel> entries. Mixing is refused, not merged — a channel
+// already names a version for every process, so an extra entry is ambiguous.
 func parseSelector(side string, values []string) map[string]any {
 	channels, pins := 0, map[string]any{}
 	for _, v := range values {
@@ -1167,11 +1164,9 @@ func versionLabel(v int) string {
 	return fmt.Sprintf("v%d", v)
 }
 
-// Verdicts as an operator acts on them. The server reports two — whether running instances
-// can continue, and whether consumers still get the shape they were written against —
-// because they run in opposite directions and answer different questions. A table column is
-// a decision, so they are folded into one word here and the detail block below says what
-// broke.
+// Verdicts as an operator acts on them. The server reports two (instance continuation vs
+// consumer contract — opposite directions, different questions); a table column is a
+// decision, so they fold to one word here and the detail block says what broke.
 const (
 	verdictUpgradable = "upgradable"
 	verdictUnchanged  = "nothing changed"

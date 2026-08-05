@@ -167,11 +167,9 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 	return nil
 }
 
-// The per-slot required structures a fetch slot must produce: a stringifiable scalar for
-// url/method (rendered with %v, so a null or a struct would corrupt the request), an array
-// for child_list `over`, and an object for headers. Each slot builds a shape.Shape carrying
-// one of these and lets shape.CheckWith run the conformance, turning a mismatch into the
-// slot's tailored message via the Result hook.
+// Per-slot required structures for fetch slots: stringifiable scalar for url/method
+// (rendered with %v — null or a struct corrupts the request), array for `over`, object
+// for headers. shape.CheckWith turns mismatches into each slot's tailored message.
 var (
 	scalarSchema = schema.Type("string", "number", "boolean")
 	arraySchema  = schema.Array(schema.Schema{})
@@ -336,11 +334,9 @@ func checkHeadersShape(raw any, ctx schema.Schema, taskID string) error {
 	return err
 }
 
-// checkAcceptedStatusShape verifies the fetch accepted_status shape produces an array of
-// strings (a literal array of templated values, or an expression yielding a string array),
-// and additionally format-checks any element that is a static literal: a hand-written
-// pattern like "2xx"/"404" is validated now, while a ${ } / $: leaf (value known only at
-// runtime) is left to matchAcceptedStatus, where an unrecognized value never matches.
+// checkAcceptedStatusShape: must produce an array of strings; static literal elements are
+// format-checked now, ${ }/$: leaves are left to matchAcceptedStatus, where an
+// unrecognized value never matches.
 func checkAcceptedStatusShape(raw any, ctx schema.Schema, taskID string) error {
 	shp := shape.Shape{Raw: raw, Schema: &acceptedStatusSchema, Name: fmt.Sprintf("task %q accepted_status", taskID)}
 	if _, err := shp.CheckWith(ctx, shape.CheckHooks{
@@ -422,12 +418,9 @@ func contextSchemaAbsent(preceding, optional, absent []string, tasks map[string]
 	ctx = ctx.WithProperty("outputs", outputs, true)
 
 	if errRequired || errOptional {
-		// child_key / child_index are populated only when $error came from a child-task
-		// batch resolution (§5.3); an action task's on_error leaves them absent. The
-		// context schema can't tell which on_error produced a given $error, so both are
-		// optional — present and typed where a batch handler reads them, honestly
-		// maybe-absent elsewhere. child_key (child_map) and child_index (child_list) are
-		// separate single-typed fields so a handler reads one without a string|integer union.
+		// child_key/child_index populate only from batch resolution (child-error-handling §5.3);
+		// an action task's on_error leaves them absent, and the schema cannot tell which produced
+		// a given $error — so both are optional, and separate single-typed fields (no type-switch).
 		errSchema := schema.Object().
 			WithProperty("task", schema.Type("string"), true).
 			WithProperty("message", schema.Type("string"), true).

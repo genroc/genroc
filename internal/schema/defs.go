@@ -154,11 +154,9 @@ func (s Schema) MergeInto(d Defs) (Schema, error) {
 	return Schema{cloned}, nil
 }
 
-// findEqualDef returns the name of an existing definition content-equal to def (about
-// to be inserted under name), judged modulo the insertion rename: a self-referencing
-// definition must also match an earlier copy whose self-refs already spell the renamed
-// name, or plain textual equality would re-merge a recursive definition as a fresh
-// input_1, input_2, … each time. (Mutual recursion is only compared textually.)
+// findEqualDef finds an existing definition content-equal to def modulo the insertion
+// rename: a self-referencing definition must match an earlier copy whose self-refs spell
+// the renamed name, or recursion re-merges as fresh input_1, input_2 … every time.
 func findEqualDef(existing map[string]*node, name string, def *node) (string, bool) {
 	names := make([]string, 0, len(existing))
 	for n := range existing {

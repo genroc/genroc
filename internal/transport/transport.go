@@ -24,11 +24,10 @@ import (
 // without capping a legitimately large result.
 const MaxResponseBytes = 8 << 20
 
-// client is shared by every fetch. It deliberately sets no Client.Timeout: the per-attempt
-// budget is the caller's context deadline (engine.fetchTimeout), and a second ceiling here
-// would silently override a task's declared timeout. The idle-connection limits are raised
-// off the stdlib defaults because MaxIdleConnsPerHost is 2 there, which makes a worker
-// re-dial — and re-handshake TLS — for nearly every call to the same endpoint.
+// Shared by every fetch; deliberately NO Client.Timeout — the per-attempt budget is the
+// caller's context deadline, and a second ceiling would silently override declared
+// timeouts. Idle limits raised: stdlib's MaxIdleConnsPerHost=2 re-dials (and re-handshakes
+// TLS) nearly every call.
 var client = func() *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.MaxIdleConns = 512

@@ -6,12 +6,9 @@ import (
 	"sort"
 )
 
-// canonicalizeNode returns a structurally-canonical copy of s so two schemas that
-// denote the same type become byte-identical JSON — the equality test the recursive
-// type-inference fixpoint relies on. Same-kind compositions are flattened, variants
-// deduped/sorted, a single-variant composition collapsed, and a union of simple
-// primitives merged into one {type:[...]} array (allOf is an intersection, never
-// merged). Idempotent.
+// canonicalizeNode makes two schemas denoting the same type byte-identical — the equality
+// the recursive-inference fixpoint relies on. Flattens same-kind compositions, dedupes and
+// sorts variants, collapses singletons, merges simple-primitive unions (allOf never). Idempotent.
 func canonicalizeNode(s *node) *node {
 	if s == nil {
 		return nil

@@ -129,11 +129,9 @@ type built struct {
 	pageSQL  string
 	pageArgs []any
 
-	// Count scaffolding. Each side's count is a bounded subquery:
-	//   SELECT COUNT(*) FROM (countInner WHERE <countConds AND keyset> LIMIT cap+1)
-	// countInner is "[<CTE>] SELECT 1 FROM <source>"; countConds is baseWhere +
-	// filters (the cursor keyset is appended per direction). Args order per side:
-	// countPrefixArgs (CTE seed), countFilterArgs (the filters), then keyset args.
+	// Count scaffolding: each side is a bounded subquery —
+	// SELECT COUNT(*) FROM (countInner WHERE <countConds AND keyset> LIMIT cap+1).
+	// Args per side: countPrefixArgs (CTE seed), countFilterArgs, then keyset args.
 	countInner      string
 	countConds      []string
 	countPrefixArgs []any

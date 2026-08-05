@@ -13,12 +13,9 @@ import (
 
 const defaultChannel = "latest"
 
-// engineService is the slice of the engine the API depends on: triggering a tick,
-// recording the instance_created audit milestone for a root instance, and the two
-// identity/liveness readings the health endpoint reports.
-//
-// Primitive returns rather than a shared struct: the dependency points api → engine only
-// through this interface, and a struct either of them owned would make that an import.
+// engineService is the slice of the engine the API depends on. Primitive returns, not a
+// shared struct: the dependency points api → engine only through this interface, and a
+// struct either side owned would make that an import.
 type engineService interface {
 	Tick(ctx context.Context) (int, error)
 	ManualTick() bool

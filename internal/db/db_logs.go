@@ -20,12 +20,9 @@ type LogQuery struct {
 	Page    PageReq
 }
 
-// logPaginator is the pagination policy for logs. Only time order is offered: the
-// (created_at, id) keyset preserves insertion order because UUIDv7 ids are
-// monotonic within a millisecond, and is index-backed (idx_process_logs_instance
-// for the flat query, idx_process_logs_created for the subtree query). table +
-// columns are pl.-qualified so build() serves the flat query; the subtree-CTE
-// query supplies its own prefixes via buildSource.
+// Log pagination: time order only — (created_at, id) preserves insertion order (UUIDv7
+// monotonic per ms) and is index-backed. Columns are pl.-qualified so build() serves the
+// flat query; the subtree CTE supplies its own prefixes via buildSource.
 var logPaginator = paginator{
 	table:      "process_logs pl",
 	columns:    logColumns,
@@ -169,11 +166,9 @@ func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 // flat query aliases process_logs pl; the subtree query joins it as pl).
 const logColumns = `pl.id, pl.instance_id, pl.level, pl.event, pl.task_id, pl.message, pl.code, pl.data, pl.meta, pl.created_at`
 
-// logSubtreeCTE walks process_instances.parent_id from a seed id (the single ?
-// placeholder) down, tagging each node with its depth from the seed. Hand-written
-// because sqlc's SQLite grammar can't parse WITH RECURSIVE; both runtime drivers
-// support it. treeLogsPrefix is the page SELECT; treeLogsCountInner is the count's
-// inner row source (one row per matching log) the paginator wraps in COUNT(*).
+// logSubtreeCTE walks parent_id from a seed, tagging depth. Hand-written (sqlc's SQLite
+// grammar can't parse WITH RECURSIVE; both drivers support it). treeLogsPrefix is the
+// page SELECT; treeLogsCountInner the count's inner row source.
 const logSubtreeCTE = `
 WITH RECURSIVE subtree(id, depth) AS (
     SELECT id, 0 FROM process_instances WHERE id = ?

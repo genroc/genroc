@@ -87,11 +87,9 @@ func ParseTimeStyle(s string) (TimeStyle, error) {
 // DateBreak must skip it when this is true — the date belongs in exactly one place.
 func (s TimeStyle) CarriesDate() bool { return s == TimeFull }
 
-// layout renders in whatever zone the caller's time.Time carries — the CLI's local one.
-// TimeFull states the offset because it is the style for reading an exact timestamp, and
-// an unqualified one is only exact to whoever ran the command. Use "-07:00", not
-// "Z07:00": the latter collapses UTC to a single "Z" and the column stops being
-// fixed-width.
+// layout renders in the caller's zone. TimeFull states the offset (an unqualified exact
+// timestamp is only exact to whoever ran the command); use "-07:00", not "Z07:00" —
+// the latter collapses UTC to "Z" and the column stops being fixed-width.
 func (s TimeStyle) layout() string {
 	if s == TimeFull {
 		return "2006-01-02 15:04:05 -07:00"

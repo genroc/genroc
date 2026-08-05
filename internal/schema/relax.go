@@ -1,10 +1,8 @@
 package schema
 
-// mapChildren returns a shallow copy of n with fn applied to every direct sub-schema node.
-// It is the single definition of "where sub-schemas live" for node transforms — properties,
-// items, additionalProperties, oneOf, anyOf, allOf, and $defs — the transform analogue of
-// normalize's walkTree visitor. fn decides whether to recurse. Centralizing the position set
-// here means a new sub-schema keyword is picked up by every transform that goes through it.
+// mapChildren applies fn to every direct sub-schema — the single definition of "where
+// sub-schemas live" for transforms (properties, items, additionalProperties, oneOf/anyOf/
+// allOf, $defs); fn decides recursion. New keywords get picked up here once.
 func mapChildren(n *node, fn func(*node) *node) *node {
 	m := *n
 	if n.Properties != nil {

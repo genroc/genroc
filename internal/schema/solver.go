@@ -35,11 +35,9 @@ type Solver struct {
 // a genuinely diverging type into an error instead of an infinite loop.
 const maxSolvePasses = 16
 
-// maxSolvedTypeBytes is a widening bound on the canonical size of a solved
-// type. A non-converging recursion (e.g. `result: self.previous ?? input`)
-// grows the type exponentially per pass, so the pass cap alone would still
-// build a multi-megabyte schema before giving up. This bound — far larger than
-// any realistic output type — catches the divergence within a few passes.
+// Widening bound on a solved type's canonical size: a non-converging recursion grows
+// exponentially per pass, so the pass cap alone would build megabytes before giving up.
+// Far larger than any real output type; catches divergence within a few passes.
 const maxSolvedTypeBytes = 64 * 1024
 
 // pendingAnchor marks a solver sentinel node. Sentinels never appear in solved

@@ -36,11 +36,9 @@ import (
 // can never match (e.g. "*-02-30") from spinning.
 const maxPatternDays = 366 * 5
 
-// maxClockRetries bounds how many candidate times of day nextMatch reconsiders within one
-// date. A candidate is only ever reconsidered because its wall clock is ambiguous and both
-// of its occurrences are behind now, which takes at most one retry to leave — a fall-back
-// repeats an hour once, not repeatedly. The cap exists so a zone rule nobody anticipated
-// cannot turn a resolve into a scan of the day.
+// Bounds candidate times-of-day reconsidered within one date. Reconsideration only happens
+// for an ambiguous wall clock with both occurrences behind now — at most one retry — so
+// the cap exists so an unanticipated zone rule cannot turn a resolve into a scan.
 const maxClockRetries = 4
 
 // ---------------------------------------------------------------------------
@@ -209,11 +207,9 @@ func Millis(ms int64) *Duration {
 	return &Duration{src: fmt.Sprintf("%dms", ms), fixed: time.Duration(ms) * time.Millisecond}
 }
 
-// addFixed accumulates n units into the fixed part, refusing the multiply and the add that
-// would wrap. `time.Duration` is int64 *nanoseconds*, so the wrap is reachable from a
-// literal an author could plausibly type — and it is not merely a large or negative
-// result: "5124096h" wrapped to a positive **25 minutes**, a value that passes every
-// downstream sanity check there is.
+// addFixed refuses the multiply/add that would wrap: time.Duration is int64 nanoseconds,
+// and "5124096h" wrapped to a positive 25 minutes — a value that passes every downstream
+// sanity check there is.
 func (d *Duration) addFixed(n int64, unit time.Duration) error {
 	if n > int64(math.MaxInt64)/int64(unit) {
 		return errDurationRange
@@ -685,12 +681,9 @@ func (i *Instant) nextMatch(now time.Time, loc *time.Location) (time.Time, error
 			if cand.After(now) {
 				return earlier(cand, repeated, hasRepeated), nil
 			}
-			// Behind now, which on a lower bound taken from now can only mean an ambiguous
-			// wall clock: resolveWall names the *first* occurrence of one, and now is
-			// already in the second. Then the second occurrence is the next match — "the
-			// next 02:30" after the first 02:30 has passed is the other 02:30, not a reason
-			// to skip the repeated hour entirely. Detected and offset the same way
-			// resolveWall detects ambiguity, so both rest on the same whole-hour assumption.
+			// Behind now on a lower bound taken from now = an ambiguous wall clock with now in the
+			// second pass; the second occurrence is then the next match ("the next 02:30" is the
+			// other 02:30). Detected the same way resolveWall detects ambiguity — same whole-hour assumption.
 			if alt := cand.Add(time.Hour); sameClock(alt, cand) && alt.After(now) {
 				return earlier(alt, repeated, hasRepeated), nil
 			}
@@ -801,11 +794,9 @@ func (i *Instant) nextClock(fromH, fromM, fromS int) (h, m, s int, ok bool) {
 	return 0, 0, 0, false
 }
 
-// fieldAtLeast returns the smallest value a clock field admits that is at least from, and
-// whether it admits one at all. This is the one place a field's shape is interpreted, which
-// is why a step costs no extra branch anywhere else: the answer is arithmetic, never a
-// scan, so a field with 60 admissible values is no more expensive than one with a single
-// value.
+// fieldAtLeast: the smallest admissible value ≥ from, and whether one exists. The one
+// place a field's shape is interpreted — the answer is arithmetic, never a scan, which is
+// why steps cost no branch anywhere else.
 func fieldAtLeast(field clockField, from, max int) (int, bool) {
 	if field.step == 0 {
 		if field.base < from {

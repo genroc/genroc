@@ -155,11 +155,9 @@ func evalIndex(n *syntax.IndexNode, e env) (any, error) {
 	return slice[n.Index], nil
 }
 
-// evalKey reads a computed key. A null or non-container base yields null, matching
-// evalMember and evalIndex; an absent key or out-of-range index likewise. A key of
-// the wrong type is an error rather than null: inference has already established
-// that the key types, so reaching here means the data contradicted its schema, and
-// silently reading nothing would hide that.
+// evalKey reads a computed key: null/non-container base yields null (matching
+// evalMember/evalIndex), as does an absent key. A wrongly-TYPED key errors — inference
+// proved it types, so the data contradicted its schema; reading nothing would hide that.
 func evalKey(n *syntax.KeyNode, e env) (any, error) {
 	base, err := evalNode(n.Base, e)
 	if err != nil || base == nil {

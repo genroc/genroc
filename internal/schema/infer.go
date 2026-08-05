@@ -35,11 +35,9 @@ func (e ErrUnsupported) Error() string {
 	return "unsupported expression: " + e.Detail
 }
 
-// inferCtx is the immutable type-inference context threaded through all infer
-// calls. s is the context schema (carrying the root $defs every navigation
-// resolves against); guards is a shallow-copied overlay mapping access paths to
-// schema overrides for type-narrowed branches; vars holds the lambda parameters
-// currently in scope, which shadow context roots of the same name.
+// inferCtx: the immutable inference context — s (context schema carrying root $defs),
+// guards (path → schema overrides for narrowed branches, shallow-copied), vars (lambda
+// params in scope, shadowing context roots).
 type inferCtx struct {
 	s      Schema
 	guards map[string]guard
@@ -79,11 +77,9 @@ func stepRoots(steps []pathStep) []string {
 	return roots
 }
 
-// guardKey encodes steps as a map key — the shared path rendering (path.go),
-// which is injective precisely because a key needing brackets never renders as a
-// dotted one. That matters here and not only in messages: `x["a.b"]` and `x.a.b`
-// are different paths, and a key that collapsed them would narrow whichever the
-// author did not write.
+// guardKey uses the shared path rendering, injective because a bracket-needing key never
+// renders dotted: x["a.b"] and x.a.b are different paths, and collapsing them would
+// narrow whichever the author did not write.
 func guardKey(steps []pathStep) string { return renderPath(steps) }
 
 // identKey is guardKey for a bare identifier — the root of every guarded path.
@@ -192,11 +188,9 @@ func walkSecretRefs(n syntax.Node, ictx inferCtx) bool {
 	return false
 }
 
-// keySecretRefs handles a computed key, which the path-based walk above cannot
-// reach: a[expr] names no static path, so the taint has to be read off the type it
-// resolves to. The mark lives on the map's value schema (additionalProperties) or
-// the array's items, and never on the container itself — a map of secrets is not a
-// secret map — so falling back to the base's own flag would miss every one of them.
+// keySecretRefs covers computed keys, which the path walk cannot: a[expr] names no static
+// path, so the taint reads off the resolved type. The mark lives on the VALUE schema
+// (items/additionalProperties), never the container — a map of secrets is not a secret map.
 func keySecretRefs(x *syntax.KeyNode, ictx inferCtx) bool {
 	// Building the key can read a secret in its own right: vault[input.which].
 	if walkSecretRefs(x.Key, ictx) {
@@ -242,12 +236,9 @@ func secretAtSub(s Schema, sub []pathStep) bool {
 	if len(sub) > 0 {
 		return stepsHitSecret(s.n, s.rootDefs(), sub)
 	}
-	// Reading only the node's own flag would mean that reading one field of a
-	// secret-marked definition taints while copying the whole element did not — the
-	// wrong way round, since the copy exposes strictly more. Marking a definition
-	// secret is a shape a user's result_schema carries verbatim through MergeInto,
-	// so the ref has to be followed here too — at every union position, since a
-	// nullable value presents as oneOf[{$ref}, null].
+	// The node's own flag is not enough: reading one field of a secret definition would taint
+	// while copying the whole element did not — backwards, the copy exposes more. Follow the
+	// ref, at every union position (nullable presents as oneOf[{$ref}, null]).
 	if nodeOrTargetSecret(s.n, s.rootDefs()) {
 		return true
 	}

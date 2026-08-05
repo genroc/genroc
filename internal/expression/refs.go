@@ -48,11 +48,9 @@ func RootRefsNode(node syntax.Node) Roots {
 	return r
 }
 
-// bind returns bound extended with a lambda's parameters. A parameter shadows a
-// context root of the same name, so map(xs, input => input.n) must not be reported
-// as reading the process input — reporting it would be merely wasteful, but
-// failing to report a genuine read makes the engine serve nil for an externalized
-// slot, so the shadowing has to be exact in both directions.
+// bind extends bound with a lambda's parameters, which shadow context roots. Over-report
+// is waste; UNDER-report makes the engine serve nil for an externalized slot — so the
+// shadowing must be exact in both directions.
 func bindParams(bound map[string]bool, lam *syntax.LambdaNode) map[string]bool {
 	next := make(map[string]bool, len(bound)+2)
 	for k := range bound {

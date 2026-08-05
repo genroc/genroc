@@ -6,11 +6,9 @@ import (
 	"strings"
 )
 
-// checkDocRoot reports whether nd is well-formed in the supported subset: every $ref
-// resolves, combinator/property entries are non-nil, paired numeric/length/item bounds
-// are ordered, declared defaults validate, and every definition cycle is productive.
-// Keyword validity is already guaranteed by strict UnmarshalJSON, so this only catches
-// structural errors that survive parsing — chiefly an unresolvable $ref.
+// checkDocRoot: well-formedness in the supported subset — refs resolve, combinator entries
+// non-nil, paired bounds ordered, defaults validate, cycles productive. Keyword validity is
+// strict-decode's job; this catches structure that survives parsing.
 func checkDocRoot(nd *node) error {
 	if nd == nil {
 		return nil
@@ -21,12 +19,9 @@ func checkDocRoot(nd *node) error {
 	return checkProductivity(nd.Defs)
 }
 
-// checkProductivity rejects definition cycles with no structural progress. A $ref
-// outside any properties/items subtree (at the root, or only through oneOf/anyOf/allOf)
-// is a "bare" edge that consumes no value depth; a cycle made entirely of bare edges
-// (e.g. x = oneOf[$ref x, …]) is a recursion with no base case. Recursion is legal
-// exactly when every cycle passes through properties or items, consuming one level of
-// the finite value per unrolling.
+// checkProductivity rejects definition cycles with no structural progress: a $ref outside
+// any properties/items subtree is a bare edge, and an all-bare cycle is recursion with no
+// base case. Legal recursion consumes one level of the finite value per unrolling.
 func checkProductivity(defs map[string]*node) error {
 	if len(defs) == 0 {
 		return nil
@@ -117,12 +112,9 @@ func checkDoc(nd *node, defs map[string]*node, seen map[*node]bool) error {
 			return err
 		}
 	}
-	// A type name outside the JSON Schema simpleTypes enum matches no value, so the
-	// schema is unsatisfiable — it used to parse cleanly and then reject everything at
-	// runtime. This is a validity check rather than a decode check on purpose: the
-	// decoder also runs over schemas already stored in the DB, and a legacy definition
-	// carrying a bad name should fail its own registration, not become undecodable
-	// (which would take out the whole ListDefinitions page it sits on).
+	// A type name outside the simpleTypes enum matches nothing — it used to parse cleanly and
+	// reject every value at runtime. A validity rule, NOT a decode rule: the decoder runs over
+	// stored schemas, and a legacy bad name must fail its registration, not become undecodable.
 	for _, t := range nd.Type {
 		if !validTypes[t] {
 			return fmt.Errorf("unsupported schema type %q", t)

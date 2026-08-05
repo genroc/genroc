@@ -77,12 +77,9 @@ func changedTaskSlots(old, new *model.Task) []string {
 	return changed
 }
 
-// documentsDiffer reports whether two definitions differ anywhere this package reports.
-// It is the content half of "nothing changed": two versions can carry identical content
-// under different numbers, and a submitted document carries no number at all.
-//
-// Task ORDER counts. `switch: next` routes by position, so moving a task changes where
-// control goes while every per-task slot still compares equal.
+// documentsDiffer: the content half of "nothing changed" (versions can carry identical
+// content; submitted documents carry no number). Task ORDER counts — `switch: next`
+// routes by position, so a move changes control flow while every slot compares equal.
 func documentsDiffer(old, new *model.ProcessDefinition) bool {
 	if len(changedDefinitionSlots(old, new)) > 0 {
 		return true

@@ -9,11 +9,9 @@ import (
 	dbgen "genroc/internal/db/gen"
 )
 
-// pgRewriter wraps a DBTX and translates SQLite-style placeholders (?N / ?)
-// to PostgreSQL-style ($N) before executing queries.
-// sqlc generates ?1, ?2, … for SQLite (positional) and $1, $2, … for Postgres.
-// At runtime we compile one binary using the SQLite-generated package, so
-// we must rewrite before sending queries to a Postgres connection.
+// pgRewriter translates the SQLite-generated placeholders (?N / ?) to Postgres $N at
+// execution: one binary compiles against the SQLite sqlc package and must rewrite before
+// talking to a Postgres connection.
 type pgRewriter struct{ dbgen.DBTX }
 
 func (r pgRewriter) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {

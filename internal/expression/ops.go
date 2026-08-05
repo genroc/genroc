@@ -81,11 +81,9 @@ func bothDecimal(l, r any) (*apd.Decimal, *apd.Decimal, bool) {
 // language's canonical numeric value: it marshals as a bare JSON number and
 // round-trips through storage without ever touching float64.
 func decimalResult(d *apd.Decimal) (any, error) {
-	// A looping task feeds its own output back, so `x * x` doubles the digit count
-	// every tick. Without this bound the growth runs until apd's exponent limit
-	// trips at ~55,000 digits with "exponent out of range" — after the value has
-	// been materialised and pushed to the object store, and with a message that
-	// says nothing about what happened.
+	// A looping task re-feeds its output, so `x * x` doubles digits per tick; unbounded, that
+	// ran to apd's exponent limit (~55k digits) AFTER externalizing the value, with a message
+	// explaining nothing. The bound errors early, naming the cause.
 	if numeric.ExceedsMaxDigits(d) {
 		return nil, fmt.Errorf("number has %d digits, over the %d-digit limit; a task that multiplies its own previous output grows exponentially across iterations",
 			d.NumDigits(), numeric.MaxDigits)

@@ -47,11 +47,9 @@ func hashContent(b []byte) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-// encodeContextValue turns a value into the envelope stored for a context value-slot.
-// Small values stay inline ({data:v}); large ones become a single reference
-// ({refs:[...]}) with the bytes returned as a pendingObject to persist + pin in the same
-// transaction. An unchanged *model.ObjectRef is re-emitted as-is, so an untouched big
-// slot avoids any rewrite.
+// encodeContextValue: small values stay inline ({data:v}); large ones become a reference
+// with the bytes as a pendingObject to persist+pin in the same transaction. An unchanged
+// *model.ObjectRef re-emits as-is, so an untouched big slot avoids any rewrite.
 func encodeContextValue(v any) (model.Envelope, *pendingObject, error) {
 	if ref, ok := v.(*model.ObjectRef); ok {
 		return model.Envelope{Refs: []*model.ObjectRef{ref}}, nil, nil
@@ -93,11 +91,9 @@ func (db *DB) ResolveObject(ctx context.Context, instanceID string, ref *model.O
 	return db.loadObjectValue(ctx, instanceID, ref.Ref)
 }
 
-// applyContextObjectDiff persists the object changes of one instance write, inside its
-// transaction (qtx). pending (new) are written and pinned; dereferenced (loaded −
-// referenced) are deleted immediately when no live log needs the row — so a replaced
-// value and any secret in it does not linger — else just unpinned for the GC sweep.
-// loaded ∩ referenced is left untouched (still pinned from before).
+// applyContextObjectDiff, inside the caller's transaction: pending (new) written+pinned;
+// dereferenced (loaded − referenced) deleted immediately when no live log needs the row
+// — replaced secrets must not linger — else unpinned for the sweep. loaded ∩ referenced untouched.
 func (db *DB) applyContextObjectDiff(ctx context.Context, qtx *dbgen.Queries, instanceID string, pending []*pendingObject, loaded, referenced map[string]struct{}, now int64) error {
 	for _, obj := range pending {
 		if err := qtx.PinContextObject(ctx, dbgen.PinContextObjectParams{

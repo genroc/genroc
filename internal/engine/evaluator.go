@@ -105,12 +105,9 @@ func (e *Engine) buildEnv(inst *model.ProcessInstance, self any, roots expressio
 	return env, nil
 }
 
-// evalShape is the single runtime entry point for every templated slot — action inputs,
-// url/method/over, outputs, switch cases, delays. It evaluates sh against inst's context,
-// resolving only the value-slots sh references (self is the task's self value, or nil for
-// action inputs that run before the action). This mirrors the single Shape.Check used at
-// registration: the same Shape drives both phases. sh.Roots() and sh.Eval() dispatch on
-// sh.Expr (a bare expression for a case, a template otherwise).
+// evalShape is the single runtime entry for every templated slot, resolving only the
+// value-slots sh references (self is the task's self value, nil before the action). The
+// same Shape drives registration checks, so the two phases cannot drift.
 func (e *Engine) evalShape(inst *model.ProcessInstance, sh shape.Shape, self any) (any, error) {
 	roots, err := sh.Roots()
 	if err != nil {

@@ -10,11 +10,10 @@ import (
 // probe deadline is the only thing left to notice.
 const healthPingTimeout = 2 * time.Second
 
-// health answers the readiness probe. The verdict is exactly one question — can this worker
-// reach its database — because that is the only failure the *caller* can act on by routing
-// elsewhere. LeaseAgeMs is reported rather than judged: it grows through a transient blip
-// the engine recovers from by itself (leaseGate repairs and backs off), so failing the
-// probe on it would restart workers that were about to be fine.
+// health answers exactly one question — can this worker reach its database — the only
+// failure the caller can act on by routing elsewhere. LeaseAgeMs is reported, never
+// judged: it grows through blips the gate recovers from; failing on it restarts workers
+// that were about to be fine.
 func (h *Handlers) health() Reply {
 	ctx, cancel := context.WithTimeout(context.Background(), healthPingTimeout)
 	defer cancel()

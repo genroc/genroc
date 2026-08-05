@@ -36,11 +36,9 @@ func keyStep(key []pathStep) pathStep {
 	return pathStep{kind: stepKey, key: key}
 }
 
-// parsePath reads the access-path syntax renderPath emits, so a path shown in an
-// error message can be handed straight back to At / SecretAt. A bare segment runs
-// to the next '.' or '[', which keeps an authored `headers.retry-after` reading as
-// two steps exactly as it always did; the quoted form `headers["retry-after"]` is
-// what a key containing '.' or '[' needs, and is the only way to name one at all.
+// parsePath reads the syntax renderPath emits, so an error-message path can be handed
+// straight back to At/SecretAt. Bare segments run to '.'/'['; the quoted form is the only
+// way to name a key containing them.
 func parsePath(path string) ([]pathStep, error) {
 	if path == "" {
 		return nil, fmt.Errorf("path must not be empty")
@@ -126,11 +124,9 @@ func navigate(s *node, defs map[string]*node, path string) (*node, error) {
 	return navigateSchema(s, defs, steps)
 }
 
-// lookupProperty returns the subschema for a single named property within s. An
-// optional property with no default comes back nullable (required ones and optionals
-// with a default do not). A $ref-valued property is returned as the ref itself, not its
-// expansion — keeping a recursive output type finite; descending into it resolves on
-// demand.
+// lookupProperty: optional-without-default comes back nullable. A $ref-valued property
+// returns as the ref, not its expansion — keeping recursive output types finite;
+// descent resolves on demand.
 func lookupProperty(s *node, name string, defs map[string]*node) (*node, error) {
 	return lookupPropertyGuard(s, name, defs, nil)
 }
@@ -145,12 +141,9 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 		return nil, err
 	}
 
-	// A property of null is null, not an access error. This matches the evaluator
-	// (member access on a missing value yields nil, which is what lets `a.x ?? b.x`
-	// fall through) and the all-null union case below, which already returns null
-	// rather than failing. Path-partitioned output inference relies on it: a task
-	// output that is definitely absent on a given terminal is typed {"type":"null"},
-	// and reading through it must yield null so `??` can take the other arm.
+	// A property of null is null, not an access error — matching the evaluator (member access
+	// on missing yields nil, letting `a.x ?? b.x` fall through). Path-partitioned output
+	// inference relies on it: definitely-absent outputs type null and reads must yield null.
 	if isNullType(resolved) {
 		return &node{Type: SchemaType{"null"}}, nil
 	}
@@ -331,12 +324,9 @@ func inferIndexGuard(s *node, defs map[string]*node, visiting map[*node]bool) (*
 	return withNull(resolved.Items), nil
 }
 
-// deref resolves s to a concrete (non-ref) node, following chains of $ref through defs —
-// a definition may be a bare alias for another (e.g. after a collision rename), so one
-// hop is not enough. A repeated node is a pure ref cycle and an error. A target that is
-// a solver sentinel routes back to its owning Solver, which computes the definition on
-// demand (or serves the running estimate when the read closes a cycle) — the hook that
-// makes resolution demand-driven during generation.
+// deref follows $ref chains (a definition may alias another after a collision rename);
+// a repeated node is a pure ref cycle and errors. A solver-sentinel target routes back to
+// its Solver — the hook that makes resolution demand-driven during generation.
 func deref(s *node, defs map[string]*node) (*node, error) {
 	var seen map[*node]bool
 	for s != nil && s.Ref != "" {
@@ -844,12 +834,9 @@ func navigateStep(cur *node, defs map[string]*node, step pathStep) (*node, error
 	}
 }
 
-// anyKey returns the type shared by every key of s, and the type a key must have
-// to read it: the element type of an array (integer key), or the value type of a
-// map that declares only additionalProperties (string key). It is what a computed
-// key a[expr] reads, and it exists only for those two shapes — on an object with
-// declared properties the type genuinely varies per key, so a computed key there
-// has no single answer and is an error rather than a guess.
+// anyKey: the type every key of s shares, and the key type required — array elements
+// (integer key) or additionalProperties-only maps (string key). Exists only for those two
+// shapes; with declared properties the type varies per key, so a computed key errors.
 func anyKey(s *node, defs map[string]*node) (*node, string, error) {
 	resolved, err := deref(s, defs)
 	if err != nil {

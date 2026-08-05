@@ -300,11 +300,9 @@ func (t *Template) OutputRefs() []string {
 	return ids
 }
 
-// cache memoises Parse. Template strings are static content carried on process
-// definitions, so the key set is bounded by the registered definitions — the same
-// bound the DB's definition cache already accepts. Failures are cached too, so a
-// definition that somehow reaches the engine with a bad template does not re-parse
-// on every tick.
+// cache memoises Parse: template strings are static definition content, so the key set is
+// bounded like the DB's definition cache. Failures are cached too — a bad template must
+// not re-parse every tick.
 var cache sync.Map // string -> parsed
 
 type parsed struct {

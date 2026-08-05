@@ -97,11 +97,9 @@ type Error struct {
 func (e *Error) Error() string { return e.Message }
 func (e *Error) Unwrap() error { return e.Err }
 
-// apiErrf builds the message with fmt.Errorf and keeps the result as the cause, so a
-// %w in format stays walkable: errors.Is/As on the *Error reach straight through to
-// whatever was wrapped. The explicit Code still wins in codeOf, which checks *Error
-// before the sentinels — that is how a handler overrides a db classification when it
-// knows better.
+// apiErrf keeps the fmt.Errorf result as the cause, so a %w in format stays walkable.
+// The explicit Code still wins in codeOf (checked before the sentinels) — how a handler
+// overrides a db classification when it knows better.
 func apiErrf(code Code, format string, a ...any) *Error {
 	err := fmt.Errorf(format, a...)
 	return &Error{Code: code, Message: err.Error(), Err: err}
@@ -113,12 +111,9 @@ func conflict(format string, a ...any) *Error    { return apiErrf(CodeConflict, 
 func unsupported(format string, a ...any) *Error { return apiErrf(CodeUnsupported, format, a...) }
 func unavailable(format string, a ...any) *Error { return apiErrf(CodeUnavailable, format, a...) }
 
-// codeOf classifies any error into a Code, in precedence order:
-//
-//  1. an explicit *Error from a handler,
-//  2. a db-layer sentinel, so forwarding a db error needs no per-call-site decision,
-//  3. a definition-validation failure, which is always the submitter's fault,
-//  4. otherwise internal.
+// codeOf classifies in precedence order: explicit *Error, then a db sentinel (forwarding
+// needs no per-site decision), then a validation failure (the submitter's fault), else
+// internal.
 func codeOf(err error) Code {
 	var apiErr *Error
 	if errors.As(err, &apiErr) {

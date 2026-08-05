@@ -89,11 +89,9 @@ func streamPages[T any](base string, fn func([]T) error) error {
 	}
 }
 
-// Which end of a sort a capped read keeps, which is the end a reader starts from. Time
-// sorts run newest-first, so the interesting rows are at the descending head and the page
-// is flipped to display oldest→newest. A name sort already reads in its display direction,
-// so the interesting rows are at the ascending head and nothing is flipped — capping a
-// name sort from the descending end would show the alphabetically *last* N.
+// Which end of a sort a capped read keeps — the end a reader starts from. Time sorts keep
+// the descending head and flip for display; a name sort already reads in display order,
+// so it keeps the ascending head (the descending end would show the alphabetically last N).
 const (
 	newestFirst = true
 	firstFirst  = false
@@ -149,11 +147,9 @@ func listAll[T any](base string) ([]T, error) {
 	}
 }
 
-// listHead fetches up to limit items from one end of a list endpoint's sort, following
-// page.after across pages until it has that many (or the source runs out). order is "desc"
-// for the newest N or "asc" for the first N; base carries only filters/sort and must omit
-// order/limit/after. Items come back in the requested order — a desc caller reverses them
-// for display so the newest row lands at the bottom, nearest the prompt (tail-style).
+// listHead fetches up to limit items from one end of the sort (order asc|desc), following
+// page.after; base carries only filters/sort. Items return in request order — desc callers
+// reverse for display so the newest row lands nearest the prompt.
 func listHead[T any](base, order string, limit int) ([]T, error) {
 	all := make([]T, 0, limit)
 	after := ""
@@ -179,11 +175,8 @@ func listHead[T any](base, order string, limit int) ([]T, error) {
 	return all, nil
 }
 
-// printJSONItems writes items as an indented JSON array — the shared, lossless --json
-// output. An empty result renders as [] rather than null.
-// printIndented writes a raw server response as indented JSON — the one machine-readable
-// form for a single object, echoed rather than re-encoded so nothing is lost on the way
-// through.
+// printIndented writes a raw server response as indented JSON — the machine-readable form
+// for a single object, echoed rather than re-encoded so nothing is lost on the way through.
 func printIndented(raw json.RawMessage) {
 	var buf bytes.Buffer
 	json.Indent(&buf, raw, "", "  ")

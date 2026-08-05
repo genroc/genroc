@@ -152,11 +152,9 @@ func (n *node) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("additionalProperties must be a schema object; the boolean form is not supported")
 		}
 	}
-	// Decode with numbers preserved as their exact literal. `default` and `enum`
-	// are `any`-typed, so a plain Unmarshal collapses them to float64 — which
-	// corrupted a default past 2^53, and inverted an enum: a whitelist declared
-	// for 9007199254740993 rejected that value and admitted its neighbour instead.
-	// Typed fields such as minimum/maximum are unaffected by UseNumber.
+	// Decode preserving exact numeric literals: default/enum are any-typed, and a plain
+	// Unmarshal collapsed them to float64 — corrupting a big default and INVERTING an enum
+	// (the whitelist for 9007199254740993 rejected it and admitted its neighbour).
 	type alias node
 	return numeric.Decode(data, (*alias)(n))
 }

@@ -166,11 +166,9 @@ func (e *Engine) buildMapChildOutput(task *model.Task, siblings []*model.Process
 	return result, nil
 }
 
-// buildListChildOutput returns the children's outputs as an array in input order.
-// Siblings come back unordered, so each is placed at its recorded _spawn_index —
-// guaranteeing result order matches the `over` array regardless of scan order. Each is
-// validated against the declared result_schema and resolved from the object store if
-// externalized.
+// buildListChildOutput returns outputs as an array in input order: siblings arrive
+// unordered, so each lands at its recorded _spawn_index. Each is schema-validated and
+// resolved from the object store if externalized.
 func (e *Engine) buildListChildOutput(task *model.Task, siblings []*model.ProcessInstance) (any, error) {
 	result := make([]any, len(siblings))
 	for _, child := range siblings {

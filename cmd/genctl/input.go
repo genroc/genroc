@@ -12,12 +12,9 @@ import (
 
 // ── input assembly (genctl run) ────────────────────────────────────────────────
 
-// buildInput assembles an input/result value from a base source and any --set
-// overrides. The base comes from exactly one of: literal (a JSON/YAML literal passed to
-// --input/--result, or "-" for stdin) or file (a path passed to -f). Each --set
-// key=value is then applied on top (requiring the base to be an object). Returns
-// (value, present, error): present is false when no source and no --set was given, so
-// the value is omitted entirely for processes/tasks that take none.
+// buildInput assembles an input/result from one base source (--input/--result literal, "-"
+// stdin, or -f file) plus --set overrides (base must then be an object). present=false
+// means no source at all, so the value is omitted entirely.
 func buildInput(literal, file string, sets []string) (any, bool, error) {
 	base, present, err := readBase(literal, file)
 	if err != nil {
@@ -74,11 +71,9 @@ func readBase(literal, file string) (any, bool, error) {
 	return v, true, nil
 }
 
-// parseRelaxed parses data as YAML — a superset of JSON, so strict JSON works while
-// also allowing the shell-friendly relaxed forms (unquoted keys, single quotes,
-// trailing commas), e.g. {name: Sam, count: 3}. The result contains only
-// JSON-native types, with numeric literals preserved exactly (see yamlToAny) so a
-// long id passed with --set reaches the server as written.
+// parseRelaxed parses data as YAML — a JSON superset, so strict JSON works alongside
+// shell-friendly forms ({name: Sam}). Yields JSON-native types with numeric literals
+// preserved exactly (yamlToAny), so a long --set id reaches the server as written.
 func parseRelaxed(data []byte) (any, error) {
 	var node yaml.Node
 	if err := yaml.Unmarshal(data, &node); err != nil {
@@ -132,11 +127,9 @@ func inferScalar(s string) any {
 	case "null":
 		return nil
 	}
-	// Keep a number as its literal rather than converting through int64/float64:
-	// ParseInt caps at int64 and ParseFloat then rounds, so `--set id=<54 digits>`
-	// was silently sent as 1.2374829758395876e+53. Unmarshalling into a
-	// json.Number accepts exactly JSON's number syntax and nothing else, so any
-	// other word still falls through to a plain string.
+	// Keep a number as its literal: ParseInt caps at int64 and ParseFloat rounds, which sent
+	// `--set id=<54 digits>` as 1.23e+53. json.Number accepts exactly JSON number syntax,
+	// so any other word still falls through to a plain string.
 	var num json.Number
 	if err := json.Unmarshal([]byte(s), &num); err == nil {
 		return num

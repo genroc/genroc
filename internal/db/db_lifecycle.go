@@ -214,11 +214,9 @@ func (db *DB) PauseProcess(ctx context.Context, id string) error {
 	if err := db.withTx(ctx, func(_ *dbgen.Queries, exec dbgen.DBTX) error {
 		now := nowMillis()
 
-		// Lock the rows this call will mutate, in id order -- the global order shared
-		// with FinishChild/FailInstanceAndAncestors that prevents deadlocks (Postgres;
-		// on SQLite the ORDER BY is a harmless no-op under the single writer). Selecting
-		// rather than blind-updating also yields the exact per-instance outcome, which
-		// the UPDATE's row count alone cannot express and the audit trail needs.
+		// Lock the rows this call mutates, in id order — the shared global order that prevents
+		// deadlocks. Selecting rather than blind-updating also yields the per-instance outcome
+		// the audit trail needs, which a row count cannot express.
 		rows, err := exec.QueryContext(ctx, subtreeCTE+`
 		SELECT id, CASE WHEN worker_id IS NOT NULL AND lease_expires_at > ?
 		                THEN 1 ELSE 0 END AS held
@@ -292,11 +290,9 @@ func updateStatusIn(ctx context.Context, exec dbgen.DBTX, ids []string, status s
 	return err
 }
 
-// logTreeAction records an operator's pause on the tree root, at info level: it is the
-// human-facing line, and the counts are what make it useful — how much of the tree was
-// live, and how much of that could not be stopped mid-task. Written after the transaction
-// commits, so a rejected or rolled-back call leaves no trace. Best-effort like every
-// audit write: a logging failure must not fail the action the user already committed.
+// logTreeAction records an operator's pause on the root at info level — the counts are
+// the value (how much was live, how much could not stop mid-task). Written after commit,
+// so a rejected call leaves no trace; best-effort like every audit write.
 func (db *DB) logTreeAction(rootID, event, msg string, instances int64, extra map[string]any) {
 	meta := map[string]any{"instances": instances}
 	for k, v := range extra {
@@ -448,11 +444,9 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 	}
 	defer tx.Rollback()
 
-	// Lock and load the whole tree (root + descendants) in id order —
-	// the same lock order as PauseProcess/FinishChild/FailInstanceAndAncestors —
-	// so concurrent pauses and child completions serialize against the revival.
-	// The tree is enumerated with a recursive walk over parent_id (subtreeCTE); the
-	// FOR UPDATE on the outer SELECT (Postgres only) locks the rows in that order.
+	// Lock and load the whole tree in id order (the shared global order) so concurrent
+	// pauses and child completions serialize against the revival; subtreeCTE enumerates,
+	// the outer FOR UPDATE (Postgres) locks.
 	rows, err := exec.QueryContext(ctx, subtreeCTE+`
 		SELECT `+instanceColumns+` FROM process_instances
 		WHERE id IN (SELECT id FROM subtree)
@@ -492,11 +486,9 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 		return fmt.Errorf("instance not found")
 	}
 
-	// loadTask resolves a node's current task object via the transaction's own
-	// connection. The pooled db.GetDefinition must NOT be used here: this runs inside
-	// the tree-locking transaction, which on SQLite holds the single pooled connection
-	// db.GetDefinition would block waiting for — a deadlock. Definitions are immutable,
-	// so a per-call cache keyed by name+version avoids re-reading shared defs.
+	// loadTask resolves via the transaction's own connection: the pooled db.GetDefinition
+	// would block on the single SQLite connection this transaction holds — a deadlock.
+	// Definitions are immutable, so a per-call cache avoids re-reads.
 	defCache := map[string]*model.ProcessDefinition{}
 	loadTask := func(node *model.ProcessInstance) (*model.Task, error) {
 		if node.Task == "" {
@@ -656,11 +648,9 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			return fmt.Errorf("parent %q is already in wait_state %q", parent.ID, currentWaitState)
 		}
 
-		// A pause that landed while this parent was mid-spawn has to settle here or
-		// never: the write below parks it on wait_state='waiting', which removes it from
-		// the claim predicate, so no later claim could move it out of 'pausing'. The
-		// children inherit the settled status too — a paused tree must not spawn
-		// runnable work.
+		// A pause that landed mid-spawn settles here or never: the write below parks the parent
+		// out of the claim predicate. Children inherit the settled status — a paused tree must
+		// not spawn runnable work.
 		if model.Status(currentStatus) == model.StatusPausing {
 			currentStatus = string(model.StatusPaused)
 		}

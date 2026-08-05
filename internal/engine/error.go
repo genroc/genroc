@@ -8,12 +8,9 @@ import (
 	"genroc/internal/model"
 )
 
-// isRetryAllowed reports whether a retry is safe for this task and error. On an only_once
-// task that means a pre.* code or an explicit not_reached:true — except for the unknowable
-// codes, which nothing can buy back.
-//
-// validateOnError rejects such a rule at registration, but a definition stored before that
-// rule never re-validates, so this test is what holds the line at runtime.
+// isRetryAllowed: on an only_once task a retry needs a pre.* code or not_reached:true,
+// and the unknowable codes nothing can buy back. Not redundant with validateOnError —
+// definitions stored before that rule never re-validate, so this holds the line at runtime.
 func isRetryAllowed(task *model.Task, errCode errcode.Code, matched *model.ErrorCase) bool {
 	if task.OnlyOnce == nil || !*task.OnlyOnce {
 		return true
@@ -119,12 +116,9 @@ func (e *Engine) completeViaErrorHandler(inst *model.ProcessInstance, task *mode
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// raiseInstance concludes the instance as 'raised': an anticipated condition the parent
-// may react to by naming the code. See specs/child-error-handling.md.
-//
-// A raise must keep falling through to FinishChild rather than the failure path — it is a
-// normal outcome and must not mark ancestors 'failing'. And no process output is computed,
-// which is why a raise site is not a terminal for validating the `output:` expression.
+// raiseInstance concludes as 'raised' (specs/child-error-handling.md). It must keep
+// falling through to FinishChild — a raise is a normal outcome, never marks ancestors
+// failing — and computes no process output (a raise site is not an output terminal).
 func (e *Engine) raiseInstance(inst *model.ProcessInstance, task *model.Task, f *model.Fault) advanceOutcome {
 	inst.Status = model.StatusRaised
 	inst.WaitState = model.WaitStateNone

@@ -199,12 +199,9 @@ func (ctx *subsetCtx) checkObject(sub, super *node) bool {
 		if subReq[f] {
 			continue
 		}
-		// A nullable property need not be present when the value is only read: absence and
-		// null navigate the same way, so the two are one case rather than two.
-		//
-		// `declared` is load-bearing twice: a required name with no property has no type to
-		// call nullable — so nothing could fill it, and the fill agrees by skipping it — and
-		// hasNullResolved nil-derefs on the node a bare map index would hand it.
+		// A nullable property need not be present for a READER: absence and null navigate
+		// identically. `declared` is load-bearing twice — a required name with no property has no
+		// type to call nullable (the fill agrees by skipping it), and hasNullResolved would nil-deref.
 		if prop, declared := super.Properties[f]; ctx.absentAsNull && declared &&
 			hasNullResolved(prop, ctx.superDefs) {
 			continue

@@ -15,11 +15,9 @@ import (
 	"genroc/internal/model"
 )
 
-// Connection limits for the HTTP listener. There is deliberately no WriteTimeout: /tick
-// blocks until every instance it claimed has finished advancing, so any ceiling short
-// enough to be useful against a slow reader would also sever a legitimate long tick.
-// readHeaderTimeout is the one that matters for an unauthenticated listener anyway — it is
-// what bounds a connection that opens and then sends nothing.
+// HTTP listener limits. Deliberately no WriteTimeout: /tick blocks until its claimed
+// instances finish, so any useful ceiling would sever legitimate long ticks.
+// readHeaderTimeout is what bounds a connection that opens and sends nothing.
 const (
 	readHeaderTimeout = 10 * time.Second
 	readTimeout       = 60 * time.Second

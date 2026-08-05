@@ -33,12 +33,9 @@ var inferUnaryOps = map[string]func(operand Schema) (Schema, error){
 	"+": numericPassthrough,
 }
 
-// inferEquality types == and !=. Comparing two structured values is rejected:
-// the useful answer would be a deep walk, which a statically-checked language
-// should not hide behind an operator, and the runtime half refuses it too. The
-// guard fires only when BOTH sides are provably structured, so the common
-// `someArray == null` null-check keeps working — as does comparing a container
-// to a scalar, which is merely always false.
+// inferEquality rejects comparing two structured values (a deep walk hidden behind an
+// operator; the runtime refuses too). Fires only when BOTH sides are provably structured,
+// so `someArray == null` and container-vs-scalar (merely always false) keep working.
 func inferEquality(left, right Schema) (Schema, error) {
 	if isStructured(left) && isStructured(right) {
 		return Schema{}, fmt.Errorf("== and != are not supported between %s and %s values", left.TypeName(), right.TypeName())
@@ -214,12 +211,9 @@ func inferNullCoalesce(left, right Schema) (Schema, error) {
 		}
 		return Type("number"), nil
 	}
-	// Canonicalize: an un-merged union of overlapping arms is not merely verbose, it is
-	// unsatisfiable. `boolean ?? boolean|null` would build oneOf[{boolean},{boolean|null}],
-	// and oneOf means EXACTLY one — the value `true` matches both arms, so the schema
-	// rejects every value it describes. Canonicalizing folds those into {type:[boolean,null]}.
-	// A $ref arm is left symbolic: isSimpleType requires Ref == "", so a reference blocks
-	// the merge and a recursive output type stays finite.
+	// Canonicalize or the union is unsatisfiable, not verbose: oneOf means EXACTLY one, and
+	// `boolean ?? boolean|null` builds overlapping arms that reject every value they describe.
+	// A $ref arm blocks the merge (isSimpleType requires Ref==""), keeping recursion finite.
 	return OneOf(nonNullLeft, right).Canonicalize(), nil
 }
 
