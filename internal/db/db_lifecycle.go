@@ -45,9 +45,8 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 		}
 		parentFound := err == nil
 
-		// Save child as terminal. The fence sits on this write: a refused child write
-		// rolls the parent wake below back with it, so a stale worker can neither
-		// clobber the child nor wake a parent over work it no longer owns.
+		// Save child as terminal. The fence sits here; the parent wake below rolls
+		// back with a refused child write.
 		now := nowMillis()
 		cols, err := db.persistContext(ctx, qtx, child, now)
 		if err != nil {
@@ -114,8 +113,8 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 		if err != nil {
 			return err
 		}
-		// The fence sits on the child's own write; FailAncestors and the parent wake
-		// below derive their right to run from it and roll back with it.
+		// The fence sits on the child's write; FailAncestors and the parent wake roll
+		// back with it.
 		childParams := updateInstanceParams(child, cols, now)
 		if err := requireFenced(qtx.UpdateInstance(ctx, childParams)); err != nil {
 			return err
@@ -612,9 +611,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 		// references are unchanged, so no object pin/deref is needed. input_data is
 		// immutable and not written by UpdateInstance.
 		raw := rawRows[node.ID]
-		// An operator verb holds no lease; it binds the epoch read under the tree lock
-		// above, where no claim can move it (SKIP LOCKED passes over locked rows), so
-		// this write never legitimately fences out.
+		// No lease held: bind the epoch read under the tree lock, where it cannot move.
 		if _, err := qtx.UpdateInstance(ctx, dbgen.UpdateInstanceParams{
 			ID:          node.ID,
 			Task:        raw.Task,
@@ -698,9 +695,8 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			}
 		}
 
-		// Suspend parent: keep status, set wait_state='waiting'. The fence sits here,
-		// and the child inserts above roll back with it: there is no world where the
-		// children exist and the parent was never parked.
+		// Suspend parent: keep status, set wait_state='waiting'. The fence sits here;
+		// the child inserts above roll back with it — no children without the park.
 		parentCols, err := db.persistContext(ctx, qtx, parent, now)
 		if err != nil {
 			return err

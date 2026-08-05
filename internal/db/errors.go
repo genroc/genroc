@@ -35,9 +35,7 @@ var (
 	ErrInvalid = errors.New("invalid argument")
 
 	// ErrLeaseLost means a fenced write matched no row: the lease grant (lease_epoch)
-	// the advance was operating under has been superseded by a newer claim. The whole
-	// transaction rolls back with it, so a lost lease never leaks partial effects.
-	// The caller must DROP its outcome — writing a failure instead would be exactly
-	// the clobber the fence prevents. See specs/lease-fencing.md.
+	// was superseded and the whole transaction rolled back. The caller must DROP its
+	// outcome — a failure write would be the clobber itself. specs/lease-fencing.md.
 	ErrLeaseLost = errors.New("lease lost")
 )

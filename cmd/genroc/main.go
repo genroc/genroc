@@ -99,9 +99,8 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		// Run drains in-flight work before returning, and nothing it encounters is
-		// fatal: a worker that cannot keep its leases alive repairs them or has its
-		// stale writes refused (lease_lost), it does not exit. specs/lease-fencing.md.
+		// Run drains in-flight work before returning; lease pressure repairs or is
+		// refused per-write (lease_lost), never an exit. specs/lease-fencing.md.
 		eng.Run(ctx)
 	}()
 

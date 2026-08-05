@@ -89,10 +89,9 @@ VALUES
 -- on the incoming status keeps real outcomes winning: a task that completes or fails
 -- the process writes that, and only a still-running instance settles into 'paused'.
 --
--- The lease_epoch predicate is the fence: zero rows means the grant this write was
--- made under is gone, and the caller rolls back with ErrLeaseLost. Callers holding
--- no lease (RetryProcess) bind the epoch they read under the row lock, where it
--- cannot move. See specs/lease-fencing.md.
+-- The lease_epoch predicate is the fence: zero rows means the grant is gone and the
+-- caller rolls back with ErrLeaseLost. Lease-less callers (RetryProcess) bind the
+-- epoch read under the row lock. specs/lease-fencing.md.
 UPDATE process_instances
 SET task             = sqlc.arg(task),
     outputs_data     = sqlc.arg(outputs_data),
@@ -172,13 +171,10 @@ WHERE id = (
 RETURNING result;
 
 -- name: SetExternalResult :exec
--- Un-parks an external task by storing the submitted/buffered result in external_data
--- and clearing the wait. Its callers (ResolveExternalTask, DeliverSignal) act on a
--- PARKED row under the instance row lock: no lease is held by anyone, so there is no
--- grant to fence against and worker_id/lease are left untouched -- clearing them would
--- destroy the ReclaimedExpired evidence a crashed prior owner may have left. The
--- engine's own consume path does not come through here; it writes the result via the
--- fenced UpdateInstanceProgress like any other checkpoint.
+-- Un-parks an external task: stores the submitted/buffered result in external_data and
+-- clears the wait. Callers act on a PARKED row under the row lock, so there is no grant
+-- to fence; worker_id stays -- clearing it destroys a crashed owner's ReclaimedExpired
+-- evidence. (The engine's consume path writes via the fenced UpdateInstanceProgress.)
 UPDATE process_instances
 SET external_data = sqlc.arg(external_data),
     wait_state   = '',
@@ -191,18 +187,11 @@ SELECT COUNT(*) FROM process_signals
 WHERE instance_id = sqlc.arg(instance_id) AND task_id = sqlc.arg(task_id);
 
 -- name: RenewWorkerLeasesChunk :execrows
--- Renews up to chunk_size of the listed leases, soonest-to-expire first, that are not
--- already stamped to new_expiry. Called in a loop (one small transaction per chunk) so
--- a row locked by an in-flight advance stalls only its chunk, never every lease at
--- once. The new_expiry predicate makes each row eligible once per pass, so the loop
--- terminates. It deliberately does NOT touch lease_epoch: a renewal extends a grant,
--- it does not create one -- bumping here would fence out the very advance it rescues.
---
--- ids scopes the renewal to rows this worker still intends to write (its held set).
--- A row it stopped advancing drops off the list, expires on its own with worker_id
--- still set, and the next claim reports ReclaimedExpired -- the only_once evidence.
--- The worker_id guard stays so an id whose row was meanwhile taken over (or freed and
--- re-granted elsewhere) is never re-stamped.
+-- Renews up to chunk_size of the listed (held-set) leases, soonest-to-expire first, in
+-- a loop of small transactions; the new_expiry predicate makes each row eligible once
+-- per pass, so the loop terminates. Must NOT bump lease_epoch (it would fence out the
+-- advance it rescues) and must NOT clear worker_id: an unlisted row expires with it
+-- set, which is the ReclaimedExpired/only_once evidence. specs/lease-fencing.md.
 UPDATE process_instances
 SET lease_expires_at = sqlc.arg(new_expiry)
 WHERE id IN (

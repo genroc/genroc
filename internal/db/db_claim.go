@@ -16,22 +16,13 @@ import (
 // single bulk UPDATE would block all renewals behind one contended row).
 const renewChunkSize = 100
 
-// RenewWorkerLeases re-stamps this worker's leases on the listed instances to
-// now+leaseDur, in small chunks (soonest-to-expire first). Each chunk is its own
-// transaction, so renewals make progress even while in-flight advances hold row locks.
+// RenewWorkerLeases re-stamps this worker's leases on the listed instances (its held
+// set) to now+leaseDur, in small chunks so an advance's row lock stalls only its chunk.
+// An unlisted row expires with worker_id intact — the hand-back path. An empty list
+// still runs one no-op chunk, so success always proves the database was reachable.
 //
-// ids is the worker's held set — the rows it still intends to write. Scoping to it is
-// what hands a row back after a skipped self-reclaim: a row no longer listed stops
-// being renewed, expires on its own with worker_id still set, and the next claim
-// derives ReclaimedExpired from that — the only_once evidence. An empty list still
-// runs one (no-op) chunk, so a successful renewal always proves the database was
-// reachable at the returned instant.
-//
-// It returns the instant those expiries were derived from — every row it re-stamped, in
-// whichever chunk, runs to exactly that instant plus leaseDur. A caller recording when it
-// last proved its leases alive must record this and never the clock after the call: the
-// renewal itself can take longer than the margin a staleness check leaves itself, and the
-// worker would then credit its leases with time it never wrote.
+// It returns the instant the expiries were derived from; record that, never the clock
+// after the call — the renewal can outlast the margin a staleness check leaves itself.
 func (db *DB) RenewWorkerLeases(workerID string, ids []string, leaseDur time.Duration) (time.Time, error) {
 	idsJSON, err := json.Marshal(ids)
 	if err != nil {
@@ -95,11 +86,8 @@ func TakeoverBefore(t time.Time) Takeover { return Takeover(t.UnixMilli()) }
 // SQLite's single-writer model needs no such clause. wait_state <> 'waiting'
 // excludes parents suspended for children; both ” (none) and 'collecting' are claimable.
 //
-// This is the ONLY place lease_epoch moves: a claim is a grant, and the bump is what
-// fences out whoever held the previous one. Renewal must never bump (it would fence out
-// the advance it rescues) and revival paths need no bump of their own — any stale
-// advance was already fenced by the claim that took the row over and produced the
-// failure being revived.
+// The ONLY place lease_epoch moves: a claim is a grant, and the bump fences out
+// whoever held the previous one. specs/lease-fencing.md.
 func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int, takeover Takeover) ([]*model.ProcessInstance, error) {
 	now := nowMillis()
 	leaseExpiry := now + leaseDur.Milliseconds()

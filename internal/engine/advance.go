@@ -52,9 +52,8 @@ func (o advanceOutcome) writeVerb() string {
 // loop with this outcome; a nil *advanceOutcome means "continue".
 func stop(o advanceOutcome) *advanceOutcome { return &o }
 
-// persist applies an advance outcome in one transaction — the only place an advance writes.
-// Every outcome releases the lease in that same transaction; the work session ends here,
-// unconditionally, and whatever the outcome made runnable is picked up by a claim.
+// persist applies an advance outcome in one transaction — the only place an advance
+// writes, and every outcome releases the lease in it: the work session ends here.
 func (e *Engine) persist(ctx context.Context, inst *model.ProcessInstance, o advanceOutcome) error {
 	switch o.kind {
 	case outcomeTerminal:
@@ -88,11 +87,9 @@ func (e *Engine) persistSpawn(ctx context.Context, inst *model.ProcessInstance, 
 	return nil
 }
 
-// persistArm installs the external wait, or consumes a signal that beat the process to the
-// task. Both branches are one transaction and both release the lease: a consume stores the
-// result on the row — the same keys the resolve API leaves behind — and the next claim
-// resumes via runExternal's phase 2. The extern_resolved audit here marks the consume; the
-// phase-2 pass logs its own when it reads the result.
+// persistArm installs the external wait, or consumes a signal that beat the process to
+// the task. Both release the lease; a consume stores the result on the row and the next
+// claim resumes via runExternal phase 2.
 func (e *Engine) persistArm(ctx context.Context, inst *model.ProcessInstance, a *externalArm) error {
 	consumed, _, err := e.db.ArmExternalOrConsumeSignal(ctx, inst, a.taskID, a.token, a.input, a.wakeAt)
 	if err != nil {
@@ -113,18 +110,15 @@ func (e *Engine) persistArm(ctx context.Context, inst *model.ProcessInstance, a 
 // dispatch and a doomed write over an instance it had in fact finished with. Dropping it
 // early is safe in the other direction — nothing can be handed a row whose lease we still
 // hold. (For Tick, which keeps no marker, the delete is a harmless no-op.)
-//
-// The held entry, by contrast, drops only on return — after the persist — so the renewer
-// keeps the lease alive through the write it protects. Dropping it at the start of
-// persist would let a long write outlive its own lease and fence itself out.
+// The held entry drops only on return — after the persist — so the renewer keeps the
+// lease alive through the write it protects.
 func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) error {
 	defer e.held.Delete(inst.ID)
 	outcome := e.advanceGuarded(ctx, inst)
 	e.inflight.Delete(inst.ID)
 	if err := e.persist(ctx, inst, outcome); err != nil {
-		// A refused write means the grant this advance ran under is gone: the row
-		// belongs to a newer claim, and anything written now — including a failure —
-		// is the clobber the fence exists to prevent. Drop the outcome.
+		// The grant is gone: anything written now — including a failure — is the
+		// clobber the fence exists to prevent. Drop the outcome.
 		if errors.Is(err, db.ErrLeaseLost) {
 			e.auditLeaseLost(inst)
 			return nil
@@ -156,10 +150,8 @@ func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) er
 	return nil
 }
 
-// auditLeaseLost records a dropped outcome on the instance's own trail. The write is
-// unfenced on purpose: it must land regardless of who owns the row now, because it is the
-// only trace of the abandoned attempt — and a stream of them is the load signal that used
-// to be the fatal overwhelm exit.
+// auditLeaseLost records a dropped outcome on the instance's trail. Unfenced on purpose:
+// it is the only trace of the abandoned attempt, whoever owns the row now.
 func (e *Engine) auditLeaseLost(inst *model.ProcessInstance) {
 	e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventLeaseLost, Task: inst.Task,
 		Msg: "lease lost mid-advance; outcome dropped — the instance was re-granted while this worker was still advancing it. " +

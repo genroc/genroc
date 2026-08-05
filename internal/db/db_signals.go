@@ -14,13 +14,10 @@ import (
 
 // ArmExternalOrConsumeSignal is the engine's atomic entry into an external task. Under
 // the instance row lock (shared with DeliverSignal, so the two never interleave) it
-// either consumes the oldest buffered signal — a progress checkpoint that stores it as
-// _external_result and releases the lease, so the next claim resumes via runExternal
-// phase 2 — or parks the instance (wait_state='external', per-occurrence token + input
-// in _external), also releasing. Pop-and-write is one commit, so the signal is never
-// lost: a crash after it finds the result on the row, a refused (stale-lease) write
-// rolls the pop back into the queue. Both branches end the work session; no outcome
-// keeps the lease.
+// either consumes the oldest buffered signal — stored as _external_result, resumed by
+// the next claim via runExternal phase 2 — or parks the instance (wait_state='external',
+// token + input in _external). Both branches release the lease; pop-and-write is one
+// commit, so the signal survives a crash or a refused (stale-lease) write.
 func (db *DB) ArmExternalOrConsumeSignal(ctx context.Context, inst *model.ProcessInstance, taskID, token string, input any, wakeAt *time.Time) (consumed bool, result any, err error) {
 	tx, qtx, raw, err := db.beginTx(ctx, nil)
 	if err != nil {
@@ -52,13 +49,9 @@ func (db *DB) ArmExternalOrConsumeSignal(ctx context.Context, inst *model.Proces
 	now := nowMillis()
 
 	if popErr == nil {
-		// A buffered signal was waiting: consume it now, as an ordinary progress
-		// checkpoint — the result lands in external_data and the lease is RELEASED, so
-		// the work session ends and the next claim resumes via runExternal phase 2 on
-		// the durable copy. (Uniform with every other persist: no outcome keeps the
-		// lease.) Fenced on the engine's grant: a stale arm must not consume the
-		// signal, and the refused write rolls the pop back with it, so the signal
-		// stays queued — at its FIFO position — for whoever owns the instance now.
+		// Consume as an ordinary checkpoint: result into external_data, lease released,
+		// next claim resumes via runExternal phase 2. The fence shares the pop's
+		// transaction, so a stale arm rolls the signal back to its FIFO position.
 		var p any
 		if err := json.Unmarshal([]byte(resultStr), &p); err != nil {
 			return false, nil, fmt.Errorf("decode buffered signal: %w", err)

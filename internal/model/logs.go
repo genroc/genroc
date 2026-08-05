@@ -54,11 +54,9 @@ const (
 	EventExternalArmed    = "extern_armed"
 	EventExternalResolved = "extern_resolved"
 	EventExternalTimeout  = "extern_timeout"
-	// EventLeaseLost marks an advance whose write was refused by the lease fence: the
-	// row was re-granted while this worker was still advancing it, and the outcome was
-	// dropped. It is what explains a work_started with no matching completion in the
-	// timeline, and the telemetry that replaced the fatal overwhelm exit — a worker that
-	// genuinely cannot keep its leases alive emits a stream of these instead of dying.
+	// EventLeaseLost marks an advance whose write the fence refused: the row was
+	// re-granted mid-flight and the outcome dropped. It explains a work_started with no
+	// completion, and a stream of them is what replaced the fatal overwhelm exit.
 	EventLeaseLost = "lease_lost"
 )
 
