@@ -63,14 +63,9 @@ func appendQuery(u, key, val string) string {
 // for it explicitly keeps a long forward walk from costing a round trip per 20 rows.
 const pageMax = 100
 
-// streamPages walks a list endpoint forward, handing each page to fn as it arrives rather
-// than accumulating — so output starts on the first page and a piped `head` or a Ctrl-C
-// costs nothing further. base carries the filters, including the *_after bound this walk
-// starts from, and must omit order/limit/after. fn's error aborts the walk.
-//
-// order=asc flips the endpoint's newest-first default: paired with an *_after bound it
-// walks from that point toward now, which is both the reading order and the display order,
-// so nothing has to be buffered to be reversed.
+// streamPages walks a list endpoint forward (order=asc from base's *_after bound),
+// handing each page to fn as it arrives — output starts on page one, a piped `head`
+// costs nothing further. base must omit order/limit/after; fn's error aborts the walk.
 func streamPages[T any](base string, fn func([]T) error) error {
 	after := ""
 	for {
@@ -104,17 +99,9 @@ const (
 	firstFirst  = false
 )
 
-// fetchOrdered delivers a list endpoint's rows to emit in display order, taking the two
-// routes from whether a start point was named:
-//
-//   - limit > 0 — none named. Take N from the head of the sort's reading direction, per
-//     newestFirst/firstFirst above. N is bounded by construction, so collecting before the
-//     first line prints costs nothing.
-//   - limit <= 0 — base carries an *_after bound. Walk ascending from it, emitting each
-//     page as it lands. That read is unbounded, which is exactly when buffering is wrong.
-//
-// It reports whether the limit actually dropped anything, so a caller can say so rather
-// than truncate in silence.
+// fetchOrdered delivers rows in display order: limit > 0 takes the newest/first N (no
+// start point named); limit <= 0 streams ascending from base's *_after bound. Reports
+// whether the cap dropped rows, so callers never truncate silently.
 func fetchOrdered[T any](base string, limit int, desc bool, emit func([]T) error) (bool, error) {
 	if limit <= 0 {
 		return false, streamPages(base, emit)

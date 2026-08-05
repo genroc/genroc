@@ -29,29 +29,14 @@ at the cost of an extra task and a hand-maintained counter, and it only works be
 asymmetry was the actual finding: the delay grammar is the richest thing in the
 language, and retry was the one timer that could not reach it.
 
-## What other engines expose
+## The field set
 
-The field set is not invented here. Surveyed before choosing it:
-
-| Engine | Count | Timing | Per-error class | Server-directed delay |
-|---|---|---|---|---|
-| Temporal | `maximumAttempts` (default unlimited) | `initialInterval`, `backoffCoefficient`, `maximumInterval` | `nonRetryableErrorTypes` | ✅ `ApplicationFailure.nextRetryDelay` |
-| Step Functions | `MaxAttempts` | `IntervalSeconds`, `BackoffRate`, `MaxDelaySeconds`, `JitterStrategy` | ordered `Retry` list on `ErrorEquals` | ❌ |
-| Argo Workflows | `limit` | `backoff.duration`, `.factor`, `.maxDuration` | `retryPolicy` + `expression` | ❌ |
-| Airflow | `retries` | `retry_delay`, `retry_exponential_backoff`, `max_retry_delay` | ❌ | ❌ |
-| Prefect | `retries` | `retry_delay_seconds` (number, list, or callable), `retry_jitter_factor` | `retry_condition_fn` | via callable |
-
-Three things that survey settled:
-
-1. **`{initial, factor, max interval, attempts}` is the floor, not a luxury.** It appears
-   in Temporal, Step Functions and Argo essentially unchanged. genroc had one of four.
-2. **The ceiling has to be exposed.** Every engine has one, and Argo's docs call
-   `maxDuration` a circuit breaker — its job is to stop a `factor` running away. An
-   implicit ceiling derived from the base is not the same thing.
-3. **genroc was already ahead where it is hardest.** Step Functions keeps `Retry` and
-   `Catch` as two ordered lists over the same error names; Temporal splits
-   `nonRetryableErrorTypes` from the catch. One ordered `on_error` list that both routes
-   and retries per code pattern is the better model, and the gap was purely timing.
+Not invented here: `{initial delay, growth factor, max interval, attempts}` is the
+industry-standard quartet — genroc had one of the four. Two findings behind it: the
+ceiling must be an explicit field (its job is to stop a runaway `factor`; deriving it
+from the base is not the same thing), and one ordered `on_error` list that both routes
+and retries per code pattern beats splitting retry-eligibility from the catch into two
+lists over the same error names.
 
 ## The shape
 
@@ -71,16 +56,15 @@ Decisions worth recording, since each had a cheaper alternative:
 - **A scalar shorthand, following `Timeout`.** Same reason and same mechanism: the
   shorthand lives on a wrapper type nothing embeds, and `MarshalJSON` writes the object
   form, so a stored definition is canonical and everything downstream sees one shape.
-- **The default curve is 1s, factor 2, ceiling 5m** — what Temporal and Step Functions
-  both default to. The old fixed curve started at 2s, but only as an artifact: it passed
+- **The default curve is 1s, factor 2, ceiling 5m** — the standard default elsewhere.
+  The old fixed curve started at 2s, but only as an artifact: it passed
   an already-incremented attempt counter into `2^attempt`, so its 1s step was never
   emitted. With `delay` now documented as the wait before the *first* retry — which is
   what every engine means by its interval field — 2s was a number with no argument behind
   it.
-- **The ceiling is absolute, not relative to the base.** Temporal's default ceiling is
-  `100 × initialInterval`, which is safe there because attempts default to unlimited and
-  the real backstop is a wall-clock activity timeout. genroc deferred that budget (below),
-  so a relative ceiling would have nothing behind it.
+- **The ceiling is absolute, not relative to the base.** A relative ceiling is only safe
+  when a wall-clock budget backstops it; genroc deferred that budget (below), so a
+  relative ceiling would have nothing behind it.
 - **A default ceiling never truncates an authored base.** `Ceiling()` is
   `max(5m, Base())`, so `delay: 1h` alone does not clamp back to 5m; an *authored*
   `max_delay` below `delay` is refused instead of silently winning.
@@ -97,12 +81,11 @@ Decisions worth recording, since each had a cheaper alternative:
 
 - **`jitter`**, as a strategy or a factor. It is always on, always in the upper half, and
   the integration tests depend on it only ever shortening. Nobody has asked to tune it.
-- **A wall-clock budget** (`retry_for: 10m`, or `until:`). The right unit conceptually —
-  and Temporal reaches it through activity timeouts rather than a retry field, which is a
-  hint. It collides with pause/resume (does a 10-minute budget survive a two-day pause?)
+- **A wall-clock budget** (`retry_for: 10m`, or `until:`). The right unit conceptually,
+  but it collides with pause/resume (does a 10-minute budget survive a two-day pause?)
   and with the per-attempt `timeout`. Real design work, deferred until asked for.
 - **Expression-valued delays**, and with them the `Retry-After` case — a server saying
-  when to come back, which Temporal spells `nextRetryDelay`. This is the frontier, and it
+  when to come back. This is the frontier, and it
   is **not blocked on retry config**: it needs response headers, string-literal indexing,
   and a seconds→ms conversion, all listed in
   [fetch-http-surface.md](fetch-http-surface.md). Built now it would be inert. When those

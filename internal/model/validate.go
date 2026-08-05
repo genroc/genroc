@@ -46,12 +46,8 @@ func (d *ProcessDefinition) Validate() error {
 }
 
 // validateFaultCodeKinds enforces R6: within one definition a code is a raise code or a
-// panic code, never both. Otherwise error_code would be ambiguous for exactly the
-// observers it exists to serve — the same value would appear on 'raised' and 'failed'
-// instances of the same process and mean two different things, so a dashboard could not
-// tell "the caller may handle this" from "this tree is broken" by the code alone.
-//
-// The check runs after per-task validation, so every Fault here has already passed R1.
+// panic code, never both — the same value on 'raised' and 'failed' instances would mean
+// two things to the dashboards error_code exists for. Runs after per-task validation.
 func (d *ProcessDefinition) validateFaultCodeKinds() error {
 	raisedBy := map[string]string{} // code → first task that raises it
 	for _, s := range d.Tasks {
@@ -114,19 +110,9 @@ func validateTask(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int, po
 	return validateActionSchemas(s, pool)
 }
 
-// validateTimeout enforces the two rules a timeout has beyond its grammar: which action
-// types honour one at all, and that `until` is confined to the one that parks.
-//
-// A timeout on a child or delay task is rejected rather than ignored — the engine reads it
-// in exactly two places, and a deadline that is silently never applied is the failure this
-// check exists for.
-//
-// `until` is confined to external because a deadline already past has to mean something,
-// and it only means something coherent there: the task parks on that instant, so a
-// deadline behind now is simply due. A fetch would instead build a context that is expired
-// before the request is sent, and transport.ClassifyGoError reports that as http.timeout —
-// an unknowable code, so on an only_once task it can never be retried, for a request that
-// provably never left. There is no honest code to report for it, so the slot is refused.
+// validateTimeout: which action types honour a timeout at all — a silently unapplied
+// deadline is the failure this check exists for — and `until` confined to external, the
+// one type where a past deadline coherently means "due now". CLAUDE.md has the asymmetry.
 func validateTimeout(s *Task) error {
 	if s.Timeout.IsZero() {
 		return nil
@@ -381,14 +367,9 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 		}
 
 		if child {
-			// D7: no parent-side retry — re-spawning a batch is not a retry (§10.1), so a
-			// retry field would be silently ignored, which is worse than refusing it.
-			// (Reachability of each pattern against the child raise set is R5, checked in
-			// the validation package where children can be resolved.)
-			// Refused whenever the policy names anything, not just when attempts > 0: a
-			// policy naming only a delay is still an author expecting retries. An empty
-			// one (`retry: {}` / `retry: 0`) says nothing and is left alone, exactly as an
-			// absent key is.
+			// D7: no parent-side retry — re-spawning a batch is not a retry, so the field would be
+			// silently ignored. Refused whenever the policy names ANYTHING (a delay-only policy still
+			// expects retries); `retry: {}` / `retry: 0` are the absent key. R5 lives in validation.
 			if !ec.Retry.IsZero() {
 				return fmt.Errorf("task %q %s: retry is not supported on a child task; retry inside the child, then raise", s.ID, where)
 			}
@@ -398,13 +379,9 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 			continue
 		}
 
-		// Retries on an only_once task, in three tiers (specs/only-once-interrupted.md):
-		// pre.*-only patterns are safe alone; anything else needs not_reached:true *and*
-		// exact codes; the unknowable set is refused however it is named.
-		//
-		// Applied per pattern, not per rule, so a rule may mix a safe pre.% with a named
-		// exception. Tier 3 is tested first, or naming http.timeout gets tier-2 advice
-		// that leads nowhere.
+		// only_once retries in three tiers (specs/only-once-interrupted.md): pre.*-only patterns
+		// are safe; anything else needs not_reached AND exact codes; the unknowable set is refused
+		// however named. Per pattern, not per rule; tier 3 first so http.timeout gets the truth.
 		if err := validateRetry(ec.Retry, s.ID, where); err != nil {
 			return err
 		}

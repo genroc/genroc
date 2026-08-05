@@ -16,8 +16,8 @@ loaded into the engine. Instead:
   expressed in YAML goes there, out-of-process.
 
 The extension boundary is the **network + auth**, never a dynamic-link boundary
-into the core. This is the same choice Temporal (activities), Tekton/Argo (steps),
-and GitHub Actions (containers) made, and for the same reasons.
+into the core — the choice every successful orchestrator generation has converged on,
+and for the same reasons.
 
 ## Why no plugins
 
@@ -77,7 +77,7 @@ where the work dominates the latency — this does not matter.
   no-plugins architecture makes it *feasible*, but it is out of scope for now — a
   potential future, named so we do not drift into it one feature at a time.
 
-## The child-as-activity contract (what is necessary)
+## The child-as-worker contract (what is necessary)
 
 To make a child process a real custom-task boundary, the parent↔child (and
 child↔sidecar) contract needs:

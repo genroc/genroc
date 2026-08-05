@@ -12,14 +12,9 @@ import (
 	"genroc/internal/model"
 )
 
-// instancePaginator is the pagination policy for ListInstances. It selects only
-// the summary columns (no context_data/task/call_stack — see
-// instanceSummaryColumns) so listing many instances never fetches a potentially
-// huge context. Two index-backed sorts: created keys on (created_at, id) and
-// updated on (updated_at, id) — backed by idx_instances_updated_at — each with the
-// UUIDv7 PK tiebreaker. The default is created: it is immutable, so a cursor walk
-// stays stable even as the engine mutates rows; the CLI's "recent activity" view
-// opts into updated explicitly. Add more sort keys here (with a matching index).
+// Pagination for ListInstances over the summary columns (never the context blob). Sorts:
+// created (immutable, so cursor walks stay stable under engine writes; the default) and
+// updated (the CLI's recent-activity view). A new sort key needs a matching index.
 var instancePaginator = paginator{
 	table:   "process_instances",
 	columns: instanceSummaryColumns,
@@ -65,13 +60,9 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 	input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
 	error_code, lease_epoch`
 
-// instanceSummaryColumns is the lightweight projection used by ListInstances: no
-// context_data/task/call_stack, so a list never reads or unmarshals a
-// potentially huge context blob. Order matches scanInstanceSummary.
-//
-// error_code is included despite the "lightweight" rule: it is a short bounded string
-// and it is what a list is usually being filtered or scanned for when something has
-// gone wrong, so making callers fetch the detail view to see it would defeat the point.
+// Lightweight ListInstances projection — no context/call-stack blobs; order matches
+// scanInstanceSummary. error_code stays despite the rule: short, and it is what a list
+// is scanned for when something has gone wrong.
 const instanceSummaryColumns = `id, process_name, process_version, retry_count,
 	status, wait_state, task, error, error_code, created_at, updated_at`
 

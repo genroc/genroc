@@ -58,24 +58,11 @@ const (
 	// is rejected whatever its type, and undeclared keys are stripped.
 	Strict ConformMode = iota
 
-	// FillAbsentAsNull turns the walk into a MIGRATION, and is the other half of the
-	// relation of the same name: that decides a version gap is closable, this closes it.
-	// The two must accept exactly the same gaps, or a comparison promises an upgrade that
-	// then fails. Three rules differ from Strict, each deliberate:
-	//
-	//   - an absent required property whose type admits null is written in as null rather
-	//     than rejected — absence and null navigate identically, so this is the one gap
-	//     that can be closed without inventing anything;
-	//   - undeclared keys are KEPT. Stripping is a check's job; a migration must not
-	//     destroy data it does not understand, and a stale output from a dropped task is
-	//     exactly that;
-	//   - declared defaults are NOT filled, so the walk closes exactly what the relation
-	//     accepts and nothing more. Filling them would unlock the required-with-default
-	//     case, but only if the relation were taught to accept it in the same change.
-	//
-	// It still ERRORS on anything else it cannot conform. A migration that quietly handed
-	// back the value it was given would let an upgrade report success over data that does
-	// not fit the version it was moved to.
+	// FillAbsentAsNull turns the walk into a MIGRATION — the other half of the relation of the
+	// same name; the two must accept exactly the same gaps. Vs Strict: an absent required
+	// property that admits null is written in AS null; undeclared keys are KEPT (a migration
+	// must not destroy data it does not understand); declared defaults are NOT filled. It
+	// still errors on everything else — success over ill-fitting data would be a lie.
 	FillAbsentAsNull
 )
 

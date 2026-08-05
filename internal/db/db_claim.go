@@ -99,16 +99,9 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 
 	ctx := context.Background()
 
-	// Shared claimable predicate. The two `?` are `now` (timer, read here) and leaseCutoff
-	// (lease expiry, pinned by the caller — see Takeover).
-	//
-	// 'paused' is absent by design: paused work is live, just not advanced, and keeps its
-	// wake_at. 'failing'/'pausing' ignore wake_at because they will never run their pending
-	// task again; 'pausing' is reachable only as crash recovery.
-	//
-	// A no-timeout external wait has wake_at NULL and must NOT be claimed — it waits for
-	// the resolve API, which un-parks it by clearing wait_state (caught by the last
-	// branch). That is why the wake_at IS NULL branch excludes wait_state='external'.
+	// The two `?` are now (timer) and leaseCutoff (pinned by the caller — see Takeover).
+	// 'paused' is live-but-not-advanced and keeps wake_at; 'failing'/'pausing' ignore theirs.
+	// The wake_at IS NULL branch excludes 'external': a no-timeout wait is the resolve API's.
 	const where = `status IN ('running', 'failing', 'pausing')
 			  AND wait_state <> 'waiting'
 			  AND (status IN ('failing', 'pausing')

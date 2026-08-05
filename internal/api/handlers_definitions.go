@@ -115,14 +115,9 @@ func (h *Handlers) putDefinitions(raw json.RawMessage) Reply {
 	return okReply(results)
 }
 
-// applyBatch registers a batch of definitions: it decides and validates every one of
-// them first, then commits the lot in a single transaction.
-//
-// The two passes are not a style choice. Validation of a definition depends on the
-// versions its batch siblings resolved to, so an interleaved save/validate loop had
-// already written everything ahead of the first rejection — one `apply` landed partially,
-// leaving parents pointing at children that were never stored. Nothing below the planning
-// pass may write, and nothing in the commit may judge.
+// applyBatch validates every definition first (against its batch siblings' versions),
+// then commits the lot in one transaction. Nothing in planning may write, nothing in the
+// commit may judge — interleaving once left an apply half-landed. See CLAUDE.md.
 func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string) ([]BatchApplyResult, error) {
 	ptrs := make([]*model.ProcessDefinition, len(defs))
 	for i := range defs {
@@ -207,13 +202,9 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string) ([
 	return results, nil
 }
 
-// channelsFor lists the channel pointers a batch entry must set: the requested channel,
-// plus the default one when the process does not have it yet (a process is always
-// reachable through `latest`).
-//
-// Read here rather than during the commit: whether `latest` already exists is a question
-// about the state before the batch, and asking it mid-transaction would read rows the
-// same transaction is writing.
+// channelsFor lists the channel pointers an entry must set: the requested one, plus
+// `latest` when the process lacks it. Decided during planning — asked mid-commit it
+// would read rows the same transaction is writing.
 func (h *Handlers) channelsFor(name, channel string) []string {
 	channels := []string{channel}
 	if channel != defaultChannel {
@@ -478,18 +469,9 @@ func (h *Handlers) validateDefinitions(raw json.RawMessage) Reply {
 	return okReply(schemas)
 }
 
-// validateSubmitted runs the checks a document must pass before it means anything: struct
-// tags, schema inference, and child references resolved against its own batch first and the
-// registry second.
-//
-// Every caller that takes documents from a user runs this before doing anything else with
-// them. A comparison in particular: telling someone their unparseable definition is
-// "unanalysable" when `validate` would have named the task and the expression is a worse
-// answer to the same question.
-//
-// Everything here is a verdict on the submitted document, so all of it is invalid — never
-// internal. The %w keeps a *model.ValidationError reachable through the name prefix, so its
-// per-field detail survives to the reply.
+// validateSubmitted runs the checks a submitted document must pass before it means
+// anything; every caller that takes user documents runs it first ("unanalysable" is a
+// worse answer than validate's). All failures are invalid; %w keeps ValidationError detail.
 func (h *Handlers) validateSubmitted(defs []model.ProcessDefinition) ([]validation.SchemaFile, error) {
 	ptrs := make([]*model.ProcessDefinition, len(defs))
 	for i := range defs {

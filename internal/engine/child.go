@@ -11,14 +11,9 @@ import (
 	"genroc/internal/shape"
 )
 
-// runChildProcesses handles the two-phase child lifecycle:
-//
-//  1. WaitStateNone → spawn children, suspend the parent (wait_state='waiting').
-//  2. WaitStateCollecting → all children terminal; merge their outputs into the parent
-//     context and return so advance() continues past this task.
-//
-// A parent paused mid-spawn spawns paused children, so a suspended tree never puts
-// runnable work in the queue; resuming the tree starts them.
+// runChildProcesses: WaitStateNone → spawn and park the parent on 'waiting';
+// WaitStateCollecting → merge the settled batch into context and continue. A parent
+// paused mid-spawn spawns paused children — a suspended tree queues nothing runnable.
 func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *advanceOutcome) {
 	// Phase 2: parent woke up with the batch settled. Read the children once, then either
 	// resolve a raised batch (route via on_error) or, if every child completed, merge

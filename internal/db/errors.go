@@ -2,17 +2,12 @@ package db
 
 import "errors"
 
-// The persistence layer's two classification sentinels. They exist so a caller can
-// branch on *what kind* of failure it got without re-deriving it from a message or
-// from sql.ErrNoRows — in particular so the API layer can map a failure to an HTTP
-// status in one place instead of at every call site.
-//
-// Wrap with %w and keep the human wording in the prefix:
+// Classification sentinels: callers branch on the KIND of failure (the API maps kinds to
+// HTTP statuses in one place). Wrap with %w, human wording in the prefix:
 //
 //	fmt.Errorf("definition %q v%d: %w", name, version, ErrNotFound)
 //
-// Anything not wrapped in one of these is an internal failure by default; that is the
-// classification the API layer applies, and it is deliberately the pessimistic one.
+// Anything unwrapped classifies as internal — deliberately the pessimistic default.
 var (
 	// ErrNotFound means the row a caller named does not exist. It is deliberately
 	// distinct from sql.ErrNoRows: an empty scan is a driver-level fact, and only

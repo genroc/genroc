@@ -22,13 +22,9 @@ type CountActiveSiblingsParams struct {
 	SpawnTaskID string
 }
 
-// Only completed/failed/raised are settled. A paused sibling still counts as active, so
-// a parent never collects a batch while one of its children is suspended.
-//
-// 'raised' must be here: a raise is a conclusion, so a child that raised is done and
-// its parent has to be woken to resolve the batch. Omitting it hangs the parent in
-// 'waiting' forever. This list is the SQL half of model.Status.Terminal() and has to be
-// kept in step with it by hand.
+// Only completed/failed/raised are settled; a paused sibling counts as active, so a
+// parent never collects while a child is suspended. 'raised' must stay or the parent
+// hangs in 'waiting'. The SQL half of model.Status.Terminal(); kept in step by hand.
 func (q *Queries) CountActiveSiblings(ctx context.Context, arg CountActiveSiblingsParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countActiveSiblings, arg.ParentID, arg.SpawnTaskID)
 	var count int64
@@ -151,20 +147,10 @@ type FailAncestorsParams struct {
 	Ids       interface{}
 }
 
-// Paused ancestors are included: a failure is a real outcome and must not be hidden
-// by a suspension. A child that dies while the tree is paused (its in-flight task was
-// doomed when the pause landed) propagates 'failing' upward, and those ancestors
-// settle to 'failed' (retryable) rather than leaving a paused tree with a dead
-// branch inside it. Pause suppresses advancement, not settlement.
-//
-// 'raised' is deliberately absent from the WHERE list alongside completed/failed: a
-// settled outcome is never reopened into 'failing'. Note the asymmetry with
-// CountActiveSiblings, which does list it: 'raised' is terminal for "is this batch
-// done", but it is not a failure, so it neither poisons upward nor is poisoned from
-// above.
-//
-// error_code travels with the error text so a whole poisoned tree is filterable by the
-// code of the failure that started it, not just the one instance that observed it.
+// Paused ancestors are included: pause suppresses advancement, not settlement, so a
+// dead branch still poisons upward. 'raised' is deliberately absent (a settled outcome
+// never reopens into 'failing' -- terminal for "batch done", yet neither poisoning nor
+// poisonable). error_code travels along so a poisoned tree filters by its origin code.
 func (q *Queries) FailAncestors(ctx context.Context, arg FailAncestorsParams) error {
 	_, err := q.db.ExecContext(ctx, failAncestors,
 		arg.Error,
@@ -946,18 +932,11 @@ type UpdateInstanceParams struct {
 	LeaseEpoch   int64
 }
 
-// input_data is intentionally NOT written: the process input is immutable after
-// creation, so re-writing it every update would be pure churn.
-//
-// The status CASE lands a pause that arrived while this instance was leased. The
-// worker cannot know about it -- PauseProcess marked the row 'pausing' after the
-// claim -- so the decision is made in SQL against the row's current value. Guarding
-// on the incoming status keeps real outcomes winning: a task that completes or fails
-// the process writes that, and only a still-running instance settles into 'paused'.
-//
-// The lease_epoch predicate is the fence: zero rows means the grant is gone and the
-// caller rolls back with ErrLeaseLost. Lease-less callers (RetryProcess) bind the
-// epoch read under the row lock. specs/lease-fencing.md.
+// input_data is never written (immutable). The status CASE lands a pause that arrived
+// while this instance was leased, decided in SQL against the row's current value; only
+// a still-running instance settles into 'paused' (pause invariants: CLAUDE.md).
+// lease_epoch is the fence: zero rows = grant gone = ErrLeaseLost; lease-less callers
+// bind the epoch read under their row lock. specs/lease-fencing.md.
 func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstance,
 		arg.Task,
@@ -1013,16 +992,10 @@ type UpdateInstanceProgressParams struct {
 	LeaseEpoch   int64
 }
 
-// Mid-process write: neither input_data (immutable) nor output_data (only set on
-// completion, which goes through UpdateInstance with a status change) is touched.
-//
-// A progress checkpoint always means "still running", so a pending pause lands
-// unconditionally here (see UpdateInstance for why this is decided in SQL). This is
-// also the write that parks on a delay or an external task, so a pause requested
-// while the instance was mid-task settles even though it is about to become
-// unclaimable on wait_state.
-//
-// lease_epoch: see UpdateInstance.
+// Mid-process write: input_data (immutable) and output_data (completion-only) are not
+// touched. A checkpoint means "still running", so a pending pause lands unconditionally
+// here -- including on the write that parks the instance out of the claim predicate,
+// its last chance to settle. lease_epoch: see UpdateInstance.
 func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstanceProgressParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstanceProgress,
 		arg.Task,

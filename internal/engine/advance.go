@@ -103,15 +103,10 @@ func (e *Engine) persistArm(ctx context.Context, inst *model.ProcessInstance, a 
 	return nil
 }
 
-// runAdvance advances one instance and persists the result. Because advance writes nothing,
-// this is the only place the in-flight marker and the lease move, and they move in this
-// order: the marker comes off *before* the write, never after. The reverse leaves the row
-// claimable while still marked, which dispatch reads as re-claiming live work — a skipped
-// dispatch and a doomed write over an instance it had in fact finished with. Dropping it
-// early is safe in the other direction — nothing can be handed a row whose lease we still
-// hold. (For Tick, which keeps no marker, the delete is a harmless no-op.)
-// The held entry drops only on return — after the persist — so the renewer keeps the
-// lease alive through the write it protects.
+// runAdvance is the only place the marker and the lease move: marker off BEFORE the write
+// (after = a freed row still marked = dispatch skips forever — a wedged instance); held
+// entry off only on return, so the renewer covers the write it protects. Tick keeps no
+// marker; the delete is a no-op there.
 func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) error {
 	defer e.held.Delete(inst.ID)
 	outcome := e.advanceGuarded(ctx, inst)
@@ -159,13 +154,10 @@ func (e *Engine) auditLeaseLost(inst *model.ProcessInstance) {
 		Meta: map[string]any{"worker": e.workerID, "lease": e.leaseDuration.String(), "epoch": inst.LeaseEpoch}})
 }
 
-// advanceGuarded runs advance under a panic barrier, converting a panic into a terminal
-// failure carrying errcode.EnginePanic: a panic is almost always attributable to the one
-// definition being advanced, and killing the worker punishes every other in-flight advance
-// for it. Rationale and residuals: specs/error-handling-audit.md.
-//
-// The barrier must cover advance() only, never persist(). A panic in the write path is not
-// definition-attributable, and there would be nothing left to write the failure with.
+// advanceGuarded converts a panic under advance into a terminal EnginePanic failure (a
+// panic is definition-attributable; killing the worker punishes every healthy advance).
+// Never extend it over persist(): that panic is not the definition's, and there is
+// nothing left to write a failure with. specs/error-handling-audit.md.
 func (e *Engine) advanceGuarded(ctx context.Context, inst *model.ProcessInstance) (outcome advanceOutcome) {
 	defer func() {
 		r := recover()
@@ -180,13 +172,9 @@ func (e *Engine) advanceGuarded(ctx context.Context, inst *model.ProcessInstance
 		// happens below, the panic is on the record somewhere.
 		e.logOnly(logEvent{Level: model.LogError, ID: inst.ID, Msg: reason + "\n" + stack})
 
-		// Pre-set the outcome, because the durable recording below can panic in turn
-		// and this value has to survive that. It is not defensive padding: audit
-		// resolves the instance's definition to redact secrets from the entry, so a
-		// definition malformed enough to panic advance is a good bet to panic the
-		// recording too — and failInstance audits. The order matters: failInstance
-		// assigns the terminal fields *before* it audits, so an instance that dies in
-		// the audit is still correctly marked failed and is persisted as such.
+		// Pre-set the outcome: the recording below can panic in turn (audit resolves the same
+		// malformed definition to redact secrets), and this value must survive it. failInstance
+		// assigns terminal fields BEFORE auditing, so a death in the audit still persists failed.
 		outcome = advanceOutcome{kind: outcomeTerminal}
 		defer func() {
 			if r2 := recover(); r2 != nil {
@@ -270,15 +258,10 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		return e.settleFailing(inst)
 	}
 	if inst.Status == model.StatusPausing {
-		// Crash recovery only: a pause normally lands in SQL when the owning worker
-		// writes its finished task, so reaching a claim means that worker died mid-task.
-		//
-		// An interrupted only_once task is resolved here rather than parked, ignoring the
-		// pending pause, because its evidence (ReclaimedExpired, from worker_id) does not
-		// survive the write that settles a pause — deferring would decide on evidence
-		// that no longer exists. Writing status 'running' then lets the CASE in
-		// UpdateInstance land the pause, so a routed instance parks at its handler and
-		// runs it on resume. See specs/only-once-interrupted.md.
+		// Crash recovery only (a live pause lands in SQL on the owner's write). The interrupted
+		// only_once verdict must run BEFORE the pause settles — its evidence (worker_id) does not
+		// survive that write; status 'running' + the UpdateInstance CASE still land the pause.
+		// specs/only-once-interrupted.md.
 		if inst.ReclaimedExpired {
 			if task := e.lookupTask(inst); interruptedOnlyOnce(task) {
 				inst.Status = model.StatusRunning
@@ -475,13 +458,9 @@ func appendOutputOrder(inst *model.ProcessInstance, id string) {
 	inst.ContextData["output_order"] = append(order, id)
 }
 
-// evalSwitch returns the first switch case whose Case expression is true. An empty Case
-// is a catch-all (must be last when present). Returns nil when no case matches (should
-// not happen on validated definitions).
-//
-// It returns the whole case rather than just its Goto because a case may terminate
-// instead of routing (raise/panic), and "" is not a distinguishable answer for that --
-// it is also what a nil case would yield.
+// evalSwitch returns the first matching case (empty Case = catch-all; nil never happens on
+// validated definitions). The whole case, not its Goto: a case may raise or panic instead
+// of routing, and "" cannot say which.
 func (e *Engine) evalSwitch(inst *model.ProcessInstance, task *model.Task, selfOutput any) (*model.SwitchCase, error) {
 	for i := range task.Switch {
 		c := &task.Switch[i]

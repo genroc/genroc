@@ -39,20 +39,9 @@ var whenLayouts = []string{
 	"2006-01-02",
 }
 
-// parseWhen converts a --since/--until value to the unix millis the API expects: a
-// duration ("2h", "45m") counts back from now, an absolute timestamp is taken as written.
-// flag names the flag being parsed, so the error points at the one the user typed.
-//
-// A bare integer is rejected rather than read as epoch millis — "--since 30" means half an
-// hour to everyone who types it, and silently returning everything instead is worse than
-// an error.
-//
-// A duration resolves against *this machine's* clock, while rows are stamped with the
-// server's (db.nowMillis, which is time.Now plus a test-only offset). The two agree to
-// within NTP skew in production, so "2h" is off by seconds at most. They do not agree when
-// the server's clock has been shifted — db.AdvanceClock moves it by hours in the tick
-// tests — so a duration against such a server selects a window the server never had. Pass
-// an absolute timestamp there, or bound with the values a row actually reports.
+// parseWhen converts --since/--until to unix millis: a duration counts back from THIS
+// machine's clock (fine in production, wrong against a test-shifted server — pass an
+// absolute timestamp there), a timestamp is taken as written. Bare integers are rejected.
 func parseWhen(flag, s string) (int64, error) {
 	if d, err := time.ParseDuration(s); err == nil {
 		if d < 0 {

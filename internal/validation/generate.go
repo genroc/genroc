@@ -67,14 +67,9 @@ func buildSchemaContext(def *model.ProcessDefinition) (defs schema.Defs, tasks m
 	return
 }
 
-// buildConfigSchema types the "config" namespace from the definition's
-// config_schema so expressions referencing config.<NAME> are type-checked and an
-// undeclared config.<NAME> is rejected at registration. A property is marked
-// required (non-null) only when it is actually guaranteed present at runtime — it
-// is in config_schema.required or has a default; everything else stays optional,
-// so accessing it yields a nullable type and the inferrer flags unsafe uses (e.g.
-// a possibly-null value interpolated into a URL). Returns the zero Schema when no
-// config is declared.
+// buildConfigSchema types the config namespace so config.<NAME> is checked and undeclared
+// names are rejected at registration. Non-null only when guaranteed at runtime (required
+// or defaulted); the rest stay nullable so unsafe uses get flagged.
 func buildConfigSchema(cs *schema.Schema) schema.Schema {
 	if cs == nil {
 		return schema.Schema{}
@@ -149,16 +144,10 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 	return result, nil
 }
 
-// inferProcessOutput types the process output expression PER TERMINAL PATH and joins the
-// results, rather than once against a context that has already collapsed the paths.
-//
-// The collapse intersects the must-sets of every terminal, so two task outputs that
-// between them cover all terminals both come out merely "optional", and
-// `outputs.a.v ?? outputs.b.v` is nullable even though one of them is always set. Checked
-// per terminal, each side is either its real type or null, `??` resolves exactly as it
-// does at runtime, and the join is non-null. A terminal on which NEITHER is set still
-// contributes null, so genuinely uncovered cases stay nullable — the precision comes from
-// the partition, not from a special case in the operator. See specs/path-sensitive-output.md.
+// inferProcessOutput types the output expression PER TERMINAL PATH and joins: the
+// collapsed context makes covering outputs merely "optional" and `a ?? b` nullable even
+// when one is always set. Per terminal, ?? resolves as at runtime; uncovered terminals
+// still contribute null. specs/path-sensitive-output.md.
 func inferProcessOutput(def *model.ProcessDefinition, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, defs schema.Defs) (schema.Schema, error) {
 	shp := shape.Shape{Raw: def.Output.Raw, Name: "output"}
 	terminals := outputTerminals(def)

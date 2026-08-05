@@ -36,14 +36,9 @@ var binaryOps = map[string]func(left, right any) (any, error){
 	"%":  evalMod,
 }
 
-// Arithmetic is exact base-10, not float64. A workflow engine forwards order ids
-// and monetary amounts, and float64 silently corrupts both: 0.1+0.2 != 0.3, and
-// integers lose precision above 2^53.
-//
-// divisionPrecision is the only place arithmetic rounds: 34 significant digits,
-// IEEE 754-2008 decimal128. The full rationale — why there is no single global
-// precision, and why this one is a constant rather than a setting — is in the
-// numeric package doc, which is the one place that policy is stated.
+// Arithmetic is exact base-10, never float64 (0.1+0.2, ids past 2^53). divisionPrecision
+// is the ONE place arithmetic rounds: 34 significant digits (decimal128). Why a constant
+// rather than a setting: the numeric package doc, the single home of that policy.
 const divisionPrecision = 34
 
 // modGuardDigits pads the context Rem is given. Rem computes through an integer
@@ -52,13 +47,9 @@ const divisionPrecision = 34
 // reach. See modContextFor.
 const modGuardDigits = 4
 
-// exactCtx never rounds, so + - * are exact. Within a single expression growth is
-// linear — result length is bounded by the operands and there is no
-// exponentiation operator — but a looping task re-feeds its own output, which
-// makes repeated multiplication exponential across iterations; numeric.MaxDigits
-// is the bound that catches that (see decimalResult). exactCtx must never be used
-// for division, where an unlimited precision would try to produce infinitely many
-// digits.
+// exactCtx never rounds, so + - * are exact; growth inside one expression is linear, but
+// a looping task re-feeding its own output makes repeated multiplication exponential —
+// numeric.MaxDigits catches that. Never use exactCtx for division (infinitely many digits).
 var (
 	exactCtx = apd.BaseContext.WithPrecision(0)
 	divCtx   = apd.BaseContext.WithPrecision(divisionPrecision)
@@ -135,18 +126,9 @@ func evalNot(v any) (any, error) {
 	return !b, nil
 }
 
-// equalValues compares two runtime values. Numbers compare across their int and
-// float representations; comparing two structured values is an error.
-//
-// Structured comparison is rejected rather than defined: the useful answer would
-// have to be a deep walk, and a language whose whole point is being statically
-// checkable should not hide an unbounded traversal behind ==. Inference rejects
-// the same pairing (inferEquality), so this is unreachable from a registered
-// definition and guards hand-built contexts only.
-//
-// Returning an error also removes a panic. Go's == panics when both operands
-// share an uncomparable dynamic type, so the old fallback crashed the whole
-// process — not just the instance — on `input.a == input.b` between two arrays.
+// equalValues: numbers compare across int/float; structured comparison is an ERROR, not a
+// deep walk — inference rejects the pairing too, so this only guards hand-built contexts.
+// It also removes a panic: Go's == panics on matching uncomparable dynamic types.
 func equalValues(l, r any) (bool, error) {
 	if x, y, ok := bothDecimal(l, r); ok {
 		return x.Cmp(y) == 0, nil

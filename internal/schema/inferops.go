@@ -223,15 +223,9 @@ func inferNullCoalesce(left, right Schema) (Schema, error) {
 	return OneOf(nonNullLeft, right).Canonicalize(), nil
 }
 
-// absorbEmptyArray collapses a union of an array with a provably-empty array
-// (the `[]` literal) down to the informative arm.
-//
-// Keeping both is not merely verbose, it is wrong: an empty array satisfies
-// `array<T>` and `array(maxItems 0)` alike, and oneOf means *exactly* one match,
-// so the union rejects the very empty value the `xs ?? []` idiom exists to
-// produce. It also hides `items` from readers that call Items() directly — which
-// is how child_list's `over` reads its element type. The surviving arm is
-// returned untouched, so a $ref operand stays symbolic.
+// absorbEmptyArray collapses array ∪ empty-array to the informative arm. Keeping both is
+// WRONG, not verbose: [] matches both arms and oneOf demands exactly one, so the union
+// rejects the very value `xs ?? []` produces. The survivor returns untouched ($refs stay symbolic).
 func absorbEmptyArray(a, b Schema) (Schema, bool) {
 	if isProvablyEmpty(b) && resolveTolerant(a).IsType("array") {
 		return a, true

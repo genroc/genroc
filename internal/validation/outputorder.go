@@ -10,14 +10,10 @@ import (
 	"genroc/internal/shape"
 )
 
-// inferOutputs infers the type of every output-map task's output and writes it
-// to defs (as <id>_output). Resolution is demand-driven: each task's inference
-// pulls the outputs it reads through their $refs, so the schema solver orders
-// the work by exact dependency, detects self- and mutually-recursive output
-// maps on contact, and resolves each cycle with a joint fixpoint (members
-// seeded null, re-inferred, joined until stable). There is no separately
-// maintained dependency graph to keep in sync with what inference actually
-// reads. See specs/recursive-type-inference.md.
+// inferOutputs types every output-map task into defs (<id>_output), demand-driven: the
+// solver orders work by exact dependency, detects recursion on contact, and fixpoints
+// each cycle (null seed, re-infer, join). No separate dependency graph to drift.
+// specs/recursive-type-inference.md.
 func inferOutputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, processInput, configSchema schema.Schema,
 	defs schema.Defs, required, optional map[string][]string, mustErr, mayErr map[string]bool) error {
 

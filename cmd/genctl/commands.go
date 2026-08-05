@@ -675,14 +675,9 @@ func runExternalTasksCmd(server string, args []string) {
 	note(capped)
 }
 
-// Caps for a list command that names no start point. Every list here is potentially
-// unbounded, so an unqualified read shows a slice rather than dumping the lot; the
-// command's start flag (--since, or --from where the sort is by name) lifts it by saying
-// where to begin. Deliberately not a --limit: one control per list, and it is the one
-// that says where to start rather than how much to stop at.
-//
-// logs is larger because a trail is read as a trail — a screenful of audit rows is rarely
-// the whole story — while the others are tables you scan.
+// Caps for a list command that names no start point (--since/--from lifts the cap by
+// saying where to begin — one control per list). logs is larger because a trail is
+// read as a trail, not scanned as a table.
 const (
 	logTailDefault = 200
 	listCap        = 20
@@ -697,19 +692,9 @@ func noteCapped(capped bool, shown, lift string) {
 	}
 }
 
-// applyWindow turns --since/--until into the endpoint's bounds on col ("created_at" or
-// "updated_at") and returns the limit to fetch with: listCap while no start point is
-// named, 0 once one is, since naming where to begin is what lifts the cap.
-//
-// Only --since lifts it. --until alone still bounds the read but leaves it capped, which
-// is the useful reading: the newest N rows before that instant, i.e. what was happening
-// then. The two compose without a special case — a window with both ends is a bounded
-// forward walk.
-//
-// col must be the column the active sort keys on. The API takes each column's bounds
-// separately rather than one pair it resolves itself, so pairing them is the caller's job:
-// bounding created_at while ordering by updated_at would scatter the window through rows
-// outside it, and the forward walk would skip and resume across the gaps.
+// applyWindow turns --since/--until into the endpoint's bounds on col and returns the
+// fetch limit: listCap until --since names a start (only --since lifts it; --until alone
+// stays capped — the newest N before that instant). col must match the active sort's key.
 func applyWindow(q url.Values, since, until, col string, cap int) int {
 	prefix := strings.TrimSuffix(col, "_at")
 	set := func(flag, value, suffix string) {
@@ -812,16 +797,9 @@ func runLogsCmd(server string, args []string) {
 		DataRef  *logDataRef    `json:"data_ref"`
 		Meta     map[string]any `json:"meta"`
 	}
-	// Render via the shared logview column layout — the same one the server console
-	// uses, so a row reads identically in either place. The CLI adds a header and shows
-	// the ID column only with --recursive (a single-instance view repeats one id). The
-	// data body is shown only in detail mode.
-	//
-	// The header is emitted before the first row rather than up front, so an empty trail
-	// prints nothing at all. day carries the last date rendered across calls so each new
-	// calendar day gets a DateBreak, and its empty zero value makes the first one
-	// unconditional; a style that puts the date in the column suppresses them all. Both
-	// of fetchOrdered's paths render through this, so a tail and a stream read alike.
+	// Shared logview layout, so a row reads identically here and on the server console. The
+	// header waits for the first row (an empty trail prints nothing); day carries the last
+	// date rendered so each new day gets a DateBreak. Both fetchOrdered paths render here.
 	header, day := false, ""
 	capped, err := fetchOrdered(u, limit, newestFirst, func(rows []logRow) error {
 		for _, l := range rows {

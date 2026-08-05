@@ -109,14 +109,10 @@ type DelaySpec struct {
 	TZ    string `json:"tz,omitempty"`    // IANA name or fixed offset the calendar units of `for` / wall clocks of `until` resolve in
 }
 
-// JSONSchemaBytes returns the JSON Schema for Action as a discriminated union
-// so that OpenAPI reflection produces a proper oneOf instead of a flat object.
-//
-// The headers slot is a Shape whose value must conform to object<string> (the same target
-// checkHeadersShape validates against). Rather than hand-write the "object of strings, or an
-// expression" schema, it is generated from that target by shape.RelaxedSchema — the relax(S)
-// transform that makes every node "the literal value or an expression". A property-level
-// description is merged onto the generated node so the editor still explains the slot.
+// JSONSchemaBytes returns Action's schema as a discriminated union so OpenAPI reflection
+// emits a proper oneOf. The headers slot's schema is GENERATED from the runtime target
+// via shape.RelaxedSchema ("literal or expression" at every node) so editor and validator
+// cannot drift; the slot description is merged onto the generated node.
 func (Action) JSONSchemaBytes() ([]byte, error) {
 	headers, err := relaxedHeadersSchema()
 	if err != nil {

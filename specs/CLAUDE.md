@@ -30,7 +30,7 @@ behavior while the spec stays put, answering a different question. See
 - [custom-tasks.md](custom-tasks.md) — north-star: extend genroc **without plugins** —
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the
-  child-as-activity contract (idempotency, cancel, versioning).
+  child-as-worker contract (idempotency, cancel, versioning).
 - [literal-types.md](literal-types.md) — infer `"sent"` as `enum: [sent]` rather than
   `string`. Prerequisite for discriminated unions, and it catches provably-false comparisons.
   The feature is not the 4-line production change but the **enum-aware canonicalization** it

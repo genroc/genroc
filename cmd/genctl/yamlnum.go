@@ -7,20 +7,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// yamlToAny converts a parsed YAML tree to JSON-native Go values, preserving
-// numeric literals exactly.
-//
-// Decoding YAML straight into an `any` loses them: gopkg.in/yaml.v3 gives a
-// number that does not fit int64 as a float64, tagged !!float, so a 54-digit id
-// written in a definition arrived at the server as 1.2374829758395876e+53 —
-// corrupted by the client before the request was even sent. The server preserves
-// exact literals end to end, which makes the CLI the weak link rather than the
-// engine.
-//
-// The node tree still carries the original text, so numeric scalars are carried
-// through as json.Number. A literal that is not valid JSON number syntax (YAML
-// allows 0x1F, 1_000, .inf, and leading zeros) falls back to yaml's own decoding,
-// since json.Number would then be unmarshalable.
+// yamlToAny converts a YAML tree to JSON-native values keeping numeric literals exact:
+// decoding into `any` floats big integers (a 54-digit id once left here as 1.2e+53).
+// Scalars ride as json.Number; non-JSON literals (0x1F, 1_000, .inf) fall back to yaml.
 func yamlToAny(n *yaml.Node) (any, error) {
 	switch n.Kind {
 	case yaml.DocumentNode:

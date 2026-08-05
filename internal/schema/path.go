@@ -2,20 +2,10 @@ package schema
 
 import "strconv"
 
-// One spelling of an access path, shared by everything that names a position in a
-// value: validation error messages, shape inference labels, and the narrowing-guard
-// keys in inference. It is the expression language's own accessor syntax, so a path
-// in an error message is something the author can paste straight back into a
-// definition.
-//
-// The reason it cannot just be dots: a property key is an arbitrary JSON string,
-// while dot access reaches only identifiers. `headers.retry-after` is a subtraction,
-// and `headers.x.y` is indistinguishable from the nested x → y — so a dot-joined
-// path is not merely ugly for such keys, it names the wrong thing. Keys that need
-// it take the bracket-quoted form: headers["retry-after"], headers["x.y"].
-//
-// That also makes the rendering injective, which is what lets the guard map key off
-// it: an identifier can contain none of . [ " so the two forms never collide.
+// One spelling of an access path shared by error messages, shape labels and guard keys —
+// the expression language's own accessor syntax, so authors can paste it back. Dots alone
+// name the wrong thing (headers.retry-after is a subtraction; a.a.b ambiguates a["a.b"]);
+// bracket-quoting keeps the rendering injective, which is what lets guards key off it.
 
 // identifierKey reports whether name can be spelled with dot access. Deliberately
 // narrower than the lexer's identifier rule — bracket-quoting a key that did not

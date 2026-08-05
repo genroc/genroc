@@ -101,15 +101,9 @@ func decodeBody[T any](raw json.RawMessage) (T, error) {
 	return v, nil
 }
 
-// decodeOptionalBody unmarshals an optional JSON body into T: an absent body yields
-// the zero T, but a present one must decode. Optional is about *presence* only — it
-// never meant "unparseable is fine". Before this, POST /tick with
-// {"advance_ms": "12000"} silently left the clock unmoved and answered 200.
-//
-// Note the layer below already rejects syntactically invalid JSON: actionDef.envelope
-// decodes the HTTP body into a json.RawMessage, and TCP/UDS decode the whole envelope.
-// What is caught here is a well-formed body of the wrong shape, including — via
-// DecodeStrict — a misspelled field, which would otherwise be dropped silently.
+// decodeOptionalBody: an absent body yields the zero T, a present one MUST decode —
+// strictly, so a misspelled field errors instead of dropping. Optional is about presence
+// only; {"advance_ms": "12000"} once left the clock unmoved and answered 200.
 func decodeOptionalBody[T any](raw json.RawMessage) (T, error) {
 	var v T
 	if len(raw) == 0 {

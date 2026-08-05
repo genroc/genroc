@@ -248,14 +248,9 @@ func compareInput(oldA, newA analysis) SlotVerdict {
 	return SlotVerdict{Compatible: true}
 }
 
-// compareOutput is the consumer contract, reversed: a parent's result_schema and an API
-// caller were written against the old output shape, so every value the new version can
-// produce must be one the old could. Skipped when either version declares no process
-// output — there is no contract to break.
-//
-// IsSubset, not the NarrowsTo used for a child's result_schema. That is the privilege of
-// a slot where a runtime conform stands behind the claim; here two inferred types are
-// compared with nothing conforming either.
+// compareOutput is the consumer contract reversed: everything the new version can produce
+// must satisfy readers of the old. IsSubset, not NarrowsTo — narrowing is the privilege of
+// a slot with a runtime conform behind it, and nothing conforms here.
 func compareOutput(oldA, newA analysis) (bool, string) {
 	oldOut, hasOld, err := schemaFileOutput(oldA.sf)
 	if err != nil {

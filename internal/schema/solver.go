@@ -190,13 +190,10 @@ func (s *Solver) Solve() error {
 	return nil
 }
 
-// collapseDegenerateCycles resolves definition cycles with no structural progress —
-// every edge a bare `$ref` in union position. Such a cycle is a coinductive tautology,
-// not a recursive type: X = anyOf[$ref X, I] says nothing beyond X = I, so each member
-// collapses to the union of the cycle's non-cyclic remainders (μX.(X ∨ I) = I); a cycle
-// with no remainder has no base case and is an error. Cycles through properties/items
-// are left alone (legitimate recursion). Cycles still involving a pending sentinel are
-// skipped — the sentinel has no outgoing refs, so a later call collapses them.
+// Collapses definition cycles with no structural progress (every edge a bare $ref in
+// union position): X = anyOf[X, I] says only X = I, so members collapse to the cycle's
+// non-cyclic remainders; no remainder = no base case = error. Property/items cycles are
+// real recursion and stay; cycles holding a pending sentinel wait for a later call.
 func (s *Solver) collapseDegenerateCycles() error {
 	// Bare-edge graph over the current defs (see collectBareRefs).
 	defs := s.defs.m

@@ -10,19 +10,10 @@ import (
 	"genroc/internal/schema"
 )
 
-// resolveRaisedBatch is the parent's decision procedure over a settled batch that
-// contains at least one raised child (§5.2). It runs before buildChildOutput, so the
-// happy path (no raise) never reaches it.
-//
-// raised is the errored children in child-key order. Only the first one routes
-// (deterministic, I3): a batch that mixes an unhandled child with a handled one fails on
-// the first, exactly as a defect in one slot dominates a raise in another (§5.4).
-//
-// The routing mirrors handleCallError's, minus retries (there is no parent-side retry,
-// D7): a matching rule's raise / panic / goto:end / goto:$id decides the parent's fate;
-// no matching rule degrades the raise to a defect and fails the parent — carrying the
-// child's own code and message forward, so the failure reads as the raise that caused it
-// rather than a generic collect error.
+// resolveRaisedBatch decides a settled batch containing raised children (runs before
+// buildChildOutput). Only the FIRST raised child in key order routes (I3); the routing
+// mirrors handleCallError minus retries (D7); no matching rule degrades the raise to a
+// defect carrying the child's own code. specs/child-error-handling.md.
 func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Task, raised []*model.ProcessInstance) advanceOutcome {
 	inst.WaitState = model.WaitStateNone
 	first := raised[0]
@@ -84,13 +75,9 @@ func raisedInSlotOrder(siblings []*model.ProcessInstance, task *model.Task) []*m
 	return raised
 }
 
-// setBatchError writes the $error context for a routed batch (§5.3): the first raised
-// child's identity + code + message. No child data crosses — only code, message and
-// which child (I6).
-//
-// A child_map child is identified by a string "child_key", a child_list child by an
-// integer "child_index" — separate single-typed fields rather than one string|integer
-// value, so an expression reads exactly one and never has to type-switch.
+// setBatchError writes $error for a routed batch: first raised child's identity, code,
+// message — no child data crosses (I6). child_key (string) and child_index (integer) are
+// separate single-typed fields so an expression never type-switches.
 func (e *Engine) setBatchError(inst *model.ProcessInstance, task *model.Task, first *model.ProcessInstance) {
 	errCtx := map[string]any{
 		"task":    task.ID,
@@ -134,17 +121,9 @@ func spawnKey(child *model.ProcessInstance) string {
 	return key
 }
 
-// buildChildOutput merges a settled batch's outputs into the task's action result
-// (self.result) — a keyed map for child_map, an ordered array for child_list. Exported to
-// outputs.<id> only if the task projects it via `output`.
-//
-// It is reached only after resolveRaisedBatch has confirmed no child raised, so every
-// child here is completed. Each other status is blocked by its own mechanism: a failed
-// child makes the parent failing, which exits advance() before this phase; a paused child
-// keeps the parent from being woken at all (it counts as active in CountActiveSiblings);
-// a raised child was routed by resolution and never reaches here. The guard therefore
-// asserts a settled invariant rather than handling a live case — a non-completed child
-// here is a bug, not a merge to attempt.
+// buildChildOutput merges a settled batch into self.result (map for child_map, array for
+// child_list). Reached only with every child completed — failed/paused/raised are each
+// blocked upstream — so the guard asserts an invariant, not a case to handle.
 func (e *Engine) buildChildOutput(task *model.Task, siblings []*model.ProcessInstance) (any, error) {
 	for _, c := range siblings {
 		if c.Status != model.StatusCompleted {
@@ -208,15 +187,9 @@ func (e *Engine) buildListChildOutput(task *model.Task, siblings []*model.Proces
 	return result, nil
 }
 
-// resolveAndValidateChildOutput reads a completed child's projected output, resolving it
-// from the object store if externalized and conforming it to resultSchema when the parent
-// declares one.
-//
-// The schema comes from the parent's task as it stands now, never from a copy taken at
-// spawn: an upgraded parent must collect against the version it is running, and the
-// conform normalizes, so a stale schema would silently strip a field both sides had
-// already agreed to add. The external path resolves it the same way, from the pinned
-// definition. See specs/version-compatibility.md §5a.
+// Resolves a child's output and conforms it against the parent's CURRENT task schema —
+// never a spawn-time copy: the conform normalizes, and a stale schema silently strips
+// fields both sides already agreed on. specs/version-compatibility.md §5a; CLAUDE.md.
 func (e *Engine) resolveAndValidateChildOutput(resultSchema *schema.Schema, child *model.ProcessInstance) (any, error) {
 	output, err := e.resolveValue(child, child.ContextData["output"])
 	if err != nil {

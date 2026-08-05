@@ -8,19 +8,9 @@ import (
 	"genroc/internal/model"
 )
 
-// Changed slots are a FIELD comparison, not a schema question, and that is why they live
-// in their own file: "which slots differ" must never acquire opinions about which
-// differences matter. The verdicts elsewhere are blind to meaning — dollars → cents is
-// `number` on both sides — so this list is what lets a reader apply the judgement the
-// machine cannot.
-//
-// Adding a field to model.Action or model.Task means adding it here too, and nothing
-// fails if you forget: the slot silently stops being reported. TestChangedSlots_*
-// enumerates both structs to make that loud.
-//
-// Two slots differ when their JSON encodings differ. Stored definitions are canonical
-// (SaveDefinition writes json.Marshal of the decoded struct, so `retry: 3` is already the
-// object form), which is what makes a byte comparison a fair one.
+// Changed slots are a FIELD comparison, never a schema judgement (see CLAUDE.md). A new
+// Action/Task field must be added here, and nothing fails if you forget —
+// TestChangedSlots_* enumerates both structs to make the omission loud.
 
 // slot is one named, comparable field of a task or an action. field is the Go field it
 // reads, carried so the coverage test can enumerate the struct against this list.

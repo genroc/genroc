@@ -32,14 +32,9 @@ type terminalEnd struct {
 	errMax bool
 }
 
-// outputTerminals enumerates the process's terminal paths, one entry per way of ending.
-//
-// Keeping them apart is what lets `outputs.a.v ?? outputs.b.v` type as non-null when a
-// and b between them cover every terminal. outputContextSets collapses this list by
-// INTERSECTING the must sets, which is correct for a single required/optional answer but
-// destroys the correlation — after the intersection, "a is set here, b is set there" and
-// "neither is ever set" are indistinguishable. inferProcessOutput consumes the
-// uncollapsed list; see specs/path-sensitive-output.md.
+// outputTerminals: one entry per way of ending. Kept apart because outputContextSets
+// INTERSECTS must-sets, destroying the correlation that lets `outputs.a.v ?? outputs.b.v`
+// type non-null when a and b cover every terminal. specs/path-sensitive-output.md.
 func outputTerminals(def *model.ProcessDefinition) []terminalEnd {
 	tasks := def.Tasks
 	n := len(tasks)

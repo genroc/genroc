@@ -16,14 +16,9 @@ import (
 // renders it as e.g. "1000+").
 const pageCountCap = 1000
 
-// Bidirectional keyset (cursor) pagination shared by every list endpoint: sqlc cannot
-// express a dynamic ORDER BY (a column name is never a bind value), so this is a small
-// query builder. A wrapper declares a `paginator`, adds filters, and calls build(). See
-// CLAUDE.md for the shape of the result and the cursor contract.
-//
-// Column names and operators come only from the paginator's whitelists and every caller
-// value is a bound ?, so there is no injection surface — keep it that way. The ? runs
-// through db.exec, which rewrites to $N on Postgres, so one statement serves both engines.
+// Bidirectional keyset pagination shared by every list endpoint (sqlc cannot express a
+// dynamic ORDER BY). Column names and operators come only from paginator whitelists and
+// every value is a bound ? ($N on Postgres) — no injection surface; keep it that way.
 
 // colKind tells the cursor codec how to decode a key column's value.
 type colKind int

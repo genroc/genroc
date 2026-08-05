@@ -29,23 +29,14 @@ type DB struct {
 	exec    dbgen.DBTX // rewrites ?→$N on Postgres; use for hand-written SQL
 	dialect string     // "sqlite" | "postgres"
 
-	// defCache memoises GetDefinition lookups, keyed by defKey → definition JSON.
-	// Definitions are write-once per (name, version) in normal operation, so the
-	// raw JSON is safe to cache; we re-unmarshal a fresh copy per call so callers
-	// never share mutable Task pointers. SaveDefinition invalidates the key on
-	// write to cover the ON CONFLICT DO UPDATE overwrite path. This is the engine's
-	// hottest read (every spawn/goto/output resolves a definition) and on SQLite it
-	// otherwise contends with writes for the single connection.
+	// defCache memoises GetDefinition (the hottest read; contends with SQLite's single
+	// connection). Raw JSON keyed by (name, version), re-unmarshalled per call so callers
+	// never share Task pointers; SaveDefinition invalidates for the ON CONFLICT overwrite.
 	defCache sync.Map // defKey → string
 
-	// Audit logs are best-effort and decoupled from instance state (migration 008):
-	// the engine appends several per advance() and they must never stall it on a DB
-	// round-trip. AppendLog stamps each row and buffers it; logFlusher writes the
-	// buffer in batched multi-row INSERTs every logFlushInterval (and immediately
-	// once it reaches logBatchRows). Reads (ListLogs/ListTreeLogs) and the retention
-	// prune flush first, so a buffered row is always visible to a query that follows
-	// its append. A crash can drop buffered rows — an observability gap, never state
-	// corruption, exactly as the schema intends.
+	// Audit logs are best-effort, decoupled from instance state (migration 008): AppendLog
+	// buffers, logFlusher batch-inserts, and reads/prune flush first so appends stay visible.
+	// A crash drops only buffered rows — an observability gap, never state corruption.
 	logMu      sync.Mutex
 	logBuf     []dbgen.InsertLogParams
 	logStop    chan struct{} // closed by Close() to stop the flusher
@@ -170,14 +161,9 @@ func bootstrapPostgres(sqldb *sql.DB) error {
 		return fmt.Errorf("create json_each function: %w", err)
 	}
 
-	// process_instances is a high-churn queue table: every instance passes
-	// through status='running' and then completes, leaving a dead tuple in the
-	// runnable range of idx_instances_runnable. The claim query
-	// (run every poll by every worker) must skip those dead entries until they
-	// are vacuumed, so under a burst of completions claims slow down until
-	// autovacuum catches up. Make autovacuum aggressive and unthrottled on this
-	// one table so dead tuples are reclaimed promptly. (SQLite updates in place
-	// and has no MVCC dead tuples, so this is Postgres-only.)
+	// High-churn queue table: completions leave dead tuples in idx_instances_runnable that
+	// every claim must skip until vacuumed. Aggressive unthrottled autovacuum reclaims them
+	// promptly (SQLite updates in place — no equivalent). See CLAUDE.md.
 	if _, err := tx.ExecContext(ctx,
 		`ALTER TABLE process_instances SET (
 			autovacuum_vacuum_scale_factor = 0.02,

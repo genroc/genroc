@@ -192,13 +192,9 @@ func (e ErrorCase) MarshalJSON() ([]byte, error) {
 	return json.Marshal(w)
 }
 
-// A switch selects with "case" and on_error with "code", so mistyping one for the other is
-// easy — and a dropped "code" silently turns an on_error rule into a catch-all, the
-// broadest shape there is. Hence the rejection, and the hints below.
-//
-// Strict decoding is safe here despite decoders also running over stored rows:
-// SaveDefinition persists json.Marshal of the decoded struct, so a stored definition is
-// canonical and cannot carry an unknown field.
+// switch selects with "case", on_error with "code"; a dropped selector silently becomes
+// a catch-all — hence rejection plus the hints below. Strict decoding is safe over stored
+// rows: SaveDefinition persists the canonical re-marshal, which carries no unknown fields.
 var (
 	errorCaseFields  = map[string]bool{"code": true, "retry": true, "goto": true, "raise": true, "panic": true, "not_reached": true}
 	switchCaseFields = map[string]bool{"case": true, "goto": true, "raise": true, "panic": true}

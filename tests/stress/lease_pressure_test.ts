@@ -7,42 +7,13 @@ import {
 } from "../helpers/server.ts";
 import { listAllInstances } from "../helpers/client.ts";
 
-// Single-worker lease pressure + crash recovery, against real Postgres processes.
-// (Formerly overwhelm_recovery_test.ts, built around the fatal OverwhelmError exit;
-// the lease fence retired that exit, and this asserts what replaced it.)
-//
-// A worker that cannot keep its leases alive under load no longer dies: the stale-lease
-// gate repairs its own leases before claiming, and any advance whose row was re-granted
-// mid-flight has its write refused (a lease_lost audit entry) instead of clobbering or
-// killing the process — see specs/lease-fencing.md. Phase 1 drives exactly that state on
-// purpose: ONE processing worker with a tiny lease, huge concurrency and a starved pool,
-// churning under pressure that used to be fatal, and the assertion is that its
-// supervisor NEVER has to restart it. Phase 1b then kills that worker twice (SIGKILL —
-// an OOM kill, the one way a worker still dies), so the abandoned-lease → expiry →
-// reclaim path runs end to end across real process boundaries.
-//
-// A single processing worker at a time is the honest way to run this: with no peer to
-// steal an expired lease, nothing is ever advanced by two workers at once, so a correct
-// engine loses nothing however hard it thrashes. An API-only node (--poll 0: serves
-// HTTP, never advances) keeps the API reachable throughout, and is never a second
-// processor.
-//
-//   Phase 1 (pressure): a supervised worker with a tiny lease and a starved pool churns
-//   the trees; the fence and the gate keep it alive — zero supervisor restarts.
-//   Phase 1b (crashes): SIGKILL it twice; the supervisor brings it back each time and
-//   the restarted process reclaims the abandoned leases.
-//   Phase 2 (recovery): it is replaced by one normally-configured worker that drives
-//   every tree to completion.
-//
-// Asserted after recovery: the worker survived the pressure (0 unforced restarts, 2
-// forced ones), every instance is terminal, every root completed, and each tree
-// aggregated to its exact size — pressure churn and kills never dropped or
-// double-counted a subtree.
-//
-// Postgres only (a worker fleet is a Postgres deployment). It also needs the database
-// to itself: any foreign worker polling the same DSN is a second processor, which voids
-// the single-processor premise above. The stress project therefore runs in its own
-// vitest invocation, with no other project's shared server alive — see vitest.config.ts.
+// Single-worker lease pressure + crash recovery, on real Postgres processes. Phase 1:
+// one crippled worker (tiny lease, starved pool) churns under pressure that used to be
+// the fatal overwhelm exit; the gate repairs and the fence refuses, so its supervisor
+// must record ZERO restarts. Phase 1b: two SIGKILLs (how a worker still dies) exercise
+// abandon -> expiry -> reclaim across process boundaries. Phase 2: one normal worker
+// drives every tree green, each aggregating to exactly its size. Runs alone against the
+// DSN -- a foreign poller voids the single-processor premise. specs/lease-fencing.md.
 
 const DSN = process.env.POSTGRES_DSN;
 

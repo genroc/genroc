@@ -106,26 +106,9 @@ func parseFixedOffset(s string) (int, bool) {
 // Wall-clock construction
 // ---------------------------------------------------------------------------
 
-// resolveWall builds the instant for a wall clock in loc, pinning the two DST edge cases
-// rather than inheriting whatever time.Date happens to do (which its own docs decline to
-// guarantee for ambiguous times):
-//
-//   - Nonexistent (spring forward): 02:30 where the clock jumps 02:00→03:00 does not
-//     exist. It normalizes forward to 03:30 — the reading is carried past the jump by as
-//     much as it stood past the pre-jump clock.
-//   - Ambiguous (autumn fall-back): 02:30 where the clock repeats 03:00→02:00 happens
-//     twice. We take the first (earlier) occurrence, detected by the same wall clock
-//     existing one hour earlier.
-//
-// Neither can be left to time.Date, whose own docs decline to guarantee the ambiguous case
-// — and whose answer in the nonexistent one is not consistently forward. Asking Prague for
-// 02:30 on a spring-forward day does give 03:30; asking Santiago for 00:49 on one gives
-// 23:49 the *previous day*, because there the gap starts at midnight. A caller that trusts
-// the direction then loses a whole day (found by the randomised scan cross-check, which is
-// why it exists).
-//
-// Out-of-range date fields still normalize the way time.Date does, which is what lets day
-// arithmetic run past a month end.
+// resolveWall pins the two DST cases time.Date declines to guarantee: a nonexistent wall
+// clock (spring forward) normalizes FORWARD past the jump; an ambiguous one (fall back)
+// takes the first occurrence. time.Date's own direction varies by zone — see CLAUDE.md.
 func resolveWall(loc *time.Location, year int, month time.Month, day, hour, min, sec int) time.Time {
 	t := time.Date(year, month, day, hour, min, sec, 0, loc)
 	// The same fields read as UTC: a canonical form of what was asked for, with any
@@ -385,13 +368,9 @@ type Instant struct {
 // wildcard is the stored form of a `*` date field.
 const wildcard = -1
 
-// clockField is one field of a pattern's clock: the values base, base+step, base+2*step …
-// within the field's range. A step of 0 is a single value, which is how a plain "08" is
-// stored.
-//
-// The representation collapses the three spellings into one rule instead of branching on
-// them: "*" is 0/1 (every value from zero), "0/5" is 0/5, "07" is 7 with no step. Nothing
-// downstream needs to know which of the three was written.
+// One field of a pattern's clock: base, base+step, … within range. The representation
+// collapses the three spellings — "*" is 0/1, "0/5" is 0/5, "07" is 7 with step 0 — so
+// nothing downstream branches on which was written.
 type clockField struct {
 	base, step int
 }
@@ -553,25 +532,9 @@ func parsePattern(raw, body string) (*Instant, error) {
 	return i, nil
 }
 
-// parseClock parses HH:MM or HH:MM:SS. In a pattern a field may widen, in two spellings
-// taken from systemd's OnCalendar and no others:
-//
-// "*" is every value: "*:*:00" is every whole minute, "*:*:*" every second. "base/step" is
-// every step-th value counted from base: "*:*:0/5" is every five seconds, and "*:2/5:00" is
-// every five minutes from :02 — the base is the phase.
-//
-// cron's "*/5" is rejected by name. It means the same thing, and it is the spelling most
-// people know, but genroc's pattern form is systemd's shape throughout (Y-M-D order,
-// leading weekday, `*`), and "*/5" cannot express a phase — it is hardwired to base 0,
-// which makes it a special case of base/step rather than an alternative to it. Two
-// spellings for one concept is the cost; recognition is not worth it when the error
-// message can just say the right one.
-//
-// An omitted seconds field stays :00 rather than widening — "08:00" has always meant one
-// instant a day and must keep meaning that. Only a written "*" or step widens a field.
-//
-// The offset form (`+2d 08:00`) takes neither: it names the one clock its day lands on, and
-// "+2d *:00" would name every hour of a day two days out, which is not an instant.
+// parseClock parses HH:MM[:SS]. In a pattern a field widens via "*" or "base/step" only
+// (systemd's spellings; cron's "*/5" is rejected BY NAME — it cannot carry a phase, and
+// the error names the right form). Omitted seconds stay :00 — one instant a day, always.
 func parseClock(s string, allowPattern bool) (hour, min, sec clockField, err error) {
 	parts := strings.Split(s, ":")
 	if len(parts) != 2 && len(parts) != 3 {
@@ -677,19 +640,9 @@ func (i *Instant) Resolve(now time.Time, loc *time.Location) (time.Time, error) 
 	}
 }
 
-// nextMatch finds the first instant strictly after now that satisfies the pattern.
-//
-// The two halves of a pattern are searched differently, and deliberately so:
-//
-//   - The date is walked a day at a time, bounded by maxPatternDays. Stepping (rather than
-//     arithmetic per field) is what keeps "*-*-31" and leap days correct with no special
-//     cases, and a date pattern is coarse enough that the walk is cheap — the worst case a
-//     satisfiable pattern can reach is a leap day, under 1500 steps of pure comparison.
-//   - The time of day is computed, never stepped. A clock wildcard makes the match set
-//     dense — "*:*:00" matches 1440 times a day, "*:*:*" 86 400 — so searching it would
-//     turn "the next match a year out" into millions of iterations. nextClock is a carry
-//     cascade instead: hours, then minutes, then seconds, a fixed handful of comparisons
-//     whatever the pattern says. That asymmetry is why per-second schedules are affordable.
+// nextMatch: the date half is WALKED a day at a time (bounded by maxPatternDays — stepping
+// keeps "*-*-31" and leap days correct for free), the clock half is COMPUTED as a carry
+// cascade, never stepped — "*:*:*" matches 86400 times a day and a search would melt.
 func (i *Instant) nextMatch(now time.Time, loc *time.Location) (time.Time, error) {
 	// Matches land on whole seconds, so the earliest one that can be strictly after now is
 	// the second after now's. Truncating in absolute time is exact here: every zone offset
@@ -768,20 +721,9 @@ func (i *Instant) matchesDate(day time.Time) bool {
 		(i.weekday == wildcard || int(day.Weekday()) == i.weekday)
 }
 
-// repeatedMatch finds the earliest match that a search over increasing wall clocks cannot
-// see: during a fall-back the clock repeats an hour, so a wall clock *behind* now occurs
-// again *ahead* of it.
-//
-// It matters whenever now falls in the first pass of that hour. Take "*:30:00" at 02:30
-// summer time, with the clock about to repeat 03:00 → 02:00. The walk starts from 02:30:01,
-// finds nothing left in that hour, and lands on 03:30 — two hours away — while the schedule
-// plainly owes a tick at 02:30 winter time, one hour away. A brute-force scan of the local
-// clock (the test oracle) sees that tick; ordered wall clocks alone cannot.
-//
-// So the repeat is searched from its own start, in wall clock, and the first match found
-// there is offset by the repeat's length. Earliest wall clock gives earliest second
-// occurrence, so one candidate is enough — the caller compares it against the walk's and
-// keeps whichever is sooner.
+// repeatedMatch finds the match ordered wall clocks cannot see: during fall-back an hour
+// repeats, so a wall clock behind now occurs again ahead of it. The repeat is searched
+// from its own start and offset by its length; the caller keeps the sooner candidate.
 func (i *Instant) repeatedMatch(now time.Time, loc *time.Location) (time.Time, bool) {
 	// Read now as a wall clock in loc: whether it is ambiguous is a question about the
 	// target zone, not about whichever zone the caller's clock happens to carry.
@@ -828,13 +770,9 @@ func fallBackAt(now time.Time) time.Time {
 	return hi
 }
 
-// nextClock returns the earliest time of day the pattern admits at or after
-// fromH:fromM:fromS, and whether the day has one at all. Carry runs the way a clock does:
-// a field that has run out advances the one above it and resets those below to their
-// smallest admissible value.
-//
-// fromS may arrive as 60 (from nextMatch's retry step) and fromM likewise; a field bound
-// past its range simply admits nothing, which the carry then handles.
+// nextClock: the earliest admissible time of day at/after from, carrying like a clock —
+// an exhausted field advances the one above and resets those below. fromS/fromM may
+// arrive as 60 (nextMatch's retry step); an out-of-range bound simply admits nothing.
 func (i *Instant) nextClock(fromH, fromM, fromS int) (h, m, s int, ok bool) {
 	h, ok = fieldAtLeast(i.hour, fromH, 23)
 	if !ok {

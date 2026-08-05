@@ -16,13 +16,9 @@ func (e *Engine) retryDelay(attempt int, r model.Retry) time.Duration {
 	return backoff(attempt, r.Base(), r.Growth(), r.Ceiling())
 }
 
-// backoff grows base by factor per attempt, clamps at ceiling, then jitters within the
-// upper half of that window.
-//
-// The jitter is what stops a fleet from re-hitting a recovering endpoint in lockstep —
-// every instance that failed on the same outage would otherwise wake at the same instant.
-// It only ever shortens the nominal delay, so the ceiling stays a true ceiling and a test
-// that advances the clock by the nominal amount still expires the timer.
+// backoff grows base by factor, clamps at ceiling, then jitters within the upper half.
+// Jitter stops a fleet re-hitting a recovering endpoint in lockstep, and only ever
+// SHORTENS — the ceiling stays true and clock-advancing tests still expire timers.
 func backoff(attempt int, base time.Duration, factor float64, ceiling time.Duration) time.Duration {
 	// Accumulating in float64 rather than shifting a Duration: a wrapped or negative
 	// Duration is a retry with no backoff at all, which is the one outcome worse than a

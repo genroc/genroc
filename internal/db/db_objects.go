@@ -16,16 +16,9 @@ import (
 	"genroc/internal/model"
 )
 
-// contextObjectThreshold is the inline cutoff for a context value-slot: a value
-// whose serialized JSON exceeds this many bytes is externalized to process_objects
-// instead of being kept inline on the instance row. Below it, the value stays inline
-// (no extra row, no extra read), so the common small-value case is unaffected.
-//
-// Sized at ~2 KiB to align with Postgres's TOAST_TUPLE_THRESHOLD: above it an inline
-// value is TOAST-fetched (and deTOASTed) on every claim anyway, since ClaimInstances
-// RETURNs the context columns — so a compact ref is strictly cheaper on the hot path.
-// It also keeps SQLite instance rows (4 KiB pages) off overflow pages. One value serves
-// both engines.
+// Inline cutoff for a context value-slot; larger values externalize to process_objects.
+// ~2 KiB aligns with Postgres TOAST_TUPLE_THRESHOLD (above it a claim TOAST-fetches the
+// inline value anyway) and keeps SQLite rows off overflow pages. One value, both engines.
 const contextObjectThreshold = 2 * 1024
 
 // logForeverMillis marks a log-referenced object that must never be GC'd — used when

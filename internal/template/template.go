@@ -134,15 +134,10 @@ func scanTemplate(s string) (*Template, error) {
 	return t, nil
 }
 
-// parseBlock splits one ${ } interpolation off the front of s, which starts just past
-// the opening "${". Each "}" is tried as the terminator in order and the first body
-// that parses wins, so a "}" inside a nested literal or a string does not end the
-// block: a candidate that cuts mid-string leaves the string unterminated, which is
-// itself a parse error, and the scan moves on.
-//
-// Shortest-match is sound. For a longer body to have been intended it would have to
-// parse too, which requires the intervening "}" to sit inside brackets or a string
-// — and in both cases the shorter candidate fails to parse.
+// parseBlock splits one ${ } off the front: each "}" is tried as terminator and the first
+// body that PARSES wins, so a "}" inside a nested string or literal cannot end the block.
+// Shortest-match is sound: a longer intended body puts the inner "}" inside brackets or a
+// string — exactly where the shorter candidate fails to parse.
 func parseBlock(s string) (expr string, node syntax.Node, rest string, err error) {
 	var longest error
 	for at := 0; ; {

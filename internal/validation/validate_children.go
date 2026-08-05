@@ -67,22 +67,10 @@ func ValidateChildProcessRefs(def *model.ProcessDefinition, currentVersion int, 
 	return nil
 }
 
-// validateChildOnErrorReachability enforces R5: every code *pattern* an on_error rule on
-// a child task names must match at least one code some child of that task can raise. It is
-// a sanity check, not a coverage guarantee (D3) — it runs one direction only, from rule to
-// raise set, so a typo'd or orphaned rule is caught, but a raisable code with no rule is
-// allowed and surfaces at runtime (§3.1).
-//
-// Patterns are matched with the same errcode.MatchCode the engine uses at runtime
-// (`%` the only wildcard), so `fourth_%` is accepted as long as some child raises a
-// matching code. This is what makes the child raise set a genuinely closed set to validate
-// against — an action task's engine-code space is open (http.NNN is unbounded), so there is
-// no equivalent check for it. A catch-all (empty code list) matches everything and is not
-// reachability-checked.
-//
-// The raise set is the union over the task's children: every entry of a child_map, or
-// the single child of a child / child_list. Codes come from ProcessDefinition.Raises(), the same
-// syntactic scan the definition endpoint publishes.
+// R5: every code pattern a child task's on_error names must match something its children
+// can raise — one direction only (D3): typos are caught, uncovered raisables surface at
+// runtime. Matched with the runtime's errcode.MatchCode; catch-alls exempt; the raise set
+// unions the task's children via Raises().
 func validateChildOnErrorReachability(s *model.Task, current *model.ProcessDefinition, currentVersion int, getter DefinitionGetter) error {
 	if len(s.OnError) == 0 || s.Action == nil {
 		return nil
@@ -189,29 +177,10 @@ func validateChildEntry(taskID string, label string, p model.ChildEntry, ctx sch
 	return checkChildOutputType(prefix, child, p.ResultSchema)
 }
 
-// checkChildOutputType verifies the child definition's declared process output is a
-// subset of the result_schema the parent declares for it — the output analogue of the
-// input subset check above. It catches a child whose output shape cannot satisfy what the
-// parent asserts (e.g. a child that outputs a string against an object result_schema),
-// which otherwise only surfaces at runtime as output.invalid on collect — or never, if
-// the child raises before it ever produces an output.
-//
-// The direction mirrors the input check: at runtime the collected output is validated
-// *against* result_schema, so every value the child can output must be accepted by it.
-// The relation is NarrowsTo rather than IsSubset, which differs on exactly one case: an
-// unknown (the empty schema {}) in the child's output is accepted by whatever
-// the parent declares there. That is this slot's privilege and nowhere else's — the
-// parent's result_schema is the one place a child result is conformed at runtime
-// (resolveAndValidateChildOutput, reading this slot from the parent's pinned definition
-// when the batch is collected), so the narrowing is backed by a real check instead of
-// being taken on faith. An unknown handed to a typed *input* stays rejected, since
-// nothing conforms it there. Untyped remains not a subset of typed in every other
-// position, exactly as an untyped input is not accepted by a typed input_schema.
-//
-// Skipped when the parent declares no result_schema (nothing to check against) or the
-// child declares no process output (its output type is open; runtime validation still
-// applies). Generate infers the child's output from its own tasks and declared
-// result_schemas — no getter, so it does not recurse across the tree.
+// checkChildOutputType: the child's declared output must NarrowsTo the parent's
+// result_schema — the output analogue of the input subset check. NarrowsTo (not IsSubset)
+// is THIS slot's privilege alone: collect conforms the value at runtime, so an unknown {}
+// is backed by a real check. Skipped when either side declares nothing.
 func checkChildOutputType(prefix string, child *model.ProcessDefinition, resultSchema *schema.Schema) error {
 	if resultSchema == nil {
 		return nil

@@ -10,14 +10,9 @@ import (
 	"genroc/internal/validation"
 )
 
-// The comparison stands alone: "what did I change, and can anything running observe it?"
-// needs no upgrade machinery, which is why it was built first and why it is useful without
-// the rest. Design, and the full list of what a shape check cannot see:
-// specs/version-compatibility.md.
-//
-// Everything below the comparison itself is resolution: turning two selectors into two
-// tables of one version per process, and reconciling them. That is where a comparison
-// becomes answerable or refuses to guess.
+// The comparison stands alone ("what did I change, can anything running observe it?");
+// everything below it is resolution — two selectors into two one-version-per-process
+// tables, reconciled. Design: specs/version-compatibility.md.
 
 // resolvedEntry is one process on one side, with the thing that decides what a missing
 // counterpart means: whether the caller named it, or it came along.
@@ -182,12 +177,8 @@ func (h *Handlers) resolveVersionRef(name string, ref VersionRef) (int, error) {
 }
 
 // closeOverDependencies adds, transitively, the child version each entry was registered
-// against, so naming a parent compares the graph it runs rather than the parent alone.
-//
-// An entry already in the table wins: it is either what the caller named, or a pin some
-// other version reached first, and re-resolving it would make the result depend on map
-// iteration order. That is also what terminates the walk on a self-referencing or mutually
-// recursive process.
+// against, so a named parent compares the graph it runs. An entry already in the table
+// wins — anything else depends on map order — which also terminates recursive walks.
 func (h *Handlers) closeOverDependencies(side resolvedSide) error {
 	queue := make([]resolvedEntry, 0, len(side))
 	for _, e := range side {

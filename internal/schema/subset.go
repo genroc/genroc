@@ -22,27 +22,16 @@ func isSubset(sub, super *node) bool {
 	return subsetWith(sub, super, subsetMode{})
 }
 
-// absentAsNullSubset is isSubset with one rule relaxed: super may require a property whose
-// type admits null without sub requiring it too. It is the relation for a consumer that
-// READS a value rather than validating a document — a missing key and a null one are
-// indistinguishable to navigation, so demanding presence there asserts something no reader
-// can observe, and refusing on it rejects data that works.
-//
-// Sound ONLY where nothing conforms the value against super. Where something does —
-// ValidateInput, a submitted external result, a collected child output — a missing required
-// key IS rejected at runtime, and accepting it here would promise what the runtime refuses.
-// Its one caller is the version comparison, which reads two documents and conforms nothing.
+// isSubset with one rule relaxed: super may require a null-admitting property sub does
+// not — the relation for READERS (absence and null navigate identically). Sound ONLY
+// where nothing conforms against super; its one caller is the version comparison.
 func absentAsNullSubset(sub, super *node) bool {
 	return subsetWith(sub, super, subsetMode{absentAsNull: true})
 }
 
-// narrowsTo is isSubset with one rule flipped: an unknown ({}) anywhere in sub is
-// accepted by any super, at any depth. It is the static half of narrowing — the
-// caller must pair it with a runtime conform of the value against super, which is
-// what actually establishes the type. Only the child-output check uses it, because
-// only there does such a conform exist (collect validates a child's output against
-// the parent's result_schema). Everywhere else {} ⊄ T stands, so an unknown cannot
-// reach a typed slot unchecked.
+// isSubset with one rule flipped: an unknown ({}) in sub is accepted anywhere. The static
+// half of narrowing — sound only paired with a runtime conform, which exists solely at
+// child-output collection. Everywhere else {} ⊄ T stands.
 func narrowsTo(sub, super *node) bool {
 	return subsetWith(sub, super, subsetMode{narrow: true})
 }

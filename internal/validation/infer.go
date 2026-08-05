@@ -216,21 +216,10 @@ func checkArrayTemplate(expr string, ctx schema.Schema, taskID string) (schema.S
 	})
 }
 
-// checkDelaySlot type-checks a delay `for` or `until` against ctx. The slot's accepted
-// type depends on how the value is written, and that is decidable syntactically before any
-// inference runs:
-//
-//	bare JSON number      for: 5000                     milliseconds (unix ms for until) — nothing to check
-//	pure literal          for: "2h30m"                  the delayspec grammar, parsed here
-//	$: typed expression   until: "$: outputs.x.due_ms"  must infer to number
-//	${ } interpolation    for: "${ input.hours }h"      rejected
-//
-// The interpolation case is rejected by name rather than left to fall through: it produces
-// a string at runtime, which is precisely the failure this syntax exists to remove. The
-// human grammar is authoring syntax — a value arriving from input or a fetch result is
-// machine-produced, and the machine representation of an instant is a number.
-// where names the construct the slot belongs to ("delay", "timeout") so the message points
-// at the line the author wrote.
+// checkDelaySlot type-checks a delay for/until: a bare number is ms (nothing to check), a
+// pure literal parses the delayspec grammar, "$:" must infer to number, and ${ }
+// interpolation is rejected BY NAME — it produces a string, the failure this syntax
+// removes. where names the construct so the message points at the author's line.
 func checkDelaySlot(raw any, ctx schema.Schema, taskID, where, slot string) error {
 	label := fmt.Sprintf("task %q %s %s", taskID, where, slot)
 
@@ -272,14 +261,9 @@ func checkDelaySlot(raw any, ctx schema.Schema, taskID, where, slot string) erro
 	return err
 }
 
-// checkTimeout type-checks a task's timeout: the same two slots as a delay, with the same
-// syntactic classification, plus the arity rule the two share.
-//
-// Whether a literal is *positive* is deliberately not checked here. "0s" parses, and its
-// resolved instant is the thing that has to be in the future — a check the engine makes
-// against the clock it will actually run on, since an `until` cannot be judged at
-// registration at all (the same definition would validate differently on different days,
-// which is exactly what checkDelayLiteral's clock-independence exists to prevent).
+// checkTimeout: same slots and arity as delay. Positivity is deliberately not checked —
+// "0s" parses, and the resolved instant is judged by the engine against its real clock;
+// an `until` judged at registration would validate differently on different days.
 func checkTimeout(t *model.Timeout, ctx schema.Schema, taskID string) error {
 	if t.For != nil && t.Until != nil {
 		return fmt.Errorf("task %q timeout: for and until are mutually exclusive — %q is a budget from when the task is reached, %q is a fixed deadline", taskID, "for", "until")
@@ -396,14 +380,9 @@ func contextSchema(preceding []string, optional []string, tasks map[string]TaskS
 	return contextSchemaAbsent(preceding, optional, nil, tasks, processInput, configSchema, errRequired, errOptional)
 }
 
-// contextSchemaAbsent is contextSchema with a third category: task outputs that are
-// definitely NOT set on this path, typed {"type":"null"} rather than omitted. Omitting
-// them would make a reference an access error; typing them null makes reading through one
-// yield null, which is what lets `??` take the other arm (see lookupPropertyGuard).
-//
-// Only inferProcessOutput's per-terminal walk passes a non-empty absent list, and only
-// for tasks that ARE reachable on some other terminal — a reference to a task output no
-// path can produce stays an error rather than silently typing null.
+// contextSchema plus the outputs definitely NOT set on this path, typed null rather than
+// omitted — omission errors the access; null lets ?? take the other arm. A non-empty
+// absent list comes only from the per-terminal walk, only for tasks other terminals reach.
 func contextSchemaAbsent(preceding, optional, absent []string, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, errRequired, errOptional bool) schema.Schema {
 	ctx := schema.Object()
 	if !processInput.IsZero() {
@@ -464,15 +443,10 @@ func contextSchemaAbsent(preceding, optional, absent []string, tasks map[string]
 	return ctx
 }
 
-// addSelfSchema gives a switch context this task's transient self scope:
-//   - self.result: the raw action result, typed by result_schema (null for delay or a
-//     no-action task). Present ONLY when typed — an action with no result_schema has no
-//     self.result at all, so referencing it is a "not in schema" error, in a switch exactly
-//     as in an output. Undeclared, ambiguous data is never accessible.
-//   - self.output: the exported output projection — present only when the task defines an
-//     `output`. Referencing self.output on a task with no projection is an error.
-//   - self.previous: this task's prior output — present only when it loops (and so has a
-//     prior iteration). Both output and previous resolve through $defs[<id>_output].
+// addSelfSchema adds the transient self scope: self.result only when typed (no
+// result_schema ⇒ no self.result at all — undeclared data is never accessible),
+// self.output only when the task projects one, self.previous only when it loops. The
+// latter two resolve through $defs[<id>_output].
 func addSelfSchema(ctx schema.Schema, s *model.Task, loops bool, defs schema.Defs) (schema.Schema, error) {
 	resultType, typed, err := actionResultType(s, defs)
 	if err != nil {
@@ -491,15 +465,9 @@ func addSelfSchema(ctx schema.Schema, s *model.Task, loops bool, defs schema.Def
 	return ctx.WithProperty("self", self, true), nil
 }
 
-// actionResultType is the type of a task's raw action result — self.result. The bool
-// return is whether that result is a typed value: true for delay/no-action (null) and for
-// any action whose output is schema-declared — a fetch/external/child with a result_schema,
-// a child_list with one, or the schema-bearing children of a child_map. It is false for any
-// action whose result is untyped: fetch/external/child/child_list with no result_schema, or
-// a child_map in which no child declares one. An untyped result stays usable in the switch
-// (transient routing) but must not be exported through an output, so the output context
-// drops it and a reference there is an error — a child's output is only accessible once its
-// result_schema is declared and statically checked, with no permissive fallback.
+// actionResultType types self.result; the bool is "typed" — true for delay/no-action
+// (null) and schema-declared results, false otherwise. An untyped result stays usable in
+// the switch (transient routing) but never exports through an output; no permissive fallback.
 func actionResultType(s *model.Task, defs schema.Defs) (schema.Schema, bool, error) {
 	if s.Action == nil {
 		return schema.Type("null"), true, nil
@@ -533,16 +501,9 @@ func actionResultType(s *model.Task, defs schema.Defs) (schema.Schema, bool, err
 	}
 }
 
-// outputMapContext builds the context for inferring a task's output map: the base
-// context plus self.result (the raw action result), and — only when the task
-// actually loops back to itself — self.previous (its own prior output).
-//
-// The self-reference is meaningful only for a looping task, which alone has a
-// prior iteration. When loops is true, both self.previous and outputs.<id> (the
-// latter supplied by the base context via reachability) resolve through
-// $defs[<id>_output], the recursive placeholder the fixpoint drives. When the
-// task does not loop, neither is available — referencing one's own output without
-// looping is an error, since the task is not its own predecessor.
+// outputMapContext: the base context plus self.result, plus self.previous ONLY when the
+// task loops — only then is there a prior iteration, and previous and outputs.<id> both
+// resolve through $defs[<id>_output], the placeholder the fixpoint drives.
 func outputMapContext(base schema.Schema, resultType schema.Schema, typed bool, taskID string, loops bool) schema.Schema {
 	self := schema.Object()
 	// An untyped result (fetch/external with no result_schema) is omitted here, so an

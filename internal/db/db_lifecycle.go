@@ -171,13 +171,10 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 	})
 }
 
-// subtreeCTE binds `subtree` to an instance and every descendant by walking parent_id
-// (riding idx_instances_parent_task on both engines).
-//
-// It takes no row locks. A caller that mutates the tree must lock the enumerated rows in a
-// SEPARATE step, ORDER BY id FOR UPDATE — the global order shared with FinishChild and
-// FailInstanceAndAncestors — or Postgres deadlocks; Postgres also forbids FOR UPDATE
-// inside a recursive CTE, so the split is mandatory either way.
+// subtreeCTE binds `subtree` to an instance and every descendant via parent_id, taking NO
+// row locks: mutating callers lock the enumerated rows in a SEPARATE step, ORDER BY id
+// FOR UPDATE (the shared global order) — Postgres deadlocks otherwise, and forbids
+// FOR UPDATE inside a recursive CTE anyway.
 const subtreeCTE = `WITH RECURSIVE subtree(id) AS (
 	SELECT id FROM process_instances WHERE id = ?
 	UNION ALL
@@ -434,13 +431,9 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 		if status == model.StatusPaused || status == model.StatusPausing {
 			return fmt.Errorf("process is paused, not failed (status: %s); resume it instead: %w", status, ErrConflict)
 		}
-		// A raised root is settled, not interrupted, so retry has nothing to re-attempt:
-		// it can only re-run the task the instance sits on, and that task is the one
-		// whose switch *decided* to raise -- against upstream state a retry cannot have
-		// changed. It would re-raise identically, after possibly re-running a side effect
-		// that already succeeded. Both special cases exist because "not retryable" alone
-		// invites a bug report; the difference is that pause has another verb to point at
-		// and a raise does not.
+		// A raised root is settled, not interrupted: retry could only re-run the very task whose
+		// switch DECIDED to raise, against state a retry cannot change — re-raising identically
+		// after possibly repeating a side effect. Special-cased so the error can say that.
 		if status == model.StatusRaised {
 			return fmt.Errorf("process concluded with error %q (status: raised); a raised error is "+
 				"a declared outcome, not a fault -- start a new instance, or publish a new version "+
@@ -617,13 +610,9 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 			Task:        raw.Task,
 			OutputsData: raw.OutputsData,
 			OutputData:  raw.OutputData,
-			// The three error slots are cleared together, and must stay that way. Leaving
-			// error_code behind fails quietly: a revived instance that then completes
-			// still reports having died of the old code, corrupting exactly the column the
-			// code exists to serve. error_data ($error) is cleared for the same reason --
-			// a batch error route writes it, and a stale one would survive the revival.
-			// Nothing valid can read a cleared $error: the mustErr/mayErr analysis only
-			// admits a read where an error is present on every path reaching it.
+			// The three error slots clear together: a kept error_code corrupts the column it exists
+			// for; a kept error_data would survive into $error reads. mustErr/mayErr admits a $error
+			// read only where an error exists on every path, so a cleared one is never readable.
 			ErrorData:    "",
 			ExternalData: raw.ExternalData,
 			EngineState:  raw.EngineState,

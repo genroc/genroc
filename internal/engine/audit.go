@@ -71,15 +71,9 @@ func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 	}
 }
 
-// contextSecrets gathers every secret value currently in the instance's context —
-// config secrets plus input/output values whose inferred schema is marked secret — so
-// audit can scrub them from log text. (The response body is not in the context; it is
-// schema-redacted at its log site via snippetResult.)
-//
-// It considers only already-materialized values: an unresolved *ObjectRef is skipped,
-// because a value never loaded was never used, so it cannot appear in any log line. This
-// relies on the invariant that anything logged is derived from a value resolved BEFORE the
-// audit call that logs it (every eval path feeds inst.ResolvedObjects first) — preserve it.
+// contextSecrets gathers the secret values currently in context so audit can scrub them
+// from log text. Unresolved *ObjectRefs are skipped — never loaded means never logged —
+// which relies on eval paths feeding inst.ResolvedObjects BEFORE the audit call; keep that.
 func (e *Engine) contextSecrets(inst *model.ProcessInstance) []string {
 	def, err := e.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
 	if err != nil {

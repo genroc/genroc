@@ -122,19 +122,9 @@ func normalize(schema *node) (*node, error) {
 		})
 	}
 
-	// Build root $defs from used definitions, resolving name collisions.
-	// Shallower definitions claim their name first: a top-level definition keeps
-	// its exact name and a nested one that collides gets the unique suffix. This
-	// is what lets FlattenNamed guarantee that its named entries — the generated
-	// schema names during process generation — always win a collision.
-	//
-	// Two collisions are not real conflicts and produce no suffix:
-	//   - a pure-$ref definition aliasing a same-named definition (a schema that
-	//     IS a reference to a shared def, e.g. input_schema {$ref:#/$defs/input}
-	//     over a def named "input") — the target binds directly under the name
-	//     instead of leaving an input → input_1 indirection;
-	//   - a definition content-equal to the one already holding the name (the
-	//     same definition arriving twice, e.g. baked into two schemas) — shared.
+	// Root $defs from used definitions, shallower names first, so FlattenNamed's named
+	// entries always win a collision. Two collisions are not conflicts and get no suffix: a
+	// pure-$ref alias of a same-named def (binds directly), and a content-equal duplicate.
 	defKeys := make([]string, 0, len(ctx.definitions))
 	for k, def := range ctx.definitions {
 		if def.Used {

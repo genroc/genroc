@@ -148,15 +148,10 @@ func (e *Engine) signalWork() {
 // instance), so the pump claims it without waiting for the next poll tick.
 func (e *Engine) NotifyWork() { e.signalWork() }
 
-// renewLeases re-stamps the leases in this worker's held set and records when that last
-// succeeded. Both the renewer and the pump's repair path must go through here, or
-// lastRenewMs stops meaning "the last moment this worker could prove its leases were
-// alive".
-//
-// The stamp is the instant the renewal derived its expiries from, which the renewal
-// reports; reading the clock here instead would date the evidence from after a write that
-// can outlast the gate's margin, and the gate would then hand out a takeover cutoff past
-// leases that had already lapsed.
+// renewLeases re-stamps the held set and records when that last succeeded (the renewer
+// and the gate's repair both come through here). The stamp is the instant the renewal
+// derived its expiries from, never the post-write clock — late evidence overstates the
+// gate's floor by the write's duration.
 func (e *Engine) renewLeases() error {
 	var ids []string
 	e.held.Range(func(k, _ any) bool { ids = append(ids, k.(string)); return true })
@@ -168,22 +163,10 @@ func (e *Engine) renewLeases() error {
 	return nil
 }
 
-// leaseGate runs before every claim: if no renewal has succeeded within a lease, this
-// worker cannot prove the leases it holds are alive, so it renews them synchronously and
-// then declines lease takeovers (db.SkipTakeover) for one lease duration.
-//
-// Its verdict is a cutoff pinned to the instant it read the evidence, never "whatever the
-// clock says when the claim runs" — every lease this worker holds outlives that instant by
-// construction, so however long the claim is delayed after this returns, it cannot take a
-// row this worker is still advancing.
-//
-// Two more things break if changed. It must read the *renewal* gap, not the claim gap — a
-// saturated pump legitimately parks on e.sem for minutes with healthy leases. And it must
-// run in the claimant rather than the renewer, because on resume every frozen ticker fires
-// at once and the two race; checking here makes both orderings correct.
-//
-// Why a repair rather than an exit, why the grace covers co-resident workers, and why
-// there is no once-per-window bound: specs/lease-fencing.md.
+// leaseGate, before every claim: on stale renewal evidence it repairs its own leases and
+// declines takeovers for one lease period, as a cutoff pinned to the instant the evidence
+// was read (a delayed claim cannot widen it). It reads the RENEWAL gap, in the CLAIMANT —
+// each wrong-looking choice here is argued in specs/lease-fencing.md and CLAUDE.md.
 func (e *Engine) leaseGate() db.Takeover {
 	now := db.Now()
 	nowMs := now.UnixMilli()

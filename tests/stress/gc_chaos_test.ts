@@ -11,37 +11,13 @@ import {
 } from "../helpers/server.ts";
 import { createClientTyped, listAllInstances } from "../helpers/client.ts";
 
-// GC-under-chaos stress test (SQLite, single server crashed and restarted).
-//
-// The object store (process_objects) keeps every large value out-of-line, tracked by
-// two independent references: `pinned` (a live context value-slot points at it) and
-// `log_until` (an audit log still needs it). A row is legitimate iff it is pinned or
-// log-referenced; anything else must have been deleted. This test hammers that
-// bookkeeping under the worst conditions and then asserts the invariant directly
-// against the raw tables:
-//
-//   • a one-level-recursive workload: each root spawns a child, passing a large blob in
-//     as input and collecting the child's (large) output back out — so the value
-//     round-trips parent → child → parent and is externalized into both child-owned and
-//     parent-owned objects;
-//   • large blobs everywhere — process input, a flaky action's (large) result, and a
-//     looping task's recomputed output — so values are externalized and churned;
-//   • the server is SIGKILL'd at random and restarted on the same DB, so writes are
-//     interrupted mid-flight and leases are reclaimed by the restarted process;
-//   • the action's mock randomly returns 500, driving retries and instance failures;
-//   • roots are randomly paused (and resumed again) and force-retried throughout,
-//     cascading to children.
-//
-// After the chaos settles and every instance is terminal, we open the SQLite file and
-// check, for every process_objects row, that it is reachable — pinned by some live
-// context slot or referenced by some log row — and conversely that every context/log
-// reference resolves to a row with the right flags. A crash that leaked a half-written
-// object, a deref that failed to drop one, or an over-eager delete that orphaned a live
-// reference would all surface here.
-//
-// SQLite-only: the verification reads the DB file directly, and a single crashed/
-// restarted process avoids the multi-writer contention SQLite can't take (see
-// multi_worker_test.ts for the Postgres fleet shape).
+// GC-under-chaos (SQLite, one server crashed/restarted at random). process_objects rows
+// are legitimate iff pinned by a live context slot or referenced by a live log; this
+// hammers that bookkeeping -- big blobs round-tripping parent->child->parent, flaky 500s,
+// random SIGKILLs, pauses/resumes/force-retries -- then reads the raw tables and asserts
+// every row is reachable and every reference resolves. SQLite-only: the check reads the
+// DB file, and one crashed process avoids multi-writer contention (multi_worker_test.ts
+// is the Postgres fleet shape).
 
 const ROOT_COUNT = 8;
 const CHAOS_MS = 6_000;

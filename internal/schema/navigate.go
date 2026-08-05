@@ -243,13 +243,9 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 		}
 		return nil, fmt.Errorf("field %q not found in schema", name)
 	}
-	// The property value is returned as declared — a $ref stays a $ref (see the
-	// function comment); a taint on it rides along on the ref node itself.
-	//
-	// A property is non-nullable when it is guaranteed present after validation:
-	// either it is required, or it has a default (conformObject fills an absent
-	// optional's default, so the value can never be missing). Only a truly optional
-	// property with no default comes back nullable.
+	// Returned as declared — a $ref stays a $ref, its taint riding the ref node. Non-nullable
+	// iff guaranteed present after validation: required, or defaulted (conformObject fills an
+	// absent optional's default). Only optional-without-default comes back nullable.
 	if !isRequired(resolved, name) && propDefault(prop, defs) == nil {
 		return withNull(prop), nil
 	}
@@ -414,15 +410,10 @@ func taintNode(s *node) *node {
 	return &n
 }
 
-// nodeOrTargetSecret reports whether n, or the definition it resolves to, is secret. A
-// taint on a $ref node marks the pointer, not the shared target (tainting the target
-// would over-taint its other users), so both sides must be consulted.
-//
-// The two must be consulted at every union position, not only at the top: a value
-// reached through additionalProperties or items comes back wrapped nullable, so a
-// map or array whose value type is a $ref to a secret definition presents as
-// oneOf[{$ref}, null]. Checking only the wrapper's own Ref field misses it, and the
-// miss is a silent one — the value goes out unredacted.
+// A taint on a $ref marks the pointer, not the shared target (that would over-taint its
+// other users), so BOTH sides are consulted — and at every union position: items and
+// additionalProperties values arrive as oneOf[{$ref}, null], where a missed arm's taint
+// sends the value out unredacted.
 func nodeOrTargetSecret(n *node, defs map[string]*node) bool {
 	return secretThroughRefs(n, defs, nil)
 }
@@ -794,13 +785,9 @@ func stripNull(s *node) *node {
 	return s
 }
 
-// stripNullVariants drops variants that are exactly null AND strips null from inside the
-// survivors, so StripNull keeps its contract (HasNull is false afterwards) on a union
-// whose nullability hides in an arm's type list rather than in a separate null arm.
-//
-// A $ref variant rides through untouched — stripNull never derefs, which is what keeps a
-// recursive type symbolic and finite. So HasNull can still see a null inside a referenced
-// definition that no wrapper here can remove; inferNullCoalesce materializes for that case.
+// Drops exactly-null variants AND strips null inside survivors, so StripNull's contract
+// (HasNull false after) holds when nullability hides in an arm's type list. $refs ride
+// through underefed — that keeps recursion finite; inferNullCoalesce materializes for those.
 func stripNullVariants(vs []*node) ([]*node, bool) {
 	out := make([]*node, 0, len(vs))
 	changed := false
@@ -818,16 +805,10 @@ func stripNullVariants(vs []*node) ([]*node, bool) {
 	return out, changed
 }
 
-// isEmptyNode reports whether s constrains nothing — the top type, written {}, which is
-// how "unknown" is spelled (see specs/unknown-type.md). Root $defs are deliberately
-// ignored: a node carrying only a resolution context (as navigation's sub-schemas do)
-// still accepts any value.
-//
-// Description, Secret and Default are ignored too, so {"description": "…"} is still the
-// top type — which is the recommended way to say the opacity is deliberate, since the
-// bare {} cannot. (Secret and Default are functional rather than annotations, so an
-// otherwise-empty node carrying one is still treated as top; that predates the unknown
-// work and is left as-is.)
+// isEmptyNode: does s constrain nothing — the top type {}, i.e. unknown? Root $defs are
+// ignored (navigation sub-schemas carry them as context only), and so is Description:
+// {"description": …} is still top, the recommended spelling for deliberate opacity.
+// Secret/Default being treated as top predates the unknown work; left as-is.
 func isEmptyNode(s *node) bool {
 	return s == nil || (len(s.Type) == 0 && s.Properties == nil && s.Required == nil &&
 		s.AdditionalProperties == nil &&

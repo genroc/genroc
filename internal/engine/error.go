@@ -104,17 +104,10 @@ func (e *Engine) handleCallError(inst *model.ProcessInstance, task *model.Task, 
 	return e.failInstance(inst, errCode, fmt.Sprintf("task %q: %s: %s", task.ID, errCode, errMsg))
 }
 
-// completeViaErrorHandler finalizes an instance whose on_error handling routed it to
-// `end`: an anticipated error was caught and the process completes normally. Both the
-// action-task path (handleCallError) and the child-batch path (resolveRaisedBatch) go
-// through here, so the two cannot drift — in particular the process output is computed on
-// this path exactly as it is on a normal end. (An earlier version of the action-task path
-// skipped computeOutput here, so a process that completed via on_error → end silently
-// produced no output; that is the divergence this shared helper removes.) A failing
-// output expression fails the instance instead.
-//
-// msg/code are the caught error's — the engine code on the action path, the child's
-// raised code on the batch path — recorded on the EventErrorCompleted audit.
+// completeViaErrorHandler finalizes an on_error → end route; the action path and the batch
+// path both come through here so they cannot drift — the process output is computed
+// exactly as on a normal end (a fork of this once silently dropped it). msg/code are the
+// caught error's, recorded on EventErrorCompleted.
 func (e *Engine) completeViaErrorHandler(inst *model.ProcessInstance, task *model.Task, msg string, code errcode.Code) advanceOutcome {
 	inst.Status = model.StatusCompleted
 	inst.RetryCount = 0
@@ -160,13 +153,9 @@ func (e *Engine) failInstance(inst *model.ProcessInstance, code errcode.Code, re
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// settlePausing lands a 'pausing' instance in 'paused', touching nothing else so that
-// resuming is a status flip. Reached only when a worker died holding the instance; the
-// normal pause lands in SQL when the owning worker writes its finished task.
-//
-// It must not regain an only_once check: advance() resolves an interrupted only_once task
-// before the pause, because the evidence (ReclaimedExpired, derived per claim from
-// worker_id) does not survive the write that settles a pause. See specs/pause-resume.md.
+// settlePausing lands 'pausing' in 'paused' touching nothing else (resume = status flip);
+// reached only when a worker died holding the instance. It must NOT regain an only_once
+// check — advance() resolves that first, before the evidence dies. specs/pause-resume.md.
 func (e *Engine) settlePausing(inst *model.ProcessInstance) advanceOutcome {
 	inst.Status = model.StatusPaused
 	// The other half of inst_paused: PauseProcess logs the rows it settled itself, this

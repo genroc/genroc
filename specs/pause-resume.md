@@ -257,13 +257,8 @@ stops at the first side effect). Tracked in `ROADMAP.md`.
 
 ## Prior art
 
-Camunda 7 separates the same three axes: suspension (`PUT
-/process-instance/{id}/suspended`, reversible, also available per definition and
-per job), termination (`DELETE`, terminal), and retry-budget manipulation
-(incrementing a failed job's `retries`, which is explicitly an override of
-configuration). Camunda 8 dropped suspension entirely in the Zeebe rewrite and
-tracks it as an open feature request — its "paused" proposal is defined
-negatively across three subsystems ("no element is executed, no job can be
-activated or completed and no event is correlated. Only resume and cancel is
-possible"), which is expensive in an event-sourced partitioned engine and nearly
-free here, where the scheduler is a claim query over one table.
+Mature engines separate the same three axes: reversible suspension, terminal
+cancellation, and retry-budget override. Suspension is expensive in an event-sourced
+partitioned engine (it cuts across every subsystem); it is nearly free here, where the
+scheduler is a claim query over one table — which is why genroc has it and some larger
+engines still do not.

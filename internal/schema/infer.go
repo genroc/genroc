@@ -310,13 +310,9 @@ func inferBase(node syntax.Node, ictx inferCtx) (base Schema, ok bool, err error
 	// resolution context of its own — re-anchor it to the context's root $defs so
 	// any $refs inside still resolve.
 	base = base.WithDefs(ictx.s.DefsHandle())
-	// Access on a known-null base is null, matching runtime optional chaining
-	// (eval returns nil for a nil base). This is also what lets the recursive
-	// inference seed work: the self-reference's previous value is null on the
-	// first iteration, and `self.previous.x` must resolve to null so a
-	// `?? default` base case can fire rather than erroring on a missing property.
-	// A $ref base is resolved for this check — mid-solve it lands on the null seed
-	// estimate, which must behave exactly like a structural null.
+	// Access on a known-null base is null (runtime optional chaining does the same) — and it
+	// seeds recursive inference: self.previous is null on iteration one, so `?? default` can
+	// fire. A $ref base resolves for this check; the mid-solve null seed behaves identically.
 	if base.IsNull() {
 		return Schema{}, false, nil
 	}
@@ -493,13 +489,9 @@ func emptyArray() Schema {
 	return Schema{&node{Type: SchemaType{"array"}, MaxItems: &zero}}
 }
 
-// elementOf reads the element type of an array source. A union source — which is
-// what `xs ?? []` or a ternary produces — contributes the join of its variants'
-// element types; a variant that provably holds no elements is skipped, since it
-// can never supply one.
-//
-// Items, not Index: Index is nullable because a constant index may be out of
-// bounds, whereas map only ever visits real elements.
+// elementOf reads an array source's element type; a union source (`xs ?? []`, ternaries)
+// joins its variants', skipping provably-empty arms. Items, not Index: Index is nullable
+// because a constant index may be out of bounds — map only visits real elements.
 func elementOf(src Schema) (Schema, error) {
 	variants := src.Variants()
 	if variants == nil {
@@ -649,13 +641,9 @@ func isLiteralNode(n syntax.Node) bool {
 	return false
 }
 
-// nodeSteps renders a member/index chain as navigation steps, ok=false when the
-// chain is not rooted at a bare identifier. The first step is always that root
-// identifier, so steps[0].prop is the root and steps[1:] the path below it.
-//
-// Steps, not a rendered dot-path: a["a.b"] and a.a.b are distinct accesses whose
-// dot-path renderings are identical, and every consumer here — the guard map,
-// the secret walk — is one that must not confuse them.
+// nodeSteps renders a member/index chain as steps rooted at a bare identifier (ok=false
+// otherwise). Steps, never a rendered dot-path: a["a.b"] and a.a.b render identically as
+// dots, and the guard map and the secret walk must not confuse them.
 func nodeSteps(node syntax.Node) ([]pathStep, bool) {
 	switch n := node.(type) {
 	case *syntax.IdentNode:

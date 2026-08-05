@@ -26,14 +26,9 @@ const defaultActionTimeout = 30 * time.Second
 //   - done!=nil: the task loop should stop and persist this outcome (retry, error
 //     route, or permanent fail).
 func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *advanceOutcome) {
-	// Resolved per attempt, so a retry of an expression-valued timeout gets the budget the
-	// context says it should have now rather than the one the first attempt was given.
-	//
-	// The deadline is converted to a duration and applied with WithTimeout rather than
-	// handed to WithDeadline: it was resolved against db.Now(), which carries the test
-	// clock offset, while a context deadline is compared against the real time.Now(). The
-	// difference of two db.Now()-based instants cancels that offset out; the instant itself
-	// does not, and a tick-advanced test would stretch every timeout by the offset.
+	// Resolved per attempt (a retry gets today's budget), then applied as a DURATION via
+	// WithTimeout, never a WithDeadline instant: it was read off db.Now() while context
+	// deadlines compare against real time.Now() — subtraction cancels the offset, an instant keeps it.
 	now := db.Now()
 	timeout, err := e.fetchTimeout(inst, task, now)
 	if err != nil {
@@ -204,14 +199,9 @@ func (e *Engine) resolveSpec(inst *model.ProcessInstance, spec model.DelaySpec, 
 	}
 }
 
-// resolveTimeout returns the instant a task's attempt must finish by. ok is false when the
-// task declares no timeout, which is not a zero deadline but an absence — the caller
-// supplies the default, and it differs by action type (a fetch falls back to
-// defaultActionTimeout, an external waits indefinitely).
-//
-// A deadline already behind now is returned as-is, because what to do about it is the
-// caller's question and the two callers answer it oppositely. See fetchTimeout (refuse) and
-// runExternal (clamp).
+// resolveTimeout returns the instant an attempt must finish by; ok=false means absence,
+// not zero — the caller supplies its own default. A deadline already past is returned
+// as-is: the two callers answer it oppositely (fetchTimeout refuses, runExternal clamps).
 func (e *Engine) resolveTimeout(inst *model.ProcessInstance, task *model.Task, now time.Time) (time.Time, string, bool, error) {
 	if task.Timeout.IsZero() {
 		return time.Time{}, "", false, nil
@@ -223,14 +213,9 @@ func (e *Engine) resolveTimeout(inst *model.ProcessInstance, task *model.Task, n
 	return at, src, true, nil
 }
 
-// fetchTimeout is the budget for one fetch attempt, defaulting when the task declares none.
-//
-// A deadline already behind now is refused rather than clamped. Clamping would build a
-// context that is expired before the request is sent, and transport.ClassifyGoError reports
-// that as http.timeout — an unknowable code, so on an only_once task it can never be
-// retried, ever, for a request that provably never left. There is no truthful code to
-// report, so the definition bug is named instead. (An external task has a truthful code for
-// exactly this, which is why it clamps; see runExternal.)
+// fetchTimeout is one fetch attempt's budget. A past deadline is REFUSED, never clamped:
+// a pre-expired context classifies as http.timeout — unknowable, so unretryable forever
+// on only_once, for a request that never left. (external clamps; its code is truthful.)
 func (e *Engine) fetchTimeout(inst *model.ProcessInstance, task *model.Task, now time.Time) (time.Duration, error) {
 	at, src, ok, err := e.resolveTimeout(inst, task, now)
 	if err != nil {
@@ -245,15 +230,9 @@ func (e *Engine) fetchTimeout(inst *model.ProcessInstance, task *model.Task, now
 	return at.Sub(now), nil
 }
 
-// delayArity rejects any slot count other than exactly one. Registration rejects both
-// cases too, but the decoder also runs over stored rows that never re-validate, so neither
-// may resolve to a default: a row carrying only the removed `ms` decodes to *no* slot and
-// would wait zero, and preferring one of two slots silently waits a fraction of the
-// intended time with nothing reporting it. See specs/delay-syntax.md.
-//
-// A Timeout guards its own absence before calling this (an absent timeout is legitimate,
-// unlike an absent delay), so reaching here with neither slot set is the same corruption
-// it has always been.
+// delayArity rejects any slot count but one — at decode time too, over stored rows that
+// never re-validate: a row carrying only the removed `ms` decodes to NO slot and would
+// wait zero. Timeout guards its own absence first. specs/delay-syntax.md.
 func delayArity(spec model.DelaySpec) error {
 	switch {
 	case spec.For != nil && spec.Until != nil:
@@ -314,17 +293,10 @@ func (e *Engine) delayNumber(inst *model.ProcessInstance, raw any) (int64, error
 	return delayMillis(v)
 }
 
-// runExternal implements the external (pull/callback) task. Three entry states, told apart
-// by wait_state and the presence of _external_result:
-//
-//  1. First arrival — snapshot the input, mint a per-occurrence token, park on
-//     wait_state='external' (wake_at is the resolved timeout, absent when the task has none).
-//  2. Result submitted — the resolve API cleared wait_state and stored the result.
-//  3. Timeout — a parked external is only claimed once wake_at passed, so still being
-//     parked means no result arrived → external.timeout, re-armed with a fresh token if
-//     the definition retries it.
-//
-// Returns (result, nil) to continue advancing, or (nil, outcome) to stop and persist.
+// runExternal, by wait_state and _external_result: (1) first arrival — snapshot input,
+// mint a token, park on 'external' with wake_at from the timeout; (2) result submitted —
+// consume it; (3) still parked ⇒ claimable only because wake_at passed ⇒ external.timeout.
+// Returns (result, nil) to continue or (nil, outcome) to stop and persist.
 func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *advanceOutcome) {
 	// Phase 2: a result was submitted (the resolve API or a direct signal already un-parked
 	// us by storing _external_result).
@@ -364,13 +336,9 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	}
 	var wakeAt *time.Time
 	if hasDeadline {
-		// A deadline behind now clamps rather than failing, exactly as a delay's `until`
-		// does: the task parks already due, the next claim finds it still parked, and it
-		// raises external.timeout — the truthful code, and the one the definition's
-		// on_error is written against. Failing here instead would hand an author who wrote
-		// `on_error: [external.timeout]` an uncatchable engine.expression, and a deadline
-		// legitimately arrives in the past — a re-arm after a retry, or a resume from a
-		// pause that outlasted the window.
+		// A past deadline clamps (parks already due; the next claim raises external.timeout, the
+		// code on_error is written against). Failing would be an uncatchable engine.expression,
+		// and past deadlines are legitimate — a re-arm after retry, a resume from a long pause.
 		if deadline.Before(armedAt) {
 			spec = fmt.Sprintf("%s (already past; due now)", spec)
 			deadline = armedAt

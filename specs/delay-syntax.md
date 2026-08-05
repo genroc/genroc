@@ -296,7 +296,7 @@ pattern is. That asymmetry is what makes per-second schedules affordable.
 | `systemd.time(7)` | the calendar-pattern form, clock wildcards and steps, `+2d`-style stamps; a subset, not the whole grammar |
 | RFC 9557 / IXDTF | the `[Europe/Prague]` annotated-instant form verbatim |
 | ISO 8601 duration (`PT2H30M`) | the calendar-unit set only; rejected as a surface |
-| AWS EventBridge (`rate()`/`at()`) | the precedent for separate named slots over one magic string |
+| hosted cron services | the precedent for separate named slots over one magic string |
 | RFC 5545 `RRULE` | nothing — recurrence-shaped, and recurrence is out of scope |
 
 ## Open questions

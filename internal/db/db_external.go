@@ -10,15 +10,9 @@ import (
 	"genroc/internal/model"
 )
 
-// externalPaginator is the pagination policy for the external-task queue.
-// baseWhere keeps wait_state='external' a literal so Postgres matches the partial
-// idx_external_queue index (a bound parameter would not); that index's trailing
-// updated_at column also backs the sort. Keys on park time (updated_at) with the
-// UUIDv7 id tiebreaker, oldest first.
-//
-// Paused instances are excluded: ResolveExternalTask rejects anything that is not
-// running, so advertising a suspended task would hand external workers something they
-// cannot submit a result for. They reappear in the queue when the process resumes.
+// Pagination for the external-task queue. baseWhere keeps wait_state='external' literal so
+// Postgres matches the partial idx_external_queue index; sorted by park time. Paused
+// instances are excluded — resolve rejects them, so listing one hands out dead work.
 var externalPaginator = paginator{
 	table:      "process_instances",
 	columns:    instanceColumns,
