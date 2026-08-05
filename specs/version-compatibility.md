@@ -1,6 +1,14 @@
 # Version compatibility and instance upgrade
 
-**Status: proposed.** Nothing here is implemented.
+**Status: partly implemented.** §1–§3 and §5a–§5b — the two-document comparison, the
+changed-slot report and the parent/child pairing — are built (`internal/validation/compat.go`,
+`POST /definitions/compat`, `genctl compat`), and shipped behavior is documented in `docs/`
+(reference → Version compatibility). The invariants that break silently live in
+[internal/validation/CLAUDE.md](../internal/validation/CLAUDE.md).
+
+**The upgrade half is not built**: the gate (§3c), the boundary rules (§4), the tree closure
+(§5c), the one-column write (§6) and the two upgrade endpoints and `genctl upgrade` (§8).
+Nothing in §10 is built either. This document stays as the design record for all of it.
 
 1. **Compatibility** — given two versions of a process, decide whether an instance running
    the older one could continue under the newer one without a data-shaped failure.

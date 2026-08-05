@@ -82,10 +82,7 @@ func runValidateCmd(server string, args []string) {
 	if err := call(*serverFlag+"/definitions/validate", http.MethodPost, defs, &raw); err != nil {
 		fatal("%v", err)
 	}
-	var buf bytes.Buffer
-	json.Indent(&buf, raw, "", "  ")
-	os.Stdout.Write(buf.Bytes())
-	os.Stdout.Write([]byte("\n"))
+	printIndented(raw)
 }
 
 func runChannelCmd(server string, args []string) {
@@ -381,10 +378,7 @@ func runGetCmd(server string, args []string) {
 		if err := callGet(u, &raw); err != nil {
 			fatal("%v", err)
 		}
-		var buf bytes.Buffer
-		json.Indent(&buf, raw, "", "  ")
-		os.Stdout.Write(buf.Bytes())
-		os.Stdout.Write([]byte("\n"))
+		printIndented(raw)
 		return
 	}
 
@@ -1022,4 +1016,246 @@ func runConfigCmd(args []string) {
 	default:
 		fatal("unknown config subcommand %q", sub)
 	}
+}
+
+// ── version compatibility ─────────────────────────────────────────────────────
+
+// leadingArgs pulls the positional arguments preceding the first flag, then parses the
+// rest and appends any trailing ones — so `compat order_pipeline 2 3 --json` and
+// `compat --json order_pipeline 2 3` are the same command.
+func leadingArgs(fs *flag.FlagSet, args []string) []string {
+	var pos []string
+	for len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		pos, args = append(pos, args[0]), args[1:]
+	}
+	fs.Parse(args)
+	return append(pos, fs.Args()...)
+}
+
+// compatCaveat is printed under every report. The check compares inferred schemas, not
+// meaning: dollars → cents is `number` before and after and comes back compatible, so the
+// changed-slot list is the deliverable and this says so where it will be read.
+const compatCaveat = "shape only — a change of meaning (dollars → cents, a reused enum member, a new id namespace)\n" +
+	"compares equal. Read the changed slots; the verdict cannot."
+
+func runCompatCmd(server string, args []string) {
+	fs := flag.NewFlagSet("compat", flag.ExitOnError)
+	var files multiFlag
+	fs.Var(&files, "f", "definition file to compare against --from (YAML or JSON); repeat for multiple files")
+	serverFlag := addServerFlag(fs, server)
+	fromFlag := fs.String("from", "", "the side instances are running now (a channel name)")
+	toFlag := fs.String("to", "", "the side to compare against (a channel name)")
+	jsonFlag := fs.Bool("json", false, "print the raw report")
+	pos := leadingArgs(fs, args)
+
+	from := map[string]any{}
+	to := map[string]any{}
+	process := ""
+	switch {
+	case len(files) > 0:
+		if *fromFlag == "" {
+			fatal("--from is required with -f: naming only one side hides which two documents were compared")
+		}
+		defs, err := loadDefs(files)
+		if err != nil {
+			fatal("%v", err)
+		}
+		from["channel"], to["definitions"] = *fromFlag, defs
+		if len(pos) == 1 {
+			process = pos[0]
+		}
+	case len(pos) == 3:
+		fromV, err := strconv.Atoi(pos[1])
+		toV, err2 := strconv.Atoi(pos[2])
+		if err != nil || err2 != nil {
+			fatal("usage: genctl compat <process> <from-version> <to-version>")
+		}
+		process = pos[0]
+		from["versions"] = map[string]int{process: fromV}
+		to["versions"] = map[string]int{process: toV}
+	default:
+		if *fromFlag == "" || *toFlag == "" {
+			fatal("usage: genctl compat <process> <from> <to> | compat -f <file> --from <channel> | compat --from <channel> --to <channel> [<process>]")
+		}
+		from["channel"], to["channel"] = *fromFlag, *toFlag
+		if len(pos) == 1 {
+			process = pos[0]
+		}
+	}
+
+	body := map[string]any{"from": from, "to": to}
+	if process != "" {
+		body["process"] = process
+	}
+
+	if *jsonFlag {
+		var raw json.RawMessage
+		if err := call(*serverFlag+"/definitions/compat", http.MethodPost, body, &raw); err != nil {
+			fatal("%v", err)
+		}
+		printIndented(raw)
+		return
+	}
+
+	var resp compatReport
+	if err := call(*serverFlag+"/definitions/compat", http.MethodPost, body, &resp); err != nil {
+		fatal("%v", err)
+	}
+	printCompatReport(resp)
+}
+
+type compatReport struct {
+	Compatible bool `json:"compatible"`
+	Processes  []struct {
+		Name             string `json:"name"`
+		From             *int   `json:"from"`
+		To               *int   `json:"to"`
+		Compatible       bool   `json:"compatible"`
+		OutputCompatible bool   `json:"output_compatible"`
+		OutputReason     string `json:"output_reason"`
+		Input            struct {
+			Compatible bool   `json:"compatible"`
+			Reason     string `json:"reason"`
+		} `json:"input"`
+		Tasks []struct {
+			Task       string   `json:"task"`
+			Compatible bool     `json:"compatible"`
+			Reason     string   `json:"reason"`
+			Changed    []string `json:"changed"`
+		} `json:"tasks"`
+		RemovedTasks []string `json:"removed_tasks"`
+		AddedTasks   []string `json:"added_tasks"`
+		Changed      []string `json:"changed"`
+	} `json:"processes"`
+	Children []struct {
+		Parent        string `json:"parent"`
+		ParentVersion *int   `json:"parent_version"`
+		Task          string `json:"task"`
+		ChildKey      string `json:"child_key"`
+		Child         string `json:"child"`
+		Compatible    bool   `json:"compatible"`
+		Reason        string `json:"reason"`
+	} `json:"children"`
+	Unanalysable []compatIssue `json:"unanalysable"`
+	Unpaired     []compatIssue `json:"unpaired"`
+}
+
+type compatIssue struct {
+	Name    string `json:"name"`
+	Version *int   `json:"version"`
+	Side    string `json:"side"`
+	Reason  string `json:"reason"`
+}
+
+// versionLabel renders a resolved version, or "(new)" for a submitted document that has
+// no version yet.
+func versionLabel(v *int) string {
+	if v == nil {
+		return "(new)"
+	}
+	return fmt.Sprintf("v%d", *v)
+}
+
+func yesNo(ok bool) string {
+	if ok {
+		return "yes"
+	}
+	return "NO"
+}
+
+func printCompatReport(r compatReport) {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "PROCESS\tFROM\tTO\tCONTINUE\tOUTPUT\tREASON")
+	for _, p := range r.Processes {
+		// The two verdicts run in opposite directions and are never folded: CONTINUE is
+		// whether a running instance could carry on, OUTPUT whether a consumer written
+		// against the old shape still gets what it expects.
+		reason := p.Input.Reason
+		for _, t := range p.Tasks {
+			if reason == "" && !t.Compatible {
+				reason = fmt.Sprintf("task %q: %s", t.Task, t.Reason)
+			}
+		}
+		if reason == "" && len(p.RemovedTasks) > 0 {
+			reason = "removed task(s): " + strings.Join(p.RemovedTasks, ", ")
+		}
+		if reason == "" {
+			reason = p.OutputReason
+		}
+		if reason == "" {
+			reason = "-"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", p.Name,
+			versionLabel(p.From), versionLabel(p.To),
+			yesNo(p.Compatible), yesNo(p.OutputCompatible), reason)
+	}
+	w.Flush()
+
+	for _, p := range r.Processes {
+		lines := changedLines(p.Changed, p.Tasks, p.AddedTasks, p.RemovedTasks)
+		if len(lines) == 0 {
+			continue
+		}
+		fmt.Printf("\nchanged in %s %s → %s:\n", p.Name, versionLabel(p.From), versionLabel(p.To))
+		for _, l := range lines {
+			fmt.Printf("  %s\n", l)
+		}
+	}
+
+	if len(r.Children) > 0 {
+		// Their own block: a parent/child break is not a fact about either document
+		// alone, so it cannot be a column on either one's row.
+		fmt.Println("\nparent/child pairs:")
+		cw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(cw, "  PARENT\tTASK\tCHILD\tFITS\tREASON")
+		for _, c := range r.Children {
+			child := c.Child
+			if c.ChildKey != "" {
+				child = fmt.Sprintf("%s[%s]", c.Child, c.ChildKey)
+			}
+			reason := c.Reason
+			if reason == "" {
+				reason = "-"
+			}
+			fmt.Fprintf(cw, "  %s %s\t%s\t%s\t%s\t%s\n",
+				c.Parent, versionLabel(c.ParentVersion), c.Task, child, yesNo(c.Compatible), reason)
+		}
+		cw.Flush()
+	}
+
+	for _, u := range r.Unpaired {
+		fmt.Printf("\nunpaired: %s %s exists only on the %s side\n", u.Name, versionLabel(u.Version), u.Side)
+	}
+	for _, u := range r.Unanalysable {
+		fmt.Printf("\nunanalysable: %s %s (%s side): %s\n", u.Name, versionLabel(u.Version), u.Side, u.Reason)
+	}
+
+	fmt.Printf("\n%s\n", compatCaveat)
+	if !r.Compatible {
+		os.Exit(1)
+	}
+}
+
+func changedLines(defChanged []string, tasks []struct {
+	Task       string   `json:"task"`
+	Compatible bool     `json:"compatible"`
+	Reason     string   `json:"reason"`
+	Changed    []string `json:"changed"`
+}, added, removed []string) []string {
+	var lines []string
+	for _, slot := range defChanged {
+		lines = append(lines, slot)
+	}
+	for _, t := range tasks {
+		if len(t.Changed) > 0 {
+			lines = append(lines, fmt.Sprintf("task %q: %s", t.Task, strings.Join(t.Changed, ", ")))
+		}
+	}
+	for _, id := range removed {
+		lines = append(lines, fmt.Sprintf("task %q removed", id))
+	}
+	for _, id := range added {
+		lines = append(lines, fmt.Sprintf("task %q added", id))
+	}
+	return lines
 }

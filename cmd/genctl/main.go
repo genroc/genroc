@@ -49,6 +49,16 @@
 // get/logs/pause/resume/retry/signal require an instance id; pass @last for the most
 // recently started instance (recorded by run). `genctl last` prints that id.
 //
+//	genctl compat   <process> <from> <to>
+//	genctl compat   -f file.yaml [-f ...] --from <channel>
+//	genctl compat   --from <channel> --to <channel> [<process>]
+//
+// compat answers two questions about a pair of versions, and never folds them into one:
+// could an instance running the older one continue under the newer, and does the newer
+// still produce what consumers of the older were written against. It is a shape check — a
+// change of meaning (dollars to cents) compares equal, so the changed-slot list is the
+// deliverable and every form prints it.
+//
 //	genctl channel list   <process>
 //	genctl channel set    <process> <channel> <version>
 //	genctl channel delete <process> <channel>
@@ -143,6 +153,8 @@ func main() {
 		runPromoteCmd(server, args)
 	case "status":
 		runStatusCmd(server, args)
+	case "compat":
+		runCompatCmd(server, args)
 	case "instances":
 		runInstancesCmd(server, args)
 	case "definitions":
@@ -216,6 +228,9 @@ func usage() {
   genctl resume   <instance-id>
   genctl retry    [--force] <instance-id>
   genctl last
+  genctl compat   <process> <from> <to>
+  genctl compat   -f file.yaml [-f ...] --from <channel>
+  genctl compat   --from <channel> --to <channel> [<process>]
   genctl channel list   <process>
   genctl channel set    <process> <channel> <version>
   genctl channel delete <process> <channel>
@@ -241,6 +256,8 @@ Flags:
             newest N before that instant.
   --sort    instances: created (default) or updated; definitions: created or name.
             --since bounds whichever column the sort keys on.
+  --to      compat: the channel to compare against. --from is its other end and is
+            never defaulted: naming one side hides which two documents were compared.
   --time    logs: the time column — clock (15:04:05, the default, with a
             "--- 2006-01-02 +02:00 ---" separator at each day change) or full
             (2006-01-02 15:04:05 +02:00 on every row, fixed-width, no separators)

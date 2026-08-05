@@ -116,6 +116,23 @@ serve as the token (the reclaiming worker is usually the same worker), and nothi
 a row back by clearing `worker_id` — that column is the evidence `ReclaimedExpired` is
 derived from, and erasing it re-runs `only_once` tasks that must never re-run.
 
+## A collected child is conformed against the parent's CURRENT task
+
+`resolveAndValidateChildOutput` (`collect.go`) takes the `result_schema` from the parent's
+task as the parent stands now — `task.Action.ResultSchema`, or `task.Action.Children[key]`
+for a `child_map` — never from a copy taken at spawn. The schema used to be marshalled onto
+every child row as `_spawn_result_schema`; dropping it was the prerequisite for upgrading a
+live instance ([specs/version-compatibility.md](../../specs/version-compatibility.md) §5a).
+
+Two things that break silently if it goes back:
+
+1. **The conform NORMALIZES**, stripping undeclared properties. A field added to a child's
+   output and the parent's `result_schema` in one release would arrive stripped for
+   in-flight children, and the parent would read `null` — uncatchably, if the new schema
+   declares it optional.
+2. **The external path already resolves its schema this way**, from the pinned definition
+   when the result arrives. Two answers to one question is what let them drift.
+
 ## Pointers
 
 - `delayArity` (`action.go`) — the `for`/`until` arity rule and why it must fail loudly:

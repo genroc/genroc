@@ -8,6 +8,7 @@ import (
 
 	"genroc/internal/model"
 	"genroc/internal/schema"
+	"genroc/internal/validation"
 )
 
 // actionDef is the single source of truth for one API action.
@@ -91,7 +92,7 @@ func schemaPtr(s schema.Schema) *schema.Schema { return &s }
 // registry is the authoritative list of all actions.
 // Order here determines order in Swagger.
 var registry = func() []actionDef {
-	v1 := 1
+	v1, v3 := 1, 3
 	return []actionDef{
 		{
 			Name:    "put_definition",
@@ -320,6 +321,33 @@ var registry = func() []actionDef {
 			Resp: []map[string]any{{"process": "order_pipeline", "version": 1}},
 			handle: func(h *Handlers, env Envelope) Reply {
 				return h.validateDefinitions(env.Payload)
+			},
+		},
+		{
+			Name:    "compare_definitions",
+			Method:  http.MethodPost,
+			Path:    "/definitions/compat",
+			Summary: "Compare two sets of process versions: could an instance running one continue under the other, and does the newer one still honour the output contract consumers were written against. It is a shape check — it cannot see a change of meaning such as dollars becoming cents",
+			Tags:    []string{"Definitions"},
+			Errors:  []Code{CodeNotFound},
+			Req: CompatReq{
+				From:    CompatSelector{Channel: "latest"},
+				To:      CompatSelector{Versions: map[string]int{"order_pipeline": 3}},
+				Process: "order_pipeline",
+			},
+			Resp: CompatResp{
+				Compatible: true,
+				Processes: []CompatProcessResp{{
+					Report: validation.Report{
+						Name: "order_pipeline", Compatible: true, OutputCompatible: true,
+						Input: validation.SlotVerdict{Compatible: true},
+						Tasks: []validation.TaskVerdict{{Task: "ship", Compatible: true, Changed: []string{"action.url"}}},
+					},
+					From: &v1, To: &v3,
+				}},
+			},
+			handle: func(h *Handlers, env Envelope) Reply {
+				return h.definitionsCompat(env.Payload)
 			},
 		},
 		{

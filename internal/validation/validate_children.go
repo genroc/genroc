@@ -213,26 +213,49 @@ func validateChildEntry(taskID string, label string, p model.ChildEntry, ctx sch
 // applies). Generate infers the child's output from its own tasks and declared
 // result_schemas — no getter, so it does not recurse across the tree.
 func checkChildOutputType(prefix string, child *model.ProcessDefinition, resultSchema *schema.Schema) error {
-	if resultSchema == nil || !child.Output.Present() {
+	if resultSchema == nil {
 		return nil
 	}
-	sf, err := Generate(child)
+	childOut, ok, err := processOutputType(child)
 	if err != nil {
-		return fmt.Errorf("%s: infer child output type: %w", prefix, err)
+		return fmt.Errorf("%s: %w", prefix, err)
 	}
-	if sf.ProcessOutput.IsZero() {
+	if !ok {
 		return nil
-	}
-	// Generate returns ProcessOutput as a $ref into sf.Defs; resolve it to the concrete
-	// schema (deref follows the whole ref chain) so the check compares two real shapes.
-	childOut, err := sf.ProcessOutput.WithDefs(sf.Defs).Resolve()
-	if err != nil {
-		return fmt.Errorf("%s: resolve child output type: %w", prefix, err)
 	}
 	if !childOut.NarrowsTo(*resultSchema) {
 		return fmt.Errorf("%s: the child's output type is not compatible with the declared result_schema", prefix)
 	}
 	return nil
+}
+
+// processOutputType infers a definition's process output and resolves it to a concrete
+// schema. ok is false when the definition declares no output or the inference produced
+// none — its output type is open, and every caller here treats that as nothing to check.
+//
+// Generate returns ProcessOutput as a $ref into its own $defs, so the resolve is what
+// makes the returned schema comparable against one built from another pool.
+func processOutputType(def *model.ProcessDefinition) (schema.Schema, bool, error) {
+	if !def.Output.Present() {
+		return schema.Schema{}, false, nil
+	}
+	sf, err := Generate(def)
+	if err != nil {
+		return schema.Schema{}, false, fmt.Errorf("infer output type: %w", err)
+	}
+	return schemaFileOutput(sf)
+}
+
+// schemaFileOutput is processOutputType for a caller that already holds the SchemaFile.
+func schemaFileOutput(sf SchemaFile) (schema.Schema, bool, error) {
+	if sf.ProcessOutput.IsZero() {
+		return schema.Schema{}, false, nil
+	}
+	out, err := sf.ProcessOutput.WithDefs(sf.Defs).Resolve()
+	if err != nil {
+		return schema.Schema{}, false, fmt.Errorf("resolve output type: %w", err)
+	}
+	return out, true, nil
 }
 
 // validateChildListEntry checks a child_list task: the referenced child exists,

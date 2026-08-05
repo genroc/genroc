@@ -8,7 +8,19 @@
 
 ## server
 - [x] versioning channels
-- [x] child process compatibility check and versioning made convenient
+- [x] version compatibility — compare two versions of a process (`genctl compat`,
+  `POST /definitions/compat`) and report what changed, so a change that would strand running
+  work is visible before it is deployed. Two verdicts, never folded: instance continuation
+  and the output contract run in opposite directions. It is a **shape** check — it catches
+  the accidental break (a required input appearing, an output whose type changed) and names
+  which slots differ, but dollars → cents is `number` either way and comes back compatible.
+  One check spans two documents: when only one of a waiting parent / running child moves,
+  whichever moved must still fit the one that did not. See specs/version-compatibility.md
+- [] instance upgrade — move a live instance from one version to another, gated on the
+  comparison above (specs/version-compatibility.md §3c–§6, §8). The design is settled: the
+  gate refines the comparison with presence taken from the row, the write is one column
+  (which buys reversibility and idempotency), and the unit is the non-terminal tree closure,
+  because a running child may not move without the parent whose definition names its version
 - [x] external tasks (outgoing request to start, incoming request to complete), human or long running
 - [x] non-idempotent tasks - steps which can't be safely repeated (`only_once`; an interrupted one raises the catchable `only_once.interrupted` so a definition can verify against the system of record and then continue or deliberately re-run, and retries are refused for the errors nothing came back from — see specs/only-once-interrupted.md)
 - [x] logs for each process

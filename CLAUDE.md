@@ -33,6 +33,7 @@ records failures that are silent, not compile errors.
 | [internal/api/CLAUDE.md](internal/api/CLAUDE.md) | the action registry as the one place to add an endpoint; shutdown drain ordering, why there is no `WriteTimeout`, the readiness endpoint's independence from the engine, adding a `Code` |
 | [internal/transport/CLAUDE.md](internal/transport/CLAUDE.md) | the fetch response cap and how overflow is detected; why the shared client carries no `Client.Timeout`; retry jitter and the exponent clamp |
 | [internal/model/CLAUDE.md](internal/model/CLAUDE.md) | `on_error` validation tiers on an `only_once` task; unknown-key rejection in `on_error` / `switch`; `timeout` decoding and its action-type rules |
+| [internal/validation/CLAUDE.md](internal/validation/CLAUDE.md) | the version comparison as a conservative floor and the direction a refinement may move; the two `$defs` pools; changed slots as a field comparison; why diagnostics decompose above `isSubset` |
 | [internal/schema/CLAUDE.md](internal/schema/CLAUDE.md) | the `unknown` type (`{}`), why there is no keyword, `NarrowsTo` |
 | [internal/delayspec/CLAUDE.md](internal/delayspec/CLAUDE.md) | `delay` and `timeout` syntax (`for` / `until` / `tz`), arity, calendar arithmetic |
 | [specs/CLAUDE.md](specs/CLAUDE.md) | which docs are **proposals, not current behavior** |

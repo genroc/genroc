@@ -50,27 +50,6 @@ behavior while the spec stays put, answering a different question. See
   two soundness traps that are easy to miss: `config` is re-resolved every tick (so a guard
   on it proves nothing downstream), and task outputs are overwritten on loop re-entry (so
   refinements need a dataflow kill).
-- [version-compatibility.md](version-compatibility.md) — decide whether an instance on one
-  version could continue under another (`ctxOld(T) ⊆ ctxNew(T)`, reusing `computeContextSets`
-  and `isSubset`), and move it if so. Records the result that makes it small — a task
-  output's type is position-independent and the must-analysis is monotone, so checking the
-  **one** context at the instance's current task is sound for the whole remaining run — and
-  why there are two verdicts: the collapsed must/may sets over-approximate exactly as in
-  path-sensitive-output, so the version-to-version comparison is the conservative **floor** —
-  it reads two documents and never sees an instance — while the upgrade gate refines it
-  monotonically (presence from the row, types from the analysis, no value ever loaded).
-  Demand-pruning is filed as a gate refinement, not a comparison one: "is this output read
-  from here on" is a question about a remaining run, which needs a position to mean anything.
-  Upgrade writes one column, which is what buys reversibility and idempotency; the
-  case that costs is a required-with-default input property. Takes a **set** of definitions,
-  because one check is genuinely cross-process: whichever of a waiting parent / running child
-  moves must still fit the one that did not, which needs both documents in the same frame.
-  Carries a **prerequisite engine change** (§5a): drop `_spawn_result_schema`, the parent's
-  `result_schema` copied onto every child row at spawn — redundant (the collector already
-  holds `task`), inconsistent with the external path (which looks the schema up from the
-  pinned definition instead), duplicated per child across a fan-out, and, because the conform
-  normalizes, the cause of a silent strip under upgrade. Upfront that a shape check cannot
-  see dollars→cents.
 - [docs-site.md](docs-site.md) — the user-facing documentation site, and the only doc here
   about **tooling rather than the language**. The gap it fills is *reference*: nothing today
   says what `accepted_status` accepts or what `genctl promote` does. Draws the
@@ -90,3 +69,10 @@ behavior while the spec stays put, answering a different question. See
 `pause-resume.md`, `only-once-interrupted.md`, `unknown-type.md`, `delay-syntax.md`,
 `recursive-type-inference.md`, `resource-limits.md`, `retry-policy.md` describe code that
 exists. The invariants extracted from them live in the `CLAUDE.md` of the owning package.
+
+`version-compatibility.md` is **half** of each: its comparison is shipped — `Compare` /
+`CompareSet` in `internal/validation`, `POST /definitions/compat`, `genctl compat` — while
+its **upgrade** half (the gate, the boundary rules, the tree closure, the one-column write,
+the two upgrade endpoints) is still a proposal, as is everything in its §10. Its §5a
+prerequisite (dropping `_spawn_result_schema`) landed with the comparison, so the address of
+a child's `result_schema` in `unknown-type.md` is historical.

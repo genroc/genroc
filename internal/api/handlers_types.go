@@ -4,6 +4,7 @@ import (
 	"genroc/internal/db"
 	"genroc/internal/model"
 	"genroc/internal/schema"
+	"genroc/internal/validation"
 )
 
 // --- Request / Response types ---
@@ -88,6 +89,62 @@ type PromoteChannelReq struct {
 
 type ChannelStatusReq struct {
 	Channel string `json:"channel"`
+}
+
+// CompatSelector resolves to one version per process name. A triple of
+// {process, from, to} cannot name a graph, so each side of a comparison is a selector and
+// the two are paired by process name. Exactly one field may be set.
+type CompatSelector struct {
+	Channel     string                    `json:"channel,omitempty"      description:"Every process on this channel, at the version the channel points at."`
+	Versions    map[string]int            `json:"versions,omitempty"     description:"Explicit process name → version."`
+	Definitions []model.ProcessDefinition `json:"definitions,omitempty"  description:"Documents that are not stored yet — the ones an apply would take. They have no version, so they report version null."`
+}
+
+type CompatReq struct {
+	From CompatSelector `json:"from"`
+	To   CompatSelector `json:"to"`
+	// Process scopes the comparison to one process and the subtree of children it
+	// reaches, so a large channel can be asked a small question.
+	Process string `json:"process,omitempty"`
+}
+
+// CompatResp is the whole verdict. Compatible is the conjunction over everything below
+// it, and an unanalysable or unpaired entry makes it false, never true.
+type CompatResp struct {
+	Compatible   bool                `json:"compatible"`
+	Processes    []CompatProcessResp `json:"processes"`
+	Children     []CompatChildResp   `json:"children,omitempty"`
+	Unanalysable []CompatIssueResp   `json:"unanalysable,omitempty"`
+	Unpaired     []CompatIssueResp   `json:"unpaired,omitempty"`
+}
+
+// CompatProcessResp is one process's pair of verdicts. `compatible` is instance
+// continuation and `output_compatible` is the consumer contract; they run in opposite
+// directions and are deliberately never folded into one answer.
+type CompatProcessResp struct {
+	validation.Report
+	From *int `json:"from"` // null when the side carried a submitted document
+	To   *int `json:"to"`
+}
+
+// CompatChildResp is one parent/child pairing row. parent_version is what distinguishes
+// the two rows a version move produces — whichever side moved must still fit the one that
+// did not — so a break here is not a fact about either document alone.
+type CompatChildResp struct {
+	Parent        string `json:"parent"`
+	ParentVersion *int   `json:"parent_version"`
+	Task          string `json:"task"`
+	ChildKey      string `json:"child_key,omitempty"`
+	Child         string `json:"child"`
+	Compatible    bool   `json:"compatible"`
+	Reason        string `json:"reason,omitempty"`
+}
+
+type CompatIssueResp struct {
+	Name    string `json:"name"`
+	Version *int   `json:"version"`
+	Side    string `json:"side"` // from | to
+	Reason  string `json:"reason,omitempty"`
 }
 
 type StaleRef struct {

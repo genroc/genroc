@@ -194,6 +194,16 @@ func listHead[T any](base, order string, limit int) ([]T, error) {
 
 // printJSONItems writes items as an indented JSON array — the shared, lossless --json
 // output. An empty result renders as [] rather than null.
+// printIndented writes a raw server response as indented JSON — the one machine-readable
+// form for a single object, echoed rather than re-encoded so nothing is lost on the way
+// through.
+func printIndented(raw json.RawMessage) {
+	var buf bytes.Buffer
+	json.Indent(&buf, raw, "", "  ")
+	os.Stdout.Write(buf.Bytes())
+	os.Stdout.Write([]byte("\n"))
+}
+
 func printJSONItems(items []json.RawMessage) {
 	if items == nil {
 		items = []json.RawMessage{}

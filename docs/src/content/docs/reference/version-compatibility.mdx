@@ -1,0 +1,117 @@
+---
+title: Version compatibility
+description: Compare two versions of a process before deploying it — what the check catches, what it cannot see, and why there are two verdicts rather than one.
+section: reference
+order: 2
+---
+
+import Note from '../../../components/Note.astro'
+
+An instance pins the definition version it started on, and keeps it for life. That is what
+makes a running process predictable — but it also means a fixed URL, a new header or an
+optional input parameter strands every instance already in flight until it finishes. For a
+process parked on an `external` task, that can be weeks.
+
+`genctl compat` compares two versions and reports what changed, so a change that would
+strand running work is visible before it is deployed rather than after.
+
+## Comparing two versions
+
+```
+genctl compat <process> <from-version> <to-version>
+genctl compat -f ./processes/*.yaml --from latest
+genctl compat --from stable --to latest [<process>]
+```
+
+```
+PROCESS         FROM  TO  CONTINUE  OUTPUT  REASON
+order_pipeline  v2    v3  yes       yes     -
+
+changed in order_pipeline v2 → v3:
+  task "ship": action.url
+```
+
+The second form is the one to reach for before a deploy: it compares the documents `apply`
+would take against what is currently on a channel, so you see the answer without writing
+anything. Every form names **both** sides — defaulting one would hide which two documents
+were compared.
+
+`compat` exits non-zero when anything is incompatible, so it drops straight into a
+pipeline.
+
+### Two verdicts, never folded into one
+
+`CONTINUE` and `OUTPUT` answer opposite questions and are deliberately reported separately:
+
+- **`CONTINUE`** — could an instance running the old version carry on under the new one?
+  Every value the old definition can have produced must be one the new definition accepts.
+- **`OUTPUT`** — does the new version still honour the contract its consumers were written
+  against? Here the direction reverses: a parent's `result_schema` and an API caller were
+  written against the *old* output shape, so every value the new version can produce must
+  be one the old one could.
+
+A single boolean over two opposite-direction checks would mean nothing, so there isn't one.
+
+### The changed-slot list is the deliverable
+
+The verdict compares inferred schemas. The list of slots that differ — `action.url`,
+`action.result_schema`, `output`, `switch`, `on_error`, `timeout`, `only_once`,
+`input_schema`, `config_schema` — is what lets you judge the changes the check cannot.
+
+<Note>
+**This is a shape check, not a review.** Dollars → cents is `number` before and after and
+comes back compatible. So is a reused enum member, or an id that moved to a new namespace.
+The check catches the *accidental* break — a required input appearing, an output whose type
+changed. It does not certify a migration.
+</Note>
+
+Four more things it does not see:
+
+- **Routing.** New `switch` conditions decide where an instance goes next.
+  Shape-compatible and behaviourally different is a normal outcome.
+- **Side effects already performed.** The old URL was already called.
+- **Redaction.** A property that stops being `secret: true` becomes visible over the API,
+  for data stored long before the change. Only the `input_schema` / `config_schema` slot
+  reports it.
+- **`only_once`.** Removing it from a task whose previous attempt was interrupted lets that
+  task re-run, and the side effect happens twice. Read the `only_once` slot before moving
+  instances a worker died holding.
+
+## Over HTTP
+
+```
+POST /definitions/compat
+{"from": {"channel": "latest"},
+ "to":   {"versions": {"order_pipeline": 3}},
+ "process": "order_pipeline"}
+```
+
+Each side is a **selector** — `channel`, explicit `versions`, or submitted `definitions` —
+resolving to one version per process name, paired by name. A triple of
+`{process, from, to}` cannot name a graph, which is why the request is shaped this way.
+
+A process named on one side only is reported `unpaired`, and a version whose own inference
+fails is reported `unanalysable`. Both make the top-level `compatible` **false**, never
+true: an answer indistinguishable from "checked, and fine" would be worse than no report.
+
+## Parent and child, compared in one frame
+
+One check genuinely spans two processes, and no single-process comparison can compute it: a
+parent declares a `result_schema` for each child it calls, and the child's output is
+conformed against it when the batch is collected. So when only one of the two moves,
+whichever moved must still fit the one that did not.
+
+`compat` reports both directions as their own block, because a break there is not a fact
+about either document alone:
+
+```
+parent/child pairs:
+  PARENT              TASK  CHILD    FITS  REASON
+  order_pipeline v2   work  invoice  yes   -
+  order_pipeline v3   work  invoice  yes   -
+```
+
+This is tighter than the output contract above, and that is why it earns its place: a child
+that drops a field fails its general output contract, but a parent whose `result_schema`
+never named that field is unaffected — and only a check holding both documents at once can
+say so.
