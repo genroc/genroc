@@ -1,0 +1,29 @@
+# The relaxation at the input slot. An instance's input was conformed once, at creation, and
+# nothing ever conforms it again — so a newly required property whose type admits null is a
+# gap the upgrade closes by writing the null in, not a break. required-input-added.yaml is
+# the same change with nothing to invent, and stays refused.
+apply:
+  - channel: nullin_a
+    definitions:
+      - name: nullin_proc
+        input_schema: {type: object, properties: {order_id: {type: integer}}, required: [order_id]}
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x/ship}
+            switch: end
+  - channel: nullin_b
+    definitions:
+      - name: nullin_proc
+        input_schema:
+          {type: object, properties: {order_id: {type: integer}, note: {type: [string, "null"]}},
+           required: [order_id, note]}
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x/ship}
+            switch: end
+run: [--from, nullin_a, --to, nullin_b]
+expect: |
+  PROCESS      VERDICT
+  nullin_proc  upgradable
+
+  exit 0

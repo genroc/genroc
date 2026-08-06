@@ -154,6 +154,51 @@ var gaps = []gap{
 		      "next":{"oneOf":[{"$ref":"#/$defs/n"},{"type":"null"}]}},"required":["v","tag"]}},"$ref":"#/$defs/n"}`,
 		value: `{"v":"a","next":{"v":"b","next":null}}`,
 	},
+	{
+		name:  "the old side declared it NON-nullable, merely optional",
+		old:   `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"number"}},"required":["a"]}`,
+		new:   `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":["number","null"]}},"required":["a","b"]}`,
+		value: `{"a":"x"}`,
+	},
+	{
+		name: "nullable only at the end of a chain of definitions",
+		old:  `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`,
+		new: `{"$defs":{"maybe":{"$ref":"#/$defs/inner"},"inner":{"type":["number","null"]}},
+		       "type":"object","properties":{"a":{"type":"string"},"b":{"$ref":"#/$defs/maybe"}},
+		       "required":["a","b"]}`,
+		value: `{"a":"x"}`,
+	},
+	{
+		name: "nullable inside a nested union, which a one-level scan misses",
+		old:  `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`,
+		new: `{"type":"object","properties":{"a":{"type":"string"},
+		       "b":{"anyOf":[{"anyOf":[{"type":"number"},{"type":"null"}]},{"type":"string"}]}},
+		       "required":["a","b"]}`,
+		value: `{"a":"x"}`,
+	},
+	{
+		name: "nullable found by walking a reference cycle",
+		old:  `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`,
+		new: `{"$defs":{"cyc":{"anyOf":[{"$ref":"#/$defs/cyc"},{"type":"null"}]}},
+		       "type":"object","properties":{"a":{"type":"string"},"b":{"$ref":"#/$defs/cyc"}},
+		       "required":["a","b"]}`,
+		value: `{"a":"x"}`,
+	},
+	{
+		name: "the whole object became one variant of a union",
+		old:  `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`,
+		new: `{"anyOf":[{"type":"object","properties":{"a":{"type":"string"},"b":{"type":["number","null"]}},
+		       "required":["a","b"]},{"type":"string"}]}`,
+		value: `{"a":"x"}`,
+	},
+	{
+		name: "an open map on the new side against declared keys on the old",
+		old: `{"type":"object","properties":{"k1":{"type":"object","properties":{"a":{"type":"string"}},
+		      "required":["a"]}},"required":["k1"]}`,
+		new: `{"type":"object","additionalProperties":{"type":"object","properties":{"a":{"type":"string"},
+		      "b":{"type":["string","null"]}},"required":["a","b"]}}`,
+		value: `{"k1":{"a":"x"}}`,
+	},
 }
 
 // The forgiving relation must accept every gap — and the strict one must refuse it, or the
@@ -255,12 +300,71 @@ func TestAbsentAsNull_RefusesWhatCannotBeClosed(t *testing.T) {
 			old:  `{}`,
 			new:  `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`,
 		},
+		{
+			name: "an old side that is not an object at all, so the relaxation is never reached",
+			old:  `{"type":"string"}`,
+			new:  `{"type":"object","properties":{"b":{"type":["number","null"]}},"required":["b"]}`,
+		},
+		{
+			name: "one union variant that cannot fit, however closable the other is",
+			old: `{"anyOf":[{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]},
+			      {"type":"number"}]}`,
+			new: `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":["number","null"]}},
+			      "required":["a","b"]}`,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			old, new := mustSchema(t, c.old), mustSchema(t, c.new)
 			if old.IsSubsetAbsentAsNull(new) {
 				t.Fatal("this gap cannot be closed by filling a null, so it must stay refused")
+			}
+		})
+	}
+}
+
+// A presence gap is closable exactly when the missing property's type admits null, and that
+// question is answered TWICE — once by the relation, once by the fill. The two must give the
+// same answer or the pair's promise breaks, so these pin the awkward spellings against both.
+//
+// One case is deliberately absent: a `required` name with no declared property. The relation
+// refuses it (see the HasNull test below) while the fill walks declared properties only and
+// never sees it — the relation being the stricter half, which is the harmless direction.
+func TestAbsentAsNull_BothHalvesAgreeOnWhichNamesAreFillable(t *testing.T) {
+	cases := []struct {
+		name  string
+		new   string
+		value string
+	}{
+		{
+			name:  "a plain non-nullable property, which nothing could invent",
+			new:   `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"number"}},"required":["a","b"]}`,
+			value: `{"a":"x"}`,
+		},
+		{
+			name: "a nullability question that walks a reference cycle and finds no null",
+			new: `{"$defs":{"cyc":{"anyOf":[{"$ref":"#/$defs/cyc"},{"type":"string"}]}},
+			       "type":"object","properties":{"a":{"type":"string"},"b":{"$ref":"#/$defs/cyc"}},
+			       "required":["a","b"]}`,
+			value: `{"a":"x"}`,
+		},
+		{
+			// The unknown does admit null, and neither half reads it that way. They AGREE,
+			// which is the property that matters; teaching one alone would break the pair.
+			name:  "a property typed as the unknown, which declares no null",
+			new:   `{"type":"object","properties":{"a":{"type":"string"},"b":{}},"required":["a","b"]}`,
+			value: `{"a":"x"}`,
+		},
+	}
+	old := mustSchema(t, `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			new := mustSchema(t, c.new)
+			if old.IsSubsetAbsentAsNull(new) {
+				t.Error("the relation accepted a gap the fill cannot close")
+			}
+			if _, err := new.Validate(decodeValue(t, c.value), schema.FillAbsentAsNull); err == nil {
+				t.Error("the fill closed a gap the relation refuses, so the two have drifted apart")
 			}
 		})
 	}

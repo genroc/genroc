@@ -1,0 +1,40 @@
+# The output contract does NOT get the relaxation, and this is the pair that shows it: the
+# very shape nullable-output-field-added.yaml tolerates on the read side is breaking here.
+# A consumer conforms this value — a waiting parent against its result_schema — and a conform
+# rejects an absent required key however nullable its type, so tolerating it would promise
+# what the runtime refuses. The task keeps projecting note, so only the contract moves.
+apply:
+  - channel: nullout_a
+    definitions:
+      - name: nullout_proc
+        tasks:
+          - id: fetch
+            action:
+              type: fetch
+              url: http://x/w
+              result_schema: {type: object, properties: {id: {type: string}, note: {type: string}}, required: [id]}
+            output: {id: "$: self.result.id", note: "$: self.result.note"}
+            switch: end
+        output: {id: "$: outputs.fetch.id", note: "$: outputs.fetch.note"}
+  - channel: nullout_b
+    definitions:
+      - name: nullout_proc
+        tasks:
+          - id: fetch
+            action:
+              type: fetch
+              url: http://x/w
+              result_schema: {type: object, properties: {id: {type: string}, note: {type: string}}, required: [id]}
+            output: {id: "$: self.result.id", note: "$: self.result.note"}
+            switch: end
+        output: {id: "$: outputs.fetch.id"}
+run: [--from, nullout_a, --to, nullout_b]
+expect: |
+  PROCESS       VERDICT
+  nullout_proc  breaking
+
+  nullout_proc v1 → v2
+    output.note:
+      newly required field
+
+  exit 1
