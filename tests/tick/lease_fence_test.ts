@@ -1,11 +1,10 @@
 import { createServer, type ServerResponse } from "http";
 import type { AddressInfo } from "net";
-import { join } from "path";
-import { tmpdir } from "os";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import {
   buildGenrocBinary,
   startGenroc,
+  tmpPath,
   type GenrocProcess,
 } from "../helpers/server.ts";
 
@@ -54,7 +53,7 @@ let genroc: GenrocProcess;
 
 beforeAll(async () => {
   const bin = await buildGenrocBinary();
-  const db = join(tmpdir(), `genroc_fence_${Date.now()}.db`);
+  const db = tmpPath("genroc_fence", ".db");
   // poll=0 → manual ticks; max-concurrent 4 so the reclaiming tick is not starved of a
   // slot by the one the parked advance holds.
   genroc = await startGenroc(bin, PORT, db, undefined, 0, 4, true);

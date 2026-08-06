@@ -1,12 +1,11 @@
 import { spawnSync } from "child_process";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
-import { tmpdir } from "os";
-import { join } from "path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import {
   buildGenrocBinary,
   startGenroc,
+  tmpPath,
   type GenrocProcess,
 } from "../helpers/server.ts";
 import { createClientTyped, listAllInstances } from "../helpers/client.ts";
@@ -79,7 +78,7 @@ function startGenMock() {
 }
 
 let bin = "";
-const dbPath = join(tmpdir(), `genroc_gc_chaos_${Date.now()}.db`);
+const dbPath = tmpPath("genroc_gc_chaos", ".db");
 const api = createClientTyped({ baseUrl: BASE_URL });
 let server: GenrocProcess | undefined;
 let mock: ReturnType<typeof startGenMock>;

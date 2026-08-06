@@ -1,10 +1,8 @@
 import { spawnSync } from "child_process";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
-import { tmpdir } from "os";
-import { join } from "path";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { buildGenrocBinary, startGenroc, type GenrocProcess } from "../helpers/server.ts";
+import { buildGenrocBinary, startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 
 // Deterministic object-store GC test (SQLite, single server, no chaos).
 //
@@ -25,7 +23,7 @@ const BLOB = "B".repeat(12 * 1024); // over the 8 KiB externalization threshold
 const ROUNDS = 8;
 
 let bin = "";
-const dbPath = join(tmpdir(), `genroc_obj_deref_${Date.now()}.db`);
+const dbPath = tmpPath("genroc_obj_deref", ".db");
 let server: GenrocProcess | undefined;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

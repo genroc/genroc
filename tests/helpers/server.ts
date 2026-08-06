@@ -1,4 +1,5 @@
 import { spawnSync, spawn, type ChildProcess } from "child_process";
+import { randomUUID } from "crypto";
 import { createServer } from "net";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -7,8 +8,16 @@ import { createClientTyped } from "./client.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 
+// A temp path no other test process can pick. Date.now() alone collides whenever two
+// Vitest workers start within the same millisecond, and two servers sharing one SQLite
+// file wreck each other: a co-tenant's ticks claim these instances, and its log pruning
+// (retention against *its* clock offset) deletes this server's whole audit trail.
+export function tmpPath(prefix: string, suffix = ""): string {
+  return join(tmpdir(), `${prefix}_${Date.now()}_${process.pid}_${randomUUID().slice(0, 8)}${suffix}`);
+}
+
 export async function buildGenrocBinary(): Promise<string> {
-  const bin = join(tmpdir(), `genroc_${Date.now()}`);
+  const bin = tmpPath("genroc");
   const result = spawnSync("go", ["build", "-o", bin, "./cmd/genroc"], {
     cwd: ROOT,
     env: { ...process.env, CGO_ENABLED: "1" },
@@ -244,7 +253,7 @@ export async function setup() {
   if (await ping()) return;
   console.log("\nBuilding test server…");
   const bin = await buildGenrocBinary();
-  const db = join(tmpdir(), `genroc_${Date.now()}.db`);
+  const db = tmpPath("genroc", ".db");
   sharedServer = await startGenroc(bin, PORT as number, db);
 }
 

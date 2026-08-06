@@ -1,9 +1,8 @@
 import { beforeAll, afterAll } from "vitest";
-import { join } from "path";
-import { tmpdir } from "os";
 import {
   buildGenrocBinary,
   startGenroc,
+  tmpPath,
   type GenrocProcess,
 } from "../helpers/server.ts";
 
@@ -195,7 +194,7 @@ export function useTickEnv(port: number, opts: { immediateRetries?: boolean } = 
 
   beforeAll(async () => {
     const bin = await getBin();
-    const db = join(tmpdir(), `genroc_tick_${Date.now()}.db`);
+    const db = tmpPath("genroc_tick", ".db");
     // poll=0 → manual tick mode; max-concurrent=1 → one instance per tick (predictable ordering)
     // immediateRetries=true → no backoff, retries are claimable on the very next tick
     const genroc = await startGenroc(bin, port, db, undefined, 0, 1, immediateRetries);

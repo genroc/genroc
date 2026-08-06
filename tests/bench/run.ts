@@ -39,10 +39,11 @@
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { arch, cpus, platform, release, tmpdir, totalmem } from "node:os";
+import { arch, cpus, platform, release, totalmem } from "node:os";
 import {
   buildGenrocBinary,
   startGenroc,
+  tmpPath,
   type GenrocProcess,
 } from "../helpers/server.ts";
 
@@ -381,7 +382,7 @@ async function main() {
     .filter(Boolean);
 
   if (engines.includes("sqlite")) {
-    const sqliteDb = join(tmpdir(), `genroc_bench_${Date.now()}.db`);
+    const sqliteDb = tmpPath("genroc_bench", ".db");
     results.push(await benchEngine("sqlite", sqliteDb, undefined));
   }
 
