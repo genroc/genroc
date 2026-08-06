@@ -124,18 +124,28 @@ func (db *DB) logFlusher() {
 	}
 }
 
-// flushLogs detaches the current buffer and writes it. Safe from any goroutine: the
-// swap is done under the lock, so each buffered row is written exactly once.
+// flushLogs writes every buffered row. Safe from any goroutine: the detach is done under
+// the lock, so each buffered row is written exactly once. logFlushMu covers the detach and
+// the insert together — a reader that flushed while a concurrent flush held a detached
+// batch would otherwise see an empty buffer and query before those rows landed.
 func (db *DB) flushLogs() error {
-	db.logMu.Lock()
-	if len(db.logBuf) == 0 {
-		db.logMu.Unlock()
+	db.logFlushMu.Lock()
+	defer db.logFlushMu.Unlock()
+	batch := db.detachLogs()
+	if len(batch) == 0 {
 		return nil
 	}
+	return db.writeLogBatch(batch)
+}
+
+// detachLogs takes the buffer for the caller to write. Held only for the swap, so an
+// AppendLog concurrent with a flush never waits on the insert.
+func (db *DB) detachLogs() []dbgen.InsertLogParams {
+	db.logMu.Lock()
+	defer db.logMu.Unlock()
 	batch := db.logBuf
 	db.logBuf = nil
-	db.logMu.Unlock()
-	return db.writeLogBatch(batch)
+	return batch
 }
 
 // writeLogBatch inserts rows in chunks of logBatchRows, one multi-row INSERT per chunk

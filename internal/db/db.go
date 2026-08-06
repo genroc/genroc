@@ -37,7 +37,11 @@ type DB struct {
 	// Audit logs are best-effort, decoupled from instance state (migration 008): AppendLog
 	// buffers, logFlusher batch-inserts, and reads/prune flush first so appends stay visible.
 	// A crash drops only buffered rows — an observability gap, never state corruption.
-	logMu      sync.Mutex
+	logMu sync.Mutex // guards logBuf only; never held across the insert
+	// logFlushMu spans a flush's detach *and* its insert, so a reader that flushes while
+	// another goroutine is mid-flush waits for that batch instead of finding the buffer
+	// empty and querying without it.
+	logFlushMu sync.Mutex
 	logBuf     []dbgen.InsertLogParams
 	logStop    chan struct{} // closed by Close() to stop the flusher
 	logStopped chan struct{} // closed by the flusher after its final flush
