@@ -1,0 +1,39 @@
+# A KNOWN FALSE ALARM, pinned so that fixing it is a deliberate flip rather than a surprise.
+# The reverse edit is refused — yet every stored input already carries the key, because
+# creation conforms the input once and persists the filled default. The comparison reads two
+# documents and never an instance, so it cannot see that; and the new side's own default does
+# not rescue it either, a default on a required property being inert (the absence is rejected
+# before one is looked for). Either half of the pair could close this, and internal/schema/
+# CLAUDE.md is where the coordinated relation-and-fill change is argued.
+apply:
+  - channel: reqtight_a
+    definitions:
+      - name: reqtight_proc
+        input_schema: {type: object, properties: {retries: {type: integer, default: 3}}}
+        tasks:
+          - id: plan
+            action: {type: fetch, url: http://x/plan}
+            output: {retries: "$: input.retries"}
+            switch: end
+        output: {retries: "$: outputs.plan.retries"}
+  - channel: reqtight_b
+    definitions:
+      - name: reqtight_proc
+        input_schema:
+          {type: object, properties: {retries: {type: integer, default: 3}}, required: [retries]}
+        tasks:
+          - id: plan
+            action: {type: fetch, url: http://x/plan}
+            output: {retries: "$: input.retries"}
+            switch: end
+        output: {retries: "$: outputs.plan.retries"}
+run: [--from, reqtight_a, --to, reqtight_b]
+expect: |
+  PROCESS        VERDICT
+  reqtight_proc  breaking
+
+  reqtight_proc v1 → v2
+    input.retries  (input_schema):
+      newly required field
+
+  exit 1

@@ -1,0 +1,31 @@
+# ACCEPTED, and the boundary of the two cases above: only the VALUE moved, so no type moved
+# with it. Old instances keep whatever they were created with while new ones take 5 — a
+# difference in behaviour that no shape check can see, and that the changed slot is the only
+# thing to report.
+apply:
+  - channel: defval_a
+    definitions:
+      - name: defval_proc
+        input_schema: {type: object, properties: {retries: {type: integer, default: 3}}}
+        tasks:
+          - id: plan
+            action: {type: fetch, url: http://x/plan}
+            output: {retries: "$: input.retries"}
+            switch: end
+        output: {retries: "$: outputs.plan.retries"}
+  - channel: defval_b
+    definitions:
+      - name: defval_proc
+        input_schema: {type: object, properties: {retries: {type: integer, default: 5}}}
+        tasks:
+          - id: plan
+            action: {type: fetch, url: http://x/plan}
+            output: {retries: "$: input.retries"}
+            switch: end
+        output: {retries: "$: outputs.plan.retries"}
+run: [--from, defval_a, --to, defval_b]
+expect: |
+  PROCESS      VERDICT
+  defval_proc  upgradable
+
+  exit 0

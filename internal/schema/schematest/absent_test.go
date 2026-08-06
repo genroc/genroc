@@ -355,6 +355,14 @@ func TestAbsentAsNull_BothHalvesAgreeOnWhichNamesAreFillable(t *testing.T) {
 			new:   `{"type":"object","properties":{"a":{"type":"string"},"b":{}},"required":["a","b"]}`,
 			value: `{"a":"x"}`,
 		},
+		{
+			// A default is not a second way to close a gap. Teaching the fill to use one
+			// without teaching the relation would make it close more than was accepted;
+			// the reverse promises an upgrade that then fails to conform.
+			name:  "a non-nullable property carrying a default that could have supplied it",
+			new:   `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"number","default":7}},"required":["a","b"]}`,
+			value: `{"a":"x"}`,
+		},
 	}
 	old := mustSchema(t, `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`)
 	for _, c := range cases {
@@ -367,6 +375,28 @@ func TestAbsentAsNull_BothHalvesAgreeOnWhichNamesAreFillable(t *testing.T) {
 				t.Error("the fill closed a gap the relation refuses, so the two have drifted apart")
 			}
 		})
+	}
+}
+
+// Where a gap IS closable, the value written is null even if the property declares a
+// default — and the runtime agrees: a default never reaches a REQUIRED property, because
+// the absence is rejected before one is looked for. So the migration invents nothing the
+// runtime would not have produced, which is the only reason writing null over a stated
+// default is defensible.
+func TestAbsentAsNull_FillWritesNullOverADeclaredDefault(t *testing.T) {
+	s := mustSchema(t, `{"type":"object","properties":{"a":{"type":"string"},
+		"b":{"type":["number","null"],"default":7}},"required":["a","b"]}`)
+	absent := decodeValue(t, `{"a":"x"}`)
+
+	filled, err := s.Validate(absent, schema.FillAbsentAsNull)
+	if err != nil {
+		t.Fatalf("the property admits null, so the gap is closable: %v", err)
+	}
+	if got := valueJSON(t, filled); got != `{"a":"x","b":null}` {
+		t.Fatalf("got %s: the fill closes the gap the relation accepted, and it was accepted on nullability", got)
+	}
+	if _, err := s.Validate(absent); err == nil {
+		t.Fatal("a default on a required property is inert under a strict conform too, or the two disagree about what absence means")
 	}
 }
 

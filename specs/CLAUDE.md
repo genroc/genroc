@@ -43,6 +43,16 @@ behavior while the spec stays put, answering a different question. See
   two soundness traps that are easy to miss: `config` is re-resolved every tick (so a guard
   on it proves nothing downstream), and task outputs are overwritten on loop re-entry (so
   refinements need a dataflow kill).
+- [compat-categories.md](compat-categories.md) — `genctl compat` answers two questions and
+  folds them into one word: can a running instance continue (rows this deployment owns),
+  and does the process still honour its contracts (parties outside it). Two shipped
+  fixtures report the wrong thing because of that fold, and both come right when the
+  verdicts split — no change to `isSubset` or the absent-as-null relation. Records the rule
+  that assigns a slot to a side (**who submits the value**, and a verdict only where a
+  conform stands between the parties), the selection flags and the invariant that keeps
+  them honest (selection moves the exit code, never what is checked or shown), and one live
+  bug it is not about: `compat.go` renders paths with its own dot-joiner, so a task named
+  `charge-eu` already prints an expression the language reads as a subtraction.
 - [docs-site.md](docs-site.md) — the user-facing documentation site, and the only doc here
   about **tooling rather than the language**. The gap it fills is *reference*: nothing today
   says what `accepted_status` accepts or what `genctl promote` does. Draws the

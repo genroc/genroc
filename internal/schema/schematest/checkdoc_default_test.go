@@ -81,6 +81,27 @@ func TestValidateRejectsInvalidDefaultAtFillTime(t *testing.T) {
 	}
 }
 
+// `default: null` and no default at all both decode to a nil `any`, so null cannot be
+// declared as what an absent property becomes. Nothing may be built on reading one back —
+// the absent-as-null migration is the one thing that writes a null in, and it decides on
+// the type admitting null rather than on any default.
+func TestDefaultNullIsIndistinguishableFromNoDefault(t *testing.T) {
+	sc := mustParse(t, `{"type":"object","properties":{"b":{"type":["number","null"],"default":null}}}`)
+	if d := sc.Properties()["b"].Default(); d != nil {
+		t.Fatalf("got default %#v; a null default is not representable and must not appear to be", d)
+	}
+	// It is dropped, not rejected: a schema saying it is still a valid document.
+	assertDocOK(t, `{"type":"object","properties":{"b":{"type":["number","null"],"default":null}}}`)
+	// And with no default to fill, an absent optional stays absent under a strict conform.
+	got, err := sc.Validate(mustData(t, `{}`))
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	if m, ok := got.(map[string]any); !ok || len(m) != 0 {
+		t.Fatalf("got %#v, want the key left out entirely", got)
+	}
+}
+
 func TestValidateNormalizesFilledDefault(t *testing.T) {
 	// A filled object default is conformed like a supplied value: undeclared
 	// members are pruned and nested defaults fill in.

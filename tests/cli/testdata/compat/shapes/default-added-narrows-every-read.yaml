@@ -1,0 +1,42 @@
+# A default is not decoration. An optional property carrying one is guaranteed present after
+# a conform, so every read of it is non-nullable — which means ADDING one narrows the value
+# at every reader. An old row that never carried the key holds null there, and no upgrade
+# fills it (the migration writes nulls, never defaults). So a document whose only edit is a
+# default comes back breaking, and correctly: the null is really in the row.
+apply:
+  - channel: defadd_a
+    definitions:
+      - name: defadd_proc
+        input_schema: {type: object, properties: {retries: {type: integer}}}
+        tasks:
+          - id: plan
+            action: {type: fetch, url: http://x/plan}
+            output: {retries: "$: input.retries"}
+            switch: next
+          - id: run
+            action: {type: fetch, url: http://x/run}
+            output: {seen: "$: outputs.plan.retries"}
+            switch: end
+  - channel: defadd_b
+    definitions:
+      - name: defadd_proc
+        input_schema: {type: object, properties: {retries: {type: integer, default: 3}}}
+        tasks:
+          - id: plan
+            action: {type: fetch, url: http://x/plan}
+            output: {retries: "$: input.retries"}
+            switch: next
+          - id: run
+            action: {type: fetch, url: http://x/run}
+            output: {seen: "$: outputs.plan.retries"}
+            switch: end
+run: [--from, defadd_a, --to, defadd_b]
+expect: |
+  PROCESS      VERDICT
+  defadd_proc  breaking
+
+  defadd_proc v1 → v2
+    outputs.plan.retries:
+      integer|null → integer
+
+  exit 1

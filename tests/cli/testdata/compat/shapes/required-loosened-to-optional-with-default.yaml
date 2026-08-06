@@ -1,0 +1,31 @@
+# Dropping `required` while adding a default is NOT a break, and the default is the whole
+# reason: a defaulted optional is guaranteed present after a conform, so the read stays
+# non-null on both sides and nothing downstream moves. Loosen without one and the reads widen
+# to T|null instead — default-removed-widens-the-output.yaml is that edit.
+apply:
+  - channel: reqloose_a
+    definitions:
+      - name: reqloose_proc
+        input_schema: {type: object, properties: {retries: {type: integer}}, required: [retries]}
+        tasks:
+          - id: plan
+            action: {type: fetch, url: http://x/plan}
+            output: {retries: "$: input.retries"}
+            switch: end
+        output: {retries: "$: outputs.plan.retries"}
+  - channel: reqloose_b
+    definitions:
+      - name: reqloose_proc
+        input_schema: {type: object, properties: {retries: {type: integer, default: 3}}}
+        tasks:
+          - id: plan
+            action: {type: fetch, url: http://x/plan}
+            output: {retries: "$: input.retries"}
+            switch: end
+        output: {retries: "$: outputs.plan.retries"}
+run: [--from, reqloose_a, --to, reqloose_b]
+expect: |
+  PROCESS        VERDICT
+  reqloose_proc  upgradable
+
+  exit 0

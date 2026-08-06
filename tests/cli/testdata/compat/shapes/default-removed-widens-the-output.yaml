@@ -1,0 +1,35 @@
+# The same edit undone breaks the other way, and in the other column: dropping the default
+# widens every read to T|null, which a stored row can only gain — so continuation is fine —
+# while a consumer written against this output was promised a number. Two opposite-direction
+# checks are exactly why one boolean would say nothing.
+apply:
+  - channel: defdrop_a
+    definitions:
+      - name: defdrop_proc
+        input_schema: {type: object, properties: {retries: {type: integer, default: 3}}}
+        tasks:
+          - id: plan
+            action: {type: fetch, url: http://x/plan}
+            output: {retries: "$: input.retries"}
+            switch: end
+        output: {retries: "$: outputs.plan.retries"}
+  - channel: defdrop_b
+    definitions:
+      - name: defdrop_proc
+        input_schema: {type: object, properties: {retries: {type: integer}}}
+        tasks:
+          - id: plan
+            action: {type: fetch, url: http://x/plan}
+            output: {retries: "$: input.retries"}
+            switch: end
+        output: {retries: "$: outputs.plan.retries"}
+run: [--from, defdrop_a, --to, defdrop_b]
+expect: |
+  PROCESS       VERDICT
+  defdrop_proc  breaking
+
+  defdrop_proc v1 → v2
+    output.retries:
+      integer → integer|null
+
+  exit 1
