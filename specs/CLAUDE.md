@@ -50,9 +50,10 @@ behavior while the spec stays put, answering a different question. See
   verdicts split — no change to `isSubset` or the absent-as-null relation. Records the rule
   that assigns a slot to a side (**who submits the value**, and a verdict only where a
   conform stands between the parties), the selection flags and the invariant that keeps
-  them honest (selection moves the exit code, never what is checked or shown), and one live
-  bug it is not about: `compat.go` renders paths with its own dot-joiner, so a task named
-  `charge-eu` already prints an expression the language reads as a subtraction.
+  them honest (selection moves the exit code, never what is checked or shown, and a token
+  whose break has since been fixed fails the run rather than rotting), and one live bug it is
+  not about: `compat.go` renders paths with its own dot-joiner, so a task named `charge-eu`
+  already prints an expression the language reads as a subtraction.
 - [docs-site.md](docs-site.md) — the user-facing documentation site, and the only doc here
   about **tooling rather than the language**. The gap it fills is *reference*: nothing today
   says what `accepted_status` accepts or what `genctl promote` does. Draws the
