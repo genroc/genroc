@@ -39,11 +39,9 @@ func HTTP(status int) Code { return Code(fmt.Sprintf("http.%d", status)) }
 // the declaration that produces it rather than after a subject, because that is the only
 // thing that can produce it: see specs/only-once-interrupted.md.
 const (
-	// OnlyOnceInterrupted means an only_once task's previous attempt was interrupted --
-	// the worker executing it stopped without recording an outcome -- so the engine will
-	// not re-run it. Whether the call took effect is unknown to the engine and often
-	// knowable to the definition, which is why this one is catchable: a handler can ask
-	// the system of record and then continue, or deliberately re-run the task.
+	// OnlyOnceInterrupted means an only_once task's previous attempt was interrupted, so the
+	// engine will not re-run it. Catchable — unlike every other engine code — because whether
+	// the call took effect is unknown here and often knowable to the definition.
 	OnlyOnceInterrupted Code = "only_once.interrupted"
 )
 

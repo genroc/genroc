@@ -7,11 +7,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// `a ?? b` builds a union when the two sides do not reduce to one type. That union is
-// canonicalized, and these tests pin down why it has to be: oneOf means EXACTLY one, so a
-// union whose arms overlap describes a type that NO value satisfies. Before
-// canonicalization `boolean ?? boolean|null` produced oneOf[{boolean},{boolean|null}],
-// which rejected both `true` and `null` — every value it was supposed to describe.
+// `a ?? b` builds a union when the sides do not reduce, and it MUST be canonicalized: oneOf
+// means EXACTLY one, so overlapping arms describe a type no value satisfies. `boolean ??
+// boolean|null` produced a union rejecting both true and null — every value it described.
 
 // coalesceCtx is a context with two independently-optional properties of the given type,
 // mirroring the shape two optional task outputs take at the process-output boundary.

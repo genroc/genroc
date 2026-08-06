@@ -5,11 +5,9 @@ import (
 	"testing"
 )
 
-// These tests pin the "anywhere" guarantees of the validator and secret
-// detection: defaults fill and undeclared properties are silently omitted at any
-// depth — nested objects, array elements, matched union branches, behind $refs —
-// and secrecy is detected along any path, including through a secret ancestor
-// object, array indices, and optional (nullable-wrapped) properties.
+// The "anywhere" guarantees: defaults fill and undeclared properties are omitted at any depth
+// (nested objects, array elements, matched union branches, behind $refs), and secrecy is
+// detected along any path — a secret ancestor, array indices, nullable-wrapped optionals.
 
 func TestValidateDefaultBehindRef(t *testing.T) {
 	// The property is a lone $ref; its default lives on the *target* definition.

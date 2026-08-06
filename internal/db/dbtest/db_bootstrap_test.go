@@ -12,16 +12,9 @@ import (
 	dbpkg "genroc/internal/db"
 )
 
-// TestConcurrentOpenPostgres reproduces the fleet cold-start race: several workers
-// calling OpenPostgres against the same brand-new database at once. After migrations
-// (which golang-migrate already serializes with its own advisory lock), each worker
-// runs the post-migration bootstrap — the json_each helper function and the
-// autovacuum ALTER on process_instances — both of which write a system-catalog tuple.
-// Without the advisory lock that serializes the bootstrap, the concurrent CREATE
-// FUNCTION / ALTER TABLE fail with "tuple concurrently updated" or a pg_proc
-// duplicate-key violation, and a worker dies on launch. Runs against a throwaway
-// database so the full cold-start path is exercised in isolation. Skipped without
-// POSTGRES_DSN — the bootstrap is Postgres-only (SQLite has no such step).
+// The fleet cold-start race: concurrent OpenPostgres against a brand-new database. Without
+// the advisory lock serializing the post-migration bootstrap, the concurrent CREATE FUNCTION
+// / ALTER TABLE fail with "tuple concurrently updated" and a worker dies on launch.
 func TestConcurrentOpenPostgres(t *testing.T) {
 	dsn := os.Getenv("POSTGRES_DSN")
 	if dsn == "" {

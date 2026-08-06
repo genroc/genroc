@@ -60,11 +60,9 @@ func claimOne(t *testing.T, database *db.DB, eng *Engine, id string) *model.Proc
 	return nil
 }
 
-// TestAdvance_SpawnWritesNothingUntilPersist is the rule the outcome type exists to enforce:
-// advance decides, persist writes. A child spawn is the case that used to break it — it
-// committed its own transaction mid-advance, which released the lease while runAdvance still
-// had the instance marked in flight, and a claim landing in that window read as this worker
-// re-claiming live work and took it down.
+// The rule the outcome type exists to enforce: advance decides, persist writes. Spawn is the
+// case that broke it — it committed mid-advance, releasing the lease while runAdvance still
+// had the instance marked, and a claim in that window read as re-claiming live work.
 func TestAdvance_SpawnWritesNothingUntilPersist(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)
@@ -175,11 +173,9 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 	}
 }
 
-// TestRunAdvance_SpawnFailureFailsTheInstance covers the verdict that moved out of advance
-// with the write: spawning is part of the step, so a spawn the database refuses is the
-// instance's failure and not the worker's. Re-advancing a parent that is already parked is
-// exactly what SpawnChildrenAndWait refuses, and it is reachable — it is what a double
-// advance of one instance looks like.
+// The verdict that moved out of advance with the write: spawning is part of the step, so a
+// refused spawn is the instance's failure, not the worker's. Re-advancing an already-parked
+// parent is exactly what SpawnChildrenAndWait refuses — what a double advance looks like.
 func TestRunAdvance_SpawnFailureFailsTheInstance(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)
@@ -211,11 +207,9 @@ func TestRunAdvance_SpawnFailureFailsTheInstance(t *testing.T) {
 	}
 }
 
-// TestPersistArm_ConsumeStoresResultAndReleases: a signal that reached the task before the
-// process did is consumed by the same transaction that would otherwise have parked the
-// instance — that atomicity is what makes a signal racing the arm impossible to lose. The
-// consume is an ordinary checkpoint: the result lands durably on the row, the lease is
-// released, and the NEXT claim reads it via runExternal phase 2. No outcome keeps the lease.
+// A signal that beat the process to the task is consumed by the same transaction that would
+// have parked the instance — that atomicity is why a racing signal cannot be lost. The consume
+// is an ordinary checkpoint: result durable, lease released, next claim reads it.
 func TestPersistArm_ConsumeStoresResultAndReleases(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)

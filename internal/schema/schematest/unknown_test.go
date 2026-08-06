@@ -8,13 +8,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// "unknown" is not a keyword — it is the empty schema {}, JSON Schema's top type, used
-// for a value carried but never inspected. A dedicated `type: unknown` spelling was
-// built and then dropped: it would have been the only thing genroc accepts that a
-// standard validator rejects, and since it was erased at parse it never reached the
-// stored definition anyway (see specs/unknown-type.md). These tests pin the behaviours
-// that make {} usable as a type, and the narrowing relation that lets it re-enter the
-// typed world.
+// "unknown" is the empty schema {}, not a keyword — a dedicated `type: unknown` was built and
+// dropped (the only thing genroc would accept that a standard validator rejects, and erased at
+// parse anyway). These pin what makes {} usable, and the narrowing back out.
 
 // An annotation describes the slot without constraining the value, so a described empty
 // node is still the top type. This is the recommended way to say the opacity is

@@ -202,12 +202,9 @@ func TestGenerate_InvalidRef(t *testing.T) {
 
 // --- self namespace scoping -------------------------------------------------
 
-// self is the task's transient scope. self.result (the raw action result) and,
-// for a looping output task, self.previous are available in both the output map
-// and the switch. self.output (the projection) is available only in the switch,
-// and only when the task defines an output. The next six tests walk those
-// boundaries: crossing one — or projecting a field from an untyped raw result —
-// is an error.
+// self is the task's transient scope: self.result and (for a looping output task) self.previous
+// are in the output map and the switch; self.output only in the switch, and only with an
+// output. The next six tests walk those boundaries — crossing one is an error.
 
 func TestGenerate_Self_OutputInSwitchWithoutProjectionRejected(t *testing.T) {
 	def := inferDef("", inferTask{
@@ -366,13 +363,9 @@ func TestGenerate_ThreeStepMutualRecursion(t *testing.T) {
 }
 
 func TestGenerate_StructuralRecursionKeptAsRecursiveType(t *testing.T) {
-	// `result: self.previous ?? input` nests the prior output one level deeper
-	// per iteration. This used to diverge (the materialized estimate grew until
-	// the widening cap rejected it); with references honored in inferred types
-	// it is a finite recursive schema: loop_output = {result: $ref loop_output
-	// | <input type>} — recursion through properties, each unrolling consuming
-	// one level of the value. The timeout still guards against regressing into
-	// a non-terminating or exploding inference.
+	// `result: self.previous ?? input` nests one level deeper per iteration. It used to diverge (the
+	// materialized estimate grew past the widening cap); with references honored it is a finite
+	// recursive schema. The timeout guards against regressing to non-terminating inference.
 	def := inferDefWithOutput(
 		`{"type":"object",
 		  "properties":{"ttl":{"type":"integer"},"rec":{"$ref":"#/$defs/recursive"}},

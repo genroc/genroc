@@ -9,11 +9,9 @@ import (
 	"genroc/internal/validation"
 )
 
-// The unknown type end to end across a process boundary: a child that carries a payload
-// it never inspects, and a parent that narrows it. "Unknown" is the empty schema {} —
-// there is no keyword; a description is the only thing it carries, to say the opacity is
-// deliberate. The static half lives here; the runtime conform that backs the narrowing is
-// exercised by the polling example's integration test.
+// The unknown type across a process boundary: a child carrying a payload it never inspects, a
+// parent narrowing it. The static half lives here; the runtime conform that backs the narrowing
+// is exercised by the polling example's integration test.
 
 func unknownDef(t *testing.T, raw string) *model.ProcessDefinition {
 	t.Helper()

@@ -4,18 +4,9 @@ import (
 	"testing"
 )
 
-// lambdaCtxJSON is shaped like the context the engine builds for a task —
-// input / outputs.<id> / self.result — so a map source can be drawn from each
-// root the way a real definition does. `rows` items are a `$ref` because a
-// referenced element type is the case most likely to break: `map` reads Items()
-// without expanding the ref, so everything downstream (navigation, secrets,
-// joins) has to keep resolving it against the root $defs.
-//
-// Two deliberate name collisions drive the shadowing tests: the root-level
-// `maybe` and `input.opt` are both nullable (so a `!= null` guard can be
-// established on them) while `row.opt` is an integer, so a guard that wrongly
-// survived into a lambda that shadows the root is visible as a wrong type
-// rather than as a silent pass.
+// Shaped like the context the engine builds (input / outputs.<id> / self.result). `rows` items
+// are a $ref because that is likeliest to break — map reads Items() without expanding. The
+// `maybe` / `input.opt` name collisions drive the shadowing tests.
 const lambdaCtxJSON = `{
 	"type": "object",
 	"properties": {
@@ -180,12 +171,9 @@ func TestMapLambda_RefElementStaysSymbolic(t *testing.T) {
 	}`)
 }
 
-// A map result must stay navigable: the `$ref` it carries under `items` is only
-// useful if the array still holds the root $defs handle. Indexing then reading a
-// field of the referenced definition is the shortest path that proves it — drop
-// the defs anywhere in Array(...).WithDefs / inferBase and this fails to resolve.
-// [0] is nullable (the index may be out of bounds) even though the mapped
-// element itself is not.
+// A map result must stay navigable: the $ref under items is only useful if the array still
+// carries the root $defs handle — drop the defs anywhere in Array(...).WithDefs and this fails
+// to resolve. [0] is nullable (index may be out of bounds), the element is not.
 func TestMapLambda_RefElementIndexResolvesIntegerField(t *testing.T) {
 	c := ctx(t, lambdaCtxJSON)
 	assertSchema(t, infer(t, `map(input.rows, r => r)[0].n`, c), `{"type":["integer","null"]}`)
@@ -340,11 +328,9 @@ func TestMapLambda_OuterParamSurvivesInnerShadow(t *testing.T) {
 
 // ─── Guard dropping in withParams ───────────────────────────────────────────────
 
-// A narrowing guard established outside a lambda says nothing about a parameter
-// that takes over that name. Here the guard on the root `maybe` narrows it to
-// string; the lambda rebinds `maybe` to a row. If the stale guard leaked,
-// `maybe.n` would be a property read on a string and the whole expression would
-// fail — so the assertion is that both branches agree on array<integer>.
+// A guard established outside a lambda says nothing about a parameter taking over that name.
+// If the stale guard leaked, `maybe.n` would be a property read on a string and the whole
+// expression would fail — so both branches must agree on array<integer>.
 func TestMapLambda_ShadowedRootGuardDropped(t *testing.T) {
 	c := ctx(t, lambdaCtxJSON)
 	expr := `maybe != null ? map(input.rows, maybe => maybe.n) : map(input.rows, r => r.n)`
@@ -354,10 +340,8 @@ func TestMapLambda_ShadowedRootGuardDropped(t *testing.T) {
 	}`)
 }
 
-// The same rule for a guard on a *sub-path* of a shadowed root: the guard key is
-// "input.opt" (narrowed to string), while the parameter named `input` makes
-// `input.opt` mean the row's integer field. Guards are consulted before vars, so
-// a guard that was not dropped would silently win and type the result as
+// The same rule for a guard on a SUB-PATH of a shadowed root. Guards are consulted before
+// vars, so a guard that was not dropped would silently win and type the result as
 // array<string>, diverging from the else branch.
 func TestMapLambda_ShadowedRootSubPathGuardDropped(t *testing.T) {
 	c := ctx(t, lambdaCtxJSON)
@@ -457,10 +441,8 @@ func TestMapLambda_UnionSourceItemlessVariantFails(t *testing.T) {
 }
 
 // ─── Error messages ─────────────────────────────────────────────────────────────
-//
-// Each message is asserted because these are registration-time errors a
-// definition author reads; a generic "invalid expression" would not tell them
-// which side of the lambda is wrong.
+// Asserted because these are registration-time errors an author reads; a generic "invalid
+// expression" would not say which side of the lambda is wrong.
 
 // A typo in the body must be caught against the element type, not deferred to a
 // runtime null.
@@ -563,11 +545,9 @@ func TestMapLambda_UninferableSourceTaintsConservatively(t *testing.T) {
 	assertSecretCase(t, c, `map(input.bare, x => x.anything)`, true)
 }
 
-// secretDefCtxJSON marks the *definition* secret rather than the reference to it.
-// nodeOrTargetSecret documents that both sides must be consulted ("a taint on a
-// $ref node marks the pointer, not the shared target"), so a secret definition is
-// a supported way to say "every element of this array is secret" — a user's
-// result_schema keeps that shape verbatim through MergeInto.
+// Marks the DEFINITION secret rather than the reference to it: a taint on a $ref marks the
+// pointer, not the shared target, so both sides must be consulted — and a secret definition is
+// a supported way to say "every element of this array is secret".
 const secretDefCtxJSON = `{
 	"type": "object",
 	"properties": {
@@ -598,20 +578,9 @@ func TestMapLambda_SecretRefDefinitionFieldRead(t *testing.T) {
 	assertSecretCase(t, c, `map(input.creds, c => c.pass)`, true)
 }
 
-// Copying the WHOLE element out of that array must taint too — it exposes
-// strictly more than reading one field.
-//
-// Originally recorded as FAILING — a suspected real bug in
-// walkSecretRefs/secretAtSub, left failing on purpose. secretAtSub splits on
-// whether the path below the parameter is empty:
-//
-//	sub == "" -> s.IsSecret()   // isSecret(), does NOT follow a $ref
-//	sub != "" -> s.SecretAt(sub) // pathHitsSecret(), DOES follow a $ref
-//
-// So copying a whole element did not taint while reading any single field of
-// that same element did, and `{creds: map(input.creds, c => c)}` reached logs
-// unredacted. The assertion passes as of this restructure — the expectation is
-// unchanged, only the case names are.
+// Copying the WHOLE element must taint too — it exposes strictly more than reading one field.
+// It did not: secretAtSub followed a $ref only for a non-empty sub-path, so
+// `map(input.creds, c => c)` reached logs unredacted.
 func TestMapLambda_SecretRefDefinitionWholeElement(t *testing.T) {
 	c := ctx(t, secretDefCtxJSON)
 	assertSecretCase(t, c, `map(input.creds, c => c)`, true)

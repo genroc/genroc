@@ -31,13 +31,9 @@ func TestMain(m *testing.M) {
 		sharedPgDB = pg
 		defer pg.Close()
 
-		// The stress tests use sharedPgDB directly (they never call testBackends)
-		// and only wipe process_instances between iterations. Their fixtures
-		// reference process "test" v1 / task "step1", and RetryProcess resolves a
-		// node's task from process_definitions — so the definition must exist.
-		// testBackends registers it too, but the `stress` CI job runs
-		// `go test -run TestStress`, which skips every testBackends-using test, so
-		// without this the definition is absent on a fresh DB and RetryProcess fails.
+		// The stress tests use sharedPgDB directly and only wipe process_instances, but their
+		// fixtures reference process "test" v1 — and the `stress` CI job runs -run TestStress, which
+		// skips every testBackends test that would otherwise register it.
 		def := &model.ProcessDefinition{Name: "test", Tasks: []*model.Task{{ID: "step1"}}}
 		if err := pg.SaveDefinition(def, 1, nil, "test-hash", ""); err != nil {
 			log.Fatalf("register baseline definition for stress tests: %v", err)
@@ -277,12 +273,9 @@ func TestRenewLease_Extends(t *testing.T) {
 	}
 }
 
-// TestRenewLease_ReportsWhatItWrote pins the contract the stale-lease gate reads renewals
-// through: the instant a renewal returns is the one its expiries were derived from, so
-// renewedAt+leaseDur is exactly where every renewed row now expires — never later than it.
-// A caller that dates the evidence from after the write instead (the clock on return)
-// credits its leases with however long the write took, and then hands out takeover cutoffs
-// that reach past leases which have already lapsed.
+// The contract the stale-lease gate reads renewals through: the returned instant is the one
+// the expiries were derived from. A caller dating the evidence from after the write credits
+// its leases with the write's duration, then hands out cutoffs reaching past lapsed leases.
 func TestRenewLease_ReportsWhatItWrote(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

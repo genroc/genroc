@@ -9,15 +9,9 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
-// This test pins our validator's accept/reject decision to gojsonschema's across
-// a broad corpus. It does NOT compare error message text — two implementations
-// will never phrase errors identically, and our validator intentionally diverges
-// on the *output* (it strips undeclared properties and fills defaults, neither of
-// which changes validity). What must stay aligned is the yes/no decision, so any
-// future drift in the validator surfaces here.
-//
-// Where a genuine, intended divergence exists, add it to knownDivergence with a
-// reason rather than silently excluding the case.
+// Pins our validator's accept/reject decision to gojsonschema's across a broad corpus. NOT
+// message text — and our output deliberately diverges (strips undeclared, fills defaults),
+// neither of which changes validity. Intended divergences go in knownDivergence with a reason.
 
 type diffCase struct {
 	name   string

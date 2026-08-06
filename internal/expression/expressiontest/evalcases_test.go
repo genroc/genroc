@@ -65,14 +65,9 @@ func edgeOracle(t *testing.T, ours, oracle string) {
 	}
 }
 
-// edgeExact compares value *and* dynamic type. assertEq is numeric-lenient, so
-// it cannot tell int 2 from float64 2 — which is exactly the distinction the
-// arithmetic tests exist to pin.
-// edgeExact asserts the exact result. Numbers compare by value rather than by Go
-// type: every numeric result is now a json.Number carrying its exact decimal, so
-// there is no int-vs-float64 distinction left to assert — the meaningful check is
-// the value, and edgeDecimal covers the exact text where that matters.
-// Non-numeric results (bool, string, nil, containers) still compare structurally.
+// edgeExact asserts the exact result. Numbers compare by value — every numeric result is a
+// json.Number carrying its exact decimal, so there is no int-vs-float64 distinction left;
+// edgeDecimal covers the exact text. Non-numeric results compare structurally.
 func edgeExact(t *testing.T, got, want any) {
 	t.Helper()
 	if _, wantNum := numeric.ToDecimal(want); wantNum {

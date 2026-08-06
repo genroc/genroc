@@ -8,13 +8,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// A named schema that is a bare root $ref to its own nested definition sharing
-// the container's name (e.g. an input_schema of {$ref:#/$defs/input} whose def
-// pool spells the definition "input" — the playground shape). This is not a
-// real collision: the entry is a pure alias of its target, so the target must
-// bind directly under the name — one definition, no input → input_1 chain —
-// and never resolve to the entry itself (root-first resolution turned it into
-// a self-loop and dropped the real definition as unused).
+// A named schema that is a bare root $ref to its own nested definition sharing the container's
+// name is not a real collision — the entry is a pure alias, so the target binds directly (no
+// input → input_1 chain). Root-first resolution made it a self-loop.
 func TestFlattenNamedBareRefEntrySharingDefName(t *testing.T) {
 	in := mustParse(t, `{
 		"$ref": "#/$defs/input",
@@ -83,11 +79,9 @@ func TestFlattenNamedSharesContentEqualDefs(t *testing.T) {
 	}
 }
 
-// Merging the same self-recursive definition twice (the result schema is merged
-// once per inference pass) must reuse the renamed copy from the first merge:
-// plain textual comparison sees the fresh copy's self-ref spelling the original
-// name and the merged copy's spelling the renamed one, and mints a new
-// input_2, input_3, … duplicate on every pass.
+// Merging the same self-recursive definition twice must reuse the renamed copy: textual
+// comparison sees the fresh copy's self-ref spelling the original name and the merged one the
+// renamed name, minting input_2, input_3, … on every pass.
 func TestMergeIntoReusesRenamedRecursiveDef(t *testing.T) {
 	baked := func() schema.Schema {
 		return mustParse(t, `{

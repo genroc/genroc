@@ -80,43 +80,8 @@ import (
 	"strings"
 )
 
-// genctl command conventions
-//
-// Keep new list/get commands consistent so the surface stays predictable:
-//
-//   - Naming. A resource collection is the plural noun (`instances`,
-//     `external-tasks`); a single item takes its id/key as the first positional
-//     (`get <id>`). Add a get only when there is something to show beyond the row.
-//   - Server & errors. Every command takes `--server` (overrides $GENROC_SERVER and
-//     the config file). All failures go through fatal() ("genctl: ..."); surface a
-//     server-side validation message via serverErrorDetail/resultValidationError.
-//   - List output. Default to a tabwriter table with an UPPERCASE header and
-//     shortTime() for timestamps; print "no <things>" when empty. Filters are
-//     `--<field>` flags mapped 1:1 to the endpoint's query params.
-//   - List bounds. No `--limit`. Fetch through fetchOrdered[T](url, limit, dir, emit):
-//     pass listCap and the rows arrive as the newest N, flipped to oldest-first; pass 0
-//     and they stream forward page by page. applyWindow sets the query's *_after/*_before
-//     bounds and returns which of the two to pass, so naming where to begin is the one way
-//     past the cap. Always report fetchOrdered's capped result through noteCapped — a cap
-//     nobody can raise must never truncate silently.
-//   - Single-item output. Default to a `Key:\tvalue` tabwriter block using
-//     longTime() for timestamps.
-//   - --json is the one machine-readable form. On a list it prints the raw items as
-//     a JSON array via printJSONItems (lossless, same newest-last order as the table);
-//     on a single item it prints the raw server object (get: callGet into
-//     json.RawMessage, then indent). Never invent a per-command machine format.
-//
-// Deliberate exceptions (special-purpose, not resource list/get — leave them):
-//   - `logs` keeps `--mode basic|detail|json`; it has three views and its json is
-//     JSONL (one object per line, streaming), not a {items,page} array.
-//   - `logs` caps at 200 rather than listCap, and renders as it streams (the others build
-//     a tabwriter, which sizes its columns from every row and so cannot).
-//   - `definitions` offers `--sort name` for the alphabetical order, and is the one list
-//     whose capped read keeps the *first* N rather than the newest — see fetchOrdered's
-//     firstFirst. `--since`/`--until` still bound created_at under it, as filters over the
-//     window rather than the point the walk starts from.
-//   - `channel list` prints plain `name -> vN` pointer lines (a projection, not a
-//     resource object), and `status` is a coherence report, not a listing.
+// Command conventions (naming, --server, table/--json output, the no---limit list
+// bounds rule) and the deliberate exceptions: cmd/genctl/CLAUDE.md.
 func main() {
 	if len(os.Args) < 2 {
 		usage()

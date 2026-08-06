@@ -84,11 +84,9 @@ func TestParseDuration_Rejects(t *testing.T) {
 	}
 }
 
-// `time.Duration` is int64 nanoseconds, so the multiply wraps well inside the range of
-// numbers an author can type. The dangerous case is not a huge or negative result but a
-// wrap that lands somewhere plausible: "5124096h" used to parse as 25 minutes, which no
-// downstream check can catch, and a retry or timeout would simply have fired 292 years
-// early with nothing reporting it.
+// time.Duration is int64 nanoseconds, so the multiply wraps inside the range an author can
+// type — and the dangerous case is a wrap landing somewhere plausible: "5124096h" parsed as
+// 25 minutes, which no downstream check catches and no message reports.
 func TestParseDuration_RefusesValuesThatWrapTheNanosecondCounter(t *testing.T) {
 	for _, spec := range []string{
 		"5124096h",                 // wrapped to a positive 25m26s

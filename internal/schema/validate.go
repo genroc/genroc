@@ -59,10 +59,8 @@ const (
 	Strict ConformMode = iota
 
 	// FillAbsentAsNull turns the walk into a MIGRATION — the other half of the relation of the
-	// same name; the two must accept exactly the same gaps. Vs Strict: an absent required
-	// property that admits null is written in AS null; undeclared keys are KEPT (a migration
-	// must not destroy data it does not understand); declared defaults are NOT filled. It
-	// still errors on everything else — success over ill-fitting data would be a lie.
+	// same name; the two must accept exactly the same gaps. Vs Strict: an absent null-admitting
+	// required property is written in as null, undeclared keys are KEPT, defaults are NOT filled.
 	FillAbsentAsNull
 )
 

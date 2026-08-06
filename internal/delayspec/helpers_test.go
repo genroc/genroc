@@ -5,22 +5,9 @@ import (
 	"time"
 )
 
-// Every test in this package makes one of three kinds of statement: which strings a grammar
-// accepts, what instant a spec lands on, or which of the two DST rules applies. The helpers
-// here exist so a table row can say that in one readable line — a spec, a "now", and the
-// wall clock it should land on.
-//
-// The files are split the same way:
-//
-//	location_test.go        what a `tz` slot may say
-//	duration_parse_test.go  the `for` grammar
-//	calendar_test.go        the calendar rules: DST, month ends, unit ordering
-//	instant_parse_test.go   the three `until` forms
-//	instant_resolve_test.go finding a pattern's next match
-//	instant_random_test.go  the same, cross-checked against a brute-force scan on
-//	                        generated patterns and instants
-//	doc_examples_test.go    every spelling specs/delay-syntax.md shows, run through the
-//	                        parser — so the reference cannot drift from the grammar
+// Helpers so a table row can state a grammar claim in one line: a spec, a "now", and the wall
+// clock it should land on. The files split the same way — location / duration_parse /
+// calendar / instant_parse / instant_resolve / instant_random / doc_examples.
 
 const (
 	// wallFmt renders an instant with its UTC offset, for the cases where the zone is the

@@ -565,11 +565,9 @@ func TestSpawnChildrenAndWait_RunningParent(t *testing.T) {
 	}
 }
 
-// TestSpawnChildrenAndWait_PausingParent verifies that a pause landing while the
-// parent is mid-spawn settles here or never: the write parks the parent on
-// wait_state='waiting', which removes it from the claim predicate, so no later claim
-// could move it out of 'pausing'. The children inherit the settled status — a paused
-// tree must not spawn runnable work.
+// A pause landing mid-spawn settles here or never: the write parks the parent on
+// wait_state='waiting', out of the claim predicate, so no later claim could move it out of
+// 'pausing'. Children inherit the settled status — a paused tree spawns nothing runnable.
 func TestSpawnChildrenAndWait_PausingParent(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

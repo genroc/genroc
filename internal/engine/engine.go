@@ -301,17 +301,13 @@ func (e *Engine) runPump(ctx context.Context) {
 	}
 }
 
-// dispatch runs one instance's advance in its own goroutine and releases its e.sem slot
-// when done (the caller must have reserved it). It reports whether it started an advance:
-// an instance already in-flight here is never advanced twice — the claim is left to the
-// running advance, whose write the re-claim has already doomed. graced is the gate's
-// verdict; it decides only how the skip reads, not what happens.
+// dispatch runs one advance in its own goroutine, releasing the caller's e.sem slot when
+// done. It reports whether it started one: an in-flight instance is never advanced twice —
+// the claim is left to the running advance, whose write the re-claim has already doomed.
 func (e *Engine) dispatch(ctx context.Context, wg *sync.WaitGroup, inst *model.ProcessInstance, graced bool) bool {
-	// The marker is exact: runAdvance drops it just before the write that frees the
-	// instance, so a hit here means a lease lapsed under a live advance — which holds
-	// only while advance() itself writes nothing (see advanceOutcome). Outside a grace
-	// window that means renewal cannot keep up; inside one the gate has just established
-	// this worker could not renew at all, so it is no verdict about capacity.
+	// The marker is exact: runAdvance drops it just before the freeing write, so a hit means a
+	// lease lapsed under a live advance — true only while advance() writes nothing. Inside a
+	// grace window the gate has established this worker could not renew: no capacity verdict.
 	if _, busy := e.inflight.LoadOrStore(inst.ID, struct{}{}); busy {
 		if graced {
 			e.logOnly(logEvent{Level: model.LogWarn, ID: inst.ID,

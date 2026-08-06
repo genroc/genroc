@@ -11,14 +11,9 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
-// TestValidateDecisionMatchesGojsonschemaDirected complements the blind fuzz test
-// with a schema-*directed* generator. Blind random documents are almost always
-// invalid for a structured schema (a random map rarely carries the right required
-// keys), so they exercise the rejection path but barely touch acceptance or the
-// near-miss boundaries. This generator instead builds instances shaped by the
-// schema whose scalars/lengths/counts straddle each declared bound and that
-// occasionally drop a required field — yielding a balanced mix of accepted docs
-// and boundary rejects, which is where a decision divergence would actually hide.
+// Complements the blind fuzz with a schema-DIRECTED generator: blind random documents are
+// almost always invalid, so they exercise rejection but barely touch acceptance. This straddles
+// each declared bound and occasionally drops a required field — where drift actually hides.
 func TestValidateDecisionMatchesGojsonschemaDirected(t *testing.T) {
 	const (
 		seed           = 0x2545f491

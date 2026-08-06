@@ -23,11 +23,9 @@ func mustSchema(t *testing.T, src string) schema.Schema {
 	return raw.AssumeNormalized()
 }
 
-// recCtx builds the schema context exactly as the validation pipeline would have
-// it when inferring a self-referential task's output: both outputs.<selfID> and
-// self.previous are $refs to $defs[<selfID>_output] (the recursive placeholder),
-// and any sibling task outputs are always-available (required). This represents
-// the process "in that state" without standing up the whole pipeline.
+// recCtx builds the context as the pipeline would when inferring a self-referential task's
+// output: outputs.<selfID> and self.previous are both $refs to the recursive placeholder,
+// siblings always-available. Represents the process "in that state" without the pipeline.
 func recCtx(t *testing.T, selfID string, siblings map[string]schema.Schema) (schema.Schema, string) {
 	t.Helper()
 	selfDef := selfID + "_output"

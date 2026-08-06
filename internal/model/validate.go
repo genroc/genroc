@@ -315,13 +315,9 @@ func isChildTask(s *Task) bool {
 	return s.Action != nil && (s.Action.Type == ActionTypeChild || s.Action.Type == ActionTypeChildMap || s.Action.Type == ActionTypeChildList)
 }
 
-// validateOnError checks a task's on_error rules: terminal-clause arity (R3), pattern
-// shape, catch-all last, goto targets, and the task-kind rules — a child task forbids
-// parent-side retry (D7), an action task carries the only_once restrictions below.
-//
-// Both kinds share the pattern syntax; only what the codes are checked *against* differs.
-// A child task's are checked against the child's raise set (R5, in the validation package,
-// where children resolve); an action task's engine-code space is open and has no analogue.
+// validateOnError checks a task's on_error rules: terminal-clause arity (R3), pattern shape,
+// catch-all last, goto targets, and the task-kind rules. Both kinds share the pattern syntax;
+// only what codes are checked against differs — a child's raise set (R5) vs an open code space.
 func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 	onlyOnce := s.OnlyOnce != nil && *s.OnlyOnce
 	child := isChildTask(s)

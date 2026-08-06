@@ -9,11 +9,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// mustData unmarshals a JSON string into an `any` for use as validator input.
-// It decodes the way runtime data actually does (numbers kept as their exact
-// literal), so fixtures and expectations share the representation production
-// uses — otherwise reflect.DeepEqual compares float64 against json.Number and
-// reports a mismatch between two identical values.
+// mustData decodes the way runtime data does (numbers kept as exact literals), so fixtures and
+// expectations share production's representation — otherwise DeepEqual compares float64 against
+// json.Number and reports a mismatch between two identical values.
 func mustData(t *testing.T, s string) any {
 	t.Helper()
 	var v any

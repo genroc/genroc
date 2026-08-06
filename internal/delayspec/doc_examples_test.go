@@ -7,13 +7,9 @@ import (
 	"testing"
 )
 
-// specs/delay-syntax.md carries the syntax reference — every accepted spelling in one place,
-// and a table of the ones that are turned away. A reference nobody executes is a reference
-// that rots, so this reads the file and runs both halves through the parser.
-//
-// It is deliberately literal-minded: it extracts what the document *shows the reader*, so a
-// spelling that stops working, or one the document forgot to update, fails here rather than
-// in someone's definition.
+// specs/delay-syntax.md carries the syntax reference, and a reference nobody executes rots:
+// this runs both halves (accepted spellings, rejected table) through the parser, so a
+// spelling that stops working — or one the doc forgot — fails here, not in a definition.
 const syntaxDoc = "../../specs/delay-syntax.md"
 
 // The heading that splits the file: everything above shows syntax that must parse,
@@ -86,11 +82,9 @@ func slotExamples(section string) []slotExample {
 	return out
 }
 
-// parseSlot routes an example to the grammar its slot uses.
-//
-// skipExpressions is set for the accepted half only. The expression forms belong to the
-// validator rather than to this package, so an accepted "$:" example has nothing to check
-// here — while the rejected table's "${ }" row is a claim about the grammar, and is checked.
+// parseSlot routes an example to its slot's grammar. skipExpressions is set for the accepted
+// half: "$:" forms belong to the validator, while the rejected table's "${ }" row IS a claim
+// about this grammar and is checked.
 func parseSlot(ex slotExample, skipExpressions bool) error {
 	if ex.bare {
 		return nil // a JSON number is milliseconds by definition; no grammar involved

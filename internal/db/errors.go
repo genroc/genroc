@@ -2,19 +2,13 @@ package db
 
 import "errors"
 
-// Classification sentinels: callers branch on the KIND of failure (the API maps kinds to
-// HTTP statuses in one place). Wrap with %w, human wording in the prefix:
-//
-//	fmt.Errorf("definition %q v%d: %w", name, version, ErrNotFound)
-//
+// Classification sentinels: callers branch on the KIND of failure, and the API maps kinds
+// to HTTP statuses in one place. Wrap with %w, keeping the human wording in the prefix.
 // Anything unwrapped classifies as internal — deliberately the pessimistic default.
 var (
-	// ErrNotFound means the row a caller named does not exist. It is deliberately
-	// distinct from sql.ErrNoRows: an empty scan is a driver-level fact, and only
-	// *some* empty scans mean "you asked for something that isn't there". The rest
-	// are ordinary control flow — an absent parent in FinishChild, an empty signal
-	// queue in ArmExternalOrConsumeSignal — and those must keep testing
-	// errors.Is(err, sql.ErrNoRows) instead of being promoted to this.
+	// ErrNotFound means the row a caller named does not exist. Deliberately distinct from
+	// sql.ErrNoRows: only *some* empty scans mean that — an absent parent in FinishChild or an
+	// empty signal queue is control flow, and those must keep testing sql.ErrNoRows.
 	ErrNotFound = errors.New("not found")
 
 	// ErrConflict means the request is well-formed and the target exists, but its

@@ -465,13 +465,9 @@ func numberNode(p *parser, tok lexer.Token) Node {
 	return &FloatNode{Text: text}
 }
 
-// normalizeNumber turns a literal into exact decimal text that is also valid JSON
-// number syntax, and reports whether it is integral.
-//
-// There is no size limit: the text is carried through to an arbitrary-precision
-// decimal, so a literal is exactly as precise as the same value arriving as data.
-// Normalisation is what makes the text safe to emit — a radix prefix (0x1F) and
-// the lexer's bare forms (.5, 1.) are all valid input but none is valid JSON.
+// normalizeNumber turns a literal into exact decimal text that is also valid JSON number
+// syntax, and reports whether it is integral. No size limit — the text reaches an
+// arbitrary-precision decimal, so a literal is as precise as the same value arriving as data.
 func normalizeNumber(lit string) (text string, integral bool, err error) {
 	clean := strings.ReplaceAll(lit, "_", "")
 	if low := strings.ToLower(clean); strings.HasPrefix(low, "0x") || strings.HasPrefix(low, "0b") || strings.HasPrefix(low, "0o") {

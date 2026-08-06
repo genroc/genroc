@@ -7,23 +7,14 @@ import (
 	"time"
 )
 
-// Randomised cross-checks of the pattern scheduler against the brute-force scan it
-// replaced. The table tests state what the grammar promises; these state that the fast
-// implementation and the obvious one agree on inputs nobody chose by hand — which is where
-// the carry cascade, the DST rules and the date walk meet in combinations no one thought
-// to write down.
-//
-// The seed is fixed. A property test that picks a new seed each run reports failures that
-// cannot be reproduced, and a scheduler bug that shows up once a year is exactly the kind
-// worth being able to re-run.
+// Randomised cross-checks of the pattern scheduler against the brute-force scan it replaced —
+// where the carry cascade, the DST rules and the date walk meet in combinations nobody wrote
+// down. The seed is fixed: an unreproducible once-a-year failure is worth re-running.
 const randomSeed = 20260801
 
-// Two suites, because one exclusion is unavoidable in a DST zone. A pattern naming a
-// concrete hour can name a wall clock a spring-forward deletes, and resolveWall's
-// documented answer is to normalise forward onto a time the pattern never named — which a
-// scan of real instants cannot reproduce (TestInstant_ClockWildcardAcrossDSTTransitions
-// pins that case directly instead). With the hour left open the normalised instant still
-// satisfies the pattern, so the two sides agree again.
+// Two suites, because one exclusion is unavoidable in a DST zone: a pattern naming a concrete
+// hour can name a wall clock spring-forward deletes, and normalising forward lands on a time
+// the pattern never named. With the hour left open the two sides agree again.
 
 // Suite 1: zones with no transitions at all, so every shape of pattern is fair game —
 // including the fully concrete clocks the DST suite has to leave out.

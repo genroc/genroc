@@ -2,11 +2,9 @@ package expressiontest
 
 import "testing"
 
-// A computed key, a[expr], is admitted exactly where the answer does not depend on
-// which key is read: an array (every element has the type of `items`) or a map
-// declaring only additionalProperties. On an object with declared properties the
-// type genuinely varies per key, so it stays an error — that is the restriction
-// the whole feature rests on, not a conservatism that could be relaxed later.
+// A computed key a[expr] is admitted exactly where the answer cannot depend on which key is
+// read: an array, or a map declaring only additionalProperties. On an object with declared
+// properties it stays an error — the restriction the whole feature rests on.
 
 const computedKeyJSON = `{
 	"type": "object",

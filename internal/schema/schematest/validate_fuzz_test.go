@@ -10,16 +10,9 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
-// TestValidateDecisionMatchesGojsonschemaFuzz throws a large number of randomly
-// generated documents at both validators and asserts they reach the same
-// accept/reject decision. Where the hand-written differential corpus enumerates
-// known-interesting cases, this explores the space between them: it is the real
-// guard that "we fail in the same cases as gojsonschema".
-//
-// The generator draws keys from a pool that overlaps the schemas' property names
-// and numbers/strings that straddle the declared bounds, so required/type/range/
-// length/enum branches are all exercised. The seed is fixed for reproducibility;
-// a failure prints the exact document so it can be pinned as a table case.
+// The real guard that "we fail in the same cases as gojsonschema": random documents at both
+// validators, asserting the same decision, exploring the space between the hand-written cases.
+// The seed is fixed; a failure prints the document so it can be pinned as a case.
 func TestValidateDecisionMatchesGojsonschemaFuzz(t *testing.T) {
 	const (
 		seed           = 0x9e3779b9

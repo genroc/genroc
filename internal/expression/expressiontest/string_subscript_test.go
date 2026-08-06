@@ -2,13 +2,9 @@ package expressiontest
 
 import "testing"
 
-// String-subscript property access — a["b"] — exists so that a key which is not
-// spellable as an identifier is reachable at all. It desugars to the same node
-// the dot form produces, so the tests that matter are not "does it parse" (that
-// lives in internal/expression/syntax) but the two places where a property key
-// is carried as data: secret tainting and conditional narrowing. Both used to
-// flatten an access chain into a dot-path string, which cannot round-trip a key
-// containing "." — a["x.y"] and a.x.y rendered identically.
+// a["b"] exists so a key not spellable as an identifier is reachable at all; it desugars to the
+// dot form's node, so what matters is not parsing but the two places a key is carried as data —
+// secret tainting and narrowing. Both used to flatten to a dot-path (a["x.y"] ≡ a.x.y).
 
 // subscriptContextJSON pairs, twice over, a flat "x.token" property with a
 // nested x → token of the opposite secrecy. Each pair is a collision that a

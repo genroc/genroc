@@ -85,11 +85,9 @@ func TestRunAdvance_LeaseLostDropsOutcome(t *testing.T) {
 	}
 }
 
-// §4.4, §4.7, §3.4 end to end in one worker — the hand-back path. A self-reclaim skips
-// the dispatch; the doomed advance finishes and is fenced out; the row leaves the held
-// set, expires with its worker_id intact, and the NEXT claim advances it from its last
-// checkpoint to completion. This is the test that fails if the held set keeps renewing
-// rows it no longer advances (a stuck row) or if anything clears worker_id on the way.
+// The hand-back path end to end: a self-reclaim skips the dispatch, the doomed advance is
+// fenced out, the row leaves the held set and expires with worker_id intact, and the NEXT
+// claim completes it. Fails if the held set renews rows it no longer advances (a stuck row).
 func TestSelfReclaim_RowHandsBackAndCompletes(t *testing.T) {
 	database := openTestDB(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -175,12 +173,9 @@ func seedOnlyOnceInstance(t *testing.T, database *db.DB, prefix, url string) str
 	return id
 }
 
-// §4.8, §5.1 — the multi-worker hazard the fence exists for, on the task class where it
-// matters most. Worker A freezes mid-only_once call (renewer parked, pump saturated so
-// the gate never runs); worker B takes the row over, observes the interruption, and
-// fails the instance with only_once.interrupted — the endpoint is hit exactly once. When
-// A wakes and finishes, its "completed" is refused: the final row is B's verdict, not
-// A's stale success for a charge whose fate was already adjudicated.
+// The multi-worker hazard the fence exists for, on the task class where it matters: A freezes
+// mid-only_once, B takes over and adjudicates only_once.interrupted (endpoint hit once), and
+// A's late "completed" is refused — the final row is B's verdict.
 func TestFence_TakeoverVerdictOutlivesTheFrozenWorker(t *testing.T) {
 	database := openTestDB(t)
 

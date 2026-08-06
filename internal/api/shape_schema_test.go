@@ -6,11 +6,9 @@ import (
 	"testing"
 )
 
-// TestProcessSchemaShape guards the served process-schema.json wiring for the
-// recursive Shape type: the def must exist as the generic Value anyOf (string,
-// number, boolean, null, array, object), recurse via a self $ref, and be referenced
-// by the task output and the action input. Breaking this silently breaks editor
-// autocomplete in the playground.
+// Guards the served process-schema.json wiring for the recursive Shape type: the generic
+// Value anyOf, the self $ref, and the task-output/action-input references. Breaking it
+// silently breaks editor autocomplete.
 func TestProcessSchemaShape(t *testing.T) {
 	b := buildProcessDefinitionSchema()
 	var root map[string]any

@@ -54,10 +54,8 @@ func TestPrecision_SubtractIsExactBeyondDivisionPrecision(t *testing.T) {
 }
 
 // --- modulo: sized to the operands, never rounded ---
-//
-// % used to share the division context. Rem computes through an integer
-// quotient, so a fixed 34 digits failed outright with "division impossible" on
-// operands longer than that — reachable with any large id.
+// % used to share the division context, but Rem computes through an integer quotient — a fixed
+// 34 digits failed with "division impossible" on any operand longer than that.
 
 func TestPrecision_ModuloSmallOperands(t *testing.T) {
 	assertPrecEval(t, `7 % 3`, "1")
@@ -131,11 +129,8 @@ func TestPrecision_DivisionByZero(t *testing.T) {
 }
 
 // --- literals match the data path ---
-//
-// Literals carry their exact text, so writing a value into an expression and
-// receiving the same value as data are equally precise. They used to disagree:
-// literals parsed into a Go int, so anything past int64 was rejected outright
-// while the identical value arriving as data was exact.
+// Literals carry exact text, so writing a value into an expression and receiving it as data are
+// equally precise. They used to disagree: anything past int64 was rejected outright.
 
 func TestPrecision_DataCarriesValuesBeyondInt64(t *testing.T) {
 	assertPrecEval(t, `huge + 0`, "123456789012345678901234567890123456789")
@@ -164,13 +159,9 @@ func TestPrecision_FractionalLiteralIsDecimal(t *testing.T) {
 }
 
 // --- the digit bound ---
-//
-// A looping task feeds its own output back as self.previous, so an output like
-// `$: (self.previous.n ?? input.n) * (self.previous.n ?? input.n)` doubles the
-// digit count every tick: a 54-digit id reaches ~55,000 digits in ten iterations.
-// Left unbounded that ran until apd's own exponent limit tripped with "exponent
-// out of range" — after the value had been materialised and pushed to the object
-// store, and with a message that explained nothing.
+// A looping task squares its own output, doubling digits per tick: a 54-digit id reaches
+// ~55,000 in ten iterations. Unbounded it ran to apd's exponent limit — after materialising and
+// externalising the value, with a message that explained nothing.
 
 // Squaring repeatedly is what a looping task does; the bound must stop it with a
 // message naming the cause.

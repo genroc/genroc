@@ -6,13 +6,9 @@ import (
 	"testing"
 )
 
-// The registration rules for raise/panic (specs/child-error-handling.md §3) and the
-// derived raise set (§2.3).
-//
-// R1/R2 exist so that a code is usable as a filterable discriminator and a message can
-// never carry data across a process boundary. R3 and R6 exist so that a definition
-// never says two things at once — one case doing two jobs, or one code meaning two
-// different outcomes.
+// Registration rules for raise/panic and the derived raise set (specs/child-error-handling.md
+// §2.3, §3). R1/R2 keep a code usable as a filterable discriminator and a message unable to
+// carry data across a boundary; R3/R6 stop a definition saying two things at once.
 
 // def wraps tasks in a minimal valid definition.
 func def(tasks ...*Task) ProcessDefinition {

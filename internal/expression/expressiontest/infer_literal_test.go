@@ -63,10 +63,8 @@ func TestInferLiteral_Object_Empty(t *testing.T) {
 	assertSchema(t, infer(t, `{}`, schema.Schema{}), `{"type": "object"}`)
 }
 
-// `required` is a []string, so its order is part of the generated schema's bytes.
-// Keys must come out sorted regardless of source order, or two registrations of
-// the same definition would produce schemas that differ only by ordering — which
-// the recursive-inference fixpoint compares by canonical JSON. The mixed-case and
+// `required` is a []string, so its order is part of the schema's bytes and two registrations
+// must not differ by ordering — the fixpoint compares canonical JSON. The mixed-case and
 // underscore keys pin the sort as byte-wise ('B' < '_' < 'a'), not case-folded.
 func TestInferLiteral_Object_RequiredIsSortedAndComplete(t *testing.T) {
 	c := ctx(t, literalCtxJSON)
@@ -213,11 +211,9 @@ func TestInferLiteral_Array_SingleElement(t *testing.T) {
 	}`)
 }
 
-// integer + number does NOT collapse to "number": the join builds a union and
-// canonicalize merges simple variants into a type array. `{"type":["integer",
-// "number"]}` is semantically just "number" (integer ⊆ number), so this is sound
-// but redundant — note it here so a future simplification is a deliberate change
-// rather than an accidental one.
+// integer + number does NOT collapse to "number": the join builds a union and canonicalize
+// merges it into a type array. Semantically redundant (integer ⊆ number) but sound — noted so
+// a future simplification is deliberate rather than accidental.
 func TestInferLiteral_Array_IntegerAndFloatWiden(t *testing.T) {
 	c := ctx(t, literalCtxJSON)
 	assertSchema(t, infer(t, `[1, 1.5]`, c), `{
@@ -304,11 +300,9 @@ func TestInferLiteral_Array_OfArrays(t *testing.T) {
 	}`)
 }
 
-// Arrays are NOT merged element-wise the way objects are merged property-wise
-// (joinObjects has no array counterpart): two arrays with different item types
-// become a union of arrays rather than an array of a union. That is the more
-// precise of the two — it forbids a mixed array — so the asymmetry with objects
-// is a deliberate difference, not an oversight.
+// Arrays are NOT merged element-wise the way objects are property-wise: two arrays with
+// different item types become a union of arrays, not an array of a union. That is the more
+// precise reading (it forbids a mixed array), so the asymmetry is deliberate.
 func TestInferLiteral_Array_OfArraysWithDifferentItemsUnions(t *testing.T) {
 	c := ctx(t, literalCtxJSON)
 	assertSchema(t, infer(t, `[[1], ["a"]]`, c), `{
@@ -388,11 +382,9 @@ func TestInferLiteral_ObjectLiteralAsMapSourceRejected(t *testing.T) {
 
 // ─── Empty array `[]` interactions ──────────────────────────────────────────────
 
-// `[]` in a ternary keeps its maxItems 0 as a separate union arm. That is what
-// elementOf needs: the provably-empty arm is skipped, so mapping over the result
-// keeps the other arm's element type instead of degrading to "no element type".
-// The empty arm is absorbed rather than unioned — see
-// TestInferLiteral_EmptyArrayUnionsValidateTheirOwnValue for why.
+// `[]` in a ternary keeps maxItems 0 as its own arm, which is what elementOf needs: the
+// provably-empty arm is skipped so mapping keeps the other arm's element type. It is absorbed
+// rather than unioned — see the union test below for why.
 func TestInferLiteral_EmptyArray_InTernary(t *testing.T) {
 	c := ctx(t, literalCtxJSON)
 	assertSchema(t, infer(t, `input.flag ? [] : input.tags`, c), `{
@@ -420,13 +412,9 @@ func TestInferLiteral_EmptyArray_AsCoalesceDefault(t *testing.T) {
 	}`)
 }
 
-// Regression: `[]` used to union with the other arm as a `oneOf`, which JSON
-// Schema reads as EXACTLY one variant. An empty array satisfies both
-// `{array, maxItems:0}` and `{array, items:T}` — items constrains nothing at zero
-// length — so the schema inferred for `xs ?? []` rejected the very empty value the
-// idiom exists to produce, and `over: "$: xs ?? []"` failed registration because
-// Items() is not reachable through a union. Every path that could build that union
-// now absorbs the provably-empty arm.
+// Regression: `[]` used to union as a oneOf (EXACTLY one), but an empty array satisfies both
+// arms — so `xs ?? []` inferred a schema rejecting its own empty result, and `over:` failed
+// registration because Items() is unreachable through a union. Every such path now absorbs it.
 func TestInferLiteral_EmptyArrayUnionsValidateTheirOwnValue(t *testing.T) {
 	c := ctx(t, literalCtxJSON)
 	for _, tc := range []struct{ name, expr string }{
@@ -475,12 +463,9 @@ func TestInferLiteral_EmptyArray_InsideObjectLiteral(t *testing.T) {
 	}`)
 }
 
-// As an element, `[]` cannot merge with a typed array (canonicalize only folds
-// variants with no other constraints), so the element type would stay a union
-// whose first arm forbids elements — sound but lossy: `[[], [1]][1][0]` would be
-// typed as possibly-nothing even though the second member clearly holds integers.
-// It is absorbed at the element level instead, so the outer array keeps a usable
-// element type rather than an exclusive union.
+// As an element, `[]` cannot merge with a typed array, so the element type would stay a union
+// whose first arm forbids elements — sound but lossy (`[[], [1]][1][0]` typed as
+// possibly-nothing). Absorbed at the element level so the outer array keeps a usable type.
 func TestInferLiteral_EmptyArray_AsArrayElement(t *testing.T) {
 	c := ctx(t, literalCtxJSON)
 	assertSchema(t, infer(t, `[[], [1]]`, c), `{
@@ -663,11 +648,8 @@ func TestInferLiteral_Array_JoinStillTaintsViaSecretWalk(t *testing.T) {
 }
 
 // ─── Determinism ────────────────────────────────────────────────────────────────
-//
-// Generated schemas are compared by bytes (the recursive-inference fixpoint and
-// the checked-in spec files both do it), and Go map iteration is randomized — so
-// inferring the same literal twice, and inferring two source orderings of the
-// same key set, must produce identical JSON.
+// Generated schemas are compared by bytes and Go map iteration is randomized, so the same
+// literal — and two source orderings of one key set — must produce identical JSON.
 
 // manyKeyLiteral mixes nested objects, an array join and a nullable field, i.e.
 // every construct whose inference builds a Go map.

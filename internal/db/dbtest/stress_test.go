@@ -22,18 +22,9 @@ func pgDeadlock(err error) bool {
 	return errors.As(err, &pqErr) && pqErr.Code == "40P01"
 }
 
-// TestStress_PauseProcess_vs_FailInstanceAndAncestors runs PauseProcess and
-// FailInstanceAndAncestors concurrently many times to confirm that the known
-// structural deadlock occurs in practice and that PostgreSQL always resolves it
-// without leaving the DB in an inconsistent state.
-//
-// Each iteration fires both operations against the same parent-child pair:
-//   - PauseProcess locks parent (running) then descends to child (running) — top-down.
-//   - FailInstanceAndAncestors locks child first (UpdateInstance has no status filter),
-//     then tries to lock parent — bottom-up.
-//
-// This is the only real deadlock in the codebase; the other lock-ordering pairs cannot
-// occur in practice because their WHERE conditions are mutually exclusive.
+// PauseProcess (top-down: parent then child) against FailInstanceAndAncestors (bottom-up:
+// child then parent) — the only real deadlock in the codebase. Postgres must always resolve
+// it without inconsistent state; other lock-order pairs cannot occur (exclusive WHEREs).
 func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
@@ -102,15 +93,9 @@ func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	}
 }
 
-// TestStress_ClaimInstances_MultiWorker fires many concurrent workers continuously
-// polling ClaimInstances against a small, fixed instance pool. The lease is kept
-// very short (100 ms) so instances expire and become reclaimable many times per
-// second, keeping workers in constant contention.
-//
-// Invariant: FOR UPDATE SKIP LOCKED must guarantee that no instance is claimed by
-// two workers simultaneously. Workers track their in-flight claims in a shared
-// map; any new claim that finds the instance already owned by a different worker
-// whose Go-side lease has not expired is flagged as a double-claim.
+// Many workers polling a small pool with a 100ms lease, so rows expire and are reclaimed
+// constantly. Invariant: FOR UPDATE SKIP LOCKED never hands one instance to two workers —
+// tracked through a shared in-flight map keyed by worker.
 func TestStress_ClaimInstances_MultiWorker(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
@@ -180,14 +165,9 @@ func TestStress_ClaimInstances_MultiWorker(t *testing.T) {
 	t.Logf("total claim events: %d (~%.0f/s)", totalClaims, float64(totalClaims)/runFor.Seconds())
 }
 
-// TestStress_ConcurrentFinishChild fires N goroutines each completing one of N siblings
-// of the same waiting parent. Invariant: the parent transitions to 'collecting' exactly
-// once — the sibling that finishes last is the only one that should find active_count==0
-// and trigger the transition.
-//
-// This tests that the FOR UPDATE lock on the parent in FinishChild correctly serialises
-// concurrent completions and prevents the "zero-count check" from running simultaneously
-// in two goroutines.
+// N goroutines each finishing one of N siblings of the same waiting parent. Invariant: the
+// parent transitions to 'collecting' exactly once — the FOR UPDATE on the parent is what
+// stops two goroutines both seeing active_count==0.
 func TestStress_ConcurrentFinishChild(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
@@ -251,17 +231,9 @@ func TestStress_ConcurrentFinishChild(t *testing.T) {
 	}
 }
 
-// TestStress_PauseProcess_vs_FinishChild fires PauseProcess on a waiting parent
-// while N goroutines concurrently call FinishChild on its children.
-//
-// PauseProcess locks rows top-down via a recursive CTE (parent first, then children).
-// FinishChild locks parent first, then updates the child within the same transaction.
-// When the CTE locks a child before the parent row within a single execution plan,
-// the lock order can invert relative to a concurrent FinishChild — producing a deadlock.
-//
-// Invariant: all errors must be nil or a PostgreSQL deadlock; no instance may be
-// left in 'running' after both sides complete. (The parent is running throughout, so
-// the pause always has at least one row to touch and never reports a no-op.)
+// PauseProcess (locks top-down via the CTE) against concurrent FinishChild (parent, then
+// child): the CTE can lock a child before the parent, inverting the order. Invariant: every
+// error is nil or a Postgres deadlock, and no instance is left 'running'.
 func TestStress_PauseProcess_vs_FinishChild(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
@@ -330,20 +302,9 @@ func TestStress_PauseProcess_vs_FinishChild(t *testing.T) {
 	}
 }
 
-// TestStress_RetryProcess_vs_PauseProcess fires RetryProcess and PauseProcess
-// concurrently against the same settled failed tree. Both lock tree rows in id
-// order, so they serialize; each iteration must end in one of the two serial
-// outcomes:
-//
-//	retry → pause:  the revived (running) rows were caught by the pause → paused
-//	pause → retry:  nothing was running, so the pause was a rejected no-op → running
-//
-// The fixture is a failed tree because retry now accepts nothing else, which makes
-// the second ordering the common one: a failed tree has no running row, so the pause
-// reports "no running instances to pause" and changes nothing.
-//
-// Either way the tree stays internally consistent and the completed child is
-// never touched.
+// RetryProcess and PauseProcess against one settled failed tree. Both lock in id order, so
+// they serialize into one of two outcomes: retry→pause leaves paused, pause→retry is a
+// rejected no-op leaving running. Either way the completed child is never touched.
 func TestStress_RetryProcess_vs_PauseProcess(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
@@ -402,11 +363,9 @@ func TestStress_RetryProcess_vs_PauseProcess(t *testing.T) {
 	}
 }
 
-// TestStress_ConcurrentRetry fires several RetryProcess calls at the same
-// settled failed tree. The tree lock serializes them: the first revives the
-// tree; later calls either see the pre-tx status check fail ("not retryable")
-// or enter the transaction, find a running root, and commit as a no-op.
-// The end state must always be a single clean revival.
+// Concurrent retries of one settled failed tree: the tree lock serializes them, so later
+// calls either fail the pre-tx status check or commit as a no-op. The end state must be a
+// single clean revival.
 func TestStress_ConcurrentRetry(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")

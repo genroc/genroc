@@ -18,11 +18,9 @@ var mapEnv = map[string]any{
 	},
 }
 
-// TestMap_MatchesExprLang keeps the three-way conformance contract for lambdas.
-// expr-lang has no `=>`, so each case pairs our syntax with the equivalent
-// expr-lang predicate written with `let`, which binds the same way: our
-// `x => body` is exactly expr-lang's `{let x = #; body}`. Real expr-lang stays
-// the oracle even though the surface syntax diverges.
+// The three-way conformance contract for lambdas: expr-lang has no `=>`, so each case pairs
+// our syntax with `{let x = #; body}`, which binds identically. Real expr-lang stays the oracle
+// even though the surface syntax diverges.
 func TestMap_MatchesExprLang(t *testing.T) {
 	for _, tc := range []struct{ name, ours, oracle string }{
 		{"field_of_element",

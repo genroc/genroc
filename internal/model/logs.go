@@ -28,22 +28,9 @@ const (
 	EventInstanceRaised  = "inst_raised" // concluded by a `raise` clause; the parent may react to the code
 	EventInstanceFailed  = "inst_failed"
 	EventInstanceSettled = "inst_settled"
-	// Pausing and resuming fan out over a whole subtree, so their per-instance entries
-	// (inst_paused/inst_pausing/inst_resumed) are debug, in the same high-volume class as
-	// the action_* events.
-	//
-	// Only pause also gets an info-level entry on the tree root, and only because its
-	// outcome is deferred: rows the operator could not stop mid-task stay 'pausing', so
-	// "requested" genuinely differs from "done" and meta.pausing reports how many are
-	// still draining. Resuming is atomic — every row flips in one transaction — so a
-	// root-level entry would say nothing the per-instance ones do not.
-	//
-	// Every instance a pause touches logs exactly one of inst_paused (suspended outright)
-	// or inst_pausing (leased, so only the request could be recorded). The deferred
-	// pausing → paused landing is NOT logged in the normal case: it happens as a CASE
-	// inside the owning worker's write, which cannot report it back without a RETURNING
-	// clause on the hottest query in the system. inst_paused does appear for that
-	// instance if the landing instead goes through the engine's crash-recovery path.
+	// Pause/resume fan out over a subtree, so per-instance entries are debug. Only pause gets
+	// an info root entry, because only its outcome is deferred (meta.pausing counts the
+	// drainers). The deferred pausing → paused landing is unlogged — see specs/pause-resume.md.
 	EventPauseRequested   = "inst_pause_requested"
 	EventPaused           = "inst_paused"
 	EventPausing          = "inst_pausing"

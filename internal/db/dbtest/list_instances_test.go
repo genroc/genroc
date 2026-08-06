@@ -100,13 +100,9 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 				t.Errorf("status filter = %v, want [%s]", summaryIDs(completed), a.ID)
 			}
 
-			// The two bounds are independent columns, not one "since" resolved against
-			// the sort, and 'a' is the row that tells them apart: created first, updated
-			// last. The same instant therefore selects different sets.
-			//
-			// Read the bound off a DB row, not off saveInstance's return — that struct is
-			// the one handed to SaveInstance and never carries the stamped timestamps, so
-			// its zero CreatedAt would make the bound <= 0 and skip the filter entirely.
+			// The two bounds are independent columns, and 'a' (created first, updated last) is the row
+			// that tells them apart. Read the bound off a DB row, not saveInstance's argument — that
+			// struct never carries the stamped timestamps, so a zero would skip the filter entirely.
 			at := got[1].CreatedAt.UnixMilli() // b's created_at (got is c, b, a)
 			byCreated, _, err := b.db.ListInstances("", "", dbpkg.Window{After: at}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {

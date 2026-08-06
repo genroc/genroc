@@ -9,14 +9,9 @@ import (
 	"genroc/internal/validation"
 )
 
-// Fixtures and builders for map_test.go and infer_test.go. Both files are about
-// *which definition shape* is accepted, rejected or inferred, so the definition
-// JSON is assembled by the named builders below and every test stays short
-// enough to read as "build this shape, expect this".
-//
-// Nothing here asserts anything on its own; the helpers that do (mapErrMentions,
-// assertMapChildRefs*) exist only to keep the identical check out of a dozen
-// tests. Shared helpers used by the whole package live in helpers_test.go.
+// Fixtures and builders for map_test.go and infer_test.go, which are both about which
+// definition SHAPE is accepted, rejected or inferred — so each test stays short enough to read
+// as "build this shape, expect this". Nothing here asserts on its own.
 
 // --- map fixtures -----------------------------------------------------------
 

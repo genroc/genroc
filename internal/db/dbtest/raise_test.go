@@ -9,11 +9,9 @@ import (
 	"genroc/internal/model"
 )
 
-// The lifecycle consequences of the 'raised' status, which are the parts of
-// specs/child-error-handling.md §11 that break silently rather than loudly.
-//
-// A raise is a *settled outcome*, not an interruption. Everything below follows from
-// that one sentence, but each falls in a different place, so each is pinned separately.
+// The lifecycle consequences of 'raised' — the parts of specs/child-error-handling.md §11
+// that break silently. A raise is a settled OUTCOME, not an interruption; everything here
+// follows from that, but each consequence falls in a different place.
 
 // insertRaised inserts a child that concluded with a raise, code and all.
 func insertRaised(t *testing.T, db *dbpkg.DB, id, parentID, spawnTaskID, code string, callStack []string) {

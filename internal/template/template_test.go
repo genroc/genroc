@@ -7,10 +7,8 @@ import (
 )
 
 // --- Splitting: where does a ${ } interpolation end? ---
-//
-// The nested- and string-literal cases below are the ones a "scan to the next }"
-// or a brace-counting splitter gets wrong. They are what motivated the splitter's
-// candidate-and-reparse design, so each is named separately.
+// The nested- and string-literal cases are the ones "scan to the next }" or brace counting get
+// wrong; they motivated the candidate-and-reparse design, so each is named separately.
 
 func TestSplit_EmptySource(t *testing.T) {
 	assertSplit(t, ``, ``)

@@ -8,11 +8,9 @@ import (
 	"genroc/internal/validation"
 )
 
-// What is left here is what is NOT a case: the resolution semantics CompareSet owns, which
-// have no rendered form of their own. Every comparison CASE — a required input appearing,
-// an output whose type changed, the accepted hazards, the parent/child matrix — lives in
-// tests/cli/testdata/compat/*.yaml and is asserted as the report an operator actually
-// reads, because that report is the deliverable.
+// What is left here is what is NOT a case: the resolution semantics CompareSet owns, which have
+// no rendered form. Every comparison CASE lives in tests/cli/testdata/compat/*.yaml, asserted
+// as the report an operator reads — because that report is the deliverable.
 
 func defFrom(t *testing.T, src string) *model.ProcessDefinition {
 	t.Helper()

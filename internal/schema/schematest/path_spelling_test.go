@@ -10,13 +10,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// An access path is one spelling everywhere — validation error messages, shape
-// labels, guard keys — and that spelling is the expression language's own accessor
-// syntax. The point is that a path a user is shown can be pasted back into a
-// definition, which for a key that is not an identifier means the bracket form:
-// dotting it produces either a parse error (`headers.retry-after` is a
-// subtraction) or, worse, a path that silently names something else (`h.x.y` for
-// the single key "x.y" reads as the nested x → y).
+// An access path is one spelling everywhere, and it is the expression language's own accessor
+// syntax so a path a user is shown can be pasted back. For a non-identifier key that means
+// brackets: dotting gives a parse error, or worse silently names something else.
 
 const pathSpellingSchema = `{
 	"type": "object",
@@ -139,11 +135,9 @@ func TestSecretAtDistinguishesQuotedKey(t *testing.T) {
 	}
 }
 
-// The whole promise in one test, over keys chosen to break it: the path a
-// validation error reports must (a) resolve back to the node it named, and (b) be
-// a valid expression yielding that same key. Escaping is what makes this hold —
-// the renderer quotes with strconv.Quote, and expr-lang's lexer reads that dialect
-// back, including \" \\ \t \n \xNN and \uNNNN.
+// The whole promise over keys chosen to break it: a reported path must resolve back to the node
+// it named AND be a valid expression yielding that key. Escaping is what holds it — the
+// renderer quotes with strconv.Quote and expr-lang's lexer reads that dialect back.
 func TestErrorPathSurvivesAdversarialKeys(t *testing.T) {
 	keys := []string{
 		`with space`,

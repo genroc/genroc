@@ -2,12 +2,9 @@ package expressiontest
 
 import "testing"
 
-// Per-operator null compatibility — each operator is exercised with x declared
-// as T|null and set to nil at runtime. InferType must predict which operators
-// accept nil (equality) and which reject it (arithmetic, ordering, logical),
-// matching expr-lang's verdict.
-//
-// Schemas are defined in helpers_test.go: nullableInteger, nullableString, nullableBoolean.
+// Per-operator null compatibility: x declared T|null and nil at runtime. InferType must predict
+// which operators accept nil (equality) and which reject it (arithmetic, ordering, logical),
+// matching expr-lang. Schemas live in helpers_test.go.
 
 func TestNullableContract_AddInt(t *testing.T) {
 	testNullableOperand(t, "x + 1", nullableInteger)

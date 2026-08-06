@@ -13,13 +13,9 @@ func batchApply(h *Handlers, channel string, defs ...any) Reply {
 	return h.Handle(Envelope{Action: "put_definitions_batch", Payload: payload})
 }
 
-// TestApplyBatch_VersionedSelfRefCreatesDep verifies that a child_process entry that
-// names the same process but with an explicit version is stored as a dependency row,
-// not silently dropped as a self-reference.
-//
-// This stays a Go test because it asserts dependency baking via GetDependencyVersion,
-// which no HTTP endpoint exposes. The rest of the channel/apply behavior is covered
-// end-to-end by tests/integration/channels_test.ts and tests/cli/definitions_test.ts.
+// A versioned self-reference must be stored as a dependency row, not dropped as a self-ref.
+// Go rather than e2e because it asserts baking via GetDependencyVersion, which no endpoint
+// exposes.
 func TestApplyBatch_VersionedSelfRefCreatesDep(t *testing.T) {
 	h, cleanup := newTestHandlers(t)
 	defer cleanup()

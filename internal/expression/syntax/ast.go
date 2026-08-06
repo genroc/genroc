@@ -31,13 +31,9 @@ package syntax
 type Node interface{ isNode() }
 
 type (
-	// IntNode is an integer literal, carrying its exact decimal text rather than a
-	// Go int. A literal has to be as precise as the data path — an id past int64
-	// is an ordinary value here, and parsing into an int rejected it while the
-	// identical value arriving as data was exact. Radix prefixes and digit
-	// separators are normalised away at parse time, so Text is always a valid JSON
-	// number. Kept distinct from FloatNode because inference reports "integer" and
-	// "number" as different types.
+	// IntNode is an integer literal carrying its exact decimal text, not a Go int: an id past
+	// int64 is an ordinary value here, and parsing rejected it while the same value arriving as
+	// data stayed exact. Radix prefixes are normalised away, so Text is always valid JSON.
 	IntNode   struct{ Text string }
 	FloatNode struct{ Text string }
 	// StringNode holds the already-unescaped value.
@@ -49,11 +45,9 @@ type (
 	// error) or a lambda parameter.
 	IdentNode struct{ Name string }
 
-	// MemberNode is property access: a.b, or a["b"] when the key is not spellable
-	// as an identifier. Both forms parse to this node — the brackets are pure
-	// surface syntax, carrying no separate meaning. Property access on a null base
-	// yields null (optional-chaining semantics), so a missing field is never a
-	// hard error.
+	// MemberNode is property access: a.b, or a["b"] when the key is not spellable as an
+	// identifier. Both forms parse here — the brackets are pure surface syntax. Access on a
+	// null base yields null (optional chaining), so a missing field is never a hard error.
 	MemberNode struct {
 		Base Node
 		Name string
@@ -65,12 +59,9 @@ type (
 		Index int
 	}
 
-	// KeyNode is computed access, a[expr] — the key is an expression rather than a
-	// literal. It is accepted only where the answer does not depend on which key is
-	// read: an array (every element has the type of `items`) or a map that declares
-	// only additionalProperties. An object with declared properties is rejected,
-	// since there the type genuinely varies per key. Inference enforces that; the
-	// grammar admits the form against any base.
+	// KeyNode is computed access, a[expr]. Accepted only where the answer cannot depend on
+	// which key is read: an array, or a map declaring only additionalProperties. Objects with
+	// declared properties are rejected by inference; the grammar admits the form anywhere.
 	KeyNode struct {
 		Base Node
 		Key  Node

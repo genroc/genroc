@@ -7,21 +7,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// IsSubsetAbsentAsNull and FillAbsentAsNull are a pair: the first decides a gap between two
-// versions is closable, the second closes it. Their agreement is the whole basis for calling
-// such a pair upgradable — not that the two shapes are the same, but that we know how to
-// move data from one to the other.
-//
-// So the tests are organised around that claim rather than around the two functions:
-//
-//	gaps       — pairs the strict relation refuses and this one accepts, asserted in BOTH
-//	             directions and end to end through a strict conform.
-//	refusals   — pairs that must stay refused, because nothing could close them.
-//	fill cases — what the fill does to a value alone, including what must leave it untouched.
-//	properties — what must hold across every schema in the file at once.
-//
-// A drift between the two halves is the failure that matters: a relation tolerating more
-// than the fill can close promises an upgrade that then fails to conform.
+// IsSubsetAbsentAsNull and FillAbsentAsNull are a pair — one decides a gap is closable, the
+// other closes it — so the tests are organised around that claim (gaps, refusals, fill cases,
+// properties). A relation tolerating more than the fill can close promises a failing upgrade.
 
 func mustSchema(t *testing.T, src string) schema.Schema {
 	t.Helper()

@@ -130,14 +130,9 @@ func assertParseError(t *testing.T, src, want string) {
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Literal node assertions
-// -----------------------------------------------------------------------------
-//
-// dump renders FloatNode with %g, so `1e3` and `1.` both print as "1" and a
-// dump-only assertion would not notice an IntNode/FloatNode mixup — inference
-// reports "integer" and "number" as different types, so the distinction is
-// load-bearing. These helpers assert the node type as well as the value.
+// Literal node assertions. dump renders FloatNode with %g, so `1e3` and `1.` both print as "1"
+// and a dump-only assertion would miss an IntNode/FloatNode mixup — inference reports integer
+// and number as different types, so these assert the node type too.
 
 // assertIntLiteral checks the normalised decimal text of an integer literal.
 // Text rather than a Go int: literals are arbitrary precision, so there is no

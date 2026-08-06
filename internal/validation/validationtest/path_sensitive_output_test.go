@@ -5,14 +5,9 @@ import (
 	"testing"
 )
 
-// The process output expression is typed once per TERMINAL PATH and the results joined,
-// instead of once against a context that has already intersected the paths' must-sets.
-//
-// The intersection is what used to lose the correlation: two task outputs that between
-// them cover every way of ending both came out merely "optional", so
-// `outputs.a.v ?? outputs.b.v` was nullable even though exactly one of them is always set.
-// Per terminal each side is either its real type or null, `??` resolves as it does at
-// runtime, and the join is non-null.
+// The process output is typed once per TERMINAL PATH and joined, not once against a context that
+// already intersected the must-sets — the intersection is what lost the correlation, so
+// `outputs.a.v ?? outputs.b.v` was nullable even though exactly one is always set.
 
 // twoWayDef is the canonical shape: `a` succeeds and ends, or routes to `b` on error and
 // `b` ends. Exactly one of the two outputs exists at the boundary, never both, never

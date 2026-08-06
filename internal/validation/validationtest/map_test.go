@@ -102,16 +102,9 @@ func TestGenerateMap_FetchBodyFromMapAndObjectLiterals(t *testing.T) {
 	}`)
 }
 
-// Regression: this test found a real bug and now pins the fix. resolveURL
-// renders the url with fmt.Sprintf("%v", val), so an array-valued url used to
-// go out as "[a b c]" at runtime — checkNonNullTemplate only rejected a
-// *nullable* result and never checked the value could be a URL at all. It now
-// also rejects a result that is certainly an array or object.
-//
-// Not map-specific: a bare "$: input.rows" (array) or "$: input.obj"
-// (object) took the same path. The mixed form "http://x/${ input.rows }" was
-// always rejected (template.InferType guards stringification), so only the
-// single-expression form escaped — and map is the easiest way to produce one.
+// Regression: resolveURL renders with %v, so an array-valued url went out as "[a b c]" —
+// checkNonNullTemplate only rejected a NULLABLE result. Not map-specific (a bare "$: input.rows"
+// took the same path); only the single-expression form escaped, and map is the easiest producer.
 func TestGenerateMap_FetchURLFromMapRejected(t *testing.T) {
 	got := mapGenerateErr(t, mapRowsFetchDef("map-url",
 		`{"type": "fetch", "url": "$: map(input.rows, r => r.code)"}`),
@@ -325,11 +318,9 @@ func TestGenerateMap_UnknownFieldInLambdaBodyRejected(t *testing.T) {
 	mapErrMentions(t, got, `task "push" body`, "attribute the failure to the task and the body position")
 }
 
-// The next three tests cover error attribution across structurally different
-// failure positions. A definition has many tasks and many expressions; an error
-// that does not name the task is unusable, and buildInputs is the layer that
-// adds the task id. Each definition starts with a healthy "prepare" task, so a
-// message naming the *second* task is the only acceptable one.
+// The next three cover error attribution across structurally different failure positions: an
+// error that does not name the task is unusable. Each definition starts with a healthy
+// "prepare" task, so a message naming the SECOND task is the only acceptable one.
 
 func TestGenerateMap_ErrorNamesTask_OverPosition(t *testing.T) {
 	got := mapGenerateErr(t, mapDef("map-attr-over", mapNullableRowsInput,
@@ -355,16 +346,9 @@ func TestGenerateMap_ErrorNamesTask_SwitchPosition(t *testing.T) {
 	mapErrMentions(t, got, `task "route" switch case`, "name the task and the switch position")
 }
 
-// Regression: this test found an error-attribution gap (not map-specific) and
-// now pins the fix. Every other expression position prefixes its error with the
-// task id because buildInputs adds it, but an output map is inferred in phase 1
-// by inferOutputs, which used the bare label "output" — so the message read
-//
-//	output.skus: field "nope" not found in schema
-//
-// with nothing identifying which of a process's tasks was broken, and every
-// output-map task in the definition produced the identical prefix. inferOutputs
-// now labels with `task "<id>" output`.
+// Regression (not map-specific): every other expression position gets its task id from
+// buildInputs, but an output map is inferred in phase 1 by inferOutputs, which used the bare
+// label "output" — so every output-map task in a definition produced the identical prefix.
 func TestGenerateMap_OutputMapErrorNamesTask(t *testing.T) {
 	got := mapGenerateErr(t, mapRowsDef("map-attr-output",
 		mapPrepareTask+`,

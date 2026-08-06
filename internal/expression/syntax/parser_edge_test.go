@@ -4,13 +4,9 @@ import (
 	"testing"
 )
 
-// Edge-case coverage for the grammar only: what it accepts, what it rejects, and
-// whether a rejection points the author at the right character. Evaluation and
-// inference are covered elsewhere; nothing here builds an env or a Schema.
-//
-// Each table is a homogeneous sweep — one assertion applied to many inputs — so
-// every row is a named subtest and runs on its own with
-// `go test -run 'TestEdgeX/row_name'`. Shared assertions live in helpers_test.go.
+// Grammar only: what it accepts, what it rejects, and whether a rejection points at the right
+// character. Each table is a homogeneous sweep with named subtests, so a row runs alone via
+// -run 'TestEdgeX/row_name'.
 
 // -----------------------------------------------------------------------------
 // Numbers
@@ -117,22 +113,9 @@ func TestEdgeNumberLiteralOverflow(t *testing.T) {
 	assertParseError(t, `1e1000000000`, `invalid number`)
 }
 
-// Regression: a zero-padded decimal is base 10, not octal. This test found a
-// real bug and now pins the fix.
-//
-// parseInt used strconv.ParseInt(s, 0, 64). Base 0 infers the radix from the
-// prefix, and Go's base-0 rules honour C's legacy leading-zero octal — but the
-// lexer's decimal branch has no prefix, and expr-lang parses it as base 10. So a
-// zero-padded decimal silently diverged from expr-lang, breaking the package
-// doc's promise that number rules stay identical to it:
-//
-//	017    was 15, expr-lang 17     <- silently wrong value, no error at all
-//	a[010] was index 8, expr-lang 10 <- same bug on the index path
-//	08     was rejected "out of range"; expr-lang reads 8
-//
-// The `08` message was doubly wrong: 8 is nowhere near out of range, it is just
-// not an octal digit. parseInt now uses base 10 unless the literal carries an
-// 0x/0b/0o prefix (see parser.go; isIntLiteral distinguishes exactly those).
+// Regression: a zero-padded decimal is base 10, not octal. parseInt used base 0, which honours
+// C's leading-zero rule, so `017` was 15 where expr-lang gives 17 — silently wrong, no error —
+// and `08` was rejected as "out of range". Now base 10 unless 0x/0b/0o.
 func TestEdgeLeadingZeroIntegerIsDecimal(t *testing.T) {
 	cases := []parseCase{
 		{"octal_digits", `017`, `17`},
@@ -146,12 +129,8 @@ func TestEdgeLeadingZeroIntegerIsDecimal(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Strings
-// -----------------------------------------------------------------------------
-//
-// StringNode holds the already-unescaped value, so a regression in which quote
-// form reaches which unescaper would show up as a literal backslash in output.
+// Strings. StringNode holds the already-unescaped value, so a regression in which quote form
+// reaches which unescaper shows up as a literal backslash in output.
 
 func TestEdgeDoubleQuotedEscapes(t *testing.T) {
 	cases := []parseCase{
@@ -481,34 +460,9 @@ func TestEdgeLambdaMustBeSecondArgument(t *testing.T) {
 	}
 }
 
-// A lambda is only meaningful as a builtin's lambda argument — the design doc
-// says so ("lambda ... only as a `map` argument"), and both consumers assert it:
-//
-//	internal/expression/eval.go:107   "The parser only accepts a lambda in a
-//	                                   builtin's lambda argument, so this is
-//	                                   unreachable from parsed source."
-//	internal/schema/infer.go:224      same ErrUnsupported fallback
-//
-// Regression: a lambda is valid only in a builtin's callback slot. This test
-// found a real bug and now pins the fix.
-//
-// parsePrimary used to build a LambdaNode wherever an identifier (or a
-// parenthesised parameter list) was followed by `=>`, and only parseCall checked
-// position — for the arguments of a *known* builtin. So a lambda anywhere else
-// sailed through:
-//
-//	x => 1              parsed as (\x -> 1)
-//	[x => 1]            parsed as [(\x -> 1)]
-//	{a: x => 1}         parsed as {a:(\x -> 1)}
-//	map(x => x, y => y) parsed — argument 2 is a lambda, so the check passed and
-//	                    argument 1 was never examined
-//
-// The author then got a downstream ErrUnsupported with no source quote and no
-// caret, instead of the parse error this package exists to produce — and the
-// "unreachable from parsed source" comments in eval.go and infer.go were false.
-// The parser now grants lambda permission only in the lambdaArg slot, consumed
-// by parsePrimary so it cannot leak into nested expressions; those comments are
-// true again.
+// Regression: a lambda parsed anywhere (`[x => 1]`, `map(x => x, y => y)`), so the author got a
+// downstream ErrUnsupported with no caret and eval.go's "unreachable from parsed source"
+// comments were false. Permission is now granted only in the lambdaArg slot.
 func TestEdgeLambdaOnlyValidInCallbackSlot(t *testing.T) {
 	cases := []struct{ name, in string }{
 		{"bare", `x => 1`},
@@ -574,14 +528,9 @@ func TestEdgePostfixErrors(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Precedence and associativity
-// -----------------------------------------------------------------------------
-//
-// Every case here would still "work" under a wrong grouping for some inputs, so
-// the tree shape is asserted exactly. `1-2-3` is the canonical one: right
-// association gives 2 instead of -4, and precedence climbing gets it wrong if the
-// recursive call is made with prec rather than prec+1.
+// Precedence and associativity. Every case would still "work" under a wrong grouping for some
+// inputs, so the tree shape is asserted exactly. `1-2-3` is canonical: right association gives
+// 2 instead of -4.
 
 // Left associativity of the non-commutative operators.
 func TestEdgeLeftAssociativity(t *testing.T) {
@@ -695,14 +644,9 @@ func TestEdgeParenthesesOverridePrecedence(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
-// ?? rules
-// -----------------------------------------------------------------------------
-//
-// `??` deliberately mirrors expr-lang: precedence 500 (above arithmetic) plus a
-// hard ban on mixing it with another operator in the same parseBinary frame.
-// The asymmetry is the point — `a + b ?? c` is legal because the `??` is parsed
-// inside the recursive call for `+`'s right operand, where prevOp is still empty.
+// ?? rules — precedence 500 plus a ban on mixing with another operator in the same parseBinary
+// frame. The asymmetry is the point: `a + b ?? c` is legal because the ?? parses inside the
+// recursive call for +'s right operand, where prevOp is still empty.
 
 func TestEdgeCoalesceIsLeftAssociative(t *testing.T) {
 	assertParses(t, `a ?? b ?? c ?? d`, `(?? (?? (?? a b) c) d)`)
@@ -796,12 +740,8 @@ func TestEdgeCoalesceMixingRejected(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Rejected spellings
-// -----------------------------------------------------------------------------
-//
-// Constructs a user might reasonably try, mostly because expr-lang or JavaScript
-// has them. Each must fail; the ones with a genroc equivalent must name it.
+// Rejected spellings a user might reasonably try, mostly because expr-lang or JavaScript has
+// them. Each must fail; the ones with a genroc equivalent must name it.
 
 // expr-lang predicate syntax, in every position it could appear.
 func TestEdgeRejectsPredicateSyntax(t *testing.T) {

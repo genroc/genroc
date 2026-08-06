@@ -35,18 +35,14 @@ type keyCol struct {
 	kind colKind
 }
 
-// sortMode is the ordered column list for one named sort. The columns together
-// must be UNIQUE (the last is the tiebreaker) so the keyset cursor never skips or
-// repeats a row. Direction applies uniformly to all columns, keeping the cursor
-// predicate a simple OR-chain — no mixed ASC/DESC (which row-value tuples can't
-// express on SQLite). Every column should be index-backed so the seek stays cheap.
+// sortMode is the ordered column list for one named sort. The columns must together be
+// UNIQUE (the last is the tiebreaker) or the keyset skips/repeats rows; direction applies
+// uniformly, keeping the predicate an OR-chain (SQLite has no row-value tuples).
 type sortMode []keyCol
 
-// paginator is the configure-once policy for one listing: where to read, what to
-// select, the sortable (index-backed) and filterable column whitelists, and
-// defaults. baseWhere is an optional TRUSTED constant predicate (no placeholders)
-// always ANDed in — e.g. a literal an engine needs for partial-index matching.
-// Declare instances as package vars next to the wrapper that uses them.
+// paginator is the configure-once policy for one listing: table, projection, the
+// index-backed sortable and filterable whitelists, defaults. baseWhere is a TRUSTED
+// constant predicate (no placeholders) always ANDed in — e.g. for partial-index matching.
 type paginator struct {
 	table      string // FROM clause (trusted constant), e.g. "process_instances"
 	columns    string // SELECT list (trusted constant)

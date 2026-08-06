@@ -10,19 +10,9 @@ import (
 	"genroc/internal/expression/syntax"
 )
 
-// Runtime-evaluation edge cases. Parse errors and type inference are covered
-// elsewhere; everything here goes through expression.Eval with a hand-built
-// context, which is also how a stale definition or an externalized output can
-// reach the evaluator with a shape inference never approved.
-//
-// Wherever the expression is translatable, the result is cross-checked against
-// real expr-lang: our `x => body` is exactly expr-lang's `{let x = #; body}`
-// (see specs/map-expressions.md). The cases where we deliberately diverge
-// (optional chaining on null, division by zero, map over nulls) say so and skip
-// the oracle rather than encoding expr-lang's answer.
-//
-// The fixture (edgeEnv), the oracle, and the case runners live in
-// evalcases_test.go.
+// Runtime-evaluation edge cases through expression.Eval with a hand-built context — also how a
+// stale definition reaches the evaluator with a shape inference never approved. Results are
+// cross-checked against real expr-lang; deliberate divergences say so and skip the oracle.
 
 // ---- ?? distinguishes null from falsy ----
 
@@ -226,13 +216,9 @@ func TestEvalEdge_ArithmeticMatchesExprLang(t *testing.T) {
 	})
 }
 
-// int+int stays int; anything touching a float becomes float. Templates render
-// the result straight into JSON, so an int silently widening to float64 turns
-// `qty: 2` into `qty: 2` today and `2.0`-shaped output the moment a formatter
-// changes — and an integer-typed downstream schema rejects it.
-//
-// Arithmetic is exact base-10. The 0.1+0.2 and 1.1*1.1 cases are the ones a
-// float64 pipeline gets visibly wrong.
+// int+int stays int; anything touching a float becomes float. Templates render straight into
+// JSON, so a silent widening turns `qty: 2` into 2.0-shaped output and an integer-typed
+// downstream schema rejects it. Arithmetic is exact base-10 (0.1+0.2, 1.1*1.1).
 func TestEvalEdge_ArithmeticIsExactDecimal(t *testing.T) {
 	edgeDecimalAll(t, []edgeDecCase{
 		{"sum", `1 + 2`, "3"},
@@ -316,11 +302,9 @@ func TestEvalEdge_UnaryTypeErrors(t *testing.T) {
 	})
 }
 
-// `%` is gated statically, not dynamically: inference requires both operands to
-// have type "integer", so `7 % 2.0` is rejected at registration because 2.0 types
-// as "number". At runtime the check is value-based and 2.0 is a whole number, so
-// evaluation accepts it. The runtime being the more permissive of the two is the
-// safe direction — inference is what users actually hit.
+// `%` is gated statically, not dynamically: inference requires both operands to type as
+// integer, so `7 % 2.0` is rejected at registration while evaluation accepts it (2.0 is
+// whole). The runtime being the more permissive side is the safe direction.
 func TestEvalEdge_ModuloIsGatedByInferenceNotRuntime(t *testing.T) {
 	edgeDecimal(t, evalOK(t, `7 % 2.0`, edgeEnv), "1")
 	inferErr(t, `7 % 2.0`, ctx(t, `{"type":"object"}`), "requires integer operands")
@@ -382,13 +366,8 @@ func TestEvalEdge_EqualityAcrossTypes(t *testing.T) {
 	})
 }
 
-// Arithmetic goes through float64, so integers above 2^53 lose precision.
-// Documented rather than fixed: expr-lang's oracle answer for `9007199254740993
-// + 0` is exact, ours is not. It matters only for values that never survive a
-// JSON round trip anyway (JSON decoding already produces float64), but a
-// context populated in Go with a large int64 id would be silently corrupted.
-// Integers beyond 2^53 survive arithmetic. Under the old float64 pipeline
-// 9007199254740993 came back as …992, silently corrupting any id-sized value.
+// Integers beyond 2^53 survive arithmetic. Under the old float64 pipeline 9007199254740993
+// came back as …992, silently corrupting any id-sized value.
 func TestEvalEdge_LargeIntArithmeticIsExact(t *testing.T) {
 	edgeDecimalAll(t, []edgeDecCase{
 		{"plus_zero", `9007199254740993 + 0`, "9007199254740993"},
@@ -667,22 +646,9 @@ func TestEvalEdge_ArrayLiteralErrorPropagates(t *testing.T) {
 
 // ---- equality on containers ----
 
-// Regression: comparing two containers used to panic. This test found a real
-// defect and now pins the fix.
-//
-// equalValues (ops.go) handled number/number, string/string and bool/bool and
-// then fell back to Go's `l == r`. When both operands carried the same
-// uncomparable dynamic type — []any or map[string]any, i.e. any two arrays or
-// any two objects — that comparison panicked with "comparing uncomparable type".
-// Nothing between the poll loop and the evaluator recovers, so it took the whole
-// process down rather than failing one instance.
-//
-// Inference did not block it either: "==" was alwaysBoolean for every operand
-// type, so `$: input.a == input.b` over two lists registered cleanly and
-// panicked on the first tick. Both halves now reject the pairing — inferEquality
-// at registration and equalValues at runtime — so a structured comparison is a
-// clear error rather than a crash. This assertion stays deliberately loose
-// ("value or error, never panic") because the crash is what must never return.
+// Regression: comparing two containers used to PANIC (Go's == on matching uncomparable types),
+// taking the whole process down, and inference let it register because == was always boolean.
+// Both halves now reject it; the assertion stays loose — the crash must never return.
 func TestEvalEdge_EqualityOnContainersMustNotPanic(t *testing.T) {
 	edgeNoPanicAll(t, []edgeCase{
 		{"array_literals_equal", `[1] == [1]`},

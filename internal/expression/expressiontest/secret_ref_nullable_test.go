@@ -2,12 +2,9 @@ package expressiontest
 
 import "testing"
 
-// A $ref to a secret definition, reached through a position that wraps its result
-// nullable — a map value, an array element, an optional property. The wrap makes
-// the value present as oneOf[{$ref}, null], and a secret check that reads only the
-// wrapper's own $ref field finds nothing to follow. The value then goes out
-// unredacted, which is why every spelling below is asserted rather than a
-// representative one.
+// A $ref to a secret definition reached through a position that wraps its result nullable
+// presents as oneOf[{$ref}, null] — a check reading only the wrapper's own $ref finds nothing
+// to follow and the value goes out unredacted. Hence every spelling is asserted.
 const refSecretJSON = `{
 	"type": "object",
 	"properties": {

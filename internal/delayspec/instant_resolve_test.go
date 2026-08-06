@@ -5,12 +5,9 @@ import (
 	"time"
 )
 
-// How a pattern's next match is found, and the two ways looking for one can end badly.
-// A pattern's date is resolved by walking forward a day at a time rather than by arithmetic
-// per field, which is what keeps "the 31st" and leap days correct with no special cases —
-// and what makes termination something to test rather than assume. Its clock is the other
-// way round: computed, never walked, because a wildcarded one matches up to 86 400 times a
-// day. The last two tests here are about that half.
+// How a pattern's next match is found. The date is WALKED a day at a time (keeps "the 31st"
+// and leap days correct, makes termination worth testing); the clock is COMPUTED, never
+// walked, because a wildcarded one matches up to 86,400 times a day.
 
 // The walk must skip a month that has no such day, never land on the normalized overflow
 // date that arithmetic would produce (February 31st becoming March 3rd).
@@ -155,15 +152,9 @@ func TestInstant_RepeatedResolutionDoesNotDrift(t *testing.T) {
 	}
 }
 
-// The cascade checked against the obvious implementation it replaced: scan forward a second
-// at a time and take the first second whose wall clock matches. The predicates below are
-// written by hand rather than derived from the parse, so the two sides share nothing but
-// the spec string.
-//
-// Every case widens at least one clock field. A pattern naming a single concrete clock is
-// excluded on purpose: DST can make such a clock nonexistent, and resolveWall's documented
-// answer is to normalize forward onto a time the pattern never named — which a scan cannot
-// reproduce, and which the spring-forward test above pins instead.
+// The cascade against the obvious implementation it replaced (scan forward a second at a
+// time), with predicates written by hand so the two sides share only the spec string. Every
+// case widens a clock field — a single concrete clock can be DST-deleted (pinned above).
 func TestInstant_MatchesABruteForceScan(t *testing.T) {
 	loc := prague(t)
 	cases := []struct {
@@ -276,12 +267,9 @@ func TestInstant_ClockWildcardAcrossDSTTransitions(t *testing.T) {
 	})
 }
 
-// The reason the clock is computed rather than walked. This pattern's next match is 577
-// days out and matches every second of every one of those days: a search that stepped the
-// clock would visit ~50 million candidates to find it. The date walk visits 577.
-//
-// The bound is deliberately loose — the real figure is microseconds. It is here to fail on
-// an implementation that scans, not to police a few milliseconds either way.
+// Why the clock is computed, not walked: this pattern's next match is 577 days out and matches
+// every second of every one — a stepping search visits ~50 million candidates, the date walk
+// 577. The bound is deliberately loose; it fails a scan, not a few milliseconds.
 func TestInstant_DenseClockDoesNotSearchSecondBySecond(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	i, err := ParseInstant("*-02-29 *:*:*")

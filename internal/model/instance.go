@@ -71,11 +71,9 @@ type ProcessInstance struct {
 	ProcessName    string
 	ProcessVersion int
 
-	// Task is the id of the instance's current task — its position in the definition's
-	// ordered task list. The remaining "queue" is not stored: it is always the
-	// definition's tasks from here onward (the list is immutable and version-pinned),
-	// and a switch only ever moves this pointer — to the next task or to a goto target.
-	// An empty Task means the instance has run off the end (completed / nothing left).
+	// Task is the id of the instance's current task. The remaining queue is not stored: it is
+	// the definition's tasks from here onward (immutable and version-pinned), and a switch only
+	// moves this pointer. Empty means the instance ran off the end.
 	Task string
 
 	// ContextData is the accumulated key/value state passed between tasks.
@@ -100,13 +98,9 @@ type ProcessInstance struct {
 	WaitState  WaitState
 	Error      string
 
-	// ErrorCode is the machine-readable discriminator for every non-success outcome:
-	// the authored code for a `raise` or `panic`, and the engine's own code
-	// (http.500, pre.timeout, output.invalid, …) for a failure it detected itself.
-	// Empty on a completed instance. It is what makes failures groupable and
-	// alertable — the same information exists in Error, but only as prose.
-	// Authored codes never contain a dot and engine codes always do, so the two
-	// namespaces stay legible side by side without a discriminator column.
+	// ErrorCode is the machine-readable discriminator for every non-success outcome: an
+	// authored raise/panic code, or the engine's own. Empty when completed. Authored codes
+	// never contain a dot and engine codes always do, so the namespaces stay legible.
 	ErrorCode string
 
 	CreatedAt      time.Time
@@ -154,11 +148,9 @@ type InstanceSummary struct {
 	RetryCount     int
 	Status         Status
 	WaitState      WaitState
-	// Task is the instance's position in its definition's task list — where it is
-	// running, parked or stopped, and on a settled one where it finished. Cheap (a
-	// short string on the row) and the one piece of "where is this process" that
-	// status and wait_state cannot express between them, so unlike the JSON blobs it
-	// belongs in the light projection.
+	// Task is the instance's position in its task list — where it is running, parked, or where
+	// it finished. Cheap, and the one "where is this process" fact status and wait_state cannot
+	// express between them, so unlike the JSON blobs it belongs in the light projection.
 	Task      string
 	Error     string
 	ErrorCode string

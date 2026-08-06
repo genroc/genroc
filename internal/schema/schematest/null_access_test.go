@@ -9,10 +9,8 @@ import (
 )
 
 // Reading a property THROUGH a null is null, not an access error — matching the evaluator,
-// where member access on a missing value yields nil (which is what lets `a.x ?? b.x` fall
-// through at runtime). Path-partitioned output inference depends on it: a task output that
-// is definitely absent on a terminal is typed {"type":"null"}, and `??` can only take the
-// other arm if reading through it produces null rather than failing.
+// which is what lets `a.x ?? b.x` fall through. Path-partitioned output inference depends on
+// it: an absent-on-this-terminal output is typed null and ?? must take the other arm.
 
 func TestNullAccess_PropertyOfNullIsNull(t *testing.T) {
 	ctx := schema.Object().WithProperty("a", schema.Type("null"), true)
@@ -77,10 +75,8 @@ func TestNullAccess_UnknownTopTypeIsStillRefused(t *testing.T) {
 }
 
 // ── StripNull / HasNull symmetry ──────────────────────────────────────────────
-//
-// StripNull's contract is that HasNull is false afterwards. It used to drop only whole
-// {"type":"null"} arms, so a null living inside an arm's type list survived — and HasNull,
-// which does look inside arms, then disagreed with it.
+// StripNull's contract is that HasNull is false afterwards. It used to drop only whole null
+// arms, so a null inside an arm's type list survived and HasNull disagreed with it.
 
 func TestStripNull_RemovesNullHidingInsideAUnionArm(t *testing.T) {
 	s := schema.OneOf(schema.Type("boolean"), schema.Type("boolean").WithNull())

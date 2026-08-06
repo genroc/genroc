@@ -16,11 +16,9 @@ import (
 	"genroc/internal/shape"
 )
 
-// A panic under advance is converted into an ordinary terminal failure carrying
-// errcode.EnginePanic, rather than reaching the dispatch goroutine and taking the worker
-// down with every other instance it is advancing. These are Go tests rather than e2e
-// ones because no HTTP request provokes a panic on purpose — the trigger has to be
-// planted in stored state.
+// A panic under advance becomes a terminal EnginePanic failure instead of taking the worker
+// down with every other instance it advances. Go rather than e2e: no HTTP request provokes a
+// panic on purpose — the trigger has to be planted in stored state.
 
 func newPanicEngine(t *testing.T, name string) (*db.DB, *Engine) {
 	t.Helper()
@@ -50,11 +48,9 @@ func saveInstance(t *testing.T, database *db.DB, process string, ctxData map[str
 	return inst
 }
 
-// The primary claim: the worker survives and the instance carries the reason.
-//
-// The trigger is a nil context map on an otherwise ordinary definition — setTaskOutput
-// writes outputs into it, and writing to a nil map panics. The definition stays valid,
-// so the recovery path's own audit write works and the failure is recorded in full.
+// The primary claim: the worker survives and the instance carries the reason. The trigger is a
+// nil context map (setTaskOutput writes into it), on a definition that stays valid — so the
+// recovery path's own audit write works and the failure is recorded in full.
 func TestAdvancePanicFailsInstanceInsteadOfWorker(t *testing.T) {
 	database, e := newPanicEngine(t, "panic")
 
@@ -107,14 +103,9 @@ func TestAdvancePanicFailsInstanceInsteadOfWorker(t *testing.T) {
 	}
 }
 
-// Recording the panic can itself panic, and that must not defeat the barrier.
-//
-// This is not a hypothetical: audit resolves the instance's definition in order to
-// redact secrets from the entry it writes, so a definition malformed enough to panic
-// advance is a good bet to panic the recording too. Here the task list holds a null
-// entry — it survives registration, dereferences to nil when prepareAdvance walks the
-// list, and then dereferences again inside the audit write. The instance must still end
-// up persisted as failed with the code.
+// Recording the panic can itself panic — audit resolves the definition to redact secrets, so
+// one malformed enough to panic advance is a good bet to panic the recording. Here a null task
+// entry dereferences in both places; the instance must still persist as failed.
 func TestAdvancePanicSurvivesAPanicWhileRecordingIt(t *testing.T) {
 	database, e := newPanicEngine(t, "double_panic")
 

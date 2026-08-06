@@ -19,20 +19,15 @@ import (
 	"genroc/internal/model"
 )
 
-// TestGracefulShutdown_ReleasesLeases verifies that a clean shutdown (ctx cancel)
-// drains in-flight work and releases the worker's leases. That invariant is what
-// keeps a healthy restart quiet: a released lease (worker_id NULL) is reclaimed as
-// a clean claim, so the engine never logs a "reclaimed instance with expired lease"
-// takeover warning. Such warnings should only appear after a hard crash, where the
-// lease is left held.
+// A clean shutdown drains in-flight work and releases leases: a released lease (worker_id
+// NULL) is reclaimed as a clean claim, so a healthy restart logs no takeover warning. Those
+// belong to hard crashes, where the lease is left held.
 func TestGracefulShutdown_ReleasesLeases(t *testing.T) {
 	database := openTestDB(t)
 
-	// Signals when the task is hit, then blocks until the test releases it, so the
-	// task stays in-flight (lease held) right up to shutdown. On shutdown the engine
-	// aborts its request client-side (transport.Send returns), so the assertions run
-	// without needing the handler to unblock; we close release at the end purely so
-	// srv.Close() doesn't wait on the leaked handler goroutine.
+	// Blocks until released so the task stays in-flight (lease held) right up to shutdown. The
+	// engine aborts its request client-side, so the assertions run without the handler
+	// unblocking; release only keeps srv.Close() from waiting on the leaked goroutine.
 	hit := make(chan struct{}, 1)
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -111,18 +106,9 @@ func TestGracefulShutdown_ReleasesLeases(t *testing.T) {
 	}
 }
 
-// TestLeaseGate_RepairsInsteadOfExiting sets up the exact conditions that used to end the
-// process: renewal is not happening (the renewer is parked a minute out), the lease is
-// tiny, and a task blocks well past it, so the instance's lease expires under an advance
-// that is still running. maxConcurrent=2 leaves a free slot for the pump to re-claim it on.
-//
-// The lease gate turns that into a non-event. It notices the renewal evidence going stale
-// one poll before the lease actually dies, repairs the lease itself, and declines
-// takeovers meanwhile — so the row is never claimable, the advance is never disturbed, and
-// Run keeps pumping to a clean shutdown.
-//
-// This is also the case a wall-clock-vs-monotonic freeze detector cannot see: no clock is
-// shifted here and the host never suspends, the renewer simply is not running.
+// The exact conditions that used to end the process: renewal parked, tiny lease, a task
+// blocking past it. The gate must notice the stale evidence one poll early, repair the lease
+// and decline takeovers — and it works with no clock shift, which a freeze detector needs.
 func TestLeaseGate_RepairsInsteadOfExiting(t *testing.T) {
 	database := openTestDB(t)
 
@@ -174,15 +160,9 @@ func TestLeaseGate_RepairsInsteadOfExiting(t *testing.T) {
 	}
 }
 
-// TestLeaseGate_SurvivesFrozenHost is the sleeping-laptop case. The host is suspended
-// mid-task, which in DB terms means wall-clock time passes while nothing in this process
-// runs: the lease expires and no renewal happens, because the renewer's ticker is frozen
-// too. On wake the pump used to win the race against the renewer and re-claim the very
-// instance it was still advancing.
-//
-// Shifting the DB clock — the clock leases are stamped against — reproduces that exactly.
-// The gate must repair the lease before the claim, leaving the in-flight advance
-// undisturbed: one execution of the task, one completion, no reclaim, no shutdown.
+// The sleeping-laptop case: shifting the DB clock reproduces wall time passing while nothing
+// in-process runs. The gate must repair before the claim, leaving the in-flight advance
+// undisturbed — one execution, one completion, no reclaim.
 func TestLeaseGate_SurvivesFrozenHost(t *testing.T) {
 	database := openTestDB(t)
 
@@ -259,12 +239,9 @@ func TestLeaseGate_SurvivesFrozenHost(t *testing.T) {
 	}
 }
 
-// TestLeaseGate_SaturatedPumpDoesNotTrip guards the choice of signal. The gate reads how
-// long ago a renewal last succeeded, not how long ago the pump last claimed — because a
-// pump whose slots are all busy parks on the semaphore for as long as its slowest advance,
-// which on a claim-gap detector would look identical to a freeze. Here maxConcurrent=1 and
-// the only task blocks for a second, so the pump is parked for ten lease durations while
-// the renewer keeps ticking normally. Nothing should trip.
+// Guards the choice of signal: the gate reads the RENEWAL gap, not the claim gap. Here the
+// only task blocks for a second with maxConcurrent=1, so the pump is parked for ten lease
+// durations while the renewer ticks normally — a claim-gap detector would trip.
 func TestLeaseGate_SaturatedPumpDoesNotTrip(t *testing.T) {
 	database := openTestDB(t)
 
@@ -298,15 +275,9 @@ func TestLeaseGate_SaturatedPumpDoesNotTrip(t *testing.T) {
 	}
 }
 
-// TestLeaseGate_VerdictOutlivesTheDelayBeforeTheClaim covers what separates a gate verdict
-// from a flag: the pump decides it may take over expired leases at one instant and the
-// claim runs at another, and everything the gate knows — how stale its evidence is, and so
-// which rows are its own — was true only at the first. Nothing bounds the gap between them
-// (a stop-the-world pause, a descheduled goroutine, a slow claim ahead of this one), so the
-// verdict has to carry the instant it was decided at rather than let the claim re-derive
-// one. Here the whole lease elapses in the gap, which without that is the losing case: the
-// worker re-claims a row it is still advancing, dooming the in-flight advance's write for
-// nothing (the fence refuses it as lease_lost).
+// What separates a verdict from a flag: the gate decides at one instant and the claim runs at
+// another, with nothing bounding the gap. The verdict must carry its instant — here the whole
+// lease elapses in between, which otherwise re-claims a row still being advanced.
 func TestLeaseGate_VerdictOutlivesTheDelayBeforeTheClaim(t *testing.T) {
 	database := openTestDB(t)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -342,13 +313,9 @@ func TestLeaseGate_VerdictOutlivesTheDelayBeforeTheClaim(t *testing.T) {
 	}
 }
 
-// TestDispatch_SelfReclaim covers the backstop directly, because the gate makes it
-// unreachable end-to-end: a re-claim of an instance this worker is still advancing never
-// starts a second advance, whatever the grace verdict. The two verdicts differ only in
-// how the skip reads — an error-level capacity warning outside a grace window (renewal
-// genuinely cannot keep up), a warn-level note inside one (the worker has just
-// established it was not in a position to renew at all). Neither kills the worker: the
-// doomed advance's write is the fence's problem now, not the process's.
+// The backstop directly, since the gate makes it unreachable end to end: a re-claim never
+// starts a second advance, whatever the grace verdict. The two differ only in how the skip
+// reads (error-level capacity warning vs warn-level note); neither kills the worker.
 func TestDispatch_SelfReclaim(t *testing.T) {
 	logs := &syncBuffer{}
 	eng := New(openTestDB(t), time.Millisecond, 2, true, 0, 0, LogConfig{}, slog.New(slog.NewTextHandler(logs, nil)))

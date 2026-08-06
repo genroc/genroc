@@ -39,10 +39,8 @@ var (
 )
 
 // ---- arithmetic type mismatches ----
-//
-// InferType names the actual types in the error, so the message is actionable
-// without looking at the schema. The evalErr call confirms the runtime would
-// fail with the same expression.
+// InferType names the actual types, so the message is actionable without the schema; the
+// evalErr call confirms the runtime fails on the same expression.
 
 func TestInferError_AddIntegerToString(t *testing.T) {
 	inferErr(t, "x + 1", stringXSchema, `numeric operands, got "string" and "integer"`)
@@ -129,10 +127,8 @@ func TestInferError_NullNot(t *testing.T) {
 }
 
 // ---- ambiguous union ----
-//
-// A union schema that includes an incompatible variant is caught statically.
-// The error says "unambiguous" rather than naming types, because any variant
-// could be the runtime value.
+// A union including an incompatible variant is caught statically. The error says "unambiguous"
+// rather than naming types, because any variant could be the runtime value.
 
 func TestInferError_AmbiguousArithmetic(t *testing.T) {
 	inferErr(t, "x + 1", integerOrObjectAnyOf, "unambiguous")

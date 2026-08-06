@@ -1,10 +1,8 @@
 package dbtest
 
-// The lease fence: lease_epoch is a per-row count of grants, bumped only by
-// ClaimInstances, bound into every lease-holding write. Each test here names the
-// failure it guards (specs/lease-fencing.md, Testing §1–§3). Object-diff rollback
-// (§2.8) has no black-box detector here; it rides the same transaction as the fenced
-// writes below and the gc_chaos stress test asserts the reachability invariant.
+// The lease fence: lease_epoch is a per-row grant count, bumped only by ClaimInstances and
+// bound into every lease-holding write. Each test names the failure it guards.
+// specs/lease-fencing.md.
 
 import (
 	"context"
@@ -481,11 +479,9 @@ func TestRenewal_ScopedToHeldSet(t *testing.T) {
 	}
 }
 
-// §3.4 — the only_once evidence chain, end to end at the DB layer: a row that drops
-// off the renewal list expires on its own, KEEPS its worker_id, and the next claim
-// reports ReclaimedExpired. This is the test that fails if anyone reintroduces a
-// release that clears worker_id — the "obvious cleanup" that silently re-runs
-// only_once tasks.
+// The only_once evidence chain at the DB layer: a row dropped from the renewal list expires,
+// KEEPS its worker_id, and the next claim reports ReclaimedExpired. Fails if anyone
+// reintroduces a release that clears worker_id — the cleanup that re-runs only_once tasks.
 func TestRenewal_UnlistedRowHandsBackWithEvidence(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

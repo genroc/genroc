@@ -7,12 +7,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// Schema documents carry numbers too — in `default` and `enum`, both `any`-typed.
-// Those decoded through float64 while runtime data did not, so a schema could
-// disagree with the very values it was meant to describe. These pin the fix.
-//
-// beyondFloat64 is 2^53+1, the smallest integer float64 cannot represent;
-// neighbour is the value it collapses to.
+// Schema documents carry numbers too, in `default` and `enum` (both any-typed), which used to
+// decode through float64 while runtime data did not. beyondFloat64 is 2^53+1; neighbour is the
+// value it collapses to.
 const (
 	beyondFloat64 = "9007199254740993"
 	neighbour     = "9007199254740992"
@@ -125,10 +122,8 @@ func TestSuppliedValueOverridesDefaultExactly(t *testing.T) {
 }
 
 // --- enum ---
-//
-// An enum is a whitelist, so a rounded entry does not merely lose precision — it
-// permits the wrong value. Before the fix a whitelist declared for …993 rejected
-// …993 and accepted …992, which is the failure mode these two pin.
+// An enum is a whitelist, so a rounded entry does not merely lose precision — it permits the
+// wrong value: a whitelist declared for …993 rejected …993 and accepted …992.
 
 func TestEnumAcceptsItsOwnDeclaredValue(t *testing.T) {
 	_, err := conformValue(t,
