@@ -257,7 +257,8 @@ func TestLeaseGate_SaturatedPumpDoesNotTrip(t *testing.T) {
 	// 200ms lease renewed every 20ms — healthy — with a single slot, so the pump blocks
 	// on e.sem for the whole 1s task.
 	logs := &syncBuffer{}
-	log := slog.New(slog.NewTextHandler(logs, nil))
+	// Debug level or the assertion below has no teeth: the gate logs its trip at debug.
+	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	eng := New(database, 10*time.Millisecond, 1, true /* immediateRetries */, 200*time.Millisecond, 20*time.Millisecond, LogConfig{}, log)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

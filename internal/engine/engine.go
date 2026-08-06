@@ -189,9 +189,10 @@ func (e *Engine) leaseGate() db.Takeover {
 	}
 
 	// Once per window, not once per poll: the window is extended below while the
-	// condition persists.
+	// condition persists. Debug, not warn: a suspended laptop trips this benignly on every
+	// wake, and an unreachable DB still reports the renewal and claim failures at error.
 	if nowMs >= e.graceUntilMs {
-		e.logOnly(logEvent{Level: model.LogWarn,
+		e.logOnly(logEvent{Level: model.LogDebug,
 			Msg: "no successful lease renewal for " + stale.Round(time.Millisecond).String() +
 				"; leases this worker holds may have lapsed - renewing them and declining takeovers for " +
 				e.leaseDuration.String(),
