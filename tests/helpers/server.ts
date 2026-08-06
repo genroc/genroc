@@ -51,9 +51,14 @@ function spawnProc(
     : [];
   // Optional SQLite durability via env (used by the benchmark to compare engines at
   // matched durability, e.g. GENROC_SQLITE_SYNCHRONOUS=FULL). Ignored for Postgres.
-  const syncArgs = process.env.GENROC_SQLITE_SYNCHRONOUS
-    ? ["--sqlite-synchronous", process.env.GENROC_SQLITE_SYNCHRONOUS]
-    : [];
+  const syncArgs = [
+    ...(process.env.GENROC_SQLITE_SYNCHRONOUS
+      ? ["--sqlite-synchronous", process.env.GENROC_SQLITE_SYNCHRONOUS]
+      : []),
+    // On macOS a plain fsync(2) does not flush the drive cache, so an unset flag here
+    // makes synchronous=FULL benchmark ~20x faster than it would on real storage.
+    ...(process.env.GENROC_SQLITE_FULLFSYNC ? ["--sqlite-fullfsync"] : []),
+  ];
   return spawn(bin, [...dbArgs, "--http", `:${port}`, "--log", "error", ...pollArgs, ...concArgs, ...retryArgs, ...leaseArgs, ...poolArgs, ...syncArgs], {
     stdio: "ignore",
     // Fixed config fixtures for the config e2e test. The test's process names are

@@ -23,6 +23,7 @@ func main() {
 	pgDSN := flag.String("pg", "", "PostgreSQL DSN (e.g. postgres://user:pass@host/db). When set, --db is ignored.")
 	pgMaxOpenConns := flag.Int("pg-max-open-conns", 50, "PostgreSQL connection pool size. Size a worker fleet so workers*pg-max-open-conns stays under the server's max_connections. Ignored for SQLite.")
 	sqliteSync := flag.String("sqlite-synchronous", "FULL", "SQLite durability (PRAGMA synchronous): FULL (default; fsync every commit for full power-loss durability, matching Postgres synchronous_commit=on) or NORMAL (faster; durable across a process crash but may lose the last commits on power loss). Ignored for PostgreSQL.")
+	sqliteFullFsync := flag.Bool("sqlite-fullfsync", false, "Use F_FULLFSYNC on macOS, where plain fsync(2) returns before the drive flushes its write cache — without this, --sqlite-synchronous=FULL is not actually power-loss durable on Apple hardware. Costs ~4ms/commit on an M1. No effect on other platforms or for PostgreSQL.")
 	httpAddr := flag.String("http", ":8448", "HTTP listen address (empty to disable)")
 	tcpAddr := flag.String("tcp", "", "TCP listen address, e.g. 127.0.0.1:9090 (empty to disable)")
 	udsPath := flag.String("uds", "", "Unix socket path, e.g. /tmp/genroc.sock (empty to disable)")
@@ -57,7 +58,11 @@ func main() {
 	if *pgDSN != "" {
 		database, dbErr = db.OpenPostgres(*pgDSN, *pgMaxOpenConns)
 	} else {
-		database, dbErr = db.OpenSQLite(*dbPath, *sqliteSync)
+		var sqliteOpts []db.SQLiteOption
+		if *sqliteFullFsync {
+			sqliteOpts = append(sqliteOpts, db.WithFullFsync())
+		}
+		database, dbErr = db.OpenSQLite(*dbPath, *sqliteSync, sqliteOpts...)
 	}
 	if dbErr != nil {
 		log.Error("open database", "err", dbErr)

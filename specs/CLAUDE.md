@@ -55,6 +55,26 @@ behavior while the spec stays put, answering a different question. See
   whose break has since been fixed fails the run rather than rotting), and one live bug it is
   not about: `compat.go` renders paths with its own dot-joiner, so a task named `charge-eu`
   already prints an expression the language reads as a subtraction.
+- [durability-levels.md](durability-levels.md) — **one piece built** (`--sqlite-fullfsync`,
+  which changes no default); the rest is proposal. Move the fsync off every persist onto a
+  few boundaries, exposed as a tunable ladder (`none` → `accepted` → `only-once` →
+  `terminal` → `strict`, defaulting to `only-once`). Opens with a measurement, not a
+  design: macOS `fsync(2)` does not flush the drive cache, so **every benchmark number
+  collected on a Mac is durability-blind** — honest `synchronous=FULL` is 183 inst/s on
+  `bench-drain` against the 5,133 the same run reports today, and the 21× is the whole
+  motivation. Records why boundaries suffice (prefix durability, stated backwards so
+  correctness never depends on what commits *after* the one in question), why the set is
+  **ingress rather than egress** (losing egress costs a replay; losing ingress is a
+  permanent hang), and why `only_once` cannot be dropped from it — the durable claim is
+  the evidence `interruptedOnlyOnce` reads, so without it recovery re-runs the task
+  instead of reporting `interrupted`. Also records the engine asymmetry that reorders the
+  work: group commit is Postgres-only and costs no durability at all, capped by
+  `--pg-max-open-conns` rather than `--max-concurrent`, so the ladder is mostly a SQLite
+  feature and should land *after* the two changes that spend no guarantee. Two open
+  questions block it: whether the level is an operator flag or a per-definition field, and
+  a `lease_epoch` reuse hazard a rewind widens. Names a live bench-harness bug it is not
+  about: the failed-instance check in `tests/bench/run.ts` is unscoped, so the Postgres
+  path aborts on any database that has run the test suite.
 - [docs-site.md](docs-site.md) — the user-facing documentation site, and the only doc here
   about **tooling rather than the language**. The gap it fills is *reference*: nothing today
   says what `accepted_status` accepts or what `genctl promote` does. Draws the

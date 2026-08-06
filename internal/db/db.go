@@ -62,10 +62,15 @@ type defKey struct {
 // only at checkpoints (fast; recent commits can be lost on power loss, DB stays
 // consistent), FULL fsyncs per commit (power-loss durable, matching Postgres). The
 // genroc binary defaults its flag to FULL; OFF and EXTRA are also accepted.
-func OpenSQLite(path, synchronous string) (*DB, error) {
+// Pass WithFullFsync to make FULL mean what it says on macOS.
+func OpenSQLite(path, synchronous string, opts ...SQLiteOption) (*DB, error) {
 	sync, err := sqliteSynchronous(synchronous)
 	if err != nil {
 		return nil, err
+	}
+	var cfg sqliteConfig
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 	dsn := path + "?_journal_mode=WAL&_synchronous=" + sync + "&_foreign_keys=ON&_busy_timeout=5000"
 	sqldb, err := sql.Open("sqlite3", dsn)
@@ -73,7 +78,30 @@ func OpenSQLite(path, synchronous string) (*DB, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	sqldb.SetMaxOpenConns(1) // SQLite supports only one writer at a time.
+	if cfg.fullFsync {
+		// Both pragmas are connection state; they survive because the pool holds exactly
+		// one connection. Raising SetMaxOpenConns requires moving this to a ConnectHook.
+		for _, p := range []string{"PRAGMA fullfsync = 1", "PRAGMA checkpoint_fullfsync = 1"} {
+			if _, err := sqldb.Exec(p); err != nil {
+				sqldb.Close()
+				return nil, fmt.Errorf("%s: %w", p, err)
+			}
+		}
+	}
 	return open(sqldb, "sqlite")
+}
+
+type sqliteConfig struct{ fullFsync bool }
+
+// SQLiteOption configures OpenSQLite beyond the PRAGMA synchronous level.
+type SQLiteOption func(*sqliteConfig)
+
+// WithFullFsync issues F_FULLFSYNC instead of fsync(2) on Apple platforms, where plain
+// fsync(2) returns before the drive flushes its write cache — so synchronous=FULL alone
+// is not power-loss durable there. Costs ~4ms/commit on an M1 versus ~22us for the
+// no-op, so a benchmark without it is measuring nothing. No effect off Darwin.
+func WithFullFsync() SQLiteOption {
+	return func(c *sqliteConfig) { c.fullFsync = true }
 }
 
 // sqliteSynchronous whitelists the PRAGMA synchronous level placed on the DSN, so a
