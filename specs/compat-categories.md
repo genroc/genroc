@@ -7,8 +7,9 @@ that assigns a slot to a side, and how an operator says which side gates their b
 
 ## 0. Status
 
-**Proposal; nothing here is built.** §8 names the slice intended first. The rendering
-defect in §6 is a live bug independent of everything else and is not part of this proposal.
+**Proposal.** One piece is built: the token lexer, `internal/selector` (§4a). Everything
+else here is unimplemented, and §8 names the slice intended next. The rendering defect in §6
+is a live bug independent of everything else and is not part of this proposal.
 
 ## 1. Two questions, not one
 
@@ -91,7 +92,7 @@ one defensible: the new member appears there rather than only in behaviour.
 
     token    := [ <process> ":" [ <task> ":" ] ] <member> [ "." <path> ]
     <member> := upgrade | contract | input | output | fetch | external
-    <process>, <task> := a bare name, or ["quoted"] where it is not an identifier
+    <name>   := a bare name, or "quoted" where it holds a delimiter
 
 Reading a token left to right is reading the report inward: the process it is filed under,
 the task the issue names, the member it was grouped by, the path printed on the line.
@@ -102,7 +103,7 @@ the task the issue names, the member it was grouped by, the path printed on the 
     order_proc:charge:fetch.result          # what one task expects back from its service
     order_proc:charge:fetch.result.fee      # one field of that
     order_proc:upgrade.outputs.charge       # everything stored under one task's output
-    ["odd:name"]:["a.task"]:external.result # names that need quoting
+    "odd:name":"a.task":external.result     # names that need quoting
     order_proc:                             # every member of one process
     order_proc:charge:                      # every member of one task
 
@@ -110,9 +111,26 @@ the task the issue names, the member it was grouped by, the path printed on the 
 step — never as a string, or `outputs.a` would swallow `outputs.ab`. **Colons do not nest**:
 process and task are exact.
 
-The bracket form is the expression language's own ([internal/schema/path.go](../internal/schema/path.go)),
-and it is what makes a name containing a colon or a dot addressable — `["odd:name"]` cannot
-be mis-split, so scoping has no unspellable case.
+**The lexer is built**: `selector.Lex(s, delims...)` returns the alternating sequence
+`name, delim, name, …`, one pass over the whole flag value with `,` `:` `.` read together.
+It reads the sequence and judges none of it — every rule above is the caller's, checked
+against a vocabulary the lexer does not know.
+
+Three things it settles, each pinned by a test:
+
+- **A quote may only open a name and must close it at a delimiter.** `"a:b":c` is a name, a
+  colon and a name; `a"b"c` is refused, because one name with two spellings is something
+  every later comparison would have to know about. `\"` and `\\` are the only escapes.
+- **One pass, commas included.** Lexing the list first and each token after would refuse
+  `"odd,name":charge` — the quoted name ends at a colon the outer pass does not know — and a
+  name may hold a comma for exactly the reason it may hold a colon.
+- **A name always sits between two delimiters, empty where nothing was written.** That is
+  what leaves `order_proc:` visible as a scope with no member, and it makes the odd/even
+  positions a contract the caller reads by. An empty name reads empty however it was written,
+  so a property literally named `""` is not selectable — the only empty worth a meaning is
+  the trailing one.
+
+The syntax is deliberately **not** the expression language's accessor form (§4e).
 
 **A task segment is accepted only where the member has a task dimension** — `fetch` and
 `external`. `order_proc:charge:input` is refused rather than quietly ignored: an input
@@ -174,10 +192,12 @@ a selector, the client applies it.** Keeping the applying client-side is what le
 consumer read the JSON and gate differently without a new endpoint; moving the resolving
 server-side is simply where the schemas are.
 
-`schema.At` already navigates a dot-path against a schema and reports failure, so resolution
-is a lookup per selector rather than new machinery. Parsing a token needs `parsePath`
-exported from `internal/schema` — genctl already imports internal packages, so this is an
-export, not new public API — and matching compares step lists rather than strings.
+`schema.At` already navigates a path against a schema and reports failure, so resolution is
+a lookup per selector rather than new machinery: fold the selector's segments with
+`schema.JoinPath` — which bracket-quotes what needs it — and hand the result to `At`. Going
+through the rendering rather than comparing segment lists is what keeps the two grammars
+apart; a selector's names are strings, and only the schema side knows how a name is spelled
+as an accessor.
 
 ### 4d. Deferred
 
@@ -198,6 +218,14 @@ export, not new public API — and matching compares step lists rather than stri
   tidier until a name contains a dot, and it conflates two things that behave differently:
   scoping is exact and finite, navigation nests. Separating them by punctuation is what lets
   dots prefix-match without a process name ever being a prefix of anything.
+- **The expression language's accessor form** (`["odd:name"]`), which an earlier draft reused
+  so that one rendering served a report path and a token alike. Dropped: a selector names
+  report slots, not values — it has no indices and no computed keys, and nothing it spells is
+  evaluated — so the two grammars answer to different readers and tying them together invites
+  a token where an expression is meant. The cost is real and accepted: a report prints a path
+  in accessor form, a token spells it in selector form, and the two differ exactly where
+  quoting is needed. Aligning them means rendering the issue head as a token (§5), not
+  merging the grammars.
 - **A second command.** The two verdicts share the expensive half (one `analyze` per side)
   and the fiddly half (`--from`/`--to` resolution, channel-vs-pin selectors, the dependency
   closure, the union-of-names rule). Duplicating that to answer half a question, for an
@@ -323,8 +351,11 @@ not a feature.
   `{}` — strict, no swap, because it already runs old ⊆ new and the arrow reads old → new;
   the output contract stays `{swap: true}`, because it runs new ⊆ old while the reader is
   asking what *they* changed.
-- `cmd/genctl/commands.go` — two columns, grouped issues, `--check`/`--ignore`, the
-  not-gating line; `splitReason` is deleted rather than adapted.
+- `internal/selector` — **built**: the token lexer (§4a), and nothing else. The grammar
+  rules live with the caller that knows the vocabulary, so the member table, the delimiter
+  order and the task dimension are `cmd/genctl`'s to enforce.
+- `cmd/genctl/commands.go` — two columns, grouped issues, `--check`/`--ignore` over
+  `selector.Lex`, the not-gating line; `splitReason` is deleted rather than adapted.
 - `internal/api/handlers_compat.go` — the shape it marshals, plus selector resolution
   (§4c): it holds the analyses, so `schema.At` per path selector is a lookup it can already
   answer. It resolves and never gates — **applying the policy stays client-side**, so a CI
@@ -336,10 +367,11 @@ not a feature.
 1. **The rendering fix** (§6, last paragraph) with a weird-name fixture: a task id and a
    property that both need bracket-quoting. Independent of everything else here.
 2. **Categories**: §5's report, structured issues (§6), the strict input check beside the
-   relaxed read (§3), `--check`/`--ignore` at §4a's grammar with §4b's validation — which
-   brings the `parsePath` export and step-wise matching (§4c) with it — and the not-gating
-   line. No new comparison surface — the existing checks are re-partitioned, and
-   the fixtures whose verdicts move (§1) move because they were wrong.
+   relaxed read (§3), `--check`/`--ignore` at §4a's grammar with §4b's validation, and the
+   not-gating line. The lexer is done; what is left of the grammar is the member table and
+   the delimiter-order check, over the sequence it returns. No new comparison surface — the
+   existing checks are re-partitioned, and the fixtures whose verdicts move (§1) move because
+   they were wrong.
 3. **Action contracts**: `fetch.result_schema` and `external.result_schema` (§2), paired by
    task id. New surface, so it lands behind settled categories.
 

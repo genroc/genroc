@@ -43,7 +43,8 @@ behavior while the spec stays put, answering a different question. See
   two soundness traps that are easy to miss: `config` is re-resolved every tick (so a guard
   on it proves nothing downstream), and task outputs are overwritten on loop re-entry (so
   refinements need a dataflow kill).
-- [compat-categories.md](compat-categories.md) — `genctl compat` answers two questions and
+- [compat-categories.md](compat-categories.md) — **one piece built** (the token lexer,
+  `internal/selector`); the rest is proposal. `genctl compat` answers two questions and
   folds them into one word: can a running instance continue (rows this deployment owns),
   and does the process still honour its contracts (parties outside it). Two shipped
   fixtures report the wrong thing because of that fold, and both come right when the
