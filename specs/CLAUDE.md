@@ -27,6 +27,31 @@ behavior while the spec stays put, answering a different question. See
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the
   child-as-worker contract (idempotency, cancel, versioning).
+- [script-tasks.md](script-tasks.md) — running user TypeScript needs **no new engine
+  capability**: a script task is an `external` task whose input carries a code string, so
+  the feature is a setup experience (`create-genroc-app` scaffolds the type generator,
+  bundler, tsconfig and worker) rather than a subsystem. The sidecar tier of
+  [custom-tasks.md](custom-tasks.md) made turnkey, spending none of its no-plugins
+  guarantee — "plugin" here is an optional external component, never loaded code. genroc's
+  one addition is a generic `genctl` **import directive** (a configured binary turns a file
+  into a string, so the TS bundler is not a feature); resolution is source-level and
+  client-side, and **the server having no resolver is the security answer** — no directive
+  reaches the wire to be tricked into executing. Type checking is the importer's **exit
+  code**, not a step: `tsc` runs before the bundle is emitted, so a type error is a failed
+  import and a stored definition cannot hold code that failed to typecheck — an ordering
+  property, not an enforced rule. Records what the template owns so it does not drift into
+  the engine: types checked on the author's machine (schemas already validate both ends at
+  runtime, so types were never the safety mechanism — which keeps definition validation
+  offline), the tsconfig as sandbox, a **pinned rather than deleted**
+  clock (retries re-execute; deleting `Date` leaves the generated types asserting what the
+  runtime contradicts), and error codes split by honest retryability (a type error and a
+  throw are permanent; folding them in with evaluator faults makes the retry budget worse
+  than useless). Defers the `process_objects` work until bundles carry libraries — two
+  blockers that are one change: definition-embedded values are never externalized, and
+  ownership is `(instance_id, hash)` with instance-scoped GC, so code outlives its object;
+  routing definition values through the store puts the object under the definition version,
+  which *is* the retention rule. Constrained by migration 018's serving rule (unredacted
+  context-only objects are never served).
 - [literal-types.md](literal-types.md) — infer `"sent"` as `enum: [sent]` rather than
   `string`. Prerequisite for discriminated unions, and it catches provably-false comparisons.
   The feature is not the 4-line production change but the **enum-aware canonicalization** it
