@@ -1,0 +1,88 @@
+# `model.WaitState` names the states an instance can be sitting IN: `external` (parked on a
+# submitted result), `waiting` and `collecting` (children in flight). A `delay` is none of
+# them — it is WaitStateNone with a `wake_at` — but it holds a live instance just the same,
+# and that timer was computed under the old definition.
+#
+# Different failures, one rule: an action type may not change under an instance sitting in
+# it. Every task below changes type and every one of them holds something:
+#
+#   waiting    child      → fetch        children in flight reporting to a task that is
+#                                        no longer a child
+#   collecting child_map  → child_list   version-compatibility.md §2's own example: the
+#                                        children carry spawn keys the new type cannot read
+#   external   external   → fetch        a result will be submitted against a fetch
+#   timer      delay      → fetch        the instance wakes into an action that never
+#                                        asked to be woken
+#
+# `entry` is the control: a fetch holds nothing, so an instance at that task has not started
+# and the new action simply runs. Its output shape is compared like any other.
+apply:
+  - channel: holds_a
+    definitions:
+      - name: holds_kid
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/kid}
+            switch: end
+        output: {done: '$: true'}
+      - name: holds_proc
+        tasks:
+          - id: waiting
+            action: {type: child, name: holds_kid}
+            switch: next
+          - id: collecting
+            action: {type: child_map, children: {a: {name: holds_kid}}}
+            switch: next
+          - id: external
+            action: {type: external}
+            switch: next
+          - id: timer
+            action: {type: delay, for: 1h}
+            switch: next
+          - id: entry
+            action: {type: fetch, url: http://x/entry}
+            switch: end
+  - channel: holds_b
+    definitions:
+      - name: holds_kid
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/kid}
+            switch: end
+        output: {done: '$: true'}
+      - name: holds_proc
+        tasks:
+          - id: waiting
+            action: {type: fetch, url: http://x/w}
+            switch: next
+          - id: collecting
+            action: {type: child_list, name: holds_kid, over: '$: [1, 2]'}
+            switch: next
+          - id: external
+            action: {type: fetch, url: http://x/e}
+            switch: next
+          - id: timer
+            action: {type: fetch, url: http://x/t}
+            switch: next
+          - id: entry
+            action: {type: external}
+            switch: end
+run: [--from, holds_a, --to, holds_b]
+
+expect: |
+  PROCESS     UPGRADE          CONTRACT
+  holds_kid   nothing changed  nothing changed
+  holds_proc  breaking         compatible
+
+  holds_proc v1 → v2
+    waiting:action.type     (breaking upgrade)
+      child → fetch; an instance sitting there was left by an action the new type cannot take over from
+    collecting:action.type  (breaking upgrade)
+      child_map → child_list; an instance sitting there was left by an action the new type cannot take over from
+    external:action.type    (breaking upgrade)
+      external → fetch; an instance sitting there was left by an action the new type cannot take over from
+    timer:action.type       (breaking upgrade)
+      delay → fetch; an instance sitting there was left by an action the new type cannot take over from
+    entry:action.type       (not judged)
+
+  exit 1

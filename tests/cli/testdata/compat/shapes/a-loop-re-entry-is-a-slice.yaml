@@ -1,0 +1,62 @@
+# The check slices the process into every state that can be PERSISTED and picked up again,
+# and asks whether each still fits. A looping task is the slice that is easy to forget: on
+# re-entry the row already holds this task's OWN prior output, which `self.previous` reads —
+# so `outputs.poll` is in poll's own entry context, optional, because the first iteration
+# does not have it.
+#
+# Here the new version's poll output gains a required field. An instance parked at poll on
+# its second lap holds the old shape, and the new definition's own `self.previous` read
+# expects the new one. That is a break at poll, and it is only visible because the task's
+# context includes itself.
+apply:
+  - channel: loopslice_a
+    definitions:
+      - name: loopslice_proc
+        tasks:
+          - id: poll
+            action:
+              type: fetch
+              url: http://x/poll
+              result_schema: {type: object, properties: {done: {type: boolean}}, required: [done]}
+            output:
+              tries: '$: (self.previous.tries ?? 0) + 1'
+              done: '$: self.result.done'
+            switch:
+              - {case: 'self.output.done == true', goto: $fin}
+              - {goto: $poll}
+          - id: fin
+            action: {type: fetch, url: http://x/fin}
+            switch: end
+  - channel: loopslice_b
+    definitions:
+      - name: loopslice_proc
+        tasks:
+          - id: poll
+            action:
+              type: fetch
+              url: http://x/poll
+              result_schema: {type: object, properties: {done: {type: boolean}, at: {type: string}}, required: [done, at]}
+            output:
+              tries: '$: (self.previous.tries ?? 0) + 1'
+              done: '$: self.result.done'
+              at: '$: self.result.at'
+            switch:
+              - {case: 'self.output.done == true', goto: $fin}
+              - {goto: $poll}
+          - id: fin
+            action: {type: fetch, url: http://x/fin}
+            switch: end
+run: [--from, loopslice_a, --to, loopslice_b]
+
+expect: |
+  PROCESS         UPGRADE   CONTRACT
+  loopslice_proc  breaking  breaking
+
+  loopslice_proc v1 → v2
+    poll               (breaking upgrade)
+      outputs.poll.at: newly required field
+    poll:fetch.result  (breaking contract)
+      at: newly required field
+    poll:output        (ok)
+
+  exit 1

@@ -299,18 +299,18 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 			add(MemberUpgrade, t.ID, t.ID, reason)
 		}
 		if typeChanged(t, nt) {
-			// An instance can only be MID-task on an action that parks, and that state — a
-			// submitted result, or children in flight — belongs to the old action type. No
-			// schema relation describes handing it to a different one, so it is checked
-			// directly (version-compatibility.md §2, which refuses the same move at the gate).
+			// An action type may not change under an instance that is SITTING in it: the
+			// state it left — a submitted result, children in flight, or a timer — belongs to
+			// the old action, and no schema relation describes handing it over. Checked
+			// directly (version-compatibility.md §2 refuses the same move at the gate).
 			//
-			// Where the old type cannot park, any instance at this task is at ENTRY and the
+			// Where the old type holds nothing, any instance at this task is at ENTRY and the
 			// new action simply runs: the output shapes are compared like any other, and a
 			// type change alone breaks nothing.
-			if parksMidTask(actionTypeOf(t)) {
+			if holdsAnInstance(actionTypeOf(t)) {
 				out = append(out, Issue{
 					Member: MemberUpgrade, Address: t.ID + ":action.type", Task: t.ID, Gating: true,
-					Message: fmt.Sprintf("%s → %s; an instance parked there holds state the new type cannot describe",
+					Message: fmt.Sprintf("%s → %s; an instance sitting there was left by an action the new type cannot take over from",
 						actionTypeOf(t), actionTypeOf(nt)),
 				})
 			}

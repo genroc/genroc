@@ -171,12 +171,23 @@ func taskSlotAffects(slot, actionType string) []Member {
 	return affects
 }
 
+// parksMidTask reports whether this action leaves a VALUE the entry context does not
+// describe — a submitted result, or children's outputs to collect. It decides whether a
+// result schema is an upgrade concern and not only a contract one.
+//
+// Derived from model.ActionType.Holds rather than restated: the engine, this comparison and
+// a future replay all need the same answer about what an action leaves behind, and three
+// copies of it drift silently.
 func parksMidTask(actionType string) bool {
-	switch model.ActionType(actionType) {
-	case model.ActionTypeExternal, model.ActionTypeChild, model.ActionTypeChildMap, model.ActionTypeChildList:
-		return true
-	}
-	return false
+	return model.ActionType(actionType).Holds().Result
+}
+
+// holdsAnInstance is the wider question: can an instance be SITTING in this action at all?
+// It is true for a delay too, which holds a live instance and no data — the timer was
+// computed under the old definition, so a task that stops being a delay wakes an instance
+// into an action that never asked to be woken.
+func holdsAnInstance(actionType string) bool {
+	return model.ActionType(actionType).Holds().Anything()
 }
 
 func actionTypeOf(t *model.Task) string {

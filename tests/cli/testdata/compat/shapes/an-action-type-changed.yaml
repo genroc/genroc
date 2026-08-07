@@ -58,7 +58,7 @@ expect: |
 
   typeswap_proc v1 → v2
     wait:action.type  (breaking upgrade)
-      external → fetch; an instance parked there holds state the new type cannot describe
+      external → fetch; an instance sitting there was left by an action the new type cannot take over from
     ask:action.type   (not judged)
 
   exit 1

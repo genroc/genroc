@@ -157,3 +157,58 @@ type InstanceSummary struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// Holds is what an action leaves persisted when it does not finish inside one advance —
+// the state an instance is SITTING in, as opposed to the entry context every task has.
+//
+// It is one declaration for a fact three places used to encode separately: the engine's
+// advance switch, the version comparison's rules about what may change under an instance,
+// and this file's own WaitState vocabulary. A replay or a time-travel debugger needs the
+// same answer — what must be stored to resume at a point — so it belongs here rather than
+// in whichever caller asked first.
+//
+// The zero value means the action runs to completion inside one advance and leaves nothing:
+// an instance at such a task is always at ENTRY.
+type Holds struct {
+	// Wait is the state the instance parks in, or WaitStateNone for an action that does not.
+	Wait WaitState
+	// Timer is true where the action leaves a wake_at the engine will claim on.
+	Timer bool
+	// Result is true where the action leaves a VALUE the entry context does not describe —
+	// a submitted external result, or children's outputs to collect. This is the half that
+	// makes a result schema part of the upgrade question and not only the contract one.
+	Result bool
+}
+
+// Anything reports whether an instance can be sitting in this action at all.
+func (h Holds) Anything() bool { return h != Holds{} }
+
+// Holds answers for one action type. Every ActionType must appear: a new one that falls
+// through to the zero value is claiming it can never hold an instance, which is the
+// dangerous direction — a version comparison would stop reporting a type change under it,
+// silently. TestHolds_EveryActionTypeIsDecided is what makes the omission loud.
+func (t ActionType) Holds() Holds {
+	switch t {
+	case ActionTypeExternal:
+		// Parks until an outside caller submits, and the result is stored on the row.
+		return Holds{Wait: WaitStateExternal, Timer: true, Result: true}
+	case ActionTypeChild, ActionTypeChildMap, ActionTypeChildList:
+		// Spawns children and waits for them; their outputs are collected afterwards.
+		return Holds{Wait: WaitStateWaiting, Result: true}
+	case ActionTypeDelay:
+		// A timer and nothing else — WaitStateNone with a wake_at. It holds a live instance
+		// without holding any data, which is why it is in some rules and not others.
+		return Holds{Timer: true}
+	case ActionTypeFetch:
+		// Request and response happen inside one advance, with nothing persisted between.
+		return Holds{}
+	}
+	return Holds{}
+}
+
+// AllActionTypes is every action type, for the tests that must enumerate them. The decoder
+// rejects anything not in this list, so a new type reaches here or it reaches nothing.
+var AllActionTypes = []ActionType{
+	ActionTypeFetch, ActionTypeChild, ActionTypeChildMap,
+	ActionTypeChildList, ActionTypeDelay, ActionTypeExternal,
+}
