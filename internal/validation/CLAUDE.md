@@ -9,12 +9,18 @@ without judging whether it would hurt. That judgement needs a position (which ta
 instance sits on, which keys its row actually holds), and belongs to the upgrade gate, which
 is **not built yet**.
 
-Two imprecisions follow from that, and neither is a bug to fix here: a branch that only
-sometimes runs makes its output merely optional, and a new main-line task carrying an
-`output` becomes required at every later task even where nothing reads it. Both corrections
-are monotone — they only turn "different" into "tolerable" — which is what makes the layering
-safe. **Nothing added here may turn a tolerable verdict into a refusal**, or a later gate
-built on top of it would be unsound while still returning a bool.
+Two imprecisions follow, and neither is a bug to fix here: a branch that only sometimes runs
+makes its output merely optional, and a new main-line task carrying an `output` becomes
+required at every later task even where nothing reads it. **Nothing added here may turn a
+tolerable verdict into a refusal**, or a later gate built on top of it would be unsound while
+still returning a bool.
+
+The second imprecision looks like it wants pruning — require only what is read from here on
+— and that was built and **reverted**. It is not monotone, it is unsound: pruning leaves the
+unread values unreconciled, so the row stops conforming to the version it now runs, and the
+NEXT comparison reasons from a premise this one falsified. Nothing fails at the hop that
+caused it. specs/compat-command.md §2f has the worked example; the rule it leaves behind is
+that **a migration reconciles the whole context or the chain is broken**.
 
 Three rules the comparison itself depends on:
 
@@ -31,31 +37,40 @@ Three rules the comparison itself depends on:
 
 ## Upgradable means the gap is closable, not that the shapes match
 
-The continuation checks use `IsSubsetAbsentAsNull`, which tolerates the new version
-requiring a property the old one did not **when that property's type admits null**. The
-justification is NOT that reads happen to be forgiving — it is that
-`Validate(data, schema.FillAbsentAsNull)` closes exactly that gap by writing the null in,
-and an upgrade runs the stored state through it. The verdict says *we know how to move this data*, which is
-a claim with something behind it.
+The upgrade checks use `IsSubsetAsStored`, which is one half of a pair —
+`Validate(data, schema.ConformToSchemaExactly)` is the other. The relation decides a gap is
+closable; the conform closes it, in both directions of the null-versus-missing distinction
+(writes the null where a required nullable is absent, removes a key whose stored null the new
+schema will not take). The verdict says *we know how to move this data*, which is a claim
+with something behind it.
 
-The two are a pair and must accept the same gaps; `schematest/absent_test.go` is what holds
-them together. **A relation that tolerates more than the fill can close is the dangerous
-direction** — it promises an upgrade that then fails to conform.
+**They must accept exactly the same gaps**, and `schematest/` holds them together:
+`absent_test.go` for the fill half, `conform_exact_test.go` for the removal half, and
+`subset_stored_test.go` for the two rules `IsSubsetAsStored` adds. A relation tolerating more
+than the conform can close is the dangerous direction — it promises an upgrade that then
+fails. Removal is narrower than it looks: only an optional declared property whose target
+dropped `null`, never one the target still holds.
 
-Which checks get it is decided by whether anything conforms the value afterwards:
+Three explainer configurations, and **the `swap` flag is the trap**:
 
-- **`readExplainer`** — the per-task contexts and the input. An instance's stored context is
-  read, and its input was conformed once at creation and never again, so the fill is the
-  only thing that ever has to touch them.
-- **`contractExplainer`** — the output contract, deliberately STRICT. Its consumers include
-  a waiting parent, which conforms the child's output against its `result_schema` at collect,
-  and nothing migrates the value on that path. Relaxing there would promise what the runtime
-  refuses.
+- **`storedExplainer`** (`{asStored: true}`) — the per-task contexts and the input. An
+  instance's stored context is read and its input was conformed once at creation, so the
+  conform is the only thing that ever touches them.
+- **the bare `explainer{}`** — the input CONTRACT and every result schema. Strict, and
+  deliberately no swap: these already run old ⊆ new, and the arrow reads old → new.
+- **`contractExplainer`** (`{swap: true}`) — the process output alone, which runs new ⊆ old.
+  Swap flips BOTH halves of the message, not just the arrow: a property super requires that
+  sub lacks is not "newly required" there, it is one the old side guaranteed and the new side
+  no longer does.
 
-Two things would break this if they land without revisiting it: conforming the input on
-upgrade (specs §10) makes the input relaxation unsound, and the gate's external-result rule
-(§4) belongs on the relaxed side, because a submitted result is read back as `self.result`
-rather than re-conformed.
+An explainer that disagrees with the relation it dispatches to reports a break with nothing
+to say about it, or the reverse — the message comes out `object → object`. Anything added to
+`IsSubset` must be added to `explain` in the same change.
+
+Two things would break the pairing if they land without revisiting it: conforming the input
+on upgrade makes the input relaxation unsound, and the gate's external-result rule belongs on
+the relaxed side, because a submitted result is read back as `self.result` rather than
+re-conformed.
 
 ## Nothing may vanish from a report, and nothing unjudged may look judged
 
@@ -84,8 +99,9 @@ down with it.
 Every row carries a `CompareStatus`, and `compared` is the only value under which the
 verdicts mean anything. `nothing_to_compare` (both sides at one version) and `new` (no
 previous version) set the verdict fields to true because there is nothing to fail — which is
-exactly why the status has to be there, and why the renderer prints dashes rather than
-"yes" for them. Neither contributes to the roll-up: a deployed channel always carries
+exactly why the status has to be there, and why the renderer repeats the status in BOTH
+columns rather than leaving one blank — an empty cell under a header reads as a question that
+went unanswered. Neither contributes to the roll-up: a deployed channel always carries
 processes a bundle does not, so counting them would report almost every real comparison
 as incompatible.
 

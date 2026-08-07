@@ -7,7 +7,7 @@ import (
 	"genroc/internal/schema"
 )
 
-// IsSubsetAbsentAsNull and FillAbsentAsNull are a pair — one decides a gap is closable, the
+// IsSubsetAbsentAsNull and ConformToSchemaExactly are a pair — one decides a gap is closable, the
 // other closes it — so the tests are organised around that claim (gaps, refusals, fill cases,
 // properties). A relation tolerating more than the fill can close promises a failing upgrade.
 
@@ -231,7 +231,7 @@ func TestAbsentAsNull_FillClosesEveryGapItAccepted(t *testing.T) {
 			if _, err := new.Validate(value); err == nil {
 				t.Fatal("the value already conforms to the new schema, so the fill is not being tested")
 			}
-			filled, err := new.Validate(value, schema.FillAbsentAsNull)
+			filled, err := new.Validate(value, schema.ConformToSchemaExactly)
 			if err != nil {
 				t.Fatalf("the fill must close the gap the relation accepted: %v", err)
 			}
@@ -371,7 +371,7 @@ func TestAbsentAsNull_BothHalvesAgreeOnWhichNamesAreFillable(t *testing.T) {
 			if old.IsSubsetAbsentAsNull(new) {
 				t.Error("the relation accepted a gap the fill cannot close")
 			}
-			if _, err := new.Validate(decodeValue(t, c.value), schema.FillAbsentAsNull); err == nil {
+			if _, err := new.Validate(decodeValue(t, c.value), schema.ConformToSchemaExactly); err == nil {
 				t.Error("the fill closed a gap the relation refuses, so the two have drifted apart")
 			}
 		})
@@ -388,7 +388,7 @@ func TestAbsentAsNull_FillWritesNullOverADeclaredDefault(t *testing.T) {
 		"b":{"type":["number","null"],"default":7}},"required":["a","b"]}`)
 	absent := decodeValue(t, `{"a":"x"}`)
 
-	filled, err := s.Validate(absent, schema.FillAbsentAsNull)
+	filled, err := s.Validate(absent, schema.ConformToSchemaExactly)
 	if err != nil {
 		t.Fatalf("the property admits null, so the gap is closable: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestAbsentAsNull_FillLeavesAcceptedValuesUntouched(t *testing.T) {
 			s := mustSchema(t, c.schema)
 			value := decodeValue(t, c.value)
 			before := valueJSON(t, value)
-			filled, err := s.Validate(value, schema.FillAbsentAsNull)
+			filled, err := s.Validate(value, schema.ConformToSchemaExactly)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -498,7 +498,7 @@ func TestAbsentAsNull_FillReportsWhatItCannotClose(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := mustSchema(t, c.schema)
-			if _, err := s.Validate(decodeValue(t, c.value), schema.FillAbsentAsNull); err == nil {
+			if _, err := s.Validate(decodeValue(t, c.value), schema.ConformToSchemaExactly); err == nil {
 				t.Fatal("the fill cannot close this, so it must say so rather than pass the value through")
 			}
 		})
@@ -508,7 +508,7 @@ func TestAbsentAsNull_FillReportsWhatItCannotClose(t *testing.T) {
 // The zero Schema constrains nothing, so a value passes through it untouched.
 func TestAbsentAsNull_FillOnTheZeroSchema(t *testing.T) {
 	var zero schema.Schema
-	got, err := zero.Validate(decodeValue(t, `{"a":1}`), schema.FillAbsentAsNull)
+	got, err := zero.Validate(decodeValue(t, `{"a":1}`), schema.ConformToSchemaExactly)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -525,7 +525,7 @@ func TestAbsentAsNull_FillPicksTheMatchingUnionVariant(t *testing.T) {
 		{"type":"object","properties":{"kind":{"type":"string","enum":["a"]},"av":{"type":["number","null"]}},"required":["kind","av"]},
 		{"type":"object","properties":{"kind":{"type":"string","enum":["b"]},"bv":{"type":["string","null"]}},"required":["kind","bv"]}]}`)
 
-	filled, err := s.Validate(decodeValue(t, `{"kind":"b"}`), schema.FillAbsentAsNull)
+	filled, err := s.Validate(decodeValue(t, `{"kind":"b"}`), schema.ConformToSchemaExactly)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -567,11 +567,11 @@ func TestAbsentAsNull_FillIsIdempotent(t *testing.T) {
 	for _, g := range gaps {
 		t.Run(g.name, func(t *testing.T) {
 			s := mustSchema(t, g.new)
-			once, err := s.Validate(decodeValue(t, g.value), schema.FillAbsentAsNull)
+			once, err := s.Validate(decodeValue(t, g.value), schema.ConformToSchemaExactly)
 			if err != nil {
 				t.Fatalf("first fill: %v", err)
 			}
-			twice, err := s.Validate(once, schema.FillAbsentAsNull)
+			twice, err := s.Validate(once, schema.ConformToSchemaExactly)
 			if err != nil {
 				t.Fatalf("second fill: %v", err)
 			}
@@ -582,14 +582,16 @@ func TestAbsentAsNull_FillIsIdempotent(t *testing.T) {
 	}
 }
 
-// Filling never removes or rewrites: every key the value carried is still there, unchanged.
-// This is what makes a migration built on it non-destructive.
-func TestAbsentAsNull_FillOnlyEverAdds(t *testing.T) {
+// Closing a FILL gap never removes or rewrites: every key the value carried is still there,
+// unchanged. Scoped to `gaps` on purpose — the mode does remove, in the one case where a
+// stored null cannot stay and absence is valid, and conform_exact_test.go owns that half.
+// None of these fixtures holds such a null, so nothing here may lose a key.
+func TestAbsentAsNull_ClosingAGapRemovesNothing(t *testing.T) {
 	for _, g := range gaps {
 		t.Run(g.name, func(t *testing.T) {
 			s := mustSchema(t, g.new)
 			value := decodeValue(t, g.value)
-			filled, err := s.Validate(value, schema.FillAbsentAsNull)
+			filled, err := s.Validate(value, schema.ConformToSchemaExactly)
 			if err != nil {
 				t.Fatalf("fill: %v", err)
 			}
@@ -634,14 +636,14 @@ func TestAbsentAsNull_FillPreservesValidity(t *testing.T) {
 	for _, g := range gaps {
 		t.Run(g.name, func(t *testing.T) {
 			s := mustSchema(t, g.new)
-			filled, err := s.Validate(decodeValue(t, g.value), schema.FillAbsentAsNull)
+			filled, err := s.Validate(decodeValue(t, g.value), schema.ConformToSchemaExactly)
 			if err != nil {
 				t.Fatalf("fill: %v", err)
 			}
 			if _, err := s.Validate(filled); err != nil {
 				t.Fatalf("filled value does not conform: %v", err)
 			}
-			refilled, err := s.Validate(filled, schema.FillAbsentAsNull)
+			refilled, err := s.Validate(filled, schema.ConformToSchemaExactly)
 			if err != nil {
 				t.Fatalf("re-filling an already-conforming value failed: %v", err)
 			}

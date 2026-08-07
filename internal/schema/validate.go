@@ -58,10 +58,25 @@ const (
 	// is rejected whatever its type, and undeclared keys are stripped.
 	Strict ConformMode = iota
 
-	// FillAbsentAsNull turns the walk into a MIGRATION — the other half of the relation of the
-	// same name; the two must accept exactly the same gaps. Vs Strict: an absent null-admitting
-	// required property is written in as null, undeclared keys are KEPT, defaults are NOT filled.
-	FillAbsentAsNull
+	// ConformToSchemaExactly turns the walk into a MIGRATION: it reconciles a stored value
+	// with a schema it was not written against, so that the result satisfies that schema.
+	// It is the other half of IsSubsetAsStored, and the two must accept exactly the same
+	// gaps — a relation tolerating more promises a migration that then fails to conform.
+	//
+	// The whole of the difference from Strict is the null-versus-missing distinction, in
+	// BOTH directions, because a version change can open the gap either way:
+	//
+	//   absent, required, admits null   → the null is written in
+	//   present null, optional, admits  → the key is REMOVED; the value cannot stay, and
+	//   no null                           the property is optional, so absence is valid
+	//
+	// Two things it deliberately does not do. **Undeclared keys are KEPT** — stripping is a
+	// conform's job at a boundary, and a stale key from a dropped task is real data nobody
+	// asked to delete. **Defaults are NOT filled**: a default filled at creation is filled
+	// before anything reads it, so every value derived from it agrees; filling one into a
+	// half-run instance disagrees with the values already computed in its absence, and
+	// nothing recomputes them (specs/compat-command.md §2d).
+	ConformToSchemaExactly
 )
 
 // conformGuard: visiting holds nodes expanded at the current value position, so a $ref
@@ -140,7 +155,7 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 			if required[name] {
 				// The one gap a migration closes: absence and null navigate the same way,
 				// so a nullable slot can be written in rather than rejected.
-				if mode == FillAbsentAsNull && hasNullResolved(prop, defs) {
+				if mode == ConformToSchemaExactly && hasNullResolved(prop, defs) {
 					out[name] = nil
 					continue
 				}
@@ -157,6 +172,13 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 				out[name] = norm
 			}
 			continue // absent optional without a default is omitted
+		}
+		// The other direction of the null-versus-missing gap. A stored null that the new
+		// schema will not hold cannot stay — but where the property is OPTIONAL, absence is
+		// valid, so removing the key reconciles the value instead of failing it. Required
+		// and non-nullable is the case nothing can fix, and it falls through to the error.
+		if mode == ConformToSchemaExactly && val == nil && !required[name] && !hasNullResolved(prop, defs) {
+			continue
 		}
 		norm, err := conformGuard(prop, defs, val, JoinPath(path, name), nil, mode)
 		if err != nil {
@@ -179,7 +201,7 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 				return nil, err
 			}
 			out[name] = norm
-		case mode == FillAbsentAsNull:
+		case mode == ConformToSchemaExactly:
 			out[name] = val
 		}
 	}

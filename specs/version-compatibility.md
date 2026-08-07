@@ -26,9 +26,11 @@ what the report calls different, never the reverse.**
 
 One of the comparison's imprecisions is refined here, and monotonically — refinement only
 turns "different" into "tolerable": branch correlation, where a joined context makes
-branch-only outputs merely optional. The other, demand, is **not** the gate's: pruning the
-required set to what is actually read belongs to the check itself (compat-command.md §2f),
-which already has a position to compute demand from — every task it compares at.
+branch-only outputs merely optional. The other, demand, is **not refined at all**:
+compat-command.md §2f records why pruning the required set to what is read is unsound, and
+the argument applies here with more force. The gate performs the migration, and a migration
+that reconciles only part of the row leaves it not conforming to the version it now runs —
+which is the premise §1 above assumes.
 
 ## 2. The boundary is entry to a task
 

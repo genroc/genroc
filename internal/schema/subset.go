@@ -41,7 +41,7 @@ func absentAsNullSubset(sub, super *node) bool {
 //   - afterConform: a property sub declares with a default is guaranteed present, because
 //     creation filled it. **This one needs no fill** — the value is in the row already — which
 //     is why it is not part of absentAsNullSubset, whose whole contract is that it tolerates
-//     exactly what Validate(v, FillAbsentAsNull) closes (schematest/absent_test.go).
+//     exactly what Validate(v, ConformToSchemaExactly) closes (schematest/absent_test.go).
 //
 // The default rule reads the SUB side as a guarantee and the SUPER side as a requirement:
 // a default on super means only that super-conformed data would have had it, so sub must
@@ -261,6 +261,7 @@ func (ctx *subsetCtx) checkObject(sub, super *node) bool {
 		if sub.Properties != nil {
 			subProps = sub.Properties
 		}
+		superReq := stringSet(super.Required)
 		for name, superProp := range super.Properties {
 			if superProp == nil {
 				continue
@@ -269,9 +270,21 @@ func (ctx *subsetCtx) checkObject(sub, super *node) bool {
 			if !exists {
 				continue
 			}
-			if !ctx.check(subProp, superProp) {
-				return false
+			if ctx.check(subProp, superProp) {
+				continue
 			}
+			// The other direction of the null-versus-missing gap, and the mirror of the rule
+			// above. Sub may hold a null here that super will not take — but where super
+			// leaves the property OPTIONAL, the migration reconciles it by REMOVING the key,
+			// so the pair still fits. Sound only if everything but the null already fits,
+			// which is what the stripped re-check asks; required is the case nothing can fix,
+			// since absence is not valid there either.
+			if ctx.afterConform && !superReq[name] &&
+				hasNullResolved(subProp, ctx.subDefs) &&
+				ctx.check(stripNull(subProp), superProp) {
+				continue
+			}
+			return false
 		}
 	}
 

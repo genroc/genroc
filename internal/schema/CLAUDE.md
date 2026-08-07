@@ -41,7 +41,8 @@ One pair deliberately bridges the two, and it is a pair:
 
 - `IsSubsetAbsentAsNull` decides a version gap is closable — super may require a nullable
   property that sub does not.
-- `Validate(data, FillAbsentAsNull)` closes it, inserting the explicit null.
+- `Validate(data, ConformToSchemaExactly)` closes it, in both directions: inserting the
+  explicit null, and removing a key whose stored null the target will not hold.
 
 The second is a **mode on Validate**, not a function beside it, and it returns
 `(any, error)` like every other conform. That matters: a migration that quietly handed back
@@ -52,9 +53,17 @@ version it was moved to.
 close promises a migration that then fails to conform; a fill that closes more is dead code.
 `schematest/absent_test.go` asserts both directions over every gap shape — nested, array
 items, open maps, `$ref`, recursive, inside a union variant — including that the filled value
-passes a STRICT conform, which is the claim the whole thing rests on. It also pins the
-properties that make a migration built on it safe: the fill is idempotent, only ever adds
-(undeclared keys included, which a conform would strip), and preserves validity.
+passes a STRICT conform, which is the claim the whole thing rests on. `conform_exact_test.go`
+does the same for the removal half. Both pin what makes a migration built on this safe:
+idempotence, undeclared keys preserved (a conform would strip them), and validity after.
+
+**Removal fires only where absence is a valid state and the null cannot stay** — an optional
+declared property whose target type dropped `null`. Not on a required one (neither state is
+valid, and the relation refuses); not on an array element (dropping shortens the array); and
+never where the target is *also* nullable, since both states are valid, there is nothing to
+reconcile, and removing would invent a canonical form the schema does not name. An open map's
+key is removable in principle, but the rule only walks declared properties — so relation and
+conform both refuse it, which is the safe direction of the pairing rather than a hole.
 
 **There is ONE walk of schema-and-value, and the fill is a mode on it** (`ConformMode` in
 `validate.go`), not a second traversal beside it. The rules about where a value lives

@@ -133,3 +133,43 @@ func TestStored_KeepsTheAbsentAsNullGaps(t *testing.T) {
 }
 
 var _ = schema.Schema{}
+
+// ── the other direction: a stored null the new schema will not hold ───────────
+
+// IsSubsetAsStored and ConformToSchemaExactly are a pair, and the pair closes the
+// null-versus-missing gap BOTH ways. This is the direction that used to be refused for want
+// of a migration that could remove a key: sub may hold a null, super will not take one, and
+// super leaves the property optional — so the conform drops it and the row fits.
+func TestStored_ANullTheNewSchemaWillNotHoldIsClosable(t *testing.T) {
+	old := mustSchema(t, `{"type":"object","properties":{"note":{"type":["string","null"]}}}`)
+	new := mustSchema(t, `{"type":"object","properties":{"note":{"type":"string"}}}`)
+
+	if !old.IsSubsetAsStored(new) {
+		t.Fatal("refused: the property is optional on the new side, so removing the key is a " +
+			"valid reconciliation — which is exactly what ConformToSchemaExactly does")
+	}
+	// The claim the relation is making, executed.
+	got, err := new.Validate(map[string]any{"note": nil}, schema.ConformToSchemaExactly)
+	if err != nil {
+		t.Fatalf("the migration could not close the gap the relation accepted: %v", err)
+	}
+	if _, present := got.(map[string]any)["note"]; present {
+		t.Error("the null was kept: it does not satisfy the new schema, and the key had to go")
+	}
+	if _, err := new.Validate(got, schema.Strict); err != nil {
+		t.Errorf("the reconciled value does not pass a strict conform: %v — that is the whole "+
+			"claim a migration rests on", err)
+	}
+}
+
+// Required is the case nothing can fix: absence is not valid there, so the null cannot be
+// removed and the type will not take it. The relation must keep refusing it.
+func TestStored_ARequiredNullThatDoesNotFitIsRefused(t *testing.T) {
+	old := mustSchema(t, `{"type":"object","properties":{"note":{"type":["string","null"]}},"required":["note"]}`)
+	new := mustSchema(t, `{"type":"object","properties":{"note":{"type":"string"}},"required":["note"]}`)
+
+	if old.IsSubsetAsStored(new) {
+		t.Error("accepted: the property is required on both sides, so a stored null can be " +
+			"neither kept nor removed — there is no reconciliation to promise")
+	}
+}

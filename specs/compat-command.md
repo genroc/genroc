@@ -17,9 +17,8 @@ rolled back; findings marked **[run]** came from running it, and three of them c
 this document as it then stood.
 
 **Order of work.** The two checks and the report land together (§2–§6): they share one
-comparison, and every fixture moves once rather than twice. Then §2f's demand pruning, which
-is monotone and so cannot invalidate what shipped before it — and which needs the same test
-rigour as the absent-as-null pair. Granular selection is deferred indefinitely.
+comparison, and every fixture moves once rather than twice. Granular selection is deferred
+indefinitely (compat-selection.md), and §2f's pruning is rejected outright.
 
 ## 1. Two checks
 
@@ -57,12 +56,12 @@ it. Checking a *different* task is wrong, not merely less precise.
 new version dropped has nowhere to continue — a set difference, checked directly, since no
 schema relation describes it.
 
-**Adding a task is not a second rule.** It breaks exactly when something from that point on
-**reads** its output. A task on a branch makes its output merely possible, so the context
-marks it nullable and §2d's tolerance closes the gap; a task on the main line makes
-`outputs.<new>` guaranteed, and a row that never passed through it can only satisfy that if
-nothing demands it — which is §2f. Until §2f lands the report is pessimistic here, calling a
-dead output a break.
+**Adding a task is not a second rule.** A task on a branch makes its output merely possible,
+so the context marks it nullable and §2d's tolerance closes the gap — "you may add an
+optional task" is that tolerance working, not an exception. A task on the **main line** makes
+`outputs.<new>` guaranteed, and a row that never passed through it cannot satisfy that: it is
+a break, and it stays one even where nothing downstream reads the output. §2f records why the
+refinement that would fix the second case is not available.
 
 ### 2c. Parked mid-task: external and children
 
@@ -87,23 +86,34 @@ The cross-document half — a child moving without its parent — is version-com
 
 ### 2d. The relation may be relaxed, because the gap is closable
 
-The upgrade side uses `IsSubsetAbsentAsNull`, which tolerates the new version requiring a
-property the old one did not **when that type admits null** — not because reads are forgiving,
-but because `Validate(data, FillAbsentAsNull)` closes exactly that gap. The two are a pair
-and must accept the same gaps; a relation tolerating more than the fill can close promises an
-upgrade that then fails to conform.
+The upgrade side is one half of a pair: `IsSubsetAsStored` decides a gap is closable and
+`Validate(data, ConformToSchemaExactly)` closes it. They must accept exactly the same gaps —
+a relation tolerating more promises an upgrade that then fails, a conform closing more is
+dead code.
 
-**The fill writes nulls and never defaults.** A default filled at creation is filled before
-anything reads it, so every `outputs.<id>` derived from it agrees with it. Filling one into a
-half-run instance does not: the stored values computed while it was absent are already
-written, and nothing recomputes them. **So a value is only ever present at upgrade because it
-was already there.** For the same reason the fill only ever adds — a downgrade leaves a stale
-`x: null` the old version ignores, and deleting a value nobody asked to delete is a worse
-failure than a refusal.
+**The gap is the null-versus-missing distinction, and a version change opens it both ways**,
+so the conform reconciles in both directions:
 
-One gap stays closed for want of a fill: a property that becomes **optional and not
-nullable** cannot hold an `x: null` an earlier upgrade wrote, and only deleting the key would
-fix it. The relation must keep refusing that pair until the fill can close it.
+| the row holds | the new schema says | reconciliation |
+|---|---|---|
+| nothing | required, admits null | the null is written in |
+| a null | optional, will not take null | the key is removed |
+
+The second row is valid only because absence is valid there. A **required** non-nullable
+property whose stored value is null can be neither kept nor removed, so the relation keeps
+refusing it — there is no reconciliation to promise. An earlier draft had the conform only
+ADD, which left the second row as a gap the relation had to refuse for want of a migration.
+
+**The conform never fills a default**, and that is not symmetry with the above. A default
+filled at creation is filled before anything reads it, so every `outputs.<id>` derived from it
+agrees with it; filling one into a half-run instance does not, because the values computed
+while it was absent are already written and nothing recomputes them. **So a value is only ever
+present at upgrade because it was already there.**
+
+**The conform is total, and that is load-bearing rather than tidy.** It runs over the whole
+context, not the part something reads, because the next comparison assumes this row conforms
+to the version it now runs (§2f). A partial reconciliation is how that premise gets
+falsified.
 
 ### 2e. One schema, two sets: before the conform and after it
 
@@ -124,7 +134,7 @@ Same schemas, same direction, two meanings — that is the whole of why the chec
 here, and it is **not** the input/output distinction, which decides direction (§3a) only.
 
 **Both sides take it as a mode, and the modes must stay in step.** `Validate` already
-distinguishes the two cases — `Strict` at creation fills defaults, `FillAbsentAsNull` at
+distinguishes the two cases — `Strict` at creation fills defaults, `ConformToSchemaExactly` at
 upgrade does not — and `IsSubset` gains the matching one: under the after-conform view,
 *guaranteed present* means **required or carrying a default**, at every depth. The schema
 package already applies that rule to reads (`lookupProperty` returns a non-nullable type for
@@ -149,29 +159,36 @@ That asymmetry is also what distinguishes this from the relaxation
 [internal/schema/CLAUDE.md](../internal/schema/CLAUDE.md) declines: there, only the super
 side carries the default and a fill would have to write it.
 
-### 2f. Demand: require only what is read
+### 2f. Rejected: requiring only what is read
 
-The context at T guarantees everything the new definition produces on the way, including
-values nothing from T onward reads. Pruning `mustNew(T)` to what is actually referenced —
-backward reachability from T over `shape.Roots()` — removes that, and it is **required, not
-an optimisation**: without it §2b's rule is not what the report says.
+**[run]** The context at T guarantees everything the new definition produces on the way,
+including values nothing from T onward reads. Requiring them is why adding a main-line task
+reads as breaking even when its output is dead. The obvious refinement — prune `mustNew(T)`
+to what is actually referenced, by backward reachability over `shape.Roots()` — was designed,
+required here, built, and **rejected**. It is unsound, and the way it fails is worth the
+space because it looks monotone.
 
-**The soundness obligation has the same shape as §2d's pair, and needs the same rigour.** The
-demanded set must be a **superset** of everything any expression reachable from T can read.
-Under-prune and the report is merely imprecise; over-prune and it promises an upgrade whose
-instance then reads a value that is not there — the same class of failure as a relation
-tolerating a gap the fill cannot close. Four constructs demand values non-obviously and each
-must be right: `AllOutputs`, `SelfPrevious`, `on_error` edges, and the process `output` at
-reachable terminals.
+**Every upgrade must leave the row conforming to the new version's schema in full.** The
+comparison only ever sees two adjacent versions, and it reasons from the premise that the old
+side's DATA satisfies the old side's SCHEMA — version-compatibility.md §1 states it as an
+assumption that registration establishes. Pruning falsifies it: the values nothing read are
+left unreconciled, so the row no longer conforms to the version it now runs.
 
-So it is tested the way the absent-as-null pair is tested. `schematest/absent_test.go` holds
-the relation and the fill together over every gap shape rather than a sample; this needs the
-equivalent — the pruned set checked against the reference set the expression machinery
-actually computes, over every construct that can reference a value.
+Nothing notices at that hop. It surfaces at the next one:
 
-**It lands last.** Pruning only turns "different" into "tolerable", so nothing shipped before
-it becomes wrong when it arrives; landing it first would mean building the precise answer
-before the two checks that consume it are settled.
+    v1  outputs.a.x : number      nothing after T reads outputs.a
+    v2  outputs.a.x : string      pruned → "upgradable", and the row keeps its number
+    v3  outputs.a.x : string      v2 ⊆ v3 → compatible, and it is — about the SCHEMAS
+
+The v2→v3 comparison is correct on its own terms and still wrong about this instance,
+because v1→v2 quietly broke the premise it rests on. A number surfaces where the type says
+string, two versions after the report that allowed it, with no run ever having reported
+anything.
+
+So the imprecision stays, and it is the honest answer: **adding a task on the main line whose
+output is guaranteed is a break**, whether or not anything downstream reads it today. A
+refinement that skips reconciliation is not a refinement. §2b says the same thing from the
+other end.
 
 ## 3. Contract: the outside world
 
@@ -400,9 +417,6 @@ change lands in no diff — the typecheck in `test-int` is what notices.
 - `internal/schema` — the after-conform mode on `IsSubset` (§2e), beside `absentAsNull`. It
   belongs here because `lookupProperty` already applies the same rule to reads, and because a
   mode reaches every depth while an operand transform reaches only the top.
-- `internal/validation` — the two checks, and §2f's demand set (backward reachability over
-  `shape.Roots()`), which lands last and is tested like the absent-as-null pair: against the
-  reference set the expression machinery computes, over every construct.
 - `internal/validation/compat.go` — the two checks. **Three explainer configurations, and the
   `swap` flag is the trap**: upgrade is `{absentAsNull: true}` plus the after-conform mode;
   the input contract is `{}` — strict, no swap, since it already runs old ⊆ new; the output

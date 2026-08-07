@@ -234,7 +234,7 @@ func (s Schema) IsSubsetAbsentAsNull(super Schema) bool {
 //
 // That extra rule needs no migration behind it, which is precisely why it is separate from
 // IsSubsetAbsentAsNull: that relation's contract is that it tolerates exactly the gaps
-// Validate(v, FillAbsentAsNull) closes, and the fill writes no defaults. Here there is
+// Validate(v, ConformToSchemaExactly) closes, and the fill writes no defaults. Here there is
 // nothing to close — the value is in the row.
 //
 // Sound only where nothing conforms the value against super afterwards. Both schemas must be
