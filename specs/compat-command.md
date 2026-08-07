@@ -91,7 +91,7 @@ handed, and says nothing about which child version hands it over.
 **`fetch` is the one that genuinely is not**, and it is the reason this is a rule about
 parking rather than a list: a request and its response happen inside one advance, with
 nothing persisted between them, so no instance can be holding a `fetch` result when the
-version changes. A `fetch.result_schema` is a contract and nothing else (§3a).
+version changes. A `fetch.result` is a contract and nothing else (§3a).
 
 ### 2d. The relation may be relaxed, because the gap is closable
 
@@ -175,11 +175,14 @@ does.
 
 | slot | submitter | relation | the conform behind it |
 |---|---|---|---|
-| process `input` | caller | old ⊆ new | `ValidateInput` at creation |
-| process `output` | us | new ⊆ old | a waiting parent's `result_schema` at collect |
-| `fetch.result_schema` | the service | old ⊆ new | collect |
-| `external.result_schema` | the worker | old ⊆ new | submit |
-| `child*.result_schema` | the child | old ⊆ new | collect |
+| `input` | caller | old ⊆ new | `ValidateInput` at creation |
+| `output` | us | new ⊆ old | a waiting parent's result schema at collect |
+| `<task>:fetch.result` | the service | old ⊆ new | collect |
+| `<task>:external.result` | the worker | old ⊆ new | submit |
+| `<task>:child*.result` | the child | old ⊆ new | collect |
+
+The left column is the address §6a reports them under: the model field is `result_schema`,
+but nothing in a report or a token spells the suffix (§6a).
 
 **A value someone else submits may only widen**: adding a required field breaks them,
 dropping one does not — we accept less than we did, and they were already sending it. **A
@@ -244,39 +247,85 @@ general form restricted to one value rather than a flag that has to be replaced 
 The fixtures assert the whole rendered report, so the rendering IS the deliverable and has
 to be decided here rather than discovered while regenerating them.
 
-    PROCESS       UPGRADE          CONTRACT
-    order_proc    upgradable       breaking (ignored)
-    child_proc    nothing changed  nothing changed
+    PROCESS     UPGRADE          CONTRACT
+    order_proc  breaking         breaking (ignored)
+    child_proc  nothing changed  nothing changed
 
     order_proc v1 → v2
-      input_schema                 (upgrade, contract)
       input                        (breaking contract)
         retries: newly required field
-      charge:fetch.result          (contract)
-      charge:action.url            (not judged)
+      settle                       (breaking upgrade)
+        outputs.charge.fee: number → string
+      charge:fetch.result          (ok)
+      charge:fetch.url             (not judged)
 
     not gating: contract — --ignore contract
-    exit 0
+    exit 1
 
-The two `input` lines are the vocabulary of §6a doing its work: the slot bears on **both**
-questions, and only one of them broke. Neither line claims the other.
+**The run was `--ignore contract` and it still exits 1**, because the upgrade break is not
+excusable (§5). The contract column carries its annotation anyway: the flag did what it was
+asked, and the exit code has another reason.
+
+Three levels, and each answers one question. The **process** and its two versions. Then **the
+schema that was compared** — `input`, the context at `settle`, `charge`'s result contract.
+Then **what `isSubset` said about it**, as a path into that schema.
+
+The phrase beside level two is the third question: something broke here; this changed, was
+checked, and did not break (`ok`); this changed and **no check covers it** (`not judged`).
+`input` carries the break rather than a second row saying it also changed — a slot with a
+break under it is already reported (§6b). Several findings at one address group under it,
+which is the other reason a path stays inside the row rather than joining the address.
 
 ### 6a. Addressing: where in the process, then which property
 
 An address says **where in the process** something is; the path inside it says **which
 property**, in the ordinary schema path the rest of the system uses:
 
-**A slot and a value are addressed in different vocabularies**, because they are different
-places — one in the definition an author edits, one in the state an instance holds. That is
-§6b's rule made spellable: nothing has to be conflated, because nothing collides.
+**Level two is the schema that was compared** — and once that is said, the slot-versus-value
+question answers itself. There are only a handful of compared schemas, and each has an
+address:
 
-    input_schema                 the caller's contract, and what a row was conformed under
-    <task>:<slot>                one slot of a task — action.url, switch, only_once
-    <task>:<action_type>.result  what a task expects back — fetch.result, external.result
-    <task>                       the task itself: added, or removed
-    input / outputs.<task> / error   the stored state, where an upgrade finding lands
-    output                       the process output — both a slot and a contract, the one
-                                 place the two vocabularies name the same thing
+    input                        the input schema — both checks read it (§3b)
+    output                       the process output schema
+    <task>                       the context at that task, which the upgrade check compares
+    <task>:<action_type>.result  a result schema — fetch.result, external.result, child.result
+
+Level three is then whatever `isSubset` reported, as a path **into that schema**. A context's
+paths start at its own roots, so they read `outputs.previous.ok` and `input.retries` in full;
+a result schema's read `fee`. Nothing is relative to anything but the schema named above it.
+
+**Change rows are addressed by slot, break rows by compared schema, and they overlap
+exactly where a slot IS one.** A slot the checks never look at can only ever be a change:
+
+    input, output                a slot and a compared schema
+    <task>:<action_type>.result  a slot and a compared schema
+    <task>:<slot>                a slot only — output, switch, on_error, timeout, only_once
+    <task>:<action_type>.<slot>  a slot only — fetch.url, fetch.headers, child.name
+    <task>                       a compared schema, and the task's own existence
+                                 (added, removed)
+
+An earlier draft addressed a slot and a value in two separate vocabularies — `input_schema`
+for what an author edits, `input` for what a row holds. The distinction does not survive a
+static check: no value is ever in hand, so both are the same schema seen at the same place.
+The `_schema` suffix is dropped everywhere.
+
+**An upgrade break is addressed at the task whose context failed**, and the same difference
+is visible at every later task — it is reported once, at the first. That is a choice about
+noise, not a claim: the earliest task an instance can be parked at and break is the useful
+one to name, and the value's own origin is already in the path (`outputs.previous.ok` says
+which task produced it).
+
+**An action's slots are addressed by the action type, not by the word `action`.** They are
+polymorphic — `url` exists only on a fetch, `name` only on a child, `for` only on a delay —
+so the type is what says which vocabulary the slot name comes from. `action.url` said nothing
+an address needs: every task has an action, and the interesting part is which kind. The
+schema-valued one drops its `_schema` suffix for the same reason — `fetch.result` names what
+the schema describes, and it is the prefix a break inside it navigates from
+(`charge:fetch.result.fee`).
+
+The slots every task has need no such prefix, because they mean the same thing on all of
+them. That is also the line between the two lists above: a slot behind an action type is one
+the action defines, and a bare slot is one the task does.
 
 **An upgrade finding is addressed by the value, never by the task that noticed.** The same
 difference surfaces at every task that can see it and is deduplicated to the first, so the
@@ -305,15 +354,35 @@ gained a required `extra` in both its `result_schema` and its `output`, the `res
 edit alone breaks nothing, and the `output` edit alone does not even validate. One line
 naming both, above a message, asserts a cause that is false for one of them.
 
-A slot row carries **the question that slot bears on**, which is a property of the slot and
-not of any comparison:
+**A changed slot gets a row only when nothing broke under it.** If something did, the break
+*is* the report that the slot moved, and a second row at the same address saying it is fine
+would contradict the first — `input (ok)` beside `input (breaking contract)` is the same class
+of mistake as an empty verdict column (§6c). So a slot row is what is left over: a difference
+the checks looked at and passed, or one they never covered.
 
-- `input_schema` → upgrade **and** contract (§3b)
+That is the whole of the phrase set:
+
+- **`(breaking upgrade)` / `(breaking contract)` / `(breaking upgrade and contract)`** — a
+  break at this address. The last where one difference fails both questions, printed once.
+- **`(ok)`** — it changed, a check covers it, and nothing broke **at this address**. It does
+  not say the change is harmless: a break it causes may be reported at another address, and
+  no comparison can prove the connection either way.
+- **`(not judged)`** — it changed and **no check covers it**. A URL repointed, an `only_once`
+  flipped, a `switch` rerouted. This is the one the changed-slot channel exists for, and the
+  only reason the category below is worth carrying at all.
+- **`(added)`** — a task the new version introduces. It never gates: nothing is running on a
+  task that did not exist.
+
+Which phrase a slot can take is decided by **the question that slot bears on**, a property of
+the slot and not of any comparison:
+
+- `input` → upgrade **and** contract (§3b)
+- the process `output` → contract (it is what a consumer reads)
 - a task's `output` → upgrade (it shapes the context every later task reads)
-- `action.result_schema` → contract, and also upgrade where the task can park (§2c)
-- everything else → **nothing**, and saying so is the point. A URL repointed, an
-  `only_once` flipped, a `secret` dropped: `isSubset` never inspects them, and this is the
-  only channel that reports them at all. They influence no verdict.
+- `<action_type>.result` → contract, and also upgrade where the task can park (§2c)
+- everything else → **nothing**, which is what `(not judged)` renders. `isSubset` never
+  inspects a URL, an `only_once` or a `switch`; this is the only channel that reports them at
+  all, and they influence no verdict.
 
 **`config_schema` is not a slot here at all** — not a verdict, not a change row, and not part
 of the document comparison that decides whether there is anything to compare. It is a runtime
@@ -330,7 +399,7 @@ operational question about one deployment rather than a question about two versi
 
 Two costs, both accepted. A `secret: true` dropped from `config_schema` is now reported
 nowhere — `shapes/accepted-hazard-secret-dropped.yaml` goes with this decision; the same drop
-in `input_schema` still surfaces as a change to that slot. And a bundle whose only edit is to
+in `input` still surfaces as a change to that slot. And a bundle whose only edit is to
 `config_schema` reads `nothing changed`, which is true of everything compat judges and false
 of the document — the process does get a new version and a different hash. If that ever
 misleads anyone, the fix is the word the status renders as, not this list.
@@ -368,10 +437,16 @@ parse no prose at all. Per process:
     {"name":"p","status":"compared","from":1,"to":2,
      "upgrade":  {"compatible":false},
      "contract": {"compatible":true},
-     "changed":[{"task":"charge","slot":"action.url","affects":[]}],
+     "changed":[{"address":"charge:fetch.url","task":"charge","affects":[]}],
      "added":["audit"],
-     "issues":[{"member":"upgrade","path":"outputs.plan.retries",
-                "message":"integer|null → integer","gating":true}]}
+     "issues":[{"member":"upgrade","address":"settle","task":"settle",
+                "path":"outputs.charge.fee","message":"number → string","gating":true}]}
+
+**`address` and `path` are separate because they answer different levels** — the address is
+the compared schema, the path is `isSubset`'s own answer about it (§6a). `task` is carried so
+a consumer can scope by one without taking an address apart. An empty `affects` is what
+renders `(not judged)`; a non-empty one renders `(ok)`, and the renderer suppresses the entry
+entirely when an issue shares its address (§6b).
 
 `compatible` / `output_compatible` disappear from the row, and so does every per-task
 nesting: a slot that changed, a task that was added and a value that broke are three flat
@@ -421,7 +496,12 @@ and not built: it lets an operator name a member, a process, a task or a field, 
 can gate on part of a contract rather than all of it. It lands when someone needs it; the
 lexer is already built, and nothing in §5 has to change when it does.
 
-Everything from here down is that design, unchanged. Read `--check`/`--ignore` as the pair
+Everything from here down is that design, unchanged — which means it **predates §6a's
+unified addressing** and has to be reconciled when it lands. One rule in particular:
+§8a refuses a task segment on `upgrade` because the task an upgrade finding carried was the
+one that *noticed* it, an artefact of ordering. §6a addresses such a finding at the task that
+*produced* the value, which is stable, so the objection no longer applies and
+`order_proc:plan:output` should become a legal scope. Read `--check`/`--ignore` as the pair
 that generalises `--ignore contract`.
 
 ### 8a. The token grammar
@@ -429,8 +509,13 @@ that generalises `--ignore contract`.
 **Colons scope, dots navigate.** A token names a member and qualifies it leftward:
 
     token    := [ <process> ":" [ <task> ":" ] ] <member> [ "." <path> ]
-    <member> := upgrade | contract | input | output | fetch | external
+    <member> := upgrade | contract | input | output | <action_type>
     <name>   := a bare name, or "quoted" where it holds a delimiter
+
+**The members are the two categories, the process-level contracts, and the action types** —
+`fetch`, `external`, `child`, `child_map`, `child_list`, `delay`, `raise`. That is the same
+vocabulary §6a addresses with, which is the point: a token is spelled the way the report
+prints, so a line can be pasted back as a scope.
 
 Reading a token left to right is reading the report inward: the process it is filed under,
 the task the issue names, the member it was grouped by, the path printed on the line.
@@ -473,8 +558,8 @@ Three things it settles, each pinned by a test:
 
 The syntax is deliberately **not** the expression language's accessor form (§8f).
 
-**A task segment is accepted only where the member has a task dimension** — `fetch` and
-`external`. `order_proc:charge:input` is refused rather than quietly ignored: an input
+**A task segment is accepted only where the member has a task dimension** — the action
+types. `order_proc:charge:input` is refused rather than quietly ignored: an input
 contract belongs to the process, and dropping the segment silently would tell an operator
 they had scoped something they had not.
 
