@@ -138,6 +138,10 @@ type CompatReq struct {
 	// Process scopes the comparison to one process and the subtree of children it
 	// reaches, so a large channel can be asked a small question.
 	Process string `json:"process,omitempty"`
+	// Ignore excuses a check from the exit code. It changes neither what is compared nor
+	// what is reported — an excused break still appears, marked — and the upgrade check
+	// cannot be excused at all. specs/compat-command.md §5.
+	Ignore []string `json:"ignore,omitempty" description:"Members excused from the exit code. Only \"contract\" is accepted: the upgrade check answers for rows this deployment already owns"`
 }
 
 // CompatResp is the whole verdict: one row per process named on either side, whatever
@@ -145,8 +149,12 @@ type CompatReq struct {
 // a process with nothing to compare, or one that is new, cannot break anything — plus any
 // version that failed its own inference.
 type CompatResp struct {
-	Compatible bool                `json:"compatible"`
-	Processes  []validation.Report `json:"processes"`
+	Compatible bool `json:"compatible"`
+	// Passes is the gated answer — the exit code as a boolean. It equals Compatible when
+	// nothing was ignored, and the two are MEANT to disagree when something was: the
+	// roll-up is what was found, Passes is what this caller asked about.
+	Passes    bool                `json:"passes" description:"False only where a gating check broke. Equals compatible when ignore is empty"`
+	Processes []validation.Report `json:"processes"`
 }
 
 type StaleRef struct {

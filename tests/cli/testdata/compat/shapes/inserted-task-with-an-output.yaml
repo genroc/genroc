@@ -41,11 +41,12 @@ apply:
 run: [--from, insert_a, --to, insert_b]
 
 expect: |
-  PROCESS      VERDICT
-  insert_proc  breaking
+  PROCESS      UPGRADE   CONTRACT
+  insert_proc  breaking  compatible
 
   insert_proc v1 → v2
-    outputs.audit:
-      newly required field
+    ship   (breaking upgrade)
+      outputs.audit: newly required field
+    audit  (added)
 
   exit 1

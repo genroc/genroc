@@ -340,9 +340,13 @@ var registry = func() []actionDef {
 				Processes: []validation.Report{{
 					Name: "order_pipeline", Status: validation.StatusCompared,
 					FromVersion: 1, ToVersion: 3,
-					Compatible: true, OutputCompatible: true,
-					Input: validation.SlotVerdict{Compatible: true},
-					Tasks: []validation.TaskVerdict{{Task: "ship", Compatible: true, Changed: []string{"action.url"}}},
+					Upgrade:  validation.Verdict{Compatible: true},
+					Contract: validation.Verdict{},
+					Changed:  []validation.SlotChange{{Address: "ship:fetch.url", Task: "ship"}},
+					Issues: []validation.Issue{{
+						Member: validation.MemberContract, Address: "output",
+						Path: "fee", Message: "number → string", Gating: true,
+					}},
 				}},
 			},
 			handle: func(h *Handlers, env Envelope) Reply {

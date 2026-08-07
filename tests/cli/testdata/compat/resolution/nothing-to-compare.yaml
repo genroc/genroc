@@ -14,7 +14,7 @@ apply:
 run: [--from, noop_proc@1, --to, noop_proc@1]
 
 expect: |
-  PROCESS    VERDICT
-  noop_proc  nothing changed
+  PROCESS    UPGRADE          CONTRACT
+  noop_proc  nothing changed  nothing changed
 
   exit 0

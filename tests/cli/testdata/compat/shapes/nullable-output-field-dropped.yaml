@@ -30,11 +30,11 @@ apply:
         output: {id: "$: outputs.fetch.id"}
 run: [--from, nullout_a, --to, nullout_b]
 expect: |
-  PROCESS       VERDICT
-  nullout_proc  breaking
+  PROCESS       UPGRADE     CONTRACT
+  nullout_proc  upgradable  breaking
 
   nullout_proc v1 → v2
-    output.note:
-      newly required field
+    output  (breaking contract)
+      note: no longer guaranteed
 
   exit 1

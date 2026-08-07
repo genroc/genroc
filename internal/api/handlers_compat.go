@@ -64,6 +64,12 @@ func (h *Handlers) definitionsCompat(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
+	// A selection the server will not take is a 400, not a fault: it is the same class as
+	// -f plus an explicit --to above, and refusing it here means a second consumer gets the
+	// same answer as the CLI.
+	if err := report.ApplySelection(req.Ignore); err != nil {
+		return invalid("%s", err).reply()
+	}
 	return okReply(compatResp(report))
 }
 
@@ -223,5 +229,5 @@ func (h *Handlers) scopeToSubtree(side resolvedSide, process string) (resolvedSi
 }
 
 func compatResp(r validation.SetReport) CompatResp {
-	return CompatResp{Compatible: r.Compatible, Processes: r.Processes}
+	return CompatResp{Compatible: r.Compatible, Passes: r.Passes, Processes: r.Processes}
 }

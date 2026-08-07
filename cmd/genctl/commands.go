@@ -1055,9 +1055,10 @@ func runCompatCmd(server string, args []string) {
 	fs.Var(&toFlag, "to", "the side to compare against: a channel, or name@version (repeatable)")
 	serverFlag := addServerFlag(fs, server)
 	jsonFlag := fs.Bool("json", false, "print the raw report")
-	allowBreakingOutput := fs.Bool("allow-breaking-output", false,
-		"treat a broken output contract as upgradable: the process output changed shape, but no "+
-			"running instance is affected. Affects the verdict and the exit code, not --json")
+	var ignore multiFlag
+	fs.Var(&ignore, "ignore", "excuse a check from the exit code: only `contract` is accepted, since the "+
+		"upgrade check answers for rows this deployment already owns. It changes neither what is "+
+		"compared nor what is printed")
 	pos := leadingArgs(fs, args)
 
 	var from, to map[string]any
@@ -1103,6 +1104,11 @@ func runCompatCmd(server string, args []string) {
 	if process != "" {
 		body["process"] = process
 	}
+	// Forwarded as written: the server owns the vocabulary and the gating, so a token the
+	// CLI pre-validated would be a second reading to keep true.
+	if len(ignore) > 0 {
+		body["ignore"] = []string(ignore)
+	}
 
 	if *jsonFlag {
 		var raw json.RawMessage
@@ -1117,11 +1123,15 @@ func runCompatCmd(server string, args []string) {
 	if err := call(*serverFlag+"/definitions/compat", http.MethodPost, body, &resp); err != nil {
 		fatal("%v", err)
 	}
-	printCompatReport(resp, *allowBreakingOutput)
+	printCompatReport(resp)
 }
 
+// The compat report as the server sends it. Nothing is parsed out of prose: a finding
+// arrives addressed, because a bracket-quoted key may contain a space and no reader can
+// split on it. specs/compat-command.md §6d.
 type compatReport struct {
 	Compatible bool            `json:"compatible"`
+	Passes     bool            `json:"passes"`
 	Processes  []compatProcess `json:"processes"`
 }
 
@@ -1133,26 +1143,36 @@ type compatProcess struct {
 	// Side and Reason are set only on an unanalysable row.
 	Side   string `json:"side"`
 	Reason string `json:"reason"`
-	// Compatible is instance continuation; OutputCompatible is the consumer contract. They
-	// run in opposite directions, which is why the server keeps them apart.
-	Compatible       bool   `json:"compatible"`
-	OutputCompatible bool   `json:"output_compatible"`
-	OutputReason     string `json:"output_reason"`
-	Input            struct {
-		Compatible bool   `json:"compatible"`
-		Reason     string `json:"reason"`
-	} `json:"input"`
-	Tasks        []compatTask `json:"tasks"`
-	RemovedTasks []string     `json:"removed_tasks"`
-	AddedTasks   []string     `json:"added_tasks"`
-	Changed      []string     `json:"changed"`
+	// Upgrade is what this deployment's own rows can survive; Contract is what the outside
+	// world was written against. Two questions, so two columns.
+	Upgrade  compatVerdict `json:"upgrade"`
+	Contract compatVerdict `json:"contract"`
+	Changed  []compatSlot  `json:"changed"`
+	Added    []string      `json:"added"`
+	Issues   []compatIssue `json:"issues"`
 }
 
-type compatTask struct {
-	Task       string   `json:"task"`
-	Compatible bool     `json:"compatible"`
-	Reason     string   `json:"reason"`
-	Changed    []string `json:"changed"`
+type compatVerdict struct {
+	Compatible bool `json:"compatible"`
+}
+
+// compatSlot is a slot the author edited. Affects is the question it bears on; empty means
+// no check covers it, which is the whole reason the channel exists.
+type compatSlot struct {
+	Address string   `json:"address"`
+	Task    string   `json:"task"`
+	Affects []string `json:"affects"`
+}
+
+// compatIssue is a value that broke: the schema that was compared, and the path isSubset
+// reported inside it.
+type compatIssue struct {
+	Member  string `json:"member"`
+	Address string `json:"address"`
+	Task    string `json:"task"`
+	Path    string `json:"path"`
+	Message string `json:"message"`
+	Gating  bool   `json:"gating"`
 }
 
 // versionLabel renders a resolved version, or "(new)" for a side carrying none — a
@@ -1164,11 +1184,12 @@ func versionLabel(v int) string {
 	return fmt.Sprintf("v%d", v)
 }
 
-// Verdicts as an operator acts on them. The server reports two (instance continuation vs
-// consumer contract — opposite directions, different questions); a table column is a
-// decision, so they fold to one word here and the detail block says what broke.
+// Verdict words. Two questions, two columns: whether the rows this deployment owns can
+// continue, and whether the process still honours what the outside world was written
+// against. Folding them into one word was the defect this replaced.
 const (
 	verdictUpgradable = "upgradable"
+	verdictCompatible = "compatible"
 	verdictUnchanged  = "nothing changed"
 	verdictBreaking   = "breaking"
 	verdictNew        = "new"
@@ -1178,145 +1199,206 @@ const (
 	verdictUnanalysable = "unanalysable"
 )
 
-// verdictOf folds one process's row. allowBreakingOutput tolerates a broken output
-// contract: the process output changed shape, but nothing running is affected, so an
-// operator who has already dealt with the consumers can say so.
-func verdictOf(p compatProcess, allowBreakingOutput bool) string {
-	switch p.Status {
-	case "nothing_to_compare":
+// A row's status, as the server spells it. Distinct from the verdict words above even where
+// the two coincide: one says whether the verdicts mean anything, the other is a verdict.
+const (
+	statusNothingToCompare = "nothing_to_compare"
+	statusNew              = "new"
+	statusUnanalysable     = "unanalysable"
+)
+
+// statusWord is what BOTH columns read for a process carrying no verdicts, and "" for one
+// that was compared. It is repeated rather than left to span, because an empty cell under a
+// header reads as a question that went unanswered — which is how the first version of this
+// table was reported as hiding a contract problem it did not have (§6c).
+func statusWord(status string) string {
+	switch status {
+	case statusNothingToCompare:
 		return verdictUnchanged
-	case "new":
+	case statusNew:
 		return verdictNew
-	case "unanalysable":
+	case statusUnanalysable:
 		return verdictUnanalysable
-	}
-	if p.Compatible && (p.OutputCompatible || allowBreakingOutput) {
-		return verdictUpgradable
-	}
-	return verdictBreaking
-}
-
-// issue is one thing that broke: where in an instance's data it shows (a context path),
-// which definition slot changed under it, and what differs.
-type issue struct {
-	path  string
-	where string
-	msg   string
-}
-
-func (i issue) String() string {
-	head := i.path
-	if head == "" {
-		head = "(whole context)"
-	}
-	if i.where != "" {
-		head += "  (" + i.where + ")"
-	}
-	return head
-}
-
-// issuesOf collects everything that broke, not just the first: a report that stops at one
-// sends the reader round the loop once per problem.
-func issuesOf(p compatProcess, allowBreakingOutput bool) []issue {
-	var out []issue
-	// One difference in the data surfaces at EVERY task that can see it, so the same line
-	// would otherwise repeat once per reader. It is a fact about the value, not about who
-	// reads it.
-	seen := map[issue]bool{}
-	add := func(reason string) {
-		if reason == "" {
-			return
-		}
-		path, msg := splitReason(reason)
-		i := issue{path: path, where: slotFor(p, path), msg: msg}
-		if seen[i] {
-			return
-		}
-		seen[i] = true
-		out = append(out, i)
-	}
-	if !p.Input.Compatible {
-		add(p.Input.Reason)
-	}
-	for _, t := range p.Tasks {
-		if !t.Compatible {
-			add(t.Reason)
-		}
-	}
-	for _, id := range p.RemovedTasks {
-		out = append(out, issue{path: "tasks." + id, msg: "removed; an instance there has nowhere to continue"})
-	}
-	if !p.OutputCompatible && !allowBreakingOutput {
-		add(p.OutputReason)
-	}
-	if p.Status == "unanalysable" {
-		out = append(out, issue{path: p.Side + " side", msg: p.Reason})
-	}
-	return out
-}
-
-// splitReason peels the leading path off a reason. A path never contains a space, which is
-// what separates "outputs.charge.amount: number → string" from a whole-context message that
-// happens to contain a colon.
-func splitReason(reason string) (path, msg string) {
-	i := strings.Index(reason, ": ")
-	if i <= 0 || strings.Contains(reason[:i], " ") {
-		return "", reason
-	}
-	return reason[:i], reason[i+2:]
-}
-
-// slotFor names the definition slot under a context path, and only where that is certain:
-// an outputs.<id> value is produced by task <id>, and input comes from input_schema.
-// A process output can be fed from several places at once, so it gets no annotation rather
-// than a guess at which one.
-func slotFor(p compatProcess, path string) string {
-	switch {
-	case strings.HasPrefix(path, "outputs."):
-		id := strings.SplitN(strings.TrimPrefix(path, "outputs."), ".", 2)[0]
-		for _, t := range p.Tasks {
-			if t.Task == id && len(t.Changed) > 0 {
-				return fmt.Sprintf("task %q, %s", id, strings.Join(t.Changed, ", "))
-			}
-		}
-	case strings.HasPrefix(path, "input"):
-		for _, slot := range p.Changed {
-			if slot == "input_schema" {
-				return slot
-			}
-		}
 	}
 	return ""
 }
 
-func printCompatReport(r compatReport, allowBreakingOutput bool) {
-	breaking := false
+// verdictWord keeps the verdict TRUE and carries the exclusion beside it: a column reading
+// `breaking` next to `exit 0` is a contradiction the reader has to resolve by hunting for
+// the not-gating line. The annotation appears only when every break in the column was
+// excused.
+func verdictWord(p compatProcess, member, sound string) string {
+	v := p.Contract
+	if member == "upgrade" {
+		v = p.Upgrade
+	}
+	switch {
+	case v.Compatible:
+		return sound
+	case gates(p, member):
+		return verdictBreaking
+	}
+	return verdictBreaking + " (ignored)"
+}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PROCESS\tVERDICT")
-	for _, p := range r.Processes {
-		verdict := verdictOf(p, allowBreakingOutput)
-		if verdict == verdictBreaking || verdict == verdictUnanalysable {
-			breaking = true
+func gates(p compatProcess, member string) bool {
+	for _, i := range p.Issues {
+		if i.Member == member && i.Gating {
+			return true
 		}
-		fmt.Fprintf(w, "%s\t%s\n", p.Name, verdict)
+	}
+	return false
+}
+
+func printCompatReport(r compatReport) {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "PROCESS\tUPGRADE\tCONTRACT")
+	for _, p := range r.Processes {
+		if word := statusWord(p.Status); word != "" {
+			fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name, word, word)
+			continue
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name,
+			verdictWord(p, "upgrade", verdictUpgradable), verdictWord(p, "contract", verdictCompatible))
 	}
 	w.Flush()
 
-	// Detail only where something broke. A clean run is a clean run; the table is the
-	// answer, and printing every slot that merely differs buries the ones that matter.
 	for _, p := range r.Processes {
-		issues := issuesOf(p, allowBreakingOutput)
-		if len(issues) == 0 {
-			continue
-		}
-		fmt.Printf("\n%s %s → %s\n", p.Name, versionLabel(p.From), versionLabel(p.To))
-		for _, i := range issues {
-			fmt.Printf("  %s:\n    %s\n", i, i.msg)
-		}
+		printProcessDetail(p)
 	}
+	printNotGating(r)
 
-	if breaking {
+	if !r.Passes {
 		os.Exit(1)
 	}
+}
+
+// row is one line of the detail block: an address, the phrase saying what it costs, and the
+// findings that group under it. A row is either a slot that changed or a place something
+// broke, never both — putting them together claims the edit caused the break, which no
+// comparison can know (§6b).
+type row struct {
+	address string
+	phrase  string
+	lines   []string
+}
+
+// rowsFor walks findings first, then the slots no finding already accounts for. A changed
+// slot with a break under it gets no row of its own: the break IS the report that it moved,
+// and a second row calling it fine would contradict the first.
+func rowsFor(p compatProcess) []row {
+	var out []row
+	at := map[string]int{}
+	for _, i := range p.Issues {
+		if _, seen := at[i.Address]; !seen {
+			at[i.Address] = len(out)
+			out = append(out, row{address: i.Address})
+		}
+		r := &out[at[i.Address]]
+		line := i.Message
+		if i.Path != "" {
+			line = i.Path + ": " + i.Message
+		}
+		if !contains(r.lines, line) {
+			r.lines = append(r.lines, line)
+		}
+	}
+	// One difference that fails both questions is two findings on the wire, because they
+	// gate separately — but it is one line, named for both.
+	for i := range out {
+		out[i].phrase = breakPhrase(p, out[i].address)
+	}
+	for _, s := range p.Changed {
+		if _, broke := at[s.Address]; broke {
+			continue
+		}
+		out = append(out, row{address: s.Address, phrase: changedPhrase(s)})
+	}
+	for _, task := range p.Added {
+		out = append(out, row{address: task, phrase: "(added)"})
+	}
+	return out
+}
+
+func breakPhrase(p compatProcess, address string) string {
+	var upgrade, contract bool
+	for _, i := range p.Issues {
+		if i.Address != address {
+			continue
+		}
+		upgrade = upgrade || i.Member == "upgrade"
+		contract = contract || i.Member == "contract"
+	}
+	switch {
+	case upgrade && contract:
+		return "(breaking upgrade and contract)"
+	case upgrade:
+		return "(breaking upgrade)"
+	}
+	return "(breaking contract)"
+}
+
+// changedPhrase distinguishes the two things a clean change can mean, which is the only
+// reason the slot categories are carried at all: `ok` says a check looked and passed,
+// `not judged` says none covers it — a URL repointed, an only_once flipped.
+//
+// `ok` is scoped to its own address and claims nothing wider: a break this change causes may
+// be reported at another address, and no comparison can prove the connection either way.
+func changedPhrase(s compatSlot) string {
+	if len(s.Affects) == 0 {
+		return "(not judged)"
+	}
+	return "(ok)"
+}
+
+func printProcessDetail(p compatProcess) {
+	if p.Status == statusUnanalysable {
+		fmt.Printf("\n%s %s → %s\n", p.Name, versionLabel(p.From), versionLabel(p.To))
+		fmt.Printf("  %s side:\n    %s\n", p.Side, p.Reason)
+		return
+	}
+	rows := rowsFor(p)
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Printf("\n%s %s → %s\n", p.Name, versionLabel(p.From), versionLabel(p.To))
+
+	// The address column is padded here rather than by a tabwriter: the finding lines
+	// between two addresses carry no columns, and a tabwriter ends its alignment block at
+	// every one of them — so each address would size itself and none would line up.
+	width := 0
+	for _, r := range rows {
+		if len(r.address) > width {
+			width = len(r.address)
+		}
+	}
+	for _, r := range rows {
+		fmt.Printf("  %-*s  %s\n", width, r.address, r.phrase)
+		for _, line := range r.lines {
+			fmt.Printf("    %s\n", line)
+		}
+	}
+}
+
+// printNotGating says why the exit code is not what the columns look like. A report whose
+// exit contradicts its own words sends the reader looking for a reason that was never
+// printed, which is the failure a selection flag most easily introduces.
+func printNotGating(r compatReport) {
+	for _, p := range r.Processes {
+		for _, i := range p.Issues {
+			if !i.Gating {
+				fmt.Printf("\nnot gating: %s — --ignore %s\n", i.Member, i.Member)
+				return
+			}
+		}
+	}
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

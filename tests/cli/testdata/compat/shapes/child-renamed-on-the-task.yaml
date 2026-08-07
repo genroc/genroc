@@ -64,9 +64,12 @@ apply:
 run: [--from, swap_a, --to, swap_b]
 
 expect: |
-  PROCESS     VERDICT
-  swap_boss   upgradable
-  swap_kid    nothing changed
-  swap_other  nothing changed
+  PROCESS     UPGRADE          CONTRACT
+  swap_boss   upgradable       compatible
+  swap_kid    nothing changed  nothing changed
+  swap_other  nothing changed  nothing changed
+
+  swap_boss v1 → v2
+    work:child.name  (not judged)
 
   exit 0

@@ -17,7 +17,10 @@ submit:
 run: [--from, bundle_a]
 
 expect: |
-  PROCESS      VERDICT
-  bundle_proc  upgradable
+  PROCESS      UPGRADE     CONTRACT
+  bundle_proc  upgradable  compatible
+
+  bundle_proc v1 → (new)
+    ship:fetch.url  (not judged)
 
   exit 0

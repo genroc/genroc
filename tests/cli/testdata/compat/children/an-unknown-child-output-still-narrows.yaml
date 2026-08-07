@@ -37,8 +37,11 @@ apply:
 run: [--from, unknown_a, --to, unknown_b]
 
 expect: |
-  PROCESS       VERDICT
-  unknown_boss  nothing changed
-  unknown_kid   upgradable
+  PROCESS       UPGRADE          CONTRACT
+  unknown_boss  nothing changed  nothing changed
+  unknown_kid   upgradable       compatible
+
+  unknown_kid v1 → v2
+    run:fetch.url  (not judged)
 
   exit 0

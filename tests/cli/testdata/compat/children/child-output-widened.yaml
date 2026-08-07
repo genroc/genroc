@@ -37,12 +37,14 @@ apply:
 run: [--from, widen_a, --to, widen_b]
 
 expect: |
-  PROCESS     VERDICT
-  widen_boss  nothing changed
-  widen_kid   breaking
+  PROCESS     UPGRADE          CONTRACT
+  widen_boss  nothing changed  nothing changed
+  widen_kid   upgradable       breaking
 
   widen_kid v1 → v2
-    output.id:
-      string → integer
+    run:fetch.result  (breaking contract)
+      id: string → integer
+    output            (breaking contract)
+      id: string → integer
 
   exit 1

@@ -43,7 +43,7 @@ func TestReadExplainer_WalksPastEveryGapTheRelationTolerates(t *testing.T) {
 			super := explainSchema(t, `{"$defs":{"maybe":{"type":["number","null"]}},
 				"type":"object","properties":{"broken":{"type":"number"},"tolerated":`+sp.nullable+`},
 				"required":["broken","tolerated"]}`)
-			if got, want := readExplainer.explain("", sub, super, 0), "broken: string → number"; got != want {
+			if got, want := storedExplainer.explain("", sub, super, 0), "broken: string → number"; got != want {
 				t.Errorf("got %q, want %q — the message must name the break the verdict is about", got, want)
 			}
 		})
@@ -58,10 +58,14 @@ func TestExplainers_TheOutputContractStaysStrictWhereAReadRelaxes(t *testing.T) 
 	expected := explainSchema(t, `{"type":"object","properties":{"id":{"type":"string"},
 		"note":{"type":["string","null"]}},"required":["id","note"]}`)
 
-	if got := readExplainer.explain("", produced, expected, 0); got != "" {
+	if got := storedExplainer.explain("", produced, expected, 0); got != "" {
 		t.Errorf("a reader cannot tell an absent key from a stored null, got %q", got)
 	}
-	if got, want := contractExplainer.explain("output", produced, expected, 0), "output.note: newly required field"; got != want {
-		t.Errorf("got %q, want %q — collect conforms this value, and a conform rejects the absence", got, want)
+	// "no longer guaranteed", not "newly required field": this check runs new ⊆ old, so the
+	// message is written from the reader's side — the old output promised `note` and the new
+	// one does not (specs/compat-command.md §3a).
+	if got, want := contractExplainer.explain("output", produced, expected, 0), "output.note: no longer guaranteed"; got != want {
+		t.Errorf("got %q, want %q — collect conforms this value, and a conform rejects the absence, "+
+			"so the output contract must report where a read would not", got, want)
 	}
 }

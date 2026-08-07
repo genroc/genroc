@@ -1,6 +1,8 @@
-# The same break, tolerated. --allow-breaking-output is for an operator who has already
-# dealt with the consumers: the verdict becomes upgradable and the exit code 0, but the
-# reason still shows, because the break was permitted rather than absent.
+# The same break, excused. `--ignore contract` is for an operator who has already dealt with
+# the consumers — but the report does not become a different report: the verdict word stays
+# `breaking`, carries `(ignored)` beside it so the column does not contradict `exit 0`, the
+# break still prints, and a trailing line names the flag that let it pass. A selection moves
+# the exit code and nothing else.
 apply:
   - channel: allowed_a
     definitions:
@@ -26,10 +28,18 @@ apply:
             output: {amount: '$: self.result.amount'}
             switch: end
         output: {total: '$: outputs.charge.amount'}
-run: [--from, allowed_a, --to, allowed_b, --allow-breaking-output]
+run: [--from, allowed_a, --to, allowed_b, --ignore, contract]
 
 expect: |
-  PROCESS       VERDICT
-  allowed_proc  upgradable
+  PROCESS       UPGRADE     CONTRACT
+  allowed_proc  upgradable  breaking (ignored)
+
+  allowed_proc v1 → v2
+    charge:fetch.result  (breaking contract)
+      amount: number → string
+    output               (breaking contract)
+      total: number → string
+
+  not gating: contract — --ignore contract
 
   exit 0

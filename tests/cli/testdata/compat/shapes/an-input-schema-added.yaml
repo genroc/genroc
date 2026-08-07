@@ -1,0 +1,34 @@
+# The mirror of the silent removals, and the one addition that breaks BOTH questions at
+# once. A process that accepted anything now demands an input: a caller sending nothing is
+# rejected at creation (contract), and a row created before — which holds no input at all —
+# cannot satisfy a schema that requires one (upgrade).
+#
+# Adding a process OUTPUT is the opposite and stays silent (output-removed.yaml says why):
+# a consumer cannot have been written against a value that was never produced.
+apply:
+  - channel: inadd_a
+    definitions:
+      - name: inadd_proc
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+  - channel: inadd_b
+    definitions:
+      - name: inadd_proc
+        input_schema: {type: object, properties: {a: {type: string}}, required: [a]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+run: [--from, inadd_a, --to, inadd_b]
+
+expect: |
+  PROCESS     UPGRADE   CONTRACT
+  inadd_proc  breaking  breaking
+
+  inadd_proc v1 → v2
+    input  (breaking upgrade and contract)
+      newly required field
+
+  exit 1

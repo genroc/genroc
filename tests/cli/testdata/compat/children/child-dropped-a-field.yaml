@@ -1,5 +1,7 @@
-# A child that stops producing a field breaks its output contract the other way round —
-# the field is newly required of whoever reads it, rather than a type that changed.
+# A child that stops producing a field breaks its output contract the other way round. The
+# output direction is reversed — we produce it, so it may only narrow — and the message says
+# so from the reader's side: the old output guaranteed `note` and the new one does not. A
+# parent that named it now reads null.
 apply:
   - channel: unread_a
     definitions:
@@ -36,12 +38,14 @@ apply:
 run: [--from, unread_a, --to, unread_b]
 
 expect: |
-  PROCESS      VERDICT
-  unread_boss  nothing changed
-  unread_kid   breaking
+  PROCESS      UPGRADE          CONTRACT
+  unread_boss  nothing changed  nothing changed
+  unread_kid   upgradable       breaking
 
   unread_kid v1 → v2
-    output.note:
-      newly required field
+    output            (breaking contract)
+      note: no longer guaranteed
+    run:output        (ok)
+    run:fetch.result  (ok)
 
   exit 1

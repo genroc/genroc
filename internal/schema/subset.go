@@ -14,6 +14,10 @@ type subsetMode struct {
 	// absentAsNull stops requiring the presence of a nullable property — see
 	// absentAsNullSubset.
 	absentAsNull bool
+	// afterConform reads both schemas as descriptions of CONFORMED data rather than as
+	// predicates over what may arrive: a property that is required *or* carries a default is
+	// guaranteed present, because the conform filled it. See storedSubset.
+	afterConform bool
 }
 
 // isSubset reports whether every value valid under sub is also valid under super.
@@ -27,6 +31,24 @@ func isSubset(sub, super *node) bool {
 // where nothing conforms against super; its one caller is the version comparison.
 func absentAsNullSubset(sub, super *node) bool {
 	return subsetWith(sub, super, subsetMode{absentAsNull: true})
+}
+
+// storedSubset compares two schemas as descriptions of data that has ALREADY been conformed,
+// which is what an instance's stored state is. It relaxes two rules, and they are relaxed for
+// different reasons that must not be conflated:
+//
+//   - absentAsNull, as above: a gap the migration closes by writing the null in.
+//   - afterConform: a property sub declares with a default is guaranteed present, because
+//     creation filled it. **This one needs no fill** — the value is in the row already — which
+//     is why it is not part of absentAsNullSubset, whose whole contract is that it tolerates
+//     exactly what Validate(v, FillAbsentAsNull) closes (schematest/absent_test.go).
+//
+// The default rule reads the SUB side as a guarantee and the SUPER side as a requirement:
+// a default on super means only that super-conformed data would have had it, so sub must
+// still guarantee it. Sound only where nothing conforms the value against super afterwards.
+// Design: specs/compat-command.md §2e.
+func storedSubset(sub, super *node) bool {
+	return subsetWith(sub, super, subsetMode{absentAsNull: true, afterConform: true})
 }
 
 // isSubset with one rule flipped: an unknown ({}) in sub is accepted anywhere. The static
@@ -192,8 +214,33 @@ func typeAllowed(subType string, superTypes SchemaType) bool {
 	return false
 }
 
+// guaranteed is the set of properties SUB is certain to hold. Under afterConform that is
+// required-or-defaulted, because the conform that produced this data filled the default.
+//
+// It is asked of the sub side only. Super's defaults say what data conformed under SUPER
+// would hold — and the row in hand was not: it was conformed under sub and is being carried
+// over, with a fill that writes no defaults. What super demands of an existing row is its
+// `required` set and nothing more (specs/compat-command.md §2e).
+func (ctx *subsetCtx) guaranteed(n *node, defs map[string]*node) map[string]bool {
+	if !ctx.afterConform {
+		return stringSet(n.Required)
+	}
+	// Not stringSet: it returns nil for an empty list, and a defaulted property with no
+	// required list at all is the whole point of this mode.
+	out := make(map[string]bool, len(n.Required)+len(n.Properties))
+	for _, name := range n.Required {
+		out[name] = true
+	}
+	for name, prop := range n.Properties {
+		if propDefault(prop, defs) != nil {
+			out[name] = true
+		}
+	}
+	return out
+}
+
 func (ctx *subsetCtx) checkObject(sub, super *node) bool {
-	subReq := stringSet(sub.Required)
+	subReq := ctx.guaranteed(sub, ctx.subDefs)
 
 	for _, f := range super.Required {
 		if subReq[f] {

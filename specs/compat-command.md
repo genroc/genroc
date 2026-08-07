@@ -66,6 +66,9 @@ dead output a break.
 
 ### 2c. Parked mid-task: external and children
 
+**Whether an instance can be sitting INSIDE a task is the question two rules turn on**, and
+neither is about what the action resembles.
+
 An action whose task can hold a **parked** instance carries state the entry context does not,
 so its result schema is part of the upgrade check:
 
@@ -128,10 +131,21 @@ package already applies that rule to reads (`lookupProperty` returns a non-nulla
 a property that is required *or* defaulted), so the relation is adopting its own navigation's
 rule. Nothing in `conformObject` changes.
 
-**The rule reads the sub side, never as "we will fill it".** A default on the *old* schema
-means the value is in the row, because creation put it there. A default on the *new* schema
-means nothing for an upgrade, since the fill writes none. That asymmetry is the rule's
-soundness, and it is what distinguishes this from the relaxation
+**The rule reads the sub side, and only the sub side.** A default on the *old* schema means
+the value is in the row, because creation put it there. A default on the *new* schema means
+nothing here, twice over: the fill writes none, and the row was never conformed under the new
+schema anyway — it was conformed under the old one and is being carried over, so what the new
+schema demands of it is its `required` set and nothing more.
+
+**[run]** Reading it symmetrically — treating a default on super as a guarantee super
+*requires* — was implemented and was wrong. It reported a break at `input` for an edit that
+adds a default, where the stored row is in fact still valid, and the explainer could not
+articulate it: the message came out `object → object`. The real consequence of adding a
+default is that every *read* becomes non-null, and that surfaces where it is read, in the
+inferred context (`outputs.plan.retries: integer|null → integer`). Two addresses, one edit,
+and only one of them is a break.
+
+That asymmetry is also what distinguishes this from the relaxation
 [internal/schema/CLAUDE.md](../internal/schema/CLAUDE.md) declines: there, only the super
 side carries the default and a fill would have to write it.
 
@@ -174,6 +188,17 @@ before the two checks that consume it are settled.
 **A value someone else submits may only widen**: adding a required field breaks them,
 dropping one does not. **A value we produce may only narrow**: removing something previously
 guaranteed breaks a reader written against it, adding is free.
+
+**Removal and addition are not mirrors, and which is free depends on the direction.**
+**[run]** Adding a process output is free — no consumer can have been written against a
+value that was never produced — while removing one breaks every reader and is not even a
+schema comparison: there is no new schema to compare against, so it is reported directly, the
+way a removed task is. Adding an *input* schema breaks both questions at once (a caller
+sending nothing is rejected, and a row created before holds no input); removing one is free,
+since we then demand nothing. Dropping a result schema is free for the same reason — we
+conform less. The one that reads backwards was silent for a release: `compareOutput` skipped
+whenever *either* side declared no output, which is right for the addition and wrong for the
+removal.
 
 **A verdict only where a conform stands between the two parties.** Everything else is a
 changed slot: a fetch request (`url`, `method`, `headers`, `body`) goes to a service whose
@@ -337,9 +362,10 @@ document.
 - **A clean line says `(ok)`, scoped to itself.** A wider phrase denies what another line
   asserts.
 
-Ordering must be deterministic or the fixtures churn: processes as `CompareSet` orders them,
-then the definition's own slots, then tasks as the **old** version ordered them, then the
-tasks the new version adds.
+Ordering must be deterministic or the fixtures churn. **Findings first, then the changes no
+finding accounts for** — problems before context, which is also what makes the suppression
+rule above readable. Within each, the process's shape: the input, then tasks as the **old**
+version ordered them, then the output; then the added tasks.
 
 ### 6d. On the wire
 

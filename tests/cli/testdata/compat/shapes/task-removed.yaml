@@ -26,11 +26,12 @@ apply:
 run: [--from, taskrm_a, --to, taskrm_b]
 
 expect: |
-  PROCESS      VERDICT
-  taskrm_proc  breaking
+  PROCESS      UPGRADE   CONTRACT
+  taskrm_proc  breaking  compatible
 
   taskrm_proc v1 → v2
-    tasks.ship:
+    ship           (breaking upgrade)
       removed; an instance there has nowhere to continue
+    charge:switch  (not judged)
 
   exit 1

@@ -1,0 +1,64 @@
+# A task that becomes a different KIND of action can still be compatible — the question is
+# whether an instance could be sitting INSIDE it when the version lands, not whether the two
+# actions resemble each other.
+#
+#   ask   fetch → external   a fetch never parks: request and response happen inside one
+#                            advance, so any instance at this task is at ENTRY and the new
+#                            action simply runs. The output shape is compared as always.
+#   wait  external → fetch   an external parks. An instance there is waiting for a result
+#                            that will be submitted against a task which is now a fetch, and
+#                            no schema relation describes handing that state over.
+#
+# Both produce the same output, so nothing downstream changes; the report separates them on
+# the parking question alone. version-compatibility.md §2 refuses the same move at the gate.
+#
+# The other action slots are NOT listed for either task: a `url` that appeared did so because
+# the task became a fetch, and filing consequences beside their cause reads as independent
+# edits — under an address (`wait:external.url`) naming a slot that type does not have.
+apply:
+  - channel: typeswap_a
+    definitions:
+      - name: typeswap_proc
+        tasks:
+          - id: ask
+            action:
+              type: fetch
+              url: http://x/ask
+              result_schema: {type: object, properties: {ok: {type: boolean}}, required: [ok]}
+            output: {ok: '$: self.result.ok'}
+            switch: next
+          - id: wait
+            action:
+              type: external
+              result_schema: {type: object, properties: {note: {type: string}}, required: [note]}
+            output: {note: '$: self.result.note'}
+            switch: end
+  - channel: typeswap_b
+    definitions:
+      - name: typeswap_proc
+        tasks:
+          - id: ask
+            action:
+              type: external
+              result_schema: {type: object, properties: {ok: {type: boolean}}, required: [ok]}
+            output: {ok: '$: self.result.ok'}
+            switch: next
+          - id: wait
+            action:
+              type: fetch
+              url: http://x/wait
+              result_schema: {type: object, properties: {note: {type: string}}, required: [note]}
+            output: {note: '$: self.result.note'}
+            switch: end
+run: [--from, typeswap_a, --to, typeswap_b]
+
+expect: |
+  PROCESS        UPGRADE   CONTRACT
+  typeswap_proc  breaking  compatible
+
+  typeswap_proc v1 → v2
+    wait:action.type  (breaking upgrade)
+      external → fetch; an instance parked there holds state the new type cannot describe
+    ask:action.type   (not judged)
+
+  exit 1

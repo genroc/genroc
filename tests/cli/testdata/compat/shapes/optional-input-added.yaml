@@ -23,7 +23,10 @@ apply:
 run: [--from, optin_a, --to, optin_b]
 
 expect: |
-  PROCESS     VERDICT
-  optin_proc  upgradable
+  PROCESS     UPGRADE     CONTRACT
+  optin_proc  upgradable  compatible
+
+  optin_proc v1 → v2
+    input  (ok)
 
   exit 0

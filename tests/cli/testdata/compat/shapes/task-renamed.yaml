@@ -23,11 +23,12 @@ apply:
 run: [--from, taskren_a, --to, taskren_b]
 
 expect: |
-  PROCESS       VERDICT
-  taskren_proc  breaking
+  PROCESS       UPGRADE   CONTRACT
+  taskren_proc  breaking  compatible
 
   taskren_proc v1 → v2
-    tasks.ship:
+    ship      (breaking upgrade)
       removed; an instance there has nowhere to continue
+    dispatch  (added)
 
   exit 1

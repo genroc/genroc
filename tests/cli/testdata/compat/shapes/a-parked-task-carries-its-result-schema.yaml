@@ -1,0 +1,56 @@
+# The rule is about PARKING, not about a list of action types. An `external` task holds a
+# real instance while it waits, so a result narrowed under it lands on both questions at
+# once: the worker that will submit is a party outside the deployment (contract), and an
+# instance already parked there will have whatever arrives conformed against the schema it
+# runs NOW (upgrade).
+#
+# A `fetch` cannot park — request and response happen inside one advance, with nothing
+# persisted between — so the identical edit there is a contract break and nothing more. The
+# two tasks below carry the same edit, and the report separates them.
+#
+# One difference failing both questions prints ONCE, named for both: they are two findings
+# on the wire, because they gate separately.
+apply:
+  - channel: parked_a
+    definitions:
+      - name: parked_proc
+        tasks:
+          - id: call
+            action:
+              type: fetch
+              url: http://x/call
+              result_schema: {type: object, properties: {a: {type: string}}}
+            switch: next
+          - id: approve
+            action:
+              type: external
+              result_schema: {type: object, properties: {a: {type: string}}}
+            switch: end
+  - channel: parked_b
+    definitions:
+      - name: parked_proc
+        tasks:
+          - id: call
+            action:
+              type: fetch
+              url: http://x/call
+              result_schema: {type: object, properties: {a: {type: string}, b: {type: integer}}, required: [b]}
+            switch: next
+          - id: approve
+            action:
+              type: external
+              result_schema: {type: object, properties: {a: {type: string}, b: {type: integer}}, required: [b]}
+            switch: end
+run: [--from, parked_a, --to, parked_b]
+
+expect: |
+  PROCESS      UPGRADE   CONTRACT
+  parked_proc  breaking  breaking
+
+  parked_proc v1 → v2
+    call:fetch.result        (breaking contract)
+      b: newly required field
+    approve:external.result  (breaking upgrade and contract)
+      b: newly required field
+
+  exit 1

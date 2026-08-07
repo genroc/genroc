@@ -43,7 +43,11 @@ apply:
 run: [--from, nullfield_a, --to, nullfield_b]
 
 expect: |
-  PROCESS         VERDICT
-  nullfield_proc  upgradable
+  PROCESS         UPGRADE     CONTRACT
+  nullfield_proc  upgradable  compatible
+
+  nullfield_proc v1 → v2
+    fetch:output        (ok)
+    fetch:fetch.result  (ok)
 
   exit 0

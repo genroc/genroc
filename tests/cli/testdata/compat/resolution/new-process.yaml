@@ -30,8 +30,11 @@ apply:
 run: [--from, arrival_a, --to, arrival_b]
 
 expect: |
-  PROCESS           VERDICT
-  arrival_arrival   new
-  arrival_existing  upgradable
+  PROCESS           UPGRADE     CONTRACT
+  arrival_arrival   new         new
+  arrival_existing  upgradable  compatible
+
+  arrival_existing v1 → v2
+    ship:fetch.url  (not judged)
 
   exit 0

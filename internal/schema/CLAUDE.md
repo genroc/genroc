@@ -68,9 +68,18 @@ accepted the gap.
 The mode differs from `Strict` in three ways, all deliberate: an absent required nullable
 is written in rather than rejected; undeclared keys are KEPT (stripping is a conform's job,
 and a stale key from a dropped task is real data); and declared defaults are NOT filled, so
-the walk closes exactly what the relation accepts and nothing more. Filling defaults would
-unlock the required-with-default case — but only if the relation were taught to accept it in
-the same change.
+the walk closes exactly what the relation accepts and nothing more.
+
+**`IsSubsetAsStored` is a third relation, not a loosening of the pair.** It reads both
+schemas as descriptions of data a conform already produced, so a property the SUB side
+declares with a default is guaranteed present — and that tolerates a gap with no fill behind
+it, which sounds like exactly what the paragraph above forbids. It is not: there is nothing
+to close, because creation filled the default into the row before anything read it. The case
+that still needs a coordinated relation-and-fill change is the other side — a default only
+the SUPER side carries, where a fill would have to write it — and `IsSubsetAsStored` refuses
+that, pinned by `schematest/subset_stored_test.go`. Keep the two apart: folding the default
+rule into `IsSubsetAbsentAsNull` would break its contract with the fill, which
+`absent_test.go` exists to hold.
 
 **A `required` name whose property is never declared** has no type to call nullable. Any map
 index that misses hands `HasNull` the zero Schema, so `hasNullGuard` answers false rather

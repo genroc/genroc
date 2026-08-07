@@ -23,7 +23,11 @@ apply:
             switch: end
 run: [--from, nullin_a, --to, nullin_b]
 expect: |
-  PROCESS      VERDICT
-  nullin_proc  upgradable
+  PROCESS      UPGRADE     CONTRACT
+  nullin_proc  upgradable  breaking
 
-  exit 0
+  nullin_proc v1 → v2
+    input  (breaking contract)
+      note: newly required field
+
+  exit 1

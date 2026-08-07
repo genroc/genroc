@@ -32,11 +32,12 @@ apply:
             switch: end
 run: [--from, defadd_a, --to, defadd_b]
 expect: |
-  PROCESS      VERDICT
-  defadd_proc  breaking
+  PROCESS      UPGRADE   CONTRACT
+  defadd_proc  breaking  compatible
 
   defadd_proc v1 → v2
-    outputs.plan.retries:
-      integer|null → integer
+    run    (breaking upgrade)
+      outputs.plan.retries: integer|null → integer
+    input  (ok)
 
   exit 1

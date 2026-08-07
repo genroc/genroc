@@ -1,0 +1,19 @@
+# The upgrade check answers for rows this deployment already owns, so it is not negotiable —
+# and an unknown token is refused rather than quietly doing nothing, which is the failure a
+# selection flag most easily introduces. Refused by the SERVER, so a second consumer of the
+# endpoint gets the same answer as the CLI.
+apply:
+  - channel: noignore_a
+    definitions:
+      - name: noignore_proc
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+run: [--from, noignore_a, --to, noignore_a, --ignore, upgrade]
+
+expect: |
+  --- stderr ---
+  genctl: server: cannot ignore "upgrade"; the only member that may be excused is "contract" — the upgrade check answers for rows this deployment already owns
+
+  exit 1

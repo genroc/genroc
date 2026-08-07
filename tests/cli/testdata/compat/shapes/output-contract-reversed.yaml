@@ -30,11 +30,13 @@ apply:
 run: [--from, contract_a, --to, contract_b]
 
 expect: |
-  PROCESS        VERDICT
-  contract_proc  breaking
+  PROCESS        UPGRADE     CONTRACT
+  contract_proc  upgradable  breaking
 
   contract_proc v1 → v2
-    output.total:
-      number → string
+    charge:fetch.result  (breaking contract)
+      amount: number → string
+    output               (breaking contract)
+      total: number → string
 
   exit 1

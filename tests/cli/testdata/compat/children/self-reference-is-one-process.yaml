@@ -32,7 +32,10 @@ apply:
 run: [--from, self_a, --to, self_b]
 
 expect: |
-  PROCESS    VERDICT
-  self_proc  upgradable
+  PROCESS    UPGRADE     CONTRACT
+  self_proc  upgradable  compatible
+
+  self_proc v1 → v2
+    output  (ok)
 
   exit 0

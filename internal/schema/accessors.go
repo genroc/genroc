@@ -227,6 +227,22 @@ func (s Schema) IsSubsetAbsentAsNull(super Schema) bool {
 	return absentAsNullSubset(s.n, super.n)
 }
 
+// IsSubsetAsStored compares two schemas as descriptions of data that has already been
+// conformed — an instance's stored state — rather than as predicates over what may arrive.
+// It is IsSubsetAbsentAsNull plus one rule: a property s declares with a default is
+// guaranteed present, because the conform that produced the data filled it.
+//
+// That extra rule needs no migration behind it, which is precisely why it is separate from
+// IsSubsetAbsentAsNull: that relation's contract is that it tolerates exactly the gaps
+// Validate(v, FillAbsentAsNull) closes, and the fill writes no defaults. Here there is
+// nothing to close — the value is in the row.
+//
+// Sound only where nothing conforms the value against super afterwards. Both schemas must be
+// normalized. Design: specs/compat-command.md §2e.
+func (s Schema) IsSubsetAsStored(super Schema) bool {
+	return storedSubset(s.n, super.n)
+}
+
 // NarrowsTo is IsSubset with unknowns admitted: every unknown (the empty schema {}) in
 // s is accepted by whatever super declares at that position, at any depth. It answers
 // "could this value be narrowed to super?", not "is it already super?" — so it is sound
