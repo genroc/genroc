@@ -157,17 +157,64 @@ strand running work is visible before it is deployed rather than after.</p>
 <code>name@version</code> pins, where the version may itself be a channel (<code>kid@stable</code>). Mixing the
 two on one side is refused: a channel already names a version for every process, so adding
 one entry is ambiguous about whether it overrides or extends.</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>PROCESS         VERDICT</span></span>
-<span class="line"><span>order_pipeline  upgradable</span></span>
-<span class="line"><span>invoice         breaking</span></span>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>PROCESS         UPGRADE     CONTRACT</span></span>
+<span class="line"><span>order_pipeline  upgradable  compatible</span></span>
+<span class="line"><span>invoice         breaking    breaking</span></span>
 <span class="line"><span></span></span>
 <span class="line"><span>invoice v1 → v4</span></span>
-<span class="line"><span>  outputs.charge.amount  (task &quot;charge&quot;, action.result_schema):</span></span>
-<span class="line"><span>    number → string</span></span></code></pre>
-<p>A clean run is the table alone. Detail prints only where something broke: the path is where
-it shows in an instance’s data, the parenthesis is the definition slot that changed under
-it, and the line below is what differs.</p>
-<p>One verdict per process:</p>
+<span class="line"><span>  charge:fetch.result  (breaking contract)</span></span>
+<span class="line"><span>    amount: number → string</span></span>
+<span class="line"><span>  ship                 (breaking upgrade)</span></span>
+<span class="line"><span>    outputs.charge.amount: number → string</span></span></code></pre>
+<p><strong>Two columns, because there are two questions</strong> — and each is answered for every process,
+so neither is left blank. A blank cell under a header reads as a question that went
+unanswered; <code>nothing changed</code> and <code>new</code> therefore print in both.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>UPGRADE</th><th></th></tr></thead><tbody><tr><td><code>upgradable</code></td><td>every state an instance can be parked in fits the new definition</td></tr><tr><td><code>breaking</code></td><td>one does not; the detail names which</td></tr></tbody></table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>CONTRACT</th><th></th></tr></thead><tbody><tr><td><code>compatible</code></td><td>callers and parents still get the shape they were written against</td></tr><tr><td><code>breaking</code></td><td>they do not</td></tr><tr><td><code>breaking (ignored)</code></td><td>it broke, and <code>--ignore contract</code> excused it from the exit code</td></tr></tbody></table>
+<p>Under the table, one block per process, and inside it <strong>one row per addressable place that
+was compared</strong>, annotated with what became of it — <code>(ok)</code>, <code>(breaking upgrade)</code>,
+<code>(breaking contract)</code>, or <code>(not judged)</code>. A place that holds up still gets a row, so you can
+see what was examined rather than inferring it from silence. The findings sit under it: a
+path <em>inside</em> that schema, and what differs.</p>
+<p>An address is one of four things:</p>
 
 
 
@@ -193,7 +240,17 @@ it, and the line below is what differs.</p>
 
 
 
-<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>upgradable</code></td><td>an instance running the old version could continue under the new one, and consumers still get the shape they expect</td></tr><tr><td><code>breaking</code></td><td>one of those two failed; the reason says which</td></tr><tr><td><code>nothing changed</code></td><td>both sides resolve to the same version, or a submitted document is identical to what is deployed</td></tr><tr><td><code>new</code></td><td>only the target side carries it, so nothing is running it</td></tr></tbody></table>
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>input</code></td><td>the process input schema</td></tr><tr><td><code>output</code></td><td>the process output</td></tr><tr><td><code>&lt;task&gt;</code></td><td>the context an instance parked at that task holds — paths under it read <code>outputs.charge.amount</code></td></tr><tr><td><code>&lt;task&gt;:&lt;slot&gt;</code></td><td>a definition slot on that task: <code>output</code>, <code>switch</code>, <code>only_once</code>, <code>action.type</code>, <code>fetch.url</code>, <code>child.name</code>, <code>&lt;action_type&gt;.result</code></td></tr></tbody></table>
+<p>The example above is one change reported at two addresses, which is the point of addressing
+rather than listing schemas. <code>charge</code>’s <code>result_schema</code> narrowed a field to a string: at
+<code>charge:fetch.result</code> that is a <strong>contract</strong> break, because a parent collecting that task was
+written against a number; at <code>ship</code> it is an <strong>upgrade</strong> break, because an instance parked
+there already holds <code>outputs.charge.amount</code> as a number and the new definition will not take
+it. Same edit, two different parties harmed, two rows.</p>
+<p><code>nothing changed</code> (both sides resolve to the same version, or a submitted document is
+identical to what is deployed) and <code>new</code> (only the target side carries it, so nothing is
+running it) are statuses rather than verdicts — see <a href="#what-a-missing-counterpart-means">what a missing counterpart
+means</a>.</p>
 <p>The second form is the one to reach for before a deploy: it compares the documents <code>apply</code>
 would take against what is currently on a channel, so you see the answer without writing
 anything. Every form names <strong>both</strong> sides — defaulting one would hide which two documents
@@ -266,43 +323,52 @@ identical documents at different versions are genuinely different processes.</p>
 <p>Neither <code>nothing to compare</code> nor <code>new process</code> can break anything, so neither drags the
 top-level verdict down. Only real incompatibilities — and versions whose own inference
 fails, reported as <code>unanalysable</code> — do that.</p>
-<h3 id="two-questions-behind-one-verdict">Two questions behind one verdict<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#two-questions-behind-one-verdict"><span></span></a></h3>
-<p><code>breaking</code> covers two checks that run in opposite directions, and the API reports them
-separately (<code>compatible</code> and <code>output_compatible</code>) because they are genuinely different
-questions:</p>
+<h3 id="the-two-checks-run-in-opposite-directions">The two checks run in opposite directions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-two-checks-run-in-opposite-directions"><span></span></a></h3>
+<p>They are separate columns (<code>upgrade</code> and <code>contract</code> in the JSON) because they are genuinely
+different questions, about different parties:</p>
 <ul>
-<li><strong>Continuation</strong> — could an instance running the old version carry on under the new one?
-Every value the old definition can have produced must be one the new definition accepts.</li>
-<li><strong>The output contract</strong> — does the new version still honour what its consumers were
-written against? Here the direction reverses: a parent’s <code>result_schema</code> and an API caller
-were written against the <em>old</em> output shape, so every value the new version can produce
-must be one the old one could.</li>
+<li><strong>Upgrade</strong> — could an instance running the old version carry on under the new one? Every
+state it can be parked in must fit. This is about rows <strong>this deployment already owns</strong>.</li>
+<li><strong>Contract</strong> — does the new version still honour what its consumers were written against?
+Here the direction reverses: a parent’s <code>result_schema</code> and an API caller were written
+against the <em>old</em> shape, so every value the new version can produce must be one the old one
+could. This is about parties <strong>outside</strong> the deployment.</li>
 </ul>
-<p><code>--allow-breaking-output</code> tolerates the second. It is for the case where the process output
-changed shape but nothing running is affected and you have already dealt with the consumers:
-the verdict becomes <code>upgradable</code> and the exit code 0. It changes the rendered verdict and
-the exit code only, never <code>--json</code>.</p>
-<h3 id="the-changed-slot-is-named-because-the-verdict-cannot-judge-meaning">The changed slot is named, because the verdict cannot judge meaning<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-changed-slot-is-named-because-the-verdict-cannot-judge-meaning"><span></span></a></h3>
-<p>Each broken path names the definition slot that changed under it — <code>action.result_schema</code>,
-<code>output</code>, <code>switch</code>, <code>on_error</code>, <code>timeout</code>, <code>only_once</code>, <code>input_schema</code>, <code>config_schema</code>. The
-full per-slot list is in the JSON (<code>--json</code>), on every process, whether or not it broke.</p>
+<p>That asymmetry is why only one of them can be waived. <code>--ignore contract</code> excuses the
+contract check from the exit code — for when the output changed shape, nothing running is
+affected, and you have already dealt with the consumers. There is no equivalent for the
+upgrade check: nobody outside can have dealt with an instance parked mid-run.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>genctl compat --from stable --to latest --ignore contract</span></span></code></pre>
+<p>It changes neither what is compared nor what is printed. The break is still reported and
+still rendered, marked <code>breaking (ignored)</code>; only the exit code moves. In <code>--json</code> the
+distinction is two fields: <code>compatible</code> is what was found, <code>passes</code> is what you asked about.</p>
+<h3 id="every-changed-slot-is-listed-because-the-verdict-cannot-judge-meaning">Every changed slot is listed, because the verdict cannot judge meaning<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#every-changed-slot-is-listed-because-the-verdict-cannot-judge-meaning"><span></span></a></h3>
+<p>The report also carries the slots that changed at all — <code>changed</code> in the JSON (<code>--json</code>), on
+every process, whether or not anything broke. Each entry names the address and which checks
+it <code>affects</code>, so an edit that compares equal is still visible as an edit.</p>
+<p><code>config_schema</code> is not among them: it is re-resolved from the environment on every tick, so
+nothing persisted corresponds to it. A process reading a config key that stopped existing is
+caught by validation, which type-checks expressions against it — a better answer than compat
+could give.</p>
 <div class="note"> <p><span class="note-label">note</span></p> <p><strong>This is a shape check, not a review.</strong> Dollars → cents is <code>number</code> before and after and
 comes back compatible. So is a reused enum member, or an id that moved to a new namespace.
 The check catches the <em>accidental</em> break — a required input appearing, an output whose type
 changed. It does not certify a migration.</p> </div>
-<p>Four more things it does not see:</p>
+<p>Five more things it does not see:</p>
 <ul>
 <li><strong>Routing.</strong> New <code>switch</code> conditions decide where an instance goes next.
 Shape-compatible and behaviourally different is a normal outcome.</li>
 <li><strong>Side effects already performed.</strong> The old URL was already called.</li>
 <li><strong>Redaction.</strong> A property that stops being <code>secret: true</code> becomes visible over the API,
-for data stored long before the change. Only the <code>input_schema</code> / <code>config_schema</code> slot
-reports it.</li>
+for data stored long before the change. A schema changing nothing else compares equal to
+every verdict, so the <code>changed</code> list is the only place it shows.</li>
 <li><strong>A field that may be absent.</strong> Adding an optional field to a task’s <code>output</code> is
-compatible — not because the two shapes match, but because the gap is one that can be
-closed mechanically: the value is nullable, so an upgrade writes the explicit null in.
-Making that same field <em>required</em> is a break, because then the value is non-null and there
-is nothing to write.</li>
+compatible — not because the two shapes match, but because the gap is one an upgrade can
+close mechanically, in whichever direction the edit opened it. A required nullable field
+that is missing gets its null written in; a stored null the new schema will not hold is
+removed, where the field is optional and absence is a valid state. Making that same field
+<em>required</em> and non-nullable is a break: neither the null nor its absence is valid, so
+there is nothing to write and nothing to drop.</li>
 <li><strong><code>only_once</code>.</strong> Removing it from a task whose previous attempt was interrupted lets that
 task re-run, and the side effect happens twice. Read the <code>only_once</code> slot before moving
 instances a worker died holding.</li>
@@ -316,8 +382,12 @@ instances a worker died holding.</li>
 resolving to one version per process name, paired by name. A triple of
 <code>{process, from, to}</code> cannot name a graph, which is why the request is shaped this way.
 A <code>versions</code> entry may be a number or a channel name: <code>{&quot;versions&quot;: {&quot;boss&quot;: 2, &quot;kid&quot;: &quot;stable&quot;}}</code>.</p>
+<p><code>ignore</code> is accepted here too, as an array: <code>{&quot;ignore&quot;: [&quot;contract&quot;]}</code>.</p>
 <p>The response is one row per process named on either side, whatever became of it —
-<code>{compatible, processes}</code> and nothing more. Each row carries a <code>status</code> (<code>compared</code>,
-<code>nothing_to_compare</code>, <code>new</code>, <code>unanalysable</code>) alongside its verdicts, so a row that was never
-judged is not mistaken for one that passed, and a version that failed its own inference is
-found where you would look for it rather than in a second array.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#comparing-two-versions">Comparing two versions</a></li><li class="depth-3"><a href="#a-comparison-covers-the-graph-not-one-process">A comparison covers the graph, not one process</a></li><li class="depth-3"><a href="#what-a-missing-counterpart-means">What a missing counterpart means</a></li><li class="depth-3"><a href="#two-questions-behind-one-verdict">Two questions behind one verdict</a></li><li class="depth-3"><a href="#the-changed-slot-is-named-because-the-verdict-cannot-judge-meaning">The changed slot is named, because the verdict cannot judge meaning</a></li><li class="depth-2"><a href="#over-http">Over HTTP</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
+<code>{compatible, passes, processes}</code> and nothing more. <code>compatible</code> is what was found and
+<code>passes</code> is what the caller asked about; with nothing ignored the two agree.</p>
+<p>Each row carries a <code>status</code> (<code>compared</code>, <code>nothing_to_compare</code>, <code>new</code>, <code>unanalysable</code>)
+alongside its two verdicts (<code>upgrade</code>, <code>contract</code>), so a row that was never judged is not
+mistaken for one that passed, and a version that failed its own inference is found where you
+would look for it rather than in a second array. <code>issues</code> lists what broke, each entry naming
+its <code>member</code> (<code>upgrade</code> or <code>contract</code>), <code>address</code>, <code>path</code>, and whether it is <code>gating</code>.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#comparing-two-versions">Comparing two versions</a></li><li class="depth-3"><a href="#a-comparison-covers-the-graph-not-one-process">A comparison covers the graph, not one process</a></li><li class="depth-3"><a href="#what-a-missing-counterpart-means">What a missing counterpart means</a></li><li class="depth-3"><a href="#the-two-checks-run-in-opposite-directions">The two checks run in opposite directions</a></li><li class="depth-3"><a href="#every-changed-slot-is-listed-because-the-verdict-cannot-judge-meaning">Every changed slot is listed, because the verdict cannot judge meaning</a></li><li class="depth-2"><a href="#over-http">Over HTTP</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
