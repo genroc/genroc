@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786126848721,
+  "lastUpdate": 1786127426886,
   "repoUrl": "https://github.com/genroc/genroc",
   "entries": {
     "genroc throughput": [
@@ -13766,6 +13766,78 @@ window.BENCHMARK_DATA = {
           {
             "name": "spawn recursive postgres",
             "value": 412,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 9V74 80-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "granat.stepan@gmail.com",
+            "name": "Štěpán Granát",
+            "username": "stepan662"
+          },
+          "committer": {
+            "email": "granat.stepan@gmail.com",
+            "name": "Štěpán Granát",
+            "username": "stepan662"
+          },
+          "distinct": true,
+          "id": "4d67d4a2315d8c815a0cc5388cf74804f3f820d1",
+          "message": "docs: bring the compat reference in line with what ships\n\ngenctl's own help still advertised --allow-breaking-output, which no\nlonger exists, and described one verdict per process. The reference page\nwas a version behind on the same things plus four more: the single\nVERDICT column, the old \"path (slot)\" detail rendering, the API's\ncompatible/output_compatible fields, and config_schema listed as a slot\nthe report names.\n\nThe example is now taken from an e2e fixture rather than invented, and\nit is the one that makes the addressing worth having — a result_schema\nnarrowing to a string reported twice, as a contract break at\ncharge:fetch.result and an upgrade break at ship, because a parent\ncollecting the task and an instance parked later are different parties\nharmed by one edit.\n\nAlso documents the address vocabulary (input, output, <task>, and\n<task>:<slot>), why only contract can be waived, and the both-directions\nnull reconciliation an upgrade performs.\n\nSpecs were already in sync; the two remaining mentions of the deleted\nflag are design records that say it was deleted.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-07T20:24:56+02:00",
+          "tree_id": "8d573c0c08c55c1b32a7855c7f2bea58f043e43d",
+          "url": "https://github.com/genroc/genroc/commit/4d67d4a2315d8c815a0cc5388cf74804f3f820d1"
+        },
+        "date": 1786127424847,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "spawn deep sqlite",
+            "value": 89,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 7763 64-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn deep postgres",
+            "value": 316,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 7763 64-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn drain_big sqlite",
+            "value": 854,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 9V74 80-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn drain_big postgres",
+            "value": 659,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 9V74 80-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn drain sqlite",
+            "value": 1379,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 7763 64-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn drain postgres",
+            "value": 1119,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 7763 64-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn recursive sqlite",
+            "value": 140,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 9V74 80-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn recursive postgres",
+            "value": 395,
             "unit": "inst/s",
             "extra": "AMD EPYC 9V74 80-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
           }
