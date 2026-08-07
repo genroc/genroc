@@ -68,7 +68,7 @@ behavior while the spec stays put, answering a different question. See
   two soundness traps that are easy to miss: `config` is re-resolved every tick (so a guard
   on it proves nothing downstream), and task outputs are overwritten on loop re-entry (so
   refinements need a dataflow kill).
-- [compat-categories.md](compat-categories.md) — **one piece built** (the token lexer,
+- [compat-command.md](compat-command.md) — **one piece built** (the token lexer,
   `internal/selector`); the rest is proposal, and **an implementation of it was written and
   rolled back** — findings marked **[run]** in that doc came from running it, and three of
   them contradicted the design as written. `genctl compat` today answers two questions and
@@ -84,9 +84,13 @@ behavior while the spec stays put, answering a different question. See
   together claims a cause no comparison can know. Its sharpest claim is §2e: **a schema
   denotes two different sets** — what may arrive, and what is stored after the conform filled
   its defaults — so the same pair compared in the same direction answers differently, and
-  `IsSubset` needs a second mode rather than the callers needing a pre-step. §9 records the
-  one change that would collapse that distinction (fill a default before the required check)
-  and why it is not compat's to make.
+  `IsSubset` needs a second mode rather than the callers needing a pre-step — read the sub
+  side only, since the upgrade fill writes no defaults and a default filled into a half-run
+  instance would disagree with every stored value derived from its absence. §9 records the
+  change that would remove the motivating disagreement (fill a default before the required
+  check) and why it is not compat's to make. `config_schema` is deliberately absent from the
+  whole check: validation type-checks expressions against it, which catches more than compat
+  could, and what is left is an environment question about one deployment.
 - [durability-levels.md](durability-levels.md) — **one piece built** (`--sqlite-fullfsync`,
   which changes no default); the rest is proposal. Move the fsync off every persist onto a
   few boundaries, exposed as a tunable ladder (`none` → `accepted` → `only-once` →
@@ -129,10 +133,10 @@ behavior while the spec stays put, answering a different question. See
 `error-handling-audit.md`, `child-error-handling.md` describe code that exists. The invariants extracted from them live in
 the `CLAUDE.md` of the owning package.
 
-`version-compatibility.md` is **half** of each: its comparison is shipped — `Compare` /
-`CompareSet` in `internal/validation`, `POST /definitions/compat`, `genctl compat` — while
-its **upgrade** half (the gate, the boundary rules, the tree closure, the one-column write,
-the two upgrade endpoints) is still a proposal, as is everything in its §10 and its §5b
-parent/child pairing. Its §5a
-prerequisite (dropping `_spawn_result_schema`) landed with the comparison, so the address of
-a child's `result_schema` in `unknown-type.md` is historical.
+`version-compatibility.md` is now **only** the upgrade half — the gate, the boundary rules,
+the tree closure, the one-column write, the endpoints — and none of it is built. Everything
+that defined the *check* moved to `compat-command.md`, which owns it outright; the two docs
+divide at a sharp line (the check reads two documents and never an instance, the gate has the
+row in hand). Its §3a prerequisite (dropping `_spawn_result_schema`) shipped, so the address
+of a child's `result_schema` in `unknown-type.md` is historical — and that same change is why
+a parked parent's `result_schema` is an upgrade concern, not only a contract one.

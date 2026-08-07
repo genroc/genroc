@@ -187,7 +187,7 @@ func (e *Engine) buildListChildOutput(task *model.Task, siblings []*model.Proces
 
 // Resolves a child's output and conforms it against the parent's CURRENT task schema —
 // never a spawn-time copy: the conform normalizes, and a stale schema silently strips
-// fields both sides already agreed on. specs/version-compatibility.md §5a; CLAUDE.md.
+// fields both sides already agreed on. specs/version-compatibility.md §3a; CLAUDE.md.
 func (e *Engine) resolveAndValidateChildOutput(resultSchema *schema.Schema, child *model.ProcessInstance) (any, error) {
 	output, err := e.resolveValue(child, child.ContextData["output"])
 	if err != nil {

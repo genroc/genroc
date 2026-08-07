@@ -17,7 +17,7 @@
   One check spans two documents: when only one of a waiting parent / running child moves,
   whichever moved must still fit the one that did not. See specs/version-compatibility.md
 - [] instance upgrade — move a live instance from one version to another, gated on the
-  comparison above (specs/version-compatibility.md §3c–§6, §8). The design is settled: the
+  comparison above (specs/version-compatibility.md §1–§4, §6). The design is settled: the
   gate refines the comparison with presence taken from the row, the write is one column
   (which buys reversibility and idempotency), and the unit is the non-terminal tree closure,
   because a running child may not move without the parent whose definition names its version

@@ -172,7 +172,7 @@ func analyze(def *model.ProcessDefinition) (analysis, error) {
 //
 // It is a shape check: it compares inferred schemas, not meaning. Dollars → cents is
 // `number` before and after and comes back compatible. The value is catching the
-// accidental break, not certifying a migration; specs/version-compatibility.md §7 is the
+// accidental break, not certifying a migration; specs/version-compatibility.md §5 is the
 // full list of what it cannot see.
 //
 // It reads two documents and never sees an instance, so it must assume every reachable

@@ -1,9 +1,13 @@
 # Compat: two checks over one comparison
 
-Refines [version-compatibility.md](version-compatibility.md), whose §3a/§3b report two
-verdicts and leave `genctl compat` to fold them into one word. That fold answers the wrong
-question. This records the two checks, what each compares and in which direction, how a
-finding is addressed, and what an operator may excuse.
+`genctl compat` answers two questions and folds them into one word. That fold answers the
+wrong question. This is the whole of the check: what each half compares and in which
+direction, how a finding is addressed, and what an operator may excuse.
+
+Its other half is [version-compatibility.md](version-compatibility.md) — **moving** an
+instance once this says it may. That doc starts where this one stops, and the division is
+sharp: the check reads two documents and never an instance, so it must assume every
+reachable state; the gate has the row in hand and may accept what the check calls different.
 
 ## 0. Status
 
@@ -44,9 +48,13 @@ registration preflight, so upgradability stays a per-process question. A child's
 environment on every tick, so nothing persisted corresponds to it. `contextSchema` folds the
 must/may dataflow into one object per task, so the check at a task is
 `ctxOld(T) ⊆ ctxNew(T)`: every context the old definition can present there, the new one
-accepts. One context per task is enough for the whole remaining run — a task output's type
-is position-independent and the must-analysis is monotone along a path
-(version-compatibility.md §2).
+accepts.
+
+**One context per task is enough for the whole remaining run.** Output types are
+position-independent — every `outputs.<id>` resolves through `$defs[<id>_output]` — and the
+must-analysis is monotone along a path, so if data satisfies `mustNew(T)`, every later task's
+requirement is covered by what was checked at T plus what the new definition produces on the
+way. Checking a *different* task is wrong, not merely less precise.
 
 ### 2b. The task set: removal breaks, addition does not
 
@@ -72,11 +80,11 @@ and its `result_schema` is therefore part of the upgrade check:
 - **`child`, `child_map`, `child_list`** — the parent parks in `waiting`/`collecting` while
   children run, and collect conforms each child's output against the parent's
   `result_schema` **as it currently stands**. That is what removing `_spawn_result_schema`
-  established (version-compatibility.md §5a), and it is why children are not a special case
+  established (version-compatibility.md §3a), and it is why children are not a special case
   of the contract check: a narrowing here strands a parent that is already waiting.
 
 The cross-document half of this — a child moving without its parent, or the reverse — is
-version-compatibility.md §5b's pairing check, also unbuilt. §2c is the single-process half:
+version-compatibility.md §3b's pairing check, also unbuilt. §2c is the single-process half:
 it asks whether *this* process's `result_schema` still fits what a parked instance will be
 handed, and says nothing about which child version hands it over.
 
@@ -277,7 +285,7 @@ and is stable: `outputs.plan.retries` addresses itself, and `plan:output` — th
 different row saying a different thing.
 
 The process name is **stripped**, because the block header above already names it. A task
-whose action type changed between versions is addressed by the **old** side; §4 of
+whose action type changed between versions is addressed by the **old** side; §2 of
 version-compatibility refuses an action-type change on a parked task, so nothing depends on
 resolving that ambiguity here.
 
@@ -639,7 +647,7 @@ to fail against.
   touching every conform, silently widening what every stored definition accepts. For it: a
   default on a required property doing nothing at all is a trap in its own right.
 - **Demand pruning.** A new main-line task's output is required at every later task even
-  where nothing reads it (version-compatibility.md §10). Refining it only turns "different"
+  where nothing reads it (version-compatibility.md §8). Refining it only turns "different"
   into "tolerable", so it is safe to land later — but until it does, adding a task on the
   main line reads as breaking whether or not anything downstream cares.
 - Does an `external.input` change deserve a verdict after all? The worker is usually code

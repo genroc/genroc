@@ -87,7 +87,7 @@ unknown; hardening `derefSubset` to error on unresolved super (latent, independe
 still unfixed). Settled while building: all three child collectors funnel through
 `resolveAndValidateChildOutput`, so narrowing is backed by a real check for
 `child`/`child_map`/`child_list` alike (the schema's *address* moved off the spawn row
-— version-compatibility.md §5a).
+— version-compatibility.md §3a).
 
 ## Appendix — not planned: schema-valued generics
 
