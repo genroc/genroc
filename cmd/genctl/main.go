@@ -53,12 +53,12 @@
 //	genctl compat   -f file.yaml [-f ...] --from <channel>
 //	genctl compat   --from <channel> --to <channel> [<process>]
 //
-// compat answers two questions about a pair of versions — could an instance running the
-// older one continue under the newer, and does the newer still produce what consumers of
-// the older were written against — and reports them as one verdict per process:
-// upgradable, breaking, nothing changed, or new. --allow-breaking-output tolerates the
-// second question failing. It is a shape check: a change of meaning (dollars to cents)
-// compares equal, so the changed-slot list under the table is the deliverable.
+// compat answers two questions about a pair of versions and gives each its own column:
+// UPGRADE, could an instance running the older one continue under the newer; CONTRACT,
+// does the newer still produce what consumers of the older were written against.
+// --ignore contract excuses the second from the exit code, and nothing excuses the first.
+// It is a shape check: a change of meaning (dollars to cents) compares equal, so the
+// per-slot detail under the table is the deliverable.
 //
 //	genctl channel list   <process>
 //	genctl channel set    <process> <channel> <version>
@@ -222,11 +222,10 @@ Flags:
             --since bounds whichever column the sort keys on.
   --to      compat: the channel to compare against. --from is its other end and is
             never defaulted: naming one side hides which two documents were compared.
-  --allow-breaking-output
-            compat: treat a broken output contract as upgradable. The process output
-            changed shape, but no running instance is affected — so this is the flag
-            for "I have dealt with the consumers". Affects the verdict and the exit
-            code, never --json.
+  --ignore  compat: excuse a check from the exit code. Only "contract" is accepted —
+            the upgrade check answers for rows this deployment already owns, so nothing
+            waves it through. It changes neither what is compared nor what is printed:
+            the break is still reported, marked "(ignored)".
   --time    logs: the time column — clock (15:04:05, the default, with a
             "--- 2006-01-02 +02:00 ---" separator at each day change) or full
             (2006-01-02 15:04:05 +02:00 on every row, fixed-width, no separators)

@@ -30,27 +30,58 @@ two on one side is refused: a channel already names a version for every process,
 one entry is ambiguous about whether it overrides or extends.
 
 ```
-PROCESS         VERDICT
-order_pipeline  upgradable
-invoice         breaking
+PROCESS         UPGRADE     CONTRACT
+order_pipeline  upgradable  compatible
+invoice         breaking    breaking
 
 invoice v1 → v4
-  outputs.charge.amount  (task "charge", action.result_schema):
-    number → string
+  charge:fetch.result  (breaking contract)
+    amount: number → string
+  ship                 (breaking upgrade)
+    outputs.charge.amount: number → string
 ```
 
-A clean run is the table alone. Detail prints only where something broke: the path is where
-it shows in an instance's data, the parenthesis is the definition slot that changed under
-it, and the line below is what differs.
+**Two columns, because there are two questions** — and each is answered for every process,
+so neither is left blank. A blank cell under a header reads as a question that went
+unanswered; `nothing changed` and `new` therefore print in both.
 
-One verdict per process:
+| UPGRADE | |
+|---|---|
+| `upgradable` | every state an instance can be parked in fits the new definition |
+| `breaking` | one does not; the detail names which |
+
+| CONTRACT | |
+|---|---|
+| `compatible` | callers and parents still get the shape they were written against |
+| `breaking` | they do not |
+| `breaking (ignored)` | it broke, and `--ignore contract` excused it from the exit code |
+
+Under the table, one block per process, and inside it **one row per addressable place that
+was compared**, annotated with what became of it — `(ok)`, `(breaking upgrade)`,
+`(breaking contract)`, or `(not judged)`. A place that holds up still gets a row, so you can
+see what was examined rather than inferring it from silence. The findings sit under it: a
+path *inside* that schema, and what differs.
+
+An address is one of four things:
 
 | | |
 |---|---|
-| `upgradable` | an instance running the old version could continue under the new one, and consumers still get the shape they expect |
-| `breaking` | one of those two failed; the reason says which |
-| `nothing changed` | both sides resolve to the same version, or a submitted document is identical to what is deployed |
-| `new` | only the target side carries it, so nothing is running it |
+| `input` | the process input schema |
+| `output` | the process output |
+| `<task>` | the context an instance parked at that task holds — paths under it read `outputs.charge.amount` |
+| `<task>:<slot>` | a definition slot on that task: `output`, `switch`, `only_once`, `action.type`, `fetch.url`, `child.name`, `<action_type>.result` |
+
+The example above is one change reported at two addresses, which is the point of addressing
+rather than listing schemas. `charge`'s `result_schema` narrowed a field to a string: at
+`charge:fetch.result` that is a **contract** break, because a parent collecting that task was
+written against a number; at `ship` it is an **upgrade** break, because an instance parked
+there already holds `outputs.charge.amount` as a number and the new definition will not take
+it. Same edit, two different parties harmed, two rows.
+
+`nothing changed` (both sides resolve to the same version, or a submitted document is
+identical to what is deployed) and `new` (only the target side carries it, so nothing is
+running it) are statuses rather than verdicts — see [what a missing counterpart
+means](#what-a-missing-counterpart-means).
 
 The second form is the one to reach for before a deploy: it compares the documents `apply`
 would take against what is currently on a channel, so you see the answer without writing
@@ -118,29 +149,41 @@ Neither `nothing to compare` nor `new process` can break anything, so neither dr
 top-level verdict down. Only real incompatibilities — and versions whose own inference
 fails, reported as `unanalysable` — do that.
 
-### Two questions behind one verdict
+### The two checks run in opposite directions
 
-`breaking` covers two checks that run in opposite directions, and the API reports them
-separately (`compatible` and `output_compatible`) because they are genuinely different
-questions:
+They are separate columns (`upgrade` and `contract` in the JSON) because they are genuinely
+different questions, about different parties:
 
-- **Continuation** — could an instance running the old version carry on under the new one?
-  Every value the old definition can have produced must be one the new definition accepts.
-- **The output contract** — does the new version still honour what its consumers were
-  written against? Here the direction reverses: a parent's `result_schema` and an API caller
-  were written against the *old* output shape, so every value the new version can produce
-  must be one the old one could.
+- **Upgrade** — could an instance running the old version carry on under the new one? Every
+  state it can be parked in must fit. This is about rows **this deployment already owns**.
+- **Contract** — does the new version still honour what its consumers were written against?
+  Here the direction reverses: a parent's `result_schema` and an API caller were written
+  against the *old* shape, so every value the new version can produce must be one the old one
+  could. This is about parties **outside** the deployment.
 
-`--allow-breaking-output` tolerates the second. It is for the case where the process output
-changed shape but nothing running is affected and you have already dealt with the consumers:
-the verdict becomes `upgradable` and the exit code 0. It changes the rendered verdict and
-the exit code only, never `--json`.
+That asymmetry is why only one of them can be waived. `--ignore contract` excuses the
+contract check from the exit code — for when the output changed shape, nothing running is
+affected, and you have already dealt with the consumers. There is no equivalent for the
+upgrade check: nobody outside can have dealt with an instance parked mid-run.
 
-### The changed slot is named, because the verdict cannot judge meaning
+```
+genctl compat --from stable --to latest --ignore contract
+```
 
-Each broken path names the definition slot that changed under it — `action.result_schema`,
-`output`, `switch`, `on_error`, `timeout`, `only_once`, `input_schema`, `config_schema`. The
-full per-slot list is in the JSON (`--json`), on every process, whether or not it broke.
+It changes neither what is compared nor what is printed. The break is still reported and
+still rendered, marked `breaking (ignored)`; only the exit code moves. In `--json` the
+distinction is two fields: `compatible` is what was found, `passes` is what you asked about.
+
+### Every changed slot is listed, because the verdict cannot judge meaning
+
+The report also carries the slots that changed at all — `changed` in the JSON (`--json`), on
+every process, whether or not anything broke. Each entry names the address and which checks
+it `affects`, so an edit that compares equal is still visible as an edit.
+
+`config_schema` is not among them: it is re-resolved from the environment on every tick, so
+nothing persisted corresponds to it. A process reading a config key that stopped existing is
+caught by validation, which type-checks expressions against it — a better answer than compat
+could give.
 
 <Note>
 **This is a shape check, not a review.** Dollars → cents is `number` before and after and
@@ -149,19 +192,21 @@ The check catches the *accidental* break — a required input appearing, an outp
 changed. It does not certify a migration.
 </Note>
 
-Four more things it does not see:
+Five more things it does not see:
 
 - **Routing.** New `switch` conditions decide where an instance goes next.
   Shape-compatible and behaviourally different is a normal outcome.
 - **Side effects already performed.** The old URL was already called.
 - **Redaction.** A property that stops being `secret: true` becomes visible over the API,
-  for data stored long before the change. Only the `input_schema` / `config_schema` slot
-  reports it.
+  for data stored long before the change. A schema changing nothing else compares equal to
+  every verdict, so the `changed` list is the only place it shows.
 - **A field that may be absent.** Adding an optional field to a task's `output` is
-  compatible — not because the two shapes match, but because the gap is one that can be
-  closed mechanically: the value is nullable, so an upgrade writes the explicit null in.
-  Making that same field *required* is a break, because then the value is non-null and there
-  is nothing to write.
+  compatible — not because the two shapes match, but because the gap is one an upgrade can
+  close mechanically, in whichever direction the edit opened it. A required nullable field
+  that is missing gets its null written in; a stored null the new schema will not hold is
+  removed, where the field is optional and absence is a valid state. Making that same field
+  *required* and non-nullable is a break: neither the null nor its absence is valid, so
+  there is nothing to write and nothing to drop.
 - **`only_once`.** Removing it from a task whose previous attempt was interrupted lets that
   task re-run, and the side effect happens twice. Read the `only_once` slot before moving
   instances a worker died holding.
@@ -181,8 +226,14 @@ resolving to one version per process name, paired by name. A triple of
 A `versions` entry may be a number or a channel name: `{"versions": {"boss": 2, "kid":
 "stable"}}`.
 
+`ignore` is accepted here too, as an array: `{"ignore": ["contract"]}`.
+
 The response is one row per process named on either side, whatever became of it —
-`{compatible, processes}` and nothing more. Each row carries a `status` (`compared`,
-`nothing_to_compare`, `new`, `unanalysable`) alongside its verdicts, so a row that was never
-judged is not mistaken for one that passed, and a version that failed its own inference is
-found where you would look for it rather than in a second array.
+`{compatible, passes, processes}` and nothing more. `compatible` is what was found and
+`passes` is what the caller asked about; with nothing ignored the two agree.
+
+Each row carries a `status` (`compared`, `nothing_to_compare`, `new`, `unanalysable`)
+alongside its two verdicts (`upgrade`, `contract`), so a row that was never judged is not
+mistaken for one that passed, and a version that failed its own inference is found where you
+would look for it rather than in a second array. `issues` lists what broke, each entry naming
+its `member` (`upgrade` or `contract`), `address`, `path`, and whether it is `gating`.
