@@ -69,17 +69,24 @@ behavior while the spec stays put, answering a different question. See
   on it proves nothing downstream), and task outputs are overwritten on loop re-entry (so
   refinements need a dataflow kill).
 - [compat-categories.md](compat-categories.md) — **one piece built** (the token lexer,
-  `internal/selector`); the rest is proposal. `genctl compat` answers two questions and
-  folds them into one word: can a running instance continue (rows this deployment owns),
-  and does the process still honour its contracts (parties outside it). Two shipped
-  fixtures report the wrong thing because of that fold, and both come right when the
-  verdicts split — no change to `isSubset` or the absent-as-null relation. Records the rule
-  that assigns a slot to a side (**who submits the value**, and a verdict only where a
-  conform stands between the parties), the selection flags and the invariant that keeps
-  them honest (selection moves the exit code, never what is checked or shown, and a token
-  whose break has since been fixed fails the run rather than rotting), and one live bug it is
-  not about: `compat.go` renders paths with its own dot-joiner, so a task named `charge-eu`
-  already prints an expression the language reads as a subtraction.
+  `internal/selector`); the rest is proposal, and **an implementation of it was written and
+  rolled back** — findings marked **[run]** in that doc came from running it, and three of
+  them contradicted the design as written. `genctl compat` today answers two questions and
+  folds them into one word: can a running instance continue (**upgrade** — non-negotiable),
+  and does the process still honour its contracts (**contract** — excusable with
+  `--ignore contract`). Two shipped fixtures report the wrong thing because of that fold.
+  Records what each check compares and in which direction (**who submits the value**: a
+  value they submit may only widen, a value we produce may only narrow; a verdict only where
+  a conform stands between the parties), that `result_schema` is an *upgrade* concern
+  wherever a task can park mid-flight (external and the child family — fetch is the one that
+  cannot), and the report's addressing: where in the process, then the schema path inside
+  it, with a slot that changed and a value that broke never sharing a row — putting them
+  together claims a cause no comparison can know. Its sharpest claim is §2e: **a schema
+  denotes two different sets** — what may arrive, and what is stored after the conform filled
+  its defaults — so the same pair compared in the same direction answers differently, and
+  `IsSubset` needs a second mode rather than the callers needing a pre-step. §9 records the
+  one change that would collapse that distinction (fill a default before the required check)
+  and why it is not compat's to make.
 - [durability-levels.md](durability-levels.md) — **one piece built** (`--sqlite-fullfsync`,
   which changes no default); the rest is proposal. Move the fsync off every persist onto a
   few boundaries, exposed as a tunable ladder (`none` → `accepted` → `only-once` →
