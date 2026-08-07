@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1786124182833,
+  "lastUpdate": 1786126848721,
   "repoUrl": "https://github.com/genroc/genroc",
   "entries": {
     "genroc throughput": [
@@ -13696,6 +13696,78 @@ window.BENCHMARK_DATA = {
             "value": 370,
             "unit": "inst/s",
             "extra": "AMD EPYC 7763 64-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "granat.stepan@gmail.com",
+            "name": "Štěpán Granát",
+            "username": "stepan662"
+          },
+          "committer": {
+            "email": "granat.stepan@gmail.com",
+            "name": "Štěpán Granát",
+            "username": "stepan662"
+          },
+          "distinct": true,
+          "id": "d99ef70e5bb0cfd8c72cec3ccc9ac3619a14e0d5",
+          "message": "feat: reconcile null-vs-missing in both directions on upgrade\n\nFillAbsentAsNull became ConformToSchemaExactly: the mode is a migration\nthat makes a stored value satisfy a schema it was not written against,\nand it now closes the gap the other way too. A stored null the target\nwill not hold is REMOVED where the property is optional, since absence\nis valid there; the value cannot stay and failing the upgrade over it\nwould be gratuitous.\n\nIsSubsetAsStored gained the matching rule, and only the matching one:\noptional on the super side, everything-but-the-null already fitting.\nThe pair must accept exactly the same gaps, so a relation that tolerates\nmore would bless an upgrade that then fails at the conform.\n\nRemoval is narrower than it looks, and the tests pin each boundary:\nnever where the target is also nullable (both states valid, nothing to\nreconcile), never on a property that stays required (neither state is\nvalid), never on an array element (dropping shortens the array). An\nopen map's key is removable in principle but the rule does not reach\npast declared properties — relation and conform both refuse it, which\nis the safe direction, pinned so a fix has to move both.\n\nSpecs record the rejected alternative: pruning the comparison to what a\nlater task actually reads is not sound, because it leaves the unread\nvalues unreconciled and the NEXT upgrade reasons from a premise this one\nfalsified. A migration reconciles the whole context or the chain breaks.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+          "timestamp": "2026-08-07T20:17:22+02:00",
+          "tree_id": "38def88768082992e02fe6f4932c0382a5f91e83",
+          "url": "https://github.com/genroc/genroc/commit/d99ef70e5bb0cfd8c72cec3ccc9ac3619a14e0d5"
+        },
+        "date": 1786126844943,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "spawn deep sqlite",
+            "value": 42,
+            "unit": "inst/s",
+            "extra": "INTEL(R) XEON(R) PLATINUM 8573C · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn deep postgres",
+            "value": 136,
+            "unit": "inst/s",
+            "extra": "INTEL(R) XEON(R) PLATINUM 8573C · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn drain_big sqlite",
+            "value": 760,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 9V74 80-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn drain_big postgres",
+            "value": 672,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 9V74 80-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn drain sqlite",
+            "value": 1514,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 9V74 80-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn drain postgres",
+            "value": 1283,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 9V74 80-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn recursive sqlite",
+            "value": 155,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 9V74 80-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
+          },
+          {
+            "name": "spawn recursive postgres",
+            "value": 412,
+            "unit": "inst/s",
+            "extra": "AMD EPYC 9V74 80-Core Processor · 4 cores · 16GB · linux x64 6.17.0-1020-azure"
           }
         ]
       }
