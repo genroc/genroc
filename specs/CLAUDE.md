@@ -68,29 +68,35 @@ behavior while the spec stays put, answering a different question. See
   two soundness traps that are easy to miss: `config` is re-resolved every tick (so a guard
   on it proves nothing downstream), and task outputs are overwritten on loop re-entry (so
   refinements need a dataflow kill).
-- [compat-command.md](compat-command.md) — **one piece built** (the token lexer,
-  `internal/selector`); the rest is proposal, and **an implementation of it was written and
-  rolled back** — findings marked **[run]** in that doc came from running it, and three of
-  them contradicted the design as written. `genctl compat` today answers two questions and
-  folds them into one word: can a running instance continue (**upgrade** — non-negotiable),
-  and does the process still honour its contracts (**contract** — excusable with
-  `--ignore contract`). Two shipped fixtures report the wrong thing because of that fold.
-  Records what each check compares and in which direction (**who submits the value**: a
-  value they submit may only widen, a value we produce may only narrow; a verdict only where
-  a conform stands between the parties), that `result_schema` is an *upgrade* concern
-  wherever a task can park mid-flight (external and the child family — fetch is the one that
-  cannot), and the report's addressing: where in the process, then the schema path inside
-  it, with a slot that changed and a value that broke never sharing a row — putting them
-  together claims a cause no comparison can know. Its sharpest claim is §2e: **a schema
-  denotes two different sets** — what may arrive, and what is stored after the conform filled
-  its defaults — so the same pair compared in the same direction answers differently, and
-  `IsSubset` needs a second mode rather than the callers needing a pre-step — read the sub
-  side only, since the upgrade fill writes no defaults and a default filled into a half-run
-  instance would disagree with every stored value derived from its absence. §9 records the
-  change that would remove the motivating disagreement (fill a default before the required
-  check) and why it is not compat's to make. `config_schema` is deliberately absent from the
-  whole check: validation type-checks expressions against it, which catches more than compat
-  could, and what is left is an environment question about one deployment.
+- [compat-command.md](compat-command.md) — the compat **check**: two questions, not one.
+  Can a running instance continue (**upgrade** — non-negotiable), and does the process still
+  honour its contracts (**contract** — excusable with `--ignore contract`). Two shipped
+  fixtures report the wrong thing because the two are folded into one word. Records the
+  direction rule (**who submits the value**: what they submit may only widen, what we produce
+  may only narrow; a verdict only where a conform stands between the parties), that a result
+  schema is an *upgrade* concern wherever a task can park mid-flight (external and the child
+  family — fetch is the one that cannot), and a three-level report: process, **the schema that
+  was compared**, then what `isSubset` said about it. Its sharpest claim is §2e — **a schema
+  denotes two different sets**, what may arrive and what is stored once the conform filled its
+  defaults, so the same pair in the same direction answers differently; `Validate` already
+  distinguishes the cases by mode and `IsSubset` gains the matching one, reading the sub side
+  only. An implementation was written and rolled back; findings marked **[run]** came from
+  running it, and three contradicted the design as written — chiefly that a slot that changed
+  and a value that broke must never share a row, since that claims a cause no comparison can
+  know. `config_schema` is deliberately outside the whole check: validation type-checks
+  expressions against it, which catches more than compat could. **Demand pruning is required,
+  not deferred** (§2f) and lands last: without it the report calls a dead output a break, and
+  over-pruning it would promise an upgrade whose instance then reads a value that is not
+  there — the same failure shape as a relation tolerating a gap the fill cannot close, so it
+  gets the same test rigour.
+- [compat-selection.md](compat-selection.md) — **deferred**, and the one piece of it that is
+  built (`internal/selector`, the token lexer). The general form of `--ignore contract`: a
+  token grammar where **colons scope and dots navigate**, so a build can gate on one member,
+  process, task or field. Records why the member vocabulary is reserved in its position (a
+  typo'd member must be a refusal, not a process scope matching nothing), why a token is
+  validated for **existence and never occurrence** (an exclusion is a standing policy — silent
+  while the slot is fine, failing once it is gone), and that an invalid selection degrades to
+  gating *everything*. Predates compat-command's addressing and must be reconciled on landing.
 - [durability-levels.md](durability-levels.md) — **one piece built** (`--sqlite-fullfsync`,
   which changes no default); the rest is proposal. Move the fsync off every persist onto a
   few boundaries, exposed as a tunable ladder (`none` → `accepted` → `only-once` →

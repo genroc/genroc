@@ -24,10 +24,11 @@ The assumption, stated plainly: a stored value conforms to the type the old vers
 Registration establishes it; the engine conforms deviations at runtime. **The gate may accept
 what the report calls different, never the reverse.**
 
-Two of the comparison's imprecisions are refined here, and both are **monotone** — refinement
-only turns "different" into "tolerable": branch correlation (a joined context makes
-branch-only outputs merely optional) and demand (a new main-line output becomes required
-everywhere, even where nothing reads it — §8's pruning).
+One of the comparison's imprecisions is refined here, and monotonically — refinement only
+turns "different" into "tolerable": branch correlation, where a joined context makes
+branch-only outputs merely optional. The other, demand, is **not** the gate's: pruning the
+required set to what is actually read belongs to the check itself (compat-command.md §2f),
+which already has a position to compute demand from — every task it compares at.
 
 ## 2. The boundary is entry to a task
 
@@ -149,12 +150,6 @@ CLAUDE.md.
 
 ## 8. Deferred
 
-- **Demand-pruning the required set** (the gate's second refinement): prune
-  `mustNew(T)` to what is actually referenced from T on, via backward reachability over
-  `shape.Roots()`. Sound (unread values cannot break), applies to all three context
-  slots, ~100–150 lines; four cases must be right (`AllOutputs`, `SelfPrevious`,
-  on_error edges, process output at reachable terminals). Belongs to the gate — demand
-  needs a position.
 - **Compat at apply time** — advisory block in `applyBatch`'s planning pass; must never
   refuse. After the general command, not instead.
 - **Fan-in compat** ("which live versions can move to v5?") + live instance counts per
