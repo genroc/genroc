@@ -58,8 +58,6 @@ type Engine struct {
 	// lease expires at lastRenewMs+leaseDuration or later, the invariant leaseGate rests on
 	// (renewLeases has the fragile half).
 	lastRenewMs atomic.Int64
-	// graceUntilMs is touched only by the pump goroutine, so it needs no synchronisation.
-	graceUntilMs int64
 	// schemaCache memoises inference so logged payloads can be schema-redacted (secret
 	// fields → "***") without re-running the solver on every log line.
 	schemaCache validation.SchemaCache
@@ -198,7 +196,10 @@ func (e *Engine) renewLeases() error {
 // declines takeovers for one lease period, as a cutoff pinned to the instant the evidence
 // was read (a delayed claim cannot widen it). It reads the RENEWAL gap, in the CLAIMANT —
 // each wrong-looking choice here is argued in specs/lease-fencing.md and CLAUDE.md.
-func (e *Engine) leaseGate() db.Takeover {
+//
+// graceUntilMs is the caller's own state, read and extended here: the pump owns it as a
+// local, so the window belongs to one goroutine by construction rather than by convention.
+func (e *Engine) leaseGate(graceUntilMs *int64) db.Takeover {
 	now := db.Now()
 	nowMs := now.UnixMilli()
 	stale := time.Duration(nowMs-e.lastRenewMs.Load()) * time.Millisecond
@@ -214,7 +215,7 @@ func (e *Engine) leaseGate() db.Takeover {
 	if stale+margin < e.leaseDuration {
 		// A grace opened by an earlier trip still applies: peers that froze alongside
 		// this worker have not necessarily repaired yet.
-		if nowMs < e.graceUntilMs {
+		if nowMs < *graceUntilMs {
 			return db.SkipTakeover
 		}
 		return db.TakeoverBefore(now)
@@ -223,14 +224,14 @@ func (e *Engine) leaseGate() db.Takeover {
 	// Once per window, not once per poll: the window is extended below while the
 	// condition persists. Debug, not warn: a suspended laptop trips this benignly on every
 	// wake, and an unreachable DB still reports the renewal and claim failures at error.
-	if nowMs >= e.graceUntilMs {
+	if nowMs >= *graceUntilMs {
 		e.logOnly(logEvent{Level: model.LogDebug,
 			Msg: "no successful lease renewal for " + stale.Round(time.Millisecond).String() +
 				"; leases this worker holds may have lapsed - renewing them and declining takeovers for " +
 				e.leaseDuration.String(),
 			Meta: map[string]any{"worker": e.workerID, "stale_for": stale.Round(time.Millisecond).String(), "lease": e.leaseDuration.String()}})
 	}
-	e.graceUntilMs = nowMs + e.leaseDuration.Milliseconds()
+	*graceUntilMs = nowMs + e.leaseDuration.Milliseconds()
 	if err := e.renewLeases(); err != nil {
 		e.logOnly(logEvent{Level: model.LogError, Msg: "repair worker leases: " + err.Error()})
 	}
@@ -273,6 +274,10 @@ func (e *Engine) runPump(ctx context.Context) {
 	var wg sync.WaitGroup
 	defer wg.Wait() // stop claiming, finish in-flight advances, then return
 
+	// The takeover-grace window, owned by this loop: leaseGate is its only reader and
+	// writer, and only this goroutine calls leaseGate.
+	var graceUntilMs int64
+
 	for {
 		// Acquire every free slot up front so the dispatch loop below never blocks:
 		// with the claim's wait_state<>'waiting' filter, that closes the window where an
@@ -296,7 +301,7 @@ func (e *Engine) runPump(ctx context.Context) {
 
 		// Before the claim, never after: the point is to repair lapsed leases while
 		// there is still a claim to protect from them.
-		takeover := e.leaseGate()
+		takeover := e.leaseGate(&graceUntilMs)
 
 		insts, err := e.db.ClaimInstances(e.workerID, e.leaseDuration, slots, takeover)
 		// Into the held set immediately: a renewal in the claim-to-dispatch gap would

@@ -299,7 +299,8 @@ func TestLeaseGate_VerdictOutlivesTheDelayBeforeTheClaim(t *testing.T) {
 	if err := eng.renewLeases(); err != nil {
 		t.Fatalf("renewLeases: %v", err)
 	}
-	takeover := eng.leaseGate() // evidence is fresh here, so this is a takeover verdict
+	var graceUntilMs int64
+	takeover := eng.leaseGate(&graceUntilMs) // evidence is fresh here, so this is a takeover verdict
 	if takeover == db.SkipTakeover {
 		t.Fatal("the gate declined a takeover on evidence renewed a moment ago; this test needs the takeover verdict")
 	}
