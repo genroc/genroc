@@ -348,7 +348,7 @@ func deref(s *node, defs map[string]*node) (*node, error) {
 			seen = map[*node]bool{}
 		}
 		seen[s] = true
-		if p, pending := lookupPending(target); pending {
+		if p := target.pending; p != nil {
 			resolved, err := p.solver.resolvePending(p.name)
 			if err != nil {
 				return nil, err

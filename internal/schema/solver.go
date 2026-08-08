@@ -3,7 +3,6 @@ package schema
 import (
 	"fmt"
 	"sort"
-	"sync"
 )
 
 // The Solver resolves a system of named definitions whose bodies are computed
@@ -45,37 +44,9 @@ const maxSolvedTypeBytes = 64 * 1024
 // of validating as an empty (permissive) schema.
 const pendingAnchor = "genroc:pending"
 
-// pendingNodes maps each live sentinel node to its solver+name so deref — a
-// free function with no solver in scope — can route resolution back to the
-// owning solver. Entries live only for the duration of a Solve call; the
-// mutex exists because independent solvers may run on concurrent requests.
-var (
-	pendingMu    sync.Mutex
-	pendingNodes = map[*node]pendingEntry{}
-)
-
 type pendingEntry struct {
 	solver *Solver
 	name   string
-}
-
-func registerPending(n *node, s *Solver, name string) {
-	pendingMu.Lock()
-	defer pendingMu.Unlock()
-	pendingNodes[n] = pendingEntry{solver: s, name: name}
-}
-
-func lookupPending(n *node) (pendingEntry, bool) {
-	pendingMu.Lock()
-	defer pendingMu.Unlock()
-	e, ok := pendingNodes[n]
-	return e, ok
-}
-
-func unregisterPending(n *node) {
-	pendingMu.Lock()
-	defer pendingMu.Unlock()
-	delete(pendingNodes, n)
 }
 
 type memberState uint8
@@ -145,11 +116,10 @@ func (s *Solver) Declare(name string, compute func() (Schema, error)) {
 	if _, dup := s.members[name]; dup {
 		panic(fmt.Sprintf("schema.Solver: definition %q declared twice", name))
 	}
-	sentinel := &node{Anchor: pendingAnchor, ID: name}
+	sentinel := &node{Anchor: pendingAnchor, ID: name, pending: &pendingEntry{solver: s, name: name}}
 	m := &solverMember{name: name, compute: compute, sentinel: sentinel}
 	s.members[name] = m
 	s.defs.m[name] = sentinel
-	registerPending(sentinel, s, name)
 }
 
 // Solve computes every declared definition in exact dependency order (a computation
@@ -159,7 +129,7 @@ func (s *Solver) Declare(name string, compute func() (Schema, error)) {
 func (s *Solver) Solve() error {
 	defer func() {
 		for _, m := range s.members {
-			unregisterPending(m.sentinel)
+			m.sentinel.pending = nil
 		}
 	}()
 	names := make([]string, 0, len(s.members))
@@ -496,7 +466,7 @@ func (s *Solver) finalize(m *solverMember, res Schema) {
 	}
 	m.final = final
 	s.defs.m[m.name] = final
-	unregisterPending(m.sentinel)
+	m.sentinel.pending = nil
 	m.state = memberDone
 	m.cluster = nil
 }

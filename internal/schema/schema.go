@@ -129,6 +129,12 @@ type node struct {
 	ID                   string           `json:"$id,omitempty"`
 	Default              any              `json:"default,omitempty"`
 	Secret               bool             `json:"secret,omitempty"`
+	// pending routes a solver sentinel back to the solver that owns it, so deref can
+	// force the definition on demand (see Solver.Declare). Struct copies may carry it —
+	// a copy denotes the same definition and resolving it is correct. Unexported, so a
+	// JSON round-trip drops it; that plus Solve nilling it is what leaves an escaped
+	// sentinel bare, to fail loudly on pendingAnchor rather than read as permissive {}.
+	pending *pendingEntry
 }
 
 // UnmarshalJSON implements strict decoding: any JSON key not in allowedKeywords
