@@ -303,6 +303,13 @@ func (t *Template) OutputRefs() []string {
 // cache memoises Parse: template strings are static definition content, so the key set is
 // bounded like the DB's definition cache. Failures are cached too — a bad template must
 // not re-parse every tick.
+//
+// The one package-level mutable value left in internal/ by choice: everything else that
+// changes after init hangs off an owner. Giving this one an owner would mean threading a
+// cache through shape.Eval/Roots/infer and every recursive call, for a memo of a pure
+// function with no correctness role. template_bench_test.go is the standing justification
+// (~12ns and no allocations against 0.6-3.2us and 8-38 allocations); it is also the reason
+// an in-process crash simulation cannot restore this package by dropping an object.
 var cache sync.Map // string -> parsed
 
 type parsed struct {
