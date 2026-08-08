@@ -107,7 +107,7 @@ func (e *Engine) persistArm(ctx context.Context, inst *model.ProcessInstance, a 
 // entry off only on return, so the renewer covers the write it protects. Tick keeps no
 // marker; the delete is a no-op there.
 func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) error {
-	defer e.held.Delete(inst.ID)
+	defer e.dropLease(inst.ID)
 	outcome := e.advanceGuarded(ctx, inst)
 	e.inflight.Delete(inst.ID)
 	if err := e.persist(ctx, inst, outcome); err != nil {

@@ -292,7 +292,7 @@ func TestLeaseGate_VerdictOutlivesTheDelayBeforeTheClaim(t *testing.T) {
 	if claimed, err := database.ClaimInstances(eng.WorkerID(), eng.leaseDuration, 1, db.AllowTakeover()); err != nil || len(claimed) != 1 {
 		t.Fatalf("setup claim: err=%v, count=%d", err, len(claimed))
 	}
-	eng.held.Store(id, struct{}{})
+	eng.holdLease(id)
 
 	// Renew rather than rely on New's seed: the setup above is several writes, and on a
 	// loaded machine they can outlast the lease, leaving the gate stale before it is asked.

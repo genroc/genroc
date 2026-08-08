@@ -49,7 +49,10 @@ type Engine struct {
 	// held is the instance IDs the renewer keeps alive: inserted on claim, removed when
 	// runAdvance returns, so a lease always outlives the write it protects. A row that
 	// leaves the set expires with worker_id intact — the hand-back path. specs/lease-fencing.md.
-	held sync.Map
+	// Reach it only through holdLease/dropLease/heldLeases; heldMu is never held across a
+	// database call, so a slow renewal cannot stall a claim.
+	heldMu sync.Mutex
+	held   map[string]struct{}
 	// lastRenewMs: DB-clock millis of the last successful renewal — the worker's only
 	// evidence its leases are alive. Written by the renewer, read by the pump; every held
 	// lease expires at lastRenewMs+leaseDuration or later, the invariant leaseGate rests on
@@ -97,6 +100,7 @@ func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateR
 		sem:                make(chan struct{}, maxConcurrent),
 		wake:               make(chan struct{}, 1),
 		workerID:           workerID,
+		held:               make(map[string]struct{}, maxConcurrent),
 	}
 	for _, opt := range opts {
 		opt(e)
@@ -150,14 +154,39 @@ func (e *Engine) signalWork() {
 // instance), so the pump claims it without waiting for the next poll tick.
 func (e *Engine) NotifyWork() { e.signalWork() }
 
+// holdLease puts an instance in the renewer's set, from the claim that granted it.
+func (e *Engine) holdLease(id string) {
+	e.heldMu.Lock()
+	defer e.heldMu.Unlock()
+	e.held[id] = struct{}{}
+}
+
+// dropLease stops renewing an instance's lease, which is how the lease is handed back:
+// it lapses on its own with worker_id intact, the evidence ReclaimedExpired derives from.
+func (e *Engine) dropLease(id string) {
+	e.heldMu.Lock()
+	defer e.heldMu.Unlock()
+	delete(e.held, id)
+}
+
+// heldLeases snapshots the set for a renewal. A snapshot, so the lock is not held across
+// the database write that follows.
+func (e *Engine) heldLeases() []string {
+	e.heldMu.Lock()
+	defer e.heldMu.Unlock()
+	ids := make([]string, 0, len(e.held))
+	for id := range e.held {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // renewLeases re-stamps the held set and records when that last succeeded (the renewer
 // and the gate's repair both come through here). The stamp is the instant the renewal
 // derived its expiries from, never the post-write clock — late evidence overstates the
 // gate's floor by the write's duration.
 func (e *Engine) renewLeases() error {
-	var ids []string
-	e.held.Range(func(k, _ any) bool { ids = append(ids, k.(string)); return true })
-	renewedAt, err := e.db.RenewWorkerLeases(e.workerID, ids, e.leaseDuration)
+	renewedAt, err := e.db.RenewWorkerLeases(e.workerID, e.heldLeases(), e.leaseDuration)
 	if err != nil {
 		return err
 	}
@@ -273,7 +302,7 @@ func (e *Engine) runPump(ctx context.Context) {
 		// Into the held set immediately: a renewal in the claim-to-dispatch gap would
 		// stamp lastRenewMs past leases it never saw, undermining the gate's floor.
 		for _, inst := range insts {
-			e.held.Store(inst.ID, struct{}{})
+			e.holdLease(inst.ID)
 		}
 		// Release the slots we acquired but won't use (claimed fewer than slots).
 		for i := len(insts); i < slots; i++ {
@@ -413,7 +442,7 @@ func (e *Engine) Tick(ctx context.Context) (int, error) {
 	// Into the held set before dispatching, same as runPump (the renewer runs in
 	// manual-tick mode too).
 	for _, inst := range instances {
-		e.held.Store(inst.ID, struct{}{})
+		e.holdLease(inst.ID)
 	}
 	var wg sync.WaitGroup
 	for i, inst := range instances {
@@ -423,7 +452,7 @@ func (e *Engine) Tick(ctx context.Context) (int, error) {
 			// Never dispatched, so no runAdvance will remove them: drop the rest or
 			// their leases are renewed forever.
 			for _, undispatched := range instances[i:] {
-				e.held.Delete(undispatched.ID)
+				e.dropLease(undispatched.ID)
 			}
 			wg.Wait()
 			return 0, ctx.Err()

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -104,7 +105,7 @@ func TestSelfReclaim_RowHandsBackAndCompletes(t *testing.T) {
 	if err != nil || len(first) != 1 {
 		t.Fatalf("claim: err=%v count=%d", err, len(first))
 	}
-	eng.held.Store(id, struct{}{})
+	eng.holdLease(id)
 	eng.inflight.Store(id, struct{}{})
 
 	// The lease lapses under it and the pump re-claims the row (a self-reclaim):
@@ -123,7 +124,7 @@ func TestSelfReclaim_RowHandsBackAndCompletes(t *testing.T) {
 	if err := eng.runAdvance(context.Background(), first[0]); err != nil {
 		t.Fatalf("doomed advance: %v", err)
 	}
-	if _, still := eng.held.Load(id); still {
+	if slices.Contains(eng.heldLeases(), id) {
 		t.Fatal("the doomed advance left the row in the held set; the renewer would keep it alive forever")
 	}
 
