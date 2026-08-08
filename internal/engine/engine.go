@@ -57,34 +57,17 @@ type Engine struct {
 	lastRenewMs atomic.Int64
 	// graceUntilMs is touched only by the pump goroutine, so it needs no synchronisation.
 	graceUntilMs int64
-	// schemaCache caches the inferred SchemaFile per (process,version) so logged
-	// payloads can be schema-redacted (secret fields → "***") without re-running
-	// inference on every log line. Definitions are immutable per version.
-	schemaCache sync.Map
-}
-
-type schemaKey struct {
-	name    string
-	version int
+	// schemaCache memoises inference so logged payloads can be schema-redacted (secret
+	// fields → "***") without re-running the solver on every log line.
+	schemaCache validation.SchemaCache
 }
 
 // schemaFile returns the inferred schemas for the instance's process (cached),
 // used to redact secret-derived fields from logged payloads.
 func (e *Engine) schemaFile(inst *model.ProcessInstance) (validation.SchemaFile, bool) {
-	key := schemaKey{inst.ProcessName, inst.ProcessVersion}
-	if cached, ok := e.schemaCache.Load(key); ok {
-		return cached.(validation.SchemaFile), true
-	}
-	def, err := e.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
-	if err != nil {
-		return validation.SchemaFile{}, false
-	}
-	sf, err := validation.Generate(def)
-	if err != nil {
-		return validation.SchemaFile{}, false
-	}
-	e.schemaCache.Store(key, sf)
-	return sf, true
+	return e.schemaCache.Get(inst.ProcessName, inst.ProcessVersion, func() (*model.ProcessDefinition, error) {
+		return e.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
+	})
 }
 
 // New creates an Engine. maxConcurrent bounds parallel advances and the per-tick claim

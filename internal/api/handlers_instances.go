@@ -133,10 +133,10 @@ func (h *Handlers) getInstance(id string, resolve bool) Reply {
 	resp := instanceToResp(inst)
 	// Redact secret-derived values from the returned context (the DB still holds
 	// them plainly; they are just not exposed over the API).
-	if def, derr := h.db.GetDefinition(inst.ProcessName, inst.ProcessVersion); derr == nil {
-		if sf, gerr := validation.Generate(def); gerr == nil {
-			resp.Context = orderedContext(validation.RedactContext(inst.ContextData, sf))
-		}
+	if sf, ok := h.schemas.Get(inst.ProcessName, inst.ProcessVersion, func() (*model.ProcessDefinition, error) {
+		return h.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
+	}); ok {
+		resp.Context = orderedContext(validation.RedactContext(inst.ContextData, sf))
 	}
 	return okReply(resp)
 }

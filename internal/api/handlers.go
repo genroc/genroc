@@ -9,6 +9,7 @@ import (
 
 	"genroc/internal/db"
 	"genroc/internal/model"
+	"genroc/internal/validation"
 )
 
 const defaultChannel = "latest"
@@ -28,6 +29,10 @@ type engineService interface {
 type Handlers struct {
 	db     *db.DB
 	engine engineService
+	// schemas memoises inference for redacting an instance's context on read. Only
+	// stored definitions go in — a definition being registered is inferred fresh,
+	// since it is the submitted document being checked, not a cached one.
+	schemas validation.SchemaCache
 }
 
 func NewHandlers(database *db.DB, eng engineService) *Handlers {
