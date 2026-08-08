@@ -74,7 +74,7 @@ func (e *Engine) schemaFile(inst *model.ProcessInstance) (validation.SchemaFile,
 // size. immediateRetries disables backoff (tests only). leaseDuration/leaseRenewInterval
 // default to 10s/3s when 0; the renew interval must be comfortably shorter than the lease
 // so the renewer can re-stamp leases before they expire.
-func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateRetries bool, leaseDuration, leaseRenewInterval time.Duration, logCfg LogConfig, log *slog.Logger) *Engine {
+func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateRetries bool, leaseDuration, leaseRenewInterval time.Duration, logCfg LogConfig, log *slog.Logger, opts ...Option) *Engine {
 	hostname, _ := os.Hostname()
 	workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
 	if leaseDuration <= 0 {
@@ -98,11 +98,31 @@ func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateR
 		wake:               make(chan struct{}, 1),
 		workerID:           workerID,
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
 	// Seeded here as well as in Run: LeaseAge is served from it, and a health probe that
 	// arrives in the gap between New and Run would otherwise read the zero value as
 	// "no renewal since 1970".
 	e.lastRenewMs.Store(db.Now().UnixMilli())
 	return e
+}
+
+// Option configures an Engine beyond New's positional arguments.
+type Option func(*Engine)
+
+// WithWorkerID overrides the identity this worker stamps on the rows it leases. The
+// default is hostname-pid: unique per process, NOT per Engine. Two engines sharing one
+// process must therefore be given distinct ids, or every lease predicate reads them as
+// the same worker — and `lease_epoch` cannot restore a distinction `worker_id` already
+// lost, since it is precisely the self-reclaim-vs-takeover question the epoch defers to
+// `worker_id` to answer (specs/lease-fencing.md).
+func WithWorkerID(id string) Option {
+	return func(e *Engine) {
+		if id != "" {
+			e.workerID = id
+		}
+	}
 }
 
 // WorkerID is this worker's identity in the lease columns — the value an operator
