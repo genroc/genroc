@@ -319,6 +319,7 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 			// written for a worker.
 			continue
 		}
+		out = append(out, addedChildKeyIssues(t, nt)...)
 		out = append(out, resultIssues(t, nt)...)
 	}
 
@@ -335,15 +336,57 @@ type resultContract struct {
 	address  string
 	task     string
 	old, new schema.Schema
+	// added marks a schema the new version declares where the old one declared none. There is
+	// no old schema to compare it against, so it is reported directly — the way a removed
+	// process output is (§3a).
+	added bool
 	// parks is true where an instance can be sitting on this task when the version changes,
 	// so the schema is part of the upgrade question as well as the contract one (§2c).
 	parks bool
 }
 
-// resultContracts pairs what two versions of a task declare they will accept back. Skipped
-// where either side declares nothing: an omitted result_schema is a third state, not the top
-// type — the result stays untyped and unexportable — so there is no schema to compare against
-// (internal/schema/CLAUDE.md). The changed-slot row is what reports that edit.
+// addedChildKeyIssues reports a key the new version declares and the old one did not. A
+// child_map's keys ARE its calls, so this is §2b's main-line-task rule one level down: a
+// parent parked in `collecting` spawned before the key existed, and the map it hands back
+// cannot carry a value the new version guarantees. Reported directly, because an addition
+// has no old schema to be compared against.
+//
+// It is the only key-set move that needs a rule, and the other two say why:
+//
+//   - a key REMOVED is silent on purpose. Collect keys each sibling by `_spawn_child_key`,
+//     so an orphan output lands under a key the new version does not declare and the output
+//     conform strips it. Nothing fails.
+//   - a key whose `name` changed needs nothing either. Its result schemas are still paired,
+//     and `old ⊆ new` carries the child in flight across whatever process it is an instance
+//     of: registration established that its output fits the OLD schema (§2c).
+func addedChildKeyIssues(old, new *model.Task) []Issue {
+	if old.Action == nil || new.Action == nil || old.Action.Type != model.ActionTypeChildMap {
+		return nil
+	}
+	var out []Issue
+	for _, key := range sortedChildKeys(new.Action.Children) {
+		if _, ok := old.Action.Children[key]; ok {
+			continue
+		}
+		out = append(out, Issue{
+			Member: MemberUpgrade, Address: childKeyAddress(old.ID, actionTypeOf(old), key),
+			Task: old.ID, Gating: true,
+			Message: "added; a parent already collecting spawned no child for it",
+		})
+	}
+	return out
+}
+
+// resultContracts pairs what two versions of a task declare they will accept back.
+//
+// The pairing does not care which process a child call names, and that is the point: an
+// omitted result_schema is a third state (the result stays untyped and unexportable —
+// internal/schema/CLAUDE.md), and where the old version declared one, registration
+// established that whatever the OLD call produces fits it. `old ⊆ new` carries that premise
+// forward, so a renamed call needs no rule of its own (§2c).
+//
+// A schema DROPPED is not compared, and needs no rule either: we conform less than we did,
+// so no party is turned away and no parked instance is held to anything new.
 func resultContracts(old, new *model.Task) []resultContract {
 	if old.Action == nil || new.Action == nil {
 		return nil
@@ -351,10 +394,22 @@ func resultContracts(old, new *model.Task) []resultContract {
 	actionType := string(old.Action.Type)
 	parks := parksMidTask(actionType)
 	pair := func(address string, a, b *schema.Schema) []resultContract {
-		if a == nil || b == nil {
+		if b == nil {
 			return nil
 		}
-		return []resultContract{{address: address, task: old.ID, old: *a, new: *b, parks: parks}}
+		rc := resultContract{address: address, task: old.ID, new: *b, parks: parks}
+		if a == nil {
+			// A schema that accepts everything constrains nothing, so declaring `{}` — the
+			// carried-but-unread idiom, which only makes the value exportable — is not an
+			// addition anything can fail.
+			if (schema.Schema{}).IsSubset(*b) {
+				return nil
+			}
+			rc.added = true
+		} else {
+			rc.old = *a
+		}
+		return []resultContract{rc}
 	}
 	if old.Action.Type == model.ActionTypeChildMap {
 		var out []resultContract
@@ -363,9 +418,8 @@ func resultContracts(old, new *model.Task) []resultContract {
 			if !ok {
 				continue
 			}
-			oldChild := old.Action.Children[key]
-			out = append(out, pair(old.ID+":"+actionType+"."+key+".result",
-				oldChild.ResultSchema, newChild.ResultSchema)...)
+			out = append(out, pair(childKeyAddress(old.ID, actionType, key)+".result",
+				old.Action.Children[key].ResultSchema, newChild.ResultSchema)...)
 		}
 		return out
 	}
@@ -381,6 +435,11 @@ func sortedChildKeys(children map[string]model.ChildEntry) []string {
 	return keys
 }
 
+// addedResultMessage is what a result schema declared where none was says. It covers both
+// members deliberately: the party that produces the value never saw this schema, and an
+// instance already parked will meet it on the way out.
+const addedResultMessage = "added; a result written against the version that declared none may not satisfy it"
+
 // resultIssues compares what each task expects back. The direction is §3a's — the service,
 // the worker or the child SUBMITS the value, so the new version must accept everything the
 // old one did — and the relation is strict, because a real conform stands there.
@@ -393,11 +452,19 @@ func sortedChildKeys(children map[string]model.ChildEntry) []string {
 func resultIssues(old, new *model.Task) []Issue {
 	var out []Issue
 	for _, rc := range resultContracts(old, new) {
-		reason := (explainer{}).explain("", rc.old, rc.new, 0)
-		if reason == "" {
-			continue
+		var path, msg string
+		if rc.added {
+			// No path: the finding is about the schema arriving at all, not about a place
+			// inside it. Judged at the same addresses and for the same members as a narrowing,
+			// because it is the same thing happening — a conform standing where none did.
+			msg = addedResultMessage
+		} else {
+			reason := (explainer{}).explain("", rc.old, rc.new, 0)
+			if reason == "" {
+				continue
+			}
+			path, msg = splitReason(reason)
 		}
-		path, msg := splitReason(reason)
 		if rc.parks {
 			out = append(out, Issue{
 				Member: MemberUpgrade, Address: rc.address, Task: rc.task,

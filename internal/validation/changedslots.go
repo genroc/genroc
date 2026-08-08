@@ -45,11 +45,26 @@ var actionSlots = []slot[*model.Action]{
 	{"action.result_schema", "ResultSchema", func(a *model.Action) any { return a.ResultSchema }},
 	{"action.name", "Name", func(a *model.Action) any { return a.Name }},
 	{"action.version", "Version", func(a *model.Action) any { return a.Version }},
-	{"action.children", "Children", func(a *model.Action) any { return a.Children }},
 	{"action.over", "Over", func(a *model.Action) any { return a.Over }},
 	{"action.for", "For", func(a *model.Action) any { return a.For }},
 	{"action.until", "Until", func(a *model.Action) any { return a.Until }},
 	{"action.tz", "TZ", func(a *model.Action) any { return a.TZ }},
+}
+
+// childEntrySlots decompose a `child_map`'s children. A key is a CALL, so its slots are
+// addressed the way an action's are — `<task>:child_map.<key>.<slot>` — and that is the same
+// address a per-key break carries, which is what lets §6b suppress the slot row where one
+// broke. One row for the whole map could not say which key moved, and would read
+// `(not judged)` over slots two checks now cover.
+//
+// A key present on one side only is not a slot that changed: it is a call that appeared (an
+// issue — addedChildKeyIssues) or one that vanished (silent, since the orphan output is
+// stripped).
+var childEntrySlots = []slot[model.ChildEntry]{
+	{"name", "Name", func(c model.ChildEntry) any { return c.Name }},
+	{"version", "Version", func(c model.ChildEntry) any { return c.Version }},
+	{"input", "Input", func(c model.ChildEntry) any { return c.Input }},
+	{"result_schema", "ResultSchema", func(c model.ChildEntry) any { return c.ResultSchema }},
 }
 
 // definitionSlots are the process-level slots. They belong to no task and would otherwise
@@ -79,10 +94,7 @@ func slotAddress(task, slot, actionType string) string {
 	// and it is the discriminator the others are named by. Addressing it under a type would
 	// be circular — `go:fetch.type` — so it keeps the generic name.
 	if rest, ok := strings.CutPrefix(slot, "action."); ok && rest != "type" {
-		if rest == "result_schema" {
-			rest = "result"
-		}
-		name = actionType + "." + rest
+		name = actionType + "." + slotLeafName(rest)
 	}
 	if task == "" {
 		if name == "input_schema" {
@@ -91,6 +103,22 @@ func slotAddress(task, slot, actionType string) string {
 		return name
 	}
 	return task + ":" + name
+}
+
+// slotLeafName is the last segment of an address. `result_schema` drops its suffix, naming
+// what it describes rather than what it is (§6a); everything else is written as declared.
+func slotLeafName(slot string) string {
+	if slot == "result_schema" {
+		return "result"
+	}
+	return slot
+}
+
+// childKeyAddress is where a child_map's key is reported: the key names a call, so it sits
+// under the action type the same way an action's own slots do. compat.go builds break
+// addresses from it too — the two must agree, or §6b's suppression sees two places.
+func childKeyAddress(task, actionType, key string) string {
+	return task + ":" + actionType + "." + key
 }
 
 // slotAffects is the question a slot BEARS ON — a property of the slot itself, not of any
@@ -151,7 +179,51 @@ func changedTaskSlots(old, new *model.Task) []SlotChange {
 			emit(s.name)
 		}
 	}
+	return append(changed, changedChildKeySlots(old, new)...)
+}
+
+// changedChildKeySlots reports a child_map's keys one call at a time. Only keys both sides
+// carry: a key on one side alone is a call that appeared or vanished, which addedChildKeyIssues
+// answers for.
+func changedChildKeySlots(old, new *model.Task) []SlotChange {
+	if old.Action == nil || new.Action == nil || old.Action.Type != model.ActionTypeChildMap {
+		return nil
+	}
+	actionType := string(model.ActionTypeChildMap)
+	var changed []SlotChange
+	for _, key := range sortedChildKeys(old.Action.Children) {
+		newChild, ok := new.Action.Children[key]
+		if !ok {
+			continue
+		}
+		oldChild := old.Action.Children[key]
+		for _, s := range childEntrySlots {
+			if sameJSON(s.get(oldChild), s.get(newChild)) {
+				continue
+			}
+			changed = append(changed, SlotChange{
+				Address: childKeyAddress(old.ID, actionType, key) + "." + slotLeafName(s.name),
+				Task:    old.ID,
+				Affects: childEntrySlotAffects(s.name),
+			})
+		}
+	}
 	return changed
+}
+
+// childEntrySlotAffects is slotAffects for one key of a child_map, and a child_map always
+// parks — so its `result_schema` bears on both questions, as `action.result_schema` does on
+// a task that parks.
+//
+// The rest are judged by nothing, and each for a reason: which process a key NAMES is
+// carried by the result schema comparison rather than checked (§2c), the pinned `version` is
+// the child's own row to report, and an `input` is a value we build for a party whose
+// tolerance no comparison here can know.
+func childEntrySlotAffects(slot string) []Member {
+	if slot == "result_schema" {
+		return []Member{MemberUpgrade, MemberContract}
+	}
+	return nil
 }
 
 func typeChanged(old, new *model.Task) bool {

@@ -1,0 +1,44 @@
+# A shared definition is a pool, not a place: no instance sits at it and no caller is
+# pointed at it, so `$defs` is never an address and a path must never reach one (§6a). The
+# edit below moves `User.age` and is reported at `input`, under `user.age` — a path an
+# operator can navigate — because Normalize bakes the definition into every schema that
+# references it.
+#
+# Two things this holds down that nothing else does. `$defs` is deliberately absent from
+# definitionSlots, so a $defs-only edit has no slot row of its own and would vanish entirely
+# if the baking stopped; and it is the same baking that lets `documentsDiffer` see the edit
+# at all, which is what keeps a SUBMITTED document from reading `nothing changed` here.
+apply:
+  - channel: defsuse_a
+    definitions:
+      - name: defsuse_proc
+        $defs:
+          User: {type: object, properties: {age: {type: [integer, "null"]}}}
+        input_schema: {type: object, properties: {user: {$ref: '#/$defs/User'}}, required: [user]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            output: {u: '$: input.user'}
+            switch: end
+  - channel: defsuse_b
+    definitions:
+      - name: defsuse_proc
+        $defs:
+          User: {type: object, properties: {age: {type: integer}}, required: [age]}
+        input_schema: {type: object, properties: {user: {$ref: '#/$defs/User'}}, required: [user]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            output: {u: '$: input.user'}
+            switch: end
+run: [--from, defsuse_a, --to, defsuse_b]
+
+expect: |
+  PROCESS       UPGRADE   CONTRACT
+  defsuse_proc  breaking  breaking
+
+  defsuse_proc v1 → v2
+    input  (breaking upgrade and contract)
+      user.age: newly required field
+
+  exit 1

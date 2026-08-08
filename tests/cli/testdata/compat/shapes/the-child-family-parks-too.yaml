@@ -1,0 +1,103 @@
+# a-parked-task-carries-its-result-schema.yaml makes the parking argument with an
+# `external`. The other three that park are the child family, and they reach the same rule
+# by a different route — `parksMidTask` reads `Holds().Result` — so each is pinned here:
+# collect conforms every child's output against the parent's result schema as it currently
+# stands, and a narrowing strands a parent already waiting.
+#
+#   one   child       one schema on the action
+#   many  child_map   one schema PER KEY, and the address carries the key: `many:child_map.a.result`
+#   each  child_list  one schema for every element
+#
+# The narrowing validates against the child, which is what makes this a compat question at
+# all: `parkfam_kid` guarantees `x`, so the new schema requiring it is a legal document —
+# registration refuses only a parent that no longer FITS its child
+# (submitted/parent-no-longer-fits-its-stored-child.yaml). It is the parents already parked
+# that this reports.
+#
+# Note what is NOT here: no leftover row about `many`'s children. A child_map's slots are
+# decomposed per key, so the slot that changed carries the same address as the break under
+# it and §6b suppresses it — one row for the whole map would print `(not judged)` beside a
+# break that came out of the very edit it is describing.
+apply:
+  - channel: parkfam_a
+    definitions:
+      - name: parkfam_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x/kid
+              result_schema: {type: object, properties: {id: {type: string}, x: {type: integer}}, required: [id, x]}
+            output: {id: '$: self.result.id', x: '$: self.result.x'}
+            switch: end
+        output: {id: '$: outputs.run.id', x: '$: outputs.run.x'}
+      - name: parkfam_proc
+        tasks:
+          - id: one
+            action:
+              type: child
+              name: parkfam_kid
+              result_schema: {type: object, properties: {id: {type: string}}}
+            switch: next
+          - id: many
+            action:
+              type: child_map
+              children:
+                a: {name: parkfam_kid, result_schema: {type: object, properties: {id: {type: string}}}}
+            switch: next
+          - id: each
+            action:
+              type: child_list
+              name: parkfam_kid
+              over: '$: [1, 2]'
+              result_schema: {type: object, properties: {id: {type: string}}}
+            switch: end
+  - channel: parkfam_b
+    definitions:
+      - name: parkfam_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x/kid
+              result_schema: {type: object, properties: {id: {type: string}, x: {type: integer}}, required: [id, x]}
+            output: {id: '$: self.result.id', x: '$: self.result.x'}
+            switch: end
+        output: {id: '$: outputs.run.id', x: '$: outputs.run.x'}
+      - name: parkfam_proc
+        tasks:
+          - id: one
+            action:
+              type: child
+              name: parkfam_kid
+              result_schema: {type: object, properties: {id: {type: string}, x: {type: integer}}, required: [x]}
+            switch: next
+          - id: many
+            action:
+              type: child_map
+              children:
+                a: {name: parkfam_kid, result_schema: {type: object, properties: {id: {type: string}, x: {type: integer}}, required: [x]}}
+            switch: next
+          - id: each
+            action:
+              type: child_list
+              name: parkfam_kid
+              over: '$: [1, 2]'
+              result_schema: {type: object, properties: {id: {type: string}, x: {type: integer}}, required: [x]}
+            switch: end
+run: [--from, parkfam_a, --to, parkfam_b]
+
+expect: |
+  PROCESS       UPGRADE          CONTRACT
+  parkfam_kid   nothing changed  nothing changed
+  parkfam_proc  breaking         breaking
+
+  parkfam_proc v1 → v2
+    one:child.result         (breaking upgrade and contract)
+      x: newly required field
+    many:child_map.a.result  (breaking upgrade and contract)
+      x: newly required field
+    each:child_list.result   (breaking upgrade and contract)
+      x: newly required field
+
+  exit 1

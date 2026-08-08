@@ -1,0 +1,111 @@
+# A renamed call keeps its result-schema comparison, and that comparison is the whole check
+# — the name needs no rule of its own. Both tasks below repoint at a different process AND
+# narrow the schema in one edit, and it is the narrowing that is reported.
+#
+# Why the name drops out: registration established that the OLD call's output fits the OLD
+# schema — statically where the child declares an output, and at collect's conform where it
+# does not. So whatever `renamed_one` can hand back satisfies the old schema, and `old ⊆ new`
+# carries that across to the new one. Compose the two and the child in flight fits, whoever
+# it is an instance of. It is §2f's premise doing the job it exists for.
+#
+# Refusing the rename instead would be a false break in the column that cannot be excused:
+# there is no `--ignore upgrade` (the-upgrade-check-cannot-be-ignored.yaml), so an operator
+# meeting one has no move but to un-rename the call. The name still gets a row — it changed,
+# and no check covers it directly.
+#
+# What this does NOT cover is routing: `on_error` patterns are validated against the named
+# child's raise set, so a child in flight can raise a code the new version does not route.
+# That changes where the instance goes and fails loudly when it happens, which is where
+# every other routing edit sits — beside `switch`, unjudged.
+apply:
+  - channel: renamed_a
+    definitions:
+      - name: renamed_one
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x/one
+              result_schema: {type: object, properties: {id: {type: string}, x: {type: integer}}, required: [id, x]}
+            output: {id: '$: self.result.id', x: '$: self.result.x'}
+            switch: end
+        output: {id: '$: outputs.run.id', x: '$: outputs.run.x'}
+      - name: renamed_two
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x/two
+              result_schema: {type: object, properties: {id: {type: string}, x: {type: integer}}, required: [id, x]}
+            output: {id: '$: self.result.id', x: '$: self.result.x'}
+            switch: end
+        output: {id: '$: outputs.run.id', x: '$: outputs.run.x'}
+      - name: renamed_boss
+        tasks:
+          - id: each
+            action:
+              type: child_list
+              name: renamed_one
+              over: '$: [1, 2]'
+              result_schema: {type: object, properties: {id: {type: string}}}
+            switch: next
+          - id: fan
+            action:
+              type: child_map
+              children:
+                a: {name: renamed_one, result_schema: {type: object, properties: {id: {type: string}}}}
+            switch: end
+  - channel: renamed_b
+    definitions:
+      - name: renamed_one
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x/one
+              result_schema: {type: object, properties: {id: {type: string}, x: {type: integer}}, required: [id, x]}
+            output: {id: '$: self.result.id', x: '$: self.result.x'}
+            switch: end
+        output: {id: '$: outputs.run.id', x: '$: outputs.run.x'}
+      - name: renamed_two
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x/two
+              result_schema: {type: object, properties: {id: {type: string}, x: {type: integer}}, required: [id, x]}
+            output: {id: '$: self.result.id', x: '$: self.result.x'}
+            switch: end
+        output: {id: '$: outputs.run.id', x: '$: outputs.run.x'}
+      - name: renamed_boss
+        tasks:
+          - id: each
+            action:
+              type: child_list
+              name: renamed_two
+              over: '$: [1, 2]'
+              result_schema: {type: object, properties: {id: {type: string}, x: {type: integer}}, required: [x]}
+            switch: next
+          - id: fan
+            action:
+              type: child_map
+              children:
+                a: {name: renamed_two, result_schema: {type: object, properties: {id: {type: string}, x: {type: integer}}, required: [x]}}
+            switch: end
+run: [--from, renamed_a, --to, renamed_b]
+
+expect: |
+  PROCESS       UPGRADE          CONTRACT
+  renamed_boss  breaking         breaking
+  renamed_one   nothing changed  nothing changed
+  renamed_two   nothing changed  nothing changed
+
+  renamed_boss v1 → v2
+    each:child_list.result  (breaking upgrade and contract)
+      x: newly required field
+    fan:child_map.a.result  (breaking upgrade and contract)
+      x: newly required field
+    each:child_list.name    (not judged)
+    fan:child_map.a.name    (not judged)
+
+  exit 1

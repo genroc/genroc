@@ -1,5 +1,11 @@
-# A task that now calls a different process is a different call entirely, not a moved
-# child. There is no pair to check; the action.name slot is what reports it.
+# A task that now calls a different process is a different call entirely — and the check
+# still needs no rule for it, because the result schema did not move. A parent parked in
+# `waiting` holds an instance of `swap_kid`, whose output registration established fits that
+# schema; the same schema is what collect will conform it against. Nothing changed for the
+# child in flight.
+#
+# a-renamed-call-is-still-compared.yaml is the same edit with the schema narrowed, where the
+# narrowing IS reported. Between them: the name is never the finding, the schema always is.
 apply:
   - channel: swap_a
     definitions:

@@ -35,6 +35,26 @@ Three rules the comparison itself depends on:
 3. **`config` is stripped from every context.** It is re-resolved from the environment on
    every tick, so nothing persisted corresponds to it and there is nothing to compare.
 
+## What a pairing cannot see is an addition — everything else about a child call is its schema
+
+**A renamed child call needs no rule, and adding one was reverted.** Registration established
+that the old call's output fits the old result schema (statically via `checkChildOutputType`,
+or at collect's conform where the child declares no output), so `old ⊆ new` carries the child
+in flight across whatever process it is now an instance of. An identity check would be a false
+break in the member that **cannot be excused** — and the implementation that added one also
+skipped the schema comparison, which was the check doing the work.
+
+Two things have no old schema to carry that premise, so they are reported directly:
+`resultContract.added` (a `result_schema` declared where none was — `{}` excepted, since it
+can fail nothing) and `addedChildKeyIssues` (a `child_map` key, which is §2b's added task one
+level down). A key REMOVED is silent: the orphan output lands under a key the new version does
+not declare and the output conform strips it.
+
+**The changed-slot side must address a key exactly as the issue side does.** `childKeyAddress`
+is shared for that reason: §6b suppresses a slot row only where a break carries the SAME
+address, so a per-key break under a whole-map slot row would print `(not judged)` next to the
+break its own edit produced.
+
 ## Upgradable means the gap is closable, not that the shapes match
 
 The upgrade checks use `IsSubsetAsStored`, which is one half of a pair —

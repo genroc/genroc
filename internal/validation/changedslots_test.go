@@ -15,8 +15,11 @@ import (
 // notASlot names the fields deliberately absent from a slot list, each with the reason
 // it is absent. A field added to one of these structs matches nothing here and fails.
 var notASlot = map[string]string{
-	"Task.ID":                "the identity tasks are matched by, not a slot that can differ",
-	"Task.Action":            "covered field-by-field by actionSlots",
+	"Task.ID":     "the identity tasks are matched by, not a slot that can differ",
+	"Task.Action": "covered field-by-field by actionSlots",
+	"Action.Children": "decomposed per key by childEntrySlots. A key is a CALL — one row " +
+		"for the whole map cannot say which key moved, and its addresses would not meet the " +
+		"per-key addresses a break carries, so §6b could not tell they are the same place",
 	"ProcessDefinition.Name": "the identity processes are paired by",
 	"ProcessDefinition.Tasks": "compared per task, not as one blob — the per-task verdicts " +
 		"are the report, and a whole-list diff would say nothing about where an instance sits",
@@ -78,6 +81,12 @@ func TestChangedSlots_EveryActionFieldIsReported(t *testing.T) {
 	assertEveryFieldIsASlot[*model.Action](t, "Action", coveredFields(actionSlots))
 }
 
+// A child_map key is a call of its own, so its fields are enumerated like an action's — a
+// field added to ChildEntry and forgotten here stops being reported for every key.
+func TestChangedSlots_EveryChildEntryFieldIsReported(t *testing.T) {
+	assertEveryFieldIsASlot[model.ChildEntry](t, "ChildEntry", coveredFields(childEntrySlots))
+}
+
 func TestChangedSlots_EveryDefinitionFieldIsReported(t *testing.T) {
 	assertEveryFieldIsASlot[*model.ProcessDefinition](t, "ProcessDefinition", coveredFields(definitionSlots))
 }
@@ -98,6 +107,11 @@ func TestChangedSlots_EachSlotReadsItsOwnField(t *testing.T) {
 	for _, s := range definitionSlots {
 		if _, ok := reflect.TypeOf(model.ProcessDefinition{}).FieldByName(s.field); !ok {
 			t.Errorf("definition slot %q names field %q, which model.ProcessDefinition does not have", s.name, s.field)
+		}
+	}
+	for _, s := range childEntrySlots {
+		if _, ok := reflect.TypeOf(model.ChildEntry{}).FieldByName(s.field); !ok {
+			t.Errorf("child entry slot %q names field %q, which model.ChildEntry does not have", s.name, s.field)
 		}
 	}
 }

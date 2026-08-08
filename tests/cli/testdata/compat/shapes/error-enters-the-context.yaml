@@ -1,0 +1,51 @@
+# `error` is a context slot like `input` and `outputs.<id>`, and the only edit that adds it
+# is a routing one: `handle` was reached on the main line and is now reached only when `go`
+# fails, so the new context guarantees an `error` no stored row at that task holds.
+#
+# Nothing about this is visible in a schema an author wrote — the break comes out of the
+# must-analysis over the routes — which is why it is worth a fixture of its own: no other
+# case here moves `error`, and a dataflow change that stopped tracking it would report
+# `upgradable` with nothing looking wrong.
+#
+# The routing slots themselves stay `(not judged)`: a `switch` rerouted and an `on_error`
+# added are edits no verdict covers, and the consequence is reported where it lands.
+apply:
+  - channel: errctx_a
+    definitions:
+      - name: errctx_proc
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: next
+          - id: handle
+            action: {type: fetch, url: http://x/handle}
+            output: {n: '$: 1'}
+            switch: end
+  - channel: errctx_b
+    definitions:
+      - name: errctx_proc
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            on_error:
+              - code: [http.%]
+                goto: $handle
+            switch: end
+          - id: handle
+            action: {type: fetch, url: http://x/handle}
+            output: {n: '$: 1', code: '$: error.code'}
+            switch: end
+run: [--from, errctx_a, --to, errctx_b]
+
+expect: |
+  PROCESS      UPGRADE   CONTRACT
+  errctx_proc  breaking  compatible
+
+  errctx_proc v1 → v2
+    handle         (breaking upgrade)
+      error: newly required field
+    go:switch      (not judged)
+    go:on_error    (not judged)
+    handle:output  (ok)
+
+  exit 1

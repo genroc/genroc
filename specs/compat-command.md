@@ -81,6 +81,48 @@ so its result schema is part of the upgrade check:
 rather than a list: request and response happen inside one advance with nothing persisted
 between, so no instance can be holding a fetch result when the version changes.
 
+**A parked parent is holding a child instance, and the result schema is the whole check —
+which process the call names needs no rule.** [run] The identity rule was implemented and
+reverted, and the argument that kills it is the one §2f rests on. Registration established
+that the OLD call's output fits the OLD schema: statically where the child declares an
+output (`checkChildOutputType`), and at collect's conform where it does not. So whatever the
+old call can hand back satisfies `old`, the comparison asks `old ⊆ new`, and composing the
+two carries the child in flight across — whoever it is an instance of. **The name is
+invisible to that argument, so it must be invisible to the check.**
+
+Refusing it anyway costs more than a false row: the upgrade member cannot be excused (§5), so
+a break nothing can clear leaves an operator with no move but to un-rename the call. And the
+implementation that refused also *skipped* the schema comparison for a renamed call, trading
+the finding that mattered for one that did not.
+
+**The one thing a pairing cannot see is an addition**, because there is no old schema to
+carry the premise:
+
+- **a `result_schema` where none was declared** — a conform now stands where none did. Judged
+  at the same address and for the same members as a narrowing: contract always, upgrade
+  wherever the task parks. `{}` is not an addition — it accepts everything, so nothing can
+  fail it (specs/unknown-type.md).
+- **a `child_map` key** — its **keys are its calls**, so an added key is §2b's main-line task
+  exactly: a value the new version guarantees that a parent which spawned before it existed
+  cannot hold.
+
+Both are reported **directly**, the way a removed process output is (§3a).
+
+**A key REMOVED is silent, and the asymmetry is the same one §2b has.** Collect keys each
+sibling by `_spawn_child_key`, so an orphan output lands under a key the new version does not
+declare and the output conform strips it. Nothing fails, and a stale value in a row is what
+this check tolerates everywhere else.
+
+**`over` and the pinned `version` are unjudged**, each for its own reason: a `child_list`'s
+array is consumed at spawn and every child carries its `_spawn_index`, so editing it cannot
+disturb a batch in flight; and when the child itself moves, the child's own row reports it —
+duplicating that on the parent would report one move twice.
+
+**What none of this covers is routing.** `on_error` patterns are validated against the named
+child's raise set, so a child in flight can raise a code the new version does not route. That
+changes where an instance goes rather than what it holds, and it fails loudly — so it sits
+where every other routing edit does, beside `switch`, unjudged.
+
 The cross-document half — a child moving without its parent — is version-compatibility.md
 §3b's pairing check, also unbuilt.
 
@@ -213,7 +255,9 @@ schema comparison: there is no new schema to compare against, so it is reported 
 way a removed task is. Adding an *input* schema breaks both questions at once (a caller
 sending nothing is rejected, and a row created before holds no input); removing one is free,
 since we then demand nothing. Dropping a result schema is free for the same reason — we
-conform less. The one that reads backwards was silent for a release: `compareOutput` skipped
+conform less — while **adding one breaks**, and not as the mirror of the removal: it puts a
+conform where none stood, so a value the producing party was never told to shape is now
+judged (§2c). The one that reads backwards was silent for a release: `compareOutput` skipped
 whenever *either* side declared no output, which is right for the addition and wrong for the
 removal.
 
@@ -293,7 +337,8 @@ question. There are only four:
     input                        the input schema — both checks read it (§3b)
     output                       the process output schema
     <task>                       the context at that task (upgrade)
-    <task>:<action_type>.result  a result schema — fetch.result, external.result, child.result
+    <task>:<action_type>.result  a result schema — fetch.result, external.result, child.result;
+                                 a child_map declares one per key, at <task>:child_map.<key>.result
 
 Level three is a path **into that schema**, relative to nothing else: a context's paths start
 at its own roots and read `outputs.charge.fee` in full; a result schema's read `fee`.
@@ -303,8 +348,15 @@ where a slot IS one.** A slot no check looks at can only ever be a change:
 
     input, output, <task>:<action_type>.result   a slot and a compared schema
     <task>:<slot>                 a slot only — output, switch, on_error, timeout, only_once
-    <task>:<action_type>.<slot>   a slot only — fetch.url, fetch.headers, child.name
+    <task>:<action_type>.<slot>   a slot only — fetch.url, child_list.over, child.name
+    <task>:child_map.<key>        a call's existence, the way <task> is a task's
+    <task>:child_map.<key>.<slot> the same vocabulary one level down, `.result` included
     <task>                        a compared schema, and the task's existence (added/removed)
+
+**A child_map's `children` is decomposed per key rather than compared as one slot.** One row
+for the whole map cannot say which key moved, and its address would not meet the per-key
+address a break carries — so the suppression below would see two places and print a
+`(not judged)` line beside the break its own edit produced.
 
 An earlier draft split these into two vocabularies (`input_schema` for what an author edits,
 `input` for what a row holds). The distinction does not survive a static check: no value is

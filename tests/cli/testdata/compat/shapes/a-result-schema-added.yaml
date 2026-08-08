@@ -1,0 +1,67 @@
+# An addition is the half of the result-schema question no pairing can answer: there is no
+# old schema to compare against, so it is reported DIRECTLY, the way a removed process
+# output is (§3a). It is not the mirror of a removal — dropping one conforms LESS, which is
+# free (the-silent-removals.yaml), while adding one puts a conform where none stood.
+#
+# Both members, and the same two the narrowing case takes, because it is the same thing
+# happening at the same address:
+#
+#   approve  an instance parked at an external task has its result conformed against the
+#            schema it runs NOW (§2c), and the worker was written against a task that
+#            declared nothing — so the submission is rejected and the instance is stranded
+#   call     a fetch cannot park, so only the contract half stands: our conform starts
+#            rejecting responses the service still sends
+#
+# The finding carries no path. It is about the schema arriving at all, not about a place
+# inside it, and a path would have to point into something that did not exist.
+#
+# `result_schema: {}` is deliberately NOT an addition — it accepts everything, so nothing
+# can fail it. Declaring it only makes the value exportable (specs/unknown-type.md).
+apply:
+  - channel: addres_a
+    definitions:
+      - name: addres_proc
+        tasks:
+          - id: approve
+            action: {type: external}
+            switch: next
+          - id: call
+            action: {type: fetch, url: http://x/call}
+            switch: next
+          - id: note
+            action: {type: external}
+            switch: end
+  - channel: addres_b
+    definitions:
+      - name: addres_proc
+        tasks:
+          - id: approve
+            action:
+              type: external
+              result_schema: {type: object, properties: {ok: {type: boolean}}, required: [ok]}
+            switch: next
+          - id: call
+            action:
+              type: fetch
+              url: http://x/call
+              result_schema: {type: object, properties: {fee: {type: number}}, required: [fee]}
+            switch: next
+          - id: note
+            action:
+              type: external
+              result_schema: {}
+            switch: end
+run: [--from, addres_a, --to, addres_b]
+
+expect: |
+  PROCESS      UPGRADE   CONTRACT
+  addres_proc  breaking  breaking
+
+  addres_proc v1 → v2
+    approve:external.result  (breaking upgrade and contract)
+      added; a result written against the version that declared none may not satisfy it
+    call:fetch.result        (breaking contract)
+      added; a result written against the version that declared none may not satisfy it
+    note:external.result     (ok)
+
+  exit 1

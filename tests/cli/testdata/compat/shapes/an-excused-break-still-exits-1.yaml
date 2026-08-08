@@ -1,0 +1,57 @@
+# The report §6 is written around, and the interaction nothing else covers: one edit breaks
+# BOTH questions, `--ignore contract` excuses one of them, and the run still exits 1 because
+# the upgrade check is not negotiable (§5).
+#
+# output-contract-reversed-but-allowed.yaml is the same flag with a clean upgrade column, so
+# it cannot see the rule that matters here — a selection moves the exit code and NOTHING
+# else. Everything the flag did is still on the page: the contract column keeps `(ignored)`
+# because the flag did what it was asked, every excused break still prints, and the trailing
+# line names why a run that ignored something is failing anyway.
+apply:
+  - channel: mixedign_a
+    definitions:
+      - name: mixedign_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+              result_schema: {type: object, properties: {fee: {type: number}}, required: [fee]}
+            output: {fee: '$: self.result.fee'}
+            switch: next
+          - id: settle
+            action: {type: fetch, url: http://x/settle}
+            switch: end
+        output: {fee: '$: outputs.charge.fee'}
+  - channel: mixedign_b
+    definitions:
+      - name: mixedign_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+              result_schema: {type: object, properties: {fee: {type: string}}, required: [fee]}
+            output: {fee: '$: self.result.fee'}
+            switch: next
+          - id: settle
+            action: {type: fetch, url: http://x/settle}
+            switch: end
+        output: {fee: '$: outputs.charge.fee'}
+run: [--from, mixedign_a, --to, mixedign_b, --ignore, contract]
+
+expect: |
+  PROCESS        UPGRADE   CONTRACT
+  mixedign_proc  breaking  breaking (ignored)
+
+  mixedign_proc v1 → v2
+    charge:fetch.result  (breaking contract)
+      fee: number → string
+    settle               (breaking upgrade)
+      outputs.charge.fee: number → string
+    output               (breaking contract)
+      fee: number → string
+
+  not gating: contract — --ignore contract
+
+  exit 1

@@ -1,0 +1,69 @@
+# A child_map's KEYS are its calls, and the two directions do NOT mirror each other — the
+# same asymmetry §2b has for tasks, reached by the same argument.
+#
+#   added    `c` is §2b's main-line addition exactly: a value the new version guarantees
+#            that a parent which spawned before the key existed cannot hold. No pairing can
+#            see it — there is no old schema for a key that did not exist — so it is
+#            reported directly, the way a removed task is.
+#   dropped  `b` is silent, and deliberately. Collect keys each sibling by
+#            `_spawn_child_key`, so the orphan output lands under a key the new version does
+#            not declare and the output conform strips it. Nothing fails, and stale data a
+#            row carries is what this check tolerates everywhere else.
+#
+# The key is addressed on its own (`fan:child_map.c`), because one row for the whole map
+# cannot say which key moved — the same reason `children` is decomposed per key.
+apply:
+  - channel: mapkeys_a
+    definitions:
+      - name: mapkeys_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x/kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: mapkeys_proc
+        tasks:
+          - id: fan
+            action:
+              type: child_map
+              children:
+                a: {name: mapkeys_kid, result_schema: {type: object, properties: {id: {type: string}}}}
+                b: {name: mapkeys_kid, result_schema: {type: object, properties: {id: {type: string}}}}
+            switch: end
+  - channel: mapkeys_b
+    definitions:
+      - name: mapkeys_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x/kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: mapkeys_proc
+        tasks:
+          - id: fan
+            action:
+              type: child_map
+              children:
+                a: {name: mapkeys_kid, result_schema: {type: object, properties: {id: {type: string}}}}
+                c: {name: mapkeys_kid, result_schema: {type: object, properties: {id: {type: string}}, required: [id]}}
+            switch: end
+run: [--from, mapkeys_a, --to, mapkeys_b]
+
+expect: |
+  PROCESS       UPGRADE          CONTRACT
+  mapkeys_kid   nothing changed  nothing changed
+  mapkeys_proc  breaking         compatible
+
+  mapkeys_proc v1 → v2
+    fan:child_map.c  (breaking upgrade)
+      added; a parent already collecting spawned no child for it
+
+  exit 1

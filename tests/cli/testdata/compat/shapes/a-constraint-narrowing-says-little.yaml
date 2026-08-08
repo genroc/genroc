@@ -1,0 +1,40 @@
+# The verdict is right and the MESSAGE is the shortcoming. `isSubset` compares `enum`,
+# `minimum`/`maximum` and the length bounds, so narrowing one is caught on both questions —
+# but `describe` renders a type name, and the type did not move, so the line reads
+# `string → string` and an operator cannot act on it. `maximum` and `minLength` render the
+# same way; only the first break is named, so one property is the whole report.
+#
+# It is the symptom §2e treats as a bug signal (`object → object` was how the rolled-back
+# implementation announced it could not articulate a finding), reached here by a route that
+# is not a bug: the finding is real, the words are missing. A `describe` that learns to
+# render constraints changes this block, which is the point of pinning it.
+apply:
+  - channel: narrowc_a
+    definitions:
+      - name: narrowc_proc
+        input_schema: {type: object, properties: {tier: {type: string}}, required: [tier]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            output: {t: '$: input.tier'}
+            switch: end
+  - channel: narrowc_b
+    definitions:
+      - name: narrowc_proc
+        input_schema: {type: object, properties: {tier: {type: string, enum: [free, paid]}}, required: [tier]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            output: {t: '$: input.tier'}
+            switch: end
+run: [--from, narrowc_a, --to, narrowc_b]
+
+expect: |
+  PROCESS       UPGRADE   CONTRACT
+  narrowc_proc  breaking  breaking
+
+  narrowc_proc v1 → v2
+    input  (breaking upgrade and contract)
+      tier: string → string
+
+  exit 1
