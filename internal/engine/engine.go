@@ -249,10 +249,6 @@ func (e *Engine) Run(ctx context.Context) {
 	e.lastRenewMs.Store(db.Now().UnixMilli())
 	go e.leaseRenewer(ctx)
 
-	if e.logCfg.Retention > 0 {
-		go e.logPruner(ctx)
-	}
-
 	if e.pollEvery == 0 {
 		e.logOnly(logEvent{Level: model.LogInfo, Msg: "engine in manual tick mode"})
 		<-ctx.Done()
@@ -277,8 +273,17 @@ func (e *Engine) runPump(ctx context.Context) {
 	// The takeover-grace window, owned by this loop: leaseGate is its only reader and
 	// writer, and only this goroutine calls leaseGate.
 	var graceUntilMs int64
+	// Log/object pruning rides the pump rather than a goroutine of its own — it is a
+	// once-a-minute janitor, and the poll ticker already wakes this loop far more often.
+	// Manual-tick mode never reaches here; Tick prunes for itself.
+	nextPruneMs := db.Now().UnixMilli() + logPruneInterval.Milliseconds()
 
 	for {
+		if nowMs := db.Now().UnixMilli(); nowMs >= nextPruneMs {
+			nextPruneMs = nowMs + logPruneInterval.Milliseconds()
+			e.pruneLogs()
+		}
+
 		// Acquire every free slot up front so the dispatch loop below never blocks:
 		// with the claim's wait_state<>'waiting' filter, that closes the window where an
 		// in-flight advance finishes between claim and dispatch and lets a stale snapshot
@@ -392,23 +397,9 @@ func (e *Engine) leaseRenewer(ctx context.Context) {
 	}
 }
 
-// logPruner deletes audit-log rows past the retention window. The cutoff uses the DB
-// clock, so a test clock shift expires logs without a real wait.
-func (e *Engine) logPruner(ctx context.Context) {
-	ticker := time.NewTicker(logPruneInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			e.pruneLogs()
-		}
-	}
-}
-
-// pruneLogs deletes audit logs past the retention window. No-op when retention
-// is disabled. Best-effort: a failure is logged and otherwise ignored.
+// pruneLogs deletes audit logs past the retention window. No-op when retention is
+// disabled. Best-effort: a failure is logged and otherwise ignored. The cutoff uses the
+// DB clock, so a test clock shift expires logs without a real wait.
 func (e *Engine) pruneLogs() {
 	if e.logCfg.Retention <= 0 {
 		return
