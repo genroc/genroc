@@ -117,8 +117,45 @@ behavior while the spec stays put, answering a different question. See
   a `lease_epoch` reuse hazard a rewind widens. Names a live bench-harness bug it is not
   about: the failed-instance check in `tests/bench/run.ts` is unscoped, so the Postgres
   path aborts on any database that has run the test suite.
+- [deterministic-simulation.md](deterministic-simulation.md) — run the engine against a
+  simulated world (virtual clock, modelled fetch service, injected faults) so crashes and
+  worker races become enumerable instead of rare. Argues **two tiers and recommends
+  building the first**: tier 1 keeps real goroutines and buys fault injection plus a fast
+  clock; tier 2 turns every goroutine into an event on one seeded queue, which is what makes
+  a run *replay*. The ordering is the point — the oracles, the fake service and the workload
+  generator are tier-independent, so the parts needing design thought are built before the
+  part needing a refactor that may not pay for itself. The substrate mostly exists and was
+  not built for this: `advance()` is already a step function, `db.Now()` is already virtual,
+  `--poll 0` already removes the ticker, and `DBTX` is already a decorated interface. §5 is
+  the sharpest part and was added after the first draft: the races worth simulating are
+  **not goroutine races** but races over database state, and since workers share nothing but
+  the database, a **baton at transaction boundaries** (never per statement — an actor would
+  block on a row lock still holding it) buys replayable cross-worker interleaving *without*
+  tier 2's refactor. That demotes tier 2's remaining prize to intra-worker timing, and §12
+  says so against the earlier draft's own recommendation. Carries a recipe table mapping
+  each race to the schedule that produces it, PCT for search, and schedule **shrinking** as
+  the step people skip before abandoning the simulator — a reproducible failure is still not
+  a debuggable one. Its findings landed as ordinary fixes rather than sim work: a shared
+  `worker_id` (`hostname-pid`) collapsing the distinction `lease_epoch` rests on, now
+  `engine.WithWorkerID`; and `schema.pendingNodes`, a process-global map whose mutex
+  synchronised nothing (entries from concurrent solvers are disjoint) and whose missing
+  cleanup was a permanent leak. Two blockers remain, both about the clock: it is a **process
+  global**, so the frozen-worker incident that motivated
+  [lease-fencing.md](lease-fencing.md) — a skew between one worker and the DB — cannot be
+  expressed at all, and `AdvanceClock` only moves forward. Records that the `only_once`
+  guarantee is checkable **only** here (the oracle is a service that counts its own
+  invocations, not anything the DB can be asked), that the fetch timeout must stop being a
+  `context` under a simulated transport — inverting the reasoning at
+  [action.go:30](../internal/engine/action.go#L30) and leaving two implementations of one
+  rule — one oracle that is **not** sound (audit-trail ordering, since buffered log rows are
+  best-effort by design and a crash is entitled to drop them), and the crash trap that
+  outlives the object graph: **package-level state cannot be dropped**, so a restarted
+  worker inherits a warm `template.cache` unless something resets it — which is why
+  `internal/archtest`'s allow-list is required to stay small, it *is* the process image.
+  Rejects storage-fault accuracy (a `modernc.org/sqlite` VFS) as covering little the `DBTX`
+  decorator does not, with `durability-levels.md` named as the signal to reopen.
 - [docs-site.md](docs-site.md) — the user-facing documentation site, and the only doc here
-  about **tooling rather than the language**. The gap it fills is *reference*: nothing today
+  about **user-facing tooling rather than the language**. The gap it fills is *reference*: nothing today
   says what `accepted_status` accepts or what `genctl promote` does. Draws the
   spec-vs-doc line quoted above, and follows it: `docs/` is shipped behavior only, the site
   never links into `specs/`, and the explanation a *user* needs lives in guides rather than
