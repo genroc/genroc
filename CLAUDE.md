@@ -1,5 +1,26 @@
 # genroc
 
+## No package-level mutable state
+
+Package-level is fine for **values** — lookup tables, compiled regexes, error sentinels,
+embedded files. It is wrong for **state**: if it changes after init, it wants an owner (a
+field on the struct whose lifetime it shares).
+
+The reason is Go-specific. A package-level var is reachable from every goroutine and
+goroutines are created anywhere, so it must be synchronised whether or not anything is
+genuinely shared — and that lock is invisible at the call site. It is also a GC root, which
+turns a missing cleanup from a self-correcting bug into a permanent leak, and it creates
+dependencies no signature declares.
+
+`internal/archtest` enforces this. A var is flagged when its type mentions `sync`/`atomic`,
+or when it is assigned after declaration. The escape hatch is an entry in `allowed` — which
+means writing down which owner it could have had and why it could not; `template.cache` is
+the worked example.
+
+**A package-level var with a mutex beside it is almost always per-call state that escaped.**
+Genuinely shared state comes with an invariant you can name in one sentence; if you cannot
+name one, the state is in the wrong place.
+
 ## Comments
 
 Specs live in `specs/`. A comment earns its place only by answering *what would someone
