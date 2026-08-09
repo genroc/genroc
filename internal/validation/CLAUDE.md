@@ -58,7 +58,9 @@ break its own edit produced.
 **§6b's suppression runs here, not in the renderer.** `Report.Changed` is what is LEFT OVER
 once the issues are in, so every consumer of the wire holds the same report; the rule lived
 in `genctl` first, which meant the JSON and the printed page disagreed about what the report
-contained and any second reader had to rediscover it.
+contained and any second reader had to rediscover it. It lives here **only** — `rowsFor`
+renders what it is given, so a genctl newer than its server prints the slot row this drops,
+and the fix for that is to rebuild the server rather than to keep the rule in two places.
 
 ## Upgradable means the gap is closable, not that the shapes match
 

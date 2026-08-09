@@ -1,0 +1,56 @@
+# The edit no FIELD comparison can see. `switch: next` routes by position, so swapping two
+# tasks reroutes both — and every slot on every task compares equal, because nothing about
+# either task was edited. Before the task list's order was a slot of its own this document
+# pair produced an empty report: two clean verdicts, no block, and a control-flow change
+# under them.
+#
+# Reported at `tasks` rather than per task, because a swap moves both and neither is more
+# moved than the other. `(not judged)`, like every other routing edit — a rerouted `switch`
+# and a reordered list are the same kind of change, and no verdict covers either.
+#
+# Neither task projects an output, so the contexts are identical and the reorder is the whole
+# of the difference. an-added-task-may-pass.yaml is the case this must NOT fire on: an
+# insertion shifts everything after it, and reporting that as a reorder beside the `(added)`
+# row would file one edit twice, the second time as something that did not happen.
+apply:
+  - channel: reorder_a
+    definitions:
+      - name: reorder_proc
+        tasks:
+          - id: start
+            action: {type: fetch, url: http://x/start}
+            switch: next
+          - id: alpha
+            action: {type: fetch, url: http://x/alpha}
+            switch: next
+          - id: beta
+            action: {type: fetch, url: http://x/beta}
+            switch: next
+          - id: done
+            action: {type: fetch, url: http://x/done}
+            switch: end
+  - channel: reorder_b
+    definitions:
+      - name: reorder_proc
+        tasks:
+          - id: start
+            action: {type: fetch, url: http://x/start}
+            switch: next
+          - id: beta
+            action: {type: fetch, url: http://x/beta}
+            switch: next
+          - id: alpha
+            action: {type: fetch, url: http://x/alpha}
+            switch: next
+          - id: done
+            action: {type: fetch, url: http://x/done}
+            switch: end
+run: [--from, reorder_a, --to, reorder_b]
+expect: |
+  PROCESS       UPGRADE     CONTRACT
+  reorder_proc  upgradable  compatible
+
+  reorder_proc v1 → v2
+    tasks  (not judged)
+
+  exit 0

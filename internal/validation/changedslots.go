@@ -71,18 +71,20 @@ var childEntrySlots = []slot[model.ChildEntry]{
 // have no entry anywhere, and a schema changing nothing but `secret: true` compares equal to
 // every schema verdict, so this is the only place such a change is reported.
 //
-// `config_schema` is here to be REPORTED, never judged. No check reads it — config is
-// re-resolved every tick, so nothing persisted corresponds to it, and where it reaches the
-// data through `config.x` validation type-checks that expression against the new schema and
-// catches more than a comparison could. But a slot no verdict covers is exactly what
-// `(not judged)` exists to say, and leaving it out entirely meant a document whose config
-// moved came back with two clean verdicts and no rows — including a `secret: true` dropped
-// from a field nothing reads, which was then reported nowhere at all.
+// `config_schema` and `$defs` are here to be REPORTED, never judged, and the reason is the
+// same for both: no verdict covers them, and a slot no verdict covers is exactly what
+// `(not judged)` exists to say. Leaving them out meant an edit to either came back as two
+// clean verdicts with no rows under them — a `secret: true` dropped from a config field
+// nothing reads, or a shared definition nobody references, changed and reported nowhere.
 //
-// `$defs` is deliberately absent — see notASlot in the test.
+// `$defs` also reports where it is USED, and that is not this row saying it twice: Normalize
+// bakes a referenced definition into every schema addressing it, so a break lands at `input`
+// under a path an operator can navigate (§6a). The two are different facts — the pool moved,
+// and a value stopped fitting — and only the second can be missing.
 var definitionSlots = []slot[*model.ProcessDefinition]{
 	{"input_schema", "InputSchema", func(d *model.ProcessDefinition) any { return d.InputSchema }},
 	{"config_schema", "ConfigSchema", func(d *model.ProcessDefinition) any { return d.ConfigSchema }},
+	{"$defs", "Defs", func(d *model.ProcessDefinition) any { return d.Defs }},
 	{"output", "Output", func(d *model.ProcessDefinition) any { return d.Output }},
 }
 
@@ -90,6 +92,9 @@ var definitionSlots = []slot[*model.ProcessDefinition]{
 const (
 	addressInput  = "input"
 	addressOutput = "output"
+	// addressTasks is the task LIST, which is a slot of its own only for its order — the
+	// tasks themselves are compared one at a time, under their own addresses.
+	addressTasks = "tasks"
 )
 
 // slotAddress is where the report files a change to a slot: the place the slot defines, so
@@ -191,9 +196,8 @@ func changedTaskSlots(old, new *model.Task) []SlotChange {
 	return append(changed, changedChildKeySlots(old, new)...)
 }
 
-// changedChildKeySlots reports a child_map's keys one call at a time. Only keys both sides
-// carry: a key on one side alone is a call that appeared or vanished, which addedChildKeyIssues
-// answers for.
+// changedChildKeySlots reports a child_map's keys one call at a time: the slots of the keys
+// both sides carry, and the existence of one only the old side does.
 func changedChildKeySlots(old, new *model.Task) []SlotChange {
 	if old.Action == nil || new.Action == nil || old.Action.Type != model.ActionTypeChildMap {
 		return nil
@@ -203,6 +207,16 @@ func changedChildKeySlots(old, new *model.Task) []SlotChange {
 	for _, key := range sortedChildKeys(old.Action.Children) {
 		newChild, ok := new.Action.Children[key]
 		if !ok {
+			// The call went. Nothing FAILS — collect keys each sibling by `_spawn_child_key`,
+			// so an orphan output lands under a key the new version does not declare and the
+			// output conform strips it — but a call that stopped being made is an edit, and
+			// an edit no verdict covers is what this channel exists to report. Its counterpart
+			// is an issue: a key ADDED is a value the new version guarantees and a parent
+			// already collecting cannot hold (addedChildKeyIssues).
+			changed = append(changed, SlotChange{
+				Address: childKeyAddress(old.ID, actionType, key),
+				Task:    old.ID,
+			})
 			continue
 		}
 		oldChild := old.Action.Children[key]
@@ -315,7 +329,32 @@ func changedDefinitionSlots(old, new *model.ProcessDefinition) []SlotChange {
 			})
 		}
 	}
+	if reordered(old, new) {
+		changed = append(changed, SlotChange{Address: addressTasks})
+	}
 	return changed
+}
+
+// reordered reports whether the tasks BOTH versions carry appear in a different order.
+// `switch: next` routes by position, so moving a task reroutes the one in front of it while
+// every slot on every task compares equal — the one edit a field comparison cannot see, and
+// the reason `documentsDiffer` has always counted order.
+//
+// Only the tasks in common. An insertion shifts everything after it, and a definition that
+// gained a task would otherwise report a reorder beside the `(added)` row: one edit, filed
+// twice, the second time as something that did not happen.
+func reordered(old, new *model.ProcessDefinition) bool {
+	inOld, inNew := tasksByID(old), tasksByID(new)
+	shared := func(def *model.ProcessDefinition, other map[string]*model.Task) []string {
+		var out []string
+		for _, t := range def.Tasks {
+			if _, both := other[t.ID]; both {
+				out = append(out, t.ID)
+			}
+		}
+		return out
+	}
+	return !slices.Equal(shared(old, inNew), shared(new, inOld))
 }
 
 func actionSlotValue(a *model.Action, s slot[*model.Action]) any {

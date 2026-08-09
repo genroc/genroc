@@ -45,5 +45,6 @@ expect: |
     input  (breaking upgrade and contract)
       user.age: newly required field
       user.age: integer|null → integer
+    $defs  (not judged)
 
   exit 1

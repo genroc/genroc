@@ -1,0 +1,39 @@
+# The other half of a-defs-edit-reports-where-it-is-used.yaml, and the half that used to
+# vanish. A definition the document never points at is baked into nothing, so no schema
+# comparison can see it move: the pool is edited, every verdict is clean, and the report was
+# empty. `$defs` is a slot for exactly this — the edit is reported, and `(not judged)` says
+# what is true of it, that no check looked.
+#
+# `Retired` below is referenced by nothing. The pair is deliberately a real narrowing
+# (`string` → `integer`), so what makes it unjudged is the absence of a reader rather than
+# the edit being harmless: point one schema at it and the same change breaks both questions.
+apply:
+  - channel: defsfree_a
+    definitions:
+      - name: defsfree_proc
+        $defs:
+          Retired: {type: object, properties: {code: {type: string}}}
+        input_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+  - channel: defsfree_b
+    definitions:
+      - name: defsfree_proc
+        $defs:
+          Retired: {type: object, properties: {code: {type: integer}}, required: [code]}
+        input_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+run: [--from, defsfree_a, --to, defsfree_b]
+expect: |
+  PROCESS        UPGRADE     CONTRACT
+  defsfree_proc  upgradable  compatible
+
+  defsfree_proc v1 → v2
+    $defs  (not judged)
+
+  exit 0

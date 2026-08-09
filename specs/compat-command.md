@@ -350,11 +350,24 @@ at its own roots and read `outputs.charge.fee` in full; a result schema's read `
 where a slot IS one.** A slot no check looks at can only ever be a change:
 
     input, output, <task>:<action_type>.result   a slot and a compared schema
+    config_schema, $defs          a slot only, and one nothing judges (§6b)
+    tasks                         a slot only — the task list's ORDER, nothing else
     <task>:<slot>                 a slot only — output, switch, on_error, timeout, only_once
     <task>:<action_type>.<slot>   a slot only — fetch.url, child_list.over, child.name
     <task>:child_map.<key>        a call's existence, the way <task> is a task's
     <task>:child_map.<key>.<slot> the same vocabulary one level down, `.result` included
     <task>                        a compared schema, and the task's existence (added/removed)
+
+**Every field of the document is at one of these addresses, and that is a property worth
+stating because three of them were missing and each was silent.** `switch: next` routes by
+position, so reordering two tasks changes control flow while every slot on both compares
+equal — `tasks` is that edit and nothing else, restricted to the tasks both sides carry so
+an insertion is not reported twice. A `child_map` key REMOVED fails nothing (the orphan
+output is stripped) and is still a call that stopped being made. And `$defs` reports here as
+well as at every schema that references it: the two say different things, and only the
+second can be absent — a definition nobody points at moves invisibly otherwise.
+`TestChangedSlots_EveryDifferentDocumentIsReported` holds the property, with the marshalled
+document as the oracle so it shares nothing with the slot lists it checks.
 
 **A child_map's `children` is decomposed per key rather than compared as one slot.** One row
 for the whole map cannot say which key moved, and its address would not meet the per-key
@@ -376,11 +389,13 @@ first task that sees it. That is a choice about noise, not a claim: the earliest
 instance can be parked at and break is the useful one to name, and the value's origin is
 already in the path.
 
-**`$defs` is never an address, and a path must never reach one. [run]** A shared definition
-is a pool: no instance sits at it, no caller is pointed at it. `Normalize` bakes it into
-every schema that references it, so the edit reports at each of those under a path an
-operator can navigate — `user.age`, not `$defs.User.age` — and a definition nobody
-references is silent, which is correct.
+**No BREAK is addressed at `$defs`, and a path must never reach one. [run]** A shared
+definition is a pool: no instance sits at it, no caller is pointed at it. `Normalize` bakes
+it into every schema that references it, so a break reports at each of those under a path an
+operator can navigate — `user.age`, not `$defs.User.age`. The pool still gets a **changed
+slot** of its own, which is a different claim and the one that closes the hole this
+paragraph used to end on: a definition nobody references is baked into nothing, so it moved
+where no comparison could see it.
 
 The process name is stripped, the block header having named it. A task whose action type
 changed is addressed by the **old** side; version-compatibility.md §2 refuses an action-type

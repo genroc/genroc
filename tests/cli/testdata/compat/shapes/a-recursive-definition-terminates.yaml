@@ -46,5 +46,6 @@ expect: |
   recur_proc v1 → v2
     input  (breaking upgrade and contract)
       head.value: string → integer
+    $defs  (not judged)
 
   exit 1

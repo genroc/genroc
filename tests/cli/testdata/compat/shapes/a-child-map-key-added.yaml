@@ -5,10 +5,12 @@
 #            that a parent which spawned before the key existed cannot hold. No pairing can
 #            see it — there is no old schema for a key that did not exist — so it is
 #            reported directly, the way a removed task is.
-#   dropped  `b` is silent, and deliberately. Collect keys each sibling by
+#   dropped  `b` fails nothing, and deliberately. Collect keys each sibling by
 #            `_spawn_child_key`, so the orphan output lands under a key the new version does
-#            not declare and the output conform strips it. Nothing fails, and stale data a
-#            row carries is what this check tolerates everywhere else.
+#            not declare and the output conform strips it, and stale data a row carries is
+#            what this check tolerates everywhere else. It is still a call that stopped being
+#            made, so it is a changed slot — `(not judged)` is the whole of what can be said
+#            about it, and saying nothing at all left an edit reported nowhere.
 #
 # The key is addressed on its own (`fan:child_map.c`), because one row for the whole map
 # cannot say which key moved — the same reason `children` is decomposed per key.
@@ -65,5 +67,6 @@ expect: |
   mapkeys_proc v1 → v2
     fan:child_map.c  (breaking upgrade)
       added; a parent already collecting spawned no child for it
+    fan:child_map.b  (not judged)
 
   exit 1

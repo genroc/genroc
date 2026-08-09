@@ -1295,10 +1295,9 @@ type row struct {
 	lines   []string
 }
 
-// rowsFor walks findings first, then the changed slots — which are already only the ones no
-// finding accounts for, the server having dropped the rest (§6b). Nothing is filtered here:
-// a rule about what the report contains belongs where the report is built, or every consumer
-// keeps its own copy of it.
+// rowsFor walks findings first, then the changed slots — already only the ones no finding
+// accounts for, the server having dropped the rest (§6b). Nothing is filtered here: what the
+// report CONTAINS is decided where it is built, or every consumer keeps a copy of that rule.
 func rowsFor(p compatProcess) []row {
 	var out []row
 	at := map[string]int{}
