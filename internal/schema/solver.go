@@ -244,32 +244,19 @@ func dropBareSCCRefs(n *node, scc map[string]bool) *node {
 	if len(n.Ref) > len(prefix) && n.Ref[:len(prefix)] == prefix && scc[n.Ref[len(prefix):]] {
 		return nil
 	}
-	filter := func(vs []*node) []*node {
-		if vs == nil {
-			return nil
+	m := mapChildren(n, func(sl childSlot, c *node) *node {
+		if sl.kind != slotBare {
+			return c // a ref below properties/items is productive and stays
 		}
-		out := make([]*node, 0, len(vs))
-		for _, v := range vs {
-			if fv := dropBareSCCRefs(v, scc); fv != nil {
-				out = append(out, fv)
-			}
-		}
-		if len(out) == 0 {
-			return nil
-		}
-		return out
-	}
-	m := *n
-	m.OneOf = filter(n.OneOf)
-	m.AnyOf = filter(n.AnyOf)
-	m.AllOf = filter(n.AllOf)
+		return dropBareSCCRefs(c, scc)
+	})
 	hadVariants := len(n.OneOf)+len(n.AnyOf)+len(n.AllOf) > 0
 	hasVariants := len(m.OneOf)+len(m.AnyOf)+len(m.AllOf) > 0
 	if hadVariants && !hasVariants && len(m.Type) == 0 && m.Properties == nil &&
 		m.AdditionalProperties == nil && m.Items == nil && m.Ref == "" && m.Enum == nil {
 		return nil // the node was purely its (now dropped) union
 	}
-	return &m
+	return m
 }
 
 // tarjanSCC returns the strongly-connected components of graph in dependency-first

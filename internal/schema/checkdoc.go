@@ -80,8 +80,8 @@ func checkProductivity(defs map[string]*node) error {
 }
 
 // collectBareRefs gathers the $defs names referenced from nd without passing through
-// properties or items. Union variants keep the value at the same depth, so they are
-// walked; a ref below properties/items is productive and skipped.
+// properties or items — exactly the slotBare positions, since a ref below a level-
+// consuming slot is productive.
 func collectBareRefs(nd *node, out map[string]struct{}) {
 	if nd == nil {
 		return
@@ -90,14 +90,10 @@ func collectBareRefs(nd *node, out map[string]struct{}) {
 	if strings.HasPrefix(nd.Ref, prefix) {
 		out[strings.TrimPrefix(nd.Ref, prefix)] = struct{}{}
 	}
-	for _, v := range nd.OneOf {
-		collectBareRefs(v, out)
-	}
-	for _, v := range nd.AnyOf {
-		collectBareRefs(v, out)
-	}
-	for _, v := range nd.AllOf {
-		collectBareRefs(v, out)
+	for sl, c := range children(nd) {
+		if sl.kind == slotBare {
+			collectBareRefs(c, out)
+		}
 	}
 }
 
@@ -137,40 +133,46 @@ func checkDoc(nd *node, defs map[string]*node, seen map[*node]bool) error {
 		}
 	}
 
-	for name, p := range nd.Properties {
-		if p == nil {
-			return fmt.Errorf("property %q is null", name)
+	for sl, c := range children(nd) {
+		if c == nil {
+			if err := nullChildErr(sl); err != nil {
+				return err
+			}
+			continue
 		}
-		if err := checkDoc(p, defs, seen); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-	}
-	if err := checkDoc(nd.Items, defs, seen); err != nil {
-		return fmt.Errorf("items: %w", err)
-	}
-	if err := checkDoc(nd.AdditionalProperties, defs, seen); err != nil {
-		return fmt.Errorf("additionalProperties: %w", err)
-	}
-	for i, v := range nd.OneOf {
-		if v == nil {
-			return fmt.Errorf("oneOf[%d] is null", i)
-		}
-		if err := checkDoc(v, defs, seen); err != nil {
-			return err
-		}
-	}
-	for i, v := range nd.AnyOf {
-		if v == nil {
-			return fmt.Errorf("anyOf[%d] is null", i)
-		}
-		if err := checkDoc(v, defs, seen); err != nil {
-			return err
-		}
-	}
-	for name, d := range nd.Defs {
-		if err := checkDoc(d, defs, seen); err != nil {
-			return fmt.Errorf("$defs.%s: %w", name, err)
+		if err := checkDoc(c, defs, seen); err != nil {
+			return fmt.Errorf("%s: %w", errLabel(sl), err)
 		}
 	}
 	return nil
+}
+
+// nullChildErr rejects a null sub-schema where one is meaningless. items and
+// additionalProperties cannot reach here null (children yields them only when set), and a
+// null $defs entry has always been tolerated.
+func nullChildErr(sl childSlot) error {
+	switch sl.kw {
+	case "properties":
+		return fmt.Errorf("property %q is null", sl.key)
+	case "oneOf", "anyOf", "allOf":
+		return fmt.Errorf("%s is null", errLabel(sl))
+	}
+	return nil
+}
+
+// errLabel names a slot when wrapping a child's error. Chained by the recursion, these
+// spell the failing node's location in the document ("$defs.Foo: rows: items: oneOf[2]"),
+// which is why a union arm carries its index: every variant must be well-formed
+// independently, so the index IS the location, and without it a bad variant reports as
+// though the parent were at fault.
+func errLabel(sl childSlot) string {
+	switch sl.kw {
+	case "properties":
+		return sl.key
+	case "$defs":
+		return "$defs." + sl.key
+	case "oneOf", "anyOf", "allOf":
+		return fmt.Sprintf("%s[%d]", sl.kw, sl.idx)
+	}
+	return sl.kw
 }

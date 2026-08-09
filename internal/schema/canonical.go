@@ -13,31 +13,22 @@ func canonicalizeNode(s *node) *node {
 	if s == nil {
 		return nil
 	}
-	n := *s
+	n := mapChildren(s, func(sl childSlot, c *node) *node {
+		if sl.kind == slotDefs {
+			return c // a namespace, not part of the type being canonicalized
+		}
+		return canonicalizeNode(c)
+	})
 	// Description is a documentation annotation with no type meaning; drop it so two schemas
 	// that differ only in wording compare equal (the fixpoint keys off canonical JSON).
 	n.Description = ""
-
-	if s.Properties != nil {
-		props := make(map[string]*node, len(s.Properties))
-		for k, v := range s.Properties {
-			props[k] = canonicalizeNode(v)
-		}
-		n.Properties = props
-	}
-	if s.Items != nil {
-		n.Items = canonicalizeNode(s.Items)
-	}
-	if s.AdditionalProperties != nil {
-		n.AdditionalProperties = canonicalizeNode(s.AdditionalProperties)
-	}
 	n.Type = SchemaType(sortDedupStrings([]string(s.Type)))
 	n.Required = sortDedupStrings(s.Required)
-	n.OneOf = canonVariants(s.OneOf, kindOneOf)
-	n.AnyOf = canonVariants(s.AnyOf, kindAnyOf)
-	n.AllOf = canonVariants(s.AllOf, kindAllOf)
+	n.OneOf = canonVariants(n.OneOf, kindOneOf)
+	n.AnyOf = canonVariants(n.AnyOf, kindAnyOf)
+	n.AllOf = canonVariants(n.AllOf, kindAllOf)
 
-	return collapse(&n)
+	return collapse(n)
 }
 
 type compositionKind int
@@ -48,23 +39,20 @@ const (
 	kindAllOf
 )
 
-// canonVariants canonicalizes each variant, flattens a variant that is itself a pure
-// composition of the same kind (oneOf-in-oneOf, …), then dedups and sorts by canonical
-// JSON for a stable order.
+// canonVariants flattens a variant that is itself a pure composition of the same kind
+// (oneOf-in-oneOf, …), then dedups and sorts by canonical JSON for a stable order. Its
+// input is already canonical: mapChildren canonicalized every variant on the way in, and
+// dropped the nil ones.
 func canonVariants(vs []*node, kind compositionKind) []*node {
 	if len(vs) == 0 {
 		return nil
 	}
 	flat := make([]*node, 0, len(vs))
 	for _, v := range vs {
-		cv := canonicalizeNode(v)
-		if cv == nil {
-			continue
-		}
-		if inner, ok := pureComposition(cv, kind); ok {
+		if inner, ok := pureComposition(v, kind); ok {
 			flat = append(flat, inner...)
 		} else {
-			flat = append(flat, cv)
+			flat = append(flat, v)
 		}
 	}
 	seen := make(map[string]struct{}, len(flat))

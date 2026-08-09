@@ -184,6 +184,11 @@ func (ctx *subsetCtx) check(sub, super *node) bool {
 			return false
 		}
 	}
+	if super.MinItems != nil || super.MaxItems != nil {
+		if !checkItemCount(sub, super) {
+			return false
+		}
+	}
 	if super.Minimum != nil || super.Maximum != nil {
 		if !checkNumericBounds(sub, super) {
 			return false
@@ -331,6 +336,23 @@ func checkNumericBounds(sub, super *node) bool {
 	}
 	if super.Maximum != nil {
 		if sub.Maximum == nil || *sub.Maximum > *super.Maximum {
+			return false
+		}
+	}
+	return true
+}
+
+// checkItemCount is checkStringLength for arrays. An unset bound on sub is treated as
+// absent rather than as its implicit 0/∞, so an unbounded sub never fits a bounded super —
+// the same conservative floor the other two use.
+func checkItemCount(sub, super *node) bool {
+	if super.MinItems != nil {
+		if sub.MinItems == nil || *sub.MinItems < *super.MinItems {
+			return false
+		}
+	}
+	if super.MaxItems != nil {
+		if sub.MaxItems == nil || *sub.MaxItems > *super.MaxItems {
 			return false
 		}
 	}

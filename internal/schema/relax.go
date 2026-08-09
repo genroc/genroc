@@ -1,47 +1,5 @@
 package schema
 
-// mapChildren applies fn to every direct sub-schema — the single definition of "where
-// sub-schemas live" for transforms (properties, items, additionalProperties, oneOf/anyOf/
-// allOf, $defs); fn decides recursion. New keywords get picked up here once.
-func mapChildren(n *node, fn func(*node) *node) *node {
-	m := *n
-	if n.Properties != nil {
-		props := make(map[string]*node, len(n.Properties))
-		for k, v := range n.Properties {
-			props[k] = fn(v)
-		}
-		m.Properties = props
-	}
-	if n.Items != nil {
-		m.Items = fn(n.Items)
-	}
-	if n.AdditionalProperties != nil {
-		m.AdditionalProperties = fn(n.AdditionalProperties)
-	}
-	m.OneOf = mapEach(n.OneOf, fn)
-	m.AnyOf = mapEach(n.AnyOf, fn)
-	m.AllOf = mapEach(n.AllOf, fn)
-	if n.Defs != nil {
-		defs := make(map[string]*node, len(n.Defs))
-		for k, v := range n.Defs {
-			defs[k] = fn(v)
-		}
-		m.Defs = defs
-	}
-	return &m
-}
-
-func mapEach(vs []*node, fn func(*node) *node) []*node {
-	if vs == nil {
-		return nil
-	}
-	out := make([]*node, len(vs))
-	for i, v := range vs {
-		out[i] = fn(v)
-	}
-	return out
-}
-
 // Relaxed returns a copy of s in which every node also admits a plain string, applied
 // recursively via mapChildren so it is exhaustive over nested objects, arrays, unions and
 // $defs — not a special-cased handful of keywords. This is the editor's "any value may be
@@ -66,7 +24,7 @@ func relaxToString(s *node, note string) *node {
 	if s == nil {
 		return nil
 	}
-	relaxed := mapChildren(s, func(c *node) *node { return relaxToString(c, note) })
+	relaxed := mapChildren(s, func(_ childSlot, c *node) *node { return relaxToString(c, note) })
 	if nodeAdmitsString(relaxed) {
 		annotateString(relaxed, note)
 		return relaxed

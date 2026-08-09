@@ -101,3 +101,35 @@ An **omitted** `result_schema` is a third state, not a synonym for unknown: the 
 stays untyped and unexportable, so "I meant it to be opaque" stays distinguishable from
 "I forgot". The `infer` mode in that doc (inherit the child's computed output) is
 **not built**.
+
+## Where sub-schemas live is a table, and it does not cover everything
+
+`mapChildren` (`walk.go`) is the one enumeration of the keywords that hold sub-schemas;
+`children` derives from it so the read and write sides cannot drift. Every purely
+structural walk goes through it — `canonicalizeNode`, `stripDefsDeep`, `relaxToString`,
+`checkDoc`, `collectBareRefs`, `dropBareSCCRefs` — and steers on `slotKind` rather than
+re-deriving which slots matter: `slotBare` is the productivity rule (a union arm keeps the
+value at this depth, so a `$ref` there makes no progress), `slotDefs` is a namespace and
+not a position in the value at all. `walk_test.go` reflects over `node` and fails if a
+sub-schema field is missing from the table, because every symptom of a missed slot is
+silent — an unstripped `$defs` cycles the marshaler, an uncanonicalized subtree stops the
+inference fixpoint converging.
+
+**Three walks are deliberately outside it.** `conformGuard` and `subsetCtx.check` must pick
+a union branch rather than descend into all of them, and `conformObject` sweeps
+`Properties` hunting for what is *absent*, which no table-driven descent can see. Adding a
+keyword means one edit in `walk.go` plus a decision in each of those three and in
+`lookupPropertyGuard` — those four are semantics, not boilerplate. A schema-and-value walk
+that is not one of them should descend via `lookupProperty`/`inferIndex` (as `redact` and
+`collectSecrets` do) and never grow a keyword switch of its own.
+
+`normalize`'s `walkTree` is **not** converted: it mutates nodes in place while holding
+`*node` pointers into the tree across phases, and `mapChildren` copies.
+
+**A `CheckDoc` error names the definition site, not an access path.** The location is
+assembled from one `errLabel` per slot as the recursion unwinds, and a `$defs` entry is
+checked once under its own name however many refs reach it — which is what keeps it finite.
+Do not "improve" it into a path through the refs that reach a node: a recursive schema has
+infinitely many, which is why `internal/validation`'s `explainer` needs `maxExplainDepth`.
+An access path needs something to bound it, and each thing that can (a value, an
+expression) already carries its own — `conformGuard`'s `path`, `Infer`'s `[]pathStep`.

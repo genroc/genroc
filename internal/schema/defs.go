@@ -248,41 +248,14 @@ func stripDefsDeep(n *node) *node {
 	if n == nil {
 		return &node{}
 	}
-	m := *n
+	m := mapChildren(n, func(sl childSlot, c *node) *node {
+		if sl.kind == slotDefs || c == nil {
+			return c // not descending into $defs is what terminates the walk
+		}
+		return stripDefsDeep(c)
+	})
 	m.Defs = nil
-	if n.Properties != nil {
-		m.Properties = make(map[string]*node, len(n.Properties))
-		for k, v := range n.Properties {
-			if v != nil {
-				m.Properties[k] = stripDefsDeep(v)
-			} else {
-				m.Properties[k] = nil
-			}
-		}
-	}
-	if n.Items != nil {
-		m.Items = stripDefsDeep(n.Items)
-	}
-	if n.AdditionalProperties != nil {
-		m.AdditionalProperties = stripDefsDeep(n.AdditionalProperties)
-	}
-	m.OneOf = stripDefsList(n.OneOf)
-	m.AnyOf = stripDefsList(n.AnyOf)
-	m.AllOf = stripDefsList(n.AllOf)
-	return &m
-}
-
-func stripDefsList(vs []*node) []*node {
-	if vs == nil {
-		return nil
-	}
-	out := make([]*node, len(vs))
-	for i, v := range vs {
-		if v != nil {
-			out[i] = stripDefsDeep(v)
-		}
-	}
-	return out
+	return m
 }
 
 // FlattenNamed bundles named schemas (each of which may carry nested $defs) into one
