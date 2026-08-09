@@ -1,25 +1,32 @@
 package validation
 
 import (
+	"strings"
 	"testing"
 
 	"genroc/internal/schema"
 )
 
-// The explainer no longer decides anything — the relation reports its own break and this
-// only words it, so a message cannot name a property the verdict tolerated. What these
-// tests pin is the half that is still a choice: WHICH break the relation surfaces when
-// several properties are in play, and how a swapped check reads.
+// The explainer no longer decides anything — the relation reports its own breaks and this
+// only words them, so a message cannot name a property the verdict tolerated. What these
+// tests pin is the half that is still a choice: which breaks reach a reader, and how a
+// swapped check reads.
 
-// explained joins the two halves the way the report renderer does (genctl prints
-// `path: message`), so these assert the line an operator actually reads. The halves travel
-// apart all the way to Issue.Path — see TestExplain_PathIsAFieldNotParsedFromTheMessage.
+// explained joins each break the way the report renderer does (genctl prints
+// `path: message`), so these assert the lines an operator actually reads. Several breaks
+// join with "; " here only to keep one assertion per case — the report gives each its own
+// line. The halves travel apart all the way to Issue.Path — see
+// TestExplain_PathIsAFieldNotParsedFromTheMessage.
 func explained(e explainer, sub, super schema.Schema) string {
-	path, msg := e.explain(sub, super)
-	if path == "" {
-		return msg
+	var lines []string
+	for _, f := range e.explain(sub, super) {
+		if f.path == "" {
+			lines = append(lines, f.msg)
+			continue
+		}
+		lines = append(lines, f.path+": "+f.msg)
 	}
-	return path + ": " + msg
+	return strings.Join(lines, "; ")
 }
 
 func explainSchema(t *testing.T, src string) schema.Schema {
@@ -140,11 +147,61 @@ func TestExplain_ReachesBreaksBelowTheOldDepthCap(t *testing.T) {
 func TestExplain_PathIsAFieldNotParsedFromTheMessage(t *testing.T) {
 	sub := explainSchema(t, `{"type":"object","properties":{"my key":{"type":"string"}},"required":["my key"]}`)
 	super := explainSchema(t, `{"type":"object","properties":{"my key":{"type":"integer"}},"required":["my key"]}`)
-	path, msg := (explainer{}).explain(sub, super)
-	if path != "my key" {
-		t.Errorf("path = %q, want %q — a name with a space is still a location", path, "my key")
+	found := (explainer{}).explain(sub, super)
+	if len(found) != 1 {
+		t.Fatalf("got %d findings, want 1: %v", len(found), found)
 	}
-	if msg != "string → integer" {
-		t.Errorf("message = %q, want %q — the message says what, the path says where", msg, "string → integer")
+	if found[0].path != "my key" {
+		t.Errorf("path = %q, want %q — a name with a space is still a location", found[0].path, "my key")
+	}
+	if found[0].msg != "string → integer" {
+		t.Errorf("message = %q, want %q — the message says what, the path says where", found[0].msg, "string → integer")
+	}
+}
+
+// Independent differences are independent findings. One report per run is the whole value of
+// the check: an operator handed the first of three breaks fixes it, re-runs, and meets the
+// second — three releases to learn what one comparison already knew. The relation walks
+// `required` before the properties and takes the properties in sorted order, so the list is
+// the schema's shape rather than the map's.
+func TestExplain_NamesEveryBreakNotTheFirst(t *testing.T) {
+	sub := explainSchema(t, `{"type":"object","properties":{
+		"amount":{"type":"number"},"currency":{"type":"string"},"note":{"type":"string"}},
+		"required":["amount","note"]}`)
+	super := explainSchema(t, `{"type":"object","properties":{
+		"amount":{"type":"string"},"currency":{"type":"string"},"note":{"type":"string"}},
+		"required":["amount","currency","note"]}`)
+
+	want := "currency: newly required field; amount: number → string"
+	if got := explained(explainer{}, sub, super); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	// The tolerated property must not appear beside them: reporting everything is not the
+	// same as reporting everything that differs, and `note` differs in neither schema.
+	if got := explained(explainer{}, sub, super); strings.Contains(got, "note") {
+		t.Errorf("got %q — a property that fits is not a finding", got)
+	}
+}
+
+// A losing alternative's breaks are not findings. Each arm of a union is TRIED, so a walk
+// that recorded as it went would report the arms that did not match as reasons the whole
+// failed — and under `asStored` the stripped-null retry is a second such alternative,
+// describing a schema nobody wrote.
+func TestExplain_AlternativesLeaveNoBreakBehind(t *testing.T) {
+	sub := explainSchema(t, `{"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]}`)
+	super := explainSchema(t, `{"type":"object","properties":{
+		"v":{"oneOf":[{"type":"string"},{"type":"number"},{"type":"integer"}]}},"required":["v"]}`)
+	want := "v: boolean → any of [string, number, integer]"
+	if got := explained(explainer{}, sub, super); got != want {
+		t.Errorf("got %q, want %q — one break for the union, not one per arm tried", got, want)
+	}
+
+	// The retry the stored relation makes when a nullable property meets a target that will
+	// not hold the null: it fails here (the underlying types differ too), and what must be
+	// reported is the pair as written, once.
+	nullable := explainSchema(t, `{"type":"object","properties":{"v":{"type":["string","null"]}}}`)
+	strict := explainSchema(t, `{"type":"object","properties":{"v":{"type":"integer"}}}`)
+	if got, want := explained(storedExplainer, nullable, strict), "v: string|null → integer"; got != want {
+		t.Errorf("got %q, want %q — the stripped re-check is an alternative, not a second finding", got, want)
 	}
 }

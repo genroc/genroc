@@ -11,11 +11,12 @@
 # Neither input is read by a task, so the only compared schema is `input` itself and the two
 # breaks cannot be confused with a context finding derived from them.
 #
-# The two messages are not equally good, and the block records the difference rather than
-# hiding it. The `type` list names both sides. The `oneOf` says `object → any of 1 variant`:
-# it counts the variants left instead of naming the one that went, which is the same
-# shortcoming as §2e's `object → object` one step further along — enough to know something
-# narrowed, not enough to know what stopped fitting.
+# Both sides of a variants break are DESCRIBED rather than named: the arm that stopped
+# fitting is `object {failed_code}` and what remains is `any of [object {sent_at}]`. Naming
+# the type alone reported `object → any of 1 variant` — every variant of a union of objects
+# renders as `object`, so the message counted the alternatives instead of saying which one
+# went, which is §2e's `object → object` with an extra step. The property list is what tells
+# them apart, and it is capped for the same reason an enum is: a break is one line.
 apply:
   - channel: union_a
     definitions:
@@ -70,6 +71,6 @@ expect: |
 
   union_variant v1 → v2
     input  (breaking upgrade and contract)
-      event: object → any of 1 variant
+      event: object {failed_code} → any of [object {sent_at}]
 
   exit 1

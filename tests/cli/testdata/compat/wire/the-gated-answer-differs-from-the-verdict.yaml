@@ -52,15 +52,6 @@ expect: |
         "contract": {
           "compatible": false
         },
-        "changed": [
-          {
-            "address": "charge:fetch.result",
-            "task": "charge",
-            "affects": [
-              "contract"
-            ]
-          }
-        ],
         "issues": [
           {
             "member": "contract",

@@ -51,9 +51,14 @@ level down). A key REMOVED is silent: the orphan output lands under a key the ne
 not declare and the output conform strips it.
 
 **The changed-slot side must address a key exactly as the issue side does.** `childKeyAddress`
-is shared for that reason: §6b suppresses a slot row only where a break carries the SAME
+is shared for that reason: `accountedFor` drops a slot row only where a break carries the SAME
 address, so a per-key break under a whole-map slot row would print `(not judged)` next to the
 break its own edit produced.
+
+**§6b's suppression runs here, not in the renderer.** `Report.Changed` is what is LEFT OVER
+once the issues are in, so every consumer of the wire holds the same report; the rule lived
+in `genctl` first, which meant the JSON and the printed page disagreed about what the report
+contained and any second reader had to rediscover it.
 
 ## Upgradable means the gap is closable, not that the shapes match
 
@@ -84,9 +89,11 @@ Three explainer configurations, and **the `swap` flag is the trap**:
   no longer does.
 
 The explainer no longer decides anything. `explain` calls `schema.ExplainSubset` /
-`ExplainSubsetAsStored` — the RELATION with reporting switched on — and words the break it
+`ExplainSubsetAsStored` — the RELATION with reporting switched on — and words the breaks it
 gets back, so a message cannot disagree with the verdict and a new rule in `IsSubset` needs
-no matching edit here. That is what the previous arrangement demanded and did not get: it
+no matching edit here. **Every break is a finding**, and they are independent: two properties
+of one input break for unrelated reasons, and one issue per run means one release per
+difference. The relation's walk order is the report's order. That is what the previous arrangement demanded and did not get: it
 re-walked beside the relation, never learned about item counts, and capped its descent at a
 depth it invented because it had no cycle guard of its own. What stays here is wording,
 `swap` included; `schema.SubsetBreak` carries facts, not sentences.

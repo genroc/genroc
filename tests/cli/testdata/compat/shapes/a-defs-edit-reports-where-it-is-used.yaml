@@ -8,6 +8,10 @@
 # definitionSlots, so a $defs-only edit has no slot row of its own and would vanish entirely
 # if the baking stopped; and it is the same baking that lets `documentsDiffer` see the edit
 # at all, which is what keeps a SUBMITTED document from reading `nothing changed` here.
+#
+# One property, two lines: the edit made `age` required AND took `null` off it, and neither
+# is fixed by fixing the other. Independent findings that happen to share a path are still
+# independent — the path is where they are, not what they are.
 apply:
   - channel: defsuse_a
     definitions:
@@ -40,5 +44,6 @@ expect: |
   defsuse_proc v1 → v2
     input  (breaking upgrade and contract)
       user.age: newly required field
+      user.age: integer|null → integer
 
   exit 1

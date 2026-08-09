@@ -4,15 +4,15 @@
 #
 # In pin form the same situation is a refusal (explicit-name-with-no-target-is-an-error.yaml),
 # because a name written on one side and not the other is a question that was asked and not
-# answered. A channel names nothing property by property, so there is no question to refuse
-# and the process gets a row instead: it is carried into the report rather than dropped —
-# which is the part that matters, since a disappearance would hide it — and the row says
-# `nothing changed`.
+# answered. A channel names nothing property by property, so there is no question to refuse —
+# and the answer is not a special case either: `reconcile` carries an implicit entry over to
+# the target at the version it already has, so the pair really is v1 against v1 and
+# `nothing changed` is literally true. A channel is a per-process pointer, so `gone_b` not
+# naming `gone_leaves` does not retire it; its instances keep running what they run.
 #
-# That last word is shared with a process both sides agree on (nothing-to-compare.yaml) and
-# it is doing more work than it can carry here: an instance of `gone_leaves` is running
-# against a channel that no longer offers it a version, which is not the same as an
-# unchanged process. a-channel-that-does-not-exist.yaml is the extreme of the same rendering.
+# The same rendering with nothing behind it is the failure worth guarding, and it has its own
+# case: a-channel-that-does-not-exist.yaml, where EVERY row reads this way because the target
+# resolved to nothing at all. That one is refused. This one is a report.
 apply:
   - channel: gone_a
     definitions:

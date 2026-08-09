@@ -1,14 +1,15 @@
-# Two independent breaks under one address, and the answer is ONE line: the relation stops
-# at the first break it finds, so `amount: number → string` is not printed and nothing on the
-# page says another finding exists. An operator fixes `currency`, re-runs, and meets the
-# second break then. a-constraint-narrowing-names-the-constraint.yaml notes the rule in
-# passing; this is the fixture that shows what it costs, and the one that has to be
-# regenerated to change it.
+# Two independent breaks under one address, and both are lines. Neither is discovered by
+# fixing the other, so a report naming one sends an operator round the loop once per
+# difference — a release each to learn what one comparison already knew.
 #
-# The two breaks are of different KINDS on purpose — a new requirement and a type change —
-# so the line that survives cannot be read as having merged them. Which one survives is a
-# property of the walk rather than of the document: the required set is checked before the
-# properties are, so the newly required name wins however the schema is ordered.
+# The relation stops at the first failure when it is answering a bool and keeps walking when
+# it is explaining, which is what makes this affordable: nothing pays for the second break
+# except the run that is already going to print it.
+#
+# The two are of different KINDS on purpose — a new requirement and a type change — so a
+# block that merged them could not render both. Their ORDER is the walk's and not the
+# document's: `required` is checked before the properties, and the properties are taken in
+# sorted order, so the list does not move when a schema is reformatted.
 apply:
   - channel: twobreak_a
     definitions:
@@ -44,5 +45,6 @@ expect: |
   twobreak_proc v1 → v2
     input  (breaking upgrade and contract)
       currency: newly required field
+      amount: number → string
 
   exit 1

@@ -135,7 +135,14 @@ from the branch that produced the verdict. Two things keep it honest: `no()` is 
 failures only (a site that merely propagates a nested false would overwrite the real break's
 path), and an ALTERNATIVE — a union arm, an `allOf` member, the `afterConform` stripped-null
 retry — must bracket itself in `mark`/`rollback`, or a losing arm's break gets reported as
-the reason a later, unrelated check failed. `assertSubset` asserts every false yields a
+the reason a later, unrelated check failed.
+
+**It returns EVERY break, and `checkObject` is the only place that produces more than one.**
+Two properties fail independently, so a caller handed the first reports a difference at a
+time and each fix discovers the next. The walk therefore continues past a failing property
+**while tracing** and stops at the first otherwise — `stop()` is that fork, and it keeps the
+bool path allocation-free and short-circuiting. `ok` is what the extra iterations feed:
+returning `true` because the last property happened to fit would invert the verdict. `assertSubset` asserts every false yields a
 complete break, over every case in every `subset_*_test.go` table.
 
 **A `CheckDoc` error names the definition site, not an access path.** The location is

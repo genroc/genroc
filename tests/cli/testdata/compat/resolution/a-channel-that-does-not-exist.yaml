@@ -1,14 +1,14 @@
-# A HAZARD, pinned rather than asserted as correct. A channel nobody ever created resolves
-# to no processes, and every name on the from side then has nothing on the to side to pair
-# with — which is a real status (`nothing_to_compare`) reached for a reason the operator did
-# not intend. It renders as `nothing changed` and exits 0, so a mistyped channel in a
-# pipeline produces the answer indistinguishable from "checked, and fine" that every refusal
-# in this group exists to prevent.
+# A channel nobody ever created resolves to no processes rather than failing, so the target
+# side arrives empty and `reconcile` carries every from-side process across at its own
+# version — a full page of `nothing changed`, exit 0. Each row is individually true and the
+# report as a whole is the answer indistinguishable from "checked, and fine" that every
+# refusal in this group exists to prevent. Refused instead, at the resolution step, where the
+# selector that named nothing still knows what it was.
 #
-# The word is the whole of the problem: nothing-to-compare.yaml earns it by having both
-# sides resolve to the SAME version, where nothing did change. Here the two situations are
-# rendered identically, and only one of them is a report. Refusing an empty target side
-# outright, or giving the status its own word, would flip this block.
+# Only the TARGET side. An empty `--from` is the bootstrap case — nothing is deployed yet, so
+# every submitted process is legitimately `new` — and refusing it would fail the first deploy
+# of every process. a-process-the-target-side-does-not-carry.yaml is the partial case, which
+# stays a report: there, other rows were genuinely compared.
 apply:
   - channel: nochan_a
     definitions:
@@ -19,7 +19,7 @@ apply:
             switch: end
 run: [--from, nochan_a, --to, nochan_typo]
 expect: |
-  PROCESS      UPGRADE          CONTRACT
-  nochan_proc  nothing changed  nothing changed
+  --- stderr ---
+  genctl: server: to: channel "nochan_typo" carries no processes; there is nothing to compare against
 
-  exit 0
+  exit 1

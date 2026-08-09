@@ -300,6 +300,9 @@ prevent.
 **A selection moves the exit code and nothing else.** An excused break still appears, marked,
 and a trailing line names what was excluded and why the exit is 0.
 
+**`--json` moves nothing at all.** It is a rendering, so it gates identically — the flag a
+pipeline reaches for to capture the findings must not be the flag that stops failing on them.
+
 Per-member and per-path selection is designed and deferred
 ([compat-selection.md](compat-selection.md)); `contract` is already a token in that grammar,
 so this flag is its general form restricted to one value.
@@ -409,14 +412,14 @@ the process `output` → contract; a task's `output` → upgrade; `<action_type>
 contract, and upgrade where the task can park (§2c); everything else → nothing, which is what
 `(not judged)` renders.
 
-**`config_schema` is not a slot here at all** — no verdict, no row, and not part of the
-document comparison. It is a runtime check that the environment is set. The objection is that
-config reaches the data through `config.x`, and **validation covers that better**: step 1
-type-checks every expression against the new config schema, so removing a field something
-reads is refused there, naming the task. Two costs, accepted: a `secret: true` dropped from
-config is reported nowhere (`shapes/accepted-hazard-secret-dropped.yaml` goes with this), and
-a config-only edit reads `nothing changed` — true of everything compat judges, false of the
-document.
+**`config_schema` carries no verdict and still gets a row.** Nothing judges it — it is a
+runtime check that the environment is set, and where config reaches the data through
+`config.x`, **validation covers that better**: step 1 type-checks every expression against
+the new config schema, so removing a field something reads is refused there, naming the task.
+But *not judged* is a thing the report can say, and leaving the slot out entirely said
+something else: a document whose config moved came back with two clean verdicts and no block
+at all, which is how a `secret: true` dropped from a field nothing reads came to be reported
+nowhere. It is a changed slot like `fetch.url` — `shapes/a-dropped-secret-is-reported-not-judged.yaml`.
 
 ### 6c. Rules learned by getting them wrong
 
@@ -451,9 +454,18 @@ finding must arrive addressed**, and the CLI parses no prose:
                 "path":"outputs.charge.fee","message":"number → string","gating":true}]}
 
 `address` and `path` are separate because they answer different levels. An empty `affects`
-renders `(not judged)`, a non-empty one `(ok)`, and the entry is suppressed entirely when an
-issue shares its address (§6b). A verdict carries no issues — it is `{compatible}` alone,
-derived from them. `compatible` / `output_compatible` and every per-task nesting disappear.
+renders `(not judged)` and a non-empty one `(ok)`. **§6b's suppression happens before the
+wire, not after it**: `changed` carries only the slots no issue accounts for, so the two
+renderings hold the same report and a consumer needs no rule of its own — the alternative
+left every reader reimplementing it, and one that did not print a slot as merely changed
+beside the break its own edit produced. A verdict carries no issues — it is `{compatible}`
+alone, derived from them. `compatible` / `output_compatible` and every per-task nesting
+disappear.
+
+**One difference is one issue, and a schema with three of them yields three.** The relation
+stops at the first break when it is answering a bool and keeps walking when it is explaining,
+so nothing pays for the extra findings but the run that prints them. Reporting one at a time
+made every subsequent break a separate release to discover.
 
 The flag is a request field, so `--json` and the report answer the same question:
 

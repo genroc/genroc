@@ -71,9 +71,18 @@ var childEntrySlots = []slot[model.ChildEntry]{
 // have no entry anywhere, and a schema changing nothing but `secret: true` compares equal to
 // every schema verdict, so this is the only place such a change is reported.
 //
-// `config_schema` and `$defs` are deliberately absent — see notASlot in the test.
+// `config_schema` is here to be REPORTED, never judged. No check reads it — config is
+// re-resolved every tick, so nothing persisted corresponds to it, and where it reaches the
+// data through `config.x` validation type-checks that expression against the new schema and
+// catches more than a comparison could. But a slot no verdict covers is exactly what
+// `(not judged)` exists to say, and leaving it out entirely meant a document whose config
+// moved came back with two clean verdicts and no rows — including a `secret: true` dropped
+// from a field nothing reads, which was then reported nowhere at all.
+//
+// `$defs` is deliberately absent — see notASlot in the test.
 var definitionSlots = []slot[*model.ProcessDefinition]{
 	{"input_schema", "InputSchema", func(d *model.ProcessDefinition) any { return d.InputSchema }},
+	{"config_schema", "ConfigSchema", func(d *model.ProcessDefinition) any { return d.ConfigSchema }},
 	{"output", "Output", func(d *model.ProcessDefinition) any { return d.Output }},
 }
 

@@ -1116,6 +1116,13 @@ func runCompatCmd(server string, args []string) {
 			fatal("%v", err)
 		}
 		printIndented(raw)
+		// --json is a RENDERING, not a mode: it must gate exactly as the report does, or a
+		// pipeline that adds it to capture the findings stops failing on them.
+		var resp compatReport
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			fatal("decode compat report: %v", err)
+		}
+		exitOnBreak(resp)
 		return
 	}
 
@@ -1124,6 +1131,7 @@ func runCompatCmd(server string, args []string) {
 		fatal("%v", err)
 	}
 	printCompatReport(resp)
+	exitOnBreak(resp)
 }
 
 // The compat report as the server sends it. Nothing is parsed out of prose: a finding
@@ -1267,7 +1275,11 @@ func printCompatReport(r compatReport) {
 		printProcessDetail(p)
 	}
 	printNotGating(r)
+}
 
+// exitOnBreak is the gate, and it is deliberately not part of printing: both renderings
+// answer the same question, so both must fail the same way (§6d).
+func exitOnBreak(r compatReport) {
 	if !r.Passes {
 		os.Exit(1)
 	}
@@ -1283,9 +1295,10 @@ type row struct {
 	lines   []string
 }
 
-// rowsFor walks findings first, then the slots no finding already accounts for. A changed
-// slot with a break under it gets no row of its own: the break IS the report that it moved,
-// and a second row calling it fine would contradict the first.
+// rowsFor walks findings first, then the changed slots — which are already only the ones no
+// finding accounts for, the server having dropped the rest (§6b). Nothing is filtered here:
+// a rule about what the report contains belongs where the report is built, or every consumer
+// keeps its own copy of it.
 func rowsFor(p compatProcess) []row {
 	var out []row
 	at := map[string]int{}
@@ -1309,9 +1322,6 @@ func rowsFor(p compatProcess) []row {
 		out[i].phrase = breakPhrase(p, out[i].address)
 	}
 	for _, s := range p.Changed {
-		if _, broke := at[s.Address]; broke {
-			continue
-		}
 		out = append(out, row{address: s.Address, phrase: changedPhrase(s)})
 	}
 	for _, task := range p.Added {

@@ -228,11 +228,31 @@ func compare(oldA, newA analysis) Report {
 	}
 
 	r.Issues = issues(oldA, newA, newTasks)
+	r.Changed = accountedFor(r.Changed, r.Issues)
 	// Derived, never tracked beside the issues: a column that can disagree with the lines
 	// under it is a report arguing with itself.
 	r.Upgrade = Verdict{Compatible: !anyMember(r.Issues, MemberUpgrade)}
 	r.Contract = Verdict{Compatible: !anyMember(r.Issues, MemberContract)}
 	return r
+}
+
+// accountedFor drops the slots a finding already reports. §6b: a row is a slot that changed
+// or a value that broke, never both — so `Changed` is what is LEFT OVER, and the report is
+// the same list wherever it is read. Filtering in the renderer instead left the rule in one
+// consumer, and every other reader of the wire printing a slot as merely changed beside the
+// break its own edit produced.
+func accountedFor(changed []SlotChange, issues []Issue) []SlotChange {
+	broke := make(map[string]bool, len(issues))
+	for _, i := range issues {
+		broke[i.Address] = true
+	}
+	out := changed[:0]
+	for _, c := range changed {
+		if !broke[c.Address] {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func anyMember(issues []Issue, m Member) bool {

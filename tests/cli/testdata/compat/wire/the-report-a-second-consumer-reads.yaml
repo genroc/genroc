@@ -9,17 +9,15 @@
 # at the result schema, the upgrade at the task that reads it — two findings, because they
 # gate separately), a changed slot no check covers, and an added task.
 #
-# Two things a consumer must not read past, both visible in the block below.
+# Two properties of the payload that only a fixture at this level can hold down.
 #
-# `charge:fetch.result` is in `changed` AND carries an issue. §6b's suppression is the
-# RENDERER's: the wire keeps both, so a second consumer that prints `changed` verbatim will
-# report a slot as merely changed beside the break that same edit produced.
+# `charge:fetch.result` broke, so it is NOT in `changed` — §6b's rule is applied where the
+# report is built rather than by whoever renders it. `changed` is what is left over, the same
+# list in both renderings, and a consumer printing it verbatim cannot end up calling a slot
+# merely changed beside the break its own edit produced.
 #
-# **The run exits 0 while `passes` is false.** Every gating rule in §5 is in the payload and
-# none of it reaches the exit code — the identical comparison rendered as prose exits 1
-# (output-type-changed.yaml is that pair of documents). A pipeline that adds `--json` to
-# capture the report stops failing on the breaks it was added to catch. Pinned as a BUG, not
-# a decision: this block is what has to change when the exit code learns about the flag.
+# **The exit code is 1**, because `passes` is false. `--json` is a rendering and not a mode:
+# the flag that captures the findings must not be the flag that stops failing on them.
 apply:
   - channel: wirefull_a
     definitions:
@@ -73,13 +71,6 @@ expect: |
           {
             "address": "charge:fetch.url",
             "task": "charge"
-          },
-          {
-            "address": "charge:fetch.result",
-            "task": "charge",
-            "affects": [
-              "contract"
-            ]
           }
         ],
         "added": [
@@ -107,4 +98,4 @@ expect: |
     ]
   }
 
-  exit 0
+  exit 1

@@ -132,6 +132,15 @@ func (h *Handlers) resolveCompatSide(sel CompatSelector, side, process string) (
 		if err != nil {
 			return nil, fmt.Errorf("%s: channel %q: %w", side, sel.Channel, err)
 		}
+		// A channel nobody created resolves to nothing rather than failing, so a typo would
+		// otherwise become a target side every process is missing from — a whole report of
+		// unjudged rows and an exit 0, which is the answer indistinguishable from "checked,
+		// and fine". Only the TARGET: an empty from side is the bootstrap case, where nothing
+		// is running yet and every submitted process is legitimately new.
+		if len(loaded) == 0 && side == "to" {
+			return nil, invalid("to: channel %q carries no processes; there is nothing to "+
+				"compare against", sel.Channel)
+		}
 		for _, vd := range loaded {
 			out[vd.Def.Name] = resolvedEntry{def: vd.Def, version: vd.Version}
 		}

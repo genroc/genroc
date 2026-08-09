@@ -23,11 +23,6 @@ var notASlot = map[string]string{
 	"ProcessDefinition.Name": "the identity processes are paired by",
 	"ProcessDefinition.Tasks": "compared per task, not as one blob — the per-task verdicts " +
 		"are the report, and a whole-list diff would say nothing about where an instance sits",
-	"ProcessDefinition.ConfigSchema": "not part of either check. It is a runtime check that " +
-		"the environment is set — no contract with a party, and config is stripped from every " +
-		"context — and where it DOES reach the data, through an expression reading config.x, " +
-		"validation catches it better by type-checking that expression against the new schema. " +
-		"Cost: a `secret: true` dropped from it is reported nowhere (compat-command.md §6b)",
 	"ProcessDefinition.Defs": "a shared pool, not a place in the process. Normalize BAKES a " +
 		"referenced definition into every schema that uses it, so an edit already reports at " +
 		"each schema addressing it, under a path an operator can navigate. Reporting it here " +

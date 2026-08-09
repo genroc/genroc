@@ -83,8 +83,10 @@ behavior while the spec stays put, answering a different question. See
   only. An implementation was written and rolled back; findings marked **[run]** came from
   running it, and three contradicted the design as written — chiefly that a slot that changed
   and a value that broke must never share a row, since that claims a cause no comparison can
-  know. `config_schema` is deliberately outside the whole check: validation type-checks
-  expressions against it, which catches more than compat could. **Demand pruning is required,
+  know. `config_schema` is deliberately outside the whole check — validation type-checks
+  expressions against it, which catches more than compat could — but still gets a
+  `(not judged)` row, because a slot missing from the report entirely is how a dropped
+  `secret: true` came to be reported nowhere. **Demand pruning is required,
   not deferred** (§2f) and lands last: without it the report calls a dead output a break, and
   over-pruning it would promise an upgrade whose instance then reads a value that is not
   there — the same failure shape as a relation tolerating a gap the fill cannot close, so it
