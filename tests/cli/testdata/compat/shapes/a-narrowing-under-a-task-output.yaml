@@ -1,0 +1,61 @@
+# A constraint narrowed on the INPUT surfaces again inside a task's context, because
+# inference carries constraints through navigation: `$: input.rows` puts the item's bounds
+# into `$defs[go_output]`, and the context comparison finds them there. That is the whole
+# reason inference must not drop them — and the path is what makes the second row worth
+# printing rather than a duplicate of the first.
+apply:
+  - channel: deeppath_a
+    definitions:
+      - name: deeppath_proc
+        input_schema:
+          type: object
+          properties:
+            rows:
+              type: array
+              items:
+                type: object
+                properties: {id: {type: integer}}
+                required: [id]
+          required: [rows]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            output: {picked: '$: input.rows'}
+            switch: next
+          - id: after
+            action: {type: fetch, url: http://x/after}
+            switch: end
+  - channel: deeppath_b
+    definitions:
+      - name: deeppath_proc
+        input_schema:
+          type: object
+          properties:
+            rows:
+              type: array
+              items:
+                type: object
+                properties: {id: {type: integer, minimum: 1}}
+                required: [id]
+          required: [rows]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            output: {picked: '$: input.rows'}
+            switch: next
+          - id: after
+            action: {type: fetch, url: http://x/after}
+            switch: end
+run: [--from, deeppath_a, --to, deeppath_b]
+
+expect: |
+  PROCESS        UPGRADE   CONTRACT
+  deeppath_proc  breaking  breaking
+
+  deeppath_proc v1 → v2
+    input  (breaking upgrade and contract)
+      rows[].id: no minimum → minimum 1
+    after  (breaking upgrade)
+      outputs.go.picked[].id: no minimum → minimum 1
+
+  exit 1

@@ -252,6 +252,23 @@ func (s Schema) NarrowsTo(super Schema) bool {
 	return narrowsTo(s.n, super.n)
 }
 
+// ExplainSubset names the first place s fails to fit super, or nil when it fits. It runs
+// the SAME walk as IsSubset with reporting switched on, so the two can never disagree —
+// the reason comes from the branch that produced the verdict. Callers word the break
+// themselves (see SubsetBreakKind); this returns facts, not a sentence.
+//
+// Costs a second traversal, so call it only after IsSubset has already said no.
+func (s Schema) ExplainSubset(super Schema) *SubsetBreak {
+	_, brk := subsetExplain(s.n, super.n, subsetMode{}, true)
+	return brk
+}
+
+// ExplainSubsetAsStored is ExplainSubset for the IsSubsetAsStored relation.
+func (s Schema) ExplainSubsetAsStored(super Schema) *SubsetBreak {
+	_, brk := subsetExplain(s.n, super.n, subsetMode{absentAsNull: true, afterConform: true}, true)
+	return brk
+}
+
 // ─── Secrets ────────────────────────────────────────────────────────────────────
 
 // IsSecret looks through nullable / single-variant union wrappers.

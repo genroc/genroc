@@ -1,0 +1,41 @@
+# The break that had no test anywhere. `IsSubset` ignored minItems/maxItems entirely, so
+# capping an array read as compatible and then rejected the stored value at conform time —
+# a wrong answer in the permissive direction, which is the one that ships. Reported on both
+# questions: an instance's stored input no longer fits, and a caller who could send four
+# tags no longer can.
+apply:
+  - channel: itemc_a
+    definitions:
+      - name: itemc_proc
+        input_schema:
+          type: object
+          properties:
+            tags: {type: array, items: {type: string}}
+          required: [tags]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+  - channel: itemc_b
+    definitions:
+      - name: itemc_proc
+        input_schema:
+          type: object
+          properties:
+            tags: {type: array, items: {type: string}, maxItems: 2}
+          required: [tags]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+run: [--from, itemc_a, --to, itemc_b]
+
+expect: |
+  PROCESS     UPGRADE   CONTRACT
+  itemc_proc  breaking  breaking
+
+  itemc_proc v1 → v2
+    input  (breaking upgrade and contract)
+      tags: no maxItems → maxItems 2
+
+  exit 1

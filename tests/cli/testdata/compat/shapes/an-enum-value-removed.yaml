@@ -1,0 +1,40 @@
+# Removal, not narrowing-from-nothing: both sides carry an enum and one value is gone. The
+# message names what stopped fitting rather than printing both pools, because an absence
+# cannot be SHOWN in a capped list — at this size both pools truncate to the same five
+# entries, and rendering them side by side reported a change while saying nothing changed.
+apply:
+  - channel: enumrm_a
+    definitions:
+      - name: enumrm_proc
+        input_schema:
+          type: object
+          properties:
+            code: {type: string, enum: [aa, bb, cc, dd, ee, ff, gg, hh]}
+          required: [code]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+  - channel: enumrm_b
+    definitions:
+      - name: enumrm_proc
+        input_schema:
+          type: object
+          properties:
+            code: {type: string, enum: [aa, bb, cc, dd, ee, ff, gg]}
+          required: [code]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+run: [--from, enumrm_a, --to, enumrm_b]
+
+expect: |
+  PROCESS      UPGRADE   CONTRACT
+  enumrm_proc  breaking  breaking
+
+  enumrm_proc v1 → v2
+    input  (breaking upgrade and contract)
+      code: allows ["hh"] → enum ["aa", "bb", "cc", "dd", "ee", +2 more]
+
+  exit 1

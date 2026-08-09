@@ -1,13 +1,10 @@
-# The verdict is right and the MESSAGE is the shortcoming. `isSubset` compares `enum`,
-# `minimum`/`maximum` and the length bounds, so narrowing one is caught on both questions —
-# but `describe` renders a type name, and the type did not move, so the line reads
-# `string → string` and an operator cannot act on it. `maximum` and `minLength` render the
-# same way; only the first break is named, so one property is the whole report.
+# A narrowing that does not move the TYPE must still say what narrowed. This block used to
+# read `tier: string → string` — a line asserting nothing changed, about a change that breaks
+# both questions — because the message came from a walk beside the relation that could only
+# render type names. The relation reports the constraint it rejected, so the enum appears.
 #
-# It is the symptom §2e treats as a bug signal (`object → object` was how the rolled-back
-# implementation announced it could not articulate a finding), reached here by a route that
-# is not a bug: the finding is real, the words are missing. A `describe` that learns to
-# render constraints changes this block, which is the point of pinning it.
+# `maximum` and `minLength` travel the same path; only the first break is named, so one
+# property is still the whole report.
 apply:
   - channel: narrowc_a
     definitions:
@@ -35,6 +32,6 @@ expect: |
 
   narrowc_proc v1 → v2
     input  (breaking upgrade and contract)
-      tier: string → string
+      tier: any string → enum ["free", "paid"]
 
   exit 1

@@ -19,9 +19,24 @@ func mustAssumed(t *testing.T, src string) schema.Schema {
 
 func assertSubset(t *testing.T, subJSON, superJSON string, want bool) {
 	t.Helper()
-	got := mustAssumed(t, subJSON).IsSubset(mustAssumed(t, superJSON))
+	sub, super := mustAssumed(t, subJSON), mustAssumed(t, superJSON)
+	got := sub.IsSubset(super)
 	if got != want {
 		t.Errorf("IsSubset(%s, %s) = %v, want %v", subJSON, superJSON, got, want)
+	}
+	// Every rejection must be able to say why. This runs over every case in every
+	// subset_*_test.go table, so a new failure branch that returns a bare false is caught
+	// here rather than surfacing as a diagnostic with nothing in it — which is what the
+	// separate explainer used to produce, and why it was deleted.
+	if !got {
+		brk := sub.ExplainSubset(super)
+		switch {
+		case brk == nil:
+			t.Errorf("IsSubset(%s, %s) = false with no break reported", subJSON, superJSON)
+		case brk.Sub == "" || brk.Super == "":
+			t.Errorf("break at %q is half-empty (%q → %q); a message needs both sides",
+				brk.Path, brk.Sub, brk.Super)
+		}
 	}
 }
 

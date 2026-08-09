@@ -1,0 +1,157 @@
+package schema
+
+// Reporting is a MODE on the subset relation, not a second walk beside it. A parallel
+// walker has to rediscover where a value lives inside a schema and then stay in step
+// forever; internal/validation had one, and it drifted — it never learned about item
+// counts, and it needed an invented depth cap because it re-walked without the relation's
+// cycle guard. Same argument as ConformMode in validate.go.
+
+import (
+	"strconv"
+	"strings"
+
+	"genroc/internal/numeric"
+)
+
+// SubsetBreakKind names why the relation failed, so a caller can word it. The contract
+// check runs new ⊆ old and must read from the reader's point of view rather than the
+// relation's, which is why this is a kind and not a finished sentence.
+type SubsetBreakKind string
+
+const (
+	BreakMissingRequired SubsetBreakKind = "missing_required"
+	BreakType            SubsetBreakKind = "type"
+	BreakConstraint      SubsetBreakKind = "constraint"
+	BreakVariants        SubsetBreakKind = "variants"
+	BreakUnknown         SubsetBreakKind = "unknown"
+)
+
+// SubsetBreak is the first place one schema fails to fit another. Sub and Super each say
+// what their side holds, direction-neutrally, so a caller may print them in either order.
+type SubsetBreak struct {
+	Path  string
+	Kind  SubsetBreakKind
+	Sub   string
+	Super string
+}
+
+// pathLink locates a node inside the compared schemas as a parent chain, so descending
+// costs a pointer rather than a string join. It is only ever built while tracing.
+type pathLink struct {
+	parent *pathLink
+	step   string // a property name, or "[]" for array elements
+}
+
+func (p *pathLink) String() string {
+	if p == nil {
+		return ""
+	}
+	prefix := p.parent.String()
+	switch {
+	case p.step == "[]":
+		return prefix + "[]"
+	case prefix == "":
+		return p.step
+	default:
+		return prefix + "." + p.step
+	}
+}
+
+type subsetTrace struct{ first *SubsetBreak }
+
+// at extends the location, but only while tracing — on the bool path nothing is built, so
+// the relation stays allocation-free where it runs per validation.
+func (ctx *subsetCtx) at(p *pathLink, step string) *pathLink {
+	if ctx.trace == nil {
+		return nil
+	}
+	return &pathLink{parent: p, step: step}
+}
+
+// no records a LEAF failure and returns false. Sites that merely propagate a nested false
+// must not call it — the break belongs where it was found, at its own path.
+func (ctx *subsetCtx) no(at *pathLink, kind SubsetBreakKind, sub, super string) bool {
+	if ctx.trace != nil && ctx.trace.first == nil {
+		ctx.trace.first = &SubsetBreak{Path: at.String(), Kind: kind, Sub: sub, Super: super}
+	}
+	return false
+}
+
+// mark/rollback bracket an ALTERNATIVE — a union arm or an allOf member that may fail
+// while the whole still holds. Without the rollback a losing arm's break would be reported
+// as the reason for a relation that actually succeeded, or for a later, unrelated failure.
+func (ctx *subsetCtx) mark() *SubsetBreak {
+	if ctx.trace == nil {
+		return nil
+	}
+	return ctx.trace.first
+}
+
+func (ctx *subsetCtx) rollback(mark *SubsetBreak) {
+	if ctx.trace != nil {
+		ctx.trace.first = mark
+	}
+}
+
+// enumHasNumeric is the fallback behind the literal-bytes lookup: a number's enum membership
+// is by VALUE, so 1, 1.0 and 1e2/100 are the same member however they were written. Validate's
+// enumContains decides it that way, and a relation that disagreed would call a reformatted
+// schema a breaking change.
+func enumHasNumeric(pool []any, v any) bool {
+	if _, isNum := numeric.ToDecimal(v); !isNum {
+		return false
+	}
+	for _, p := range pool {
+		if numeric.Equal(p, v) {
+			return true
+		}
+	}
+	return false
+}
+
+func typeNames(n *node) string {
+	if len(n.Type) == 0 {
+		return "untyped"
+	}
+	return strings.Join([]string(n.Type), "|")
+}
+
+func num(f float64) string { return strconv.FormatFloat(f, 'g', -1, 64) }
+
+// plural names a pool of alternatives. The relation knows none of them fit; which came
+// closest is a judgement it does not have, so the break names the pool rather than picking.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(n) + " " + noun + "s"
+}
+
+// maxEnumRendered caps enumValues. An enum has no size limit and a break becomes ONE line
+// of a report, so a large pool rendered whole buries the constraint it is there to name.
+const maxEnumRendered = 5
+
+// enumValues renders an enum compactly; the break names the pool, and the path says where.
+func enumValues(vs []any) string {
+	if len(vs) == 0 {
+		return "no enum"
+	}
+	return "enum " + enumList(vs)
+}
+
+// enumList renders a capped, counted list of values.
+func enumList(vs []any) string {
+	shown := vs
+	if len(shown) > maxEnumRendered {
+		shown = shown[:maxEnumRendered]
+	}
+	parts := make([]string, 0, len(shown))
+	for _, v := range shown {
+		parts = append(parts, jsonKey(v))
+	}
+	out := "[" + strings.Join(parts, ", ")
+	if rest := len(vs) - len(shown); rest > 0 {
+		out += ", +" + strconv.Itoa(rest) + " more"
+	}
+	return out + "]"
+}

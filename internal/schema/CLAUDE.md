@@ -126,6 +126,18 @@ that is not one of them should descend via `lookupProperty`/`inferIndex` (as `re
 `normalize`'s `walkTree` is **not** converted: it mutates nodes in place while holding
 `*node` pointers into the tree across phases, and `mapChildren` copies.
 
+**Diagnostics are a mode on the relation, never a walk beside it** (`subsetbreak.go`) —
+the same rule as `ConformMode`, and it was learned the same way. `internal/validation` used
+to explain a subset failure by re-walking the two schemas itself; it drifted, missing item
+counts entirely and capping its descent at an invented depth because it lacked the
+relation's cycle guard. `ExplainSubset` re-runs `check` with a trace, so the reason comes
+from the branch that produced the verdict. Two things keep it honest: `no()` is for LEAF
+failures only (a site that merely propagates a nested false would overwrite the real break's
+path), and an ALTERNATIVE — a union arm, an `allOf` member, the `afterConform` stripped-null
+retry — must bracket itself in `mark`/`rollback`, or a losing arm's break gets reported as
+the reason a later, unrelated check failed. `assertSubset` asserts every false yields a
+complete break, over every case in every `subset_*_test.go` table.
+
 **A `CheckDoc` error names the definition site, not an access path.** The location is
 assembled from one `errLabel` per slot as the recursion unwinds, and a `$defs` entry is
 checked once under its own name however many refs reach it — which is what keeps it finite.

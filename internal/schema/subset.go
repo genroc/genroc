@@ -2,6 +2,9 @@ package schema
 
 import (
 	"encoding/json"
+	"maps"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -59,6 +62,15 @@ func narrowsTo(sub, super *node) bool {
 }
 
 func subsetWith(sub, super *node, mode subsetMode) bool {
+	ok, _ := subsetExplain(sub, super, mode, false)
+	return ok
+}
+
+// subsetExplain runs the relation, collecting the first break when asked. Reporting is a
+// MODE rather than a second walk: the rules about where a value lives inside a schema are
+// subtle enough that a parallel explainer rediscovers them badly and then has to stay in
+// step forever (see subsetbreak.go). With explain false nothing is allocated for it.
+func subsetExplain(sub, super *node, mode subsetMode, explain bool) (bool, *SubsetBreak) {
 	var subDefs, superDefs map[string]*node
 	if sub != nil {
 		subDefs = sub.Defs
@@ -72,7 +84,16 @@ func subsetWith(sub, super *node, mode subsetMode) bool {
 		visiting:   make(map[string]bool),
 		subsetMode: mode,
 	}
-	return ctx.check(sub, super)
+	if explain {
+		ctx.trace = &subsetTrace{}
+	}
+	if ctx.check(sub, super, nil) {
+		return true, nil
+	}
+	if ctx.trace == nil {
+		return false, nil
+	}
+	return false, ctx.trace.first
 }
 
 type subsetCtx struct {
@@ -80,9 +101,12 @@ type subsetCtx struct {
 	superDefs map[string]*node
 	visiting  map[string]bool
 	subsetMode
+	// trace is nil on the bool path, so the relation carries no reporting cost where it
+	// runs per validation; the explaining entry point sets it and re-runs.
+	trace *subsetTrace
 }
 
-func (ctx *subsetCtx) check(sub, super *node) bool {
+func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
 	// Cycle detection before any deref.
 	subRef := ""
 	superRef := ""
@@ -112,7 +136,10 @@ func (ctx *subsetCtx) check(sub, super *node) bool {
 	if isEmptyNode(sub) {
 		// An unknown satisfies nothing typed — unless we are checking narrowability,
 		// where a runtime conform against super stands behind the claim.
-		return ctx.narrow
+		if ctx.narrow {
+			return true
+		}
+		return ctx.no(at, BreakUnknown, "unknown", typeNames(super))
 	}
 
 	// Composition in sub (anyOf / oneOf): every variant must be ⊆ super.
@@ -121,7 +148,10 @@ func (ctx *subsetCtx) check(sub, super *node) bool {
 			continue
 		}
 		for _, v := range variants {
-			if v == nil || !ctx.check(v, super) {
+			if v == nil {
+				return ctx.no(at, BreakVariants, "a null variant", typeNames(super))
+			}
+			if !ctx.check(v, super, at) {
 				return false
 			}
 		}
@@ -130,12 +160,15 @@ func (ctx *subsetCtx) check(sub, super *node) bool {
 
 	// allOf in sub: if any single constraint is ⊆ super then the allOf is too.
 	if len(sub.AllOf) > 0 {
+		mark := ctx.mark()
 		for _, v := range sub.AllOf {
-			if v != nil && ctx.check(v, super) {
+			if v != nil && ctx.check(v, super, at) {
+				ctx.rollback(mark)
 				return true
 			}
 		}
-		return false
+		ctx.rollback(mark)
+		return ctx.no(at, BreakVariants, "none of "+plural(len(sub.AllOf), "allOf member"), typeNames(super))
 	}
 
 	// Composition in super (anyOf / oneOf): sub must fit at least one variant.
@@ -143,18 +176,24 @@ func (ctx *subsetCtx) check(sub, super *node) bool {
 		if variants == nil {
 			continue
 		}
+		mark := ctx.mark()
 		for _, v := range variants {
-			if v != nil && ctx.check(sub, v) {
+			if v != nil && ctx.check(sub, v, at) {
+				ctx.rollback(mark)
 				return true
 			}
 		}
-		return false
+		ctx.rollback(mark)
+		return ctx.no(at, BreakVariants, typeNames(sub), "any of "+plural(len(variants), "variant"))
 	}
 
 	// allOf in super: sub must satisfy every constraint.
 	if len(super.AllOf) > 0 {
 		for _, v := range super.AllOf {
-			if v == nil || !ctx.check(sub, v) {
+			if v == nil {
+				return ctx.no(at, BreakVariants, typeNames(sub), "a null allOf member")
+			}
+			if !ctx.check(sub, v, at) {
 				return false
 			}
 		}
@@ -164,43 +203,43 @@ func (ctx *subsetCtx) check(sub, super *node) bool {
 	// Type compatibility.
 	if len(super.Type) > 0 {
 		if len(sub.Type) == 0 {
-			return false
+			return ctx.no(at, BreakType, "untyped", typeNames(super))
 		}
 		for _, st := range sub.Type {
 			if !typeAllowed(st, super.Type) {
-				return false
+				return ctx.no(at, BreakType, typeNames(sub), typeNames(super))
 			}
 		}
 	}
 
 	// Structural checks.
 	if super.Properties != nil || super.Required != nil || super.AdditionalProperties != nil {
-		if !ctx.checkObject(sub, super) {
+		if !ctx.checkObject(sub, super, at) {
 			return false
 		}
 	}
 	if super.Items != nil {
-		if !ctx.checkArray(sub, super) {
+		if !ctx.checkArray(sub, super, at) {
 			return false
 		}
 	}
 	if super.MinItems != nil || super.MaxItems != nil {
-		if !checkItemCount(sub, super) {
+		if !ctx.checkItemCount(sub, super, at) {
 			return false
 		}
 	}
 	if super.Minimum != nil || super.Maximum != nil {
-		if !checkNumericBounds(sub, super) {
+		if !ctx.checkNumericBounds(sub, super, at) {
 			return false
 		}
 	}
 	if super.MinLength != nil || super.MaxLength != nil {
-		if !checkStringLength(sub, super) {
+		if !ctx.checkStringLength(sub, super, at) {
 			return false
 		}
 	}
 	if super.Enum != nil {
-		if !checkEnum(sub, super) {
+		if !ctx.checkEnum(sub, super, at) {
 			return false
 		}
 	}
@@ -244,7 +283,7 @@ func (ctx *subsetCtx) guaranteed(n *node, defs map[string]*node) map[string]bool
 	return out
 }
 
-func (ctx *subsetCtx) checkObject(sub, super *node) bool {
+func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 	subReq := ctx.guaranteed(sub, ctx.subDefs)
 
 	for _, f := range super.Required {
@@ -258,7 +297,7 @@ func (ctx *subsetCtx) checkObject(sub, super *node) bool {
 			hasNullResolved(prop, ctx.superDefs) {
 			continue
 		}
-		return false
+		return ctx.no(ctx.at(at, f), BreakMissingRequired, "not guaranteed", "required")
 	}
 
 	if super.Properties != nil {
@@ -267,7 +306,9 @@ func (ctx *subsetCtx) checkObject(sub, super *node) bool {
 			subProps = sub.Properties
 		}
 		superReq := stringSet(super.Required)
-		for name, superProp := range super.Properties {
+		// Sorted so the reported break does not depend on map order.
+		for _, name := range slices.Sorted(maps.Keys(super.Properties)) {
+			superProp := super.Properties[name]
 			if superProp == nil {
 				continue
 			}
@@ -275,7 +316,8 @@ func (ctx *subsetCtx) checkObject(sub, super *node) bool {
 			if !exists {
 				continue
 			}
-			if ctx.check(subProp, superProp) {
+			mark := ctx.mark()
+			if ctx.check(subProp, superProp, ctx.at(at, name)) {
 				continue
 			}
 			// The other direction of the null-versus-missing gap, and the mirror of the rule
@@ -286,7 +328,8 @@ func (ctx *subsetCtx) checkObject(sub, super *node) bool {
 			// since absence is not valid there either.
 			if ctx.afterConform && !superReq[name] &&
 				hasNullResolved(subProp, ctx.subDefs) &&
-				ctx.check(stripNull(subProp), superProp) {
+				ctx.check(stripNull(subProp), superProp, ctx.at(at, name)) {
+				ctx.rollback(mark)
 				continue
 			}
 			return false
@@ -297,15 +340,20 @@ func (ctx *subsetCtx) checkObject(sub, super *node) bool {
 	// super's additionalProperties — both sub's own undeclared properties and sub's
 	// own open-map values. (A closed super strips extras, so it imposes nothing here.)
 	if super.AdditionalProperties != nil {
-		for name, subProp := range sub.Properties {
+		for _, name := range slices.Sorted(maps.Keys(sub.Properties)) {
 			if _, declared := super.Properties[name]; declared {
 				continue
 			}
-			if subProp == nil || !ctx.check(subProp, super.AdditionalProperties) {
+			subProp := sub.Properties[name]
+			if subProp == nil {
+				return ctx.no(ctx.at(at, name), BreakUnknown, "a null property", "the additionalProperties type")
+			}
+			if !ctx.check(subProp, super.AdditionalProperties, ctx.at(at, name)) {
 				return false
 			}
 		}
-		if sub.AdditionalProperties != nil && !ctx.check(sub.AdditionalProperties, super.AdditionalProperties) {
+		if sub.AdditionalProperties != nil &&
+			!ctx.check(sub.AdditionalProperties, super.AdditionalProperties, ctx.at(at, "*")) {
 			return false
 		}
 	}
@@ -313,7 +361,7 @@ func (ctx *subsetCtx) checkObject(sub, super *node) bool {
 	return true
 }
 
-func (ctx *subsetCtx) checkArray(sub, super *node) bool {
+func (ctx *subsetCtx) checkArray(sub, super *node, at *pathLink) bool {
 	if super.Items == nil {
 		return true
 	}
@@ -323,73 +371,104 @@ func (ctx *subsetCtx) checkArray(sub, super *node) bool {
 		return true
 	}
 	if sub.Items == nil {
-		return false
+		return ctx.no(ctx.at(at, "[]"), BreakType, "untyped", typeNames(super.Items))
 	}
-	return ctx.check(sub.Items, super.Items)
-}
-
-func checkNumericBounds(sub, super *node) bool {
-	if super.Minimum != nil {
-		if sub.Minimum == nil || *sub.Minimum < *super.Minimum {
-			return false
-		}
-	}
-	if super.Maximum != nil {
-		if sub.Maximum == nil || *sub.Maximum > *super.Maximum {
-			return false
-		}
-	}
-	return true
+	return ctx.check(sub.Items, super.Items, ctx.at(at, "[]"))
 }
 
 // checkItemCount is checkStringLength for arrays. An unset bound on sub is treated as
 // absent rather than as its implicit 0/∞, so an unbounded sub never fits a bounded super —
 // the same conservative floor the other two use.
-func checkItemCount(sub, super *node) bool {
+func (ctx *subsetCtx) checkItemCount(sub, super *node, at *pathLink) bool {
 	if super.MinItems != nil {
-		if sub.MinItems == nil || *sub.MinItems < *super.MinItems {
-			return false
+		if sub.MinItems == nil {
+			return ctx.no(at, BreakConstraint, "no minItems", "minItems "+strconv.Itoa(*super.MinItems))
+		}
+		if *sub.MinItems < *super.MinItems {
+			return ctx.no(at, BreakConstraint,
+				"minItems "+strconv.Itoa(*sub.MinItems), "minItems "+strconv.Itoa(*super.MinItems))
 		}
 	}
 	if super.MaxItems != nil {
-		if sub.MaxItems == nil || *sub.MaxItems > *super.MaxItems {
-			return false
+		if sub.MaxItems == nil {
+			return ctx.no(at, BreakConstraint, "no maxItems", "maxItems "+strconv.Itoa(*super.MaxItems))
+		}
+		if *sub.MaxItems > *super.MaxItems {
+			return ctx.no(at, BreakConstraint,
+				"maxItems "+strconv.Itoa(*sub.MaxItems), "maxItems "+strconv.Itoa(*super.MaxItems))
 		}
 	}
 	return true
 }
 
-func checkStringLength(sub, super *node) bool {
+func (ctx *subsetCtx) checkNumericBounds(sub, super *node, at *pathLink) bool {
+	if super.Minimum != nil {
+		if sub.Minimum == nil {
+			return ctx.no(at, BreakConstraint, "no minimum", "minimum "+num(*super.Minimum))
+		}
+		if *sub.Minimum < *super.Minimum {
+			return ctx.no(at, BreakConstraint,
+				"minimum "+num(*sub.Minimum), "minimum "+num(*super.Minimum))
+		}
+	}
+	if super.Maximum != nil {
+		if sub.Maximum == nil {
+			return ctx.no(at, BreakConstraint, "no maximum", "maximum "+num(*super.Maximum))
+		}
+		if *sub.Maximum > *super.Maximum {
+			return ctx.no(at, BreakConstraint,
+				"maximum "+num(*sub.Maximum), "maximum "+num(*super.Maximum))
+		}
+	}
+	return true
+}
+
+func (ctx *subsetCtx) checkStringLength(sub, super *node, at *pathLink) bool {
 	if super.MinLength != nil {
-		if sub.MinLength == nil || *sub.MinLength < *super.MinLength {
-			return false
+		if sub.MinLength == nil {
+			return ctx.no(at, BreakConstraint, "no minLength", "minLength "+strconv.Itoa(*super.MinLength))
+		}
+		if *sub.MinLength < *super.MinLength {
+			return ctx.no(at, BreakConstraint,
+				"minLength "+strconv.Itoa(*sub.MinLength), "minLength "+strconv.Itoa(*super.MinLength))
 		}
 	}
 	if super.MaxLength != nil {
-		if sub.MaxLength == nil || *sub.MaxLength > *super.MaxLength {
-			return false
+		if sub.MaxLength == nil {
+			return ctx.no(at, BreakConstraint, "no maxLength", "maxLength "+strconv.Itoa(*super.MaxLength))
+		}
+		if *sub.MaxLength > *super.MaxLength {
+			return ctx.no(at, BreakConstraint,
+				"maxLength "+strconv.Itoa(*sub.MaxLength), "maxLength "+strconv.Itoa(*super.MaxLength))
 		}
 	}
 	return true
 }
 
-func checkEnum(sub, super *node) bool {
+func (ctx *subsetCtx) checkEnum(sub, super *node, at *pathLink) bool {
 	if super.Enum == nil {
 		return true
 	}
 	if sub.Enum == nil {
-		return false
+		return ctx.no(at, BreakConstraint, "any "+typeNames(sub), enumValues(super.Enum))
 	}
 	superSet := make(map[string]bool, len(super.Enum))
 	for _, v := range super.Enum {
 		superSet[jsonKey(v)] = true
 	}
+	var extra []any
 	for _, v := range sub.Enum {
-		if !superSet[jsonKey(v)] {
-			return false
+		if !superSet[jsonKey(v)] && !enumHasNumeric(super.Enum, v) {
+			extra = append(extra, v)
 		}
 	}
-	return true
+	if len(extra) == 0 {
+		return true
+	}
+	// Name the values that do not fit, rather than printing both pools. An absence cannot be
+	// SHOWN in a capped list: two large enums differing by one value rendered identically on
+	// both sides of the arrow, so the line reported a change while saying nothing changed.
+	return ctx.no(at, BreakConstraint, "allows "+enumList(extra), enumValues(super.Enum))
 }
 
 func jsonKey(v any) string {

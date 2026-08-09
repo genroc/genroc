@@ -252,9 +252,8 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 	// One difference in the data surfaces at EVERY task that can see it. It is a fact about
 	// the value, not about who reads it, so the first task to surface it keeps it (§6a).
 	seen := map[string]bool{}
-	add := func(member Member, address, task, reason string) {
-		path, msg := splitReason(reason)
-		// Deduplicated on the path as the explainer built it, before any address strips its
+	add := func(member Member, address, task, path, msg string) {
+		// Deduplicated on the path as the relation reported it, before any address strips its
 		// own prefix: the same difference must key the same way wherever it surfaces.
 		key := string(member) + "\x00" + path + "\x00" + msg
 		if seen[key] {
@@ -275,11 +274,11 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 	// as STORED for the upgrade (a defaulted property is present because creation filled it,
 	// §2e) and STRICT for the contract (what ValidateInput will do to the next caller).
 	oldIn, newIn := inputObject(oldA), inputObject(newA)
-	if reason := storedExplainer.explain("", oldIn, newIn, 0); reason != "" {
-		add(MemberUpgrade, addressInput, "", reason)
+	if path, msg := storedExplainer.explain(oldIn, newIn); msg != "" {
+		add(MemberUpgrade, addressInput, "", path, msg)
 	}
-	if reason := (explainer{}).explain("", oldIn, newIn, 0); reason != "" {
-		add(MemberContract, addressInput, "", reason)
+	if path, msg := (explainer{}).explain(oldIn, newIn); msg != "" {
+		add(MemberContract, addressInput, "", path, msg)
 	}
 
 	for _, t := range oldA.def.Tasks {
@@ -295,8 +294,8 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 		}
 		// One context per task is enough for the whole remaining run: a task output's type
 		// is position-independent and the must-analysis is monotone along a path (§2a).
-		if reason := storedExplainer.explain("", oldA.contexts[t.ID], newA.contexts[t.ID], 0); reason != "" {
-			add(MemberUpgrade, t.ID, t.ID, reason)
+		if path, msg := storedExplainer.explain(oldA.contexts[t.ID], newA.contexts[t.ID]); msg != "" {
+			add(MemberUpgrade, t.ID, t.ID, path, msg)
 		}
 		if typeChanged(t, nt) {
 			// An action type may not change under an instance that is SITTING in it: the
@@ -323,8 +322,8 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 		out = append(out, resultIssues(t, nt)...)
 	}
 
-	if reason := compareOutput(oldA, newA); reason != "" {
-		add(MemberContract, addressOutput, "", reason)
+	if path, msg := compareOutput(oldA, newA); msg != "" {
+		add(MemberContract, addressOutput, "", path, msg)
 	}
 	return out
 }
@@ -459,11 +458,10 @@ func resultIssues(old, new *model.Task) []Issue {
 			// because it is the same thing happening — a conform standing where none did.
 			msg = addedResultMessage
 		} else {
-			reason := (explainer{}).explain("", rc.old, rc.new, 0)
-			if reason == "" {
+			path, msg = (explainer{}).explain(rc.old, rc.new)
+			if msg == "" {
 				continue
 			}
-			path, msg = splitReason(reason)
 		}
 		if rc.parks {
 			out = append(out, Issue{
@@ -482,14 +480,6 @@ func resultIssues(old, new *model.Task) []Issue {
 // splitReason peels the path off an explainer message. It is the producer's own split, not
 // a reader's guess: explain builds "<path>: <message>" and a whole-schema break carries no
 // path at all, so nothing here has to know what a path may contain.
-func splitReason(reason string) (path, msg string) {
-	i := strings.Index(reason, ": ")
-	if i <= 0 || strings.Contains(reason[:i], " ") {
-		return "", reason
-	}
-	return reason[:i], reason[i+2:]
-}
-
 // insideInput strips the wrapper inputObject adds. A path is relative to the schema its
 // address names (§6a), and the address here IS the input — so `input.retries` reads
 // `retries`, and the wrapper's own break (the process gaining an input at all) reads as no
@@ -515,26 +505,26 @@ func inputObject(a analysis) schema.Schema {
 // compareOutput is the consumer contract reversed: everything the new version can produce
 // must satisfy readers of the old. IsSubset, not NarrowsTo — narrowing is the privilege of
 // a slot with a runtime conform behind it, and nothing conforms here.
-func compareOutput(oldA, newA analysis) string {
+func compareOutput(oldA, newA analysis) (path, msg string) {
 	oldOut, hasOld, err := schemaFileOutput(oldA.sf)
 	if err != nil {
-		return err.Error()
+		return "", err.Error()
 	}
 	newOut, hasNew, err := schemaFileOutput(newA.sf)
 	if err != nil {
-		return err.Error()
+		return "", err.Error()
 	}
 	// Adding an output is free — consumers were written against a process that produced
 	// nothing, so nothing they read can stop working. Removing one is not, and it is not a
 	// schema comparison either: there is no new schema to compare against, so it is reported
 	// directly, the way a removed task is (§2b).
 	if !hasOld {
-		return ""
+		return "", ""
 	}
 	if !hasNew {
-		return "removed; consumers were written against it"
+		return "", "removed; consumers were written against it"
 	}
-	return contractExplainer.explain("", newOut, oldOut, 0)
+	return contractExplainer.explain(newOut, oldOut)
 }
 
 // CompareSet is Compare over a name-paired set. A single pair is CompareSet with one entry.
@@ -666,19 +656,17 @@ func sortedNames(m map[string]*model.ProcessDefinition) []string {
 
 // ── diagnostics ───────────────────────────────────────────────────────────────
 
-// explainer names the first place one schema fails to fit another, decomposing ABOVE the
-// subset check — isSubset returns a bool on every hot validation path, and making it
-// explain itself is a big change to load-bearing code for one caller.
+// explainer WORDS a subset break; it does not walk. The relation reports its own breaks
+// (schema.ExplainSubset), so a message can no longer disagree with the verdict it explains.
+// This used to decompose above the subset check, and it drifted exactly as a parallel
+// walker does: it never learned about item counts, and it capped its descent at a depth it
+// invented because it re-walked without the relation's cycle guard.
 type explainer struct {
-	// asStored reads both schemas as descriptions of data a conform already produced:
-	// absence-as-null, plus a defaulted property counting as present. It is sound ONLY
-	// where the value is read and never conformed again — conformObject rejects an absent
-	// required key whatever its type, so a slot with a runtime conform behind it must not
-	// use this.
-	//
-	// It must name the SAME relation `fits` dispatches to. An explainer that disagrees with
-	// the relation reports a break with nothing to say about it, or says something about a
-	// pair the verdict called fine.
+	// asStored selects the relation: both schemas read as descriptions of data a conform
+	// already produced (absence-as-null, plus a defaulted property counting as present).
+	// Sound ONLY where the value is read and never conformed again — conformObject rejects
+	// an absent required key whatever its type, so a slot with a runtime conform behind it
+	// must not use this.
 	asStored bool
 	// swap tells the explainer the check runs new ⊆ old, so every message must be written
 	// from the READER's point of view rather than the relation's. It affects both halves:
@@ -701,123 +689,42 @@ var (
 	contractExplainer = explainer{swap: true}
 )
 
-// maxExplainDepth bounds the descent: a recursive schema has no bottom to reach, and one
-// level into a failing slot is already the useful part.
-const maxExplainDepth = 4
-
-func (e explainer) fits(sub, super schema.Schema) bool {
+// explain names the first place sub fails to fit super: where, and what, kept apart. The
+// path stays a field the whole way to the report — Issue.Path, then the renderer — so a
+// property name is never recovered by searching prose for a colon, which is what the
+// previous arrangement did and what silently dropped any name containing a space.
+// An empty msg means it fits.
+func (e explainer) explain(sub, super schema.Schema) (path, msg string) {
+	var brk *schema.SubsetBreak
 	if e.asStored {
-		return sub.IsSubsetAsStored(super)
+		brk = sub.ExplainSubsetAsStored(super)
+	} else {
+		brk = sub.ExplainSubset(super)
 	}
-	return sub.IsSubset(super)
+	if brk == nil {
+		return "", ""
+	}
+	return brk.Path, e.word(brk)
 }
 
-func (e explainer) explain(path string, sub, super schema.Schema, depth int) string {
-	if e.fits(sub, super) {
-		return ""
+// word says WHAT broke, from the READER's point of view; the path says where. Under swap
+// the check ran new ⊆ old, so both halves invert: the arrow, and the fact that a property
+// the super side requires is one the old version guaranteed rather than one the new added.
+func (e explainer) word(b *schema.SubsetBreak) string {
+	if b.Kind == schema.BreakMissingRequired {
+		if e.swap {
+			return "no longer guaranteed"
+		}
+		return "newly required field"
 	}
-	if depth < maxExplainDepth {
-		sub, super := deref(sub), deref(super)
-
-		subRequired := make(map[string]bool, len(sub.Required()))
-		for _, f := range sub.Required() {
-			subRequired[f] = true
-		}
-		superProps := super.Properties()
-		superRequired := append([]string(nil), super.Required()...)
-		sort.Strings(superRequired)
-		for _, f := range superRequired {
-			if subRequired[f] {
-				continue
-			}
-			// Mirrors the subset rule exactly, `declared` included: a required name with no
-			// property has no type to call nullable, and a message naming a break the check
-			// tolerates is worse than none — it sends a reader after a non-problem.
-			if prop, declared := superProps[f]; e.asStored && declared && prop.HasNull() {
-				continue
-			}
-			// The other half of asStored: sub guarantees the value because creation filled
-			// its default, so super requiring it is no gap at all (§2e).
-			if e.asStored {
-				if p, declared := sub.Properties()[f]; declared && p.Default() != nil {
-					continue
-				}
-			}
-			if e.swap {
-				return joinPath(path, f) + ": no longer guaranteed"
-			}
-			return joinPath(path, f) + ": newly required field"
-		}
-
-		subProps := sub.Properties()
-		names := make([]string, 0, len(superProps))
-		for name := range superProps {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			sp, ok := subProps[name]
-			if !ok {
-				continue // an undeclared property imposes nothing; isSubset skips it too
-			}
-			if msg := e.explain(joinPath(path, name), sp, superProps[name], depth+1); msg != "" {
-				return msg
-			}
-		}
-
-		if sub.HasItems() && super.HasItems() {
-			if msg := e.explain(path+"[]", sub.Items(), super.Items(), depth+1); msg != "" {
-				return msg
-			}
-		}
-	}
-	from, to := describe(sub), describe(super)
+	from, to := b.Sub, b.Super
 	if e.swap {
 		from, to = to, from
 	}
-	if path == "" {
+	if b.Path == "" {
 		return fmt.Sprintf("%s is not accepted where %s is expected", from, to)
 	}
-	return fmt.Sprintf("%s: %s → %s", path, from, to)
-}
-
-func joinPath(path, name string) string {
-	if path == "" {
-		return name
-	}
-	return path + "." + name
-}
-
-func deref(s schema.Schema) schema.Schema {
-	if r, err := s.Resolve(); err == nil {
-		return r
-	}
-	return s
-}
-
-// describe renders a schema as a short type name for a diagnostic. It is not a
-// serialization: two different schemas may describe identically, which is why the path
-// carries the weight and this only says what kind of thing sits there.
-func describe(s schema.Schema) string { return describeDepth(s, 0) }
-
-func describeDepth(s schema.Schema, depth int) string {
-	if s.IsZero() {
-		return "absent"
-	}
-	s = deref(s)
-	if types := s.Type(); len(types) > 0 {
-		if types.Contains("array") && s.HasItems() && depth < 2 {
-			return "array<" + describeDepth(s.Items(), depth+1) + ">"
-		}
-		return strings.Join([]string(types), "|")
-	}
-	switch {
-	case s.HasCombinators():
-		return "union"
-	case s.HasProperties():
-		return "object"
-	}
-	return "unknown"
+	return fmt.Sprintf("%s → %s", from, to)
 }
 
 // ApplySelection marks every issue gating or excused and computes Passes.

@@ -83,9 +83,13 @@ Three explainer configurations, and **the `swap` flag is the trap**:
   sub lacks is not "newly required" there, it is one the old side guaranteed and the new side
   no longer does.
 
-An explainer that disagrees with the relation it dispatches to reports a break with nothing
-to say about it, or the reverse — the message comes out `object → object`. Anything added to
-`IsSubset` must be added to `explain` in the same change.
+The explainer no longer decides anything. `explain` calls `schema.ExplainSubset` /
+`ExplainSubsetAsStored` — the RELATION with reporting switched on — and words the break it
+gets back, so a message cannot disagree with the verdict and a new rule in `IsSubset` needs
+no matching edit here. That is what the previous arrangement demanded and did not get: it
+re-walked beside the relation, never learned about item counts, and capped its descent at a
+depth it invented because it had no cycle guard of its own. What stays here is wording,
+`swap` included; `schema.SubsetBreak` carries facts, not sentences.
 
 Two things would break the pairing if they land without revisiting it: conforming the input
 on upgrade makes the input relaxation unsound, and the gate's external-result rule belongs on

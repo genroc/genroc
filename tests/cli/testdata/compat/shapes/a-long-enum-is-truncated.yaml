@@ -1,0 +1,39 @@
+# A break is ONE line of a report, and an enum has no size limit. Rendered whole, a large
+# pool buries the constraint the message exists to name; the remainder count is what keeps a
+# truncated pool from reading as the whole of it.
+apply:
+  - channel: bigenum_a
+    definitions:
+      - name: bigenum_proc
+        input_schema:
+          type: object
+          properties:
+            code: {type: string}
+          required: [code]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+  - channel: bigenum_b
+    definitions:
+      - name: bigenum_proc
+        input_schema:
+          type: object
+          properties:
+            code: {type: string, enum: [aa, bb, cc, dd, ee, ff, gg, hh]}
+          required: [code]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+run: [--from, bigenum_a, --to, bigenum_b]
+
+expect: |
+  PROCESS       UPGRADE   CONTRACT
+  bigenum_proc  breaking  breaking
+
+  bigenum_proc v1 → v2
+    input  (breaking upgrade and contract)
+      code: any string → enum ["aa", "bb", "cc", "dd", "ee", +3 more]
+
+  exit 1
