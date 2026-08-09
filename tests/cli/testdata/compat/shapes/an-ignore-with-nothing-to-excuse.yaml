@@ -1,8 +1,8 @@
 # `--ignore contract` on a run that has no contract break. The flag changes neither what is
-# compared nor what is printed, so the only question is the trailing line — and it must not
-# appear: "not gating: contract" beside an exit 0 that no excusal produced claims the flag
-# saved the run, which is how an operator comes to believe a break exists somewhere they
-# cannot see. The two fixtures that DO print it both have a real break to excuse.
+# compared nor what is printed, so the only question is whether the report says it was
+# applied — and it must not: an `(ignored)` beside an exit 0 that no excusal produced claims
+# the flag saved the run, which is how an operator comes to believe a break exists somewhere
+# they cannot see. The two fixtures that DO annotate both have a real break to excuse.
 apply:
   - channel: idleign_a
     definitions:
@@ -20,10 +20,7 @@ apply:
             switch: end
 run: [--from, idleign_a, --to, idleign_b, --ignore, contract]
 expect: |
-  PROCESS       UPGRADE     CONTRACT
-  idleign_proc  upgradable  compatible
-
-  idleign_proc v1 → v2
+  idleign_proc  v1 → v2  upgradable, compatible
     ship:fetch.url  (not judged)
 
   exit 0

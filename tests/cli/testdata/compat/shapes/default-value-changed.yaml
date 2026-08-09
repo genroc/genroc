@@ -25,10 +25,7 @@ apply:
         output: {retries: "$: outputs.plan.retries"}
 run: [--from, defval_a, --to, defval_b]
 expect: |
-  PROCESS      UPGRADE     CONTRACT
-  defval_proc  upgradable  compatible
-
-  defval_proc v1 → v2
+  defval_proc  v1 → v2  upgradable, compatible
     input  (ok)
 
   exit 0

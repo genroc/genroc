@@ -25,11 +25,8 @@ apply:
         output: {retries: "$: outputs.plan.retries"}
 run: [--from, defdrop_a, --to, defdrop_b]
 expect: |
-  PROCESS       UPGRADE     CONTRACT
-  defdrop_proc  upgradable  breaking
-
-  defdrop_proc v1 → v2
-    output  (breaking contract)
+  defdrop_proc  v1 → v2  breaking: contract; upgradable
+    output  (breaking: contract)
       retries: integer → integer|null
     input   (ok)
 

@@ -38,11 +38,8 @@ apply:
 run: [--from, defsuse_a, --to, defsuse_b]
 
 expect: |
-  PROCESS       UPGRADE   CONTRACT
-  defsuse_proc  breaking  breaking
-
-  defsuse_proc v1 → v2
-    input  (breaking upgrade and contract)
+  defsuse_proc  v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       user.age: newly required field
       user.age: integer|null → integer
     $defs  (not judged)

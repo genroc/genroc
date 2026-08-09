@@ -49,13 +49,10 @@ apply:
 run: [--from, loopslice_a, --to, loopslice_b]
 
 expect: |
-  PROCESS         UPGRADE   CONTRACT
-  loopslice_proc  breaking  breaking
-
-  loopslice_proc v1 → v2
-    poll               (breaking upgrade)
+  loopslice_proc  v1 → v2  breaking: upgrade, contract
+    poll               (breaking: upgrade)
       outputs.poll.at: newly required field
-    poll:fetch.result  (breaking contract)
+    poll:fetch.result  (breaking: contract)
       at: newly required field
     poll:output        (ok)
 

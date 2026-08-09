@@ -34,11 +34,8 @@ apply:
 run: [--from, outrm_a, --to, outrm_b]
 
 expect: |
-  PROCESS     UPGRADE     CONTRACT
-  outrm_proc  upgradable  breaking
-
-  outrm_proc v1 → v2
-    output  (breaking contract)
+  outrm_proc  v1 → v2  breaking: contract; upgradable
+    output  (breaking: contract)
       removed; consumers were written against it
 
   exit 1

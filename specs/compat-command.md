@@ -312,25 +312,50 @@ so this flag is its general form restricted to one value.
 The fixtures assert the whole rendered report, so the rendering IS the deliverable and has to
 be decided here rather than discovered while regenerating them.
 
-    PROCESS     UPGRADE          CONTRACT
-    order_proc  breaking         breaking (ignored)
-    child_proc  nothing changed  nothing changed
-
-    order_proc v1 → v2
-      input                        (breaking contract)
+    child_proc  v1       unchanged
+    order_proc  v1 → v2  breaking: upgrade; ignored: contract
+      input                        (ignored: contract)
         retries: newly required field
-      settle                       (breaking upgrade)
+      settle                       (breaking: upgrade)
         outputs.charge.fee: number → string
       charge:fetch.result          (ok)
       charge:fetch.url             (not judged)
 
-    not gating: contract — --ignore contract
     exit 1
 
 **Three levels, three questions.** The process and its two versions; **the schema that was
 compared**; then **what `isSubset` said about it**, as a path into that schema. The run was
 `--ignore contract` and still exits 1, because the upgrade break is not excusable (§5) — the
-contract column keeps its annotation anyway, since the flag did what it was asked.
+contract verdict keeps its exclusion anyway, since the flag did what it was asked.
+
+**A process appears once, and its verdict heads the findings it is derived from.** An earlier
+draft printed a summary table above the blocks, so a verdict was read in one place and its
+reason in another, and a trailing `not gating: contract — --ignore contract` line said the
+exit did not follow the columns. Both are gone. Nothing is named by a header row, because a
+block sits between two processes and a header a screen up answers nothing; and the exclusion
+is stated **where it applies** — the process line where a whole member was excused, the row
+where a finding under it was. The trailing line could say neither, having no process and no
+address: with one excusable member it was a constant string, and under a finer selection
+(compat-selection.md) it would have been a constant string standing for several answers.
+
+**A verdict is grouped by fate, not by member: `breaking: upgrade, contract`.** Keying it the
+other way (`upgrade: breaking  contract: breaking`) repeats the longer word once per member
+and makes the two-question shape a matter of layout rather than of what is said. `,` joins
+members and `; ` joins fates, because one separator doing both jobs leaves
+`breaking: upgrade, contract` and `breaking: upgrade, ignored: contract` telling apart only
+by lookahead. Problems come first, the order §6c gives the rows for the same reason — and
+the useful consequence is that **a colon after the versions is the whole scan**: a process
+with nothing to look at carries none.
+
+**Every member is named on the process line, whatever became of it** — a member that passed
+reads with its own word (`upgradable`, `compatible`), never by absence, which is §6c's rule
+about a question that looks unanswered. A ROW is the opposite and says only what happened at
+its address (§6b): `(ignored: contract)` claims nothing about the upgrade check anywhere else.
+A status (`unchanged`, `new`, `unanalysable`) stands alone for both, being a property of the
+process rather than an answer to either question.
+
+**The arrow appears only where two versions were compared.** A row with nothing to compare
+involves one version, and naming a second implies a comparison that never ran.
 
 ### 6a. Addressing
 
@@ -413,8 +438,15 @@ report that the slot moved, and a second row at that address saying it is fine w
 contradict the first. A slot row is what is left over — a difference the checks passed, or
 one they never covered:
 
-- **`(breaking upgrade)` / `(breaking contract)` / `(breaking upgrade and contract)`** — the
-  last where one difference fails both questions, printed once.
+- **`(breaking: <members>)` / `(ignored: <members>)`**, in the process line's grammar and
+  joined the same way — so one difference failing both questions prints once, named for
+  both, as `(breaking: upgrade, contract)`. A member reads under `ignored` where **every**
+  finding under it at this address was excused; a selection finer than the member
+  (compat-selection.md) can excuse some and not others, and leaving it under `breaking`
+  there is what keeps a gating break from reading as green. That is also where the third
+  fate (`partly ignored`, and a marker on the finding line, which is the granularity
+  `gating` already has on the wire) becomes reachable — none of it is written until a
+  selection can produce it.
 - **`(ok)`** — it changed, a check covers it, nothing broke **at this address**. It does not
   say the change is harmless: a break it causes may be reported elsewhere, and no comparison
   can prove the connection either way.
@@ -440,8 +472,10 @@ nowhere. It is a changed slot like `fetch.url` — `shapes/a-dropped-secret-is-r
 
 **[run]** Each shipped in the rolled-back implementation and was reported as a bug:
 
-- **A row with no verdicts repeats its status in both columns.** Spanning one cell and
-  leaving the other blank reads as *this question went unanswered*.
+- **No question may look unanswered.** A verdict speaks only for its member, so a process
+  line names every member whatever became of it; a status speaks for the process, so it
+  stands alone. The report that shipped left one of two cells blank, and was read as hiding
+  a contract problem it did not have.
 - **Both verdicts are derived from the issues**, never tracked beside them. Maintained
   separately, a row printed `upgradable` next to `exit 1`.
 - **One difference failing both questions prints once**, with both named. It is two findings

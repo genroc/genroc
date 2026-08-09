@@ -57,15 +57,11 @@ submit:
         switch: end
 run: [--from, pair_a]
 expect: |
-  PROCESS    UPGRADE     CONTRACT
-  pair_boss  upgradable  compatible
-  pair_kid   upgradable  breaking
-
-  pair_boss v1 → (new)
+  pair_boss  v1 → (new)  upgradable, compatible
     work:child.input  (not judged)
 
-  pair_kid v1 → (new)
-    output            (breaking contract)
+  pair_kid   v1 → (new)  breaking: contract; upgradable
+    output            (breaking: contract)
       note: no longer guaranteed
     run:output        (ok)
     run:fetch.result  (ok)

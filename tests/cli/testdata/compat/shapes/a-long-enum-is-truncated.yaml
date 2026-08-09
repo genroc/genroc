@@ -29,11 +29,8 @@ apply:
 run: [--from, bigenum_a, --to, bigenum_b]
 
 expect: |
-  PROCESS       UPGRADE   CONTRACT
-  bigenum_proc  breaking  breaking
-
-  bigenum_proc v1 → v2
-    input  (breaking upgrade and contract)
+  bigenum_proc  v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       code: any string → enum ["aa", "bb", "cc", "dd", "ee", +3 more]
 
   exit 1

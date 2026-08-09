@@ -42,13 +42,10 @@ apply:
 run: [--from, reqfield_a, --to, reqfield_b]
 
 expect: |
-  PROCESS        UPGRADE   CONTRACT
-  reqfield_proc  breaking  breaking
-
-  reqfield_proc v1 → v2
-    fetch:fetch.result  (breaking contract)
+  reqfield_proc  v1 → v2  breaking: upgrade, contract
+    fetch:fetch.result  (breaking: contract)
       extra: newly required field
-    report              (breaking upgrade)
+    report              (breaking: upgrade)
       outputs.fetch.extra: newly required field
     fetch:output        (ok)
 

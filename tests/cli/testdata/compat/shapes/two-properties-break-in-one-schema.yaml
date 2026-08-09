@@ -39,11 +39,8 @@ apply:
             switch: end
 run: [--from, twobreak_a, --to, twobreak_b]
 expect: |
-  PROCESS        UPGRADE   CONTRACT
-  twobreak_proc  breaking  breaking
-
-  twobreak_proc v1 → v2
-    input  (breaking upgrade and contract)
+  twobreak_proc  v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       currency: newly required field
       amount: number → string
 

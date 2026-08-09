@@ -25,10 +25,7 @@ apply:
         output: {retries: "$: outputs.plan.retries"}
 run: [--from, reqloose_a, --to, reqloose_b]
 expect: |
-  PROCESS        UPGRADE     CONTRACT
-  reqloose_proc  upgradable  compatible
-
-  reqloose_proc v1 → v2
+  reqloose_proc  v1 → v2  upgradable, compatible
     input  (ok)
 
   exit 0

@@ -41,17 +41,12 @@ apply:
 run: [--from, mixedign_a, --to, mixedign_b, --ignore, contract]
 
 expect: |
-  PROCESS        UPGRADE   CONTRACT
-  mixedign_proc  breaking  breaking (ignored)
-
-  mixedign_proc v1 → v2
-    charge:fetch.result  (breaking contract)
+  mixedign_proc  v1 → v2  breaking: upgrade; ignored: contract
+    charge:fetch.result  (ignored: contract)
       fee: number → string
-    settle               (breaking upgrade)
+    settle               (breaking: upgrade)
       outputs.charge.fee: number → string
-    output               (breaking contract)
+    output               (ignored: contract)
       fee: number → string
-
-  not gating: contract — --ignore contract
 
   exit 1

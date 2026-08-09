@@ -90,11 +90,8 @@ apply:
             switch: end
 run: [--from, slots_a, --to, slots_b]
 expect: |
-  PROCESS     UPGRADE          CONTRACT
-  slots_kid   nothing changed  nothing changed
-  slots_proc  upgradable       compatible
-
-  slots_proc v1 → v2
+  slots_kid   v1       unchanged
+  slots_proc  v1 → v2  upgradable, compatible
     call:timeout                (not judged)
     call:fetch.method           (not judged)
     call:fetch.headers          (not judged)

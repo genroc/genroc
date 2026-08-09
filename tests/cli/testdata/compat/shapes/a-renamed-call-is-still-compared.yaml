@@ -95,17 +95,15 @@ apply:
 run: [--from, renamed_a, --to, renamed_b]
 
 expect: |
-  PROCESS       UPGRADE          CONTRACT
-  renamed_boss  breaking         breaking
-  renamed_one   nothing changed  nothing changed
-  renamed_two   nothing changed  nothing changed
-
-  renamed_boss v1 → v2
-    each:child_list.result  (breaking upgrade and contract)
+  renamed_boss  v1 → v2  breaking: upgrade, contract
+    each:child_list.result  (breaking: upgrade, contract)
       x: newly required field
-    fan:child_map.a.result  (breaking upgrade and contract)
+    fan:child_map.a.result  (breaking: upgrade, contract)
       x: newly required field
     each:child_list.name    (not judged)
     fan:child_map.a.name    (not judged)
+
+  renamed_one   v1       unchanged
+  renamed_two   v1       unchanged
 
   exit 1

@@ -119,7 +119,7 @@ the two failed.
 
 **A version number says more than its document does.** Two stored versions with identical
 documents are still different processes: a version also pins the child versions it runs, so
-`nothing changed` is decided by the numbers there. A *submitted* document has no number, so
+`unchanged` is decided by the numbers there. A *submitted* document has no number, so
 that one case falls back to comparing documents (`documentsDiffer`) — which is also why that
 comparison includes task ORDER, since `switch: next` routes by position.
 

@@ -27,11 +27,8 @@ apply:
 run: [--from, narrowc_a, --to, narrowc_b]
 
 expect: |
-  PROCESS       UPGRADE   CONTRACT
-  narrowc_proc  breaking  breaking
-
-  narrowc_proc v1 → v2
-    input  (breaking upgrade and contract)
+  narrowc_proc  v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       tier: any string → enum ["free", "paid"]
 
   exit 1

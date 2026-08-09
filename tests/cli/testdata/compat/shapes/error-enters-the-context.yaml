@@ -38,11 +38,8 @@ apply:
 run: [--from, errctx_a, --to, errctx_b]
 
 expect: |
-  PROCESS      UPGRADE   CONTRACT
-  errctx_proc  breaking  compatible
-
-  errctx_proc v1 → v2
-    handle         (breaking upgrade)
+  errctx_proc  v1 → v2  breaking: upgrade; compatible
+    handle         (breaking: upgrade)
       error: newly required field
     go:switch      (not judged)
     go:on_error    (not judged)

@@ -53,11 +53,8 @@ apply:
 run: [--from, typeswap_a, --to, typeswap_b]
 
 expect: |
-  PROCESS        UPGRADE   CONTRACT
-  typeswap_proc  breaking  compatible
-
-  typeswap_proc v1 → v2
-    wait:action.type  (breaking upgrade)
+  typeswap_proc  v1 → v2  breaking: upgrade; compatible
+    wait:action.type  (breaking: upgrade)
       external → fetch; an instance sitting there was left by an action the new type cannot take over from
     ask:action.type   (not judged)
 

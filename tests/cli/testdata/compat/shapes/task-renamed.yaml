@@ -23,11 +23,8 @@ apply:
 run: [--from, taskren_a, --to, taskren_b]
 
 expect: |
-  PROCESS       UPGRADE   CONTRACT
-  taskren_proc  breaking  compatible
-
-  taskren_proc v1 → v2
-    ship      (breaking upgrade)
+  taskren_proc  v1 → v2  breaking: upgrade; compatible
+    ship      (breaking: upgrade)
       removed; an instance there has nowhere to continue
     dispatch  (added)
 

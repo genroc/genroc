@@ -48,16 +48,12 @@ apply:
             switch: end
 run: [--from, nullpair_a, --to, nullpair_b]
 expect: |
-  PROCESS            UPGRADE     CONTRACT
-  nullpair_holdnull  breaking    breaking
-  nullpair_keepnull  upgradable  breaking
-
-  nullpair_holdnull v1 → v2
-    input  (breaking upgrade and contract)
+  nullpair_holdnull  v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       tag: string|null → string
 
-  nullpair_keepnull v1 → v2
-    input  (breaking contract)
+  nullpair_keepnull  v1 → v2  breaking: contract; upgradable
+    input  (breaking: contract)
       note: string|null → string
 
   exit 1

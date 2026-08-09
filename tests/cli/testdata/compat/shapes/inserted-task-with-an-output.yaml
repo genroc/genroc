@@ -41,11 +41,8 @@ apply:
 run: [--from, insert_a, --to, insert_b]
 
 expect: |
-  PROCESS      UPGRADE   CONTRACT
-  insert_proc  breaking  compatible
-
-  insert_proc v1 → v2
-    ship   (breaking upgrade)
+  insert_proc  v1 → v2  breaking: upgrade; compatible
+    ship   (breaking: upgrade)
       outputs.audit: newly required field
     audit  (added)
 

@@ -292,7 +292,7 @@ func actionTypeOf(t *model.Task) string {
 	return string(t.Action.Type)
 }
 
-// documentsDiffer: the content half of "nothing changed" (versions can carry identical
+// documentsDiffer: the content half of "unchanged" (versions can carry identical
 // content; submitted documents carry no number). Task ORDER counts — `switch: next`
 // routes by position, so a move changes control flow while every slot compares equal.
 func documentsDiffer(old, new *model.ProcessDefinition) bool {

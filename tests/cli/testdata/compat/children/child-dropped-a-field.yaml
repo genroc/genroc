@@ -38,12 +38,9 @@ apply:
 run: [--from, unread_a, --to, unread_b]
 
 expect: |
-  PROCESS      UPGRADE          CONTRACT
-  unread_boss  nothing changed  nothing changed
-  unread_kid   upgradable       breaking
-
-  unread_kid v1 → v2
-    output            (breaking contract)
+  unread_boss  v1       unchanged
+  unread_kid   v1 → v2  breaking: contract; upgradable
+    output            (breaking: contract)
       note: no longer guaranteed
     run:output        (ok)
     run:fetch.result  (ok)

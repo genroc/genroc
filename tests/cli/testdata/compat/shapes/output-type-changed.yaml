@@ -36,13 +36,10 @@ apply:
 run: [--from, outtype_a, --to, outtype_b]
 
 expect: |
-  PROCESS       UPGRADE   CONTRACT
-  outtype_proc  breaking  breaking
-
-  outtype_proc v1 → v2
-    charge:fetch.result  (breaking contract)
+  outtype_proc  v1 → v2  breaking: upgrade, contract
+    charge:fetch.result  (breaking: contract)
       amount: number → string
-    ship                 (breaking upgrade)
+    ship                 (breaking: upgrade)
       outputs.charge.amount: number → string
 
   exit 1

@@ -60,12 +60,9 @@ apply:
 run: [--from, mapkeys_a, --to, mapkeys_b]
 
 expect: |
-  PROCESS       UPGRADE          CONTRACT
-  mapkeys_kid   nothing changed  nothing changed
-  mapkeys_proc  breaking         compatible
-
-  mapkeys_proc v1 → v2
-    fan:child_map.c  (breaking upgrade)
+  mapkeys_kid   v1       unchanged
+  mapkeys_proc  v1 → v2  breaking: upgrade; compatible
+    fan:child_map.c  (breaking: upgrade)
       added; a parent already collecting spawned no child for it
     fan:child_map.b  (not judged)
 

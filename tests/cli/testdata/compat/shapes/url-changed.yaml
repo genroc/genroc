@@ -23,10 +23,7 @@ apply:
 run: [--from, url_a, --to, url_b]
 
 expect: |
-  PROCESS   UPGRADE     CONTRACT
-  url_proc  upgradable  compatible
-
-  url_proc v1 → v2
+  url_proc  v1 → v2  upgradable, compatible
     ship:fetch.url  (not judged)
 
   exit 0

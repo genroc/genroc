@@ -18,7 +18,6 @@ submit:
 run: [--from, nochange_a]
 
 expect: |
-  PROCESS        UPGRADE          CONTRACT
-  nochange_proc  nothing changed  nothing changed
+  nochange_proc  v1  unchanged
 
   exit 0

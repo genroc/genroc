@@ -35,10 +35,7 @@ apply:
 run: [--from, silentrm_a, --to, silentrm_b]
 
 expect: |
-  PROCESS        UPGRADE     CONTRACT
-  silentrm_proc  upgradable  compatible
-
-  silentrm_proc v1 → v2
+  silentrm_proc  v1 → v2  upgradable, compatible
     input            (ok)
     go:fetch.result  (ok)
 

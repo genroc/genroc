@@ -49,13 +49,10 @@ apply:
 run: [--from, deeppath_a, --to, deeppath_b]
 
 expect: |
-  PROCESS        UPGRADE   CONTRACT
-  deeppath_proc  breaking  breaking
-
-  deeppath_proc v1 → v2
-    input  (breaking upgrade and contract)
+  deeppath_proc  v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       rows[].id: no minimum → minimum 1
-    after  (breaking upgrade)
+    after  (breaking: upgrade)
       outputs.go.picked[].id: no minimum → minimum 1
 
   exit 1

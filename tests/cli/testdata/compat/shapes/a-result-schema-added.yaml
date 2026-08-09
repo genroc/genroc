@@ -54,13 +54,10 @@ apply:
 run: [--from, addres_a, --to, addres_b]
 
 expect: |
-  PROCESS      UPGRADE   CONTRACT
-  addres_proc  breaking  breaking
-
-  addres_proc v1 → v2
-    approve:external.result  (breaking upgrade and contract)
+  addres_proc  v1 → v2  breaking: upgrade, contract
+    approve:external.result  (breaking: upgrade, contract)
       added; a result written against the version that declared none may not satisfy it
-    call:fetch.result        (breaking contract)
+    call:fetch.result        (breaking: contract)
       added; a result written against the version that declared none may not satisfy it
     note:external.result     (ok)
 

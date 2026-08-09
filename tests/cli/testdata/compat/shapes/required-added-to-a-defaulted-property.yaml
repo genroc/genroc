@@ -29,11 +29,8 @@ apply:
         output: {retries: "$: outputs.plan.retries"}
 run: [--from, reqtight_a, --to, reqtight_b]
 expect: |
-  PROCESS        UPGRADE     CONTRACT
-  reqtight_proc  upgradable  breaking
-
-  reqtight_proc v1 → v2
-    input  (breaking contract)
+  reqtight_proc  v1 → v2  breaking: contract; upgradable
+    input  (breaking: contract)
       retries: newly required field
 
   exit 1

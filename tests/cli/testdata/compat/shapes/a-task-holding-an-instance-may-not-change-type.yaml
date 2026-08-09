@@ -70,18 +70,15 @@ apply:
 run: [--from, holds_a, --to, holds_b]
 
 expect: |
-  PROCESS     UPGRADE          CONTRACT
-  holds_kid   nothing changed  nothing changed
-  holds_proc  breaking         compatible
-
-  holds_proc v1 → v2
-    waiting:action.type     (breaking upgrade)
+  holds_kid   v1       unchanged
+  holds_proc  v1 → v2  breaking: upgrade; compatible
+    waiting:action.type     (breaking: upgrade)
       child → fetch; an instance sitting there was left by an action the new type cannot take over from
-    collecting:action.type  (breaking upgrade)
+    collecting:action.type  (breaking: upgrade)
       child_map → child_list; an instance sitting there was left by an action the new type cannot take over from
-    external:action.type    (breaking upgrade)
+    external:action.type    (breaking: upgrade)
       external → fetch; an instance sitting there was left by an action the new type cannot take over from
-    timer:action.type       (breaking upgrade)
+    timer:action.type       (breaking: upgrade)
       delay → fetch; an instance sitting there was left by an action the new type cannot take over from
     entry:action.type       (not judged)
 

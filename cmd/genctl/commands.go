@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"unicode/utf8"
 
 	"genroc/internal/logview"
 
@@ -1192,14 +1193,15 @@ func versionLabel(v int) string {
 	return fmt.Sprintf("v%d", v)
 }
 
-// Verdict words. Two questions, two columns: whether the rows this deployment owns can
+// Verdict words. Two questions, and a word each: whether the rows this deployment owns can
 // continue, and whether the process still honours what the outside world was written
 // against. Folding them into one word was the defect this replaced.
 const (
 	verdictUpgradable = "upgradable"
 	verdictCompatible = "compatible"
-	verdictUnchanged  = "nothing changed"
+	verdictUnchanged  = "unchanged"
 	verdictBreaking   = "breaking"
+	verdictIgnored    = "ignored"
 	verdictNew        = "new"
 	// A version that failed its own inference was compared against nothing, so it is
 	// breaking-by-default: an answer indistinguishable from "checked, and fine" is worse
@@ -1215,10 +1217,9 @@ const (
 	statusUnanalysable     = "unanalysable"
 )
 
-// statusWord is what BOTH columns read for a process carrying no verdicts, and "" for one
-// that was compared. It is repeated rather than left to span, because an empty cell under a
-// header reads as a question that went unanswered — which is how the first version of this
-// table was reported as hiding a contract problem it did not have (§6c).
+// statusWord is the whole answer for a process carrying no verdicts, and "" for one that was
+// compared. It stands for both questions because it is a property of the process rather than
+// of either check — unlike a verdict, which must never speak for the member it is not (§6c).
 func statusWord(status string) string {
 	switch status {
 	case statusNothingToCompare:
@@ -1231,22 +1232,71 @@ func statusWord(status string) string {
 	return ""
 }
 
-// verdictWord keeps the verdict TRUE and carries the exclusion beside it: a column reading
-// `breaking` next to `exit 0` is a contradiction the reader has to resolve by hunting for
-// the not-gating line. The annotation appears only when every break in the column was
-// excused.
-func verdictWord(p compatProcess, member, sound string) string {
-	v := p.Contract
-	if member == "upgrade" {
-		v = p.Upgrade
+// verdictPhrase is a process's whole answer. Every member lands in exactly one fate — an
+// excluded one keeps its verdict TRUE and reads under `ignored`, since the report is the
+// only place a run that passes with `breaking` in it can be reconciled with its exit code.
+//
+// A member is never left out. Absence would read as a question that went unanswered, which
+// is how the first version of this report was taken for hiding a contract problem it did
+// not have (§6c).
+func verdictPhrase(p compatProcess) string {
+	if word := statusWord(p.Status); word != "" {
+		return word
 	}
-	switch {
-	case v.Compatible:
-		return sound
-	case gates(p, member):
-		return verdictBreaking
+	var breaking, ignored, sound []string
+	for _, m := range []struct{ member, word string }{
+		{"upgrade", verdictUpgradable}, {"contract", verdictCompatible},
+	} {
+		v := p.Contract
+		if m.member == "upgrade" {
+			v = p.Upgrade
+		}
+		switch {
+		case v.Compatible:
+			sound = append(sound, m.word)
+		case gates(p, m.member):
+			breaking = append(breaking, m.member)
+		default:
+			ignored = append(ignored, m.member)
+		}
 	}
-	return verdictBreaking + " (ignored)"
+	return fates(breaking, ignored, sound)
+}
+
+// fates is the phrasing both levels share: a fate names the members it covers, `,` joins
+// members and `; ` joins fates — one separator doing both jobs leaves `breaking: upgrade,
+// contract` and `breaking: upgrade, ignored: contract` telling apart only by lookahead.
+// Problems come first, the order §6c gives the rows for the same reason.
+func fates(breaking, ignored, sound []string) string {
+	var clauses []string
+	for _, f := range []struct {
+		head    string
+		members []string
+	}{
+		{verdictBreaking + ": ", breaking}, {verdictIgnored + ": ", ignored}, {"", sound},
+	} {
+		if len(f.members) > 0 {
+			clauses = append(clauses, f.head+strings.Join(f.members, ", "))
+		}
+	}
+	return strings.Join(clauses, "; ")
+}
+
+// versionRange names an arrow only where two versions were compared: a row with nothing to
+// compare involves ONE version, and printing a second implies a comparison that never ran.
+func versionRange(p compatProcess) string {
+	if p.Status == statusNothingToCompare || p.Status == statusNew {
+		if p.From != 0 {
+			return versionLabel(p.From)
+		}
+		return versionLabel(p.To)
+	}
+	return versionLabel(p.From) + " → " + versionLabel(p.To)
+}
+
+// pad right-pads to a RUNE count: a version range holds an arrow, and %-*s counts bytes.
+func pad(s string, w int) string {
+	return s + strings.Repeat(" ", w-utf8.RuneCountInString(s))
 }
 
 func gates(p compatProcess, member string) bool {
@@ -1258,23 +1308,31 @@ func gates(p compatProcess, member string) bool {
 	return false
 }
 
+// printCompatReport prints each process ONCE: the verdict heads the findings it is derived
+// from, so the two never have to be read against each other. Nothing is named by a header
+// row, because a block sits between two processes and a header a screen up answers nothing.
 func printCompatReport(r compatReport) {
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PROCESS\tUPGRADE\tCONTRACT")
+	var nameW, versionW int
 	for _, p := range r.Processes {
-		if word := statusWord(p.Status); word != "" {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name, word, word)
-			continue
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name,
-			verdictWord(p, "upgrade", verdictUpgradable), verdictWord(p, "contract", verdictCompatible))
+		nameW = max(nameW, utf8.RuneCountInString(p.Name))
+		versionW = max(versionW, utf8.RuneCountInString(versionRange(p)))
 	}
-	w.Flush()
 
+	// A blank line separates a block from the process below it and nothing else: a run of
+	// processes with no findings is a list, and spacing it out hides that it is one.
+	blank := false
 	for _, p := range r.Processes {
-		printProcessDetail(p)
+		if blank {
+			fmt.Println()
+		}
+		fmt.Printf("%s  %s  %s\n",
+			pad(p.Name, nameW), pad(versionRange(p), versionW), verdictPhrase(p))
+		lines := detailLines(p)
+		for _, line := range lines {
+			fmt.Println(line)
+		}
+		blank = len(lines) > 0
 	}
-	printNotGating(r)
 }
 
 // exitOnBreak is the gate, and it is deliberately not part of printing: both renderings
@@ -1329,22 +1387,34 @@ func rowsFor(p compatProcess) []row {
 	return out
 }
 
+// breakPhrase names every member that broke at this address and how each of them lands, in
+// the grammar the process line uses, so one row can say a question is excused while the
+// other still fails the build. A member that broke nowhere near here is simply absent —
+// unlike the process line, a row claims nothing beyond its own address (§6b).
+//
+// A member reads `ignored` only where EVERY finding under it is excused. A finer selection
+// than the member (specs/compat-selection.md) can excuse some and not others, and leaving
+// it under `breaking` there is the reading that keeps the gating break visible.
 func breakPhrase(p compatProcess, address string) string {
-	var upgrade, contract bool
-	for _, i := range p.Issues {
-		if i.Address != address {
-			continue
+	var breaking, ignored []string
+	for _, member := range []string{"upgrade", "contract"} {
+		var found, gating bool
+		for _, i := range p.Issues {
+			if i.Address != address || i.Member != member {
+				continue
+			}
+			found = true
+			gating = gating || i.Gating
 		}
-		upgrade = upgrade || i.Member == "upgrade"
-		contract = contract || i.Member == "contract"
+		switch {
+		case !found:
+		case gating:
+			breaking = append(breaking, member)
+		default:
+			ignored = append(ignored, member)
+		}
 	}
-	switch {
-	case upgrade && contract:
-		return "(breaking upgrade and contract)"
-	case upgrade:
-		return "(breaking upgrade)"
-	}
-	return "(breaking contract)"
+	return "(" + fates(breaking, ignored, nil) + ")"
 }
 
 // changedPhrase distinguishes the two things a clean change can mean, which is the only
@@ -1360,47 +1430,27 @@ func changedPhrase(s compatSlot) string {
 	return "(ok)"
 }
 
-func printProcessDetail(p compatProcess) {
+func detailLines(p compatProcess) []string {
 	if p.Status == statusUnanalysable {
-		fmt.Printf("\n%s %s → %s\n", p.Name, versionLabel(p.From), versionLabel(p.To))
-		fmt.Printf("  %s side:\n    %s\n", p.Side, p.Reason)
-		return
+		return []string{fmt.Sprintf("  %s side: %s", p.Side, p.Reason)}
 	}
 	rows := rowsFor(p)
-	if len(rows) == 0 {
-		return
-	}
-	fmt.Printf("\n%s %s → %s\n", p.Name, versionLabel(p.From), versionLabel(p.To))
 
 	// The address column is padded here rather than by a tabwriter: the finding lines
 	// between two addresses carry no columns, and a tabwriter ends its alignment block at
 	// every one of them — so each address would size itself and none would line up.
 	width := 0
 	for _, r := range rows {
-		if len(r.address) > width {
-			width = len(r.address)
-		}
+		width = max(width, utf8.RuneCountInString(r.address))
 	}
+	var out []string
 	for _, r := range rows {
-		fmt.Printf("  %-*s  %s\n", width, r.address, r.phrase)
+		out = append(out, "  "+pad(r.address, width)+"  "+r.phrase)
 		for _, line := range r.lines {
-			fmt.Printf("    %s\n", line)
+			out = append(out, "    "+line)
 		}
 	}
-}
-
-// printNotGating says why the exit code is not what the columns look like. A report whose
-// exit contradicts its own words sends the reader looking for a reason that was never
-// printed, which is the failure a selection flag most easily introduces.
-func printNotGating(r compatReport) {
-	for _, p := range r.Processes {
-		for _, i := range p.Issues {
-			if !i.Gating {
-				fmt.Printf("\nnot gating: %s — --ignore %s\n", i.Member, i.Member)
-				return
-			}
-		}
-	}
+	return out
 }
 
 func contains(list []string, s string) bool {

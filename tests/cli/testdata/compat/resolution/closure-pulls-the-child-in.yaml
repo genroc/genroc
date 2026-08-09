@@ -45,11 +45,8 @@ apply:
 run: [closure_boss, 1, 2]
 
 expect: |
-  PROCESS       UPGRADE     CONTRACT
-  closure_boss  upgradable  compatible
-  closure_kid   upgradable  compatible
-
-  closure_kid v1 → v2
+  closure_boss  v1 → v2  upgradable, compatible
+  closure_kid   v1 → v2  upgradable, compatible
     run:fetch.url  (not judged)
 
   exit 0

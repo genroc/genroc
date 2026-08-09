@@ -23,11 +23,8 @@ apply:
             switch: end
 run: [--from, nullin_a, --to, nullin_b]
 expect: |
-  PROCESS      UPGRADE     CONTRACT
-  nullin_proc  upgradable  breaking
-
-  nullin_proc v1 → v2
-    input  (breaking contract)
+  nullin_proc  v1 → v2  breaking: contract; upgradable
+    input  (breaking: contract)
       note: newly required field
 
   exit 1

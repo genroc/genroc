@@ -40,11 +40,8 @@ apply:
             switch: end
 run: [--from, recur_a, --to, recur_b]
 expect: |
-  PROCESS     UPGRADE   CONTRACT
-  recur_proc  breaking  breaking
-
-  recur_proc v1 → v2
-    input  (breaking upgrade and contract)
+  recur_proc  v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       head.value: string → integer
     $defs  (not judged)
 

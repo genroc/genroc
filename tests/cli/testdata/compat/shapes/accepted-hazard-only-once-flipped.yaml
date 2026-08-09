@@ -25,10 +25,7 @@ apply:
 run: [--from, once_a, --to, once_b]
 
 expect: |
-  PROCESS    UPGRADE     CONTRACT
-  once_proc  upgradable  compatible
-
-  once_proc v1 → v2
+  once_proc  v1 → v2  upgradable, compatible
     charge:only_once  (not judged)
 
   exit 0

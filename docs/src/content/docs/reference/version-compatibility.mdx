@@ -30,37 +30,41 @@ two on one side is refused: a channel already names a version for every process,
 one entry is ambiguous about whether it overrides or extends.
 
 ```
-PROCESS         UPGRADE     CONTRACT
-order_pipeline  upgradable  compatible
-invoice         breaking    breaking
-
-invoice v1 → v4
-  charge:fetch.result  (breaking contract)
+invoice         v1 → v4  breaking: upgrade, contract
+  charge:fetch.result  (breaking: contract)
     amount: number → string
-  ship                 (breaking upgrade)
+  ship                 (breaking: upgrade)
     outputs.charge.amount: number → string
+
+order_pipeline  v2       unchanged
 ```
 
-**Two columns, because there are two questions** — and each is answered for every process,
-so neither is left blank. A blank cell under a header reads as a question that went
-unanswered; `nothing changed` and `new` therefore print in both.
+**A verdict is grouped by what happened, and names the checks it happened to** — so
+`breaking: upgrade, contract` when one edit fails both. A comma separates checks, a
+semicolon separates outcomes, and problems come first: **a colon after the versions is the
+whole scan.** A process with nothing to look at carries none.
 
-| UPGRADE | |
+Both checks are always accounted for, so a passing one is named rather than left to
+inference — `breaking: contract; upgradable` says the upgrade check ran and passed. The
+versions sit beside the name, with an arrow only where two of them were actually compared.
+
+| | |
 |---|---|
 | `upgradable` | every state an instance can be parked in fits the new definition |
-| `breaking` | one does not; the detail names which |
-
-| CONTRACT | |
-|---|---|
 | `compatible` | callers and parents still get the shape they were written against |
-| `breaking` | they do not |
-| `breaking (ignored)` | it broke, and `--ignore contract` excused it from the exit code |
+| `breaking: <checks>` | they do not; the rows name where |
+| `ignored: <checks>` | it broke, and `--ignore contract` excused it from the exit code |
 
-Under the table, one block per process, and inside it **one row per addressable place that
-was compared**, annotated with what became of it — `(ok)`, `(breaking upgrade)`,
-`(breaking contract)`, or `(not judged)`. A place that holds up still gets a row, so you can
-see what was examined rather than inferring it from silence. The findings sit under it: a
-path *inside* that schema, and what differs.
+Under each process, **one row per addressable place that was compared**, annotated with what
+became of it — `(ok)`, `(breaking: upgrade)`, `(breaking: contract)`, or `(not judged)`. A
+place that holds up still gets a row, so you can see what was examined rather than inferring
+it from silence. The findings sit under it: a path *inside* that schema, and what differs.
+
+Rows use the same grammar, so one place failing both questions prints once as
+`(breaking: upgrade, contract)`, and a check excused by `--ignore contract` reads
+`(ignored: contract)` on the rows where it was excused — a run that fails anyway shows you
+which break is the one still gating. Unlike the process line, a row speaks only for its own
+address: a check missing from it broke nowhere *here*, which says nothing about elsewhere.
 
 An address is one of four things:
 
@@ -78,7 +82,7 @@ written against a number; at `ship` it is an **upgrade** break, because an insta
 there already holds `outputs.charge.amount` as a number and the new definition will not take
 it. Same edit, two different parties harmed, two rows.
 
-`nothing changed` (both sides resolve to the same version, or a submitted document is
+`unchanged` (both sides resolve to the same version, or a submitted document is
 identical to what is deployed) and `new` (only the target side carries it, so nothing is
 running it) are statuses rather than verdicts — see [what a missing counterpart
 means](#what-a-missing-counterpart-means).
@@ -112,7 +116,7 @@ genctl compat order_pipeline 2 3
 
 ...resolves the `from` side to `order_pipeline@2` plus whatever child versions it was
 registered with, and the `to` side to `order_pipeline@3` plus its own. A pin you write
-yourself wins over one a dependency supplies. Nothing is hidden — the table prints a row
+yourself wins over one a dependency supplies. Nothing is hidden — the report prints a line
 per process, so a child pulled in shows up with its own versions even though you only
 named the parent.
 
@@ -140,7 +144,7 @@ compare`: comparing a document with itself is a tautology. In a channel-to-chann
 that is most of the rows.
 
 A **submitted** document has no version, so the numbers cannot answer that — its content is
-compared against what is deployed instead, and an unchanged bundle reads `nothing changed`
+compared against what is deployed instead, and an unmoved bundle reads `unchanged`
 rather than as an upgrade of nothing. Two *stored* versions are left to their numbers, which
 say more than their documents do: a version also pins the child versions it runs, so two
 identical documents at different versions are genuinely different processes.

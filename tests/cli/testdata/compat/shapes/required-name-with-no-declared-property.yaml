@@ -25,11 +25,8 @@ apply:
 run: [--from, ghost_a, --to, ghost_b]
 
 expect: |
-  PROCESS     UPGRADE   CONTRACT
-  ghost_proc  breaking  breaking
-
-  ghost_proc v1 → v2
-    input  (breaking upgrade and contract)
+  ghost_proc  v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       ghost: newly required field
 
   exit 1

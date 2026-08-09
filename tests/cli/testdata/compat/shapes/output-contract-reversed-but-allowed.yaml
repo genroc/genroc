@@ -31,15 +31,10 @@ apply:
 run: [--from, allowed_a, --to, allowed_b, --ignore, contract]
 
 expect: |
-  PROCESS       UPGRADE     CONTRACT
-  allowed_proc  upgradable  breaking (ignored)
-
-  allowed_proc v1 → v2
-    charge:fetch.result  (breaking contract)
+  allowed_proc  v1 → v2  ignored: contract; upgradable
+    charge:fetch.result  (ignored: contract)
       amount: number → string
-    output               (breaking contract)
+    output               (ignored: contract)
       total: number → string
-
-  not gating: contract — --ignore contract
 
   exit 0

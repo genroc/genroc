@@ -24,11 +24,8 @@ apply:
 run: [--from, inadd_a, --to, inadd_b]
 
 expect: |
-  PROCESS     UPGRADE   CONTRACT
-  inadd_proc  breaking  breaking
-
-  inadd_proc v1 → v2
-    input  (breaking upgrade and contract)
+  inadd_proc  v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       newly required field
 
   exit 1

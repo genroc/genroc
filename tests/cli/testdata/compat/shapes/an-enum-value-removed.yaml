@@ -30,11 +30,8 @@ apply:
 run: [--from, enumrm_a, --to, enumrm_b]
 
 expect: |
-  PROCESS      UPGRADE   CONTRACT
-  enumrm_proc  breaking  breaking
-
-  enumrm_proc v1 → v2
-    input  (breaking upgrade and contract)
+  enumrm_proc  v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       code: allows ["hh"] → enum ["aa", "bb", "cc", "dd", "ee", +2 more]
 
   exit 1

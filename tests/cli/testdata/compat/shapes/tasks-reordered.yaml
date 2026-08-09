@@ -47,10 +47,7 @@ apply:
             switch: end
 run: [--from, reorder_a, --to, reorder_b]
 expect: |
-  PROCESS       UPGRADE     CONTRACT
-  reorder_proc  upgradable  compatible
-
-  reorder_proc v1 → v2
+  reorder_proc  v1 → v2  upgradable, compatible
     tasks  (not judged)
 
   exit 0

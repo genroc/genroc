@@ -24,11 +24,8 @@ submit:
         switch: end
 run: [--from, newsub_a]
 expect: |
-  PROCESS          UPGRADE     CONTRACT
-  newsub_arrival   new         new
-  newsub_existing  upgradable  compatible
-
-  newsub_existing v1 → (new)
+  newsub_arrival   (new)       new
+  newsub_existing  v1 → (new)  upgradable, compatible
     ship:fetch.url  (not judged)
 
   exit 0

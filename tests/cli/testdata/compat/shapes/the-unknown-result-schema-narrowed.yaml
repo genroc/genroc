@@ -41,11 +41,8 @@ apply:
             switch: end
 run: [--from, topnarrow_a, --to, topnarrow_b]
 expect: |
-  PROCESS         UPGRADE   CONTRACT
-  topnarrow_proc  breaking  breaking
-
-  topnarrow_proc v1 → v2
-    open:external.result   (breaking upgrade and contract)
+  topnarrow_proc  v1 → v2  breaking: upgrade, contract
+    open:external.result   (breaking: upgrade, contract)
       unknown is not accepted where object is expected
     close:external.result  (ok)
 

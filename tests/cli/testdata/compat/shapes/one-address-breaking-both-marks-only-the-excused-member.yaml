@@ -1,0 +1,34 @@
+# The row grammar §6b is written for: ONE address failing both questions, with only one of
+# them excused. It is why the phrase is a list of per-member clauses rather than the single
+# "breaking upgrade and contract" it started as — a phrase naming both members can carry only
+# one fate, and the fate here differs between them. `an-excused-break-still-exits-1.yaml` has
+# both members excused-and-not in the same report, but at different addresses, so the row it
+# asserts never has to say two things at once.
+apply:
+  - channel: bothign_a
+    definitions:
+      - name: bothign_proc
+        input_schema: {type: object, properties: {age: {type: [integer, "null"]}}}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            output: {a: '$: input.age'}
+            switch: end
+  - channel: bothign_b
+    definitions:
+      - name: bothign_proc
+        input_schema: {type: object, properties: {age: {type: integer}}, required: [age]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            output: {a: '$: input.age'}
+            switch: end
+run: [--from, bothign_a, --to, bothign_b, --ignore, contract]
+
+expect: |
+  bothign_proc  v1 → v2  breaking: upgrade; ignored: contract
+    input  (breaking: upgrade; ignored: contract)
+      age: newly required field
+      age: integer|null → integer
+
+  exit 1

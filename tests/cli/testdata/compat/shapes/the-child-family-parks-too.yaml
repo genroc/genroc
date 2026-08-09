@@ -88,16 +88,13 @@ apply:
 run: [--from, parkfam_a, --to, parkfam_b]
 
 expect: |
-  PROCESS       UPGRADE          CONTRACT
-  parkfam_kid   nothing changed  nothing changed
-  parkfam_proc  breaking         breaking
-
-  parkfam_proc v1 → v2
-    one:child.result         (breaking upgrade and contract)
+  parkfam_kid   v1       unchanged
+  parkfam_proc  v1 → v2  breaking: upgrade, contract
+    one:child.result         (breaking: upgrade, contract)
       x: newly required field
-    many:child_map.a.result  (breaking upgrade and contract)
+    many:child_map.a.result  (breaking: upgrade, contract)
       x: newly required field
-    each:child_list.result   (breaking upgrade and contract)
+    each:child_list.result   (breaking: upgrade, contract)
       x: newly required field
 
   exit 1

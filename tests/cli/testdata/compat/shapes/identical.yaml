@@ -23,7 +23,6 @@ apply:
 run: [--from, same_a, --to, same_b]
 
 expect: |
-  PROCESS    UPGRADE          CONTRACT
-  same_proc  nothing changed  nothing changed
+  same_proc  v1  unchanged
 
   exit 0

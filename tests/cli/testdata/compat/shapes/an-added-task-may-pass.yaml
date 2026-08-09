@@ -49,10 +49,7 @@ apply:
             switch: end
 run: [--from, addok_a, --to, addok_b]
 expect: |
-  PROCESS     UPGRADE     CONTRACT
-  addok_proc  upgradable  compatible
-
-  addok_proc v1 → v2
+  addok_proc  v1 → v2  upgradable, compatible
     start:switch  (not judged)
     side          (added)
     audit         (added)

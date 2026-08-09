@@ -61,16 +61,12 @@ apply:
             switch: end
 run: [--from, union_a, --to, union_b]
 expect: |
-  PROCESS        UPGRADE   CONTRACT
-  union_scalar   breaking  breaking
-  union_variant  breaking  breaking
-
-  union_scalar v1 → v2
-    input  (breaking upgrade and contract)
+  union_scalar   v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       id: string|integer → string
 
-  union_variant v1 → v2
-    input  (breaking upgrade and contract)
+  union_variant  v1 → v2  breaking: upgrade, contract
+    input  (breaking: upgrade, contract)
       event: object {failed_code} → any of [object {sent_at}]
 
   exit 1
