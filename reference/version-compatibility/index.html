@@ -157,36 +157,23 @@ strand running work is visible before it is deployed rather than after.</p>
 <code>name@version</code> pins, where the version may itself be a channel (<code>kid@stable</code>). Mixing the
 two on one side is refused: a channel already names a version for every process, so adding
 one entry is ambiguous about whether it overrides or extends.</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>PROCESS         UPGRADE     CONTRACT</span></span>
-<span class="line"><span>order_pipeline  upgradable  compatible</span></span>
-<span class="line"><span>invoice         breaking    breaking</span></span>
-<span class="line"><span></span></span>
-<span class="line"><span>invoice v1 → v4</span></span>
-<span class="line"><span>  charge:fetch.result  (breaking contract)</span></span>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>invoice         v1 → v4  breaking: upgrade, contract</span></span>
+<span class="line"><span>  charge:fetch.result  (breaking: contract)</span></span>
 <span class="line"><span>    amount: number → string</span></span>
-<span class="line"><span>  ship                 (breaking upgrade)</span></span>
-<span class="line"><span>    outputs.charge.amount: number → string</span></span></code></pre>
-<p><strong>Two columns, because there are two questions</strong> — and each is answered for every process,
-so neither is left blank. A blank cell under a header reads as a question that went
-unanswered; <code>nothing changed</code> and <code>new</code> therefore print in both.</p>
+<span class="line"><span>  ship                 (breaking: upgrade)</span></span>
+<span class="line"><span>    outputs.charge.amount: number → string</span></span>
+<span class="line"><span></span></span>
+<span class="line"><span>order_pipeline  v2       unchanged</span></span></code></pre>
+<p><strong>A verdict is grouped by what happened, and names the checks it happened to</strong> — so
+<code>breaking: upgrade, contract</code> when one edit fails both. A comma separates checks, a
+semicolon separates outcomes, and problems come first: <strong>a colon after the versions is the
+whole scan.</strong> A process with nothing to look at carries none.</p>
+<p>Both checks are always accounted for, so a passing one is named rather than left to
+inference — <code>breaking: contract; upgradable</code> says the upgrade check ran and passed. The
+versions sit beside the name, with an arrow only where two of them were actually compared.</p>
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>UPGRADE</th><th></th></tr></thead><tbody><tr><td><code>upgradable</code></td><td>every state an instance can be parked in fits the new definition</td></tr><tr><td><code>breaking</code></td><td>one does not; the detail names which</td></tr></tbody></table>
 
 
 
@@ -208,12 +195,17 @@ unanswered; <code>nothing changed</code> and <code>new</code> therefore print in
 
 
 
-<table><thead><tr><th>CONTRACT</th><th></th></tr></thead><tbody><tr><td><code>compatible</code></td><td>callers and parents still get the shape they were written against</td></tr><tr><td><code>breaking</code></td><td>they do not</td></tr><tr><td><code>breaking (ignored)</code></td><td>it broke, and <code>--ignore contract</code> excused it from the exit code</td></tr></tbody></table>
-<p>Under the table, one block per process, and inside it <strong>one row per addressable place that
-was compared</strong>, annotated with what became of it — <code>(ok)</code>, <code>(breaking upgrade)</code>,
-<code>(breaking contract)</code>, or <code>(not judged)</code>. A place that holds up still gets a row, so you can
-see what was examined rather than inferring it from silence. The findings sit under it: a
-path <em>inside</em> that schema, and what differs.</p>
+
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>upgradable</code></td><td>every state an instance can be parked in fits the new definition</td></tr><tr><td><code>compatible</code></td><td>callers and parents still get the shape they were written against</td></tr><tr><td><code>breaking: &lt;checks&gt;</code></td><td>they do not; the rows name where</td></tr><tr><td><code>ignored: &lt;checks&gt;</code></td><td>it broke, and <code>--ignore contract</code> excused it from the exit code</td></tr></tbody></table>
+<p>Under each process, <strong>one row per addressable place that was compared</strong>, annotated with what
+became of it — <code>(ok)</code>, <code>(breaking: upgrade)</code>, <code>(breaking: contract)</code>, or <code>(not judged)</code>. A
+place that holds up still gets a row, so you can see what was examined rather than inferring
+it from silence. The findings sit under it: a path <em>inside</em> that schema, and what differs.</p>
+<p>Rows use the same grammar, so one place failing both questions prints once as
+<code>(breaking: upgrade, contract)</code>, and a check excused by <code>--ignore contract</code> reads
+<code>(ignored: contract)</code> on the rows where it was excused — a run that fails anyway shows you
+which break is the one still gating. Unlike the process line, a row speaks only for its own
+address: a check missing from it broke nowhere <em>here</em>, which says nothing about elsewhere.</p>
 <p>An address is one of four things:</p>
 
 
@@ -247,7 +239,7 @@ rather than listing schemas. <code>charge</code>’s <code>result_schema</code> 
 written against a number; at <code>ship</code> it is an <strong>upgrade</strong> break, because an instance parked
 there already holds <code>outputs.charge.amount</code> as a number and the new definition will not take
 it. Same edit, two different parties harmed, two rows.</p>
-<p><code>nothing changed</code> (both sides resolve to the same version, or a submitted document is
+<p><code>unchanged</code> (both sides resolve to the same version, or a submitted document is
 identical to what is deployed) and <code>new</code> (only the target side carries it, so nothing is
 running it) are statuses rather than verdicts — see <a href="#what-a-missing-counterpart-means">what a missing counterpart
 means</a>.</p>
@@ -271,7 +263,7 @@ against</strong>, so a parent is never judged without the children it calls:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>genctl compat order_pipeline 2 3</span></span></code></pre>
 <p>…resolves the <code>from</code> side to <code>order_pipeline@2</code> plus whatever child versions it was
 registered with, and the <code>to</code> side to <code>order_pipeline@3</code> plus its own. A pin you write
-yourself wins over one a dependency supplies. Nothing is hidden — the table prints a row
+yourself wins over one a dependency supplies. Nothing is hidden — the report prints a line
 per process, so a child pulled in shows up with its own versions even though you only
 named the parent.</p>
 <p>This matters because without it a parent compared alone produces no parent/child rows and
@@ -316,7 +308,7 @@ bundle names a parent but not the child it calls.</p>
 <p>A process that resolves to the <strong>same version on both sides</strong> also reads <code>nothing to compare</code>: comparing a document with itself is a tautology. In a channel-to-channel report
 that is most of the rows.</p>
 <p>A <strong>submitted</strong> document has no version, so the numbers cannot answer that — its content is
-compared against what is deployed instead, and an unchanged bundle reads <code>nothing changed</code>
+compared against what is deployed instead, and an unmoved bundle reads <code>unchanged</code>
 rather than as an upgrade of nothing. Two <em>stored</em> versions are left to their numbers, which
 say more than their documents do: a version also pins the child versions it runs, so two
 identical documents at different versions are genuinely different processes.</p>
