@@ -1,0 +1,50 @@
+# A self-referencing `$defs`, which is the one shape that can turn §6a's rule into a hang.
+# The rule is that `$defs` is never an address: Normalize BAKES a definition into every
+# schema referencing it, so the edit reports under a path an operator can navigate. A
+# definition that references itself cannot be baked away, so the comparison has to walk a
+# cycle and stop — and nothing anywhere pinned that it does.
+#
+# The edit is one level down a chain that has no bottom. What the fixture asserts is that the
+# run terminates, addresses the break at `input`, and reaches it by a path that names
+# properties rather than the definition they came from.
+apply:
+  - channel: recur_a
+    definitions:
+      - name: recur_proc
+        $defs:
+          Node:
+            type: object
+            properties:
+              value: {type: string}
+              next: {$ref: '#/$defs/Node'}
+            required: [value]
+        input_schema: {type: object, properties: {head: {$ref: '#/$defs/Node'}}, required: [head]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+  - channel: recur_b
+    definitions:
+      - name: recur_proc
+        $defs:
+          Node:
+            type: object
+            properties:
+              value: {type: integer}
+              next: {$ref: '#/$defs/Node'}
+            required: [value]
+        input_schema: {type: object, properties: {head: {$ref: '#/$defs/Node'}}, required: [head]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+run: [--from, recur_a, --to, recur_b]
+expect: |
+  PROCESS     UPGRADE   CONTRACT
+  recur_proc  breaking  breaking
+
+  recur_proc v1 → v2
+    input  (breaking upgrade and contract)
+      head.value: string → integer
+
+  exit 1

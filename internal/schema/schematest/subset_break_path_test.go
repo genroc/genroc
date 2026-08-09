@@ -80,10 +80,7 @@ func TestExplainSubset_PathNamesWhereTheRelationStopped(t *testing.T) {
 			if sub.IsSubset(super) {
 				t.Fatalf("these must not fit; the pair is the whole point of the case")
 			}
-			brk := sub.ExplainSubset(super)
-			if brk == nil {
-				t.Fatalf("rejected with no break to report")
-			}
+			brk := explainOne(t, sub, super)
 			if brk.Path != tc.path {
 				t.Errorf("path = %q, want %q — a caller files the issue under this, so a wrong "+
 					"or empty one sends a reader to the wrong place in the schema", brk.Path, tc.path)
@@ -127,11 +124,11 @@ func TestExplainSubset_ConstraintBreaksSayWhatMoved(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sub, super := normalize(t, tc.sub), normalize(t, tc.super)
-			brk := sub.ExplainSubset(super)
-			if brk == nil {
-				t.Fatalf("IsSubset accepted a narrowing: a schema change tightening this would be " +
+			if sub.IsSubset(super) {
+				t.Fatal("IsSubset accepted a narrowing: a schema change tightening this would be " +
 					"reported compatible and then reject data at conform time")
 			}
+			brk := explainOne(t, sub, super)
 			if brk.Sub != tc.wantSub || brk.Super != tc.wantSuper {
 				t.Errorf("break reads %q → %q, want %q → %q — two sides that render the same "+
 					"tell a reader nothing about what changed",
@@ -146,19 +143,16 @@ func TestExplainSubset_ConstraintBreaksSayWhatMoved(t *testing.T) {
 // TestExplainSubset_EnumBreakNamesTheValuesThatNoLongerFit for why showing both pools failed.
 func TestExplainSubset_LongEnumIsTruncated(t *testing.T) {
 	big := `["v0","v1","v2","v3","v4","v5","v6","v7"]`
-	brk := normalize(t, `{"type":"string"}`).
-		ExplainSubset(normalize(t, `{"type":"string","enum":`+big+`}`))
-	if brk == nil {
-		t.Fatal("narrowing an unconstrained string to an enum must break")
-	}
+	brk := explainOne(t, normalize(t, `{"type":"string"}`),
+		normalize(t, `{"type":"string","enum":`+big+`}`))
 	if want := `enum ["v0", "v1", "v2", "v3", "v4", +3 more]`; brk.Super != want {
 		t.Errorf("got %q, want %q — the cap keeps one break to one line, and the remainder count "+
 			"is what stops a truncated pool reading as the whole of it", brk.Super, want)
 	}
 	// At the cap exactly, nothing is elided and no count appears — an off-by-one here would
 	// claim "+0 more" or hide a value that fits.
-	exact := normalize(t, `{"type":"string"}`).
-		ExplainSubset(normalize(t, `{"type":"string","enum":["a","b","c","d","e"]}`))
+	exact := explainOne(t, normalize(t, `{"type":"string"}`),
+		normalize(t, `{"type":"string","enum":["a","b","c","d","e"]}`))
 	if want := `enum ["a", "b", "c", "d", "e"]`; exact.Super != want {
 		t.Errorf("got %q, want %q — a pool at the cap is rendered whole", exact.Super, want)
 	}
@@ -195,10 +189,7 @@ func TestExplainSubset_EnumBreakNamesTheValuesThatNoLongerFit(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			brk := normalize(t, tc.sub).ExplainSubset(normalize(t, tc.super))
-			if brk == nil {
-				t.Fatal("dropping a permitted value must break")
-			}
+			brk := explainOne(t, normalize(t, tc.sub), normalize(t, tc.super))
 			if brk.Sub != tc.wantSub || brk.Super != tc.wantSuper {
 				t.Errorf("break reads %q → %q, want %q → %q — a reader must be able to name the "+
 					"value that stopped being accepted without diffing two truncated lists",
@@ -219,10 +210,7 @@ func TestExplainSubset_EnumWideningBreaksOnlyTheReversedDirection(t *testing.T) 
 	if !narrow.IsSubset(wide) {
 		t.Error("adding a permitted value cannot break a reader: every old value is still valid")
 	}
-	brk := wide.ExplainSubset(narrow)
-	if brk == nil {
-		t.Fatal("a value the old side never produced IS a break for a consumer written against it")
-	}
+	brk := explainOne(t, wide, narrow)
 	if brk.Sub != `allows ["b"]` {
 		t.Errorf("added value reported as %q, want %q — the contract break must name what is "+
 			"newly produced, which is the same set difference read the other way", brk.Sub, `allows ["b"]`)

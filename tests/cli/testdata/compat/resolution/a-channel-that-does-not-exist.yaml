@@ -1,0 +1,25 @@
+# A HAZARD, pinned rather than asserted as correct. A channel nobody ever created resolves
+# to no processes, and every name on the from side then has nothing on the to side to pair
+# with — which is a real status (`nothing_to_compare`) reached for a reason the operator did
+# not intend. It renders as `nothing changed` and exits 0, so a mistyped channel in a
+# pipeline produces the answer indistinguishable from "checked, and fine" that every refusal
+# in this group exists to prevent.
+#
+# The word is the whole of the problem: nothing-to-compare.yaml earns it by having both
+# sides resolve to the SAME version, where nothing did change. Here the two situations are
+# rendered identically, and only one of them is a report. Refusing an empty target side
+# outright, or giving the status its own word, would flip this block.
+apply:
+  - channel: nochan_a
+    definitions:
+      - name: nochan_proc
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x/ship}
+            switch: end
+run: [--from, nochan_a, --to, nochan_typo]
+expect: |
+  PROCESS      UPGRADE          CONTRACT
+  nochan_proc  nothing changed  nothing changed
+
+  exit 0

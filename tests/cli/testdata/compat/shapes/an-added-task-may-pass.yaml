@@ -1,0 +1,60 @@
+# The half of §2b that had no passing fixture. `(added)` appears twice elsewhere —
+# task-renamed.yaml and inserted-task-with-an-output.yaml — and both runs exit 1 for a
+# DIFFERENT reason (a removal; a main-line output). So nothing pinned that an addition can
+# pass at all: `(added)` starting to gate, or the tolerance below collapsing so that every
+# new task read as breaking, would have broken no test.
+#
+# Two additions, one per reason they are tolerated:
+#
+#   side   on a branch. Its output is merely POSSIBLE, so the context marks `outputs.side`
+#          nullable and §2d's tolerance closes the gap against an old row that has no key
+#          there. This is "you may add an optional task" being the tolerance rather than a
+#          rule of its own.
+#   audit  on the main line, and reached by every path — but it declares no `output`, so it
+#          puts nothing in the context and there is nothing for an old row to lack. What
+#          makes inserted-task-with-an-output.yaml break is the output, not the position.
+#
+# The re-routing that reaches them is a changed slot and nothing more.
+apply:
+  - channel: addok_a
+    definitions:
+      - name: addok_proc
+        input_schema: {type: object, properties: {flag: {type: boolean}}, required: [flag]}
+        tasks:
+          - id: start
+            action: {type: fetch, url: http://x/start}
+            switch: next
+          - id: finish
+            action: {type: fetch, url: http://x/finish}
+            switch: end
+  - channel: addok_b
+    definitions:
+      - name: addok_proc
+        input_schema: {type: object, properties: {flag: {type: boolean}}, required: [flag]}
+        tasks:
+          - id: start
+            action: {type: fetch, url: http://x/start}
+            switch:
+              - {case: 'input.flag == true', goto: $side}
+              - {goto: $audit}
+          - id: side
+            action: {type: fetch, url: http://x/side}
+            output: {note: '$: 1'}
+            switch: $audit
+          - id: audit
+            action: {type: fetch, url: http://x/audit}
+            switch: next
+          - id: finish
+            action: {type: fetch, url: http://x/finish}
+            switch: end
+run: [--from, addok_a, --to, addok_b]
+expect: |
+  PROCESS     UPGRADE     CONTRACT
+  addok_proc  upgradable  compatible
+
+  addok_proc v1 → v2
+    start:switch  (not judged)
+    side          (added)
+    audit         (added)
+
+  exit 0

@@ -1,0 +1,52 @@
+# The third case at a result schema, and the one that goes through the pairing. Absent →
+# declared is an ADDITION, reported directly because there is no old schema to reason from
+# (a-result-schema-added.yaml); `{}` → declared is not, because `{}` IS an old schema — the
+# top type — so the comparison runs and reports what stopped fitting.
+#
+# The two directions are pinned together because they are not mirrors:
+#
+#   open   {} → declared. `{}` accepts everything, so a worker written against it may submit
+#          anything, and a parked instance's submission is conformed against the schema the
+#          instance runs NOW. Breaking on both members.
+#   close  declared → {}. We conform LESS, which is free the way dropping a result schema is
+#          (the-silent-removals.yaml).
+#
+# What this holds down is the `{}` shortcut: treating the top type as "nothing declared"
+# anywhere in the comparison would make `open` silent — a narrowing reported as an addition
+# that §2c then excuses, or not reported at all.
+apply:
+  - channel: topnarrow_a
+    definitions:
+      - name: topnarrow_proc
+        tasks:
+          - id: open
+            action: {type: external, result_schema: {}}
+            switch: next
+          - id: close
+            action:
+              type: external
+              result_schema: {type: object, properties: {ok: {type: boolean}}, required: [ok]}
+            switch: end
+  - channel: topnarrow_b
+    definitions:
+      - name: topnarrow_proc
+        tasks:
+          - id: open
+            action:
+              type: external
+              result_schema: {type: object, properties: {ok: {type: boolean}}, required: [ok]}
+            switch: next
+          - id: close
+            action: {type: external, result_schema: {}}
+            switch: end
+run: [--from, topnarrow_a, --to, topnarrow_b]
+expect: |
+  PROCESS         UPGRADE   CONTRACT
+  topnarrow_proc  breaking  breaking
+
+  topnarrow_proc v1 → v2
+    open:external.result   (breaking upgrade and contract)
+      unknown is not accepted where object is expected
+    close:external.result  (ok)
+
+  exit 1

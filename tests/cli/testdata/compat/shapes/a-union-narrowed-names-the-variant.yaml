@@ -1,0 +1,75 @@
+# A union losing a variant, in both spellings, because the message is the deliverable and a
+# union is where it historically stopped being one: §2e records an explainer that could only
+# render type names coming out as `object → object`, about an edit that really did break.
+# a-constraint-narrowing-names-the-constraint.yaml pins the same requirement for a keyword;
+# nothing pinned it for a composition.
+#
+#   scalar  a `type` list — the narrowing an author writes by hand most often
+#   variant a `oneOf` of two object shapes, one dropped. Both variants render as `object`, so
+#           this is the case where naming only the type says nothing at all
+#
+# Neither input is read by a task, so the only compared schema is `input` itself and the two
+# breaks cannot be confused with a context finding derived from them.
+#
+# The two messages are not equally good, and the block records the difference rather than
+# hiding it. The `type` list names both sides. The `oneOf` says `object → any of 1 variant`:
+# it counts the variants left instead of naming the one that went, which is the same
+# shortcoming as §2e's `object → object` one step further along — enough to know something
+# narrowed, not enough to know what stopped fitting.
+apply:
+  - channel: union_a
+    definitions:
+      - name: union_scalar
+        input_schema: {type: object, properties: {id: {type: [string, integer]}}, required: [id]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+      - name: union_variant
+        input_schema:
+          type: object
+          properties:
+            event:
+              oneOf:
+                - {type: object, properties: {sent_at: {type: string}}, required: [sent_at]}
+                - {type: object, properties: {failed_code: {type: integer}}, required: [failed_code]}
+          required: [event]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+  - channel: union_b
+    definitions:
+      - name: union_scalar
+        input_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+      - name: union_variant
+        input_schema:
+          type: object
+          properties:
+            event:
+              oneOf:
+                - {type: object, properties: {sent_at: {type: string}}, required: [sent_at]}
+          required: [event]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+run: [--from, union_a, --to, union_b]
+expect: |
+  PROCESS        UPGRADE   CONTRACT
+  union_scalar   breaking  breaking
+  union_variant  breaking  breaking
+
+  union_scalar v1 → v2
+    input  (breaking upgrade and contract)
+      id: string|integer → string
+
+  union_variant v1 → v2
+    input  (breaking upgrade and contract)
+      event: object → any of 1 variant
+
+  exit 1

@@ -66,11 +66,19 @@ func subsetWith(sub, super *node, mode subsetMode) bool {
 	return ok
 }
 
-// subsetExplain runs the relation, collecting the first break when asked. Reporting is a
-// MODE rather than a second walk: the rules about where a value lives inside a schema are
-// subtle enough that a parallel explainer rediscovers them badly and then has to stay in
-// step forever (see subsetbreak.go). With explain false nothing is allocated for it.
-func subsetExplain(sub, super *node, mode subsetMode, explain bool) (bool, *SubsetBreak) {
+// subsetBreaks runs the relation for its diagnostics: every break, in walk order, empty
+// when sub fits.
+func subsetBreaks(sub, super *node, mode subsetMode) []*SubsetBreak {
+	_, breaks := subsetExplain(sub, super, mode, true)
+	return breaks
+}
+
+// subsetExplain runs the relation, collecting breaks when asked. Reporting is a MODE rather
+// than a second walk: the rules about where a value lives inside a schema are subtle enough
+// that a parallel explainer rediscovers them badly and then has to stay in step forever
+// (see subsetbreak.go). With explain false nothing is allocated for it, and the walk stops
+// at the first failure.
+func subsetExplain(sub, super *node, mode subsetMode, explain bool) (bool, []*SubsetBreak) {
 	var subDefs, superDefs map[string]*node
 	if sub != nil {
 		subDefs = sub.Defs
@@ -93,7 +101,7 @@ func subsetExplain(sub, super *node, mode subsetMode, explain bool) (bool, *Subs
 	if ctx.trace == nil {
 		return false, nil
 	}
-	return false, ctx.trace.first
+	return false, ctx.trace.breaks
 }
 
 type subsetCtx struct {
@@ -184,7 +192,9 @@ func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
 			}
 		}
 		ctx.rollback(mark)
-		return ctx.no(at, BreakVariants, typeNames(sub), "any of "+plural(len(variants), "variant"))
+		// Both sides described rather than named: every variant of a union of objects is
+		// `object`, so the type alone says nothing about which one stopped fitting.
+		return ctx.no(at, BreakVariants, describeNode(sub), variantList(variants))
 	}
 
 	// allOf in super: sub must satisfy every constraint.
@@ -283,8 +293,14 @@ func (ctx *subsetCtx) guaranteed(n *node, defs map[string]*node) map[string]bool
 	return out
 }
 
+// An object is the one place independent differences pile up: two properties fail for
+// unrelated reasons, and neither is discovered by fixing the other. So while TRACING the
+// walk keeps going and records each one; on the bool path it stops at the first, having
+// already got its answer. `stop` is that difference, in one place.
 func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 	subReq := ctx.guaranteed(sub, ctx.subDefs)
+	ok := true
+	stop := func() bool { ok = false; return ctx.trace == nil }
 
 	for _, f := range super.Required {
 		if subReq[f] {
@@ -297,7 +313,10 @@ func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 			hasNullResolved(prop, ctx.superDefs) {
 			continue
 		}
-		return ctx.no(ctx.at(at, f), BreakMissingRequired, "not guaranteed", "required")
+		ctx.no(ctx.at(at, f), BreakMissingRequired, "not guaranteed", "required")
+		if stop() {
+			return false
+		}
 	}
 
 	if super.Properties != nil {
@@ -326,13 +345,19 @@ func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 			// so the pair still fits. Sound only if everything but the null already fits,
 			// which is what the stripped re-check asks; required is the case nothing can fix,
 			// since absence is not valid there either.
-			if ctx.afterConform && !superReq[name] &&
-				hasNullResolved(subProp, ctx.subDefs) &&
-				ctx.check(stripNull(subProp), superProp, ctx.at(at, name)) {
-				ctx.rollback(mark)
-				continue
+			if ctx.afterConform && !superReq[name] && hasNullResolved(subProp, ctx.subDefs) {
+				retry := ctx.mark()
+				if ctx.check(stripNull(subProp), superProp, ctx.at(at, name)) {
+					ctx.rollback(mark)
+					continue
+				}
+				// The retry is an ALTERNATIVE like any other: its break describes a schema
+				// with the null taken out, which is not the one anybody wrote.
+				ctx.rollback(retry)
 			}
-			return false
+			if stop() {
+				return false
+			}
 		}
 	}
 
@@ -346,19 +371,23 @@ func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 			}
 			subProp := sub.Properties[name]
 			if subProp == nil {
-				return ctx.no(ctx.at(at, name), BreakUnknown, "a null property", "the additionalProperties type")
+				ctx.no(ctx.at(at, name), BreakUnknown, "a null property", "the additionalProperties type")
+				if stop() {
+					return false
+				}
+				continue
 			}
-			if !ctx.check(subProp, super.AdditionalProperties, ctx.at(at, name)) {
+			if !ctx.check(subProp, super.AdditionalProperties, ctx.at(at, name)) && stop() {
 				return false
 			}
 		}
 		if sub.AdditionalProperties != nil &&
-			!ctx.check(sub.AdditionalProperties, super.AdditionalProperties, ctx.at(at, "*")) {
+			!ctx.check(sub.AdditionalProperties, super.AdditionalProperties, ctx.at(at, "*")) && stop() {
 			return false
 		}
 	}
 
-	return true
+	return ok
 }
 
 func (ctx *subsetCtx) checkArray(sub, super *node, at *pathLink) bool {

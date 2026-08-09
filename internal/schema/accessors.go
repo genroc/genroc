@@ -252,21 +252,22 @@ func (s Schema) NarrowsTo(super Schema) bool {
 	return narrowsTo(s.n, super.n)
 }
 
-// ExplainSubset names the first place s fails to fit super, or nil when it fits. It runs
-// the SAME walk as IsSubset with reporting switched on, so the two can never disagree —
-// the reason comes from the branch that produced the verdict. Callers word the break
-// themselves (see SubsetBreakKind); this returns facts, not a sentence.
+// ExplainSubset names every place s fails to fit super, in walk order, or nothing when it
+// fits. It runs the SAME walk as IsSubset with reporting switched on, so the two can never
+// disagree — the reasons come from the branches that produced the verdict. Callers word the
+// breaks themselves (see SubsetBreakKind); this returns facts, not sentences.
+//
+// All of them, not the first: two properties of one object fail independently, and a caller
+// given one of them reports a difference at a time, each release discovering the next.
 //
 // Costs a second traversal, so call it only after IsSubset has already said no.
-func (s Schema) ExplainSubset(super Schema) *SubsetBreak {
-	_, brk := subsetExplain(s.n, super.n, subsetMode{}, true)
-	return brk
+func (s Schema) ExplainSubset(super Schema) []*SubsetBreak {
+	return subsetBreaks(s.n, super.n, subsetMode{})
 }
 
 // ExplainSubsetAsStored is ExplainSubset for the IsSubsetAsStored relation.
-func (s Schema) ExplainSubsetAsStored(super Schema) *SubsetBreak {
-	_, brk := subsetExplain(s.n, super.n, subsetMode{absentAsNull: true, afterConform: true}, true)
-	return brk
+func (s Schema) ExplainSubsetAsStored(super Schema) []*SubsetBreak {
+	return subsetBreaks(s.n, super.n, subsetMode{absentAsNull: true, afterConform: true})
 }
 
 // ─── Secrets ────────────────────────────────────────────────────────────────────

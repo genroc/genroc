@@ -1,0 +1,112 @@
+# Every remaining slot no verdict covers, edited at once. `changedslots_test.go` proves each
+# model field lands in SOME slot list, but not what it is addressed as, and not that it stays
+# unjudged: a slot that wrongly claimed an `affects` entry would render `(ok)` — asserting a
+# check covered it when none did — and every test would still pass. That is the permissive
+# direction, so it is the one that needs a fixture.
+#
+# Elsewhere only `url`, `only_once`, `switch`, `on_error`, `name` and `action.type` are pinned
+# this way. Here: the rest of the fetch request (§3a — a service's tolerance is unknowable,
+# which is why judging it is refused), a task `timeout`, a delay's calendar slots, an
+# `external.input` (§8 records that this one is still open), and the child slots §2c argues
+# are unjudged — `over`, because a child_list's array is consumed at spawn and every child
+# carries its `_spawn_index`, and the pinned `version`, because when the child itself moves
+# the child's own row reports it.
+apply:
+  - channel: slots_a
+    definitions:
+      - name: slots_kid
+        tasks:
+          - id: run
+            action: {type: fetch, url: http://x/kid}
+            switch: end
+        output: {id: '$: 1'}
+      - name: slots_proc
+        tasks:
+          - id: call
+            action:
+              type: fetch
+              url: http://x/call
+              method: POST
+              headers: {trace: alpha}
+              body: {n: '$: 1'}
+              accepted_status: ["4xx"]
+            timeout: 30s
+            switch: next
+          - id: wake
+            action: {type: delay, for: 1h, tz: UTC}
+            switch: next
+          - id: hand
+            action: {type: external, input: {note: alpha}}
+            switch: next
+          - id: work
+            action: {type: child, name: slots_kid, version: 1, input: {seed: '$: 1'}}
+            switch: next
+          - id: each
+            action: {type: child_list, name: slots_kid, over: '$: [1, 2]'}
+            switch: next
+          - id: fan
+            action:
+              type: child_map
+              children:
+                a: {name: slots_kid, version: 1, input: {seed: '$: 1'}}
+            switch: end
+  - channel: slots_b
+    definitions:
+      - name: slots_kid
+        tasks:
+          - id: run
+            action: {type: fetch, url: http://x/kid}
+            switch: end
+        output: {id: '$: 1'}
+      - name: slots_proc
+        tasks:
+          - id: call
+            action:
+              type: fetch
+              url: http://x/call
+              method: PUT
+              headers: {trace: beta}
+              body: {n: '$: 2'}
+              accepted_status: ["4xx", "5xx"]
+            timeout: 60s
+            switch: next
+          - id: wake
+            action: {type: delay, for: 2h, tz: Europe/Prague}
+            switch: next
+          - id: hand
+            action: {type: external, input: {note: beta}}
+            switch: next
+          - id: work
+            action: {type: child, name: slots_kid, input: {seed: '$: 2'}}
+            switch: next
+          - id: each
+            action: {type: child_list, name: slots_kid, over: '$: [1, 2, 3]'}
+            switch: next
+          - id: fan
+            action:
+              type: child_map
+              children:
+                a: {name: slots_kid, input: {seed: '$: 2'}}
+            switch: end
+run: [--from, slots_a, --to, slots_b]
+expect: |
+  PROCESS     UPGRADE          CONTRACT
+  slots_kid   nothing changed  nothing changed
+  slots_proc  upgradable       compatible
+
+  slots_proc v1 → v2
+    call:timeout                (not judged)
+    call:fetch.method           (not judged)
+    call:fetch.headers          (not judged)
+    call:fetch.accepted_status  (not judged)
+    call:fetch.body             (not judged)
+    wake:delay.for              (not judged)
+    wake:delay.tz               (not judged)
+    hand:external.input         (not judged)
+    work:child.input            (not judged)
+    work:child.version          (not judged)
+    each:child_list.over        (not judged)
+    fan:child_map.a.version     (not judged)
+    fan:child_map.a.input       (not judged)
+
+  exit 0

@@ -1,6 +1,7 @@
 package schematest
 
 import (
+	"fmt"
 	"testing"
 
 	"genroc/internal/schema"
@@ -29,15 +30,35 @@ func assertSubset(t *testing.T, subJSON, superJSON string, want bool) {
 	// here rather than surfacing as a diagnostic with nothing in it — which is what the
 	// separate explainer used to produce, and why it was deleted.
 	if !got {
-		brk := sub.ExplainSubset(super)
-		switch {
-		case brk == nil:
+		breaks := sub.ExplainSubset(super)
+		if len(breaks) == 0 {
 			t.Errorf("IsSubset(%s, %s) = false with no break reported", subJSON, superJSON)
-		case brk.Sub == "" || brk.Super == "":
-			t.Errorf("break at %q is half-empty (%q → %q); a message needs both sides",
-				brk.Path, brk.Sub, brk.Super)
+		}
+		// EVERY break, not the first: the walk keeps going past a failure while tracing, so a
+		// branch that reports a half-empty one is only reachable through the later positions.
+		for _, brk := range breaks {
+			if brk.Sub == "" || brk.Super == "" {
+				t.Errorf("break at %q is half-empty (%q → %q); a message needs both sides",
+					brk.Path, brk.Sub, brk.Super)
+			}
 		}
 	}
+}
+
+// explainOne is for a pair holding exactly ONE difference, which is what every case below
+// is built to be. ExplainSubset reports them all, so a case that grows a second break has
+// to say so here rather than quietly having its first one asserted.
+func explainOne(t *testing.T, sub, super schema.Schema) *schema.SubsetBreak {
+	t.Helper()
+	breaks := sub.ExplainSubset(super)
+	if len(breaks) != 1 {
+		paths := make([]string, 0, len(breaks))
+		for _, b := range breaks {
+			paths = append(paths, fmt.Sprintf("%s (%s)", b.Path, b.Kind))
+		}
+		t.Fatalf("got %d breaks %v, want exactly 1", len(breaks), paths)
+	}
+	return breaks[0]
 }
 
 // assertEquivalent checks that a ⊆ b and b ⊆ a, proving semantic equivalence.

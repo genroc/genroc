@@ -1,0 +1,70 @@
+# The third form in the usage line — `compat --from <sel> --to <sel> [<process>]` — and the
+# `process` field of the request behind it. It is exercised elsewhere only through the
+# positional form (closure-pulls-the-child-in.yaml), which builds its selectors a different
+# way, so a filter that stopped narrowing a channel-wide comparison would show up nowhere:
+# the extra rows read as a bigger report, not as a broken flag.
+#
+# Both processes moved, so a filter that did nothing would print two blocks. Naming one must
+# also keep its closure, which is why the filtered process has a child: dropping the child
+# rows would report a parent as clean while the value it collects moved underneath it.
+apply:
+  - channel: filter_a
+    definitions:
+      - name: filter_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x/kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: filter_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: filter_kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+      - name: filter_other
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x/other}
+            switch: end
+  - channel: filter_b
+    definitions:
+      - name: filter_kid
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://y/kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            output: {id: '$: self.result.id'}
+            switch: end
+        output: {id: '$: outputs.run.id'}
+      - name: filter_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: filter_kid
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+      - name: filter_other
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://y/other}
+            switch: end
+run: [--from, filter_a, --to, filter_b, filter_boss]
+expect: |
+  PROCESS      UPGRADE     CONTRACT
+  filter_boss  upgradable  compatible
+  filter_kid   upgradable  compatible
+
+  filter_kid v1 → v2
+    run:fetch.url  (not judged)
+
+  exit 0

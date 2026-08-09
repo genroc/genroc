@@ -1,0 +1,110 @@
+# `--json` prints the report the CLI renders from, and until now nothing asserted it: the
+# generated client is typechecked, which proves the shape compiles, not that any field
+# carries what it claims. Everything §6d fixes about the wire format is only true if
+# something reads it — a finding arrives ADDRESSED, `address` and `path` answer different
+# levels and stay separate fields, a verdict is `{compatible}` alone and carries no issues,
+# and an `affects` entry is what separates `(ok)` from `(not judged)`.
+#
+# One edit reaching all four collections at once: two issues from one narrowing (the contract
+# at the result schema, the upgrade at the task that reads it — two findings, because they
+# gate separately), a changed slot no check covers, and an added task.
+#
+# Two things a consumer must not read past, both visible in the block below.
+#
+# `charge:fetch.result` is in `changed` AND carries an issue. §6b's suppression is the
+# RENDERER's: the wire keeps both, so a second consumer that prints `changed` verbatim will
+# report a slot as merely changed beside the break that same edit produced.
+#
+# **The run exits 0 while `passes` is false.** Every gating rule in §5 is in the payload and
+# none of it reaches the exit code — the identical comparison rendered as prose exits 1
+# (output-type-changed.yaml is that pair of documents). A pipeline that adds `--json` to
+# capture the report stops failing on the breaks it was added to catch. Pinned as a BUG, not
+# a decision: this block is what has to change when the exit code learns about the flag.
+apply:
+  - channel: wirefull_a
+    definitions:
+      - name: wirefull_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+              result_schema: {type: object, properties: {fee: {type: number}}, required: [fee]}
+            output: {fee: '$: self.result.fee'}
+            switch: next
+          - id: settle
+            action: {type: fetch, url: http://x/settle}
+            switch: end
+  - channel: wirefull_b
+    definitions:
+      - name: wirefull_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://y/charge
+              result_schema: {type: object, properties: {fee: {type: string}}, required: [fee]}
+            output: {fee: '$: self.result.fee'}
+            switch: next
+          - id: audit
+            action: {type: fetch, url: http://x/audit}
+            switch: next
+          - id: settle
+            action: {type: fetch, url: http://x/settle}
+            switch: end
+run: [--from, wirefull_a, --to, wirefull_b, --json]
+expect: |
+  {
+    "compatible": false,
+    "passes": false,
+    "processes": [
+      {
+        "name": "wirefull_proc",
+        "status": "compared",
+        "from": 1,
+        "to": 2,
+        "upgrade": {
+          "compatible": false
+        },
+        "contract": {
+          "compatible": false
+        },
+        "changed": [
+          {
+            "address": "charge:fetch.url",
+            "task": "charge"
+          },
+          {
+            "address": "charge:fetch.result",
+            "task": "charge",
+            "affects": [
+              "contract"
+            ]
+          }
+        ],
+        "added": [
+          "audit"
+        ],
+        "issues": [
+          {
+            "member": "contract",
+            "address": "charge:fetch.result",
+            "task": "charge",
+            "path": "fee",
+            "message": "number → string",
+            "gating": true
+          },
+          {
+            "member": "upgrade",
+            "address": "settle",
+            "task": "settle",
+            "path": "outputs.charge.fee",
+            "message": "number → string",
+            "gating": true
+          }
+        ]
+      }
+    ]
+  }
+
+  exit 0

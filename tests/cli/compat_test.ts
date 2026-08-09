@@ -12,12 +12,16 @@ import {
 // a feature — and comparing the whole thing covers layout, wording, ordering and exit code
 // at once.
 //
+// The one row no case here can produce is `unanalysable`: reaching it needs a stored version
+// that fails its own inference, which nothing can apply. It lives in
+// internal/validation/unanalysable_test.go, §5's rule that it cannot be excused included.
+//
 // One case per file in testdata/compat/<group>/, each with its expected block at the end.
 // Adding one is a new file plus `UPDATE_COMPAT=1 vitest run cli/compat_test.ts`. Read the
 // resulting block before committing it: a regenerated expectation records whatever the code
 // does, including a bug.
 
-const GROUPS = ["shapes", "children", "resolution", "submitted"];
+const GROUPS = ["shapes", "children", "resolution", "submitted", "wire"];
 const UPDATING = process.env.UPDATE_COMPAT === "1";
 
 let bin: string;

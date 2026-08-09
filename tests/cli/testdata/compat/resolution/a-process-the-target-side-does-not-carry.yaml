@@ -1,0 +1,45 @@
+# new-process.yaml pins the arrival: a process only the TO side carries is `new` and does not
+# drag the roll-up down. This is the departure, and it is the one an operator meets by
+# accident — a process dropped from the next channel while instances of it are still running.
+#
+# In pin form the same situation is a refusal (explicit-name-with-no-target-is-an-error.yaml),
+# because a name written on one side and not the other is a question that was asked and not
+# answered. A channel names nothing property by property, so there is no question to refuse
+# and the process gets a row instead: it is carried into the report rather than dropped —
+# which is the part that matters, since a disappearance would hide it — and the row says
+# `nothing changed`.
+#
+# That last word is shared with a process both sides agree on (nothing-to-compare.yaml) and
+# it is doing more work than it can carry here: an instance of `gone_leaves` is running
+# against a channel that no longer offers it a version, which is not the same as an
+# unchanged process. a-channel-that-does-not-exist.yaml is the extreme of the same rendering.
+apply:
+  - channel: gone_a
+    definitions:
+      - name: gone_stays
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x/ship}
+            switch: end
+      - name: gone_leaves
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x/leaves}
+            switch: end
+  - channel: gone_b
+    definitions:
+      - name: gone_stays
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://y/ship}
+            switch: end
+run: [--from, gone_a, --to, gone_b]
+expect: |
+  PROCESS      UPGRADE          CONTRACT
+  gone_leaves  nothing changed  nothing changed
+  gone_stays   upgradable       compatible
+
+  gone_stays v1 → v2
+    ship:fetch.url  (not judged)
+
+  exit 0

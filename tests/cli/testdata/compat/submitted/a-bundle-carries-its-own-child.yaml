@@ -1,0 +1,73 @@
+# A bundle holding both halves of a call, both edited. Every other submitted case names one
+# document, so nothing pinned that a child submitted ALONGSIDE its parent is resolved from
+# the bundle rather than the registry — a resolution that fell back to the stored child would
+# compare the parent against a document the operator is about to replace, and report on a
+# pairing that will never exist.
+#
+# The child drops a field the parent's `result_schema` does not name, so the bundle still
+# validates (a parent that no longer fits its child is refused earlier —
+# parent-no-longer-fits-its-stored-child.yaml) and what is left is the child's own output
+# contract: `note` was guaranteed and is not any more, which breaks every reader outside the
+# bundle. The parent moves in the same batch so that both blocks are here: the closure was
+# compared as one set, and neither document was carried over from the registry.
+apply:
+  - channel: pair_a
+    definitions:
+      - name: pair_kid
+        input_schema: {type: object, properties: {seed: {type: integer}}}
+        tasks:
+          - id: run
+            action:
+              type: fetch
+              url: http://x/kid
+              result_schema:
+                {type: object, properties: {id: {type: string}, note: {type: string}}, required: [id, note]}
+            output: {id: '$: self.result.id', note: '$: self.result.note'}
+            switch: end
+        output: {id: '$: outputs.run.id', note: '$: outputs.run.note'}
+      - name: pair_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: pair_kid
+              input: {seed: '$: 1'}
+              result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+            switch: end
+submit:
+  - name: pair_kid
+    input_schema: {type: object, properties: {seed: {type: integer}}}
+    tasks:
+      - id: run
+        action:
+          type: fetch
+          url: http://x/kid
+          result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+        output: {id: '$: self.result.id'}
+        switch: end
+    output: {id: '$: outputs.run.id'}
+  - name: pair_boss
+    tasks:
+      - id: work
+        action:
+          type: child
+          name: pair_kid
+          input: {seed: '$: 2'}
+          result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
+        switch: end
+run: [--from, pair_a]
+expect: |
+  PROCESS    UPGRADE     CONTRACT
+  pair_boss  upgradable  compatible
+  pair_kid   upgradable  breaking
+
+  pair_boss v1 → (new)
+    work:child.input  (not judged)
+
+  pair_kid v1 → (new)
+    output            (breaking contract)
+      note: no longer guaranteed
+    run:output        (ok)
+    run:fetch.result  (ok)
+
+  exit 1

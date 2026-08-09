@@ -1,0 +1,20 @@
+# the-upgrade-check-cannot-be-ignored.yaml refuses `upgrade`, which is a member the grammar
+# KNOWS and declines to excuse. A token that names nothing at all takes the other branch, and
+# it is the one a typo reaches: a selection that quietly matched nothing would leave the
+# operator believing a break was excused while the build failed for reasons they cannot see —
+# or worse, believing one was checked. Refused by the server, so the endpoint's second
+# consumer gets the same answer.
+apply:
+  - channel: badtoken_a
+    definitions:
+      - name: badtoken_proc
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+run: [--from, badtoken_a, --to, badtoken_a, --ignore, contarct]
+expect: |
+  --- stderr ---
+  genctl: server: cannot ignore "contarct"; the only member that may be excused is "contract" — the upgrade check answers for rows this deployment already owns
+
+  exit 1

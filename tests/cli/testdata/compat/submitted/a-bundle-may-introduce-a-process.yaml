@@ -1,0 +1,34 @@
+# The arrival, submitted rather than stored. new-process.yaml reaches it through two
+# channels; here the from side is a channel that has never heard of `newsub_arrival` and the
+# to side is a file. Both halves of the row are unusual at once — no from version and no to
+# version — and a report that fell over on the pair, or gated on it, would turn the first
+# deploy of a process into a failing check.
+apply:
+  - channel: newsub_a
+    definitions:
+      - name: newsub_existing
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x/ship}
+            switch: end
+submit:
+  - name: newsub_existing
+    tasks:
+      - id: ship
+        action: {type: fetch, url: http://y/ship}
+        switch: end
+  - name: newsub_arrival
+    tasks:
+      - id: ship
+        action: {type: fetch, url: http://z/ship}
+        switch: end
+run: [--from, newsub_a]
+expect: |
+  PROCESS          UPGRADE     CONTRACT
+  newsub_arrival   new         new
+  newsub_existing  upgradable  compatible
+
+  newsub_existing v1 → (new)
+    ship:fetch.url  (not judged)
+
+  exit 0

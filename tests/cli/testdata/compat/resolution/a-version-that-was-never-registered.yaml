@@ -1,0 +1,18 @@
+# The pin form's version of the same trap. `@9` is a version this process never had, so
+# there is no document to compare and the run must say so rather than silently resolving to
+# the nearest one it can find — a pipeline pinning a version it has not published yet would
+# otherwise be told its change is fine.
+apply:
+  - channel: novers_a
+    definitions:
+      - name: novers_proc
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x/ship}
+            switch: end
+run: [--from, novers_proc@1, --to, novers_proc@9]
+expect: |
+  --- stderr ---
+  genctl: server: to: definition "novers_proc" v9: not found
+
+  exit 1

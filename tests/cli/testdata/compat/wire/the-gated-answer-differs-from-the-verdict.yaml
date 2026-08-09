@@ -1,0 +1,85 @@
+# §8's recorded disagreement, which only the wire can state: `compatible` is the conjunction
+# over everything compared and stays false, `passes` is the gated answer and is true, and the
+# run exits 0. A green build whose report says `compatible: false` is the INTENDED reading,
+# so a consumer keying off the wrong field either fails every excused run or ships every
+# broken one — and both look correct in the rendered report, which says `breaking (ignored)`
+# either way.
+#
+# output-contract-reversed-but-allowed.yaml is this exact run in its prose form. The pair is
+# the assertion that the flag is a request field: one comparison, two renderings, and the
+# same answer in both. It also pins the one place a per-member verdict can be read on its
+# own — `upgrade.compatible` true beside `contract.compatible` false, both derived from the
+# issues rather than tracked beside them (§6c).
+apply:
+  - channel: wiregate_a
+    definitions:
+      - name: wiregate_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+              result_schema: {type: object, properties: {amount: {type: number}}, required: [amount]}
+            output: {amount: '$: self.result.amount'}
+            switch: end
+        output: {total: '$: outputs.charge.amount'}
+  - channel: wiregate_b
+    definitions:
+      - name: wiregate_proc
+        tasks:
+          - id: charge
+            action:
+              type: fetch
+              url: http://x/charge
+              result_schema: {type: object, properties: {amount: {type: string}}, required: [amount]}
+            output: {amount: '$: self.result.amount'}
+            switch: end
+        output: {total: '$: outputs.charge.amount'}
+run: [--from, wiregate_a, --to, wiregate_b, --ignore, contract, --json]
+expect: |
+  {
+    "compatible": false,
+    "passes": true,
+    "processes": [
+      {
+        "name": "wiregate_proc",
+        "status": "compared",
+        "from": 1,
+        "to": 2,
+        "upgrade": {
+          "compatible": true
+        },
+        "contract": {
+          "compatible": false
+        },
+        "changed": [
+          {
+            "address": "charge:fetch.result",
+            "task": "charge",
+            "affects": [
+              "contract"
+            ]
+          }
+        ],
+        "issues": [
+          {
+            "member": "contract",
+            "address": "charge:fetch.result",
+            "task": "charge",
+            "path": "amount",
+            "message": "number → string",
+            "gating": false
+          },
+          {
+            "member": "contract",
+            "address": "output",
+            "path": "total",
+            "message": "number → string",
+            "gating": false
+          }
+        ]
+      }
+    ]
+  }
+
+  exit 0

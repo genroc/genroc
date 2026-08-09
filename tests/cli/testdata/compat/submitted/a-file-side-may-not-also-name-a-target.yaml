@@ -1,0 +1,24 @@
+# `-f` IS the target side: the documents an apply would take, which have no version yet. So
+# `--to` beside it names a second one, and the two cannot both be what is compared. Refused
+# rather than resolved by precedence, because either precedence silently answers about a pair
+# the operator did not ask about — and the one they lose is the file they just edited.
+apply:
+  - channel: filetop_a
+    definitions:
+      - name: filetop_proc
+        tasks:
+          - id: ship
+            action: {type: fetch, url: http://x/ship}
+            switch: end
+submit:
+  - name: filetop_proc
+    tasks:
+      - id: ship
+        action: {type: fetch, url: http://y/ship}
+        switch: end
+run: [--from, filetop_a, --to, filetop_a]
+expect: |
+  --- stderr ---
+  genctl: -f already names the target side; drop --to
+
+  exit 1

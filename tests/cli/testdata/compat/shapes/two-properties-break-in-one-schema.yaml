@@ -1,0 +1,48 @@
+# Two independent breaks under one address, and the answer is ONE line: the relation stops
+# at the first break it finds, so `amount: number → string` is not printed and nothing on the
+# page says another finding exists. An operator fixes `currency`, re-runs, and meets the
+# second break then. a-constraint-narrowing-names-the-constraint.yaml notes the rule in
+# passing; this is the fixture that shows what it costs, and the one that has to be
+# regenerated to change it.
+#
+# The two breaks are of different KINDS on purpose — a new requirement and a type change —
+# so the line that survives cannot be read as having merged them. Which one survives is a
+# property of the walk rather than of the document: the required set is checked before the
+# properties are, so the newly required name wins however the schema is ordered.
+apply:
+  - channel: twobreak_a
+    definitions:
+      - name: twobreak_proc
+        input_schema:
+          type: object
+          properties:
+            amount: {type: number}
+            currency: {type: string}
+          required: [amount]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+  - channel: twobreak_b
+    definitions:
+      - name: twobreak_proc
+        input_schema:
+          type: object
+          properties:
+            amount: {type: string}
+            currency: {type: string}
+          required: [amount, currency]
+        tasks:
+          - id: go
+            action: {type: fetch, url: http://x/go}
+            switch: end
+run: [--from, twobreak_a, --to, twobreak_b]
+expect: |
+  PROCESS        UPGRADE   CONTRACT
+  twobreak_proc  breaking  breaking
+
+  twobreak_proc v1 → v2
+    input  (breaking upgrade and contract)
+      currency: newly required field
+
+  exit 1

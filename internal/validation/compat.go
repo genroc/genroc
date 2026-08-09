@@ -252,21 +252,24 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 	// One difference in the data surfaces at EVERY task that can see it. It is a fact about
 	// the value, not about who reads it, so the first task to surface it keeps it (§6a).
 	seen := map[string]bool{}
-	add := func(member Member, address, task, path, msg string) {
-		// Deduplicated on the path as the relation reported it, before any address strips its
-		// own prefix: the same difference must key the same way wherever it surfaces.
-		key := string(member) + "\x00" + path + "\x00" + msg
-		if seen[key] {
-			return
+	add := func(member Member, address, task string, found []finding) {
+		for _, f := range found {
+			// Deduplicated on the path as the relation reported it, before any address strips
+			// its own prefix: the same difference must key the same way wherever it surfaces.
+			key := string(member) + "\x00" + f.path + "\x00" + f.msg
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			path := f.path
+			if address == addressInput {
+				path = insideInput(path)
+			}
+			out = append(out, Issue{
+				Member: member, Address: address, Task: task,
+				Path: path, Message: f.msg, Gating: true,
+			})
 		}
-		seen[key] = true
-		if address == addressInput {
-			path = insideInput(path)
-		}
-		out = append(out, Issue{
-			Member: member, Address: address, Task: task,
-			Path: path, Message: msg, Gating: true,
-		})
 	}
 
 	// The input is hoisted out of the per-task loop — it sits in every task's context, so
@@ -274,12 +277,8 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 	// as STORED for the upgrade (a defaulted property is present because creation filled it,
 	// §2e) and STRICT for the contract (what ValidateInput will do to the next caller).
 	oldIn, newIn := inputObject(oldA), inputObject(newA)
-	if path, msg := storedExplainer.explain(oldIn, newIn); msg != "" {
-		add(MemberUpgrade, addressInput, "", path, msg)
-	}
-	if path, msg := (explainer{}).explain(oldIn, newIn); msg != "" {
-		add(MemberContract, addressInput, "", path, msg)
-	}
+	add(MemberUpgrade, addressInput, "", storedExplainer.explain(oldIn, newIn))
+	add(MemberContract, addressInput, "", (explainer{}).explain(oldIn, newIn))
 
 	for _, t := range oldA.def.Tasks {
 		nt, ok := newTasks[t.ID]
@@ -294,9 +293,7 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 		}
 		// One context per task is enough for the whole remaining run: a task output's type
 		// is position-independent and the must-analysis is monotone along a path (§2a).
-		if path, msg := storedExplainer.explain(oldA.contexts[t.ID], newA.contexts[t.ID]); msg != "" {
-			add(MemberUpgrade, t.ID, t.ID, path, msg)
-		}
+		add(MemberUpgrade, t.ID, t.ID, storedExplainer.explain(oldA.contexts[t.ID], newA.contexts[t.ID]))
 		if typeChanged(t, nt) {
 			// An action type may not change under an instance that is SITTING in it: the
 			// state it left — a submitted result, children in flight, or a timer — belongs to
@@ -322,9 +319,7 @@ func issues(oldA, newA analysis, newTasks map[string]*model.Task) []Issue {
 		out = append(out, resultIssues(t, nt)...)
 	}
 
-	if path, msg := compareOutput(oldA, newA); msg != "" {
-		add(MemberContract, addressOutput, "", path, msg)
-	}
+	add(MemberContract, addressOutput, "", compareOutput(oldA, newA))
 	return out
 }
 
@@ -451,28 +446,27 @@ const addedResultMessage = "added; a result written against the version that dec
 func resultIssues(old, new *model.Task) []Issue {
 	var out []Issue
 	for _, rc := range resultContracts(old, new) {
-		var path, msg string
+		found := (explainer{}).explain(rc.old, rc.new)
 		if rc.added {
 			// No path: the finding is about the schema arriving at all, not about a place
 			// inside it. Judged at the same addresses and for the same members as a narrowing,
 			// because it is the same thing happening — a conform standing where none did.
-			msg = addedResultMessage
-		} else {
-			path, msg = (explainer{}).explain(rc.old, rc.new)
-			if msg == "" {
-				continue
-			}
+			// The zero schema it would otherwise be compared against is not a document
+			// anybody wrote, so its breaks are not findings.
+			found = []finding{{msg: addedResultMessage}}
 		}
-		if rc.parks {
+		for _, f := range found {
+			if rc.parks {
+				out = append(out, Issue{
+					Member: MemberUpgrade, Address: rc.address, Task: rc.task,
+					Path: f.path, Message: f.msg, Gating: true,
+				})
+			}
 			out = append(out, Issue{
-				Member: MemberUpgrade, Address: rc.address, Task: rc.task,
-				Path: path, Message: msg, Gating: true,
+				Member: MemberContract, Address: rc.address, Task: rc.task,
+				Path: f.path, Message: f.msg, Gating: true,
 			})
 		}
-		out = append(out, Issue{
-			Member: MemberContract, Address: rc.address, Task: rc.task,
-			Path: path, Message: msg, Gating: true,
-		})
 	}
 	return out
 }
@@ -505,24 +499,24 @@ func inputObject(a analysis) schema.Schema {
 // compareOutput is the consumer contract reversed: everything the new version can produce
 // must satisfy readers of the old. IsSubset, not NarrowsTo — narrowing is the privilege of
 // a slot with a runtime conform behind it, and nothing conforms here.
-func compareOutput(oldA, newA analysis) (path, msg string) {
+func compareOutput(oldA, newA analysis) []finding {
 	oldOut, hasOld, err := schemaFileOutput(oldA.sf)
 	if err != nil {
-		return "", err.Error()
+		return []finding{{msg: err.Error()}}
 	}
 	newOut, hasNew, err := schemaFileOutput(newA.sf)
 	if err != nil {
-		return "", err.Error()
+		return []finding{{msg: err.Error()}}
 	}
 	// Adding an output is free — consumers were written against a process that produced
 	// nothing, so nothing they read can stop working. Removing one is not, and it is not a
 	// schema comparison either: there is no new schema to compare against, so it is reported
 	// directly, the way a removed task is (§2b).
 	if !hasOld {
-		return "", ""
+		return nil
 	}
 	if !hasNew {
-		return "", "removed; consumers were written against it"
+		return []finding{{msg: "removed; consumers were written against it"}}
 	}
 	return contractExplainer.explain(newOut, oldOut)
 }
@@ -689,22 +683,30 @@ var (
 	contractExplainer = explainer{swap: true}
 )
 
-// explain names the first place sub fails to fit super: where, and what, kept apart. The
-// path stays a field the whole way to the report — Issue.Path, then the renderer — so a
-// property name is never recovered by searching prose for a colon, which is what the
-// previous arrangement did and what silently dropped any name containing a space.
-// An empty msg means it fits.
-func (e explainer) explain(sub, super schema.Schema) (path, msg string) {
-	var brk *schema.SubsetBreak
+// finding is one break as the report files it: where, and what, kept apart. The path stays
+// a field the whole way to Issue.Path and then the renderer, so a property name is never
+// recovered by searching prose for a colon — which is what the previous arrangement did,
+// and what silently dropped any name containing a space.
+type finding struct{ path, msg string }
+
+// explain names EVERY place sub fails to fit super, in the relation's own walk order. An
+// empty result means it fits.
+//
+// All of them because they are independent: two properties of one input break for unrelated
+// reasons, and an operator handed the first fixes it, re-runs, and meets the second. The
+// relation stops at the first only where it is answering a bool.
+func (e explainer) explain(sub, super schema.Schema) []finding {
+	var breaks []*schema.SubsetBreak
 	if e.asStored {
-		brk = sub.ExplainSubsetAsStored(super)
+		breaks = sub.ExplainSubsetAsStored(super)
 	} else {
-		brk = sub.ExplainSubset(super)
+		breaks = sub.ExplainSubset(super)
 	}
-	if brk == nil {
-		return "", ""
+	out := make([]finding, 0, len(breaks))
+	for _, brk := range breaks {
+		out = append(out, finding{path: brk.Path, msg: e.word(brk)})
 	}
-	return brk.Path, e.word(brk)
+	return out
 }
 
 // word says WHAT broke, from the READER's point of view; the path says where. Under swap
