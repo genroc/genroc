@@ -2,15 +2,10 @@ package expressiontest
 
 import "testing"
 
-// Constraints ride navigation. That is not a detail of inference — it is what makes the
-// compat report able to see a narrowing at all: a task output written `$: input.tier`
-// carries the enum into `$defs[<id>_output]`, and `IsSubset` compares it there. If a change
-// here quietly dropped them, every constraint narrowing below the input boundary would
-// start reporting as compatible, and nothing else in the suite would say so.
-//
-// Nothing tested this before. `minItems`/`maxItems` were also absent from the subset
-// relation for the same reason — no test asked the question — and that one was a wrong
-// answer in the permissive direction.
+// Constraints ride navigation, and that is what lets the compat report see a narrowing at
+// all: `$: input.tier` carries the enum into `$defs[<id>_output]`, where IsSubset compares
+// it. Dropping them here would report every constraint narrowing below the input boundary as
+// compatible, and nothing else in the suite would say so.
 
 const constraintCtxJSON = `{
 	"type": "object",

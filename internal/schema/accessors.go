@@ -216,51 +216,34 @@ func (s Schema) IsSubset(super Schema) bool {
 	return isSubset(s.n, super.n)
 }
 
-// IsSubsetAbsentAsNull is IsSubset with one rule relaxed: super may require a property
-// whose type admits null without sub requiring it. A missing key and a null one navigate
-// identically, so where a value is READ rather than conformed the two are one case.
-//
-// Sound only where nothing validates the value against super — a runtime conform DOES
-// reject a missing required key, so this must not stand in for IsSubset at a slot that has
-// one. Both schemas must be normalized.
+// IsSubsetAbsentAsNull is IsSubset with one rule relaxed: super may require a property whose
+// type admits null without sub requiring it, since a missing key and a null one navigate
+// identically. Sound only where nothing validates the value against super — a runtime conform
+// DOES reject a missing required key. Both schemas must be normalized.
 func (s Schema) IsSubsetAbsentAsNull(super Schema) bool {
 	return absentAsNullSubset(s.n, super.n)
 }
 
-// IsSubsetAsStored compares two schemas as descriptions of data that has already been
-// conformed — an instance's stored state — rather than as predicates over what may arrive.
-// It is IsSubsetAbsentAsNull plus one rule: a property s declares with a default is
-// guaranteed present, because the conform that produced the data filled it.
-//
-// That extra rule needs no migration behind it, which is precisely why it is separate from
-// IsSubsetAbsentAsNull: that relation's contract is that it tolerates exactly the gaps
-// Validate(v, ConformToSchemaExactly) closes, and the fill writes no defaults. Here there is
-// nothing to close — the value is in the row.
-//
-// Sound only where nothing conforms the value against super afterwards. Both schemas must be
-// normalized. Design: specs/compat-command.md §2e.
+// IsSubsetAsStored compares two schemas as descriptions of data already conformed — an
+// instance's stored state. It is IsSubsetAbsentAsNull plus one rule: a property s declares
+// with a default is guaranteed present. Sound only where nothing conforms the value against
+// super afterwards. Both schemas must be normalized. Design: specs/compat-command.md §2e.
 func (s Schema) IsSubsetAsStored(super Schema) bool {
 	return storedSubset(s.n, super.n)
 }
 
-// NarrowsTo is IsSubset with unknowns admitted: every unknown (the empty schema {}) in
-// s is accepted by whatever super declares at that position, at any depth. It answers
-// "could this value be narrowed to super?", not "is it already super?" — so it is sound
-// ONLY where the value is conformed against super at runtime. Both schemas must be
-// normalized.
+// NarrowsTo is IsSubset with unknowns admitted: every empty schema in s is accepted by
+// whatever super declares at that position, at any depth. It answers "could this be narrowed
+// to super?", so it is sound ONLY where the value is conformed against super at runtime.
+// Both schemas must be normalized.
 func (s Schema) NarrowsTo(super Schema) bool {
 	return narrowsTo(s.n, super.n)
 }
 
 // ExplainSubset names every place s fails to fit super, in walk order, or nothing when it
 // fits. It runs the SAME walk as IsSubset with reporting switched on, so the two can never
-// disagree — the reasons come from the branches that produced the verdict. Callers word the
-// breaks themselves (see SubsetBreakKind); this returns facts, not sentences.
-//
-// All of them, not the first: two properties of one object fail independently, and a caller
-// given one of them reports a difference at a time, each release discovering the next.
-//
-// Costs a second traversal, so call it only after IsSubset has already said no.
+// disagree. Callers word the breaks themselves (see SubsetBreakKind); this returns facts,
+// not sentences. Costs a second traversal, so call it only after IsSubset has said no.
 func (s Schema) ExplainSubset(super Schema) []*SubsetBreak {
 	return subsetBreaks(s.n, super.n, subsetMode{})
 }

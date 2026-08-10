@@ -36,20 +36,10 @@ func absentAsNullSubset(sub, super *node) bool {
 	return subsetWith(sub, super, subsetMode{absentAsNull: true})
 }
 
-// storedSubset compares two schemas as descriptions of data that has ALREADY been conformed,
-// which is what an instance's stored state is. It relaxes two rules, and they are relaxed for
-// different reasons that must not be conflated:
-//
-//   - absentAsNull, as above: a gap the migration closes by writing the null in.
-//   - afterConform: a property sub declares with a default is guaranteed present, because
-//     creation filled it. **This one needs no fill** — the value is in the row already — which
-//     is why it is not part of absentAsNullSubset, whose whole contract is that it tolerates
-//     exactly what Validate(v, ConformToSchemaExactly) closes (schematest/absent_test.go).
-//
-// The default rule reads the SUB side as a guarantee and the SUPER side as a requirement:
-// a default on super means only that super-conformed data would have had it, so sub must
-// still guarantee it. Sound only where nothing conforms the value against super afterwards.
-// Design: specs/compat-command.md §2e.
+// storedSubset compares two schemas as descriptions of data ALREADY conformed. It adds one
+// rule to absentAsNullSubset — a property sub declares with a default is guaranteed present —
+// and that rule needs no fill behind it, which is why it does not live there. It is asked of
+// the sub side only; see guaranteed. Design: specs/compat-command.md §2e.
 func storedSubset(sub, super *node) bool {
 	return subsetWith(sub, super, subsetMode{absentAsNull: true, afterConform: true})
 }
@@ -73,11 +63,8 @@ func subsetBreaks(sub, super *node, mode subsetMode) []*SubsetBreak {
 	return breaks
 }
 
-// subsetExplain runs the relation, collecting breaks when asked. Reporting is a MODE rather
-// than a second walk: the rules about where a value lives inside a schema are subtle enough
-// that a parallel explainer rediscovers them badly and then has to stay in step forever
-// (see subsetbreak.go). With explain false nothing is allocated for it, and the walk stops
-// at the first failure.
+// subsetExplain runs the relation, collecting breaks when asked. With explain false nothing
+// is allocated for it and the walk stops at the first failure.
 func subsetExplain(sub, super *node, mode subsetMode, explain bool) (bool, []*SubsetBreak) {
 	var subDefs, superDefs map[string]*node
 	if sub != nil {
@@ -268,13 +255,9 @@ func typeAllowed(subType string, superTypes SchemaType) bool {
 	return false
 }
 
-// guaranteed is the set of properties SUB is certain to hold. Under afterConform that is
-// required-or-defaulted, because the conform that produced this data filled the default.
-//
-// It is asked of the sub side only. Super's defaults say what data conformed under SUPER
-// would hold — and the row in hand was not: it was conformed under sub and is being carried
-// over, with a fill that writes no defaults. What super demands of an existing row is its
-// `required` set and nothing more (specs/compat-command.md §2e).
+// guaranteed is the set of properties SUB is certain to hold; under afterConform that is
+// required-or-defaulted. Asked of the sub side only — what super demands of an existing row
+// is its `required` set and nothing more (specs/compat-command.md §2e).
 func (ctx *subsetCtx) guaranteed(n *node, defs map[string]*node) map[string]bool {
 	if !ctx.afterConform {
 		return stringSet(n.Required)
@@ -293,10 +276,9 @@ func (ctx *subsetCtx) guaranteed(n *node, defs map[string]*node) map[string]bool
 	return out
 }
 
-// An object is the one place independent differences pile up: two properties fail for
-// unrelated reasons, and neither is discovered by fixing the other. So while TRACING the
-// walk keeps going and records each one; on the bool path it stops at the first, having
-// already got its answer. `stop` is that difference, in one place.
+// An object is the one place independent differences pile up, so while TRACING the walk
+// keeps going and records each one; on the bool path it stops at the first. `stop` is that
+// difference, in one place, and `ok` is what the extra iterations feed.
 func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 	subReq := ctx.guaranteed(sub, ctx.subDefs)
 	ok := true
@@ -339,20 +321,18 @@ func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 			if ctx.check(subProp, superProp, ctx.at(at, name)) {
 				continue
 			}
-			// The other direction of the null-versus-missing gap, and the mirror of the rule
-			// above. Sub may hold a null here that super will not take — but where super
-			// leaves the property OPTIONAL, the migration reconciles it by REMOVING the key,
-			// so the pair still fits. Sound only if everything but the null already fits,
-			// which is what the stripped re-check asks; required is the case nothing can fix,
-			// since absence is not valid there either.
+			// The other direction of the null-versus-missing gap: where super leaves the property
+			// OPTIONAL, the migration reconciles a stored null by REMOVING the key. Sound only if
+			// everything but the null already fits, which is what the stripped re-check asks;
+			// `required` is the case nothing can fix, since absence is not valid there either.
 			if ctx.afterConform && !superReq[name] && hasNullResolved(subProp, ctx.subDefs) {
 				retry := ctx.mark()
 				if ctx.check(stripNull(subProp), superProp, ctx.at(at, name)) {
 					ctx.rollback(mark)
 					continue
 				}
-				// The retry is an ALTERNATIVE like any other: its break describes a schema
-				// with the null taken out, which is not the one anybody wrote.
+				// An ALTERNATIVE like any other: its break describes a schema with the null taken
+				// out, which is not the one anybody wrote.
 				ctx.rollback(retry)
 			}
 			if stop() {

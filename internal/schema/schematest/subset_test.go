@@ -26,9 +26,8 @@ func assertSubset(t *testing.T, subJSON, superJSON string, want bool) {
 		t.Errorf("IsSubset(%s, %s) = %v, want %v", subJSON, superJSON, got, want)
 	}
 	// Every rejection must be able to say why. This runs over every case in every
-	// subset_*_test.go table, so a new failure branch that returns a bare false is caught
-	// here rather than surfacing as a diagnostic with nothing in it — which is what the
-	// separate explainer used to produce, and why it was deleted.
+	// subset_*_test.go table, so a new failure branch returning a bare false is caught here
+	// rather than surfacing as a diagnostic with nothing in it.
 	if !got {
 		breaks := sub.ExplainSubset(super)
 		if len(breaks) == 0 {

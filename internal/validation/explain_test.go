@@ -7,16 +7,11 @@ import (
 	"genroc/internal/schema"
 )
 
-// The explainer no longer decides anything — the relation reports its own breaks and this
-// only words them, so a message cannot name a property the verdict tolerated. What these
-// tests pin is the half that is still a choice: which breaks reach a reader, and how a
-// swapped check reads.
+// The relation reports its own breaks; these pin the half that is still a choice — which
+// breaks reach a reader, and how a swapped check reads.
 
-// explained joins each break the way the report renderer does (genctl prints
-// `path: message`), so these assert the lines an operator actually reads. Several breaks
-// join with "; " here only to keep one assertion per case — the report gives each its own
-// line. The halves travel apart all the way to Issue.Path — see
-// TestExplain_PathIsAFieldNotParsedFromTheMessage.
+// explained joins each break the way genctl prints it. The "; " between breaks is this
+// helper's, so a case can assert once; the report gives each its own line.
 func explained(e explainer, sub, super schema.Schema) string {
 	var lines []string
 	for _, f := range e.explain(sub, super) {
@@ -42,9 +37,8 @@ func explainSchema(t *testing.T, src string) schema.Schema {
 	return s
 }
 
-// Each spelling of "nullable" sits beside a property that genuinely broke, so the explainer
-// must walk past the tolerated one and name the other. A `$ref` is the case that decides
-// whether the message's rule resolves through $defs the way the relation's does.
+// Each spelling of "nullable" sits beside a property that genuinely broke; the `$ref` case
+// is what decides whether the wording resolves through $defs the way the relation does.
 func TestReadExplainer_NamesTheBreakPastEveryGapTheRelationTolerates(t *testing.T) {
 	spellings := []struct {
 		name     string
@@ -68,9 +62,8 @@ func TestReadExplainer_NamesTheBreakPastEveryGapTheRelationTolerates(t *testing.
 	}
 }
 
-// Which explainer relaxes is decided by whether anything conforms the value afterwards, so
-// the same pair must read differently on the two paths: nothing re-validates a stored
-// context, while a waiting parent conforms a child's output against its result_schema.
+// One pair, two paths: nothing re-validates a stored context, while a waiting parent
+// conforms a child's output against its result_schema.
 func TestExplainers_TheOutputContractStaysStrictWhereAReadRelaxes(t *testing.T) {
 	produced := explainSchema(t, `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`)
 	expected := explainSchema(t, `{"type":"object","properties":{"id":{"type":"string"},
@@ -79,20 +72,14 @@ func TestExplainers_TheOutputContractStaysStrictWhereAReadRelaxes(t *testing.T) 
 	if got := explained(storedExplainer, produced, expected); got != "" {
 		t.Errorf("a reader cannot tell an absent key from a stored null, got %q", got)
 	}
-	// "no longer guaranteed", not "newly required field": this check runs new ⊆ old, so the
-	// message is written from the reader's side — the old output promised `note` and the new
-	// one does not (specs/compat-command.md §3a). The path is the relation's own, rooted at
-	// the compared schema; the address the issue is filed under is a separate field.
+	// "no longer guaranteed", not "newly required field": the check runs new ⊆ old, so the
+	// message is written from the reader's side (specs/compat-command.md §3a).
 	if got, want := explained(contractExplainer, produced, expected), "note: no longer guaranteed"; got != want {
 		t.Errorf("got %q, want %q — collect conforms this value, and a conform rejects the absence, "+
 			"so the output contract must report where a read would not", got, want)
 	}
 }
 
-// A constraint break used to render as its own type on BOTH sides of the arrow: the
-// explainer walked separately from the relation and had no vocabulary for bounds, so a
-// maxItems break came out "array<string> → array<string>" — a message asserting that
-// nothing changed. The relation names what it actually rejected.
 func TestExplain_NamesTheConstraintThatBroke(t *testing.T) {
 	for _, tc := range []struct{ name, sub, super, want string }{
 		{"maxItems", `{"type":"array","items":{"type":"string"}}`,
@@ -120,10 +107,7 @@ func TestExplain_NamesTheConstraintThatBroke(t *testing.T) {
 	}
 }
 
-// The explainer used to stop at four levels: it re-walked without the relation's cycle
-// guard, so it had to invent a bound, and anything deeper reported as the outermost pair
-// with two identical descriptions. The relation's guard terminates on the schema graph
-// itself, so nesting is not a limit.
+// The relation's cycle guard terminates on the schema graph, so nesting is not a limit.
 func TestExplain_ReachesBreaksBelowTheOldDepthCap(t *testing.T) {
 	nest := func(leaf string) string {
 		s := leaf
@@ -140,10 +124,8 @@ func TestExplain_ReachesBreaksBelowTheOldDepthCap(t *testing.T) {
 	}
 }
 
-// The path is a FIELD, carried from the relation to Issue.Path untouched. It used to be
-// recovered by searching the rendered message for the first ": " and rejecting any prefix
-// containing a space — so a property whose name has one silently lost its path, and the
-// report could not say where the break was.
+// The path is a FIELD, carried to Issue.Path untouched — never recovered by splitting the
+// rendered message, which silently dropped any property name containing a space.
 func TestExplain_PathIsAFieldNotParsedFromTheMessage(t *testing.T) {
 	sub := explainSchema(t, `{"type":"object","properties":{"my key":{"type":"string"}},"required":["my key"]}`)
 	super := explainSchema(t, `{"type":"object","properties":{"my key":{"type":"integer"}},"required":["my key"]}`)
@@ -159,11 +141,8 @@ func TestExplain_PathIsAFieldNotParsedFromTheMessage(t *testing.T) {
 	}
 }
 
-// Independent differences are independent findings. One report per run is the whole value of
-// the check: an operator handed the first of three breaks fixes it, re-runs, and meets the
-// second — three releases to learn what one comparison already knew. The relation walks
-// `required` before the properties and takes the properties in sorted order, so the list is
-// the schema's shape rather than the map's.
+// The expected order is the relation's walk: `required` before the properties, and the
+// properties sorted — the schema's shape rather than the map's.
 func TestExplain_NamesEveryBreakNotTheFirst(t *testing.T) {
 	sub := explainSchema(t, `{"type":"object","properties":{
 		"amount":{"type":"number"},"currency":{"type":"string"},"note":{"type":"string"}},
@@ -183,10 +162,8 @@ func TestExplain_NamesEveryBreakNotTheFirst(t *testing.T) {
 	}
 }
 
-// A losing alternative's breaks are not findings. Each arm of a union is TRIED, so a walk
-// that recorded as it went would report the arms that did not match as reasons the whole
-// failed — and under `asStored` the stripped-null retry is a second such alternative,
-// describing a schema nobody wrote.
+// Each arm of a union is TRIED, and under `asStored` the stripped-null retry is a second
+// such alternative — describing a schema nobody wrote.
 func TestExplain_AlternativesLeaveNoBreakBehind(t *testing.T) {
 	sub := explainSchema(t, `{"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]}`)
 	super := explainSchema(t, `{"type":"object","properties":{
@@ -196,9 +173,8 @@ func TestExplain_AlternativesLeaveNoBreakBehind(t *testing.T) {
 		t.Errorf("got %q, want %q — one break for the union, not one per arm tried", got, want)
 	}
 
-	// The retry the stored relation makes when a nullable property meets a target that will
-	// not hold the null: it fails here (the underlying types differ too), and what must be
-	// reported is the pair as written, once.
+	// The stored relation's stripped-null retry, made to fail (the underlying types differ
+	// too), so what must be reported is the pair as written, once.
 	nullable := explainSchema(t, `{"type":"object","properties":{"v":{"type":["string","null"]}}}`)
 	strict := explainSchema(t, `{"type":"object","properties":{"v":{"type":"integer"}}}`)
 	if got, want := explained(storedExplainer, nullable, strict), "v: string|null → integer"; got != want {

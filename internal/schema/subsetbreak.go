@@ -1,10 +1,7 @@
 package schema
 
-// Reporting is a MODE on the subset relation, not a second walk beside it. A parallel
-// walker has to rediscover where a value lives inside a schema and then stay in step
-// forever; internal/validation had one, and it drifted — it never learned about item
-// counts, and it needed an invented depth cap because it re-walked without the relation's
-// cycle guard. Same argument as ConformMode in validate.go.
+// Reporting is a MODE on the subset relation, never a second walk beside it — the same rule
+// as ConformMode in validate.go, learned the same way. CLAUDE.md has the argument.
 
 import (
 	"maps"
@@ -15,9 +12,8 @@ import (
 	"genroc/internal/numeric"
 )
 
-// SubsetBreakKind names why the relation failed, so a caller can word it. The contract
-// check runs new ⊆ old and must read from the reader's point of view rather than the
-// relation's, which is why this is a kind and not a finished sentence.
+// SubsetBreakKind names why the relation failed, so a caller can word it. A kind rather than
+// a finished sentence: a check running new ⊆ old must read from the reader's point of view.
 type SubsetBreakKind string
 
 const (
@@ -59,10 +55,8 @@ func (p *pathLink) String() string {
 	}
 }
 
-// subsetTrace collects EVERY break, not the first. Two properties of one object fail
-// independently, and a report naming one of them sends an operator round the loop once per
-// difference — the second break is not discovered by fixing the first. Order is the walk's,
-// so it stays the shape of the schema.
+// subsetTrace collects EVERY break, not the first: two properties of one object fail
+// independently. Order is the walk's, so it stays the shape of the schema.
 type subsetTrace struct{ breaks []*SubsetBreak }
 
 // at extends the location, but only while tracing — on the bool path nothing is built, so
@@ -101,9 +95,8 @@ func (ctx *subsetCtx) rollback(mark int) {
 }
 
 // enumHasNumeric is the fallback behind the literal-bytes lookup: a number's enum membership
-// is by VALUE, so 1, 1.0 and 1e2/100 are the same member however they were written. Validate's
-// enumContains decides it that way, and a relation that disagreed would call a reformatted
-// schema a breaking change.
+// is by VALUE, the way validate's enumContains decides it. A relation that disagreed would
+// call a reformatted schema a breaking change.
 func enumHasNumeric(pool []any, v any) bool {
 	if _, isNum := numeric.ToDecimal(v); !isNum {
 		return false
@@ -127,9 +120,8 @@ func typeNames(n *node) string {
 // break becomes one line.
 const maxPropsRendered = 3
 
-// describeNode names a node well enough to tell two variants of a union apart. `typeNames`
-// renders every object as `object`, which is what made a variants break unreadable — the
-// side that stopped fitting was described by a word every alternative shared.
+// describeNode names a node well enough to tell two variants of a union apart: `typeNames`
+// renders every object as `object`, a word every alternative shares.
 func describeNode(n *node) string {
 	name := typeNames(n)
 	if len(n.Properties) == 0 {
@@ -172,8 +164,6 @@ func variantList(variants []*node) string {
 
 func num(f float64) string { return strconv.FormatFloat(f, 'g', -1, 64) }
 
-// plural names a pool of alternatives. The relation knows none of them fit; which came
-// closest is a judgement it does not have, so the break names the pool rather than picking.
 func plural(n int, noun string) string {
 	if n == 1 {
 		return "1 " + noun
@@ -185,7 +175,6 @@ func plural(n int, noun string) string {
 // of a report, so a large pool rendered whole buries the constraint it is there to name.
 const maxEnumRendered = 5
 
-// enumValues renders an enum compactly; the break names the pool, and the path says where.
 func enumValues(vs []any) string {
 	if len(vs) == 0 {
 		return "no enum"
@@ -193,7 +182,6 @@ func enumValues(vs []any) string {
 	return "enum " + enumList(vs)
 }
 
-// enumList renders a capped, counted list of values.
 func enumList(vs []any) string {
 	shown := vs
 	if len(shown) > maxEnumRendered {

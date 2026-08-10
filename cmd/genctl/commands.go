@@ -523,9 +523,8 @@ func runInstancesCmd(server string, args []string) {
 }
 
 // runDefinitionsCmd lists the registry, newest-registered first like every other list.
-// --sort name gives the alphabetical order instead, but --since still bounds created_at:
-// under that sort it is a filter rather than the point the walk starts from, so it does
-// not lift the cap.
+// --sort name gives alphabetical order instead, under which --since is a filter over
+// created_at rather than the point the walk starts from, so it does not lift the cap.
 func runDefinitionsCmd(server string, args []string) {
 	fs := flag.NewFlagSet("definitions", flag.ExitOnError)
 	serverFlag := addServerFlag(fs, server)
@@ -1232,13 +1231,8 @@ func statusWord(status string) string {
 	return ""
 }
 
-// verdictPhrase is a process's whole answer. Every member lands in exactly one fate — an
-// excluded one keeps its verdict TRUE and reads under `ignored`, since the report is the
-// only place a run that passes with `breaking` in it can be reconciled with its exit code.
-//
-// A member is never left out. Absence would read as a question that went unanswered, which
-// is how the first version of this report was taken for hiding a contract problem it did
-// not have (§6c).
+// verdictPhrase is a process's whole answer: every member lands in exactly one fate, and none
+// is ever left out — an absent member reads as a question that went unanswered (§6c).
 func verdictPhrase(p compatProcess) string {
 	if word := statusWord(p.Status); word != "" {
 		return word
@@ -1263,10 +1257,9 @@ func verdictPhrase(p compatProcess) string {
 	return fates(breaking, ignored, sound)
 }
 
-// fates is the phrasing both levels share: a fate names the members it covers, `,` joins
-// members and `; ` joins fates — one separator doing both jobs leaves `breaking: upgrade,
-// contract` and `breaking: upgrade, ignored: contract` telling apart only by lookahead.
-// Problems come first, the order §6c gives the rows for the same reason.
+// fates is the phrasing both levels share: `,` joins members and `; ` joins fates, because
+// one separator doing both jobs leaves `breaking: upgrade, contract` and `breaking: upgrade,
+// ignored: contract` telling apart only by lookahead. Problems come first (§6c).
 func fates(breaking, ignored, sound []string) string {
 	var clauses []string
 	for _, f := range []struct {
@@ -1308,9 +1301,9 @@ func gates(p compatProcess, member string) bool {
 	return false
 }
 
-// printCompatReport prints each process ONCE: the verdict heads the findings it is derived
-// from, so the two never have to be read against each other. Nothing is named by a header
-// row, because a block sits between two processes and a header a screen up answers nothing.
+// printCompatReport prints each process ONCE, the verdict heading the findings it derives
+// from. No header row: a block sits between two processes, and a header a screen up answers
+// nothing.
 func printCompatReport(r compatReport) {
 	var nameW, versionW int
 	for _, p := range r.Processes {
@@ -1344,9 +1337,8 @@ func exitOnBreak(r compatReport) {
 }
 
 // row is one line of the detail block: an address, the phrase saying what it costs, and the
-// findings that group under it. A row is either a slot that changed or a place something
-// broke, never both — putting them together claims the edit caused the break, which no
-// comparison can know (§6b).
+// findings under it. A row is either a slot that changed or a place something broke, never
+// both — together they would claim the edit caused the break (§6b).
 type row struct {
 	address string
 	phrase  string
@@ -1354,8 +1346,7 @@ type row struct {
 }
 
 // rowsFor walks findings first, then the changed slots — already only the ones no finding
-// accounts for, the server having dropped the rest (§6b). Nothing is filtered here: what the
-// report CONTAINS is decided where it is built, or every consumer keeps a copy of that rule.
+// accounts for, the server having dropped the rest (§6b). Nothing is filtered here.
 func rowsFor(p compatProcess) []row {
 	var out []row
 	at := map[string]int{}
@@ -1387,14 +1378,10 @@ func rowsFor(p compatProcess) []row {
 	return out
 }
 
-// breakPhrase names every member that broke at this address and how each of them lands, in
-// the grammar the process line uses, so one row can say a question is excused while the
-// other still fails the build. A member that broke nowhere near here is simply absent —
-// unlike the process line, a row claims nothing beyond its own address (§6b).
-//
-// A member reads `ignored` only where EVERY finding under it is excused. A finer selection
-// than the member (specs/compat-selection.md) can excuse some and not others, and leaving
-// it under `breaking` there is the reading that keeps the gating break visible.
+// breakPhrase names every member that broke at this address, in the grammar the process line
+// uses. Unlike that line, a row claims nothing beyond its own address, so a member that broke
+// elsewhere is simply absent (§6b) — and one reads `ignored` only where EVERY finding under
+// it is excused, which keeps a gating break visible under a finer selection.
 func breakPhrase(p compatProcess, address string) string {
 	var breaking, ignored []string
 	for _, member := range []string{"upgrade", "contract"} {
@@ -1418,11 +1405,8 @@ func breakPhrase(p compatProcess, address string) string {
 }
 
 // changedPhrase distinguishes the two things a clean change can mean, which is the only
-// reason the slot categories are carried at all: `ok` says a check looked and passed,
-// `not judged` says none covers it — a URL repointed, an only_once flipped.
-//
-// `ok` is scoped to its own address and claims nothing wider: a break this change causes may
-// be reported at another address, and no comparison can prove the connection either way.
+// reason slot categories are carried at all: `ok` says a check looked and passed, `not
+// judged` that none covers it. `ok` is scoped to its own address and claims nothing wider.
 func changedPhrase(s compatSlot) string {
 	if len(s.Affects) == 0 {
 		return "(not judged)"

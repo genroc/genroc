@@ -5,16 +5,10 @@ import (
 	"testing"
 )
 
-// The subset relation is NOT driven by the walk table (it compares two schemas at once), so
-// nothing mechanical tells you a keyword was left out of it. minItems/maxItems were left
-// out: an unbounded array counted as a subset of a capped one, permissively, and every
-// existing test passed because the corpus is example-based and organised by feature area —
-// subset_scalar_test.go owned minimum/minLength, subset_array_test.go owned item TYPES, and
-// item COUNTS belonged to neither file's idea of itself.
-//
-// This closes that by construction: the field list is checked against node by reflection, so
-// a new field fails here until someone either proves the relation reads it or records why it
-// cannot narrow anything.
+// The subset relation is NOT driven by the walk table, so nothing mechanical says a keyword
+// was left out of it — minItems/maxItems were, and every example-based test still passed.
+// This closes it by construction: a new field on node fails here until someone proves the
+// relation reads it or records why it cannot narrow anything.
 
 type narrowing struct {
 	sub, super string

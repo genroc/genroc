@@ -10,9 +10,8 @@ import (
 	"genroc/internal/validation"
 )
 
-// The comparison stands alone ("what did I change, can anything running observe it?");
-// everything below it is resolution — two selectors into two one-version-per-process
-// tables, reconciled. Design: specs/version-compatibility.md.
+// Everything here is resolution, never judgement: two selectors into two
+// one-version-per-process tables, reconciled. Design: specs/version-compatibility.md.
 
 // resolvedEntry is one process on one side, with the thing that decides what a missing
 // counterpart means: whether the caller named it, or it came along.
@@ -37,9 +36,8 @@ func (h *Handlers) definitionsCompat(raw json.RawMessage) Reply {
 		// would compare something the caller did not ask for.
 		return invalid("to: submitted definitions already name the target side").reply()
 	}
-	// Validate submitted documents before comparing ("unanalysable" is a worse answer than
-	// validate's, which names the task and expression). Stored versions are NOT re-validated:
-	// they passed under the rules of their day; one that no longer analyses is a per-version verdict.
+	// Validate submitted documents before comparing: "unanalysable" is a worse answer than
+	// validate's, which names the task and expression. Stored versions are NOT re-validated.
 	for _, sel := range []CompatSelector{req.From, req.To} {
 		if len(sel.Definitions) > 0 {
 			if _, err := h.validateSubmitted(sel.Definitions); err != nil {
@@ -107,10 +105,9 @@ func entriesFor(side resolvedSide) map[string]validation.SideEntry {
 	return out
 }
 
-// resolveCompatSide turns one selector into the table it names, then closes that table
-// over the child versions its definitions were registered against. Exactly one of the
-// three forms may be set: naming two would leave the resolution ambiguous, and naming none
-// hides which documents were compared behind a default.
+// resolveCompatSide turns one selector into the table it names, then closes that table over
+// the child versions its definitions were registered against. Exactly one of the three forms
+// may be set: two is ambiguous, none hides which documents were compared behind a default.
 func (h *Handlers) resolveCompatSide(sel CompatSelector, side, process string) (resolvedSide, error) {
 	forms := 0
 	for _, set := range []bool{sel.Channel != "", len(sel.Versions) > 0, len(sel.Definitions) > 0} {
@@ -133,10 +130,8 @@ func (h *Handlers) resolveCompatSide(sel CompatSelector, side, process string) (
 			return nil, fmt.Errorf("%s: channel %q: %w", side, sel.Channel, err)
 		}
 		// A channel nobody created resolves to nothing rather than failing, so a typo would
-		// otherwise become a target side every process is missing from — a whole report of
-		// unjudged rows and an exit 0, which is the answer indistinguishable from "checked,
-		// and fine". Only the TARGET: an empty from side is the bootstrap case, where nothing
-		// is running yet and every submitted process is legitimately new.
+		// otherwise be a target side every process is missing from — a report of unjudged rows
+		// and exit 0. Only the TARGET: an empty from side is the bootstrap case.
 		if len(loaded) == 0 && side == "to" {
 			return nil, invalid("to: channel %q carries no processes; there is nothing to "+
 				"compare against", sel.Channel)

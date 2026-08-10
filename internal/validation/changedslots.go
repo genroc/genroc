@@ -52,14 +52,8 @@ var actionSlots = []slot[*model.Action]{
 }
 
 // childEntrySlots decompose a `child_map`'s children. A key is a CALL, so its slots are
-// addressed the way an action's are — `<task>:child_map.<key>.<slot>` — and that is the same
-// address a per-key break carries, which is what lets §6b suppress the slot row where one
-// broke. One row for the whole map could not say which key moved, and would read
-// `(not judged)` over slots two checks now cover.
-//
-// A key present on one side only is not a slot that changed: it is a call that appeared (an
-// issue — addedChildKeyIssues) or one that vanished (silent, since the orphan output is
-// stripped).
+// addressed the way an action's are — the same address a per-key break carries, which is what
+// lets §6b suppress the slot row where one broke.
 var childEntrySlots = []slot[model.ChildEntry]{
 	{"name", "Name", func(c model.ChildEntry) any { return c.Name }},
 	{"version", "Version", func(c model.ChildEntry) any { return c.Version }},
@@ -67,20 +61,10 @@ var childEntrySlots = []slot[model.ChildEntry]{
 	{"result_schema", "ResultSchema", func(c model.ChildEntry) any { return c.ResultSchema }},
 }
 
-// definitionSlots are the process-level slots. They belong to no task and would otherwise
-// have no entry anywhere, and a schema changing nothing but `secret: true` compares equal to
-// every schema verdict, so this is the only place such a change is reported.
-//
-// `config_schema` and `$defs` are here to be REPORTED, never judged, and the reason is the
-// same for both: no verdict covers them, and a slot no verdict covers is exactly what
-// `(not judged)` exists to say. Leaving them out meant an edit to either came back as two
-// clean verdicts with no rows under them — a `secret: true` dropped from a config field
-// nothing reads, or a shared definition nobody references, changed and reported nowhere.
-//
-// `$defs` also reports where it is USED, and that is not this row saying it twice: Normalize
-// bakes a referenced definition into every schema addressing it, so a break lands at `input`
-// under a path an operator can navigate (§6a). The two are different facts — the pool moved,
-// and a value stopped fitting — and only the second can be missing.
+// definitionSlots are the process-level slots. `config_schema` and `$defs` are here to be
+// REPORTED, never judged: no verdict covers them, so without a row an edit to either comes
+// back as two clean verdicts with nothing under them. A `$defs` break ALSO lands wherever
+// Normalize baked the definition in — a different fact, and only that one can be missing.
 var definitionSlots = []slot[*model.ProcessDefinition]{
 	{"input_schema", "InputSchema", func(d *model.ProcessDefinition) any { return d.InputSchema }},
 	{"config_schema", "ConfigSchema", func(d *model.ProcessDefinition) any { return d.ConfigSchema }},
@@ -98,15 +82,12 @@ const (
 )
 
 // slotAddress is where the report files a change to a slot: the place the slot defines, so
-// an edit lands where its consequences are read. An action's slots are addressed by the
-// ACTION TYPE rather than the word `action` — they are polymorphic, `url` existing only on a
-// fetch and `name` only on a child, so the type says which vocabulary the name comes from —
-// and `result_schema` drops its suffix, naming what it describes (§6a).
+// an edit lands where its consequences are read. An action's slots are polymorphic, so they
+// are addressed by the ACTION TYPE rather than the word `action` (§6a).
 func slotAddress(task, slot, actionType string) string {
 	name := slot
-	// `action.type` is the one action slot that is NOT polymorphic: every action has a type,
-	// and it is the discriminator the others are named by. Addressing it under a type would
-	// be circular — `go:fetch.type` — so it keeps the generic name.
+	// `action.type` is the discriminator the others are named by, so addressing it under a
+	// type would be circular — `go:fetch.type`. It keeps the generic name.
 	if rest, ok := strings.CutPrefix(slot, "action."); ok && rest != "type" {
 		name = actionType + "." + slotLeafName(rest)
 	}
@@ -136,26 +117,18 @@ func childKeyAddress(task, actionType, key string) string {
 }
 
 // slotAffects is the question a slot BEARS ON — a property of the slot itself, not of any
-// comparison — so a change that broke nothing still says which column it could have moved.
-// The rule is §3a's: who submits the value, and what conform stands between the parties.
-//
-// **Empty is a real answer, not an omission.** A URL repointed, an `only_once` flipped, a
-// `switch` rerouted: no verdict covers them, and saying so is what `(not judged)` renders. A
-// slot added to the tables above and forgotten here reads that way too, which is the safe
-// direction — it appears, unjudged, rather than vanishing.
+// comparison. Empty is a real answer, not an omission: it is what `(not judged)` renders, and
+// a slot added to the tables above and forgotten here reads that way too, which is the safe
+// direction. The rule is §3a's: who submits the value, and what conform stands between.
 func slotAffects(slot string) []Member {
 	switch slot {
-	// The stored input is read by every task; the same schema is what ValidateInput holds
-	// the next caller to. One slot, both questions — the case §3b is entirely about.
+	// One slot, both questions — the case §3b is entirely about.
 	case "input_schema":
 		return []Member{MemberUpgrade, MemberContract}
-	// A task's output projects into `outputs.<id>`, which every later task reads.
 	case "output":
 		return []Member{MemberUpgrade}
-	// What a response must satisfy: narrowing means OUR conform starts rejecting responses
-	// the service still sends. Whether it is ALSO an upgrade concern depends on the action
-	// type, not the slot — a parked task carries the result across a version change (§2c) —
-	// so that half is decided by the caller.
+	// Whether it is ALSO an upgrade concern depends on the action type rather than the slot,
+	// so that half is decided by the caller — see taskSlotAffects.
 	case "action.result_schema":
 		return []Member{MemberContract}
 	}
@@ -179,11 +152,9 @@ func changedTaskSlots(old, new *model.Task) []SlotChange {
 			emit(s.name)
 		}
 	}
-	// A task that became a different KIND of action reports that and nothing else. Its other
-	// action slots are not comparable across types — a `url` that vanished did so because the
-	// task stopped being a fetch — and listing them would file consequences beside the cause
-	// as if they were independent edits, under an address (`go:external.url`) naming a slot
-	// that type does not have.
+	// A task that became a different KIND of action reports that and nothing else: its other
+	// slots are not comparable across types, and listing them would file consequences beside
+	// the cause under an address (`go:external.url`) naming a slot that type does not have.
 	if typeChanged(old, new) {
 		emit("action.type")
 		return changed
@@ -207,12 +178,9 @@ func changedChildKeySlots(old, new *model.Task) []SlotChange {
 	for _, key := range sortedChildKeys(old.Action.Children) {
 		newChild, ok := new.Action.Children[key]
 		if !ok {
-			// The call went. Nothing FAILS — collect keys each sibling by `_spawn_child_key`,
-			// so an orphan output lands under a key the new version does not declare and the
-			// output conform strips it — but a call that stopped being made is an edit, and
-			// an edit no verdict covers is what this channel exists to report. Its counterpart
-			// is an issue: a key ADDED is a value the new version guarantees and a parent
-			// already collecting cannot hold (addedChildKeyIssues).
+			// The call went. Nothing FAILS — the orphan output lands under an undeclared key and
+			// the output conform strips it — but a call that stopped being made is an edit no
+			// verdict covers, which is what this channel exists to report.
 			changed = append(changed, SlotChange{
 				Address: childKeyAddress(old.ID, actionType, key),
 				Task:    old.ID,
@@ -234,14 +202,9 @@ func changedChildKeySlots(old, new *model.Task) []SlotChange {
 	return changed
 }
 
-// childEntrySlotAffects is slotAffects for one key of a child_map, and a child_map always
-// parks — so its `result_schema` bears on both questions, as `action.result_schema` does on
-// a task that parks.
-//
-// The rest are judged by nothing, and each for a reason: which process a key NAMES is
-// carried by the result schema comparison rather than checked (§2c), the pinned `version` is
-// the child's own row to report, and an `input` is a value we build for a party whose
-// tolerance no comparison here can know.
+// childEntrySlotAffects is slotAffects for one key of a child_map, which always parks — so
+// its `result_schema` bears on both questions. The rest are judged by nothing: §2c has why a
+// key's `name` needs no rule, and a pinned `version` is the child's own row to report.
 func childEntrySlotAffects(slot string) []Member {
 	if slot == "result_schema" {
 		return []Member{MemberUpgrade, MemberContract}
@@ -253,11 +216,9 @@ func typeChanged(old, new *model.Task) bool {
 	return actionTypeOf(old) != actionTypeOf(new)
 }
 
-// taskSlotAffects is slotAffects plus the one rule that depends on the action rather than
-// the slot: a result schema is ALSO an upgrade concern where the task can park mid-flight,
-// because the instance is holding state the entry context does not describe (§2c). A fetch
-// cannot park — request and response happen inside one advance — which is why this is a rule
-// about parking rather than a list of types.
+// taskSlotAffects is slotAffects plus the one rule that depends on the action rather than the
+// slot: a result schema is ALSO an upgrade concern where the task can park mid-flight, since
+// the instance holds state the entry context does not describe (§2c).
 func taskSlotAffects(slot, actionType string) []Member {
 	affects := slotAffects(slot)
 	if slot == "action.result_schema" && parksMidTask(actionType) {
@@ -267,20 +228,15 @@ func taskSlotAffects(slot, actionType string) []Member {
 }
 
 // parksMidTask reports whether this action leaves a VALUE the entry context does not
-// describe — a submitted result, or children's outputs to collect. It decides whether a
-// result schema is an upgrade concern and not only a contract one.
-//
-// Derived from model.ActionType.Holds rather than restated: the engine, this comparison and
-// a future replay all need the same answer about what an action leaves behind, and three
-// copies of it drift silently.
+// describe. Derived from model.ActionType.Holds rather than restated — the engine and this
+// comparison need the same answer, and two copies of it drift silently.
 func parksMidTask(actionType string) bool {
 	return model.ActionType(actionType).Holds().Result
 }
 
 // holdsAnInstance is the wider question: can an instance be SITTING in this action at all?
-// It is true for a delay too, which holds a live instance and no data — the timer was
-// computed under the old definition, so a task that stops being a delay wakes an instance
-// into an action that never asked to be woken.
+// True for a delay too, which holds a live instance and no data — its timer was computed
+// under the old definition.
 func holdsAnInstance(actionType string) bool {
 	return model.ActionType(actionType).Holds().Anything()
 }
@@ -335,14 +291,10 @@ func changedDefinitionSlots(old, new *model.ProcessDefinition) []SlotChange {
 	return changed
 }
 
-// reordered reports whether the tasks BOTH versions carry appear in a different order.
-// `switch: next` routes by position, so moving a task reroutes the one in front of it while
-// every slot on every task compares equal — the one edit a field comparison cannot see, and
-// the reason `documentsDiffer` has always counted order.
-//
-// Only the tasks in common. An insertion shifts everything after it, and a definition that
-// gained a task would otherwise report a reorder beside the `(added)` row: one edit, filed
-// twice, the second time as something that did not happen.
+// reordered reports whether the tasks BOTH versions carry appear in a different order —
+// `switch: next` routes by position, so a move reroutes while every slot compares equal.
+// Only the tasks in common: an insertion shifts everything after it, and would otherwise
+// report a reorder beside the `(added)` row it already caused.
 func reordered(old, new *model.ProcessDefinition) bool {
 	inOld, inNew := tasksByID(old), tasksByID(new)
 	shared := func(def *model.ProcessDefinition, other map[string]*model.Task) []string {

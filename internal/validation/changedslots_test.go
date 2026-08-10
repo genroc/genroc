@@ -8,10 +8,9 @@ import (
 	"genroc/internal/schema"
 )
 
-// The changed-slot lists are hand-maintained, and forgetting an entry fails SILENTLY:
-// the slot simply stops being reported, and every comparison still comes back
-// well-formed. These tests are the only thing that makes that loud, so they enumerate
-// the structs rather than checking a hand-written list against itself.
+// The changed-slot lists are hand-maintained, and a forgotten entry fails SILENTLY — the
+// slot stops being reported and every comparison still comes back well-formed. These
+// enumerate the structs rather than checking a hand-written list against itself.
 
 // notASlot names the fields deliberately absent from a slot list, each with the reason
 // it is absent. A field added to one of these structs matches nothing here and fails.
@@ -138,12 +137,9 @@ const everySlotDoc = `{"name":"total",
    "switch":"end"}]}`
 
 // A document that DIFFERS must produce a row. The reflection tests above catch a field the
-// slot lists forgot; this catches an edit those lists cannot see at all — the order of the
-// task list, and a child_map key that stopped existing — which is how a reordered process
-// and a dropped call each came back as two clean verdicts and an empty block.
-//
-// The oracle is the marshalled document, so it shares nothing with the machinery under test:
-// if the bytes moved, the report says something.
+// slot lists forgot; this catches an edit those lists cannot see at all — task order, and a
+// child_map key that stopped existing. The oracle is the marshalled document, so it shares
+// nothing with the machinery under test: if the bytes moved, the report says something.
 func TestChangedSlots_EveryDifferentDocumentIsReported(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -157,8 +153,7 @@ func TestChangedSlots_EveryDifferentDocumentIsReported(t *testing.T) {
 			d.Tasks[1], d.Tasks[2] = d.Tasks[2], d.Tasks[1]
 		}},
 		// Prepended rather than appended: a new entry task is reachable without rerouting
-		// anything, so the edit stays one edit. Removing the entry task is legal for the
-		// mirror reason — nothing routes TO it, and the task behind it becomes the entry.
+		// anything, so the edit stays one edit.
 		{"a task added", func(d *model.ProcessDefinition) {
 			entry := &model.Task{
 				ID:     "extra",
@@ -217,9 +212,8 @@ func TestChangedSlots_EveryDifferentDocumentIsReported(t *testing.T) {
 	}
 }
 
-// A task compared against itself must report nothing: the slot comparison is a byte
-// comparison over JSON encodings, so a slot whose type marshals unstably (a map iterated
-// without sorting, say) would report a spurious difference on every single task.
+// A task compared against itself must report nothing: the slot comparison is over JSON
+// bytes, so a slot whose type marshals unstably would differ on every single task.
 func TestChangedSlots_NothingDiffersAgainstItself(t *testing.T) {
 	task := &model.Task{
 		ID: "charge",

@@ -2,11 +2,8 @@ package schematest
 
 import "testing"
 
-// The break's Path is where the relation stopped, and it is a FIELD — it reaches
-// Issue.Path and the report renderer without ever being re-parsed out of a message. It used
-// to be recovered by string-searching the rendered sentence for the first ": ", which
-// dropped any property name containing a space; these pin the spelling so a caller can rely
-// on it.
+// The break's Path is a FIELD, reaching Issue.Path and the renderer without ever being
+// re-parsed out of a message. These pin its spelling so a caller can rely on it.
 func TestExplainSubset_PathNamesWhereTheRelationStopped(t *testing.T) {
 	for _, tc := range []struct{ name, sub, super, path, kind string }{
 		{
@@ -97,9 +94,8 @@ func TestExplainSubset_PathNamesWhereTheRelationStopped(t *testing.T) {
 	}
 }
 
-// What each side HOLDS, named. Before the relation reported its own breaks, a constraint
-// narrowing rendered as its own type on both sides — `string → string` — a line asserting
-// that nothing changed about a change that breaks both compat questions.
+// What each side HOLDS, named — not its type, which renders identically on both sides of a
+// constraint narrowing and asserts that nothing changed.
 func TestExplainSubset_ConstraintBreaksSayWhatMoved(t *testing.T) {
 	for _, tc := range []struct{ name, sub, super, wantSub, wantSuper string }{
 		{"enum narrowed", `{"type":"string"}`, `{"type":"string","enum":["a","b"]}`,
@@ -158,11 +154,8 @@ func TestExplainSubset_LongEnumIsTruncated(t *testing.T) {
 	}
 }
 
-// Which values stopped fitting, STATED rather than shown. A capped list cannot express an
-// absence: two pools differing by one value truncate to the same five entries, so rendering
-// them on either side of the arrow reported a change while saying nothing changed. The
-// earlier truncation test passed straight over that, because it pinned the format and not
-// the purpose.
+// Which values stopped fitting, STATED rather than shown: a capped list cannot express an
+// absence, since two pools differing by one value truncate to the same five entries.
 func TestExplainSubset_EnumBreakNamesTheValuesThatNoLongerFit(t *testing.T) {
 	for _, tc := range []struct{ name, sub, super, wantSub, wantSuper string }{
 		{
@@ -200,9 +193,7 @@ func TestExplainSubset_EnumBreakNamesTheValuesThatNoLongerFit(t *testing.T) {
 }
 
 // Addition and removal are the SAME edit read from two ends, and the two compat questions
-// run in opposite directions — so one enum change is a break on exactly one of them. Adding
-// a value cannot hurt a reader of stored data; it does hurt a consumer written against the
-// old output, and that is the direction the contract check runs (new ⊆ old).
+// run in opposite directions — so one enum change is a break on exactly one of them.
 func TestExplainSubset_EnumWideningBreaksOnlyTheReversedDirection(t *testing.T) {
 	narrow := normalize(t, `{"type":"string","enum":["a"]}`)
 	wide := normalize(t, `{"type":"string","enum":["a","b"]}`)
@@ -217,11 +208,9 @@ func TestExplainSubset_EnumWideningBreaksOnlyTheReversedDirection(t *testing.T) 
 	}
 }
 
-// An enum member is a VALUE, not a literal, and the relation must agree with the validator
-// about which is which: isSubset claims every value valid under sub is valid under super,
-// and Validate is what decides "valid". They disagreed — checkEnum compared marshalled bytes
-// while enumContains compares numbers by value — so re-spelling 1 as 1.0 was reported as a
-// breaking change. Differential, because agreement with Validate IS the property.
+// An enum member is a VALUE, not a literal. isSubset claims every value valid under sub is
+// valid under super, and Validate decides "valid" — so this is differential, because
+// agreement with Validate IS the property being tested.
 func TestIsSubset_EnumMembershipAgreesWithValidate(t *testing.T) {
 	for _, tc := range []struct {
 		name, sub, super string
@@ -252,9 +241,8 @@ func TestIsSubset_EnumMembershipAgreesWithValidate(t *testing.T) {
 				}
 				witness = witness || superErr != nil
 			}
-			// The converse, and it needs a WITNESS: a rejection is only right if some value sub
-			// admits is genuinely refused. Checking "some sample passes both" would prove
-			// nothing — in a pool that merely shrank, most values still fit either side.
+			// A rejection needs a WITNESS: some value sub admits that super genuinely refuses.
+			// "Some sample passes both" proves nothing in a pool that merely shrank.
 			if !fits && !witness {
 				t.Errorf("IsSubset said no, but every sampled value sub admits is accepted by " +
 					"super — the break is spurious, and a report would call a compatible change breaking")
