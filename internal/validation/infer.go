@@ -17,12 +17,13 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 	if err := checkReachability(tasks); err != nil {
 		return err
 	}
-	required, optional, mustErr, mayErr := computeContextSets(tasks)
+	required, optional, mustErr, mayErr, errSrc := computeContextSets(tasks)
+	errs := errContexts(tasks, mustErr, mayErr, errSrc, defs)
 
 	// Phase 1: infer every output-map task's exported type, in dependency order
 	// (mutually-recursive tasks resolved jointly), writing each to defs so the
 	// switches and later tasks below see the final types.
-	if err := inferOutputs(tasks, taskSchemas, processInput, configSchema, defs, required, optional, mustErr, mayErr); err != nil {
+	if err := inferOutputs(tasks, taskSchemas, processInput, configSchema, defs, required, optional, errs); err != nil {
 		return err
 	}
 
@@ -43,7 +44,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			hasUntil := isDelay && s.Action.Until != nil
 			hasTimeout := !s.Timeout.IsZero()
 			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout {
-				ctx := contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, mustErr[s.ID], mayErr[s.ID]).WithDefs(defs)
+				ctx := contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID]).WithDefs(defs)
 				// The child_list `over` expression must be a non-null array; each
 				// element becomes one child's input. Type-check it here so a malformed or
 				// non-array expression is rejected at registration.
@@ -116,7 +117,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 		}
 
 		if len(s.Switch) > 0 {
-			switchCtx := contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, mustErr[s.ID], mayErr[s.ID])
+			switchCtx := contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID])
 			if s.Action != nil || s.Output.Present() {
 				loops := slices.Contains(optional[s.ID], s.ID) || slices.Contains(required[s.ID], s.ID)
 				withSelf, err := addSelfSchema(switchCtx, s, loops, defs)
@@ -371,14 +372,14 @@ func checkAcceptedStatusShape(raw any, ctx schema.Schema, taskID string) error {
 	return nil
 }
 
-func contextSchema(preceding []string, optional []string, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, errRequired, errOptional bool) schema.Schema {
-	return contextSchemaAbsent(preceding, optional, nil, tasks, processInput, configSchema, errRequired, errOptional)
+func contextSchema(preceding []string, optional []string, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, e errAt) schema.Schema {
+	return contextSchemaAbsent(preceding, optional, nil, tasks, processInput, configSchema, e)
 }
 
 // contextSchema plus the outputs definitely NOT set on this path, typed null rather than
 // omitted — omission errors the access; null lets ?? take the other arm. A non-empty
 // absent list comes only from the per-terminal walk, only for tasks other terminals reach.
-func contextSchemaAbsent(preceding, optional, absent []string, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, errRequired, errOptional bool) schema.Schema {
+func contextSchemaAbsent(preceding, optional, absent []string, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, e errAt) schema.Schema {
 	ctx := schema.Object()
 	if !processInput.IsZero() {
 		ctx = ctx.WithProperty("input", processInput, true)
@@ -416,17 +417,23 @@ func contextSchemaAbsent(preceding, optional, absent []string, tasks map[string]
 	}
 	ctx = ctx.WithProperty("outputs", outputs, true)
 
-	if errRequired || errOptional {
+	if e.must || e.may {
 		// child_key/child_index populate only from batch resolution (child-error-handling §5.3);
 		// an action task's on_error leaves them absent, and the schema cannot tell which produced
-		// a given $error — so both are optional, and separate single-typed fields (no type-switch).
+		// a given `error` — so both are optional, and separate single-typed fields (no type-switch).
 		errSchema := schema.Object().
 			WithProperty("task", schema.Type("string"), true).
 			WithProperty("message", schema.Type("string"), true).
 			WithProperty("code", schema.Type("string"), true).
 			WithProperty("child_key", schema.Type("string"), false).
 			WithProperty("child_index", schema.Type("integer"), false)
-		if errRequired {
+		// `data` is present exactly where a reaching rule declared a body for the status it
+		// catches; where sources disagree the union already carries the null arm, so the
+		// property is required and nullable rather than optional.
+		if !e.data.IsZero() {
+			errSchema = errSchema.WithProperty("data", e.data, true)
+		}
+		if e.must {
 			ctx = ctx.WithProperty("error", errSchema, true)
 		} else {
 			ctx = ctx.WithProperty("error", errSchema.WithNull(), false)

@@ -58,7 +58,7 @@ variants without the check that makes them sound.
 
 ### X2-a — operator-facing only
 
-Payload on the raising child's row (instance detail, logs, API); `$error` in the parent
+Payload on the raising child's row (instance detail, logs, API); `error` in the parent
 unchanged; not matchable, not readable by expressions.
 
 **For:** I6 survives literally; no schema machinery (`error_data` column already

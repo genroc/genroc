@@ -603,7 +603,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 			OutputsData: raw.OutputsData,
 			OutputData:  raw.OutputData,
 			// The three error slots clear together: a kept error_code corrupts the column it exists
-			// for; a kept error_data would survive into $error reads. mustErr/mayErr admits a $error
+			// for; a kept error_data would survive into `error` reads. mustErr/mayErr admits an `error`
 			// read only where an error exists on every path, so a cleared one is never readable.
 			ErrorData:    "",
 			ExternalData: raw.ExternalData,

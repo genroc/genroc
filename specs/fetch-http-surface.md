@@ -211,6 +211,20 @@ that rejected `false`. Runtime conform is per status and never touches the union
 damage would land where it is hardest to see — in the generated `<taskID>_output` schema a
 consumer reads, and in `IsSubset` during a compat check.
 
+**`error` is scoped to the task its rule routes to.** It used to persist on the instance
+until another failure overwrote it, so a task three hops past a handler could still read a
+failure it was never written for. Now the engine drops it on every ordinary transition, and
+inference types it only on tasks an error edge enters. A handler that wants the failure to
+travel projects it into its own `output` — the mechanism every other value already uses, and
+an explicit one, where the old behaviour was an implicit second channel nothing declared.
+
+Two things fall out. The static side collapses: `mustErr`/`mayErr` and the rules reaching a
+handler stop being fixpoints over the graph and become local questions about one task's
+incoming edges. And the rule applies to the whole error model, not just fetch — a child
+failure routed by `on_error` is scoped the same way, because both write the same slot. All
+three shipped examples already read `error` in the immediate `goto` target, so the
+generality being removed had no user.
+
 **Neither channel needs narrowing.** `{"200": T, "202": U}` is an `anyOf`; refining it by
 `self.status` needs literal types, discriminated unions and guard narrowing, all deferred. The
 design does not depend on them. The common success shape is one body-carrying status plus N

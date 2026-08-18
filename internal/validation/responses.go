@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"genroc/internal/errcode"
 	"genroc/internal/model"
 	"genroc/internal/schema"
 	"genroc/internal/template"
@@ -137,55 +138,6 @@ func fetchResultType(a *model.Action, defs schema.Defs) (schema.Schema, bool, er
 	return schema.AnyOf(arms...), true, nil
 }
 
-// errorDataType is rule 2 for the error channel, restricted to the statuses codes can reach.
-// The union is over what the handler's on_error patterns can match, so a rule naming one
-// status gets exactly that status's schema.
-func errorDataType(a *model.Action, defs schema.Defs, reaches func(code int) bool) (schema.Schema, bool, error) {
-	if len(a.Responses) == 0 {
-		return schema.Schema{}, false, nil
-	}
-	accepted, static := acceptedPatterns(a)
-	var arms []schema.Schema
-	nullable := false
-	declaredAny := false
-	for _, key := range sortedResponseKeys(a.Responses) {
-		patterns, err := model.ParseResponseKey(key)
-		if err != nil {
-			continue
-		}
-		hit := anyStatusMatching(patterns, func(code int) bool {
-			return !isAcceptedStrict(code, accepted, static) && reaches(code)
-		})
-		if !hit {
-			continue
-		}
-		declaredAny = true
-		sc := a.Responses[key]
-		if sc == nil {
-			nullable = true
-			continue
-		}
-		merged, err := sc.MergeInto(defs)
-		if err != nil {
-			return schema.Schema{}, false, err
-		}
-		arms = append(arms, merged)
-	}
-	if !declaredAny {
-		return schema.Schema{}, false, nil
-	}
-	if len(arms) == 0 {
-		return schema.Type("null"), true, nil
-	}
-	if nullable {
-		arms = append(arms, schema.Type("null"))
-	}
-	if len(arms) == 1 {
-		return arms[0], true, nil
-	}
-	return schema.AnyOf(arms...), true, nil
-}
-
 // isAcceptedStrict is isAccepted for the error channel: under a dynamic accepted set a status
 // is possibly-unaccepted, so it reaches error.data as well as self.result.
 func isAcceptedStrict(code int, accepted []string, static bool) bool {
@@ -236,4 +188,171 @@ func fetchResultContract(a *model.Action) (*schema.Schema, error) {
 	// resolve a bare #/$defs ref against.
 	out := sc.WithMergedDefs(pool)
 	return &out, nil
+}
+
+// nonStatusProbes are the catchable codes a fetch can report that carry no response body.
+// A rule whose patterns reach any of them can arrive at its handler with nothing in hand, so
+// error.data admits null — this is the list `%` and `http.%` are caught by. Child raise codes
+// are not here: they belong to a child task, whose error.data is absent outright.
+var nonStatusProbes = []errcode.Code{
+	errcode.HTTPTimeout, errcode.PreTimeout, errcode.PreError,
+	errcode.OutputParse, errcode.OutputTooLarge, errcode.OutputInvalid,
+	errcode.OnlyOnceInterrupted,
+}
+
+func ruleCatches(rule model.ErrorCase, code errcode.Code) bool {
+	if len(rule.Code) == 0 {
+		return true // empty list is the catch-all
+	}
+	for _, p := range rule.Code {
+		if errcode.MatchCode(p, string(code)) {
+			return true
+		}
+	}
+	return false
+}
+
+// ruleErrorData is one rule's contribution to error.data: the bodies its patterns can catch,
+// and whether it can also arrive carrying nothing. A source that is not a fetch declaring
+// statuses contributes only the null — there is no body on that path to type.
+func ruleErrorData(t *model.Task, rule model.ErrorCase, defs schema.Defs) ([]schema.Schema, bool, error) {
+	a := t.Action
+	if a == nil || a.Type != model.ActionTypeFetch || len(a.Responses) == 0 {
+		return nil, true, nil
+	}
+	accepted, static := acceptedPatterns(a)
+	unaccepted := func(code int) bool { return !isAcceptedStrict(code, accepted, static) }
+
+	var arms []schema.Schema
+	nullable := false
+	for _, key := range sortedResponseKeys(a.Responses) {
+		patterns, err := model.ParseResponseKey(key)
+		if err != nil {
+			continue
+		}
+		// Walk the keys rather than the codes: a "4xx" declaration covers a hundred statuses
+		// and must contribute its schema once, not a hundred identical arms.
+		if !anyStatusMatching(patterns, func(code int) bool {
+			return unaccepted(code) && ruleCatches(rule, errcode.HTTP(code))
+		}) {
+			continue
+		}
+		sc := a.Responses[key]
+		if sc == nil {
+			nullable = true
+			continue
+		}
+		merged, err := sc.MergeInto(defs)
+		if err != nil {
+			return nil, false, err
+		}
+		arms = append(arms, merged)
+	}
+	// A status this rule catches that no key describes arrives with an unreadable body.
+	for code := minStatus; code <= maxStatus && !nullable; code++ {
+		if !unaccepted(code) || !ruleCatches(rule, errcode.HTTP(code)) {
+			continue
+		}
+		if _, declared := a.ResponseFor(code); !declared {
+			nullable = true
+		}
+	}
+	for _, probe := range nonStatusProbes {
+		if ruleCatches(rule, probe) {
+			nullable = true
+			break
+		}
+	}
+	return arms, nullable, nil
+}
+
+// errorDataSchema types error.data at a task: the union over every on_error rule that can
+// have set the `error` visible there. One rule reaching one handler gives exactly that rule's
+// schema; widening the patterns, or letting a second rule reach the same handler, widens the
+// type — which is the narrowing story the design leans on, done by the rules themselves
+// rather than by any type-system machinery. A zero schema means no reaching rule declares a
+// body, and error.data is then absent entirely (undeclared data is never accessible).
+func errorDataSchema(tasks []*model.Task, srcs []errSource, defs schema.Defs) (schema.Schema, error) {
+	var arms []schema.Schema
+	nullable, any := false, false
+	for _, src := range srcs {
+		if src.task < 0 || src.task >= len(tasks) {
+			continue
+		}
+		t := tasks[src.task]
+		if src.rule < 0 || src.rule >= len(t.OnError) {
+			continue
+		}
+		ruleArms, ruleNull, err := ruleErrorData(t, t.OnError[src.rule], defs)
+		if err != nil {
+			return schema.Schema{}, err
+		}
+		arms = append(arms, ruleArms...)
+		nullable = nullable || ruleNull
+		any = any || len(ruleArms) > 0
+	}
+	if !any {
+		return schema.Schema{}, nil
+	}
+	if nullable {
+		arms = append(arms, schema.Type("null"))
+	}
+	if len(arms) == 1 {
+		return arms[0], nil
+	}
+	return schema.AnyOf(arms...), nil
+}
+
+// errAt is what `error` looks like on entry to one task: whether it is always or possibly
+// present, and the type of its `data` slot. A zero Data means no reaching rule declares a
+// body, and `error.data` is then absent from the context entirely.
+type errAt struct {
+	must bool
+	may  bool
+	data schema.Schema
+}
+
+// errContexts resolves the per-task error facts once, so every context built for a task
+// agrees about what `error` holds there — an output projection and a switch case that
+// disagreed would accept an expression in one slot and reject it in the other.
+// A schema that fails to merge leaves the slot ABSENT rather than taking the caller down:
+// an expression reading it then fails loudly as "not in schema", which is the safe
+// direction, and the same merge runs on the success channel where the error does surface.
+func errContexts(tasks []*model.Task, mustErr, mayErr map[string]bool, errSrc map[string][]errSource, defs schema.Defs) map[string]errAt {
+	out := make(map[string]errAt, len(tasks))
+	for _, t := range tasks {
+		data, err := errorDataSchema(tasks, errSrc[t.ID], defs)
+		if err != nil {
+			data = schema.Schema{}
+		}
+		out[t.ID] = errAt{must: mustErr[t.ID], may: mayErr[t.ID], data: data}
+	}
+	return out
+}
+
+// unionErrData joins several tasks' error.data — the process output is read at whichever
+// terminal ran, so its `error` is whatever any of them could have left. A terminal with no
+// readable body contributes null rather than dropping out, the same treatment an absent
+// output gets: omission errors the access, null lets `??` take the other arm.
+func unionErrData(errs map[string]errAt, ids []string) schema.Schema {
+	var arms []schema.Schema
+	nullable := false
+	for _, id := range ids {
+		e := errs[id]
+		if e.data.IsZero() {
+			nullable = true
+			continue
+		}
+		arms = append(arms, e.data)
+	}
+	if len(arms) == 0 {
+		return schema.Schema{}
+	}
+	if nullable {
+		arms = append(arms, schema.Type("null"))
+	}
+	if len(arms) == 1 {
+		return arms[0]
+	}
+	return schema.AnyOf(arms...)
 }

@@ -52,7 +52,7 @@ func matchOnError(task *model.Task, errCode errcode.Code) *model.ErrorCase {
 	return nil
 }
 
-// handleCallError evaluates on_error rules, retries if allowed, injects $error, and routes
+// handleCallError evaluates on_error rules, retries if allowed, injects `error`, and routes
 // to the matching goto or fails the instance, returning the outcome for runAdvance to
 // write. A pending pause needs no case here: the write that persists the outcome lands it
 // (the CASE in UpdateInstance), so a paused instance keeps the attempt it was granted.
@@ -60,9 +60,9 @@ func (e *Engine) handleCallError(inst *model.ProcessInstance, task *model.Task, 
 	return e.handleCallErrorWith(inst, task, errMsg, errCode, nil)
 }
 
-// handleCallErrorWith is handleCallError plus fields merged into $error beyond
+// handleCallErrorWith is handleCallError plus fields merged into `error` beyond
 // task/message/code — today only `data`, the body of an unaccepted response whose status a
-// `responses` key declared. A nil map leaves $error exactly as it was; a map holding a nil
+// `responses` key declared. A nil map leaves `error` exactly as it was; a map holding a nil
 // `data` is NOT the same thing, because key presence is what says the status was described.
 func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Task, errMsg string, errCode errcode.Code, extra map[string]any) advanceOutcome {
 	matched := matchOnError(task, errCode)
@@ -87,7 +87,7 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 	inst.ContextData["error"] = errCtx
 
 	// An authored terminal clause outranks routing. Both keep the engine's own code in
-	// $error (above) so the underlying cause stays visible on the instance detail, while
+	// `error` (above) so the underlying cause stays visible on the instance detail, while
 	// error_code becomes the authored one -- the code an operator filters and alerts on.
 	if matched != nil && matched.Raise != nil {
 		return e.raiseInstance(inst, task, matched.Raise)

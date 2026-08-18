@@ -95,7 +95,7 @@ test("catch — a matching rule routes the parent to a recovery task", async () 
   const { data } = await client.GET("/instances/{id}", {
     params: { path: { id } },
   });
-  // The recovery task read $error.code — the routed task keeps its context and sees the
+  // The recovery task read `error.code` — the routed task keeps its context and sees the
   // raised error, mirroring what the child raised.
   expect((data?.context?.outputs as Record<string, unknown>)?.recover).toBe(
     "declined",
@@ -114,7 +114,7 @@ test("catch — a rule routes to end, completing the parent (and computes output
   await client.PUT("/definitions", {
     body: {
       name: parent,
-      // A static output (does not read $error, so no reachability complication): its
+      // A static output (does not read `error`, so no reachability complication): its
       // presence in the completed instance proves resolution's goto:end ran computeOutput.
       output: '$: "handled"',
       tasks: [
@@ -182,7 +182,7 @@ test("catch — a rule panics, failing the parent with the authored code", async
   expect(data?.error).toBe("the batch cannot be settled");
 });
 
-// A rule that raises: the parent re-raises with its own code, and $error mirrors the
+// A rule that raises: the parent re-raises with its own code, and `error` mirrors the
 // child underneath.
 test("catch — a rule re-raises, so the error propagates one named level up", async () => {
   const suffix = crypto.randomUUID().slice(0, 8).replace(/-/g, "_");
@@ -220,7 +220,7 @@ test("catch — a rule re-raises, so the error propagates one named level up", a
   });
   expect(data?.status).toBe("raised");
   expect(data?.error_code).toBe("payment_failed");
-  // Underneath, $error still mirrors the child that caused it.
+  // Underneath, `error` still mirrors the child that caused it.
   const err = data?.context?.error as Record<string, unknown>;
   expect(err?.code).toBe("declined");
   expect(err?.child_key).toBe("a");
@@ -365,7 +365,7 @@ test("batch — the first raised child (by child_index) routes the parent", asyn
   });
   const reported = (data?.context?.outputs as Record<string, unknown>)
     ?.report as Record<string, unknown>;
-  // First raised child (index 1, not 0) routes, and $error mirrors it.
+  // First raised child (index 1, not 0) routes, and `error` mirrors it.
   expect(reported?.child_index).toBe(1);
   expect(reported?.code).toBe("bad_item");
   expect(reported?.message).toBe("the item was rejected");

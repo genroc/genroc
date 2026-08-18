@@ -8,7 +8,7 @@ predate the `{{ }}` → `${ }` retarget; read accordingly.
 
 Decisions closed at shipping: D3 confirmed (reachability only — the one decision that is
 expensive to reverse later); D7 confirmed (no parent-side retry; §10.1 is the workaround
-and the trigger); §11.3 revive clears `$error` too; the status is `raised`, not
+and the trigger); §11.3 revive clears `error` too; the status is `raised`, not
 `errored` (D4). The pause/resume redesign strengthened §5.2's guarantee (a paused child
 counts as active in `CountActiveSiblings`, so a resolving parent still sees only settled
 children — now independent of where a stop originated) and made E1 a live, correct case.
@@ -156,7 +156,7 @@ means unsettled.
 ```
 E := raised children in slot order
 E = ∅        → collect outputs, continue          (happy path)
-otherwise    → f := E[0]; write $error from f (§5.3); match f's rule:
+otherwise    → f := E[0]; write `error` from f (§5.3); match f's rule:
                nil or verb-less → fail P   ·  goto:end → complete P
                raise/panic      → as §5.1  ·  goto:$id → P.task := id
 ```
@@ -174,14 +174,14 @@ with the action-task path so the two cannot drift (the action path previously sk
 
 ### 5.3 What the routed task sees
 
-`$error` = `{task, code, message, child_key | child_index}` — identity and code only, no
+`error` = `{task, code, message, child_key | child_index}` — identity and code only, no
 child data (I6). Two separate single-typed fields, not one `string|integer`, so a
 handler never type-switches; exactly one is present. **One raise is reported** — the
 first in slot order — never the set (D2): "which of the 10 failed and why" is a result
 and belongs in `{ok: false}` outputs. The routed task keeps its normal context; the only
 absence is `outputs.<T.id>` — the failed batch never produced one. Typing: `child_key`/
-`child_index` are optional in the `$error` schema (a plain action-task `on_error` leaves
-them absent); presence of `$error` itself comes from the existing mustErr/mayErr
+`child_index` are optional in the `error` schema (a plain action-task `on_error` leaves
+them absent); presence of `error` itself comes from the existing mustErr/mayErr
 dataflow. *Delta:* the draft's nested `slot: {key|index}` flattened to the two scalars;
 `siblings` removed (D2).
 
@@ -233,7 +233,7 @@ is poisoned.
 
 Go surface: `Fault`, `.Raise`/`.Panic` on both case types, `StatusRaised` (+
 `Terminal()`, §11.4), `ErrorCode` on instance + summary + filters + CLI, `Raises()`,
-the §5.2 split of `collectChildOutputs`, R5's pass, `$error` schema fields. *Delta:*
+the §5.2 split of `collectChildOutputs`, R5's pass, `error` schema fields. *Delta:*
 `raises` is published on the definition **list** (there is no per-definition JSON
 endpoint); `error_code` went into the list summary despite the "listing stays light"
 rule — it is short, and it is what a list is scanned for; the OpenAPI builder now
@@ -273,7 +273,7 @@ four files, and the OpenAPI blob fails far from the change.
 
 - **D1 — no `child.` prefix.** §2.4: a child task's `on_error` can only see raised
   codes, and they are lexically distinct from engine codes.
-- **D2 — no `siblings`; `$error` reports one raise.** The draft's aggregate was cut:
+- **D2 — no `siblings`; `error` reports one raise.** The draft's aggregate was cut:
   the engine never routes on it; "6 of 10 failed and why" is a result §0 sends to
   output; and it does not fit a batch anyway — I1 means a partial-raise batch produces
   no output, so the successes are uncollectable regardless.
@@ -349,12 +349,12 @@ the missing rule lives in a version-pinned definition retry does not re-read; th
 fix is a new version. Scoping note worth a comment in code: `revive` reads only the
 batch of the node's *current* task, so a batch already routed past is behind the node.
 
-### 11.3 Clear `error_code` and `$error` on revive
+### 11.3 Clear `error_code` and `error` on revive
 
 All three error slots clear together. A kept `error_code` quietly corrupts the very
 column it exists for (a revived-then-completed instance still reports its old death);
-a kept `$error` becomes reachable via the batch error route. Clearing cannot break a
-valid definition: mustErr/mayErr admits a `$error` read only where an error is present
+a kept `error` becomes reachable via the batch error route. Clearing cannot break a
+valid definition: mustErr/mayErr admits an `error` read only where an error is present
 on every path.
 
 ### 11.4 `Status.Terminal()` must include `raised` — a live bug if missed

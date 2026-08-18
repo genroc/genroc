@@ -77,7 +77,7 @@ A rule of thumb: **raise only when the remaining siblings are pointless.**
 
 ## What the parent sees when a child raises
 
-`$error` for a fan-out is identity and code only — no child data crosses:
+`error` for a fan-out is identity and code only — no child data crosses:
 
 ```yaml
 - id: halted

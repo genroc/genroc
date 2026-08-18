@@ -22,7 +22,7 @@ This is the child → parent error-handling contract (see
 [`specs/child-error-handling.md`](../../specs/child-error-handling.md)): success is an
 **output**, but running out of attempts is an anticipated error the child **raises** by a
 named code, and the parent's `on_error` on the child task **catches** it — routing to a
-`report` task that reads the raised error from `$error`. A result the caller inspects would
+`report` task that reads the raised error from `error`. A result the caller inspects would
 stay in output; control-flow conditions the caller reacts to are raises. Note the raise sits
 directly on a `switch` case: an arm either routes (`goto`) or terminates (`raise`/`panic`),
 so no separate task is needed to fail.

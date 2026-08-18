@@ -89,7 +89,7 @@ no-regression over the examples.
   different problem — genroc's pain is across tasks. Eventually worth having.
 - **Author assertion** (`non_null:`): a claim, not a proof — the same reason
   `not_reached` had to be restricted; teaches reflexive assertion.
-- **Infer from `on_error` structure**: error routing already carries `$error`; the
+- **Infer from `on_error` structure**: error routing already carries `error`; the
   case that hurts is a `switch`.
 
 ## Decided, and open

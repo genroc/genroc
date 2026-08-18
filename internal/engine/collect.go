@@ -75,7 +75,7 @@ func raisedInSlotOrder(siblings []*model.ProcessInstance, task *model.Task) []*m
 	return raised
 }
 
-// setBatchError writes $error for a routed batch: first raised child's identity, code,
+// setBatchError writes `error` for a routed batch: first raised child's identity, code,
 // message — no child data crosses (I6). child_key (string) and child_index (integer) are
 // separate single-typed fields so an expression never type-switches.
 func (e *Engine) setBatchError(inst *model.ProcessInstance, task *model.Task, first *model.ProcessInstance) {

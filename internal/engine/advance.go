@@ -395,6 +395,12 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		// Reflect the new position (empty once we run past the last task) so a
 		// checkpoint here persists the next task to run, not the one just completed.
 		inst.Task = taskIDAt(def.Tasks, idx)
+		// `error` is scoped to the task its on_error rule routed to. An ordinary transition
+		// leaves that task, so the failure stops being in scope here — a handler that wants
+		// it to travel projects it into its own output, which is how every other value
+		// moves. Inference types `error` on exactly the tasks an error edge enters, so
+		// leaving it in the context would make it readable where nothing declares it.
+		delete(inst.ContextData, "error")
 
 		inst.RetryCount = 0
 		inst.WakeAt = nil

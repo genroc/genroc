@@ -133,11 +133,12 @@ func TaskContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 // taskContexts is TaskContexts with the input slot supplied by the caller: Compare
 // passes the zero schema, having hoisted `input` out of the per-task loop.
 func taskContexts(def *model.ProcessDefinition, sf SchemaFile, input schema.Schema) map[string]schema.Schema {
-	required, optional, mustErr, mayErr := computeContextSets(def.Tasks)
+	required, optional, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
+	errs := errContexts(def.Tasks, mustErr, mayErr, errSrc, sf.Defs)
 	out := make(map[string]schema.Schema, len(def.Tasks))
 	for _, t := range def.Tasks {
 		out[t.ID] = contextSchema(required[t.ID], optional[t.ID], sf.Tasks, input,
-			schema.Schema{}, mustErr[t.ID], mayErr[t.ID]).WithDefs(sf.Defs)
+			schema.Schema{}, errs[t.ID]).WithDefs(sf.Defs)
 	}
 	return out
 }

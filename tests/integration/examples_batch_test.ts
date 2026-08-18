@@ -148,7 +148,7 @@ test("examples/batch-invoices: a run-wide failure is raised, and the parent catc
 
     // The batch produced NO output — a raise abandons it, so there is no partially
     // populated array. What the parent gets instead is the identity of the slot that
-    // raised, which is the whole of `$error` for a fan-out: code and position, no data.
+    // raised, which is the whole of `error` for a fan-out: code and position, no data.
     const outputs = await outputsOf(id);
     expect(outputs.send_all).toBeUndefined();
     expect(outputs.halted).toEqual({

@@ -158,7 +158,7 @@ func TestRetryProcess_ClearsErrorCodeAndErrorData(t *testing.T) {
 				t.Errorf("error should be cleared, got %q", revived.Error)
 			}
 			if got := revived.ContextData["error"]; got != nil {
-				t.Errorf("$error should be cleared, got %v", got)
+				t.Errorf("`error` should be cleared, got %v", got)
 			}
 		})
 	}

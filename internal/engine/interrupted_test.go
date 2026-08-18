@@ -111,16 +111,16 @@ func TestInterrupted_RoutesToHandler(t *testing.T) {
 		t.Errorf("the interrupted action was executed %d times; the engine must never re-run it", got)
 	}
 
-	// $error is what the handler reads to know what it is recovering from.
+	// `error` is what the handler reads to know what it is recovering from.
 	errCtx, _ := inst.ContextData["error"].(map[string]any)
 	if errCtx == nil {
-		t.Fatalf("no $error in context, got %#v", inst.ContextData)
+		t.Fatalf("no `error` in context, got %#v", inst.ContextData)
 	}
 	if errCtx["code"] != string(errcode.OnlyOnceInterrupted) {
-		t.Errorf("$error.code = %v, want %s", errCtx["code"], errcode.OnlyOnceInterrupted)
+		t.Errorf("`error.code` = %v, want %s", errCtx["code"], errcode.OnlyOnceInterrupted)
 	}
 	if errCtx["task"] != "charge" {
-		t.Errorf("$error.task = %v, want the interrupted task", errCtx["task"])
+		t.Errorf("`error.task` = %v, want the interrupted task", errCtx["task"])
 	}
 
 	// The handler runs on the next claim and the process finishes normally.

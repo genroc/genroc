@@ -843,7 +843,7 @@ test("crash recovery — a handler may raise an authored code instead of routing
       params: { path: { id: run.instanceId } },
     });
     // The authored code is what an operator filters on; the engine's own code stays
-    // visible in $error, which is the point of raising rather than failing.
+    // visible in `error`, which is the point of raising rather than failing.
     expect(after!.error_code).toBe("charge_unconfirmed");
     expect(
       (after!.context as Record<string, Record<string, unknown>>).error?.code,

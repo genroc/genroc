@@ -30,7 +30,7 @@ type SchemaFile struct {
 // values replaced by "***", using the schemas inferred for the process: input is
 // scrubbed against ProcessInput, each outputs.<task> against that task's output
 // schema, and output against ProcessOutput. Keys with no inferred schema (unknown
-// tasks, $error, bookkeeping) pass through unchanged. It runs the whole scrub as a
+// tasks, `error`, bookkeeping) pass through unchanged. It runs the whole scrub as a
 // single walk of the composed context schema.
 func RedactContext(ctxData map[string]any, sf SchemaFile) map[string]any {
 	out, _ := SchemaFileContext(sf).Redact(ctxData).(map[string]any)
@@ -148,9 +148,19 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 func inferProcessOutput(def *model.ProcessDefinition, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, defs schema.Defs) (schema.Schema, error) {
 	shp := shape.Shape{Raw: def.Output.Raw, Name: "output"}
 	terminals := outputTerminals(def)
+	// The process output reads `error` at whichever terminal ran, so its `data` is the union
+	// over the terminals rather than any one task's.
+	_, _, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
+	errs := errContexts(def.Tasks, mustErr, mayErr, errSrc, defs)
+	termIDs := make([]string, 0, len(terminals))
+	for _, t := range terminals {
+		termIDs = append(termIDs, t.task)
+	}
+	errData := unionErrData(errs, termIDs)
 	if len(terminals) < 2 {
 		req, opt, errReq, errOpt := outputContextSets(def)
-		ctx := contextSchema(req, opt, tasks, processInput, configSchema, errReq, errOpt).WithDefs(defs)
+		ctx := contextSchema(req, opt, tasks, processInput, configSchema,
+			errAt{must: errReq, may: errOpt, data: errData}).WithDefs(defs)
 		return shp.Check(ctx)
 	}
 
@@ -189,7 +199,8 @@ func inferProcessOutput(def *model.ProcessDefinition, tasks map[string]TaskSchem
 		sort.Strings(opt)
 		sort.Strings(absent)
 
-		ctx := contextSchemaAbsent(must, opt, absent, tasks, processInput, configSchema, t.errMin, t.errMax).WithDefs(defs)
+		ctx := contextSchemaAbsent(must, opt, absent, tasks, processInput, configSchema,
+			errAt{must: t.errMin, may: t.errMax, data: errs[t.task].data}).WithDefs(defs)
 		s, err := shp.Check(ctx)
 		if err != nil {
 			if firstErr == nil {

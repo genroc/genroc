@@ -47,7 +47,7 @@ router, ignoring the pausing status: unmatched → terminal failure (a failure o
 pause); `raise`/`panic`/`goto: end` → terminal; `goto: <task>` → parks at the handler,
 **paused**, and runs it on resume — no new Go branch, because the routed checkpoint
 writes status `running` and the `UpdateInstance` CASE lands the pause (the "pause lands
-in SQL" invariant, applied to a path that used to opt out). `$error` survives the wait
+in SQL" invariant, applied to a path that used to opt out). `error` survives the wait
 as ordinary persisted context. `settlePausing` keeps only its original job, and a
 non-`only_once` interrupted task still just parks and re-runs on resume.
 
@@ -58,7 +58,7 @@ may match it (the author's risk, as with every code — note an already-register
 catch-all on an `only_once` task changes behaviour under this feature, a runtime change
 for existing rows); uncaught is the same terminal failure as before. `retries` is
 refused — see the unknowable set. Mechanically `handleCallError` minus the retry branch;
-`$error.task` names the interrupted task; no `work_started` for it (the handler emits
+`error.task` names the interrupted task; no `work_started` for it (the handler emits
 its own).
 
 ## The unknowable set
@@ -144,7 +144,7 @@ does by reading it back).
   derivable for any process)? Its own design — a change to the expression environment.
 - Is there a third outcome between "fail" and "route" — "stopped, needs a human"? A
   lifecycle change, noted not proposed.
-- Should `$error` say more than the code? Only meaningful if action-level response
+- Should `error` say more than the code? Only meaningful if action-level response
   metadata lands (fetch-http-surface).
 - The family may stay a family of one; that is fine and cheaper than a guessed general
   name.

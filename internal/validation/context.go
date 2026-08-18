@@ -12,6 +12,10 @@ import (
 type predEdge struct {
 	idx   int  // predecessor task index; -1 = process start
 	isErr bool // true = on_error route
+	// rule indexes the predecessor's OnError slice for an error edge, -1 otherwise. It is
+	// what attributes `error` at a handler to the rules that could have set it, which is the
+	// only way to know which statuses — and so which declared bodies — can arrive there.
+	rule int
 }
 
 // taskHasOutput reports whether a task exports an output to outputs.<id>. Only an
@@ -23,7 +27,7 @@ func taskHasOutput(s *model.Task) bool {
 }
 
 // terminalEnd is one way the process can finish: the task it ends on, the task outputs
-// guaranteed present there (must) and possibly present (may), and whether $error is.
+// guaranteed present there (must) and possibly present (may), and whether `error` is.
 type terminalEnd struct {
 	task   string
 	must   map[string]bool
@@ -42,7 +46,7 @@ func outputTerminals(def *model.ProcessDefinition) []terminalEnd {
 		return nil
 	}
 
-	reqMap, optMap, mustErrMap, mayErrMap := computeContextSets(tasks)
+	reqMap, optMap, mustErrMap, mayErrMap, _ := computeContextSets(tasks)
 
 	var terminals []terminalEnd
 
@@ -96,7 +100,7 @@ func outputTerminals(def *model.ProcessDefinition) []terminalEnd {
 }
 
 // outputContextSets returns which task outputs are required/optional at the process
-// output boundary, and whether $error is required or optional there — the single
+// output boundary, and whether `error` is required or optional there — the single
 // collapsed answer, for callers that cannot use the per-terminal detail.
 func outputContextSets(def *model.ProcessDefinition) (required, optional []string, errRequired, errOptional bool) {
 	terminals := outputTerminals(def)
@@ -161,27 +165,27 @@ func buildPreds(tasks []*model.Task) [][]predEdge {
 		idx[s.ID] = i
 	}
 	preds := make([][]predEdge, n)
-	preds[0] = append(preds[0], predEdge{idx: -1})
+	preds[0] = append(preds[0], predEdge{idx: -1, rule: -1})
 	for i, s := range tasks {
 		addedNext := false
 		for _, c := range s.Switch {
 			if strings.HasPrefix(c.Goto, "$") {
 				if j, ok := idx[c.Goto[1:]]; ok {
-					preds[j] = append(preds[j], predEdge{idx: i})
+					preds[j] = append(preds[j], predEdge{idx: i, rule: -1})
 				}
 			} else if c.Goto == model.GotoNext && !addedNext && i+1 < n {
-				preds[i+1] = append(preds[i+1], predEdge{idx: i})
+				preds[i+1] = append(preds[i+1], predEdge{idx: i, rule: -1})
 				addedNext = true
 			}
 		}
 		// Backward-compat: tasks with no switch fall through to the next task.
 		if len(s.Switch) == 0 && i+1 < n {
-			preds[i+1] = append(preds[i+1], predEdge{idx: i})
+			preds[i+1] = append(preds[i+1], predEdge{idx: i, rule: -1})
 		}
-		for _, ec := range s.OnError {
+		for r, ec := range s.OnError {
 			if ec.Goto != "" && ec.Goto != model.GotoEnd {
 				if j, ok := idx[ec.Goto]; ok {
-					preds[j] = append(preds[j], predEdge{idx: i, isErr: true})
+					preds[j] = append(preds[j], predEdge{idx: i, isErr: true, rule: r})
 				}
 			}
 		}
@@ -226,14 +230,22 @@ func checkReachability(tasks []*model.Task) error {
 
 // computeContextSets computes, for each task, which prior task outputs are
 // always available (required) and which are only sometimes available (optional).
-// It also returns mustErr and mayErr maps indicating whether the $error context
+// It also returns mustErr and mayErr maps indicating whether the `error` context
 // key is always / sometimes present at each task.
-func computeContextSets(tasks []*model.Task) (required, optional map[string][]string, mustErr, mayErr map[string]bool) {
+// errSource names one on_error rule that can have set the `error` a task reads: the task the
+// rule belongs to, and its index in that task's OnError slice.
+type errSource struct {
+	task int
+	rule int
+}
+
+func computeContextSets(tasks []*model.Task) (required, optional map[string][]string, mustErr, mayErr map[string]bool, errSrc map[string][]errSource) {
 	n := len(tasks)
 	required = make(map[string][]string, n)
 	optional = make(map[string][]string, n)
 	mustErr = make(map[string]bool, n)
 	mayErr = make(map[string]bool, n)
+	errSrc = make(map[string][]errSource, n)
 	if n == 0 {
 		return
 	}
@@ -346,56 +358,28 @@ func computeContextSets(tasks []*model.Task) (required, optional map[string][]st
 		}
 	}
 
-	// mustErrArr[i] = $error is ALWAYS present when entering task i (all paths are error paths).
+	// `error` is scoped to the task an on_error rule routes TO, and nothing further: the
+	// engine drops it on every ordinary transition, so there is no propagation to chase and
+	// these are local questions about one task's incoming edges. A handler that wants the
+	// failure to travel projects it into its own `output`, like every other value.
 	mustErrArr := make([]bool, n)
-	for {
-		changed := false
-		for i := range tasks {
-			if len(preds[i]) == 0 {
+	mayErrArr := make([]bool, n)
+	srcArr := make([][]errSource, n)
+	for i := range tasks {
+		allErr := len(preds[i]) > 0
+		for _, p := range preds[i] {
+			if !p.isErr {
+				allErr = false
 				continue
 			}
-			val := true
-			for _, p := range preds[i] {
-				if p.idx == -1 {
-					val = false
-					break
-				}
-				if p.isErr {
-					// error edge always contributes error
-				} else {
-					val = val && mustErrArr[p.idx]
-				}
-			}
-			if mustErrArr[i] != val {
-				mustErrArr[i] = val
-				changed = true
-			}
+			mayErrArr[i] = true
+			srcArr[i] = append(srcArr[i], errSource{task: p.idx, rule: p.rule})
 		}
-		if !changed {
-			break
-		}
+		mustErrArr[i] = allErr
 	}
 
-	// mayErrArr[i] = $error is POSSIBLY present when entering task i.
-	mayErrArr := make([]bool, n)
-	for {
-		changed := false
-		for i := range tasks {
-			val := false
-			for _, p := range preds[i] {
-				if p.idx != -1 && (p.isErr || mayErrArr[p.idx]) {
-					val = true
-					break
-				}
-			}
-			if mayErrArr[i] != val {
-				mayErrArr[i] = val
-				changed = true
-			}
-		}
-		if !changed {
-			break
-		}
+	for i, s := range tasks {
+		errSrc[s.ID] = srcArr[i]
 	}
 
 	for i, s := range tasks {
