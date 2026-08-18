@@ -185,6 +185,15 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 				hadNull = true
 				continue
 			}
+			// An unknown variant makes the whole access undecidable, so it is refused rather
+			// than folded in as another null arm. A miss elsewhere means "this variant does
+			// not have that field" — an answer; the top type means "nothing here is
+			// declared", which is not one. Reading through it would be reading INTO unknown
+			// data, which is the one thing {} exists to prevent.
+			if isEmptyNode(rv) {
+				return nil, fmt.Errorf("cannot access .%s: one variant of the value is unknown (its schema is {}), "+
+					"so nothing can be read through it — declare that variant's shape, or read the whole value", name)
+			}
 			r, err := lookupPropertyGuard(rv, name, defs, next)
 			if err != nil {
 				hadMiss = true
@@ -288,6 +297,12 @@ func inferIndexGuard(s *node, defs map[string]*node, visiting map[*node]bool) (*
 			if isNullType(rv) {
 				hadNull = true
 				continue
+			}
+			// Same rule as a property access through a union: an unknown variant makes the
+			// element type undecidable rather than absent, so indexing through it is refused.
+			if isEmptyNode(rv) {
+				return nil, fmt.Errorf("cannot index: one variant of the value is unknown (its schema is {}), " +
+					"so nothing can be read through it — declare that variant's shape, or read the whole value")
 			}
 			r, err := inferIndexGuard(rv, defs, next)
 			if err != nil {
@@ -794,6 +809,11 @@ func stripNullVariants(vs []*node) ([]*node, bool) {
 	}
 	return out, changed
 }
+
+// IsUnknown reports whether s is the top type ({}) — undeclared data, which is carried but
+// never read. Distinct from "a type we could not pin down": a union of scalars is unpinned
+// but declared, while this constrains nothing at all.
+func (s Schema) IsUnknown() bool { return isEmptyNode(s.n) }
 
 // isEmptyNode: does s constrain nothing — the top type {}, i.e. unknown? Root $defs are
 // ignored (navigation sub-schemas carry them as context only), and so is Description:

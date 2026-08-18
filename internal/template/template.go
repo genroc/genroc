@@ -239,6 +239,14 @@ func (t *Template) InferType(sc schema.Schema) (schema.Schema, error) {
 		if inferred.HasNull() {
 			return schema.Schema{}, fmt.Errorf("template expression %q may be null; use ?? to provide a default value", c.text)
 		}
+		// The top type is not "a type we could not pin down" — it is UNDECLARED data, and
+		// rendering it into text is reading it, which is the one thing {} forbids. The `$:`
+		// spelling already refuses it (unknown is not a subset of a scalar target), so
+		// admitting it here would make one value legal in one spelling and not the other,
+		// and the runtime failure is a terminal engine.expression rather than a catchable one.
+		if inferred.IsUnknown() {
+			return schema.Schema{}, fmt.Errorf("template expression %q is unknown (its schema is {}); declare its shape before interpolating it into text", c.text)
+		}
 		// stringify accepts only string/number/bool, so an array or object here is a
 		// guaranteed runtime failure. Catch it at registration instead: IsType is
 		// "resolves uniformly to", so this fires only when the value provably cannot
