@@ -455,6 +455,7 @@ func addSelfSchema(ctx schema.Schema, s *model.Task, loops bool, defs schema.Def
 	if typed {
 		self = self.WithProperty("result", resultType, true)
 	}
+	self = withFetchMeta(self, s.Action)
 	if s.Output.Present() {
 		self = self.WithProperty("output", schema.Ref(s.ID+"_output"), true)
 		if loops {
@@ -507,8 +508,24 @@ func actionResultType(s *model.Task, defs schema.Defs) (schema.Schema, bool, err
 // outputMapContext: the base context plus self.result, plus self.previous ONLY when the
 // task loops — only then is there a prior iteration, and previous and outputs.<id> both
 // resolve through $defs[<id>_output], the placeholder the fixpoint drives.
-func outputMapContext(base schema.Schema, resultType schema.Schema, typed bool, taskID string, loops bool) schema.Schema {
-	self := schema.Object()
+// withFetchMeta adds self.status / self.headers, and only for a fetch. They are SIBLINGS of
+// self.result, never a wrapper around it: re-shaping the result into {body, status, headers}
+// would be tidier and would break every definition that reads it. The gate keeps a delay or a
+// child from growing an always-null self.status — a slot every context would then carry for
+// nothing — and the runtime builds its map under the same gate (engine.taskSelf). A slot in
+// one and not the other is either unreadable or reads null where the type promised a value.
+// Header keys are lowercased by the transport; reading one yields `string | null`, since any
+// key may be absent.
+func withFetchMeta(self schema.Schema, a *model.Action) schema.Schema {
+	if a == nil || a.Type != model.ActionTypeFetch {
+		return self
+	}
+	self = self.WithProperty("status", schema.Type("integer"), true)
+	return self.WithProperty("headers", schema.Map(schema.Type("string")), true)
+}
+
+func outputMapContext(base schema.Schema, resultType schema.Schema, typed bool, taskID string, loops bool, action *model.Action) schema.Schema {
+	self := withFetchMeta(schema.Object(), action)
 	// An untyped result (fetch/external with no result_schema) is omitted here, so an
 	// output that references self.result is a registration error: you cannot export an
 	// untyped value — add a result_schema to type the response.

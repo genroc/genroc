@@ -21,18 +21,26 @@ import (
 // task has no equivalent default: parking indefinitely is what it is for.
 const defaultActionTimeout = 30 * time.Second
 
-// executeAction sends a request to the task's endpoint and returns (output, done):
-//   - done=nil: action succeeded; output is the task result.
+// fetchMeta is what a fetch answered besides its body, exposed for the duration of the task
+// as self.status and self.headers. Nil for every other action type — a delay or a child has
+// no status, and an always-null slot is one the type system would carry everywhere.
+type fetchMeta struct {
+	status  int
+	headers map[string]string
+}
+
+// executeAction sends a request to the task's endpoint and returns (output, meta, done):
+//   - done=nil: action succeeded; output is the task result and meta its response metadata.
 //   - done!=nil: the task loop should stop and persist this outcome (retry, error
 //     route, or permanent fail).
-func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *advanceOutcome) {
+func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *fetchMeta, *advanceOutcome) {
 	// Resolved per attempt (a retry gets today's budget), then applied as a DURATION via
 	// WithTimeout, never a WithDeadline instant: it was read off db.Now() while context
 	// deadlines compare against real time.Now() — subtraction cancels the offset, an instant keeps it.
 	now := db.Now()
 	timeout, err := e.fetchTimeout(inst, task, now)
 	if err != nil {
-		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q timeout: %v", task.ID, err)))
+		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q timeout: %v", task.ID, err)))
 	}
 
 	taskCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -42,15 +50,15 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	// secret values it carries are scrubbed from the logged URL/errors in audit().
 	url, err := e.resolveURL(inst, task.Action)
 	if err != nil {
-		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q url: %v", task.ID, err)))
+		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q url: %v", task.ID, err)))
 	}
 	method, err := e.resolveMethod(inst, task.Action)
 	if err != nil {
-		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q method: %v", task.ID, err)))
+		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q method: %v", task.ID, err)))
 	}
 	resolvedHeaders, err := e.resolveHeaders(inst, task.Action)
 	if err != nil {
-		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q headers: %v", task.ID, err)))
+		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q headers: %v", task.ID, err)))
 	}
 	// Stamp the caller's identity on every request (set last so it is authoritative and
 	// a user-supplied header of the same name cannot spoof it).
@@ -63,13 +71,13 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	if task.Action.Body.Present() {
 		body, err = e.evalShape(inst, shape.Shape{Raw: task.Action.Body.Raw}, nil)
 		if err != nil {
-			return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q body: %v", task.ID, err)))
+			return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q body: %v", task.ID, err)))
 		}
 	}
 	resolvedStatus, err := e.resolveAcceptedStatus(inst, task.Action)
 	acceptedStatus := task.Action.EffectiveAcceptedStatus(resolvedStatus)
 	if err != nil {
-		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q accepted_status: %v", task.ID, err)))
+		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q accepted_status: %v", task.ID, err)))
 	}
 
 	// action_started (debug): message = the action type; data = the request body; meta =
@@ -84,7 +92,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 		// code in code — separate from the operational retry/route event that follows.
 		// A transport error has no HTTP status, so meta stays absent.
 		e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionFailed, Task: task.ID, Code: code, Data: e.snippetRaw(err.Error())})
-		return nil, stop(e.handleCallError(inst, task, err.Error(), code))
+		return nil, nil, stop(e.handleCallError(inst, task, err.Error(), code))
 	}
 	if resp.ErrorCode != "" {
 		code, msg, extra := resp.ErrorCode, resp.ErrorMessage, map[string]any(nil)
@@ -106,7 +114,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 		}
 		// action_failed (debug): error body in data, status in meta, code in code.
 		e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionFailed, Task: task.ID, Code: code, Data: e.snippetRaw(resp.ErrorMessage), Meta: statusMeta(resp.Status)})
-		return nil, stop(e.handleCallErrorWith(inst, task, msg, code, extra))
+		return nil, nil, stop(e.handleCallErrorWith(inst, task, msg, code, extra))
 	}
 
 	// An accepted status whose body could not be decoded fails whatever was declared: the
@@ -118,7 +126,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 			msg = string(resp.BodyCode)
 		}
 		e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionFailed, Task: task.ID, Code: resp.BodyCode, Data: e.snippetRaw(msg), Meta: statusMeta(resp.Status)})
-		return nil, stop(e.handleCallError(inst, task, msg, resp.BodyCode))
+		return nil, nil, stop(e.handleCallError(inst, task, msg, resp.BodyCode))
 	}
 
 	// The schema declared for this status validates the raw result and normalizes it
@@ -127,7 +135,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	// `output` projection adds anything to outputs.<id>.
 	normalized, _, err := task.Action.ValidateResponse(resp.Status, resp.Body)
 	if err != nil {
-		return nil, stop(e.handleCallError(inst, task, err.Error(), errcode.OutputInvalid))
+		return nil, nil, stop(e.handleCallError(inst, task, err.Error(), errcode.OutputInvalid))
 	}
 	resp.Body = normalized
 	inst.RetryCount = 0
@@ -137,7 +145,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	// --level debug rather than cluttering the default info trail.
 	e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionSucceeded, Task: task.ID, Data: e.snippetResult(task, resp.Status, resp.Body), Meta: statusMeta(resp.Status)})
 
-	return resp.Body, nil
+	return resp.Body, &fetchMeta{status: resp.Status, headers: resp.Headers}, nil
 }
 
 func (e *Engine) buildTaskData(inst *model.ProcessInstance, task *model.Task) (any, error) {

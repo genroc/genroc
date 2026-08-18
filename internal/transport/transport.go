@@ -52,9 +52,11 @@ const (
 // never lands here, so the caller can tell "the remote refused" from "the body was unreadable"
 // and apply the declaration to each.
 // ErrorMessage is a human-readable description of the failure (may include trimmed response body).
+// Headers are the response headers, lowercased and comma-joined (see responseHeaders).
 // Status is the HTTP status code for a REST call (success or failure); 0 for non-HTTP transports.
 type Response struct {
 	Body         any
+	Headers      map[string]string
 	BodyCode     errcode.Code
 	ErrorCode    errcode.Code
 	ErrorMessage string
@@ -129,6 +131,7 @@ func sendHTTP(ctx context.Context, url, method string, acceptedStatus []string, 
 		body, code := decodeBytes(raw)
 		return &Response{
 			Body:         body,
+			Headers:      responseHeaders(resp.Header),
 			BodyCode:     code,
 			ErrorCode:    errcode.HTTP(resp.StatusCode),
 			ErrorMessage: msg,
@@ -144,6 +147,7 @@ func sendHTTP(ctx context.Context, url, method string, acceptedStatus []string, 
 	err = numeric.DecodeReader(limited, &b)
 	if limited.N <= 0 {
 		return &Response{
+			Headers:      responseHeaders(resp.Header),
 			BodyCode:     errcode.OutputTooLarge,
 			ErrorMessage: fmt.Sprintf("response body exceeds the %d-byte limit a fetch will read", MaxResponseBytes),
 			Status:       resp.StatusCode,
@@ -152,12 +156,12 @@ func sendHTTP(ctx context.Context, url, method string, acceptedStatus []string, 
 	// An empty body is a value (null), not a parse failure: 204, an async 202 and a webhook
 	// ACK all answer with nothing, and calling that malformed is what made them unwritable.
 	if errors.Is(err, io.EOF) {
-		return &Response{Status: resp.StatusCode}, nil
+		return &Response{Headers: responseHeaders(resp.Header), Status: resp.StatusCode}, nil
 	}
 	if err != nil {
-		return &Response{BodyCode: errcode.OutputParse, Status: resp.StatusCode}, nil
+		return &Response{Headers: responseHeaders(resp.Header), BodyCode: errcode.OutputParse, Status: resp.StatusCode}, nil
 	}
-	return &Response{Body: b, Status: resp.StatusCode}, nil
+	return &Response{Body: b, Headers: responseHeaders(resp.Header), Status: resp.StatusCode}, nil
 }
 
 // decodeBytes decodes an already-buffered body, reporting why it could not be read rather
@@ -175,6 +179,22 @@ func decodeBytes(raw []byte) (any, errcode.Code) {
 		return nil, errcode.OutputParse
 	}
 	return v, ""
+}
+
+// responseHeaders flattens a response's headers into the flat object<string> a definition
+// reads. Keys are LOWERCASED: Go canonicalises to `Retry-After`, so a canonicalised map would
+// make `self.headers['retry-after']` silently null — predictability beats fidelity, and
+// browsers lowercase too. Repeated headers are comma-joined so the type stays flat; Set-Cookie
+// is the accepted casualty of that.
+func responseHeaders(h http.Header) map[string]string {
+	if len(h) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(h))
+	for k, vs := range h {
+		out[strings.ToLower(k)] = strings.Join(vs, ", ")
+	}
+	return out
 }
 
 func methodAllowsBody(method string) bool {

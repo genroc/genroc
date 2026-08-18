@@ -200,6 +200,39 @@ expression, so the whole request can come from the context.
 `X-Genroc-Instance-Id` and `X-Genroc-Task-Id` are stamped on every request authoritatively,
 so a caller-supplied header cannot spoof them.
 
+#### Response metadata
+
+A fetch exposes what the response carried besides its body, as siblings of `self.result` —
+the body keeps its meaning, nothing is re-wrapped:
+
+| | |
+|---|---|
+| `self.status` | the HTTP status, as an integer |
+| `self.headers` | the response headers, as a string map |
+
+Both exist only on a `fetch`; no other action type has a status. Header keys are
+**lowercased** — Go canonicalises to `Retry-After`, so a canonicalised map would make
+`self.headers['retry-after']` silently null — and repeated headers are comma-joined, which
+`Set-Cookie` is the casualty of. Any key may be absent, so reading one yields `string | null`.
+
+Together with `accepted_status` this is how a definition branches on the status itself rather
+than routing a healthy response through `on_error`:
+
+```yaml
+- id: check
+  action:
+    type: fetch
+    url: "${ config.api }/jobs/${ input.id }"
+    method: GET
+    accepted_status: ["200", "202"]     # 202 is a state, not a failure
+    responses:
+      "2xx": {}
+  switch:
+    - case: "self.status == 202"        # still running
+      goto: $wait
+    - goto: end
+```
+
 #### `responses`
 
 One map describes the whole endpoint. The status class splits it: a **2xx** key types

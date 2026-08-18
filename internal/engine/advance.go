@@ -296,6 +296,7 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 
 		// Capture this task's prior output before the action can overwrite it, so an
 		// output map may reference self.previous (the value from the last loop iteration).
+		var meta *fetchMeta
 		var priorOutput any
 		if task.Output.Present() {
 			if outs, ok := inst.ContextData["outputs"].(map[string]any); ok {
@@ -323,11 +324,11 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 				}
 				actionResult = out
 			default: // fetch
-				out, done := e.executeAction(ctx, inst, task)
+				out, fm, done := e.executeAction(ctx, inst, task)
 				if done != nil {
 					return *done
 				}
-				actionResult = out
+				actionResult, meta = out, fm
 			}
 		}
 
@@ -337,7 +338,7 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		var taskOutput any
 		hasOutput := task.Output.Present()
 		if hasOutput {
-			remapped, err := e.evalTaskOutput(inst, task, actionResult, priorOutput)
+			remapped, err := e.evalTaskOutput(inst, task, actionResult, priorOutput, meta)
 			if err != nil {
 				return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q output: %v", task.ID, err))
 			}
@@ -348,7 +349,7 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		// self is this task's transient scope: result (raw action result) and
 		// previous (its own prior output), plus output (the projection) only when one
 		// is defined. None of these but the projection persist beyond this task.
-		self := map[string]any{"result": actionResult, "previous": priorOutput}
+		self := taskSelf(actionResult, priorOutput, meta)
 		if hasOutput {
 			self["output"] = taskOutput
 		}
@@ -418,9 +419,28 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 // evalTaskOutput evaluates a task's output map against the context plus self,
 // where self.result is the raw action result and self.previous is this task's
 // prior output (its value from the last loop iteration, or nil on the first run).
-func (e *Engine) evalTaskOutput(inst *model.ProcessInstance, task *model.Task, result, previous any) (any, error) {
+func (e *Engine) evalTaskOutput(inst *model.ProcessInstance, task *model.Task, result, previous any, meta *fetchMeta) (any, error) {
+	return e.evalShape(inst, shape.Shape{Raw: task.Output.Raw}, taskSelf(result, previous, meta))
+}
+
+// taskSelf builds the transient self scope. status/headers appear ONLY where a fetch
+// answered, which is the same gate inference applies — a slot present at runtime but absent
+// from the schema is unreadable, and one present in the schema but absent at runtime reads
+// null where the type promised a value.
+func taskSelf(result, previous any, meta *fetchMeta) map[string]any {
 	self := map[string]any{"result": result, "previous": previous}
-	return e.evalShape(inst, shape.Shape{Raw: task.Output.Raw}, self)
+	if meta != nil {
+		self["status"] = meta.status
+		// map[string]any, not map[string]string: the evaluator navigates JSON-native values
+		// only, and a typed Go map reads as an opaque scalar — every header would come back
+		// null while the schema promised a string.
+		headers := make(map[string]any, len(meta.headers))
+		for k, v := range meta.headers {
+			headers[k] = v
+		}
+		self["headers"] = headers
+	}
+	return self
 }
 
 // setTaskOutput stores value as the task's exported output (outputs.taskID), appending to

@@ -45,7 +45,16 @@
   `retries` at registration, and no metrics — `/healthz` answers "is this worker serving",
   not "how deep is the backlog"
 - [x] unknown type - a way how child can pass data to parent, without looking at it (the empty schema `{}`, narrowed by the parent's `result_schema`; no new syntax — see specs/unknown-type.md. Still open: the `infer` mode from that doc)
-- [] fetch response metadata - expose `self.status` and `self.headers` (see specs/fetch-http-surface.md part 1; retires the `http.202`-via-`on_error` trick in examples/polling-task/ and unblocks Location / Retry-After / Link)
+- [x] fetch response metadata - `self.status` (integer) and `self.headers` (string map),
+  siblings of `self.result` rather than a wrapper around it, so nothing that reads a body
+  changed. Header keys are lowercased (Go canonicalises to `Retry-After`, which would make
+  `self.headers['retry-after']` silently null) and repeated headers comma-joined, with
+  `Set-Cookie` the accepted casualty. Gated to fetch at BOTH ends — one helper types it
+  (`withFetchMeta`), one builds it (`engine.taskSelf`) — because a slot present in the schema
+  and absent at runtime reads null where the type promised a value, and the reverse is
+  unreadable. See specs/fetch-http-surface.md §3. **Still open:** the poller still routes its
+  202 through `on_error`; switching it to `case: self.status == 202` means the caller stops
+  choosing `accepted_status`, which is a change to that example's contract
 - [] fetch query params - a structured `query` slot (see specs/fetch-http-surface.md part 2; interpolating into the url string does no escaping, so a value with `&`/`=`/space injects a parameter)
 - [x] string-literal indexing in expressions - `x['some-key']` (desugars to a MemberNode; unblocks the headers map above. Access paths are now carried as steps and rendered as accessors everywhere, so a key that isn't an identifier stays distinct from a nested one — including in validation errors and `SecretAt` — see internal/schema/path.go)
 - [x] computed keys - `m[k]`, `xs[i]` (allowed only where every key shares one type: an array, or a map declaring only `additionalProperties`. An object with named properties is rejected — a computed key there could land on a declared property whose type differs from `additionalProperties`. Narrows like a static path when the key is itself a path, and the guard dies when a lambda rebinds the key)
@@ -97,6 +106,19 @@
   branches are discriminated by shape, not by tag. Only a hand-written result_schema would be
   narrowable, which is not worth the feature. Note `const` is not in the supported keyword
   subset: a tag is `enum: [value]`
+- [] revisit how externalized values are served - `GET /instances/{id}` returns every slot the
+  object store holds as a `{ref, size}` marker, and `?resolve=true` materialises **all** of
+  them inline (`HydrateContext`) before redacting; `genctl get --resolve` and
+  `genctl logs --resolve` set it, and `GET /instances/{id}/objects/{ref}` fetches one object.
+  The flag is all-or-nothing, so a caller wanting one output pays for every object on the
+  instance, while the per-object route leaves the client to parse markers out of the context
+  and issue N follow-ups. Two things to weigh alongside it. A marker is **indistinguishable
+  from data** without the schema — `{ref, size}` is an ordinary-looking object, and a test
+  written during the `error.data` work asserted a field on one and silently read the marker's
+  own `size` instead of failing. And hydrate-then-redact materialises secret values before
+  scrubbing them, on the one path whose scrub is schema-driven (`RedactContext`) rather than
+  value-based like the audit log's — the two differ on a secret that reached a string through
+  `${ }` interpolation, which carries no `secret` marking of its own
 - [] pause as a debugging tool: start an instance paused, then step it with tick
 
 # docs

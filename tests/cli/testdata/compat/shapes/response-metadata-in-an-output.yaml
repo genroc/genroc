@@ -1,0 +1,53 @@
+# The other half of response-metadata-is-transient: metadata that IS projected into an output
+# is judged as that output's type, like any other value. It also pins the two types, which a
+# reader is likely to guess wrong — `self.status` is an integer, and a header read is
+# `string | null`, because any key may be absent from the map.
+#
+# v2 swaps one for the other under the same output key, so the slot's type goes from
+# `null|string` to `integer` — and the rendered message is where those two types are pinned.
+# Only UPGRADE breaks: an instance parked at `after` already holds the old value and the new
+# definition will not take it. The contract side is fine, because `call:output` is read by
+# this process rather than submitted to it, and nothing outside was promised the old shape.
+apply:
+  - channel: metaout_a
+    definitions:
+      - name: metaout_proc
+        tasks:
+          - id: call
+            action:
+              type: fetch
+              url: http://x/call
+              responses:
+                "2xx": {}
+            output:
+              trace: "$: self.headers['x-trace']"
+            switch: next
+          - id: after
+            output:
+              seen: "$: outputs.call.trace"
+            switch: end
+  - channel: metaout_b
+    definitions:
+      - name: metaout_proc
+        tasks:
+          - id: call
+            action:
+              type: fetch
+              url: http://x/call
+              responses:
+                "2xx": {}
+            output:
+              trace: "$: self.status"
+            switch: next
+          - id: after
+            output:
+              seen: "$: outputs.call.trace"
+            switch: end
+run: [--from, metaout_a, --to, metaout_b]
+expect: |
+  metaout_proc  v1 → v2  breaking: upgrade; compatible
+    after        (breaking: upgrade)
+      outputs.call.trace: null|string → integer
+    call:output  (ok)
+
+  exit 1

@@ -32,7 +32,7 @@ func inferOutputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proce
 		if err != nil {
 			return fmt.Errorf("task %q: %w", id, err)
 		}
-		ctx := outputMapContext(base, resultType, typed, id, loops).WithDefs(defs)
+		ctx := outputMapContext(base, resultType, typed, id, loops, s.Action).WithDefs(defs)
 		node := s.Output.Raw
 		label := fmt.Sprintf("task %q output", id)
 		// An untyped result (fetch/external with no result_schema) cannot be exported: the

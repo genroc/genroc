@@ -83,7 +83,13 @@ function jsonToYaml(value: unknown, indent = 0): string {
       value === "" ||
       value === "true" ||
       value === "false" ||
-      value === "null"
+      value === "null" ||
+      value === "~" ||
+      // A string that YAML would read back as another type has to be quoted, or it
+      // silently changes type on the round trip: accepted_status ["200"] became [200],
+      // and the server rejected it as "values must all be strings".
+      /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/.test(value) ||
+      /^(yes|no|on|off|Yes|No|On|Off|YES|NO|ON|OFF|True|False|Null|TRUE|FALSE|NULL)$/.test(value)
     ) {
       return JSON.stringify(value);
     }

@@ -1,0 +1,46 @@
+# self.status and self.headers are transient: nothing persists them, so no instance can be
+# parked holding one and there is no upgrade surface. They reach a contract only by being
+# PROJECTED into an output, and then they are judged as that output's type like any other
+# value — which is what this pins, by moving the thing that decides which statuses can
+# arrive and expecting the result to be silence.
+#
+# v2 widens accepted_status from 200 to 200+202. More statuses can now reach the task, but
+# `self.status` is an integer either way and `self.headers` a string map either way, so the
+# output contract does not move. Only the slot itself is reported.
+apply:
+  - channel: respmeta_a
+    definitions:
+      - name: respmeta_proc
+        tasks:
+          - id: call
+            action:
+              type: fetch
+              url: http://x/call
+              accepted_status: ["200"]
+              responses:
+                "2xx": {}
+            output:
+              code: "$: self.status"
+              ctype: "$: self.headers['content-type']"
+            switch: end
+  - channel: respmeta_b
+    definitions:
+      - name: respmeta_proc
+        tasks:
+          - id: call
+            action:
+              type: fetch
+              url: http://x/call
+              accepted_status: ["200", "202"]
+              responses:
+                "2xx": {}
+            output:
+              code: "$: self.status"
+              ctype: "$: self.headers['content-type']"
+            switch: end
+run: [--from, respmeta_a, --to, respmeta_b]
+expect: |
+  respmeta_proc  v1 → v2  upgradable, compatible
+    call:fetch.accepted_status  (not judged)
+
+  exit 0
