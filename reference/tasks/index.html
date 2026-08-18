@@ -482,6 +482,45 @@ expression, so the whole request can come from the context.</p>
 <table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>url</code></td><td>Request URL.</td></tr><tr><td><code>method</code></td><td>HTTP method. Defaults to <code>POST</code>.</td></tr><tr><td><code>headers</code></td><td>A value evaluating to a string map.</td></tr><tr><td><code>body</code></td><td>Templated request body, sent raw — an object as JSON.</td></tr><tr><td><code>accepted_status</code></td><td>Array of status patterns treated as non-errors: <code>&quot;2xx&quot;</code>…<code>&quot;5xx&quot;</code>, or a 3-digit code. Defaults to any 2xx.</td></tr><tr><td><code>responses</code></td><td>Status pattern → schema for the body that status carries.</td></tr></tbody></table>
 <p><code>X-Genroc-Instance-Id</code> and <code>X-Genroc-Task-Id</code> are stamped on every request authoritatively,
 so a caller-supplied header cannot spoof them.</p>
+<h4 id="response-metadata">Response metadata<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#response-metadata"><span></span></a></h4>
+<p>A fetch exposes what the response carried besides its body, as siblings of <code>self.result</code> —
+the body keeps its meaning, nothing is re-wrapped:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>self.status</code></td><td>the HTTP status, as an integer</td></tr><tr><td><code>self.headers</code></td><td>the response headers, as a string map</td></tr></tbody></table>
+<p>Both exist only on a <code>fetch</code>; no other action type has a status. Header keys are
+<strong>lowercased</strong> — Go canonicalises to <code>Retry-After</code>, so a canonicalised map would make
+<code>self.headers[&#39;retry-after&#39;]</code> silently null — and repeated headers are comma-joined, which
+<code>Set-Cookie</code> is the casualty of. Any key may be absent, so reading one yields <code>string | null</code>.</p>
+<p>Together with <code>accepted_status</code> this is how a definition branches on the status itself rather
+than routing a healthy response through <code>on_error</code>:</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">-</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> check</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> fetch</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">${ config.api }/jobs/${ input.id }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    method</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> GET</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    accepted_status</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">200</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">202</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">     # 202 is a state, not a failure</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    responses</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">      &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2xx</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {}</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> case</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">self.status == 202</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">        # still running</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $wait</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> end</span></span></code></pre>
 <h4 id="responses"><code>responses</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#responses"><span></span></a></h4>
 <p>One map describes the whole endpoint. The status class splits it: a <strong>2xx</strong> key types
 <code>self.result</code> <em>and</em> makes that status accepted; a <strong>non-2xx</strong> key types <code>error.data</code> and
