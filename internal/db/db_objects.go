@@ -151,6 +151,15 @@ func (db *DB) HydrateContext(inst *model.ProcessInstance) error {
 			inst.ContextData[key] = rv
 		}
 	}
+	if ev, ok := inst.ContextData["error"].(map[string]any); ok {
+		if d, hasData := ev["data"]; hasData {
+			rv, err := resolve(d)
+			if err != nil {
+				return err
+			}
+			ev["data"] = rv
+		}
+	}
 	if outs, ok := inst.ContextData["outputs"].(map[string]any); ok {
 		for k, v := range outs {
 			rv, err := resolve(v)

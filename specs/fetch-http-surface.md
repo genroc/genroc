@@ -65,9 +65,25 @@ responses:
   "5xx":      { type: object, properties: { trace_id: { type: string } } }
 ```
 
-1. **Acceptance** — `accepted_status` when present; otherwise the 2xx patterns of
-   `responses`; otherwise every 2xx. Declaring `"404"` therefore types it **without**
-   accepting it: it still raises `http.404` and still routes through `on_error`.
+1. **Acceptance** — `accepted_status` when present; otherwise the **2xx** patterns of
+   `responses`; otherwise every 2xx. Only 2xx keys influence the automatic set, so declaring
+   `"404"` types it **without** accepting it: it still raises `http.404` and still routes
+   through `on_error`. The three cases that follow, for a task declaring no
+   `accepted_status`:
+
+   | declared | accepted | `self.result` |
+   |---|---|---|
+   | nothing | every 2xx | untyped — an undeclared body is neither readable nor exportable |
+   | any 2xx | exactly those | their union; every other 2xx becomes `http.NNN` |
+   | error statuses only | every 2xx | untyped, exactly as if nothing were declared |
+
+   The third row is the one that bites. A `404` declaration says nothing about what a
+   success carries, so the 2xx default still accepts the response — and typing `self.result`
+   as `null` there would be a claim the runtime contradicts with a real body. Both halves of
+   this rule are read by the engine AND by inference, through
+   `Action.EffectiveAcceptedStatus`; they were once separate and disagreed, so an undeclared
+   2xx was accepted, matched no declaration, skipped validation, and landed in `self.result`
+   typed as something it had never been checked against.
 2. **Typing** — a declared schema types the body of its status, into `self.result` if that
    status is accepted and into `error.data` if it is not. `null` declares "no body", `{}` one
    of unknown shape. An accepted status matched by no pattern contributes `null` to

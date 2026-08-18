@@ -152,3 +152,58 @@ test("error — dropped from the context once the handler routes onward", async 
 
   failing.stop();
 });
+
+// error.data is persisted like a task output: inline while small, externalized to the object
+// store past the cutoff, and resolved lazily on the way back. Two things to hold: the row
+// must not swell with the body — an error payload is as large as any response — and a handler
+// that reads it must still see the value, not the marker standing in for it.
+test("error.data — a large error body externalizes and is still readable", async () => {
+  const detail = "x".repeat(8000); // well past the ~2 KiB inline cutoff
+  const failing = await startMockService(0, { statusCode: 422, response: { detail } });
+
+  const name = `error_big_${crypto.randomUUID()}`;
+  const { error: putErr } = await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: "call",
+          action: {
+            type: "fetch" as const,
+            url: `http://localhost:${failing.port}/x`,
+            method: "GET",
+            responses: {
+              200: { type: "object" },
+              422: {
+                type: "object",
+                properties: { detail: { type: "string" } },
+                required: ["detail"],
+              },
+            },
+          },
+          on_error: [{ code: ["http.422"], goto: "$handler" }],
+          timeout: 2000,
+          switch: [{ goto: "end" }],
+        },
+        // A small verdict derived from the big body: if the marker were handed to the
+        // expression unresolved, error.data.detail would read null and this would be false.
+        { id: "handler", output: { readable: "$: error.data.detail != null" }, switch: [{ goto: "end" }] },
+      ],
+    },
+  });
+  expect(putErr).toBeUndefined();
+
+  const { data: started } = await client.POST("/instances", { body: { process: name } });
+  const id = started!.id;
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const ctx = (data?.context ?? {}) as any;
+  expect(ctx.outputs?.handler).toEqual({ readable: true });
+  // Served as a reference, which is what says the body went to the object store instead of
+  // swelling the instance row.
+  expect(ctx.error?.data?.ref, "a body past the cutoff must externalize").toBeDefined();
+  expect(ctx.error?.code).toBe("http.422");
+
+  failing.stop();
+});

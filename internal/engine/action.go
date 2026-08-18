@@ -66,7 +66,8 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 			return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q body: %v", task.ID, err)))
 		}
 	}
-	acceptedStatus, err := e.resolveAcceptedStatus(inst, task.Action)
+	resolvedStatus, err := e.resolveAcceptedStatus(inst, task.Action)
+	acceptedStatus := task.Action.EffectiveAcceptedStatus(resolvedStatus)
 	if err != nil {
 		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q accepted_status: %v", task.ID, err)))
 	}

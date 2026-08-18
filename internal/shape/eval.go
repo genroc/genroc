@@ -84,6 +84,7 @@ func Roots(node any) (expression.Roots, error) {
 			r.Outputs = append(r.Outputs, tr.Outputs...)
 			r.SelfPrevious = r.SelfPrevious || tr.SelfPrevious
 			r.SelfResult = r.SelfResult || tr.SelfResult
+			r.ErrorData = r.ErrorData || tr.ErrorData
 		case []any:
 			for _, vv := range v {
 				if err := walk(vv); err != nil {

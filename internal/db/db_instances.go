@@ -200,6 +200,25 @@ func encodeContext(inst *model.ProcessInstance) (cols contextCols, pending []*pe
 		}
 	}
 	if v, ok := cd["error"]; ok {
+		// `data` is enveloped ALONE — externalized past the inline cutoff, like a task
+		// output — while task/message/code stay inline. An error body is as large as any
+		// response, and a handler reading only error.code must not drag one through an
+		// object load. Old rows carry no `data` key and decode unchanged.
+		if m, isMap := v.(map[string]any); isMap {
+			if d, hasData := m["data"]; hasData {
+				env, e := encodeValueSlot(d, &pending, referenced)
+				if e != nil {
+					err = e
+					return
+				}
+				withEnv := make(map[string]any, len(m))
+				for k, val := range m {
+					withEnv[k] = val
+				}
+				withEnv["data"] = env
+				v = withEnv
+			}
+		}
 		b, e := json.Marshal(v)
 		if e != nil {
 			err = e
@@ -588,9 +607,28 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 		return nil, nil, err
 	}
 	if r.ErrorData != "" {
-		var ev any
-		if err := numeric.Decode([]byte(r.ErrorData), &ev); err != nil {
+		var fields map[string]json.RawMessage
+		if err := numeric.Decode([]byte(r.ErrorData), &fields); err != nil {
 			return nil, nil, fmt.Errorf("decode error_data: %w", err)
+		}
+		ev := make(map[string]any, len(fields))
+		for k, raw := range fields {
+			if k == "data" {
+				var env model.Envelope
+				if err := numeric.Decode(raw, &env); err != nil {
+					return nil, nil, fmt.Errorf("decode error data envelope: %w", err)
+				}
+				if env.IsRef() {
+					loaded[env.Refs[0].Ref] = struct{}{}
+				}
+				ev[k] = decodeEnvelope(env)
+				continue
+			}
+			var val any
+			if err := numeric.Decode(raw, &val); err != nil {
+				return nil, nil, fmt.Errorf("decode error_data %s: %w", k, err)
+			}
+			ev[k] = val
 		}
 		cd["error"] = ev
 	}

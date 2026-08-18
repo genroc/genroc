@@ -126,6 +126,19 @@ func (a *Action) ResponseFor(code int) (*schema.Schema, bool) {
 	return bestSchema, best != ""
 }
 
+// EffectiveAcceptedStatus is rule 1: the resolved accepted_status where it names anything,
+// otherwise the 2xx patterns of responses, otherwise nil — which MatchAnyStatus reads as any
+// 2xx. The runtime and inference MUST resolve it through here. They diverged once: the engine
+// fell back to "any 2xx" while inference read the declared set, so a 201 against {200: T} was
+// accepted, matched no declaration, skipped validation, and landed in self.result typed as a
+// T it had never been checked against.
+func (a *Action) EffectiveAcceptedStatus(resolved []string) []string {
+	if len(resolved) > 0 {
+		return resolved
+	}
+	return a.SuccessPatterns()
+}
+
 // SuccessPatterns returns the 2xx patterns declared in responses, sorted. Empty means the
 // declaration says nothing about which statuses succeed, and the 2xx default stands.
 func (a *Action) SuccessPatterns() []string {

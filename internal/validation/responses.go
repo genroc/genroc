@@ -53,11 +53,8 @@ func acceptedPatterns(a *model.Action) ([]string, bool) {
 	if !static {
 		return nil, false
 	}
-	if len(explicit) > 0 {
-		return explicit, true
-	}
-	if success := a.SuccessPatterns(); len(success) > 0 {
-		return success, true
+	if effective := a.EffectiveAcceptedStatus(explicit); len(effective) > 0 {
+		return effective, true
 	}
 	return []string{"2xx"}, true
 }
@@ -84,7 +81,7 @@ func fetchResultType(a *model.Action, defs schema.Defs) (schema.Schema, bool, er
 	accepted, static := acceptedPatterns(a)
 
 	var arms []schema.Schema
-	nullable := false
+	nullable, describesAccepted := false, false
 	for _, key := range sortedResponseKeys(a.Responses) {
 		patterns, err := model.ParseResponseKey(key)
 		if err != nil {
@@ -93,6 +90,7 @@ func fetchResultType(a *model.Action, defs schema.Defs) (schema.Schema, bool, er
 		if !anyStatusMatching(patterns, func(code int) bool { return isAccepted(code, accepted, static) }) {
 			continue
 		}
+		describesAccepted = true
 		sc := a.Responses[key]
 		if sc == nil {
 			nullable = true // declared to carry no body
@@ -103,6 +101,14 @@ func fetchResultType(a *model.Action, defs schema.Defs) (schema.Schema, bool, er
 			return schema.Schema{}, false, err
 		}
 		arms = append(arms, merged)
+	}
+
+	// Declaring only error statuses says nothing about what a success carries, so the body
+	// that arrives is undeclared — exactly as if no responses were given. Typing it `null`
+	// instead would be a claim the runtime contradicts: the 2xx default still accepts the
+	// response, and its body reaches self.result unvalidated.
+	if !describesAccepted {
+		return schema.Schema{}, false, nil
 	}
 
 	// An accepted status no pattern describes carries a body nothing typed, so the union

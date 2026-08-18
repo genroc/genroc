@@ -82,6 +82,23 @@ func (e *Engine) buildEnv(inst *model.ProcessInstance, self any, roots expressio
 	if err := include("error", roots.Error); err != nil {
 		return nil, err
 	}
+	// `error` itself is always inline; only its `data` can be an externalized marker, and it
+	// is loaded only where the expression actually reads it. Reading error.code must not pay
+	// for a body it never asked for.
+	if m, ok := env["error"].(map[string]any); ok && roots.ErrorData {
+		if d, hasData := m["data"]; hasData {
+			rv, err := e.resolveValue(inst, d)
+			if err != nil {
+				return nil, err
+			}
+			withData := make(map[string]any, len(m))
+			for k, v := range m {
+				withData[k] = v
+			}
+			withData["data"] = rv
+			env["error"] = withData
+		}
+	}
 
 	outs, _ := inst.ContextData["outputs"].(map[string]any)
 	refSet := make(map[string]struct{}, len(roots.Outputs))

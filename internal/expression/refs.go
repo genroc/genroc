@@ -31,6 +31,10 @@ type Roots struct {
 	SelfPrevious bool     // reads self.previous (this task's own prior output — an alias
 	//                      for outputs[<this task>], so it can be an externalized ref too)
 	SelfResult bool // reads self.result (the task's raw action result)
+	// ErrorData pins `error.data` specifically. The rest of `error` is small and always
+	// inline, but the body can be as large as any response, so it is externalized like a task
+	// output — and a handler reading only error.code must not pay to load one.
+	ErrorData bool
 }
 
 func RootRefs(expr string) (Roots, error) {
@@ -116,6 +120,15 @@ func collectRoots(node syntax.Node, bound map[string]bool, r *Roots) {
 			r.SelfResult = true
 			return // consumed self.result; don't descend into the "self" identifier
 		}
+		// A field access on `error` is consumed here so the bare-identifier case below does
+		// not also run: only `error.data` wants the body loaded, while `error.code` and its
+		// siblings are inline. A BARE `error` falls through to the identifier case, which
+		// takes the whole namespace — under-reporting there would export a marker.
+		if base, ok := n.Base.(*syntax.IdentNode); ok && base.Name == "error" && !bound["error"] {
+			r.Error = true
+			r.ErrorData = r.ErrorData || n.Name == "data"
+			return
+		}
 		collectRoots(n.Base, bound, r)
 	case *syntax.IndexNode:
 		collectRoots(n.Base, bound, r)
@@ -133,7 +146,9 @@ func collectRoots(node syntax.Node, bound map[string]bool, r *Roots) {
 		case "input":
 			r.Input = true
 		case "error":
-			r.Error = true
+			// The whole namespace, body included: this is reached only when `error` is used
+			// without naming a field, so nothing narrows what is wanted.
+			r.Error, r.ErrorData = true, true
 		case "outputs":
 			r.AllOutputs = true // bare/dynamic outputs reference
 		}

@@ -276,6 +276,7 @@ func (t *Template) RootRefs() expression.Roots {
 		out.Outputs = append(out.Outputs, r.Outputs...)
 		out.SelfPrevious = out.SelfPrevious || r.SelfPrevious
 		out.SelfResult = out.SelfResult || r.SelfResult
+		out.ErrorData = out.ErrorData || r.ErrorData
 	}
 	return out
 }
