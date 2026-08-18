@@ -263,7 +263,7 @@ it with <code>on_error</code> on the child task:</p>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $report</span></span></code></pre>
 <p>The dividing line: a result the caller <strong>inspects</strong> belongs in the output; a condition the
 caller <strong>reacts to</strong> is a raise. A raised code routes like any other error, and the <code>report</code>
-task reads it from <code>$error</code>.</p>
+task reads it from <code>error</code>.</p>
 <h2 id="next">Next<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#next"><span></span></a></h2>
 <ul>
 <li><a href="../../reference/tasks/">Tasks</a> — <code>on_error</code>, <code>switch</code>, <code>output</code> and the action types in
