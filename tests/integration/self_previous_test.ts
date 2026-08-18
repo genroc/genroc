@@ -35,7 +35,7 @@ function makeDef(name: string, actionPort?: number) {
     append.action = {
       type: "fetch",
       url: `http://localhost:${actionPort}/step`,
-      result_schema: { type: "object", properties: { ok: { type: "boolean" } } },
+      responses: { 200: { type: "object", properties: { ok: { type: "boolean" } } } },
     };
   }
   return {

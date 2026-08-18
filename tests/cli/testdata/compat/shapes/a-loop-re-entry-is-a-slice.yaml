@@ -17,7 +17,8 @@ apply:
             action:
               type: fetch
               url: http://x/poll
-              result_schema: {type: object, properties: {done: {type: boolean}}, required: [done]}
+              responses:
+                200: {type: object, properties: {done: {type: boolean}}, required: [done]}
             output:
               tries: '$: (self.previous.tries ?? 0) + 1'
               done: '$: self.result.done'
@@ -35,7 +36,8 @@ apply:
             action:
               type: fetch
               url: http://x/poll
-              result_schema: {type: object, properties: {done: {type: boolean}, at: {type: string}}, required: [done, at]}
+              responses:
+                200: {type: object, properties: {done: {type: boolean}, at: {type: string}}, required: [done, at]}
             output:
               tries: '$: (self.previous.tries ?? 0) + 1'
               done: '$: self.result.done'

@@ -15,11 +15,12 @@ tasks:
       type: fetch
       method: GET
       url: "${ input.base_url }/rates/${ input.currency }"
-      result_schema:
-        type: object
-        properties:
-          rate: { type: number }
-        required: [rate]
+      responses:
+        200:
+          type: object
+          properties:
+            rate: { type: number }
+          required: [rate]
     timeout: 5000
     on_error:
       - code: [http.500, http.503]

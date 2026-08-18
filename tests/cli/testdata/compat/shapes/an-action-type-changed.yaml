@@ -24,7 +24,8 @@ apply:
             action:
               type: fetch
               url: http://x/ask
-              result_schema: {type: object, properties: {ok: {type: boolean}}, required: [ok]}
+              responses:
+                200: {type: object, properties: {ok: {type: boolean}}, required: [ok]}
             output: {ok: '$: self.result.ok'}
             switch: next
           - id: wait
@@ -47,7 +48,8 @@ apply:
             action:
               type: fetch
               url: http://x/wait
-              result_schema: {type: object, properties: {note: {type: string}}, required: [note]}
+              responses:
+                200: {type: object, properties: {note: {type: string}}, required: [note]}
             output: {note: '$: self.result.note'}
             switch: end
 run: [--from, typeswap_a, --to, typeswap_b]

@@ -31,11 +31,12 @@ tasks:
         customer: "$: input.customer"
         amount_cents: "$: input.amount_cents"
         period: "$: input.period"
-      result_schema:
-        type: object
-        properties:
-          delivery_id: { type: string }
-        required: [delivery_id]
+      responses:
+        200:
+          type: object
+          properties:
+            delivery_id: { type: string }
+          required: [delivery_id]
     timeout: 5000
     on_error:
       # Permanently unsendable (no billing address, invalid customer). Retrying cannot

@@ -34,11 +34,11 @@ test("process-level $defs are shared by input_schema and result_schemas", async 
           action: {
             type: "fetch" as const,
             url: `http://localhost:${mock.port}/action`,
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: { buyer: { $ref: "#/$defs/User" } },
               required: ["buyer"],
-            },
+            } },
           },
           output: { who: "$: self.result.buyer.name" },
           switch: [{ goto: "end" }],
@@ -127,11 +127,11 @@ test("$defs colliding with generated schema names are safely renamed", async () 
           action: {
             type: "fetch" as const,
             url: `http://localhost:${mock.port}/action`,
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: { d: { $ref: "#/$defs/fetch_output" } },
               required: ["d"],
-            },
+            } },
           },
           output: { num: "$: self.result.d.n" },
           switch: [{ goto: "end" }],

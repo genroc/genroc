@@ -31,9 +31,9 @@ const forwardingChildJSON = `{
   "name":"forwarder",
   "tasks":[{"id":"check",
     "action":{"type":"fetch","url":"http://x",
-      "result_schema":{"type":"object",
+      "responses": { "200": {"type":"object",
         "properties":{"status":{"type":"string"},"payload":{"description":"opaque"}},
-        "required":["status","payload"]}},
+        "required":["status","payload"]} }},
     "switch":[{"goto":"end"}],
     "output":{"payload":"$: self.result.payload"}}],
   "output":{"payload":"$: outputs.check.payload"}

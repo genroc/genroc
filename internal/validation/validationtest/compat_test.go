@@ -31,7 +31,7 @@ const compatParentDef = `{"name":"parent","tasks":[
 func compatChildDef() string {
 	return `{"name":"child","tasks":[
 		{"id":"run","action":{"type":"fetch","url":"http://x",
-		 "result_schema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}},
+		 "responses": { "200": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"]} }},
 		 "output":{"id":"$: self.result.id"},
 		 "switch":"end"}],
 		"output":{"id":"$: outputs.run.id"}}`

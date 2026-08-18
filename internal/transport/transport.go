@@ -11,7 +11,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"genroc/internal/model"
@@ -44,17 +43,28 @@ const (
 )
 
 // Response carries the result of a Send call.
-// ErrorCode is non-empty on failure ("http.404", "output.parse", "output.too_large",
-// "pre.timeout", etc.).
+// Body holds the decoded JSON body, on an unaccepted status as much as on an accepted one —
+// whether an error body is readable is the caller's decision, not the transport's.
+// BodyCode reports why Body is absent when the bytes could not be decoded ("output.parse",
+// "output.too_large"); it is NOT a verdict, because a status nobody declared a schema for is
+// entitled to answer with HTML.
+// ErrorCode is non-empty ONLY when the status was not accepted ("http.404"); a body problem
+// never lands here, so the caller can tell "the remote refused" from "the body was unreadable"
+// and apply the declaration to each.
 // ErrorMessage is a human-readable description of the failure (may include trimmed response body).
-// Body holds the raw decoded JSON body on success.
 // Status is the HTTP status code for a REST call (success or failure); 0 for non-HTTP transports.
 type Response struct {
 	Body         any
+	BodyCode     errcode.Code
 	ErrorCode    errcode.Code
 	ErrorMessage string
 	Status       int
 }
+
+// errorMessageBytes is how much of an unaccepted response is kept as human-readable text.
+// The whole body is still decoded into Body; this is the operator's copy, and it stays short
+// because it lands in an audit row.
+const errorMessageBytes = 512
 
 // Send dispatches a fetch HTTP request. url, method, acceptedStatus, and headers are
 // pre-resolved (accepted_status is a shape evaluated by the engine); body is the raw
@@ -105,13 +115,25 @@ func sendHTTP(ctx context.Context, url, method string, acceptedStatus []string, 
 	}
 	defer resp.Body.Close()
 
-	if !matchAcceptedStatus(resp.StatusCode, acceptedStatus) {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		msg := strings.TrimSpace(string(body))
+	if !model.MatchAnyStatus(resp.StatusCode, acceptedStatus) {
+		// Buffered rather than streamed: this exit needs the same bytes twice, as a decoded
+		// value for error.data and as text for the operator.
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes+1))
+		msg := strings.TrimSpace(string(raw))
+		if len(msg) > errorMessageBytes {
+			msg = msg[:errorMessageBytes]
+		}
 		if msg == "" {
 			msg = fmt.Sprintf("request failed with status %d without response body", resp.StatusCode)
 		}
-		return &Response{ErrorCode: errcode.HTTP(resp.StatusCode), ErrorMessage: msg, Status: resp.StatusCode}, nil
+		body, code := decodeBytes(raw)
+		return &Response{
+			Body:         body,
+			BodyCode:     code,
+			ErrorCode:    errcode.HTTP(resp.StatusCode),
+			ErrorMessage: msg,
+			Status:       resp.StatusCode,
+		}, nil
 	}
 
 	// One byte past the cap, so draining the allowance is itself the proof the body
@@ -122,15 +144,37 @@ func sendHTTP(ctx context.Context, url, method string, acceptedStatus []string, 
 	err = numeric.DecodeReader(limited, &b)
 	if limited.N <= 0 {
 		return &Response{
-			ErrorCode:    errcode.OutputTooLarge,
+			BodyCode:     errcode.OutputTooLarge,
 			ErrorMessage: fmt.Sprintf("response body exceeds the %d-byte limit a fetch will read", MaxResponseBytes),
 			Status:       resp.StatusCode,
 		}, nil
 	}
+	// An empty body is a value (null), not a parse failure: 204, an async 202 and a webhook
+	// ACK all answer with nothing, and calling that malformed is what made them unwritable.
+	if errors.Is(err, io.EOF) {
+		return &Response{Status: resp.StatusCode}, nil
+	}
 	if err != nil {
-		return &Response{ErrorCode: errcode.OutputParse, Status: resp.StatusCode}, nil
+		return &Response{BodyCode: errcode.OutputParse, Status: resp.StatusCode}, nil
 	}
 	return &Response{Body: b, Status: resp.StatusCode}, nil
+}
+
+// decodeBytes decodes an already-buffered body, reporting why it could not be read rather
+// than failing: the caller pairs this with the declaration to decide whether it matters.
+// len(raw) is past the cap only because the reader was given MaxResponseBytes+1.
+func decodeBytes(raw []byte) (any, errcode.Code) {
+	if len(raw) > MaxResponseBytes {
+		return nil, errcode.OutputTooLarge
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, ""
+	}
+	var v any
+	if err := numeric.DecodeReader(bytes.NewReader(raw), &v); err != nil {
+		return nil, errcode.OutputParse
+	}
+	return v, ""
 }
 
 func methodAllowsBody(method string) bool {
@@ -139,47 +183,6 @@ func methodAllowsBody(method string) bool {
 		return false
 	}
 	return true
-}
-
-// matchAcceptedStatus reports whether code is covered by patterns — "2xx".."5xx"
-// hundred-ranges or exact 3-digit strings like "404". Empty patterns accepts any 2xx.
-func matchAcceptedStatus(code int, patterns []string) bool {
-	if len(patterns) == 0 {
-		return code >= 200 && code <= 299
-	}
-	for _, p := range patterns {
-		if len(p) == 3 && p[1] == 'x' && p[2] == 'x' {
-			hundreds := int(p[0]-'0') * 100
-			if code >= hundreds && code <= hundreds+99 {
-				return true
-			}
-			continue
-		}
-		if n, err := strconv.Atoi(p); err == nil && n == code {
-			return true
-		}
-	}
-	return false
-}
-
-// ValidStatusPattern reports whether p is a well-formed accepted_status pattern — a
-// hundred-range "2xx".."5xx" or an exact 3-digit code like "404" — i.e. a pattern
-// matchAcceptedStatus can ever match. It is the format the registration validator applies
-// to statically-known (literal) patterns; a dynamic pattern (from an expression) is only
-// known at runtime, where an unrecognized value simply never matches.
-func ValidStatusPattern(p string) bool {
-	if len(p) == 3 && p[1] == 'x' && p[2] == 'x' && p[0] >= '1' && p[0] <= '5' {
-		return true
-	}
-	if len(p) == 3 {
-		for _, c := range p {
-			if c < '0' || c > '9' {
-				return false
-			}
-		}
-		return true
-	}
-	return false
 }
 
 // ClassifyGoError maps a transport-level Go error (a REST call that never got an HTTP

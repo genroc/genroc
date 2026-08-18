@@ -95,11 +95,11 @@ test("a dereferenced, unlogged context object is deleted immediately (not left f
             action: {
               type: "fetch",
               url: `http://localhost:${mockPort}/gen`,
-              result_schema: {
+              responses: { 200: {
                 type: "object",
                 properties: { i: { type: "integer" }, done: { type: "boolean" } },
                 required: ["i", "done"],
-              },
+              } },
             },
             // A large output that differs every round (distinct hash), so each round
             // dereferences the previous round's object. Not logged ⇒ deleted at once.

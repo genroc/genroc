@@ -27,11 +27,11 @@ test("on_error — HTTP failure routes to recovery task", async () => {
           action: {
             type: "fetch" as const,
             url: `http://localhost:${recoveryMock.port}/action`,
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: { recovered: { type: "boolean" } },
               required: ["recovered"],
-            },
+            } },
           },
           output: "$: self.result",
           timeout: 2000,
@@ -84,11 +84,11 @@ test("on_error — error context available in recovery task input", async () => 
             type: "fetch" as const,
             url: `http://localhost:${recoveryMock.port}/action`,
             body: { error_code: "$: error.code" },
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: { done: { type: "boolean" } },
               required: ["done"],
-            },
+            } },
           },
           output: "$: self.result",
           timeout: 2000,

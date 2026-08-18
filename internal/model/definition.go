@@ -39,9 +39,10 @@ type ChildEntry struct {
 
 // Action describes how to invoke a task's action. It is a discriminated union on Type.
 //   - "fetch":      URL (required), Method (optional, default POST), Headers (optional),
-//     AcceptedStatus (optional), Body (optional), ResultSchema (optional) — an HTTP call
+//     AcceptedStatus (optional), Body (optional), Responses (optional) — an HTTP call
 //     like fetch(url, {method, headers, body}); every field is an expression/shape, so the
 //     whole request can come from the context. The body is sent raw (an object as JSON).
+//     A fetch has no ResultSchema: Responses types the body per status instead.
 //   - "child":      Name (required), Version (optional), Input (optional), ResultSchema (optional) —
 //     runs one named child process and waits for it; the result is that child's output directly
 //     (unwrapped), unlike child_map's keyed object. Use it when a task delegates to a single child.
@@ -67,9 +68,15 @@ type ChildEntry struct {
 // the raw HTTP request body (fetch), or the snapshot exposed to the resolver via the
 // external-tasks queue (external).
 //
-// ResultSchema (fetch/external): when set, the result is validated before the instance
-// resumes (the submitted result, for external). Without it the result is available only as "self" in
-// this task's switch.
+// ResultSchema (child/child_list/external): when set, the result is validated before the
+// instance resumes (the submitted result, for external). Without it the result is available
+// only as "self" in this task's switch.
+//
+// Responses (fetch only): status pattern -> schema for the body that status carries. A 2xx
+// key types self.result AND makes that status accepted; a non-2xx key types error.data and
+// leaves the status routing through on_error. A present key with a nil schema ("202": null)
+// declares that the status carries no body; an empty schema ({}) declares one of unknown
+// shape. See specs/fetch-http-surface.md §2.
 //
 // A result_schema is also the one place an unknown is narrowed: a slot left as `{}`
 // (the top type — carried, never read) becomes readable when a consumer restates its
@@ -79,19 +86,20 @@ type ChildEntry struct {
 // AcceptedStatus (fetch only): a shape evaluating to an array of HTTP status patterns
 // treated as non-errors ("2xx".."5xx" or a 3-digit code). Defaults to any 2xx.
 type Action struct {
-	Type           ActionType            `json:"type"`
-	URL            string                `json:"url,omitempty"`             // fetch: request URL (an expression)
-	Method         string                `json:"method,omitempty"`          // fetch: HTTP method (an expression); defaults to POST
-	Headers        *Shape                `json:"headers,omitempty"`         // fetch: request headers (a shape evaluating to a string map)
-	AcceptedStatus *Shape                `json:"accepted_status,omitempty"` // fetch: a shape evaluating to an array of HTTP status patterns accepted as non-errors
-	ResultSchema   *schema.Schema        `json:"result_schema,omitempty"`   // fetch/child/child_list: validate & persist output
-	Name           string                `json:"name,omitempty"`            // child/child_list
-	Version        int                   `json:"version,omitempty"`         // child/child_list
-	Body           *Shape                `json:"body,omitempty"`            // fetch: templated request body
-	Input          *Shape                `json:"input,omitempty"`           // child/external: templated input payload
-	Children       map[string]ChildEntry `json:"children,omitempty"`        // child_map
-	Over           string                `json:"over,omitempty"`            // child_list: expression evaluating to the input array (one child per element)
-	DelaySpec                            // delay: exactly one of for / until, plus tz
+	Type           ActionType                `json:"type"`
+	URL            string                    `json:"url,omitempty"`             // fetch: request URL (an expression)
+	Method         string                    `json:"method,omitempty"`          // fetch: HTTP method (an expression); defaults to POST
+	Headers        *Shape                    `json:"headers,omitempty"`         // fetch: request headers (a shape evaluating to a string map)
+	AcceptedStatus *Shape                    `json:"accepted_status,omitempty"` // fetch: a shape evaluating to an array of HTTP status patterns accepted as non-errors
+	Responses      map[string]*schema.Schema `json:"responses,omitempty"`       // fetch: status pattern -> body schema; a present key with a nil schema declares "no body"
+	ResultSchema   *schema.Schema            `json:"result_schema,omitempty"`   // child/child_list/external: validate & persist output
+	Name           string                    `json:"name,omitempty"`            // child/child_list
+	Version        int                       `json:"version,omitempty"`         // child/child_list
+	Body           *Shape                    `json:"body,omitempty"`            // fetch: templated request body
+	Input          *Shape                    `json:"input,omitempty"`           // child/external: templated input payload
+	Children       map[string]ChildEntry     `json:"children,omitempty"`        // child_map
+	Over           string                    `json:"over,omitempty"`            // child_list: expression evaluating to the input array (one child per element)
+	DelaySpec                                // delay: exactly one of for / until, plus tz
 }
 
 // DelaySpec is a target instant named by exactly one of two slots: `for` (a duration
@@ -172,7 +180,12 @@ var actionSchemaTemplate = `{
 					"headers":         __HEADERS_SCHEMA__,
 					"accepted_status": __ACCEPTED_STATUS_SCHEMA__,
 					"body":            {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the request body. An object is sent as JSON."},
-					"result_schema":   {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and persist the response body. Without it the response is available only as 'self' in this task's switch."}
+					"responses": {
+						"type": "object",
+						"description": "Status pattern -> JSON Schema for the body that status carries. A key is a comma-separated list of exact codes and hundred-ranges (\"200\", \"400, 401\", \"5xx\"). A 2xx key types self.result AND makes that status accepted; a non-2xx key types error.data and still routes through on_error. null declares that the status carries no body; {} declares a body of unknown shape.",
+						"propertyNames": {"pattern": "^\\s*[1-5](\\d\\d|xx)(\\s*,\\s*[1-5](\\d\\d|xx))*\\s*$"},
+						"additionalProperties": {"type": ["object", "null"], "additionalProperties": true}
+					}
 				},
 				"required": ["type", "url"],
 				"additionalProperties": false
@@ -364,6 +377,19 @@ func (d *ProcessDefinition) Normalize() error {
 			}
 			s.Action.ResultSchema = normalized
 		}
+		// Each declared status carries its own document, so each is baked self-contained the
+		// same way — a `$ref` into the process pool resolves nowhere once inference embeds it
+		// in a task context otherwise. A nil entry declares no body and has nothing to bake.
+		for key, sc := range s.Action.Responses {
+			if sc == nil {
+				continue
+			}
+			normalized, err := norm(sc)
+			if err != nil {
+				return fmt.Errorf("task %q action.responses[%q]: %w", s.ID, key, err)
+			}
+			s.Action.Responses[key] = normalized
+		}
 		if s.Action.Type == ActionTypeChildMap {
 			for key, entry := range s.Action.Children {
 				if entry.ResultSchema != nil {
@@ -396,4 +422,33 @@ func (c *Action) ValidateOutput(output any) (any, error) {
 		return output, nil
 	}
 	return c.ResultSchema.Validate(output)
+}
+
+// ResultRedactionSchema is the schema governing a result for logging: the per-status one for
+// a fetch, ResultSchema for everything else. status 0 means "no HTTP status involved".
+// Redaction must resolve the schema the same way validation does — a secret marked on a
+// status whose schema the logger cannot find is a secret printed into the audit trail.
+func (c *Action) ResultRedactionSchema(status int) *schema.Schema {
+	if c.Type == ActionTypeFetch {
+		sc, _ := c.ResponseFor(status)
+		return sc
+	}
+	return c.ResultSchema
+}
+
+// ValidateResponse validates a fetch response body against the schema declared for its
+// status and returns the normalized value. declared=false means no key covered the status,
+// which is not an error: an accepted status nobody described carries an untyped body, and an
+// unaccepted one simply has no error.data. Enforcement is uniform — a declared status whose
+// body does not conform is a failure on both channels, which is the caller's to raise.
+func (c *Action) ValidateResponse(status int, body any) (value any, declared bool, err error) {
+	sc, ok := c.ResponseFor(status)
+	if !ok {
+		return body, false, nil
+	}
+	if sc == nil {
+		return nil, true, nil
+	}
+	v, err := sc.Validate(body)
+	return v, true, err
 }

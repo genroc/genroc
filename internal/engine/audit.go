@@ -13,12 +13,15 @@ import (
 	"genroc/internal/schema"
 )
 
-// snippetResult redacts an action's raw result body against its result_schema, then
+// snippetResult redacts an action's raw result body against the schema declared for it, then
 // returns the capped JSON snippet. The response body is not in the instance context, so
 // audit's context-secret pass can't scrub it — it is schema-redacted here instead.
-func (e *Engine) snippetResult(task *model.Task, body any) string {
-	if e.logCfg.Payloads && task.Action != nil && task.Action.ResultSchema != nil {
-		body = task.Action.ResultSchema.Redact(body)
+func (e *Engine) snippetResult(task *model.Task, status int, body any) string {
+	if !e.logCfg.Payloads || task.Action == nil {
+		return e.snippet(body)
+	}
+	if sc := task.Action.ResultRedactionSchema(status); sc != nil {
+		body = sc.Redact(body)
 	}
 	return e.snippet(body)
 }

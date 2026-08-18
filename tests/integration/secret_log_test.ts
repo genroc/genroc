@@ -24,11 +24,11 @@ test("a secret config value in the endpoint URL is redacted in stored logs", asy
               action: {
                 type: "fetch",
                 url: "${ config.server_url }/action",
-                result_schema: {
+                responses: { 200: {
                   type: "object",
                   properties: { slept: { type: "number" } },
                   required: ["slept"],
-                },
+                } },
               },
               output: "$: self.result",
               switch: "end",
@@ -80,11 +80,11 @@ test("a secret INPUT value in the endpoint URL is redacted in stored logs", asyn
               action: {
                 type: "fetch",
                 url: "${ input.base }/action",
-                result_schema: {
+                responses: { 200: {
                   type: "object",
                   properties: { slept: { type: "number" } },
                   required: ["slept"],
-                },
+                } },
               },
               output: "$: self.result",
               switch: "end",
@@ -209,11 +209,11 @@ test("a secret in a large (externalized) request body is redacted in stored logs
                 type: "fetch",
                 url: `http://localhost:${mock.port}/x`,
                 body: { auth: "$: input.token" },
-                result_schema: {
+                responses: { 200: {
                   type: "object",
                   properties: { ok: { type: "number" } },
                   required: ["ok"],
-                },
+                } },
               },
               output: "$: self.result",
               switch: "end",

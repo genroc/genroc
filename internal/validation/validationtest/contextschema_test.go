@@ -27,14 +27,14 @@ const chargeProcess = `{
 		"action":{
 			"type":"fetch",
 			"url":"http://x",
-			"result_schema":{
+			"responses": { "200": {
 				"type":"object",
 				"properties":{
 					"receipt":{"type":"string"},
 					"cvv":{"type":"string","secret":true}
 				},
 				"required":["receipt","cvv"]
-			}
+			} }
 		},
 		"output":{
 			"receipt":"'${ self.result.receipt }'",

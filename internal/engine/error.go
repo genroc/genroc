@@ -57,6 +57,14 @@ func matchOnError(task *model.Task, errCode errcode.Code) *model.ErrorCase {
 // write. A pending pause needs no case here: the write that persists the outcome lands it
 // (the CASE in UpdateInstance), so a paused instance keeps the attempt it was granted.
 func (e *Engine) handleCallError(inst *model.ProcessInstance, task *model.Task, errMsg string, errCode errcode.Code) advanceOutcome {
+	return e.handleCallErrorWith(inst, task, errMsg, errCode, nil)
+}
+
+// handleCallErrorWith is handleCallError plus fields merged into $error beyond
+// task/message/code — today only `data`, the body of an unaccepted response whose status a
+// `responses` key declared. A nil map leaves $error exactly as it was; a map holding a nil
+// `data` is NOT the same thing, because key presence is what says the status was described.
+func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Task, errMsg string, errCode errcode.Code, extra map[string]any) advanceOutcome {
 	matched := matchOnError(task, errCode)
 
 	if matched != nil && inst.RetryCount < matched.Retry.Attempts && isRetryAllowed(task, errCode, matched) {
@@ -68,11 +76,15 @@ func (e *Engine) handleCallError(inst *model.ProcessInstance, task *model.Task, 
 		return advanceOutcome{kind: outcomeUpdate}
 	}
 
-	inst.ContextData["error"] = map[string]any{
+	errCtx := map[string]any{
 		"task":    task.ID,
 		"message": errMsg,
 		"code":    string(errCode),
 	}
+	for k, v := range extra {
+		errCtx[k] = v
+	}
+	inst.ContextData["error"] = errCtx
 
 	// An authored terminal clause outranks routing. Both keep the engine's own code in
 	// $error (above) so the underlying cause stays visible on the instance detail, while

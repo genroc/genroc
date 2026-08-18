@@ -166,7 +166,7 @@ test(
             action: {
               type: "fetch" as const,
               url: `http://localhost:${mockPort}/gen`,
-              result_schema: {
+              responses: { 200: {
                 type: "object",
                 properties: {
                   i: { type: "number" },
@@ -174,7 +174,7 @@ test(
                   pad: { type: "string" },
                 },
                 required: ["i", "done"],
-              },
+              } },
             },
             on_error: [{ retry: 1 }],
             output: "$: self.result",

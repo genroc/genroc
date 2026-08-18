@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"genroc/internal/model"
+	"genroc/internal/schema"
 )
 
 // Changed slots are a FIELD comparison, never a schema judgement (see CLAUDE.md). A new
@@ -43,6 +44,7 @@ var actionSlots = []slot[*model.Action]{
 	{"action.body", "Body", func(a *model.Action) any { return a.Body }},
 	{"action.input", "Input", func(a *model.Action) any { return a.Input }},
 	{"action.result_schema", "ResultSchema", func(a *model.Action) any { return a.ResultSchema }},
+	{"action.responses", "Responses", func(a *model.Action) any { return a.Responses }},
 	{"action.name", "Name", func(a *model.Action) any { return a.Name }},
 	{"action.version", "Version", func(a *model.Action) any { return a.Version }},
 	{"action.over", "Over", func(a *model.Action) any { return a.Over }},
@@ -100,10 +102,12 @@ func slotAddress(task, slot, actionType string) string {
 	return task + ":" + name
 }
 
-// slotLeafName is the last segment of an address. `result_schema` drops its suffix, naming
-// what it describes rather than what it is (§6a); everything else is written as declared.
+// slotLeafName is the last segment of an address. `result_schema` and `responses` both name
+// what they describe rather than what they are (§6a) — and `responses` must land on the SAME
+// leaf, because a fetch's statuses are compared as one merged union under `.result`; a
+// separate leaf here would print a slot row beside the break its own edit produced.
 func slotLeafName(slot string) string {
-	if slot == "result_schema" {
+	if slot == "result_schema" || slot == "responses" {
 		return "result"
 	}
 	return slot
@@ -129,7 +133,7 @@ func slotAffects(slot string) []Member {
 		return []Member{MemberUpgrade}
 	// Whether it is ALSO an upgrade concern depends on the action type rather than the slot,
 	// so that half is decided by the caller — see taskSlotAffects.
-	case "action.result_schema":
+	case "action.result_schema", "action.responses":
 		return []Member{MemberContract}
 	}
 	return nil
@@ -165,6 +169,18 @@ func changedTaskSlots(old, new *model.Task) []SlotChange {
 		}
 	}
 	return append(changed, changedChildKeySlots(old, new)...)
+}
+
+// sortedResponseKeys orders a responses map for a stable report. Iteration is over KEY
+// PRESENCE throughout: a declared "202": null is a nil schema, which is also what an
+// undeclared status reads as, so a nil test would stop judging a slot that exists.
+func sortedResponseKeys(m map[string]*schema.Schema) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 // changedChildKeySlots reports a child_map's keys one call at a time: the slots of the keys

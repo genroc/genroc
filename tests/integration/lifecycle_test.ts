@@ -20,7 +20,7 @@ test("lifecycle — task task completes when service returns ok", async () => {
           action: {
             type: "fetch" as const,
             url: `http://localhost:${mock.port}/action`,
-            result_schema: { type: "object", properties: { done: { type: "boolean" } } },
+            responses: { 200: { type: "object", properties: { done: { type: "boolean" } } } },
           },
           output: "$: self.result",
           timeout: 2000,
@@ -101,7 +101,7 @@ test("lifecycle — conditional routes to correct branch", async () => {
           action: {
             type: "fetch" as const,
             url: `http://localhost:${thenMock.port}/action`,
-            result_schema: { type: "object", properties: { branch: { type: "string" } } },
+            responses: { 200: { type: "object", properties: { branch: { type: "string" } } } },
           },
           output: "$: self.result",
           timeout: 1000,
@@ -112,7 +112,7 @@ test("lifecycle — conditional routes to correct branch", async () => {
           action: {
             type: "fetch" as const,
             url: `http://localhost:${elseMock.port}/action`,
-            result_schema: { type: "object", properties: { branch: { type: "string" } } },
+            responses: { 200: { type: "object", properties: { branch: { type: "string" } } } },
           },
           output: "$: self.result",
           timeout: 1000,
@@ -170,11 +170,11 @@ test("lifecycle — task fails when output violates result_schema", async () => 
           action: {
             type: "fetch" as const,
             url: `http://localhost:${mock.port}/action`,
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: { charged: { type: "boolean" } },
               required: ["charged"],
-            },
+            } },
           },
           timeout: 2000,
           switch: [{ goto: "end" }],

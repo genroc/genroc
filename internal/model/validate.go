@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 
 	"genroc/internal/delayspec"
@@ -105,6 +106,9 @@ func validateTask(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int, po
 		return err
 	}
 	if err := validateOnError(s, taskIDs); err != nil {
+		return err
+	}
+	if err := validateResponses(s, pool); err != nil {
 		return err
 	}
 	return validateActionSchemas(s, pool)
@@ -407,6 +411,52 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 		}
 	}
 	return nil
+}
+
+// validateResponses checks a fetch's `responses` map: the slot belongs to no other action
+// type, its keys are status patterns, and no status is declared twice — an overlap at equal
+// specificity has no answer, and picking one silently would make the report a guess. It also
+// refuses `result_schema` on a fetch: nothing reads it there, and a field nothing reads is
+// dropped in silence. See specs/fetch-http-surface.md §2.
+func validateResponses(s *Task, pool schema.Defs) error {
+	if s.Action == nil {
+		return nil
+	}
+	if s.Action.Type != ActionTypeFetch {
+		if len(s.Action.Responses) > 0 {
+			return fmt.Errorf("task %q: action.responses is only valid on a fetch — a %q task has no status to key on; use result_schema", s.ID, s.Action.Type)
+		}
+		return nil
+	}
+	if s.Action.ResultSchema != nil {
+		return fmt.Errorf("task %q: action.result_schema is not valid on a fetch — declare the body per status, e.g. %s", s.ID, `responses: {"200": {...}}`)
+	}
+	owner := map[string]string{}
+	for _, key := range sortedResponseKeys(s.Action.Responses) {
+		patterns, err := ParseResponseKey(key)
+		if err != nil {
+			return fmt.Errorf("task %q: action.responses key %q: %w", s.ID, key, err)
+		}
+		for _, p := range patterns {
+			if prev, dup := owner[p]; dup {
+				return fmt.Errorf("task %q: action.responses declares %q twice, in %q and %q — one status, one schema", s.ID, p, prev, key)
+			}
+			owner[p] = key
+		}
+		if err := checkSchemaDoc(fmt.Sprintf("task %q action.responses[%q]", s.ID, key), s.Action.Responses[key], pool); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sortedResponseKeys(m map[string]*schema.Schema) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // validateActionSchemas checks that any attached result_schema documents (task-level and

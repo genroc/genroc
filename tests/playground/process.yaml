@@ -24,12 +24,13 @@ tasks:
       url: "${ input.server_url }/record"
       body:
         place: "$: input.place"
-      result_schema:
-        type: object
-        properties:
-          time: { type: string }
-          temperature_c: { type: number }
-        required: [time, temperature_c]
+      responses:
+        200:
+          type: object
+          properties:
+            time: { type: string }
+            temperature_c: { type: number }
+          required: [time, temperature_c]
     timeout: 30s
     output:
       time: "$: self.result.time"

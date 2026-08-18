@@ -121,7 +121,7 @@ const everySlotDoc = `{"name":"total",
    "on_error":[{"code":["http.500"],"goto":"$wait"}],
    "action":{"type":"fetch","url":"http://x/call","method":"POST",
              "headers":{"trace":"alpha"},"body":{"n":"$: 1"},"accepted_status":["4xx"],
-             "result_schema":{"type":"object","properties":{"fee":{"type":"number"}}}},
+             "responses": { "200": {"type":"object","properties":{"fee":{"type":"number"}}} }},
    "switch":"next"},
   {"id":"wait","action":{"type":"delay","for":"1h","tz":"UTC"},
    "output":{"n":"$: 1"},"switch":"next"},
@@ -176,7 +176,16 @@ func TestChangedSlots_EveryDifferentDocumentIsReported(t *testing.T) {
 		{"action.headers", func(d *model.ProcessDefinition) { d.Tasks[0].Action.Headers = nil }},
 		{"action.accepted_status", func(d *model.ProcessDefinition) { d.Tasks[0].Action.AcceptedStatus = nil }},
 		{"action.body", func(d *model.ProcessDefinition) { d.Tasks[0].Action.Body = nil }},
-		{"action.result_schema", func(d *model.ProcessDefinition) { d.Tasks[0].Action.ResultSchema = nil }},
+		{"action.result_schema", func(d *model.ProcessDefinition) { d.Tasks[3].Action.ResultSchema = nil }},
+		{"action.responses", func(d *model.ProcessDefinition) { delete(d.Tasks[0].Action.Responses, "200") }},
+		{"a responses schema", func(d *model.ProcessDefinition) {
+			d.Tasks[0].Action.Responses["200"] = nil
+		}},
+		// A status the new version declares with NO body carries no schema to compare, so
+		// nothing but this channel can report it — and it changes what the task accepts.
+		{"a bodyless status added", func(d *model.ProcessDefinition) {
+			d.Tasks[0].Action.Responses["202"] = nil
+		}},
 		{"action.for", func(d *model.ProcessDefinition) { d.Tasks[1].Action.For = "2h" }},
 		{"action.tz", func(d *model.ProcessDefinition) { d.Tasks[1].Action.TZ = "Europe/Prague" }},
 		{"action.until", func(d *model.ProcessDefinition) { d.Tasks[2].Action.Until = "+2d 08:00" }},

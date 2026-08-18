@@ -16,7 +16,8 @@ apply:
             action:
               type: fetch
               url: http://x/charge
-              result_schema: {type: object, properties: {fee: {type: number}}, required: [fee]}
+              responses:
+                200: {type: object, properties: {fee: {type: number}}, required: [fee]}
             output: {fee: '$: self.result.fee'}
             switch: next
           - id: settle
@@ -31,7 +32,8 @@ apply:
             action:
               type: fetch
               url: http://x/charge
-              result_schema: {type: object, properties: {fee: {type: string}}, required: [fee]}
+              responses:
+                200: {type: object, properties: {fee: {type: string}}, required: [fee]}
             output: {fee: '$: self.result.fee'}
             switch: next
           - id: settle

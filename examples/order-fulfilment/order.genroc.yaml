@@ -30,11 +30,12 @@ tasks:
         order_ref: "$: input.order_ref"
         sku: "$: input.sku"
         quantity: "$: input.quantity"
-      result_schema:
-        type: object
-        properties:
-          reservation_id: { type: string }
-        required: [reservation_id]
+      responses:
+        200:
+          type: object
+          properties:
+            reservation_id: { type: string }
+          required: [reservation_id]
     timeout: 5000
     on_error:
       - code: [http.409]
@@ -56,11 +57,12 @@ tasks:
         idempotency_key: "$: input.order_ref"
         customer: "$: input.customer"
         amount_cents: "$: input.amount_cents"
-      result_schema:
-        type: object
-        properties:
-          charge_id: { type: string }
-        required: [charge_id]
+      responses:
+        200:
+          type: object
+          properties:
+            charge_id: { type: string }
+          required: [charge_id]
     timeout: 10000
     on_error:
       # Tier 1 — a pre.* error means the request never left, so a retry cannot double
@@ -85,11 +87,12 @@ tasks:
       body:
         order_ref: "$: input.order_ref"
         customer: "$: input.customer"
-      result_schema:
-        type: object
-        properties:
-          tracking: { type: string }
-        required: [tracking]
+      responses:
+        200:
+          type: object
+          properties:
+            tracking: { type: string }
+          required: [tracking]
     timeout: 5000
     output:
       tracking: "$: self.result.tracking"
@@ -103,11 +106,12 @@ tasks:
       type: fetch
       method: GET
       url: "${ input.base_url }/payments/by-key/${ input.order_ref }"
-      result_schema:
-        type: object
-        properties:
-          charged: { type: boolean }
-        required: [charged]
+      responses:
+        200:
+          type: object
+          properties:
+            charged: { type: boolean }
+          required: [charged]
     timeout: 5000
     output:
       charged: "$: self.result.charged"

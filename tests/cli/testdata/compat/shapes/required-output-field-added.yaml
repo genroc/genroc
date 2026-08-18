@@ -10,7 +10,8 @@ apply:
             action:
               type: fetch
               url: http://x/w
-              result_schema: {type: object, properties: {time: {type: string}}, required: [time]}
+              responses:
+                200: {type: object, properties: {time: {type: string}}, required: [time]}
             output: {time: "$: self.result.time"}
             switch: next
           - id: report
@@ -28,8 +29,9 @@ apply:
             action:
               type: fetch
               url: http://x/w
-              result_schema:
-                {type: object, properties: {time: {type: string}, extra: {type: number}}, required: [time, extra]}
+              responses:
+                200:
+                  {type: object, properties: {time: {type: string}, extra: {type: number}}, required: [time, extra]}
             output: {time: "$: self.result.time", extra: "$: self.result.extra"}
             switch: next
           - id: report

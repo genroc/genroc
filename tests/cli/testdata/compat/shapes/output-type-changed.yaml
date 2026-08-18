@@ -9,7 +9,8 @@ apply:
             action:
               type: fetch
               url: http://x/charge
-              result_schema: {type: object, properties: {amount: {type: number}}, required: [amount]}
+              responses:
+                200: {type: object, properties: {amount: {type: number}}, required: [amount]}
             output: {amount: '$: self.result.amount'}
             switch: next
           - id: ship
@@ -25,7 +26,8 @@ apply:
             action:
               type: fetch
               url: http://x/charge
-              result_schema: {type: object, properties: {amount: {type: string}}, required: [amount]}
+              responses:
+                200: {type: object, properties: {amount: {type: string}}, required: [amount]}
             output: {amount: '$: self.result.amount'}
             switch: next
           - id: ship

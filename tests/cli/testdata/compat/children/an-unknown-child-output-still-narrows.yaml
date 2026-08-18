@@ -10,7 +10,8 @@ apply:
             action:
               type: fetch
               url: http://x
-              result_schema: {}
+              responses:
+                200: {}
             output: {payload: '$: self.result'}
             switch: end
         output: {payload: '$: outputs.run.payload'}
@@ -30,7 +31,8 @@ apply:
             action:
               type: fetch
               url: http://y
-              result_schema: {}
+              responses:
+                200: {}
             output: {payload: '$: self.result'}
             switch: end
         output: {payload: '$: outputs.run.payload'}

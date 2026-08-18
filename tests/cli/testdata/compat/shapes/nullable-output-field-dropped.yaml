@@ -12,7 +12,8 @@ apply:
             action:
               type: fetch
               url: http://x/w
-              result_schema: {type: object, properties: {id: {type: string}, note: {type: string}}, required: [id]}
+              responses:
+                200: {type: object, properties: {id: {type: string}, note: {type: string}}, required: [id]}
             output: {id: "$: self.result.id", note: "$: self.result.note"}
             switch: end
         output: {id: "$: outputs.fetch.id", note: "$: outputs.fetch.note"}
@@ -24,7 +25,8 @@ apply:
             action:
               type: fetch
               url: http://x/w
-              result_schema: {type: object, properties: {id: {type: string}, note: {type: string}}, required: [id]}
+              responses:
+                200: {type: object, properties: {id: {type: string}, note: {type: string}}, required: [id]}
             output: {id: "$: self.result.id", note: "$: self.result.note"}
             switch: end
         output: {id: "$: outputs.fetch.id"}

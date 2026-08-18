@@ -48,10 +48,10 @@ beforeAll(async () => {
       action: {
         type: "fetch" as const,
         url: `http://localhost:${okMockPort}/action`,
-        result_schema: {
+        responses: { 200: {
           type: "object",
           properties: { ok: { type: "boolean" } },
-        },
+        } },
       },
       timeout: 5_000,
       switch: [{ goto: "$second" }],

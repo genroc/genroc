@@ -86,20 +86,45 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 		return nil, stop(e.handleCallError(inst, task, err.Error(), code))
 	}
 	if resp.ErrorCode != "" {
-		msg := resp.ErrorMessage
+		code, msg, extra := resp.ErrorCode, resp.ErrorMessage, map[string]any(nil)
 		if msg == "" {
 			msg = string(resp.ErrorCode)
 		}
+		// The declaration decides whether this body is readable, and a declared body that
+		// cannot be read REPLACES the status code — the same enforcement the accepted path
+		// applies, so `code: [http.4%]` stops catching a 400 whose body is malformed.
+		if value, declared, verr := task.Action.ValidateResponse(resp.Status, resp.Body); declared {
+			switch {
+			case resp.BodyCode != "":
+				code, msg = resp.BodyCode, fmt.Sprintf("status %d: %s", resp.Status, msg)
+			case verr != nil:
+				code, msg = errcode.OutputInvalid, fmt.Sprintf("status %d: %v", resp.Status, verr)
+			default:
+				extra = map[string]any{"data": value}
+			}
+		}
 		// action_failed (debug): error body in data, status in meta, code in code.
-		e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionFailed, Task: task.ID, Code: resp.ErrorCode, Data: e.snippetRaw(resp.ErrorMessage), Meta: statusMeta(resp.Status)})
-		return nil, stop(e.handleCallError(inst, task, msg, resp.ErrorCode))
+		e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionFailed, Task: task.ID, Code: code, Data: e.snippetRaw(resp.ErrorMessage), Meta: statusMeta(resp.Status)})
+		return nil, stop(e.handleCallErrorWith(inst, task, msg, code, extra))
 	}
 
-	// result_schema validates the raw result and normalizes it (undeclared keys
-	// dropped, defaults filled); it does not export it. The result is transient —
-	// available to this task's own output/switch as self.result. Only an `output`
-	// projection adds anything to outputs.<id>.
-	normalized, err := task.Action.ValidateOutput(resp.Body)
+	// An accepted status whose body could not be decoded fails whatever was declared: the
+	// decode is JSON-only and an empty body already came back as null, so this is a response
+	// nothing could have read.
+	if resp.BodyCode != "" {
+		msg := resp.ErrorMessage
+		if msg == "" {
+			msg = string(resp.BodyCode)
+		}
+		e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionFailed, Task: task.ID, Code: resp.BodyCode, Data: e.snippetRaw(msg), Meta: statusMeta(resp.Status)})
+		return nil, stop(e.handleCallError(inst, task, msg, resp.BodyCode))
+	}
+
+	// The schema declared for this status validates the raw result and normalizes it
+	// (undeclared keys dropped, defaults filled); it does not export it. The result is
+	// transient — available to this task's own output/switch as self.result. Only an
+	// `output` projection adds anything to outputs.<id>.
+	normalized, _, err := task.Action.ValidateResponse(resp.Status, resp.Body)
 	if err != nil {
 		return nil, stop(e.handleCallError(inst, task, err.Error(), errcode.OutputInvalid))
 	}
@@ -109,7 +134,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	// action_succeeded (debug): the response body in data, the HTTP status in meta.
 	// Like action_started it carries an action payload, so it is gated behind
 	// --level debug rather than cluttering the default info trail.
-	e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionSucceeded, Task: task.ID, Data: e.snippetResult(task, resp.Body), Meta: statusMeta(resp.Status)})
+	e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionSucceeded, Task: task.ID, Data: e.snippetResult(task, resp.Status, resp.Body), Meta: statusMeta(resp.Status)})
 
 	return resp.Body, nil
 }

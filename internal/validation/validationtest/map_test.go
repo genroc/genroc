@@ -158,7 +158,7 @@ func TestGenerateMap_OutputOverSelfResult(t *testing.T) {
 				"action": {
 					"type": "fetch",
 					"url": "http://x",
-					"result_schema": {
+					"responses": { "200": {
 						"type": "object",
 						"properties": {
 							"items": {
@@ -171,7 +171,7 @@ func TestGenerateMap_OutputOverSelfResult(t *testing.T) {
 							}
 						},
 						"required": ["items"]
-					}
+					} }
 				},
 				"switch": "end",
 				"output": {"skus": "$: map(self.result.items, i => {ref: i.id, cents: i.price * 100})"}

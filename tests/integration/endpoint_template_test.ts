@@ -22,11 +22,11 @@ test("rest endpoint is evaluated as a template", async () => {
           action: {
             type: "fetch" as const,
             url: "${ input.base }/action",
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: { slept: { type: "number" } },
               required: ["slept"],
-            },
+            } },
           },
           output: "$: self.result",
           switch: "end",
@@ -76,11 +76,11 @@ test("a config value can build a rest endpoint URL", async () => {
           action: {
             type: "fetch" as const,
             url: "${ config.endpoint_url }/second",
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: { slept: { type: "number" } },
               required: ["slept"],
-            },
+            } },
           },
           output: "$: self.result",
           switch: "end",

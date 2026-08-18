@@ -11,7 +11,6 @@ import (
 	"genroc/internal/schema"
 	"genroc/internal/shape"
 	"genroc/internal/template"
-	"genroc/internal/transport"
 )
 
 func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, processInput, configSchema schema.Schema, defs schema.Defs) error {
@@ -152,7 +151,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				if untypedResult {
 					hooks.Roots = func(refs expression.Roots) error {
 						if refs.SelfResult {
-							return fmt.Errorf("task %q switch case %q: references self.result, but the action has no result_schema — add a result_schema to type the response", s.ID, c.Case)
+							return fmt.Errorf("task %q switch case %q: references self.result, but %s", s.ID, c.Case, untypedResultAdvice(s.Action))
 						}
 						return nil
 					}
@@ -365,7 +364,7 @@ func checkAcceptedStatusShape(raw any, ctx schema.Schema, taskID string) error {
 		if err != nil {
 			continue // a malformed template already surfaced through inference above
 		}
-		if pat, static := t.Static(); static && !transport.ValidStatusPattern(pat) {
+		if pat, static := t.Static(); static && !model.ValidStatusPattern(pat) {
 			return fmt.Errorf("task %q accepted_status %q must be \"2xx\"/\"3xx\"/\"4xx\"/\"5xx\" or a 3-digit code", taskID, pat)
 		}
 	}
@@ -481,6 +480,10 @@ func actionResultType(s *model.Task, defs schema.Defs) (schema.Schema, bool, err
 		return sc, true, err
 	case model.ActionTypeDelay:
 		return schema.Type("null"), true, nil
+	case model.ActionTypeFetch:
+		// The body is typed per status, so the result is the union over the statuses that can
+		// be accepted — plus null where an accepted status is described by no pattern.
+		return fetchResultType(s.Action, defs)
 	default:
 		if s.Action.ResultSchema != nil {
 			// The result schema is self-contained (shared $defs baked in at

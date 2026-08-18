@@ -11,11 +11,11 @@ func TestGenerate_OutputSingleExpressionPassthrough(t *testing.T) {
 		"tasks": [
 			{
 				"id": "charge",
-				"action": {"type":"fetch","url":"http://x","result_schema": {
+				"action": {"type":"fetch","url":"http://x","responses": { "200": {
 					"type":"object",
 					"properties":{"charged":{"type":"boolean"}},
 					"required":["charged"]
-				}},
+				} }},
 				"output": "$: self.result",
 				"switch": "end"
 			}
@@ -36,11 +36,11 @@ func TestGenerate_OutputNestedObject(t *testing.T) {
 		"tasks": [
 			{
 				"id": "charge",
-				"action": {"type":"fetch","url":"http://x","result_schema": {
+				"action": {"type":"fetch","url":"http://x","responses": { "200": {
 					"type":"object",
 					"properties":{"charged":{"type":"boolean"}},
 					"required":["charged"]
-				}},
+				} }},
 				"output": {"data": {"flag": "$: self.result.charged"}},
 				"switch": "end"
 			}
@@ -69,7 +69,7 @@ func TestGenerate_ProcessOutputSingleExpressionScalar(t *testing.T) {
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "charged": {
@@ -79,7 +79,7 @@ func TestGenerate_ProcessOutputSingleExpressionScalar(t *testing.T) {
           "required": [
             "charged"
           ]
-        }
+        } }
       },
       "switch": "end",
       "output": "$: self.result"

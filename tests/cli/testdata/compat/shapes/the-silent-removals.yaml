@@ -22,7 +22,8 @@ apply:
             action:
               type: fetch
               url: http://x/go
-              result_schema: {type: object, properties: {fee: {type: number}}, required: [fee]}
+              responses:
+                200: {type: object, properties: {fee: {type: number}}, required: [fee]}
             switch: end
   - channel: silentrm_b
     definitions:

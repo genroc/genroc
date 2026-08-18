@@ -59,8 +59,8 @@ as the 512 bytes [transport.go:109](../internal/transport/transport.go#L109) tri
 
 ```yaml
 responses:
-  "200":      { type: object, properties: { state: { type: string } } }
-  "202":      null
+  200:        { type: object, properties: { state: { type: string } } }
+  202:        null
   "400, 401": { $ref: "#/$defs/problem" }
   "5xx":      { type: object, properties: { trace_id: { type: string } } }
 ```
@@ -262,9 +262,12 @@ one type where one rule reaches one handler.
 - **Precedence is a typing concern only.** Acceptance asks whether *any* pattern matches and
   needs no order; exact-beats-range applies where a schema is selected — in inference, and
   again at runtime when the response lands. Two call sites, one resolver, or they drift.
-- **Quote the keys in every doc and example.** Unquoted `200:` is an *integer* key in YAML, and
-  whether it survives as `"200"` depends on the YAML→JSON conversion rather than on anything
-  here. Only all-digit keys are at risk, which is why the rule is "always quote".
+- **A plain code is written unquoted; a range or a list is not.** `200:` is an `!!int` node
+  in YAML, but `yamlToAny` decodes every mapping key into a Go string and yaml.v3 obliges, so
+  it reaches genroc as `"200"` — measured, not assumed. `"4xx"` and `"400, 401"` have no bare
+  form, and JSON has no integer keys at all, so anything written or stored as JSON quotes
+  everything regardless. The rule holds for authored YAML only, and the quotes that remain
+  there are the ones that carry information.
 - Add a `ruleFieldHints`-style hint for `schema` ([wire.go:206](../internal/model/wire.go#L206)):
   anyone arriving from OpenAPI writes `{"200": {schema: ...}}` and gets `unsupported schema
   keyword "schema"` from the strict allowlist — correct, but it should name the fix.
@@ -277,26 +280,27 @@ channels nullable there. `result_schema` stays on `child`, `child_list` and `ext
 there is no status to key on. Every fetch fixture declaring a schema becomes narrower in what
 it accepts — mechanical, and small. Nothing that already names a status is rewritten.
 
-The compat command generalizes rather than changes, and `child_map` is the worked precedent:
-it already iterates its keys and calls `pair` once per child
-([compat.go:369](../internal/validation/compat.go#L369)), so `responses` iterates sorted status
-patterns and does the same, one row addressed per status. `parksMidTask` stays false for a
-fetch, so these remain contract rows rather than upgrade ones. Three things carry the weight:
+The compat command compares a fetch's result as **one merged union under the same
+`task:fetch.result` address every other action type uses** — not per status. `child_map` looks
+like the precedent and is not: its keys are separately readable outputs (`outputs.<task>.<key>`),
+so each is genuinely its own contract, whereas a fetch's statuses all feed the single
+`self.result` and no consumer can read one of them apart from the others. Comparing them one
+at a time judges something nobody can observe, and it is wrong in both directions — dropping a
+bodyless status reads as a removed declaration and goes unreported, though as a union it
+narrows what the remote may answer and breaks a producer; and restating the same union over a
+range (`{"200": T}` → `{"2xx": T}`) reads as one key removed and another added, reporting a
+break for an edit that changed no type at all. Both are pinned by
+`TestCompat_FetchResultIsComparedAsTheMergedUnion`.
 
-- **Iterate on key presence, never on nil-ness.** A declared `"202": null` is a nil
-  `*schema.Schema` — which is also `pair`'s existing spelling for "no schema declared", so a
-  nil test would silently stop judging a slot that exists. `child_map`'s `sortedChildKeys` +
-  `ok` check is the shape to copy.
-- The `{}` guard at [compat.go:358](../internal/validation/compat.go#L358) already gives
-  `"4xx": {}` the right answer for free — a schema accepting everything constrains nothing, so
-  the carried-but-unread idiom is not an addition anything can fail.
-- What a per-status comparison cannot see — that adding `"202": null` widened `self.result` to
-  `T | null` — the **output** comparison does, since only a projection makes a result visible
-  outside the task. Dropping a status likewise needs no new rule: `pair` declines to judge a
-  removal already, which is right, because acceptance is routing rather than schema.
+The direction is the one every result schema runs, `old ⊆ new`: the schema is a demand on the
+party that PRODUCES the value, so a wider union turns nobody away while a narrower one breaks
+the producer that satisfied the old. What a downstream reader of `self.result` sees is a
+different question, answered by the task's own output comparison — a result becomes visible
+outside its task only through a projection.
 
-`changedslots.go` follows the same split: `action.result_schema` becomes one entry per declared
-status, so the report names the status whose schema moved rather than "the map changed".
+`changedslots.go` follows the same address: `responses` is an ordinary slot whose leaf name is
+`result`, exactly as `result_schema`'s is, because §6b's suppression drops a slot row only
+where a break carries the SAME address.
 
 # §3 — Response metadata
 

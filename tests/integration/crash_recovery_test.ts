@@ -571,11 +571,11 @@ test("crash recovery — a handler may deliberately re-run the interrupted task"
               url: `http://localhost:${verify.port}/charges`,
               // Declared so the switch below can read the answer: self.result is
               // the action's raw result, and it has to be typed to be navigated.
-              result_schema: {
+              responses: { 200: {
                 type: "object",
                 properties: { exists: { type: "boolean" } },
                 required: ["exists"],
-              },
+              } },
             },
             switch: [
               { case: "self.result.exists == true", goto: "end" },

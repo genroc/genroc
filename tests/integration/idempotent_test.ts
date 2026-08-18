@@ -356,11 +356,11 @@ test("only_once:true — http.500 routes to handler and is called exactly once",
           action: {
             type: "fetch" as const,
             url: `http://localhost:${handlerMock.port}/action`,
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: { handled: { type: "boolean" } },
               required: ["handled"],
-            },
+            } },
           },
           timeout: 2000,
           switch: [{ goto: "end" }],
@@ -436,11 +436,11 @@ test("only_once:true — not_reached:true allows retry on http.422", async () =>
           action: {
             type: "fetch" as const,
             url: `http://localhost:${mock.port}/action`,
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: { ok: { type: "boolean" } },
               required: ["ok"],
-            },
+            } },
           },
           on_error: [{ code: ["http.422"], not_reached: true, retry: 2 }],
           timeout: 2000,

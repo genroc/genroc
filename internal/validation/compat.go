@@ -366,6 +366,21 @@ func resultContracts(old, new *model.Task) []resultContract {
 		}
 		return []resultContract{rc}
 	}
+	// A fetch declares its body per status but produces ONE value, so it is compared as one:
+	// the merged union under the same `.result` address every other action type uses. The
+	// child_map below looks similar and is not — its keys are separately readable outputs,
+	// so each is its own contract.
+	if old.Action.Type == model.ActionTypeFetch {
+		oldRS, err := fetchResultContract(old.Action)
+		if err != nil {
+			return nil
+		}
+		newRS, err := fetchResultContract(new.Action)
+		if err != nil {
+			return nil
+		}
+		return pair(old.ID+":"+actionType+".result", oldRS, newRS)
+	}
 	if old.Action.Type == model.ActionTypeChildMap {
 		var out []resultContract
 		for _, key := range sortedChildKeys(old.Action.Children) {

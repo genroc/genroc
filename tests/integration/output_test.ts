@@ -19,7 +19,7 @@ test("output map remaps an action result — only the projection is exported", a
           action: {
             type: "fetch" as const,
             url: `http://localhost:${mock.port}/action`,
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: {
                 job_id: { type: "string" },
@@ -27,7 +27,7 @@ test("output map remaps an action result — only the projection is exported", a
                 secret: { type: "string" },
               },
               required: ["job_id"],
-            },
+            } },
           },
           output: { id: "$: self.result.job_id" },
           switch: [
@@ -73,11 +73,11 @@ test("single-expression output passes the action result through", async () => {
           action: {
             type: "fetch" as const,
             url: `http://localhost:${mock.port}/action`,
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: { job_id: { type: "string" }, queue: { type: "string" } },
               required: ["job_id", "queue"],
-            },
+            } },
           },
           output: "$: self.result",
           switch: [{ case: `self.output.job_id == "j-7"`, goto: "end" }, { goto: "end" }],
@@ -119,11 +119,11 @@ test("nested output shapes data with nested objects", async () => {
           action: {
             type: "fetch" as const,
             url: `http://localhost:${mock.port}/action`,
-            result_schema: {
+            responses: { 200: {
               type: "object",
               properties: { job_id: { type: "string" }, queue: { type: "string" } },
               required: ["job_id", "queue"],
-            },
+            } },
           },
           output: { meta: { id: "$: self.result.job_id", where: "$: self.result.queue" } },
           switch: "end",

@@ -20,7 +20,7 @@ func twoWayDef(outExpr string) string {
 				"id": "a",
 				"action": {
 					"type": "fetch", "url": "http://x/",
-					"result_schema": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]}
+					"responses": { "200": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]} }
 				},
 				"on_error": [{"code":["http.422"],"goto":"$b"}],
 				"output": {"v": "$: self.result.v"},
@@ -78,7 +78,7 @@ func TestPathSensitive_UncoveredTerminalKeepsItNullable(t *testing.T) {
 				"id": "a",
 				"action": {
 					"type": "fetch", "url": "http://x/",
-					"result_schema": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]}
+					"responses": { "200": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]} }
 				},
 				"on_error": [{"code":["http.422"],"goto":"$b"},{"code":["http.500"],"goto":"$c"}],
 				"output": {"v": "$: self.result.v"},
@@ -108,7 +108,7 @@ func TestPathSensitive_GenuinelyNullableOutputStaysNullable(t *testing.T) {
 				"id": "a",
 				"action": {
 					"type": "fetch", "url": "http://x/",
-					"result_schema": {"type":"object","properties":{"v":{"type":["boolean","null"]}},"required":["v"]}
+					"responses": { "200": {"type":"object","properties":{"v":{"type":["boolean","null"]}},"required":["v"]} }
 				},
 				"on_error": [{"code":["http.422"],"goto":"$b"}],
 				"output": {"v": "$: self.result.v"},
@@ -135,7 +135,7 @@ func TestPathSensitive_TrailingDefaultOnAnUncoveredPairIsNonNull(t *testing.T) {
 				"id": "a",
 				"action": {
 					"type": "fetch", "url": "http://x/",
-					"result_schema": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]}
+					"responses": { "200": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]} }
 				},
 				"on_error": [{"code":["http.422"],"goto":"$b"},{"code":["http.500"],"goto":"$c"}],
 				"output": {"v": "$: self.result.v"},
@@ -162,7 +162,7 @@ func TestPathSensitive_ErrorEndTerminalCounts(t *testing.T) {
 				"id": "a",
 				"action": {
 					"type": "fetch", "url": "http://x/",
-					"result_schema": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]}
+					"responses": { "200": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]} }
 				},
 				"on_error": [{"code":["http.500"],"goto":"end"}],
 				"output": {"v": "$: self.result.v"},
@@ -200,7 +200,7 @@ func TestPathSensitive_SingleTerminalBehaviourUnchanged(t *testing.T) {
 				"id": "a",
 				"action": {
 					"type": "fetch", "url": "http://x/",
-					"result_schema": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]}
+					"responses": { "200": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]} }
 				},
 				"output": {"v": "$: self.result.v"},
 				"switch": "end"
@@ -238,7 +238,7 @@ func TestPathSensitive_PathSpecificErrorNamesThePath(t *testing.T) {
 				"id": "a",
 				"action": {
 					"type": "fetch", "url": "http://x/",
-					"result_schema": {"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]}
+					"responses": { "200": {"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]} }
 				},
 				"on_error": [{"code":["http.422"],"goto":"$b"}],
 				"output": {"n": "$: self.result.n"},
@@ -270,7 +270,7 @@ func TestPathSensitive_TaskContextsAreStillCollapsed(t *testing.T) {
 				"id": "a",
 				"action": {
 					"type": "fetch", "url": "http://x/",
-					"result_schema": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]}
+					"responses": { "200": {"type":"object","properties":{"v":{"type":"boolean"}},"required":["v"]} }
 				},
 				"on_error": [{"code":["http.422"],"goto":"$b"}],
 				"output": {"v": "$: self.result.v"},

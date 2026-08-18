@@ -51,14 +51,14 @@ func TestGenerate_TaskOutput(t *testing.T) {
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "charged": {
               "type": "boolean"
             }
           }
-        }
+        } }
       },
       "switch": "next",
       "output": "$: self.result"
@@ -92,14 +92,14 @@ func TestGenerate_FlatStepsWithOutputs(t *testing.T) {
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "charged": {
               "type": "boolean"
             }
           }
-        }
+        } }
       },
       "switch": [
         {
@@ -117,14 +117,14 @@ func TestGenerate_FlatStepsWithOutputs(t *testing.T) {
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "tracking": {
               "type": "string"
             }
           }
-        }
+        } }
       },
       "switch": "end",
       "output": "$: self.result"
@@ -134,14 +134,14 @@ func TestGenerate_FlatStepsWithOutputs(t *testing.T) {
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "refunded": {
               "type": "boolean"
             }
           }
-        }
+        } }
       },
       "switch": "end",
       "output": "$: self.result"
@@ -209,7 +209,7 @@ func TestGenerate_InnerDefsConflictRenamed(t *testing.T) {
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "$defs": {
             "Item": {
@@ -224,7 +224,7 @@ func TestGenerate_InnerDefsConflictRenamed(t *testing.T) {
             }
           },
           "required": ["y"]
-        }
+        } }
       },
       "output": "$: self.result"
     }

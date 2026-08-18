@@ -19,7 +19,8 @@ apply:
             action:
               type: fetch
               url: http://x/call
-              result_schema: {type: object, properties: {a: {type: string}}}
+              responses:
+                200: {type: object, properties: {a: {type: string}}}
             switch: next
           - id: approve
             action:
@@ -34,7 +35,8 @@ apply:
             action:
               type: fetch
               url: http://x/call
-              result_schema: {type: object, properties: {a: {type: string}, b: {type: integer}}, required: [b]}
+              responses:
+                200: {type: object, properties: {a: {type: string}, b: {type: integer}}, required: [b]}
             switch: next
           - id: approve
             action:

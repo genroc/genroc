@@ -207,7 +207,7 @@ const (
 type inferTask struct {
 	id      string
 	fetch   bool   // give the task a fetch action against http://x
-	result  string // fetch result_schema (implies an action)
+	result  string // schema for the fetch's 2xx body (implies an action)
 	body    string // fetch body (implies an action)
 	output  string // output template or output map
 	sw      string // switch; omitted when empty (falls through to the next task)
@@ -219,7 +219,7 @@ func (tk inferTask) json() string {
 	if tk.fetch || tk.result != "" || tk.body != "" {
 		action := `{"type":"fetch","url":"http://x"`
 		if tk.result != "" {
-			action += `,"result_schema":` + tk.result
+			action += `,"responses":{"200":` + tk.result + `}`
 		}
 		if tk.body != "" {
 			action += `,"body":` + tk.body

@@ -20,7 +20,7 @@ const sharedDefsProcess = `{
 			"id": "fetch",
 			"action": {
 				"type": "fetch", "url": "http://x",
-				"result_schema": {"type":"object","properties":{"buyer":{"$ref":"#/$defs/User"}},"required":["buyer"]}
+				"responses": { "200": {"type":"object","properties":{"buyer":{"$ref":"#/$defs/User"}},"required":["buyer"]} }
 			},
 			"output": {"who": "'${ self.result.buyer.name }'"},
 			"switch": [{"goto": "next"}]
@@ -29,7 +29,7 @@ const sharedDefsProcess = `{
 			"id": "audit",
 			"action": {
 				"type": "fetch", "url": "http://y",
-				"result_schema": {"type":"object","properties":{"reviewer":{"$ref":"#/$defs/User"}},"required":["reviewer"]}
+				"responses": { "200": {"type":"object","properties":{"reviewer":{"$ref":"#/$defs/User"}},"required":["reviewer"]} }
 			},
 			"output": {"flag": "$: self.result.reviewer.vip"}
 		}
@@ -71,7 +71,7 @@ func TestGenerate_SharedDefUsedByInputAndResults(t *testing.T) {
 			"id": "s1",
 			"action": {
 				"type": "fetch", "url": "http://x",
-				"result_schema": {"type":"object","properties":{"owner":{"$ref":"#/$defs/User"}},"required":["owner"]}
+				"responses": { "200": {"type":"object","properties":{"owner":{"$ref":"#/$defs/User"}},"required":["owner"]} }
 			},
 			"output": {"n": "'${ self.result.owner.name }'"}
 		}]
@@ -99,7 +99,7 @@ func TestGenerate_GeneratedNamesTakePrecedenceByRenaming(t *testing.T) {
 			"id": "s1",
 			"action": {
 				"type": "fetch", "url": "http://x",
-				"result_schema": {"type":"object","properties":{"d":{"$ref":"#/$defs/s1_output"}},"required":["d"]}
+				"responses": { "200": {"type":"object","properties":{"d":{"$ref":"#/$defs/s1_output"}},"required":["d"]} }
 			},
 			"output": {"num": "$: self.result.d.n"},
 			"switch": [{"goto": "end"}]

@@ -13,7 +13,7 @@ func TestGenerate_ContextSets_LinearChain_RequiredOutputNonNullable(t *testing.T
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "ok": {
@@ -23,7 +23,7 @@ func TestGenerate_ContextSets_LinearChain_RequiredOutputNonNullable(t *testing.T
           "required": [
             "ok"
           ]
-        }
+        } }
       },
       "output": "$: self.result"
     },
@@ -79,7 +79,7 @@ func TestGenerate_ContextSets_ExclusiveBranch_SkippedStepOutputNullable(t *testi
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "speed": {
@@ -89,7 +89,7 @@ func TestGenerate_ContextSets_ExclusiveBranch_SkippedStepOutputNullable(t *testi
           "required": [
             "speed"
           ]
-        }
+        } }
       },
       "output": "$: self.result"
     },
@@ -129,7 +129,7 @@ func TestGenerate_ContextSets_PreBranchStepRequiredAtAllMergePoints(t *testing.T
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "id": {
@@ -139,7 +139,7 @@ func TestGenerate_ContextSets_PreBranchStepRequiredAtAllMergePoints(t *testing.T
           "required": [
             "id"
           ]
-        }
+        } }
       },
       "output": "$: self.result"
     },
@@ -198,7 +198,7 @@ func TestGenerate_ContextSets_DefaultEndSwitch_SuccessorRequiredNotOptional(t *t
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "ok": {
@@ -208,7 +208,7 @@ func TestGenerate_ContextSets_DefaultEndSwitch_SuccessorRequiredNotOptional(t *t
           "required": [
             "ok"
           ]
-        }
+        } }
       },
       "switch": [
         {
@@ -250,7 +250,7 @@ func TestGenerate_OnError_MixedPath_FailingStepOutputNullable(t *testing.T) {
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "ok": {
@@ -260,7 +260,7 @@ func TestGenerate_OnError_MixedPath_FailingStepOutputNullable(t *testing.T) {
           "required": [
             "ok"
           ]
-        }
+        } }
       },
       "on_error": [
         {
@@ -303,7 +303,7 @@ func TestGenerate_OnError_ExclusivePath_ErrorRequiredOutputAbsent(t *testing.T) 
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "result": {
@@ -313,7 +313,7 @@ func TestGenerate_OnError_ExclusivePath_ErrorRequiredOutputAbsent(t *testing.T) 
           "required": [
             "result"
           ]
-        }
+        } }
       },
       "switch": [
         {
@@ -359,7 +359,7 @@ func TestGenerate_Switch_ScalarNext_CreatesSequentialEdge(t *testing.T) {
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "ok": {
@@ -369,7 +369,7 @@ func TestGenerate_Switch_ScalarNext_CreatesSequentialEdge(t *testing.T) {
           "required": [
             "ok"
           ]
-        }
+        } }
       },
       "switch": "next",
       "output": "$: self.result"
@@ -411,7 +411,7 @@ func TestGenerate_Switch_ScalarStepRef_CreatesJumpEdge(t *testing.T) {
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "speed": {
@@ -421,7 +421,7 @@ func TestGenerate_Switch_ScalarStepRef_CreatesJumpEdge(t *testing.T) {
           "required": [
             "speed"
           ]
-        }
+        } }
       },
       "switch": "next",
       "output": "$: self.result"
@@ -456,7 +456,7 @@ func TestGenerate_OnError_EndTerminal_RecognisedAsTerminal(t *testing.T) {
       "action": {
         "type": "fetch",
         "url": "http://x",
-        "result_schema": {
+        "responses": { "200": {
           "type": "object",
           "properties": {
             "result": {
@@ -466,7 +466,7 @@ func TestGenerate_OnError_EndTerminal_RecognisedAsTerminal(t *testing.T) {
           "required": [
             "result"
           ]
-        }
+        } }
       },
       "on_error": [
         {

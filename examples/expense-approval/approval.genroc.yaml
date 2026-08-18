@@ -73,11 +73,12 @@ tasks:
       body:
         requester: "$: input.requester"
         amount_cents: "$: input.amount_cents"
-      result_schema:
-        type: object
-        properties:
-          payment_id: { type: string }
-        required: [payment_id]
+      responses:
+        200:
+          type: object
+          properties:
+            payment_id: { type: string }
+          required: [payment_id]
     timeout: 5s
     output:
       payment_id: "$: self.result.payment_id"
