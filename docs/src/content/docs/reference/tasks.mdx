@@ -102,12 +102,12 @@ Catchable engine codes, reported by an action task's call:
 
 | Code | Raised when |
 |---|---|
-| `http.NNN` | The response status is outside `accepted_status` (e.g. `http.500`, `http.202`). |
+| `http.NNN` | The response status was not accepted (e.g. `http.500`, `http.202`). |
 | `http.timeout` | The request left and no response came back in time. |
 | `pre.error`, `pre.timeout` | The call never reached the remote. |
 | `output.parse` | The response body is not valid JSON. |
 | `output.too_large` | The response body exceeds the fetch response cap. |
-| `output.invalid` | The result does not validate against `result_schema`. |
+| `output.invalid` | The body does not validate against the schema declared for it. |
 | `external.timeout` | An `external` task's deadline passed with no submitted result. |
 
 Internal `engine.*` failures — `engine.spawn`, `engine.collect`, `engine.expression` — are
@@ -117,6 +117,47 @@ On a `child`, `child_map` or `child_list` task the codes match the codes the chi
 can **raise**, and each pattern is checked at registration against the child's raise set. A
 child that *failed* rather than raised is never catchable; convert the failure into a raise
 inside the child.
+
+### The `error` value
+
+A rule that routes with `goto` makes the failure readable at the task it routes to, as
+`error`:
+
+| Field | Meaning |
+|---|---|
+| `error.code` | The code that matched. |
+| `error.message` | Human-readable detail. |
+| `error.task` | The task that failed. |
+| `error.data` | The response body, where the failing fetch declared a schema for that status. |
+| `error.child_key`, `error.child_index` | Which child raised, on a batch route. |
+
+**`error` exists only in the task the rule routes to.** The next ordinary transition drops
+it, so a task further downstream cannot read it — carry what you need forward by projecting
+it into the handler's `output`, the same way every other value travels.
+
+`error.data` is present only where a reaching rule declared a body for the status it catches,
+and its type comes from the rule's own `code` patterns. A rule naming one declared status
+gets exactly that schema; widening the patterns to statuses nobody described, or to a code
+that carries no body at all, widens the type to admit `null`.
+
+```yaml
+- id: call
+  action:
+    type: fetch
+    url: "${ config.api }/orders/${ input.id }"
+    method: GET
+    responses:
+      200: { type: object, properties: { state: { type: string } } }
+      404: { $ref: "#/$defs/problem" }
+  on_error:
+    - code: [http.404]
+      goto: $missing
+  switch: end
+
+- id: missing
+  output: { reason: "$: error.data.detail" }
+  switch: end
+```
 
 ### `retry`
 
@@ -154,10 +195,48 @@ expression, so the whole request can come from the context.
 | `headers` | A value evaluating to a string map. |
 | `body` | Templated request body, sent raw — an object as JSON. |
 | `accepted_status` | Array of status patterns treated as non-errors: `"2xx"`…`"5xx"`, or a 3-digit code. Defaults to any 2xx. |
-| `result_schema` | Validates the response before the instance resumes. Without it the result is available only as `self` in this task's switch. |
+| `responses` | Status pattern → schema for the body that status carries. |
 
 `X-Genroc-Instance-Id` and `X-Genroc-Task-Id` are stamped on every request authoritatively,
 so a caller-supplied header cannot spoof them.
+
+#### `responses`
+
+One map describes the whole endpoint. The status class splits it: a **2xx** key types
+`self.result` *and* makes that status accepted; a **non-2xx** key types `error.data` and
+leaves the status routing through `on_error` as it would have.
+
+```yaml
+responses:
+  200: { type: object, properties: { state: { type: string } } }
+  202: null                      # accepted, carries no body
+  "400, 401": { $ref: "#/$defs/problem" }
+  "5xx": { type: object, properties: { trace_id: { type: string } } }
+```
+
+A key is a comma-separated list of the same patterns `accepted_status` takes — an exact code
+or a hundred-range. Exact beats range, so `{404: A, "4xx": B}` gives a 404 the `A`. Quote a
+key that is not a plain number.
+
+| Entry | Means |
+|---|---|
+| a schema | the status carries a body of that shape |
+| `null` | the status carries no body |
+| `{}` | the status carries a body of unknown shape — exportable, not readable until a consumer restates it |
+
+**Declaring a 2xx narrows what is accepted.** With `{200: T}` and nothing else, a `201`
+raises `http.201`. Widen it with `accepted_status`, or declare the status you expect.
+
+`self.result` is the union of the schemas for the statuses that can be accepted, plus `null`
+where an accepted status is described by no key. So `{200: T}` types it as exactly `T`, while
+`{200: T, 202: null}` types it as `T | null`. Declare nothing and the result is untyped —
+available only as `self.result` in this task's own switch, never exportable.
+
+**A declared schema is enforced.** A body that is empty, unparseable, oversized or does not
+conform raises `output.invalid` / `output.parse` / `output.too_large` **instead of** the
+status code the response would otherwise have produced — on the error channel too, so
+`code: [http.4%]` no longer catches a 400 whose body is malformed. Name both codes to handle
+that, or declare `"4xx": {}`, which conforms to anything and never escalates.
 
 ### `child`, `child_map`, `child_list`
 

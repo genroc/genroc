@@ -76,7 +76,8 @@ An address is one of four things:
 | `<task>:<slot>` | a definition slot on that task: `output`, `switch`, `only_once`, `action.type`, `fetch.url`, `child.name`, `<action_type>.result` |
 
 The example above is one change reported at two addresses, which is the point of addressing
-rather than listing schemas. `charge`'s `result_schema` narrowed a field to a string: at
+rather than listing schemas. The body `charge` declares for its accepted status narrowed a
+field to a string: at
 `charge:fetch.result` that is a **contract** break, because a parent collecting that task was
 written against a number; at `ship` it is an **upgrade** break, because an instance parked
 there already holds `outputs.charge.amount` as a number and the new definition will not take

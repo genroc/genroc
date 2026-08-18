@@ -49,11 +49,12 @@ tasks:
       url: "${ input.url }/hello"       # ${ } interpolates into a string
       body:
         greeting: "Hello, ${ input.name }"
-      result_schema:
-        type: object
-        properties:
-          ok: { type: boolean }
-        required: [ok]
+      responses:                        # what each status returns; 200 is the only success
+        200:
+          type: object
+          properties:
+            ok: { type: boolean }
+          required: [ok]
     output: "$: self.result"            # $: is one typed expression, not a string
     switch: end
 ```
@@ -63,9 +64,10 @@ Three things in that file carry most of the language.
 - **`${ }` interpolates, `$:` is an expression.** `"${ input.url }/hello"` builds a string;
   `"$: self.result"` is a single typed value — an object here, not its text. Anywhere a
   value is expected you can write either, and the type is checked at apply time.
-- **`result_schema` types the outside world.** An HTTP response is untyped until you say
-  what it is. Once declared, the response is validated before the instance moves on, and
-  `self.result.ok` is readable and known to be a boolean.
+- **`responses` types the outside world.** An HTTP response is untyped until you say what it
+  is, per status. Declaring `200` here does two things at once: it makes 200 the status this
+  task accepts, and it types the body — so the response is validated before the instance
+  moves on, and `self.result.ok` is readable and known to be a boolean.
 - **`switch` is required on every task.** It says where control goes: `next`, `end`, or
   `$some-task`. There is no fallthrough — a task always states its own routing.
 

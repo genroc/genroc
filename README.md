@@ -94,11 +94,12 @@ tasks:
       url: "${ input.url }/hello"       # ${ } interpolates into a string
       body:
         greeting: "Hello, ${ input.name }"
-      result_schema:
-        type: object
-        properties:
-          ok: { type: boolean }
-        required: [ok]
+      responses:                        # what each status returns; 200 is the only success
+        200:
+          type: object
+          properties:
+            ok: { type: boolean }
+          required: [ok]
     output: "$: self.result"            # $: is one typed expression, not a string
     switch: end
 ```

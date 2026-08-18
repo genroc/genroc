@@ -112,7 +112,8 @@ value", and genroc treats it as opaque. Because progress is signalled by the sta
 the check's whole response body can be exactly that:
 
 ```yaml
-result_schema: { description: "opaque job result — the caller narrows this" }
+responses:
+  200: { description: "opaque job result — the caller narrows this" }
 ```
 
 The `description` is optional and carries no meaning to the type system — `{}` alone is
@@ -155,7 +156,7 @@ Now `self.result.result.answer` is readable in the parent — and **checked**, n
 when the engine collects the child it conforms the whole output against this schema, so a
 payload of the wrong shape fails the task rather than flowing on. Undeclared keys are
 dropped by the same conform, so a job may return more than the parent declares. This is the
-same relationship a `fetch` already has with its `result_schema`: an opaque source, typed at
+same relationship a `fetch` already has with its `responses`: an opaque source, typed at
 the boundary. `unknown` just lets a **child process** be that source too.
 
 The trade-off is **when** the check happens. The poller no longer validates the payload as
@@ -166,9 +167,9 @@ can't be read; and two callers may narrow the same value to *different* schemas,
 checked independently.) None of that hurts a stable poller, but it is the thing to weigh
 before reaching for `unknown` on data whose shape you don't trust.
 
-Note that **omitting** `result_schema` is a different thing from declaring it `{}`: an
-omitted schema leaves the result untyped and *unusable* — not readable, and not exportable
-either — so "I meant this to be opaque" stays distinguishable from "I forgot to type it".
+Note that **declaring no schema at all** is a different thing from declaring `{}`: an
+undeclared result is untyped and *unusable* — not readable, and not exportable either — so
+"I meant this to be opaque" stays distinguishable from "I forgot to type it".
 
 ## Configuring the poll interval and timeout (parent → child)
 
