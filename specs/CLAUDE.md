@@ -13,49 +13,39 @@ behavior while the spec stays put, answering a different question. See
 
 ## Design drafts (proposed, not implemented)
 
-- [fetch-http-surface.md](fetch-http-surface.md) — two independent additions to `fetch`:
-  response metadata (`self.status` / `self.headers`, which would retire the
-  `http.202`-via-`on_error` trick in the polling example) and a structured `query` slot
-  (string interpolation into a URL does no escaping). Each part carries its own
-  compatibility argument; both are additive. Notes a blocker: hyphenated header names
-  are unreadable because the parser accepts only integer literals in `[...]`.
-- [fetch-responses.md](fetch-responses.md) — replace `result_schema` on a fetch with
-  `responses`, one map from status to schema describing the whole endpoint, where **the
-  status class does the splitting**: a declared 2xx types `self.result`, a declared 4xx/5xx
-  types a new `error.data` and still routes through `on_error`. Its point on the success
-  side is a *non-nullable* result — `{"200": T}` types `self.result` as exactly `T`, because
-  declaring a 2xx is what makes it accepted. A `null` entry is "no body", free to mean that
-  because `null` is not a valid JSON Schema where `{}` would have collided with the top
-  type. Starts from a measured bug (a 202 or 204 carrying no body is accepted and then fails
-  to decode, as `output.parse` with an empty message) and fixes it in the same move: an empty
-  body decodes to `null` and is then *validated*, so the type is enforced rather than
-  asserted. Its sharpest decision is that **enforcement is asymmetric** — best-effort on the
-  error side, because the error path is the recovery path and a malformed payload must not
-  convert a handled error into an unhandled one, which makes `error.data` permanently
-  nullable. `error.data` is present exactly where a pattern is declared, so an undeclared
-  error body stays unreadable (`"4xx": {}` is the escape hatch) — the rule `self.result`
-  already obeys, kept because the alternative reads undeclared data on the least trustworthy
-  path in the system; unreadable is not unrecorded, since `action_failed` still carries the
-  body for an operator who has debug logging and payloads on. Records why a declaration made for typing must not change routing (the rejected
-  `keys(responses) ∪ accepted_status` rule would have made declaring a 404 silently *accept*
-  it, deleting the definition's error handling), why `accepted_status` survives as an
-  authoritative Shape and what that costs under a dynamic set (no status is statically known
-  accepted, so its schema appears on both channels), and the pointer in
-  `map[string]*schema.Schema` — `encoding/json` runs `UnmarshalJSON` on a value type even
-  for `null`, so a value type silently collapses "no body" into "untyped body". Keys are a
-  comma-separated list of the `accepted_status` vocabulary (`"400, 401"`, `"5xx"`), whose two
-  halves buy different things: **a range is capability** (a class cannot be enumerated, so
-  `"4xx"` is the only way to write the RFC 7807 case) while **a comma list is ergonomics**
-  over a `$ref` that already works. Records `code`'s `%` wildcard as considered and rejected
-  — it would unify two spellings that sit a few lines apart in one task, but `2xx` is what
-  RFC 9110 and OpenAPI write and these keys are copied out of API documentation more often
-  than read beside an `on_error` rule; keeping it also leaves `ValidStatusPattern` and
-  `matchAcceptedStatus` untouched. Exact beats range per pattern, equal-specificity overlap
-  is a registration error, and coverage is a pattern-subset test — which is what lets
-  `{"2xx": T}` be non-nullable without enumerating the class. No declaration may straddle the
-  success/failure split, which is also how OpenAPI's `default` key gets refused. Needs none
-  of the deferred type-system work: the success side is `T | null`, and on the error side the
-  `on_error` rule is already the discriminator.
+- [fetch-http-surface.md](fetch-http-surface.md) — three independent additions to `fetch`,
+  all found while building the polling example, none built. **§1 `query`**: a structured query
+  slot, because interpolating into a URL escapes nothing — a term carrying `&` or `#` injects a
+  parameter. **§2 `responses`**: one status-keyed map replacing `result_schema`, where the
+  status class does the splitting — a declared 2xx types `self.result` *and* makes the status
+  accepted, a declared 4xx/5xx types a new `error.data` and still routes through `on_error`.
+  **§3 response metadata** (`self.status` / `self.headers`), which retires the
+  `http.202`-via-`on_error` trick in the poller; its parser blocker is since built (only
+  integer literals were allowed in `[...]`, so `self.headers['retry-after']` would not parse),
+  and the non-free part it exposed was inference carrying paths as dot-joined strings, where a
+  secret on a dotted key could escape redaction.
+  §2 is the largest and starts from a measured bug: a 202 or 204 carrying no body is accepted
+  and then fails to decode, as `output.parse` with an empty message. Its point is a
+  *non-nullable* result — `{"200": T}` types `self.result` as exactly `T` — and its sharpest
+  decision is that **enforcement is uniform across both channels**: a body that does not conform
+  raises `output.invalid` (or `output.parse` / `output.too_large`), and on the error channel that
+  code *replaces* the `http.NNN` the status would have raised. Leniency is recorded as the
+  rejected alternative — it would have left `error.data` nullable at every point of use, and a
+  schema you must null-check anyway buys almost nothing; `"4xx": {}` is the opt-out, since the
+  top type conforms to everything. That leaves exactly one source of `null`: a code reaching the
+  handler with no declared schema. `error.data` is present exactly where a pattern is declared,
+  so an undeclared error body stays unreadable though `action_failed` still records it for an
+  operator running debug logging with payloads on. Records why a declaration made for typing must not change routing
+  (the rejected `keys(responses) ∪ accepted_status` rule would have made declaring a 404
+  silently *accept* it, deleting the definition's error handling), why `accepted_status`
+  survives as an authoritative Shape and what that costs under a dynamic set, `code`'s `%`
+  wildcard as considered and rejected (`2xx` is what RFC 9110 and OpenAPI write, and these keys
+  are copied out of API docs), and the pointer in `map[string]*schema.Schema` — `encoding/json`
+  runs `UnmarshalJSON` on a value type even for `null`, so a value type silently collapses "no
+  body" into "untyped body". Needs none of the deferred type-system work: the success side is
+  `T | null`, and on the error side the `on_error` rule is already the discriminator. The
+  multi-status union is **`anyOf`, not `oneOf`** — status bodies overlap, and an overlapping
+  `oneOf` rejects a value matching two arms, the same bug `literal-types.md` was written to fix.
 - [error-extensions.md](error-extensions.md) — three considered-and-declined extensions to
   the child error model (batch-shape routing, a diagnostic payload on `raise`, opt-in
   exhaustiveness). Unlike the others these are **open questions, not intended work** — each
