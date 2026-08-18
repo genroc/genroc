@@ -234,7 +234,8 @@ address: a check missing from it broke nowhere <em>here</em>, which says nothing
 
 <table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>input</code></td><td>the process input schema</td></tr><tr><td><code>output</code></td><td>the process output</td></tr><tr><td><code>&lt;task&gt;</code></td><td>the context an instance parked at that task holds — paths under it read <code>outputs.charge.amount</code></td></tr><tr><td><code>&lt;task&gt;:&lt;slot&gt;</code></td><td>a definition slot on that task: <code>output</code>, <code>switch</code>, <code>only_once</code>, <code>action.type</code>, <code>fetch.url</code>, <code>child.name</code>, <code>&lt;action_type&gt;.result</code></td></tr></tbody></table>
 <p>The example above is one change reported at two addresses, which is the point of addressing
-rather than listing schemas. <code>charge</code>’s <code>result_schema</code> narrowed a field to a string: at
+rather than listing schemas. The body <code>charge</code> declares for its accepted status narrowed a
+field to a string: at
 <code>charge:fetch.result</code> that is a <strong>contract</strong> break, because a parent collecting that task was
 written against a number; at <code>ship</code> it is an <strong>upgrade</strong> break, because an instance parked
 there already holds <code>outputs.charge.amount</code> as a number and the new definition will not take

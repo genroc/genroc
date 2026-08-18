@@ -331,13 +331,69 @@ including <code>_</code> and <code>.</code> — is literal, so <code>order_%</co
 
 
 
-<table><thead><tr><th>Code</th><th>Raised when</th></tr></thead><tbody><tr><td><code>http.NNN</code></td><td>The response status is outside <code>accepted_status</code> (e.g. <code>http.500</code>, <code>http.202</code>).</td></tr><tr><td><code>http.timeout</code></td><td>The request left and no response came back in time.</td></tr><tr><td><code>pre.error</code>, <code>pre.timeout</code></td><td>The call never reached the remote.</td></tr><tr><td><code>output.parse</code></td><td>The response body is not valid JSON.</td></tr><tr><td><code>output.too_large</code></td><td>The response body exceeds the fetch response cap.</td></tr><tr><td><code>output.invalid</code></td><td>The result does not validate against <code>result_schema</code>.</td></tr><tr><td><code>external.timeout</code></td><td>An <code>external</code> task’s deadline passed with no submitted result.</td></tr></tbody></table>
+<table><thead><tr><th>Code</th><th>Raised when</th></tr></thead><tbody><tr><td><code>http.NNN</code></td><td>The response status was not accepted (e.g. <code>http.500</code>, <code>http.202</code>).</td></tr><tr><td><code>http.timeout</code></td><td>The request left and no response came back in time.</td></tr><tr><td><code>pre.error</code>, <code>pre.timeout</code></td><td>The call never reached the remote.</td></tr><tr><td><code>output.parse</code></td><td>The response body is not valid JSON.</td></tr><tr><td><code>output.too_large</code></td><td>The response body exceeds the fetch response cap.</td></tr><tr><td><code>output.invalid</code></td><td>The body does not validate against the schema declared for it.</td></tr><tr><td><code>external.timeout</code></td><td>An <code>external</code> task’s deadline passed with no submitted result.</td></tr></tbody></table>
 <p>Internal <code>engine.*</code> failures — <code>engine.spawn</code>, <code>engine.collect</code>, <code>engine.expression</code> — are
 terminal and are <strong>not</strong> routed through <code>on_error</code>.</p>
 <p>On a <code>child</code>, <code>child_map</code> or <code>child_list</code> task the codes match the codes the child processes
 can <strong>raise</strong>, and each pattern is checked at registration against the child’s raise set. A
 child that <em>failed</em> rather than raised is never catchable; convert the failure into a raise
 inside the child.</p>
+<h3 id="the-error-value">The <code>error</code> value<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-error-value"><span></span></a></h3>
+<p>A rule that routes with <code>goto</code> makes the failure readable at the task it routes to, as
+<code>error</code>:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>error.code</code></td><td>The code that matched.</td></tr><tr><td><code>error.message</code></td><td>Human-readable detail.</td></tr><tr><td><code>error.task</code></td><td>The task that failed.</td></tr><tr><td><code>error.data</code></td><td>The response body, where the failing fetch declared a schema for that status.</td></tr><tr><td><code>error.child_key</code>, <code>error.child_index</code></td><td>Which child raised, on a batch route.</td></tr></tbody></table>
+<p><strong><code>error</code> exists only in the task the rule routes to.</strong> The next ordinary transition drops
+it, so a task further downstream cannot read it — carry what you need forward by projecting
+it into the handler’s <code>output</code>, the same way every other value travels.</p>
+<p><code>error.data</code> is present only where a reaching rule declared a body for the status it catches,
+and its type comes from the rule’s own <code>code</code> patterns. A rule naming one declared status
+gets exactly that schema; widening the patterns to statuses nobody described, or to a code
+that carries no body at all, widens the type to admit <code>null</code>.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">-</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> call</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> fetch</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">${ config.api }/orders/${ input.id }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    method</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> GET</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    responses</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">      200</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> properties</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> state</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">      404</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> $ref</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">#/$defs/problem</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  on_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">http.404</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $missing</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> end</span></span>
+<span class="line"></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">-</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> missing</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> reason</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">$: error.data.detail</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> end</span></span></code></pre>
 <h3 id="retry"><code>retry</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#retry"><span></span></a></h3>
 <p>A bare attempt count, or an object naming any of <code>attempts</code>, <code>delay</code>, <code>factor</code>, <code>max_delay</code>.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">on_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
@@ -423,9 +479,54 @@ expression, so the whole request can come from the context.</p>
 
 
 
-<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>url</code></td><td>Request URL.</td></tr><tr><td><code>method</code></td><td>HTTP method. Defaults to <code>POST</code>.</td></tr><tr><td><code>headers</code></td><td>A value evaluating to a string map.</td></tr><tr><td><code>body</code></td><td>Templated request body, sent raw — an object as JSON.</td></tr><tr><td><code>accepted_status</code></td><td>Array of status patterns treated as non-errors: <code>&quot;2xx&quot;</code>…<code>&quot;5xx&quot;</code>, or a 3-digit code. Defaults to any 2xx.</td></tr><tr><td><code>result_schema</code></td><td>Validates the response before the instance resumes. Without it the result is available only as <code>self</code> in this task’s switch.</td></tr></tbody></table>
+<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>url</code></td><td>Request URL.</td></tr><tr><td><code>method</code></td><td>HTTP method. Defaults to <code>POST</code>.</td></tr><tr><td><code>headers</code></td><td>A value evaluating to a string map.</td></tr><tr><td><code>body</code></td><td>Templated request body, sent raw — an object as JSON.</td></tr><tr><td><code>accepted_status</code></td><td>Array of status patterns treated as non-errors: <code>&quot;2xx&quot;</code>…<code>&quot;5xx&quot;</code>, or a 3-digit code. Defaults to any 2xx.</td></tr><tr><td><code>responses</code></td><td>Status pattern → schema for the body that status carries.</td></tr></tbody></table>
 <p><code>X-Genroc-Instance-Id</code> and <code>X-Genroc-Task-Id</code> are stamped on every request authoritatively,
 so a caller-supplied header cannot spoof them.</p>
+<h4 id="responses"><code>responses</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#responses"><span></span></a></h4>
+<p>One map describes the whole endpoint. The status class splits it: a <strong>2xx</strong> key types
+<code>self.result</code> <em>and</em> makes that status accepted; a <strong>non-2xx</strong> key types <code>error.data</code> and
+leaves the status routing through <code>on_error</code> as it would have.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">responses</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">  200</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> properties</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> state</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">  202</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> null</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">                      # accepted, carries no body</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">400, 401</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> $ref</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">#/$defs/problem</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">5xx</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> properties</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> trace_id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span></code></pre>
+<p>A key is a comma-separated list of the same patterns <code>accepted_status</code> takes — an exact code
+or a hundred-range. Exact beats range, so <code>{404: A, &quot;4xx&quot;: B}</code> gives a 404 the <code>A</code>. Quote a
+key that is not a plain number.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Entry</th><th>Means</th></tr></thead><tbody><tr><td>a schema</td><td>the status carries a body of that shape</td></tr><tr><td><code>null</code></td><td>the status carries no body</td></tr><tr><td><code>{}</code></td><td>the status carries a body of unknown shape — exportable, not readable until a consumer restates it</td></tr></tbody></table>
+<p><strong>Declaring a 2xx narrows what is accepted.</strong> With <code>{200: T}</code> and nothing else, a <code>201</code>
+raises <code>http.201</code>. Widen it with <code>accepted_status</code>, or declare the status you expect.</p>
+<p><code>self.result</code> is the union of the schemas for the statuses that can be accepted, plus <code>null</code>
+where an accepted status is described by no key. So <code>{200: T}</code> types it as exactly <code>T</code>, while
+<code>{200: T, 202: null}</code> types it as <code>T | null</code>. Declare nothing and the result is untyped —
+available only as <code>self.result</code> in this task’s own switch, never exportable.</p>
+<p><strong>A declared schema is enforced.</strong> A body that is empty, unparseable, oversized or does not
+conform raises <code>output.invalid</code> / <code>output.parse</code> / <code>output.too_large</code> <strong>instead of</strong> the
+status code the response would otherwise have produced — on the error channel too, so
+<code>code: [http.4%]</code> no longer catches a 400 whose body is malformed. Name both codes to handle
+that, or declare <code>&quot;4xx&quot;: {}</code>, which conforms to anything and never escalates.</p>
 <h3 id="child-child_map-child_list"><code>child</code>, <code>child_map</code>, <code>child_list</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#child-child_map-child_list"><span></span></a></h3>
 
 
@@ -517,4 +618,4 @@ No worker is held while waiting.</p>
 
 <table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>input</code></td><td>Templated value, snapshotted and exposed to the resolver through the queue — the only context the resolver sees.</td></tr><tr><td><code>result_schema</code></td><td>Validates the submitted result before the instance resumes. Without it any JSON result is accepted.</td></tr></tbody></table>
 <p>An optional task <code>timeout</code> raises the catchable <code>external.timeout</code>; absent, it waits forever.
-This is the one place an absolute <code>until</code> deadline is accepted.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#fields">Fields</a></li><li class="depth-3"><a href="#timeout">timeout</a></li><li class="depth-3"><a href="#only_once">only_once</a></li><li class="depth-3"><a href="#output">output</a></li><li class="depth-2"><a href="#switch">switch</a></li><li class="depth-2"><a href="#on_error">on_error</a></li><li class="depth-3"><a href="#code-patterns">Code patterns</a></li><li class="depth-3"><a href="#retry">retry</a></li><li class="depth-2"><a href="#action-types">Action types</a></li><li class="depth-3"><a href="#fetch">fetch</a></li><li class="depth-3"><a href="#child-child_map-child_list">child, child_map, child_list</a></li><li class="depth-3"><a href="#delay">delay</a></li><li class="depth-3"><a href="#external">external</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
+This is the one place an absolute <code>until</code> deadline is accepted.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#fields">Fields</a></li><li class="depth-3"><a href="#timeout">timeout</a></li><li class="depth-3"><a href="#only_once">only_once</a></li><li class="depth-3"><a href="#output">output</a></li><li class="depth-2"><a href="#switch">switch</a></li><li class="depth-2"><a href="#on_error">on_error</a></li><li class="depth-3"><a href="#code-patterns">Code patterns</a></li><li class="depth-3"><a href="#the-error-value">The error value</a></li><li class="depth-3"><a href="#retry">retry</a></li><li class="depth-2"><a href="#action-types">Action types</a></li><li class="depth-3"><a href="#fetch">fetch</a></li><li class="depth-3"><a href="#child-child_map-child_list">child, child_map, child_list</a></li><li class="depth-3"><a href="#delay">delay</a></li><li class="depth-3"><a href="#external">external</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
