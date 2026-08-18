@@ -38,7 +38,7 @@ func TestGenerate_ErrorData_TypedByTheRuleThatCaughtIt(t *testing.T) {
 // story the design rests on: done by the rules, with no discriminated-union machinery.
 func TestGenerate_ErrorData_WidensWithTheRule(t *testing.T) {
 	problem := `{"type":"object","properties":{"detail":{"type":"string"}},"required":["detail"]}`
-	nullable := `{"anyOf":[{"type":"null"},` + problem + `]}`
+	nullable := `{"oneOf":[{"type":"null"},` + problem + `]}`
 	for _, tc := range []struct {
 		name, codes, want, why string
 	}{
@@ -126,5 +126,51 @@ func TestGenerate_ErrorScope_EndsAtTheHandler(t *testing.T) {
 		{"id":"after","output":{"c":"$: outputs.handler.c"},"switch":"end"}
 	]}`); err != nil {
 		t.Errorf("projecting the failure into an output must carry it forward: %v", err)
+	}
+}
+
+// self.result's nullability follows the gap between what a fetch ACCEPTS and what it
+// DESCRIBES. The rule is unit-tested against fetchResultType directly; this pins it through
+// Generate, where a miswired branch in actionResultType would otherwise leave the unit tests
+// green while every definition types its result wrong.
+func TestGenerate_FetchResult_NullabilityThroughGenerate(t *testing.T) {
+	body := `{"type":"object","properties":{"fee":{"type":"number"}},"required":["fee"]}`
+	for _, tc := range []struct {
+		name, responses, accepted, want string
+	}{
+		{
+			name: "declared set covers the accepted set", responses: `{"200":` + body + `}`,
+			want: body,
+		},
+		{
+			// A nullable single body is spelled `oneOf` — the codebase's existing nullable
+			// form, and sound here because null and a body are disjoint. Only a union of two
+			// BODIES needs `anyOf`, where the arms can overlap.
+			name:      "a bodyless sibling adds the null arm",
+			responses: `{"200":` + body + `,"202":null}`,
+			want:      `{"oneOf":[{"type":"null"},` + body + `]}`,
+		},
+		{
+			name:      "a range covers every 2xx without enumerating them",
+			responses: `{"2xx":` + body + `}`,
+			want:      body,
+		},
+		{
+			name:      "accepting more than is described admits null",
+			responses: `{"200":` + body + `}`, accepted: `,"accepted_status":["2xx"]`,
+			want: `{"oneOf":[{"type":"null"},` + body + `]}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := runGenerate(t, `{"name":"p","tasks":[
+				{"id":"call","action":{"type":"fetch","url":"http://x","responses":`+tc.responses+tc.accepted+`},
+				 "output":"$: self.result","switch":"end"}
+			]}`)
+			sc, ok := out.Defs.Get("call_output")
+			if !ok {
+				t.Fatal("no call_output schema")
+			}
+			assertJSON(t, sc, tc.want)
+		})
 	}
 }

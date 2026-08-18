@@ -1,0 +1,41 @@
+# The breaking direction of a status-set edit, and the one a per-status comparison misses
+# entirely. Dropping `202: null` narrows the merged union from `T | null` back to `T`: a
+# remote that answered 202 with no body no longer conforms, so the service the old version
+# accepted is turned away.
+#
+# Compared one status at a time this is a key only the old side carries — read as a removed
+# declaration and reported nowhere. As the union it is a plain narrowing, judged like any
+# other, under `<task>:fetch.result`.
+apply:
+  - channel: dropbodyless_a
+    definitions:
+      - name: dropbodyless_proc
+        tasks:
+          - id: go
+            action:
+              type: fetch
+              url: http://x/go
+              responses:
+                200: {type: object, properties: {fee: {type: number}}, required: [fee]}
+                202: null
+            output: {fee: "$: (self.result ?? {fee: 0}).fee"}
+            switch: end
+  - channel: dropbodyless_b
+    definitions:
+      - name: dropbodyless_proc
+        tasks:
+          - id: go
+            action:
+              type: fetch
+              url: http://x/go
+              responses:
+                200: {type: object, properties: {fee: {type: number}}, required: [fee]}
+            output: {fee: "$: (self.result ?? {fee: 0}).fee"}
+            switch: end
+run: [--from, dropbodyless_a, --to, dropbodyless_b]
+expect: |
+  dropbodyless_proc  v1 → v2  breaking: contract; upgradable
+    go:fetch.result  (breaking: contract)
+      null is not accepted where object is expected
+
+  exit 1

@@ -1,0 +1,49 @@
+# A fetch declares its body per status but produces ONE value, so the comparison is the
+# merged union under `<task>:fetch.result` — never one row per status. Both edits here move
+# only the STATUS SET, leaving every declared schema untouched, and they must still be
+# judged, because what the remote may answer changed:
+#
+#   202 added (bodyless)   the union widens to `T | null`. Nothing narrows, so no consumer
+#                          of the result is turned away — reported as a change, not a break.
+#   200 dropped for 2xx    the same union restated over a range: the accepted set is the
+#                          same and the type is the same, so there is nothing to report but
+#                          the edit itself.
+#
+# Comparing the statuses one at a time would get both wrong — an added bodyless entry
+# carries no schema to compare, and a restatement reads as one key removed and another
+# added, which is `added` and would print a break for an edit that changed no type.
+apply:
+  - channel: statusset_a
+    definitions:
+      - name: statusset_proc
+        tasks:
+          - id: go
+            action:
+              type: fetch
+              url: http://x/go
+              responses:
+                200: {type: object, properties: {fee: {type: number}}, required: [fee]}
+            output: {fee: "$: self.result.fee"}
+            switch: end
+  - channel: statusset_b
+    definitions:
+      - name: statusset_proc
+        tasks:
+          - id: go
+            action:
+              type: fetch
+              url: http://x/go
+              responses:
+                "2xx": {type: object, properties: {fee: {type: number}}, required: [fee]}
+                202: null
+            # self.result is now `T | null`, so the projection needs the null arm handled —
+            # which is the definition-level consequence of widening the accepted set.
+            output: {fee: "$: (self.result ?? {fee: 0}).fee"}
+            switch: end
+run: [--from, statusset_a, --to, statusset_b]
+expect: |
+  statusset_proc  v1 → v2  upgradable, compatible
+    go:output        (ok)
+    go:fetch.result  (ok)
+
+  exit 0

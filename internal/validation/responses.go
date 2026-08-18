@@ -294,11 +294,17 @@ func errorDataSchema(tasks []*model.Task, srcs []errSource, defs schema.Defs) (s
 	if !any {
 		return schema.Schema{}, nil
 	}
+	// One body reads as a nullable body — the same spelling the success channel uses. Only a
+	// union of two BODIES needs anyOf, where the arms can overlap. These schemas are served,
+	// so the two channels must not describe one concept two ways.
+	if len(arms) == 1 {
+		if nullable {
+			return arms[0].WithNull(), nil
+		}
+		return arms[0], nil
+	}
 	if nullable {
 		arms = append(arms, schema.Type("null"))
-	}
-	if len(arms) == 1 {
-		return arms[0], nil
 	}
 	return schema.AnyOf(arms...), nil
 }
