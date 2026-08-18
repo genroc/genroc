@@ -6,6 +6,11 @@ Two independent additions sharing one motivation; each ships separately.
   not implemented. Its parser blocker (string-literal indexing) **is** implemented.
 - **Part 2 — `query`** (structured query parameters): draft 2026-07-31, not implemented.
 
+A third addition lives in its own doc: [fetch-responses.md](fetch-responses.md) retires
+`result_schema` for a status-keyed `responses` map. It is independent of both parts here,
+but it settles the `accepted_status` question Part 1 raises below — the slot keeps its
+meaning and stops being the primary control.
+
 Motivation, both from building the polling example: a fetch discards the HTTP status
 one line before it could be used and never captures response headers, so `Location`
 (202-async), `Retry-After`, `Link` pagination and the status itself are unreachable;
