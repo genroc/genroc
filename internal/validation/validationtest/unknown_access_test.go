@@ -79,3 +79,72 @@ func TestGenerate_Unknown_DeadCoalesceArmIsNotALeak(t *testing.T) {
 		t.Error("a nullable left side makes the unknown arm reachable — the access must be refused")
 	}
 }
+
+// An unknown is unreadable wherever it SITS, not just where it was declared. Each row reaches
+// the value by a different route, and the routes are separate code paths — property lookup,
+// index, computed key — so a guard on one says nothing about the others. The `$ref` row is the
+// one that would break silently: the emptiness test has to run after the deref, or a `{}`
+// behind a reference looks like an ordinary object schema and reads straight through.
+func TestGenerate_Unknown_UnreadableInEveryPosition(t *testing.T) {
+	unknown := map[string]any{}
+	for _, tc := range []struct {
+		name, expr string
+		props      map[string]any
+		defs       map[string]any
+	}{
+		{
+			name: "bare, indexed", expr: "$: input.u[0]",
+			props: map[string]any{"u": unknown},
+		},
+		{
+			name: "bare, computed key", expr: "$: input.u['k']",
+			props: map[string]any{"u": unknown},
+		},
+		{
+			name: "declared as a property's schema", expr: "$: input.o.a.f",
+			props: map[string]any{"o": map[string]any{"type": "object",
+				"properties": map[string]any{"a": unknown}, "required": []string{"a"}}},
+		},
+		{
+			name: "as an array's item type", expr: "$: input.arr[0].f",
+			props: map[string]any{"arr": map[string]any{"type": "array", "items": unknown}},
+		},
+		{
+			name: "as a map's value type", expr: "$: input.m['k'].f",
+			props: map[string]any{"m": map[string]any{"type": "object", "additionalProperties": unknown}},
+		},
+		{
+			name: "behind a $ref", expr: "$: input.r.f",
+			props: map[string]any{"r": map[string]any{"$ref": "#/$defs/U"}},
+			defs:  map[string]any{"U": unknown},
+		},
+		{
+			name: "interpolated from a nested position", expr: "${ input.o.a }",
+			props: map[string]any{"o": map[string]any{"type": "object",
+				"properties": map[string]any{"a": unknown}, "required": []string{"a"}}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			required := make([]string, 0, len(tc.props))
+			for k := range tc.props {
+				required = append(required, k)
+			}
+			def := map[string]any{
+				"name":         "p",
+				"input_schema": map[string]any{"type": "object", "properties": tc.props, "required": required},
+				"tasks": []any{map[string]any{"id": "c",
+					"output": map[string]any{"v": tc.expr}, "switch": "end"}},
+			}
+			if tc.defs != nil {
+				def["$defs"] = tc.defs
+			}
+			raw, err := json.Marshal(def)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if err := runGenerateErr(t, string(raw)); err == nil {
+				t.Errorf("%s must not be readable: an unknown here is undeclared data wherever it sits", tc.expr)
+			}
+		})
+	}
+}

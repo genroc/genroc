@@ -2,6 +2,7 @@ package validation
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"genroc/internal/model"
@@ -140,3 +141,23 @@ func contains(haystack, needle string) bool {
 }
 
 var _ = shape.Shape{}
+
+// The route by which an ordinary definition reaches a union containing the top type — which
+// is what makes the navigation guard worth having rather than a theoretical rule. Declaring
+// one status opaquely and another concretely puts `{}` in self.result's union, and reading a
+// field off it must be refused: on a 202 the body is undeclared, so `.state` means nothing.
+// Exporting the whole value stays legal, since that is the entire use of an opaque body.
+func TestFetchResultType_UnknownStatusMakesTheResultUnreadable(t *testing.T) {
+	def := `{"name":"p","tasks":[
+		{"id":"call","action":{"type":"fetch","url":"http://x","responses":{
+			"200":{"type":"object","properties":{"state":{"type":"string"}},"required":["state"]},
+			"202":{}}},
+		 "output":%s,"switch":"end"}
+	]}`
+	if _, err := Generate(definitionFromJSON(t, fmt.Sprintf(def, `{"s":"$: self.result.state"}`))); err == nil {
+		t.Error("reading a field off a result whose union includes an undeclared status must be refused")
+	}
+	if _, err := Generate(definitionFromJSON(t, fmt.Sprintf(def, `"$: self.result"`))); err != nil {
+		t.Errorf("exporting the whole result must stay legal — that is what an opaque status is for: %v", err)
+	}
+}
