@@ -71,7 +71,7 @@ sqlc:
 # The script-task evaluator (bun-runtime/). A script task is a plain fetch at this
 # sidecar, so nothing in the engine knows about it; see bun-runtime/README.md.
 script-runner:
-	cd bun-runtime && PORT=$(script_port) ~/.bun/bin/bun run server.ts
+	cd bun-runtime && ~/.bun/bin/bun install && PORT=$(script_port) ~/.bun/bin/bun run server.ts
 
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
 # per-version build is served from; unset means the site root.
