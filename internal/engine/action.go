@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -59,6 +60,13 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	resolvedHeaders, err := e.resolveHeaders(inst, task.Action)
 	if err != nil {
 		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q headers: %v", task.ID, err)))
+	}
+	// Appended before the URL is logged, so the audit trail shows the request that was
+	// actually made rather than its stem. Secrets in a parameter are scrubbed by value at
+	// the audit sink, the same as anywhere else.
+	url, err = e.appendQuery(inst, task.Action, url)
+	if err != nil {
+		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q query: %v", task.ID, err)))
 	}
 	// Stamp the caller's identity on every request (set last so it is authoritative and
 	// a user-supplied header of the same name cannot spoof it).
@@ -481,6 +489,66 @@ func (e *Engine) resolveHeaders(inst *model.ProcessInstance, call *model.Action)
 		resolved[k] = fmt.Sprintf("%v", v)
 	}
 	return resolved, nil
+}
+
+// appendQuery evaluates the fetch query shape and appends it to rawURL, URL-encoded. Three
+// fixed semantics (specs/fetch-http-surface.md §1): a null value OMITS its parameter, so an
+// optional one needs no conditional; the parameters are APPENDED, since the url may already
+// carry its own `?a=1`; and a value is a scalar or an ARRAY of scalars, the latter repeating
+// the parameter once per element.
+//
+// Parameter order is by key and does not depend on Go's map iteration — url.Values.Encode
+// sorts, which is what keeps the same definition and input producing a byte-identical url on
+// every attempt. Do not replace Encode with hand-built concatenation without restoring that.
+//
+// Encoding is the point of the slot. Interpolating a value into the url escapes nothing, so a
+// term carrying `&`, `=`, `#` or a space corrupts the url or injects a parameter — reachable
+// from untrusted input, which is why this exists rather than being an ergonomic nicety.
+func (e *Engine) appendQuery(inst *model.ProcessInstance, call *model.Action, rawURL string) (string, error) {
+	if !call.Query.Present() {
+		return rawURL, nil
+	}
+	val, err := e.evalShape(inst, shape.Shape{Raw: call.Query.Raw}, nil)
+	if err != nil {
+		return "", err
+	}
+	m, ok := val.(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("query must evaluate to an object, got %T", val)
+	}
+	values := neturl.Values{}
+	for k := range m {
+		switch v := m[k].(type) {
+		case nil:
+			// a null omits its parameter
+		case []any:
+			// One parameter per element, in the order given: `?tag=a&tag=b`, which is
+			// OpenAPI's default (form/explode) and what most services read. An empty array
+			// behaves like an absent value — there is nothing to repeat.
+			for _, item := range v {
+				if item == nil {
+					continue // the same omission, one level down
+				}
+				values.Add(k, fmt.Sprintf("%v", item))
+			}
+		default:
+			values.Set(k, fmt.Sprintf("%v", v))
+		}
+	}
+	if len(values) == 0 {
+		return rawURL, nil
+	}
+	sep := "?"
+	if strings.Contains(rawURL, "?") {
+		sep = "&"
+	}
+	// url.Values.Encode is form-urlencoded, which renders a space as `+`. Every mainstream
+	// decoder reads that back as a space, but RFC 3986 says a query is just a string and `+`
+	// is a literal plus — a server reading it that way receives the wrong value SILENTLY,
+	// which is the failure class this slot exists to prevent. %20 decodes to a space under
+	// both readings. The replacement is exact: QueryEscape emits `+` only for a space, and a
+	// literal plus is already `%2B`.
+	return rawURL + sep + strings.ReplaceAll(values.Encode(), "+", "%20"), nil
 }
 
 // resolveAcceptedStatus evaluates the fetch accepted_status shape to status patterns: a

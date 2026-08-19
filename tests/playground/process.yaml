@@ -22,6 +22,8 @@ tasks:
     action:
       type: fetch
       url: "${ input.server_url }/record"
+      query:
+        test: "$: input"
       body:
         place: "$: input.place"
       responses:

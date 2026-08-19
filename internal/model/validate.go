@@ -108,6 +108,9 @@ func validateTask(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int, po
 	if err := validateOnError(s, taskIDs); err != nil {
 		return err
 	}
+	if err := validateFetchOnlySlots(s); err != nil {
+		return err
+	}
 	if err := validateResponses(s, pool); err != nil {
 		return err
 	}
@@ -408,6 +411,31 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 					return fmt.Errorf("task %q %s: not_reached:true asserts what one specific error means, so pattern %q cannot be a wildcard; name the exact codes instead (e.g. \"http.409\")", s.ID, where, pat)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// validateFetchOnlySlots refuses the request slots on an action that has no request to make.
+// Nothing reads them there, and a field nothing reads is dropped in silence — the same reason
+// a fetch refuses `result_schema`. `responses` has its own check below, because its message
+// names the alternative.
+func validateFetchOnlySlots(s *Task) error {
+	if s.Action == nil || s.Action.Type == ActionTypeFetch {
+		return nil
+	}
+	for _, slot := range []struct {
+		name string
+		set  bool
+	}{
+		{"url", s.Action.URL != ""},
+		{"method", s.Action.Method != ""},
+		{"headers", s.Action.Headers.Present()},
+		{"query", s.Action.Query.Present()},
+		{"accepted_status", s.Action.AcceptedStatus.Present()},
+	} {
+		if slot.set {
+			return fmt.Errorf("task %q: action.%s is only valid on a fetch — a %q task makes no HTTP request, so the value would be ignored", s.ID, slot.name, s.Action.Type)
 		}
 	}
 	return nil

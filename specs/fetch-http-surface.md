@@ -1,12 +1,23 @@
 # `fetch`: the missing HTTP surface
 
-Three independent additions sharing one motivation. Each ships separately; none is built.
+Three independent additions sharing one motivation. **All three are built** (2026-08-19); what
+follows is the design record, not a proposal — the shipped behaviour is documented in
+`docs/reference/tasks.mdx`.
 
-- **§1 `query`** — structured query parameters. Draft 2026-07-31.
-- **§2 `responses`** — status-keyed schemas, retiring `result_schema` on a fetch. Draft
+- **§1 `query`** — structured query parameters. Drafted 2026-07-31.
+- **§2 `responses`** — status-keyed schemas, retiring `result_schema` on a fetch. Drafted
   2026-08-10.
-- **§3 response metadata** — `self.status`, `self.headers`. Draft 2026-07-31; its parser
-  blocker (string-literal indexing) **is** built.
+- **§3 response metadata** — `self.status`, `self.headers`. Drafted 2026-07-31.
+
+Two decisions §1 left open were settled in the building. **Values are scalars, not
+strings-only**: the null-omit is the point of the slot and does not compose with `${ }`, since
+interpolating a nullable is refused at registration — so a strings-only target would have made
+an optional NUMBER parameter unwritable. And **parameter order is by key**, so the same
+definition and input produce a byte-identical url on every attempt — a url that varied would
+break request caches and make an audit trail incomparable with itself. That ordering comes
+from `url.Values.Encode`, which sorts; an explicit sort beside it was written first and was
+pure ceremony, which a mutation test caught by not failing when it was removed. The third — repeated parameters via array values — was deferred until it
+turned out to have no workaround, and is built; §1 records which serialisation was chosen.
 
 All three came out of building the polling example. Building a query string means
 interpolation, which performs **no escaping** — a term carrying `&`, `=`, `#` or a space
@@ -22,11 +33,12 @@ on which one arrived — but neither waits on the other.
 
 # §1 — `query`
 
-An optional fetch field mirroring `headers`: a Shape evaluating to a string map, URL-encoded
-and appended. Three fixed semantics: **null omits the parameter** (the ergonomic win —
-optional params without conditional gymnastics; deliberately different from headers, where
-null errors); **appended, not exclusive** (a `url` may already carry `?a=1`); **values are
-scalars** (repeated params via arrays deferred).
+An optional fetch field mirroring `headers`: a Shape evaluating to a map, URL-encoded and
+appended. Three fixed semantics: **null omits the parameter** (the ergonomic win — optional
+params without conditional gymnastics; deliberately different from headers, where null
+errors); **appended, not exclusive** (a `url` may already carry `?a=1`); and **a value is a
+scalar or an array of scalars**, the latter repeating the parameter (see below — the draft
+deferred arrays, and the deferral did not survive contact with the missing workaround).
 
 **Compatibility.** `Action` decodes with plain `encoding/json`, so the new `omitempty` field
 is nil in every stored definition — byte-identical requests, no migration. **The real hazard
@@ -38,6 +50,28 @@ action field; genroc has no `min_engine`.
 headers; append via `url.Values`; add to the fetch variant of the editor schema (each variant
 is `additionalProperties: false`). `accepted_status` is the recent worked example of this
 exact path.
+
+**Space is `%20`, not `+`.** `url.Values.Encode` is form-urlencoded and renders a space as
+`+`. Every mainstream decoder reads that back as a space, but RFC 3986 says a query is just a
+string and `+` is a literal plus — a server reading it that way takes the wrong value in
+silence, which is the failure class this slot exists to prevent. `%20` is a space under both
+readings, so it is safe where `+` is only usually safe, and the rewrite is exact: `QueryEscape`
+emits `+` for a space and nothing else, a literal plus already being `%2B`.
+
+**An array repeats the parameter** — `?t=a&t=b`, OpenAPI's default (`form`/`explode: true`)
+and what most services read. The deferral ended when it turned out there was no workaround at
+all: `map` is the only builtin, so an array could not even be joined into one value, and the
+only route left was writing values literally into the `url` — the unescaped path this slot
+exists to replace. Elements are escaped individually, order is the array's, duplicates
+survive, and an empty array behaves like `null`. A null ELEMENT is skipped rather than sent as
+the text "null" — the same omission one level down — and elements may be declared nullable
+because there is no filter builtin, so refusing them would leave an author holding an array
+they cannot send.
+
+The two forms NOT chosen would each need more than a target widening: `?t=a,b`
+(`explode: false`) and `?t[]=a` are per-parameter serialisation choices, so they want either a
+`join` builtin or an option beside the value. Neither has been asked for; OpenAPI's `style`
+vocabulary is the obvious model if one ever is.
 
 # §2 — `responses`
 
@@ -358,10 +392,12 @@ Follow-up also built: **computed keys** on homogeneous bases (arrays, additional
 maps), type-checkable because every key has the same type; rejected on objects with named
 properties.
 
-**What it buys:** the poller's 202 loop becomes an ordinary switch (`accepted_status:
-["200","202"]`, `case: self.status == 202`) instead of routing through `on_error` — no
-error-path loop, no 19 `action_failed` entries per healthy run, the attempt counter back on the
-task that polls. **`accepted_status` quietly shifts meaning** — from "which statuses are
+**What it buys, and has not yet been spent:** the poller's 202 loop can become an ordinary
+switch (`accepted_status: ["200","202"]`, `case: self.status == 202`) instead of routing
+through `on_error` — no error-path loop, no 19 `action_failed` entries per healthy run, the
+attempt counter back on the task that polls. The example still uses the old trick, because
+switching it means the poller must accept 202 itself and its caller therefore stops choosing
+`accepted_status` — a change to that example's input contract, not to this feature. **`accepted_status` quietly shifts meaning** — from "which statuses are
 successes" to "which statuses I handle myself" — worth stating in docs; behaviour is unchanged.
 
 **Compatibility:** no stored definition can reference the new names (navigation would have

@@ -148,3 +148,42 @@ func TestGenerate_Unknown_UnreadableInEveryPosition(t *testing.T) {
 		})
 	}
 }
+
+// `query` is `headers` with the differences that carry the feature: a null VALUE is legal and
+// omits its parameter, so an optional parameter needs no conditional. The MAP may still not be
+// null — that is a mistake, not an empty query. Scalars rather than strings-only, because the
+// null-omit does not compose with `${ }` (interpolating a nullable is refused), so a
+// strings-only target would make an optional NUMBER parameter unwritable. An array of scalars
+// is legal too and repeats the parameter; an array of objects is not, for the same reason a
+// bare object is not — it has no url encoding.
+func TestGenerate_QueryShape(t *testing.T) {
+	def := func(query string) string {
+		return `{"name":"p","input_schema":{"type":"object","properties":{
+			"s":{"type":"string"},"n":{"type":["integer","null"]},"o":{"type":"object"},
+			"tags":{"type":"array","items":{"type":"string"}},
+			"objs":{"type":"array","items":{"type":"object"}}},
+			"required":["s","n","o","tags","objs"]},
+		 "tasks":[{"id":"c","action":{"type":"fetch","url":"http://x","query":` + query + `},"switch":"end"}]}`
+	}
+	for _, ok := range []string{
+		`{"a":"$: input.s"}`, // a string
+		`{"a":"$: input.n"}`, // a nullable number — the case the slot exists for
+		`{"a":"literal","b":"${ input.s }"}`,
+		`{"a":"$: true"}`,       // a boolean scalar
+		`{"a":"$: input.tags"}`, // an array of scalars — repeats the parameter
+		`{"a":"$: ['x','y']"}`,  // an array literal
+	} {
+		if err := runGenerateErr(t, def(ok)); err != nil {
+			t.Errorf("%s must be accepted: %v", ok, err)
+		}
+	}
+	for _, bad := range []struct{ query, why string }{
+		{`{"a":"$: input.o"}`, "an object is not a scalar; it has no url encoding"},
+		{`{"a":"$: input.objs"}`, "an array of objects has no url encoding either"},
+		{`"$: input.n"`, "the map itself may not be null — that is a mistake, not an empty query"},
+	} {
+		if err := runGenerateErr(t, def(bad.query)); err == nil {
+			t.Errorf("%s must be refused: %s", bad.query, bad.why)
+		}
+	}
+}

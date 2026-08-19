@@ -87,6 +87,9 @@ export async function startMockService(port: number, options: MockServiceOptions
   const body = JSON.stringify(response);
 
   let count = 0;
+  // The request line as the server received it, so a test can assert what was actually sent
+  // — query encoding is only observable here.
+  const urls: string[] = [];
   let resolveFirst!: () => void;
   const firstRequestReceived = new Promise<void>((r) => {
     resolveFirst = r;
@@ -97,6 +100,7 @@ export async function startMockService(port: number, options: MockServiceOptions
 
   const server = createServer((req, res) => {
     count++;
+    urls.push(req.url ?? "");
     req.socket.on("error", () => {}); // suppress ECONNRESET
     res.on("error", () => {});
 
@@ -127,6 +131,7 @@ export async function startMockService(port: number, options: MockServiceOptions
     port: boundPort,
     firstRequestReceived,
     requestCount: () => count,
+    requestUrls: () => [...urls],
     // Unblocks the held first request when firstRequestDelayMs === Infinity.
     release: () => { pendingSend?.(); pendingSend = undefined; },
     stop: () => new Promise<void>((r) => server.close(() => r())),

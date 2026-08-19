@@ -39,7 +39,7 @@ type ChildEntry struct {
 
 // Action describes how to invoke a task's action. It is a discriminated union on Type.
 //   - "fetch":      URL (required), Method (optional, default POST), Headers (optional),
-//     AcceptedStatus (optional), Body (optional), Responses (optional) — an HTTP call
+//     Query (optional), AcceptedStatus (optional), Body (optional), Responses (optional) — an HTTP call
 //     like fetch(url, {method, headers, body}); every field is an expression/shape, so the
 //     whole request can come from the context. The body is sent raw (an object as JSON).
 //     A fetch has no ResultSchema: Responses types the body per status instead.
@@ -83,6 +83,12 @@ type ChildEntry struct {
 // shape here, and the value is conformed against that shape at runtime.
 // See specs/unknown-type.md.
 //
+// Query (fetch only): a shape evaluating to a map of scalars, URL-encoded and APPENDED to the
+// url (which may already carry its own `?a=1`). A null value omits its parameter, so an
+// optional parameter needs no conditional; this is deliberately unlike Headers, where a null
+// is an error. Interpolating into the url instead escapes nothing, which is the bug class
+// this slot exists to close.
+//
 // AcceptedStatus (fetch only): a shape evaluating to an array of HTTP status patterns
 // treated as non-errors ("2xx".."5xx" or a 3-digit code). Defaults to any 2xx.
 type Action struct {
@@ -90,6 +96,7 @@ type Action struct {
 	URL            string                    `json:"url,omitempty"`             // fetch: request URL (an expression)
 	Method         string                    `json:"method,omitempty"`          // fetch: HTTP method (an expression); defaults to POST
 	Headers        *Shape                    `json:"headers,omitempty"`         // fetch: request headers (a shape evaluating to a string map)
+	Query          *Shape                    `json:"query,omitempty"`           // fetch: query parameters appended to the url; a null value omits its parameter
 	AcceptedStatus *Shape                    `json:"accepted_status,omitempty"` // fetch: a shape evaluating to an array of HTTP status patterns accepted as non-errors
 	Responses      map[string]*schema.Schema `json:"responses,omitempty"`       // fetch: status pattern -> body schema; a present key with a nil schema declares "no body"
 	ResultSchema   *schema.Schema            `json:"result_schema,omitempty"`   // child/child_list/external: validate & persist output
@@ -121,6 +128,19 @@ type DelaySpec struct {
 // emits a proper oneOf. The headers slot's schema is GENERATED from the runtime target
 // via shape.RelaxedSchema ("literal or expression" at every node) so editor and validator
 // cannot drift; the slot description is merged onto the generated node.
+// queryValueSchema is what one query parameter may evaluate to: a scalar, null to omit it, or
+// an ARRAY of scalars, which repeats the parameter once per element (`?tag=a&tag=b`).
+// Scalars rather than strings-only because the null-omit is the point of the slot and does not
+// compose with `${ }` — interpolating a nullable is refused at registration — so a strings-only
+// target would make an optional NUMBER parameter unwritable.
+func queryValueSchema() schema.Schema {
+	scalarOrNull := schema.Type("string", "number", "boolean", "null")
+	// null omits, at either level: as the whole value it drops the parameter, as an element it
+	// drops that repetition. Elements may be null because there is no filter builtin — refusing
+	// them would leave an author holding an array they cannot send.
+	return schema.AnyOf(scalarOrNull, schema.Array(scalarOrNull))
+}
+
 func (Action) JSONSchemaBytes() ([]byte, error) {
 	headers, err := relaxedHeadersSchema()
 	if err != nil {
@@ -130,7 +150,12 @@ func (Action) JSONSchemaBytes() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	query, err := relaxedQuerySchema()
+	if err != nil {
+		return nil, err
+	}
 	out := strings.Replace(actionSchemaTemplate, headersPlaceholder, string(headers), 1)
+	out = strings.Replace(out, queryPlaceholder, string(query), 1)
 	out = strings.Replace(out, acceptedStatusPlaceholder, string(acceptedStatus), 1)
 	return []byte(out), nil
 }
@@ -150,6 +175,22 @@ func relaxedHeadersSchema() ([]byte, error) {
 	return json.Marshal(node)
 }
 
+// relaxedQuerySchema builds the editor schema for fetch query from its runtime target — a map
+// of scalars, null permitted, which is what makes an optional parameter writable without a
+// conditional.
+func relaxedQuerySchema() ([]byte, error) {
+	raw, err := shape.RelaxedSchema(schema.Map(queryValueSchema()))
+	if err != nil {
+		return nil, err
+	}
+	var node map[string]any
+	if err := json.Unmarshal(raw, &node); err != nil {
+		return nil, err
+	}
+	node["description"] = "Query parameters appended to the url, evaluating to an object of scalar values. A null value omits its parameter. Author it as a literal map (each value a ${ } template or a $: expression) or as a single $: expression yielding the whole map."
+	return json.Marshal(node)
+}
+
 // relaxedAcceptedStatusSchema builds the editor schema for fetch accepted_status from its
 // array<string> target and merges a property-level description onto the generated node.
 func relaxedAcceptedStatusSchema() ([]byte, error) {
@@ -166,6 +207,7 @@ func relaxedAcceptedStatusSchema() ([]byte, error) {
 }
 
 const headersPlaceholder = "__HEADERS_SCHEMA__"
+const queryPlaceholder = "__QUERY_SCHEMA__"
 const acceptedStatusPlaceholder = "__ACCEPTED_STATUS_SCHEMA__"
 
 var actionSchemaTemplate = `{
@@ -178,6 +220,7 @@ var actionSchemaTemplate = `{
 					"url":             {"type": "string", "description": "Request URL. May contain ${ } interpolations evaluated against the current context (e.g. ${ config.server_url }/path)."},
 					"method":          {"type": "string", "description": "HTTP method, a template (e.g. GET, POST, ${ input.method }). Defaults to POST."},
 					"headers":         __HEADERS_SCHEMA__,
+					"query":           __QUERY_SCHEMA__,
 					"accepted_status": __ACCEPTED_STATUS_SCHEMA__,
 					"body":            {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the request body. An object is sent as JSON."},
 					"responses": {

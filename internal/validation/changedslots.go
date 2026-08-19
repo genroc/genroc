@@ -40,6 +40,7 @@ var actionSlots = []slot[*model.Action]{
 	{"action.url", "URL", func(a *model.Action) any { return a.URL }},
 	{"action.method", "Method", func(a *model.Action) any { return a.Method }},
 	{"action.headers", "Headers", func(a *model.Action) any { return a.Headers }},
+	{"action.query", "Query", func(a *model.Action) any { return a.Query }},
 	{"action.accepted_status", "AcceptedStatus", func(a *model.Action) any { return a.AcceptedStatus }},
 	{"action.body", "Body", func(a *model.Action) any { return a.Body }},
 	{"action.input", "Input", func(a *model.Action) any { return a.Input }},

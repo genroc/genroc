@@ -193,12 +193,32 @@ expression, so the whole request can come from the context.
 | `url` | Request URL. |
 | `method` | HTTP method. Defaults to `POST`. |
 | `headers` | A value evaluating to a string map. |
+| `query` | Query parameters appended to the url. A value evaluating to a map of scalars; a `null` value omits its parameter. |
 | `body` | Templated request body, sent raw — an object as JSON. |
 | `accepted_status` | Array of status patterns treated as non-errors: `"2xx"`…`"5xx"`, or a 3-digit code. Defaults to any 2xx. |
 | `responses` | Status pattern → schema for the body that status carries. |
 
 `X-Genroc-Instance-Id` and `X-Genroc-Task-Id` are stamped on every request authoritatively,
 so a caller-supplied header cannot spoof them.
+
+#### `query`
+
+```yaml
+query:
+  q: "$: input.term"
+  page: "$: input.page"    # null omits the parameter entirely
+  tag: "$: input.tags"     # an array repeats it: ?tag=a&tag=b
+```
+
+Values are URL-encoded, which is the point: interpolating a term into the url escapes
+nothing, so one carrying `&`, `=`, `#` or a space corrupts the url or injects a parameter.
+A space is sent as `%20`. A value is a scalar, `null`, or an **array of scalars**, which
+repeats the parameter once per element in the order given — `?tag=a&tag=b`. An empty array
+behaves like `null`: nothing is sent. Elements are escaped individually, so one carrying a
+separator cannot add a parameter of its own.
+Parameters are **appended**, so a `url` may already carry its own `?a=1`. Values are scalars —
+strings, numbers and booleans — and a `null` omits its parameter, so an optional one needs no
+conditional. That is deliberately unlike `headers`, where a null is an error.
 
 #### Response metadata
 

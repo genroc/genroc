@@ -13,39 +13,6 @@ behavior while the spec stays put, answering a different question. See
 
 ## Design drafts (proposed, not implemented)
 
-- [fetch-http-surface.md](fetch-http-surface.md) — three independent additions to `fetch`,
-  all found while building the polling example, none built. **§1 `query`**: a structured query
-  slot, because interpolating into a URL escapes nothing — a term carrying `&` or `#` injects a
-  parameter. **§2 `responses`**: one status-keyed map replacing `result_schema`, where the
-  status class does the splitting — a declared 2xx types `self.result` *and* makes the status
-  accepted, a declared 4xx/5xx types a new `error.data` and still routes through `on_error`.
-  **§3 response metadata** (`self.status` / `self.headers`), which retires the
-  `http.202`-via-`on_error` trick in the poller; its parser blocker is since built (only
-  integer literals were allowed in `[...]`, so `self.headers['retry-after']` would not parse),
-  and the non-free part it exposed was inference carrying paths as dot-joined strings, where a
-  secret on a dotted key could escape redaction.
-  §2 is the largest and starts from a measured bug: a 202 or 204 carrying no body is accepted
-  and then fails to decode, as `output.parse` with an empty message. Its point is a
-  *non-nullable* result — `{"200": T}` types `self.result` as exactly `T` — and its sharpest
-  decision is that **enforcement is uniform across both channels**: a body that does not conform
-  raises `output.invalid` (or `output.parse` / `output.too_large`), and on the error channel that
-  code *replaces* the `http.NNN` the status would have raised. Leniency is recorded as the
-  rejected alternative — it would have left `error.data` nullable at every point of use, and a
-  schema you must null-check anyway buys almost nothing; `"4xx": {}` is the opt-out, since the
-  top type conforms to everything. That leaves exactly one source of `null`: a code reaching the
-  handler with no declared schema. `error.data` is present exactly where a pattern is declared,
-  so an undeclared error body stays unreadable though `action_failed` still records it for an
-  operator running debug logging with payloads on. Records why a declaration made for typing must not change routing
-  (the rejected `keys(responses) ∪ accepted_status` rule would have made declaring a 404
-  silently *accept* it, deleting the definition's error handling), why `accepted_status`
-  survives as an authoritative Shape and what that costs under a dynamic set, `code`'s `%`
-  wildcard as considered and rejected (`2xx` is what RFC 9110 and OpenAPI write, and these keys
-  are copied out of API docs), and the pointer in `map[string]*schema.Schema` — `encoding/json`
-  runs `UnmarshalJSON` on a value type even for `null`, so a value type silently collapses "no
-  body" into "untyped body". Needs none of the deferred type-system work: the success side is
-  `T | null`, and on the error side the `on_error` rule is already the discriminator. The
-  multi-status union is **`anyOf`, not `oneOf`** — status bodies overlap, and an overlapping
-  `oneOf` rejects a value matching two arms, the same bug `literal-types.md` was written to fix.
 - [error-extensions.md](error-extensions.md) — three considered-and-declined extensions to
   the child error model (batch-shape routing, a diagnostic payload on `raise`, opt-in
   exhaustiveness). Unlike the others these are **open questions, not intended work** — each
@@ -202,8 +169,18 @@ behavior while the spec stays put, answering a different question. See
 `pause-resume.md`, `only-once-interrupted.md`, `unknown-type.md`, `delay-syntax.md`,
 `recursive-type-inference.md`, `resource-limits.md`, `retry-policy.md`,
 `lease-fencing.md`, `typed-values.md`, `map-expressions.md`, `number-precision.md`,
-`error-handling-audit.md`, `child-error-handling.md` describe code that exists. The invariants extracted from them live in
+`error-handling-audit.md`, `child-error-handling.md`, `fetch-http-surface.md` describe code
+that exists. The invariants extracted from them live in
 the `CLAUDE.md` of the owning package.
+
+`fetch-http-surface.md` is the newest of these and the largest: `query`, the status-keyed
+`responses` map that replaced `result_schema` on a fetch, and `self.status` / `self.headers`.
+Read it for the decisions rather than the behaviour — `docs/reference/tasks.mdx` is the
+present-tense account. Two things it records are not about `fetch` at all and bit elsewhere:
+the engine and inference must resolve acceptance through one helper (they diverged once, and
+an undeclared 2xx reached `self.result` unvalidated), and the top type may not be read through
+a union, a container, a `$ref` or an interpolation — a rule the schema package now enforces in
+every access path.
 
 `version-compatibility.md` is now **only** the upgrade half — the gate, the boundary rules,
 the tree closure, the one-column write, the endpoints — and none of it is built. Everything

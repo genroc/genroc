@@ -174,6 +174,9 @@ func TestChangedSlots_EveryDifferentDocumentIsReported(t *testing.T) {
 		{"action.url", func(d *model.ProcessDefinition) { d.Tasks[0].Action.URL = "http://y/call" }},
 		{"action.method", func(d *model.ProcessDefinition) { d.Tasks[0].Action.Method = "PUT" }},
 		{"action.headers", func(d *model.ProcessDefinition) { d.Tasks[0].Action.Headers = nil }},
+		{"action.query", func(d *model.ProcessDefinition) {
+			d.Tasks[0].Action.Query = &model.Shape{Raw: map[string]any{"page": "2"}}
+		}},
 		{"action.accepted_status", func(d *model.ProcessDefinition) { d.Tasks[0].Action.AcceptedStatus = nil }},
 		{"action.body", func(d *model.ProcessDefinition) { d.Tasks[0].Action.Body = nil }},
 		{"action.result_schema", func(d *model.ProcessDefinition) { d.Tasks[3].Action.ResultSchema = nil }},

@@ -35,6 +35,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			hasURL := isFetch && s.Action.URL != ""
 			hasMethod := isFetch && s.Action.Method != ""
 			hasHeaders := isFetch && s.Action.Headers.Present()
+			hasQuery := isFetch && s.Action.Query.Present()
 			hasAcceptedStatus := isFetch && s.Action.AcceptedStatus.Present()
 			hasBody := s.Action.Body.Present()
 			hasInput := s.Action.Input.Present()
@@ -43,7 +44,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			hasFor := isDelay && s.Action.For != nil
 			hasUntil := isDelay && s.Action.Until != nil
 			hasTimeout := !s.Timeout.IsZero()
-			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout {
+			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout {
 				ctx := contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID]).WithDefs(defs)
 				// The child_list `over` expression must be a non-null array; each
 				// element becomes one child's input. Type-check it here so a malformed or
@@ -90,6 +91,11 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				// Headers is a shape that must evaluate to a non-null object.
 				if hasHeaders {
 					if err := checkHeadersShape(s.Action.Headers.Raw, ctx, s.ID); err != nil {
+						return err
+					}
+				}
+				if hasQuery {
+					if err := checkQueryShape(s.Action.Query.Raw, ctx, s.ID); err != nil {
 						return err
 					}
 				}
@@ -177,7 +183,13 @@ var (
 	headersSchema = schema.Map(schema.Type("string"))
 	// accepted_status must be an array whose elements are all strings (HTTP status patterns).
 	acceptedStatusSchema = schema.Array(schema.Type("string"))
-	boolSchema           = schema.Type("boolean")
+	// query must be a non-null object of scalars; a null VALUE is fine and omits its
+	// parameter, which is the whole ergonomic point of the slot.
+	querySchema = schema.Map(schema.AnyOf(
+		schema.Type("string", "number", "boolean", "null"),
+		schema.Array(schema.Type("string", "number", "boolean", "null")),
+	))
+	boolSchema = schema.Type("boolean")
 	// A delay `for` / `until` expression must be a number: milliseconds for `for`, unix
 	// milliseconds for `until`. The literal grammars never reach the type system — they are
 	// parsed by delayspec at registration — so unlike the old ms slot, string is not
@@ -329,6 +341,23 @@ func checkHeadersShape(raw any, ctx schema.Schema, taskID string) error {
 				return fmt.Errorf("task %q headers must evaluate to a non-null object", taskID)
 			}
 			return fmt.Errorf("task %q headers values must all be strings", taskID)
+		},
+	})
+	return err
+}
+
+// checkQueryShape verifies the fetch Query shape produces a non-null object of scalars. It is
+// checkHeadersShape with one difference that carries the feature: a null VALUE is accepted,
+// because omitting a parameter is what saves the author a conditional. The MAP itself may
+// still not be null — a null query is a mistake, not an empty one.
+func checkQueryShape(raw any, ctx schema.Schema, taskID string) error {
+	shp := shape.Shape{Raw: raw, Schema: &querySchema, Name: fmt.Sprintf("task %q query", taskID)}
+	_, err := shp.CheckWith(ctx, shape.CheckHooks{
+		Result: func(inferred, _ schema.Schema) error {
+			if inferred.HasNull() || !inferred.IsType("object") {
+				return fmt.Errorf("task %q query must evaluate to a non-null object", taskID)
+			}
+			return fmt.Errorf("task %q query values must be scalars, null (which omits the parameter), or an array of them (which repeats it)", taskID)
 		},
 	})
 	return err

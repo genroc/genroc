@@ -5,8 +5,9 @@
 # direction, so it is the one that needs a fixture.
 #
 # Elsewhere only `url`, `only_once`, `switch`, `on_error`, `name` and `action.type` are pinned
-# this way. Here: the rest of the fetch request (§3a — a service's tolerance is unknowable,
-# which is why judging it is refused), a task `timeout`, a delay's calendar slots, an
+# this way. Here: the rest of the fetch request — method, headers, query, body,
+# accepted_status (§3a — a service's tolerance is unknowable, which is why judging it is
+# refused), a task `timeout`, a delay's calendar slots, an
 # `external.input` (§8 records that this one is still open), and the child slots §2c argues
 # are unjudged — `over`, because a child_list's array is consumed at spawn and every child
 # carries its `_spawn_index`, and the pinned `version`, because when the child itself moves
@@ -28,6 +29,7 @@ apply:
               url: http://x/call
               method: POST
               headers: {trace: alpha}
+              query: {page: '1'}
               body: {n: '$: 1'}
               accepted_status: ["4xx"]
             timeout: 30s
@@ -66,6 +68,7 @@ apply:
               url: http://x/call
               method: PUT
               headers: {trace: beta}
+              query: {page: '2'}
               body: {n: '$: 2'}
               accepted_status: ["4xx", "5xx"]
             timeout: 60s
@@ -95,6 +98,7 @@ expect: |
     call:timeout                (not judged)
     call:fetch.method           (not judged)
     call:fetch.headers          (not judged)
+    call:fetch.query            (not judged)
     call:fetch.accepted_status  (not judged)
     call:fetch.body             (not judged)
     wake:delay.for              (not judged)

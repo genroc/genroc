@@ -142,3 +142,41 @@ func TestResponseFor_ExactBeatsRange(t *testing.T) {
 		}
 	}
 }
+
+// The request slots belong to a fetch and nothing else. Elsewhere they are read by nobody, and
+// a field nobody reads is dropped in silence — the same reason a fetch refuses `result_schema`.
+// `responses` already had this check; the rest did not, so `headers` on an external task was
+// accepted and ignored.
+func TestValidate_FetchOnlySlots(t *testing.T) {
+	for _, slot := range []string{
+		`"url":"http://x"`,
+		`"method":"GET"`,
+		`"headers":{"a":"1"}`,
+		`"query":{"a":"1"}`,
+		`"accepted_status":["200"]`,
+	} {
+		for _, actionType := range []string{"external", "child", "delay"} {
+			extra := ""
+			switch actionType {
+			case "child":
+				extra = `,"name":"k"`
+			case "delay":
+				extra = `,"for":"1s"`
+			}
+			action := `{"type":"` + actionType + `",` + slot + extra + `}`
+			err := responsesDef(t, action).Validate()
+			if err == nil {
+				t.Errorf("%s on a %s task must be refused — it would be ignored", slot, actionType)
+				continue
+			}
+			if !strings.Contains(err.Error(), "only valid on a fetch") {
+				t.Errorf("%s on a %s: message should say where the slot belongs, got %v", slot, actionType, err)
+			}
+		}
+	}
+	// And they stay legal on the action that reads them.
+	ok := `{"type":"fetch","url":"http://x","method":"GET","headers":{"a":"1"},"query":{"b":"2"},"accepted_status":["200"]}`
+	if err := responsesDef(t, ok).Validate(); err != nil {
+		t.Errorf("a fetch carrying all of them must be accepted: %v", err)
+	}
+}

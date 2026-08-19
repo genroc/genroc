@@ -55,7 +55,19 @@
   unreadable. See specs/fetch-http-surface.md §3. **Still open:** the poller still routes its
   202 through `on_error`; switching it to `case: self.status == 202` means the caller stops
   choosing `accepted_status`, which is a change to that example's contract
-- [] fetch query params - a structured `query` slot (see specs/fetch-http-surface.md part 2; interpolating into the url string does no escaping, so a value with `&`/`=`/space injects a parameter)
+- [x] fetch query params - a structured `query` slot: a shape evaluating to a map of scalars,
+  URL-encoded and appended (a url may already carry its own `?a=1`), with a **null value
+  omitting its parameter** so an optional one needs no conditional — deliberately unlike
+  `headers`, where a null is an error. Values are scalars rather than strings-only because the
+  null-omit does not compose with `${ }`: interpolating a nullable is refused at registration,
+  so a strings-only target would make an optional NUMBER parameter unwritable. Appended before
+  the url is logged, so the audit trail shows the request actually made, and parameters are
+  ordered by key (url.Values.Encode sorts), so the same input yields a byte-identical url
+  every attempt and a request cache still works. An **array value repeats the parameter** (`?t=a&t=b`, OpenAPI's form/explode
+  default); the other serialisations (`?t=a,b`, `?t[]=a`) are per-parameter choices needing a
+  `join` builtin or an option beside the value, and nothing has asked. A space is sent as
+  `%20` rather than the `+` url.Values emits — RFC 3986 reads `+` as a literal plus, so a
+  server following it takes the wrong value in silence. See specs/fetch-http-surface.md §1
 - [x] string-literal indexing in expressions - `x['some-key']` (desugars to a MemberNode; unblocks the headers map above. Access paths are now carried as steps and rendered as accessors everywhere, so a key that isn't an identifier stays distinct from a nested one — including in validation errors and `SecretAt` — see internal/schema/path.go)
 - [x] computed keys - `m[k]`, `xs[i]` (allowed only where every key shares one type: an array, or a map declaring only `additionalProperties`. An object with named properties is rejected — a computed key there could land on a declared property whose type differs from `additionalProperties`. Narrows like a static path when the key is itself a path, and the guard dies when a lambda rebinds the key)
 - [x] Go + REST API error handling (an error `code` on `Reply` that HTTP renders as a status, db sentinels handlers inherit, per-field `fields`, and a panic barrier around `advance` — see specs/error-handling-audit.md. Still open: escalation for the log-and-continue background loops)
