@@ -143,6 +143,9 @@ export interface GenrocProcess {
   client: ReturnType<typeof createClientTyped>;
   stop: () => Promise<void>; // SIGTERM — resolves once the process has fully exited
   crash: () => void; // SIGKILL — simulate a hard crash, lease stays in DB
+  // The SQLite file this server was started on, so a test can assert on columns the API
+  // does not expose (task_epoch, parent_task_epoch). Empty when running against Postgres.
+  dbPath: string;
 }
 
 export async function startGenroc(
@@ -161,6 +164,7 @@ export async function startGenroc(
     client: createClientTyped({ baseUrl: `http://localhost:${port}` }),
     stop: () => stopProc(proc),
     crash: () => proc.kill("SIGKILL"),
+    dbPath: pgDSN ? "" : db,
   };
 }
 

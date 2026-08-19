@@ -20,7 +20,7 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 	// their outputs into the action result (self.result, exported only if the task
 	// projects it). The one read is shared by resolution and collection.
 	if inst.WaitState == model.WaitStateCollecting {
-		siblings, err := e.db.ChildrenForTask(ctx, inst.ID, task.ID)
+		siblings, err := e.db.ChildrenForTask(ctx, inst.ID, task.ID, inst.TaskEpoch)
 		if err != nil {
 			inst.WaitState = model.WaitStateNone
 			return nil, stop(e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %v", task.ID, err)))
@@ -147,7 +147,10 @@ func newChildInstance(parent *model.ProcessInstance, task *model.Task, def *mode
 		Status:         model.StatusRunning,
 		ParentID:       parent.ID,
 		SpawnTaskID:    task.ID,
-		CallStack:      callStack,
+		// The batch this child belongs to. The parent's TaskEpoch does not move while it is
+		// parked, so the value here is the one its collect will bind.
+		ParentTaskEpoch: parent.TaskEpoch,
+		CallStack:       callStack,
 	}
 }
 

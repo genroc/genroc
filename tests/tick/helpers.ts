@@ -1,4 +1,5 @@
 import { beforeAll, afterAll } from "vitest";
+import { DatabaseSync } from "node:sqlite";
 import {
   buildGenrocBinary,
   startGenroc,
@@ -15,6 +16,42 @@ async function getBin(): Promise<string> {
 
 export class TickEnv {
   constructor(private readonly genroc: GenrocProcess) {}
+
+  // Reads straight from the server's SQLite file. Only for columns the API deliberately
+  // does not expose -- task_epoch and parent_task_epoch are engine bookkeeping, and a test
+  // that asserts the MECHANISM rather than its symptom has to look at them directly.
+  // Safe while the server runs: SQLite is in WAL mode, so a reader never blocks the writer.
+  query<T = Record<string, unknown>>(sql: string, ...params: unknown[]): T[] {
+    const db = new DatabaseSync(this.genroc.dbPath);
+    try {
+      return db.prepare(sql).all(...(params as never[])) as T[];
+    } finally {
+      db.close();
+    }
+  }
+
+  // (task_epoch, parent_task_epoch) for one instance.
+  epochs(id: string): { task: number; batch: number } {
+    const [row] = this.query<{ task_epoch: number; parent_task_epoch: number }>(
+      "SELECT task_epoch, parent_task_epoch FROM process_instances WHERE id = ?",
+      id,
+    );
+    if (!row) throw new Error(`epochs(${id}): no such instance`);
+    return { task: Number(row.task_epoch), batch: Number(row.parent_task_epoch) };
+  }
+
+  // Every child ever spawned under (parent, task) -- deliberately UNSCOPED by epoch, so a
+  // test can see the batches a scoped collect is supposed to be filtering between.
+  allChildrenOf(parentId: string, taskId: string): { id: string; batch: number }[] {
+    return this
+      .query<{ id: string; parent_task_epoch: number }>(
+        `SELECT id, parent_task_epoch FROM process_instances
+          WHERE parent_id = ? AND spawn_task_id = ? ORDER BY created_at`,
+        parentId,
+        taskId,
+      )
+      .map((r) => ({ id: r.id, batch: Number(r.parent_task_epoch) }));
+  }
 
   get client() {
     return this.genroc.client;

@@ -247,6 +247,17 @@ func (e *Engine) prepareAdvance(inst *model.ProcessInstance) (*model.ProcessDefi
 // persist (it does no lease-releasing write — runAdvance does). Each task may have a call
 // and/or a switch: the call runs first, then the switch evaluates with the call's output
 // as "self"; a matching case jumps to the named task, else the next task in the queue runs.
+// enterTask moves the instance to a task and counts the entry. EVERY transition goes
+// through it -- next, a goto, and a goto back to the task just run -- because TaskEpoch is
+// what addresses a spawned batch: assigning inst.Task directly leaves a re-entered child
+// task spawning a second batch under the epoch its predecessor already claimed, and the
+// collect then gathers both. Pointing at the task about to run (advance's loop head) is NOT
+// an entry: a parked parent resumes there to collect and must keep the epoch it spawned under.
+func enterTask(inst *model.ProcessInstance, taskID string) {
+	inst.Task = taskID
+	inst.TaskEpoch++
+}
+
 func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advanceOutcome {
 	if inst.Status == model.StatusFailing {
 		return e.settleFailing(inst)
@@ -395,7 +406,7 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		}
 		// Reflect the new position (empty once we run past the last task) so a
 		// checkpoint here persists the next task to run, not the one just completed.
-		inst.Task = taskIDAt(def.Tasks, idx)
+		enterTask(inst, taskIDAt(def.Tasks, idx))
 		// `error` is scoped to the task its on_error rule routed to. An ordinary transition
 		// leaves that task, so the failure stops being in scope here — a handler that wants
 		// it to travel projects it into its own output, which is how every other value

@@ -68,13 +68,13 @@ ORDER BY pc.name;
 INSERT INTO process_instances
     (id, process_name, process_version, task,
      input_data, outputs_data, output_data, error_data, external_data, engine_state,
-     parent_id, spawn_task_id,
+     parent_id, spawn_task_id, parent_task_epoch, task_epoch,
      call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at)
 VALUES
     (sqlc.arg(id), sqlc.arg(process_name), sqlc.arg(process_version), sqlc.arg(task),
      sqlc.arg(input_data), sqlc.arg(outputs_data), sqlc.arg(output_data),
      sqlc.arg(error_data), sqlc.arg(external_data), sqlc.arg(engine_state),
-     sqlc.arg(parent_id), sqlc.arg(spawn_task_id),
+     sqlc.arg(parent_id), sqlc.arg(spawn_task_id), sqlc.arg(parent_task_epoch), sqlc.arg(task_epoch),
      sqlc.arg(call_stack), sqlc.arg(retry_count), sqlc.arg(wake_at),
      sqlc.arg(status), sqlc.arg(wait_state), sqlc.arg(error), sqlc.arg(error_code),
      sqlc.arg(created_at), sqlc.arg(updated_at));
@@ -87,6 +87,7 @@ VALUES
 -- bind the epoch read under their row lock. specs/lease-fencing.md.
 UPDATE process_instances
 SET task             = sqlc.arg(task),
+    task_epoch       = sqlc.arg(task_epoch),
     outputs_data     = sqlc.arg(outputs_data),
     output_data      = sqlc.arg(output_data),
     error_data       = sqlc.arg(error_data),
@@ -112,6 +113,7 @@ WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch);
 -- its last chance to settle. lease_epoch: see UpdateInstance.
 UPDATE process_instances
 SET task             = sqlc.arg(task),
+    task_epoch       = sqlc.arg(task_epoch),
     outputs_data     = sqlc.arg(outputs_data),
     error_data       = sqlc.arg(error_data),
     external_data    = sqlc.arg(external_data),
@@ -134,7 +136,7 @@ SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code, lease_epoch
+       error_code, lease_epoch, task_epoch, parent_task_epoch
 FROM process_instances
 WHERE id = sqlc.arg(id);
 
@@ -197,6 +199,7 @@ WHERE id IN (
 SELECT COUNT(*) FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id)
+  AND parent_task_epoch = sqlc.arg(parent_task_epoch)
   AND status NOT IN ('completed', 'failed', 'raised');
 
 -- name: GetWaitState :one
@@ -218,10 +221,11 @@ SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code, lease_epoch
+       error_code, lease_epoch, task_epoch, parent_task_epoch
 FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
-  AND spawn_task_id = sqlc.arg(spawn_task_id);
+  AND spawn_task_id = sqlc.arg(spawn_task_id)
+  AND parent_task_epoch = sqlc.arg(parent_task_epoch);
 
 -- name: FailAncestors :exec
 -- Paused ancestors are included: pause suppresses advancement, not settlement, so a

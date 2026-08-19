@@ -4,11 +4,16 @@
 export interface ProcessInput {
   place?: string;
   script_url?: string;
+  /**
+   * kolik mereni udelat; 0 = bezet donekonecna
+   */
+  ticks?: number;
 }
 
 export interface ProcessOutput {
   condition: string;
   place: null | string;
+  readings: number;
   summary: string;
   temperature_c: number;
   time: string;
@@ -32,6 +37,7 @@ export interface SummarizeInput {
 }
 export interface SummarizeOutput {
   condition: string;
+  count: number;
   summary: string;
   temperature_c: number;
 }

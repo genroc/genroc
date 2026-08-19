@@ -41,7 +41,7 @@ func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Tas
 		if err := e.resolveGoto(inst, rule.Goto); err != nil {
 			return e.failInstance(inst, errcode.EngineDefinition, err.Error())
 		}
-		inst.Task = rule.Goto
+		enterTask(inst, rule.Goto)
 		inst.RetryCount = 0
 		inst.WakeAt = nil
 		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventErrorRoute, Task: task.ID, Code: raisedCode,

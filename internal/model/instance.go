@@ -113,6 +113,17 @@ type ProcessInstance struct {
 	// instead of clobbering. specs/lease-fencing.md.
 	LeaseEpoch int64
 
+	// TaskEpoch numbers this instance's task ENTRIES. It moves on a transition (next, a
+	// goto, including one back to the same task) and stays put while the instance is parked
+	// on a task -- so a child task's spawn and its collect are the same epoch, which is what
+	// lets a batch be addressed. Distinct from LeaseEpoch, which is a worker grant.
+	TaskEpoch int64
+
+	// ParentTaskEpoch is the parent's TaskEpoch this instance was spawned under; zero for a
+	// root. It is what makes one batch of children addressable, since (parent_id,
+	// spawn_task_id) repeats every time a loop re-enters the task.
+	ParentTaskEpoch int64
+
 	// Config is the configuration namespace resolved from the OS environment at
 	// the start of each tick (see ProcessDefinition.ResolveConfig). It is exposed
 	// to expressions as "config" but is transient: never persisted to the DB and

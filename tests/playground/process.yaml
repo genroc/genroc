@@ -5,19 +5,19 @@
 # result_schema and nothing about 422s — custom-tasks.md's middle tier, with the engine still
 # unaware that scripts exist.
 #
-# Linear, not a loop: a `child` task cannot be re-entered — collect gathers every child ever
-# spawned under (parent, task) and a second pass fails with `expected exactly one child,
-# got 2`. Reverting `stats` to a fetch is what buys the polling loop back.
-#
 #   go run ./cmd/genroc --http :8888   # the engine
 #   bun run playground:scripts         # the evaluator (bun-runtime/)
-#   bun run playground:run Praha
+#   bun run playground:run 3 Praha
 name: weather-logger
 input_schema:
   type: object
   properties:
     script_url: { type: string, default: "http://localhost:3010" }
     place: { type: string, default: "Praha" }
+    ticks:
+      type: integer
+      default: 0
+      description: "kolik mereni udelat; 0 = bezet donekonecna"
 tasks:
   - id: geocode
     action:
@@ -119,11 +119,14 @@ tasks:
 
           const condition = conditions[reading.code] ?? ("wmo " + reading.code);
           const t = Math.round(reading.temperature_c * 10) / 10;
+          const summary = input.geo.label + "  " + reading.time + "  " + t + " °C  " + condition;
+
+          console.log(condition, t, summary)
 
           return {
             condition,
             temperature_c: t,
-            summary: input.geo.label + "  " + reading.time + "  " + t + " °C  " + condition,
+            summary,
           };
         # Whole objects only. Two things are refused at a child input that a fetch body
         # would have taken: a nested LITERAL (Fits walks into the target, and the top type
@@ -147,6 +150,9 @@ tasks:
       condition: "$: self.result.condition"
       temperature_c: "$: self.result.temperature_c"
       summary: "$: self.result.summary"
+      # self.previous is this task's prior output, available in an output block but not in
+      # an action's input -- so the counter lives here rather than in the script.
+      count: "$: (self.previous.count ?? 0) + 1"
     # The child's raise codes are its `throws` clause; a panic (a broken script) is
     # deliberately not catchable and takes this process down with it.
     on_error:
@@ -155,10 +161,13 @@ tasks:
           code: summary_failed
           message: "the summary script did not produce a reading"
     switch:
-      - goto: end
+      - case: "input.ticks > 0 && self.output.count >= input.ticks"
+        goto: end
+      - goto: $wait
 
 output:
   place: "$: outputs.geocode.label"
+  readings: "$: outputs.summarize.count"
   time: "$: outputs.read_weather.time"
   temperature_c: "$: outputs.summarize.temperature_c"
   condition: "$: outputs.summarize.condition"

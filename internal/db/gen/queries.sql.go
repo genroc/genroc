@@ -14,19 +14,21 @@ const countActiveSiblings = `-- name: CountActiveSiblings :one
 SELECT COUNT(*) FROM process_instances
 WHERE parent_id = ?1
   AND spawn_task_id = ?2
+  AND parent_task_epoch = ?3
   AND status NOT IN ('completed', 'failed', 'raised')
 `
 
 type CountActiveSiblingsParams struct {
-	ParentID    string
-	SpawnTaskID string
+	ParentID        string
+	SpawnTaskID     string
+	ParentTaskEpoch int64
 }
 
 // Only completed/failed/raised are settled; a paused sibling counts as active, so a
 // parent never collects while a child is suspended. 'raised' must stay or the parent
 // hangs in 'waiting'. The SQL half of model.Status.Terminal(); kept in step by hand.
 func (q *Queries) CountActiveSiblings(ctx context.Context, arg CountActiveSiblingsParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countActiveSiblings, arg.ParentID, arg.SpawnTaskID)
+	row := q.db.QueryRowContext(ctx, countActiveSiblings, arg.ParentID, arg.SpawnTaskID, arg.ParentTaskEpoch)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -251,19 +253,21 @@ SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code, lease_epoch
+       error_code, lease_epoch, task_epoch, parent_task_epoch
 FROM process_instances
 WHERE parent_id = ?1
   AND spawn_task_id = ?2
+  AND parent_task_epoch = ?3
 `
 
 type GetChildrenForTaskParams struct {
-	ParentID    string
-	SpawnTaskID string
+	ParentID        string
+	SpawnTaskID     string
+	ParentTaskEpoch int64
 }
 
 func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTaskParams) ([]ProcessInstance, error) {
-	rows, err := q.db.QueryContext(ctx, getChildrenForTask, arg.ParentID, arg.SpawnTaskID)
+	rows, err := q.db.QueryContext(ctx, getChildrenForTask, arg.ParentID, arg.SpawnTaskID, arg.ParentTaskEpoch)
 	if err != nil {
 		return nil, err
 	}
@@ -296,6 +300,8 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.Task,
 			&i.ErrorCode,
 			&i.LeaseEpoch,
+			&i.TaskEpoch,
+			&i.ParentTaskEpoch,
 		); err != nil {
 			return nil, err
 		}
@@ -366,7 +372,7 @@ SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code, lease_epoch
+       error_code, lease_epoch, task_epoch, parent_task_epoch
 FROM process_instances
 WHERE id = ?1
 `
@@ -403,6 +409,8 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.Task,
 		&i.ErrorCode,
 		&i.LeaseEpoch,
+		&i.TaskEpoch,
+		&i.ParentTaskEpoch,
 	)
 	return i, err
 }
@@ -509,40 +517,42 @@ const insertInstance = `-- name: InsertInstance :exec
 INSERT INTO process_instances
     (id, process_name, process_version, task,
      input_data, outputs_data, output_data, error_data, external_data, engine_state,
-     parent_id, spawn_task_id,
+     parent_id, spawn_task_id, parent_task_epoch, task_epoch,
      call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at)
 VALUES
     (?1, ?2, ?3, ?4,
      ?5, ?6, ?7,
      ?8, ?9, ?10,
-     ?11, ?12,
-     ?13, ?14, ?15,
-     ?16, ?17, ?18, ?19,
-     ?20, ?21)
+     ?11, ?12, ?13, ?14,
+     ?15, ?16, ?17,
+     ?18, ?19, ?20, ?21,
+     ?22, ?23)
 `
 
 type InsertInstanceParams struct {
-	ID             string
-	ProcessName    string
-	ProcessVersion int64
-	Task           string
-	InputData      string
-	OutputsData    string
-	OutputData     string
-	ErrorData      string
-	ExternalData   string
-	EngineState    string
-	ParentID       string
-	SpawnTaskID    string
-	CallStack      string
-	RetryCount     int64
-	WakeAt         sql.NullInt64
-	Status         string
-	WaitState      string
-	Error          string
-	ErrorCode      string
-	CreatedAt      int64
-	UpdatedAt      int64
+	ID              string
+	ProcessName     string
+	ProcessVersion  int64
+	Task            string
+	InputData       string
+	OutputsData     string
+	OutputData      string
+	ErrorData       string
+	ExternalData    string
+	EngineState     string
+	ParentID        string
+	SpawnTaskID     string
+	ParentTaskEpoch int64
+	TaskEpoch       int64
+	CallStack       string
+	RetryCount      int64
+	WakeAt          sql.NullInt64
+	Status          string
+	WaitState       string
+	Error           string
+	ErrorCode       string
+	CreatedAt       int64
+	UpdatedAt       int64
 }
 
 func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) error {
@@ -559,6 +569,8 @@ func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) 
 		arg.EngineState,
 		arg.ParentID,
 		arg.SpawnTaskID,
+		arg.ParentTaskEpoch,
+		arg.TaskEpoch,
 		arg.CallStack,
 		arg.RetryCount,
 		arg.WakeAt,
@@ -895,27 +907,29 @@ func (q *Queries) UnpinObject(ctx context.Context, arg UnpinObjectParams) error 
 const updateInstance = `-- name: UpdateInstance :execrows
 UPDATE process_instances
 SET task             = ?1,
-    outputs_data     = ?2,
-    output_data      = ?3,
-    error_data       = ?4,
-    external_data    = ?5,
-    engine_state     = ?6,
-    retry_count      = ?7,
-    wake_at    = ?8,
+    task_epoch       = ?2,
+    outputs_data     = ?3,
+    output_data      = ?4,
+    error_data       = ?5,
+    external_data    = ?6,
+    engine_state     = ?7,
+    retry_count      = ?8,
+    wake_at    = ?9,
     status           = CASE WHEN status = 'pausing'
-                            AND CAST(?9 AS TEXT) = 'running'
-                            THEN 'paused' ELSE CAST(?9 AS TEXT) END,
-    wait_state       = ?10,
-    error            = ?11,
-    error_code       = ?12,
-    updated_at       = ?13,
+                            AND CAST(?10 AS TEXT) = 'running'
+                            THEN 'paused' ELSE CAST(?10 AS TEXT) END,
+    wait_state       = ?11,
+    error            = ?12,
+    error_code       = ?13,
+    updated_at       = ?14,
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = ?14 AND lease_epoch = ?15
+WHERE id = ?15 AND lease_epoch = ?16
 `
 
 type UpdateInstanceParams struct {
 	Task         string
+	TaskEpoch    int64
 	OutputsData  string
 	OutputData   string
 	ErrorData    string
@@ -940,6 +954,7 @@ type UpdateInstanceParams struct {
 func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstance,
 		arg.Task,
+		arg.TaskEpoch,
 		arg.OutputsData,
 		arg.OutputData,
 		arg.ErrorData,
@@ -964,22 +979,24 @@ func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) 
 const updateInstanceProgress = `-- name: UpdateInstanceProgress :execrows
 UPDATE process_instances
 SET task             = ?1,
-    outputs_data     = ?2,
-    error_data       = ?3,
-    external_data    = ?4,
-    engine_state     = ?5,
-    retry_count      = ?6,
-    wake_at    = ?7,
+    task_epoch       = ?2,
+    outputs_data     = ?3,
+    error_data       = ?4,
+    external_data    = ?5,
+    engine_state     = ?6,
+    retry_count      = ?7,
+    wake_at    = ?8,
     status           = CASE WHEN status = 'pausing' THEN 'paused' ELSE status END,
-    wait_state       = ?8,
-    updated_at       = ?9,
+    wait_state       = ?9,
+    updated_at       = ?10,
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = ?10 AND lease_epoch = ?11
+WHERE id = ?11 AND lease_epoch = ?12
 `
 
 type UpdateInstanceProgressParams struct {
 	Task         string
+	TaskEpoch    int64
 	OutputsData  string
 	ErrorData    string
 	ExternalData string
@@ -999,6 +1016,7 @@ type UpdateInstanceProgressParams struct {
 func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstanceProgressParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstanceProgress,
 		arg.Task,
+		arg.TaskEpoch,
 		arg.OutputsData,
 		arg.ErrorData,
 		arg.ExternalData,

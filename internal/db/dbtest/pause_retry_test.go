@@ -1142,7 +1142,7 @@ func TestChildrenForStep_StepScoped(t *testing.T) {
 				}
 			}
 
-			kids, err := b.db.ChildrenForTask(context.Background(), "parent", "taskB")
+			kids, err := b.db.ChildrenForTask(context.Background(), "parent", "taskB", 0)
 			if err != nil {
 				t.Fatalf("ChildrenForTask: %v", err)
 			}

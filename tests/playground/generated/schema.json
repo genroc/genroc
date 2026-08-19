@@ -74,6 +74,11 @@
         "script_url": {
           "type": "string",
           "default": "http://localhost:3010"
+        },
+        "ticks": {
+          "type": "integer",
+          "description": "kolik mereni udelat; 0 = bezet donekonecna",
+          "default": 0
         }
       }
     },
@@ -89,6 +94,9 @@
             "string"
           ]
         },
+        "readings": {
+          "type": "integer"
+        },
         "summary": {
           "type": "string"
         },
@@ -102,6 +110,7 @@
       "required": [
         "condition",
         "place",
+        "readings",
         "summary",
         "temperature_c",
         "time"
@@ -164,6 +173,9 @@
         "condition": {
           "type": "string"
         },
+        "count": {
+          "type": "integer"
+        },
         "summary": {
           "type": "string"
         },
@@ -173,6 +185,7 @@
       },
       "required": [
         "condition",
+        "count",
         "summary",
         "temperature_c"
       ]

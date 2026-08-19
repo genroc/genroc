@@ -6,7 +6,7 @@
 //
 // open-meteo is called by genroc itself, so there is no data-source process to start.
 //
-// Usage: bun run playground:run [place]
+// Usage: bun run playground:run [ticks] [place]
 
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -17,7 +17,8 @@ import type { ProcessOutput } from "./generated/types.ts";
 const PROCESS_NAME = "weather-logger";
 const SERVER = "http://localhost:8888";
 
-const place = process.argv[2] ?? "Praha";
+const ticks = Number(process.argv[2] ?? 3);
+const place = process.argv[3] ?? "Praha";
 
 const repoRoot = join(import.meta.dirname, "../..");
 // Both, and the child first: the parent names `script`, so it must already exist.
@@ -32,9 +33,9 @@ const reg = spawnSync(buildGenctlBinary(), ["apply", "--server", SERVER, ...defs
 });
 if (reg.status !== 0) throw new Error("genctl apply failed");
 
-console.log(`Starting one instance for ${place}.`);
+console.log(`Starting one instance: ${ticks} reading(s) of ${place}.`);
 const { data: started, error: startErr } = await client.POST("/instances", {
-  body: { process: PROCESS_NAME, input: { place } },
+  body: { process: PROCESS_NAME, input: { ticks, place } },
 });
 if (startErr) throw new Error(`start failed: ${JSON.stringify(startErr)}`);
 
@@ -46,6 +47,7 @@ const { data } = await client.GET("/instances/{id}", { params: { path: { id: sta
 console.log(`\n${started!.id} → ${status}`);
 if (status === "completed") {
   const out = data?.context?.output as ProcessOutput | undefined;
+  console.log(`${out?.readings} reading(s)`);
   console.log(out?.summary);
 } else {
   // The script's own error detail stays inside the child instance; what crosses the

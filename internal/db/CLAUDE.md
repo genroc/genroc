@@ -52,6 +52,37 @@ Design: [specs/lease-fencing.md](../../specs/lease-fencing.md); the engine half 
   here may "clean up" by clearing `worker_id`, and the `worker_id` guard keeps a repair
   from resurrecting a lease on a row someone else now owns.
 
+### The task epoch (`task_epoch`, `parent_task_epoch`)
+
+Three counters now, and they answer different questions. `lease_epoch` is a **worker grant**
+(above). `task_epoch` numbers an instance's **task entries**. `parent_task_epoch` is the
+parent's `task_epoch` a child was spawned under, and is what makes one batch addressable:
+children live under `(parent_id, spawn_task_id)`, which is not unique in time, so a child
+task re-entered by a loop spawns a fresh batch under the same pair.
+
+- **`task_epoch` moves on a TRANSITION, never on a resume.** `engine.enterTask` is the one
+  place it increments, and every transition goes through it -- `next`, a goto, and a goto
+  back to the task just run. Pointing at the task about to run (advance's loop head) is not
+  an entry: a parked parent resumes there to collect and must still hold the epoch it
+  spawned under, or its own children stop matching. `SpawnChildrenAndWait` therefore
+  **carries** the parent's epoch when it parks it; `RetryProcess` **bumps** it, because a
+  revived task is entered afresh and must not re-spawn into its failed attempt's batch.
+- **Both sibling queries bind it** -- `GetChildrenForTask` from the parent's own
+  `TaskEpoch`, `CountActiveSiblings` from the settling child's `ParentTaskEpoch` (the caller
+  holds the child, so no extra read). An earlier version inferred the batch with
+  `MAX(spawn_epoch)`; binding is equivalent and drops the correlated subquery from a query
+  on the child-settle hot path.
+- **Scoping the collect is not the whole fix.** Unscoped, `resolveRaisedBatch` also re-routed
+  the parent on a *previous* batch's raised child, and the keyed/list shapes merged duplicate
+  slots -- quieter failures than the `expected exactly one child, got 2` that surfaced first.
+- Zero is the value for every pre-migration row and every root instance. Behaviour:
+  `tests/integration/child_loop_test.ts`; the mechanism itself (epoch unchanged across a
+  park/resume, batches distinct per pass) is asserted from SQL in `tests/tick/task_epoch_test.ts`.
+- **Adding a column here means three lists**, not one: `instanceColumns`, `scanInstance`, and
+  the separate destination list in the Postgres branch of `ClaimInstances` (which cannot use
+  `scanInstance` because of its trailing `prev_worker`). Missing the third fails only on
+  Postgres, and only at runtime.
+
 ### PostgreSQL runtime setup
 
 `open()` in `db.go` runs a Postgres-only bootstrap (the `if dialect == "postgres"` block) after migrations: the `json_each` helper function and **aggressive autovacuum on `process_instances`**. (Tree enumeration uses a recursive `parent_id` walk, so there is no `call_stack` GIN index.)

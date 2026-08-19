@@ -103,7 +103,7 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 		if err := e.resolveGoto(inst, matched.Goto); err != nil {
 			return e.failInstance(inst, errcode.EngineDefinition, err.Error())
 		}
-		inst.Task = matched.Goto
+		enterTask(inst, matched.Goto)
 		inst.RetryCount = 0
 		inst.WakeAt = nil
 		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventErrorRoute, Task: task.ID, Msg: errMsg + " → " + matched.Goto, Code: errCode})

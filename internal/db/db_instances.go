@@ -58,7 +58,7 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 	call_stack, retry_count, wake_at, status, error,
 	created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
 	input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-	error_code, lease_epoch`
+	error_code, lease_epoch, task_epoch, parent_task_epoch`
 
 // Lightweight ListInstances projection — no context/call-stack blobs; order matches
 // scanInstanceSummary. error_code stays despite the rule: short, and it is what a list
@@ -97,7 +97,7 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 		&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.Error,
 		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
 		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
-		&r.ErrorCode, &r.LeaseEpoch,
+		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
 	)
 	return r, err
 }
@@ -355,6 +355,7 @@ func updateInstanceParams(inst *model.ProcessInstance, cols contextCols, now int
 		ErrorCode:    inst.ErrorCode,
 		UpdatedAt:    now,
 		LeaseEpoch:   inst.LeaseEpoch,
+		TaskEpoch:    inst.TaskEpoch,
 	}
 }
 
@@ -380,27 +381,29 @@ func insertInstanceParams(inst *model.ProcessInstance, cols contextCols, status 
 		return dbgen.InsertInstanceParams{}, err
 	}
 	return dbgen.InsertInstanceParams{
-		ID:             inst.ID,
-		ProcessName:    inst.ProcessName,
-		ProcessVersion: int64(inst.ProcessVersion),
-		Task:           inst.Task,
-		InputData:      cols.InputData,
-		OutputsData:    cols.OutputsData,
-		OutputData:     cols.OutputData,
-		ErrorData:      cols.ErrorData,
-		ExternalData:   cols.ExternalData,
-		EngineState:    cols.EngineState,
-		ParentID:       inst.ParentID,
-		SpawnTaskID:    inst.SpawnTaskID,
-		CallStack:      string(callStack),
-		RetryCount:     int64(inst.RetryCount),
-		WakeAt:         fromTimePtr(inst.WakeAt),
-		Status:         status,
-		WaitState:      string(inst.WaitState),
-		Error:          inst.Error,
-		ErrorCode:      inst.ErrorCode,
-		CreatedAt:      createdAt,
-		UpdatedAt:      updatedAt,
+		ID:              inst.ID,
+		ProcessName:     inst.ProcessName,
+		ProcessVersion:  int64(inst.ProcessVersion),
+		Task:            inst.Task,
+		InputData:       cols.InputData,
+		OutputsData:     cols.OutputsData,
+		OutputData:      cols.OutputData,
+		ErrorData:       cols.ErrorData,
+		ExternalData:    cols.ExternalData,
+		EngineState:     cols.EngineState,
+		ParentID:        inst.ParentID,
+		SpawnTaskID:     inst.SpawnTaskID,
+		ParentTaskEpoch: inst.ParentTaskEpoch,
+		TaskEpoch:       inst.TaskEpoch,
+		CallStack:       string(callStack),
+		RetryCount:      int64(inst.RetryCount),
+		WakeAt:          fromTimePtr(inst.WakeAt),
+		Status:          status,
+		WaitState:       string(inst.WaitState),
+		Error:           inst.Error,
+		ErrorCode:       inst.ErrorCode,
+		CreatedAt:       createdAt,
+		UpdatedAt:       updatedAt,
 	}, nil
 }
 
@@ -460,6 +463,7 @@ func (db *DB) UpdateInstanceProgress(inst *model.ProcessInstance) error {
 			WaitState:    string(inst.WaitState),
 			UpdatedAt:    now,
 			LeaseEpoch:   inst.LeaseEpoch,
+			TaskEpoch:    inst.TaskEpoch,
 		}))
 	})
 }
@@ -504,10 +508,14 @@ func (db *DB) queryInstancePage(b built) ([]*model.ProcessInstance, PageInfo, er
 	}, instanceCursorVals)
 }
 
-func (db *DB) ChildrenForTask(ctx context.Context, parentID, spawnTaskID string) ([]*model.ProcessInstance, error) {
+// ChildrenForTask returns ONE batch: the children spawned under parentTaskEpoch. The pair
+// (parentID, spawnTaskID) repeats every time a loop re-enters the task, so the epoch is what
+// separates this batch from the ones before it.
+func (db *DB) ChildrenForTask(ctx context.Context, parentID, spawnTaskID string, parentTaskEpoch int64) ([]*model.ProcessInstance, error) {
 	rows, err := db.q.GetChildrenForTask(ctx, dbgen.GetChildrenForTaskParams{
-		ParentID:    parentID,
-		SpawnTaskID: spawnTaskID,
+		ParentID:        parentID,
+		SpawnTaskID:     spawnTaskID,
+		ParentTaskEpoch: parentTaskEpoch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("get children for task: %w", err)
@@ -527,23 +535,25 @@ func (db *DB) ChildrenForTask(ctx context.Context, parentID, spawnTaskID string)
 
 func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 	inst := &model.ProcessInstance{
-		ID:             r.ID,
-		ProcessName:    r.ProcessName,
-		ProcessVersion: int(r.ProcessVersion),
-		Task:           r.Task,
-		ParentID:       r.ParentID,
-		SpawnTaskID:    r.SpawnTaskID,
-		RetryCount:     int(r.RetryCount),
-		Status:         model.Status(r.Status),
-		WaitState:      model.WaitState(r.WaitState),
-		Error:          r.Error,
-		ErrorCode:      r.ErrorCode,
-		CreatedAt:      toTime(r.CreatedAt),
-		UpdatedAt:      toTime(r.UpdatedAt),
-		WakeAt:         toTimePtr(r.WakeAt),
-		WorkerID:       nullStringPtr(r.WorkerID),
-		LeaseExpiresAt: toTimePtr(r.LeaseExpiresAt),
-		LeaseEpoch:     r.LeaseEpoch,
+		ID:              r.ID,
+		ProcessName:     r.ProcessName,
+		ProcessVersion:  int(r.ProcessVersion),
+		Task:            r.Task,
+		ParentID:        r.ParentID,
+		SpawnTaskID:     r.SpawnTaskID,
+		RetryCount:      int(r.RetryCount),
+		Status:          model.Status(r.Status),
+		WaitState:       model.WaitState(r.WaitState),
+		Error:           r.Error,
+		ErrorCode:       r.ErrorCode,
+		CreatedAt:       toTime(r.CreatedAt),
+		UpdatedAt:       toTime(r.UpdatedAt),
+		WakeAt:          toTimePtr(r.WakeAt),
+		WorkerID:        nullStringPtr(r.WorkerID),
+		LeaseExpiresAt:  toTimePtr(r.LeaseExpiresAt),
+		LeaseEpoch:      r.LeaseEpoch,
+		TaskEpoch:       r.TaskEpoch,
+		ParentTaskEpoch: r.ParentTaskEpoch,
 	}
 	cd, loaded, err := decodeContext(r)
 	if err != nil {

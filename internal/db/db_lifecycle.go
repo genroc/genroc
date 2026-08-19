@@ -63,8 +63,9 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 		// If the parent was found and is waiting, check whether all siblings are terminal.
 		if parentFound && model.WaitState(parentWaitState) == model.WaitStateWaiting {
 			active, err := qtx.CountActiveSiblings(ctx, dbgen.CountActiveSiblingsParams{
-				ParentID:    child.ParentID,
-				SpawnTaskID: child.SpawnTaskID,
+				ParentID:        child.ParentID,
+				SpawnTaskID:     child.SpawnTaskID,
+				ParentTaskEpoch: child.ParentTaskEpoch,
 			})
 			if err != nil {
 				return fmt.Errorf("count siblings: %w", err)
@@ -150,8 +151,9 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 			}
 			if err == nil && model.WaitState(parentWaitState) == model.WaitStateWaiting {
 				active, err := qtx.CountActiveSiblings(ctx, dbgen.CountActiveSiblingsParams{
-					ParentID:    child.ParentID,
-					SpawnTaskID: child.SpawnTaskID,
+					ParentID:        child.ParentID,
+					SpawnTaskID:     child.SpawnTaskID,
+					ParentTaskEpoch: child.ParentTaskEpoch,
 				})
 				if err != nil {
 					return fmt.Errorf("count siblings: %w", err)
@@ -609,13 +611,16 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 			ExternalData: raw.ExternalData,
 			EngineState:  raw.EngineState,
 			RetryCount:   int64(node.RetryCount),
-			WakeAt:       fromTimePtr(node.WakeAt),
-			Status:       string(node.Status),
-			WaitState:    string(node.WaitState),
-			Error:        "",
-			ErrorCode:    "",
-			UpdatedAt:    now,
-			LeaseEpoch:   raw.LeaseEpoch,
+			// A revived task is entered afresh, so its batch must be too: without the bump a
+			// re-spawned child task collides with the children its failed attempt left behind.
+			TaskEpoch:  raw.TaskEpoch + 1,
+			WakeAt:     fromTimePtr(node.WakeAt),
+			Status:     string(node.Status),
+			WaitState:  string(node.WaitState),
+			Error:      "",
+			ErrorCode:  "",
+			UpdatedAt:  now,
+			LeaseEpoch: raw.LeaseEpoch,
 		}); err != nil {
 			return fmt.Errorf("revive instance %q: %w", node.ID, err)
 		}
@@ -689,13 +694,16 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			ExternalData: parentCols.ExternalData,
 			EngineState:  parentCols.EngineState,
 			RetryCount:   int64(parent.RetryCount),
-			WakeAt:       sql.NullInt64{},
-			Status:       currentStatus,
-			WaitState:    string(model.WaitStateWaiting),
-			Error:        parent.Error,
-			ErrorCode:    parent.ErrorCode,
-			UpdatedAt:    now,
-			LeaseEpoch:   parent.LeaseEpoch,
+			// Carried, never bumped: the parent is parking on the task it just spawned from,
+			// and this is the epoch its collect will bind against the children.
+			TaskEpoch:  parent.TaskEpoch,
+			WakeAt:     sql.NullInt64{},
+			Status:     currentStatus,
+			WaitState:  string(model.WaitStateWaiting),
+			Error:      parent.Error,
+			ErrorCode:  parent.ErrorCode,
+			UpdatedAt:  now,
+			LeaseEpoch: parent.LeaseEpoch,
 		})); err != nil {
 			if errors.Is(err, ErrLeaseLost) {
 				return err
