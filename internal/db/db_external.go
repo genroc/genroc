@@ -50,19 +50,24 @@ func (db *DB) ListExternalTasks(processName string, processVersion int, task str
 // ResolveExternalTask atomically delivers a result to an instance parked on an external
 // task and un-parks it. Under the row lock (FOR UPDATE on Postgres; SQLite single-writer)
 // it rejects anything but a live external wait: an expired/absent wait, a live lease (a
-// timeout claim in flight — the timeout wins), or a token mismatch (a stale token from a
-// prior arming — the exact-occurrence guarantee). The engine consumes the stored result
-// on the next claim.
-func (db *DB) ResolveExternalTask(ctx context.Context, instanceID, token string, result any) error {
+// timeout claim in flight — the timeout wins), or an epoch mismatch (a result submitted
+// against a PRIOR arming — the exact-occurrence guarantee). The engine consumes the stored
+// result on the next claim.
+//
+// The epoch comes off the row rather than a token copied into external_data: task_epoch is
+// already the number of the occurrence, so storing it twice only creates two things that
+// can disagree. See internal/db/CLAUDE.md.
+func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch int64, result any) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
 		var status, waitState, externalData string
 		var workerID sql.NullString
 		var leaseExpiresAt sql.NullInt64
+		var taskEpoch int64
 		err := raw.QueryRowContext(ctx,
-			`SELECT status, wait_state, external_data, worker_id, lease_expires_at
+			`SELECT status, wait_state, external_data, worker_id, lease_expires_at, task_epoch
 		   FROM process_instances WHERE id = ?`+db.forUpdate(), instanceID).
-			Scan(&status, &waitState, &externalData, &workerID, &leaseExpiresAt)
+			Scan(&status, &waitState, &externalData, &workerID, &leaseExpiresAt, &taskEpoch)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("external task: %w", ErrNotFound)
 		}
@@ -79,11 +84,7 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID, token string,
 			return fmt.Errorf("external task is being processed; try again: %w", ErrConflict)
 		}
 
-		storedToken, err := externalToken(externalData)
-		if err != nil {
-			return err
-		}
-		if storedToken == "" || storedToken != token {
+		if taskEpoch != epoch {
 			return fmt.Errorf("token does not match the waiting task (it may have already been resolved or re-armed): %w", ErrConflict)
 		}
 

@@ -16,9 +16,9 @@ import (
 // the instance row lock (shared with DeliverSignal, so the two never interleave) it
 // either consumes the oldest buffered signal — stored as _external_result, resumed by
 // the next claim via runExternal phase 2 — or parks the instance (wait_state='external',
-// token + input in _external). Both branches release the lease; pop-and-write is one
+// input in _external). Both branches release the lease; pop-and-write is one
 // commit, so the signal survives a crash or a refused (stale-lease) write.
-func (db *DB) ArmExternalOrConsumeSignal(ctx context.Context, inst *model.ProcessInstance, taskID, token string, input any, wakeAt *time.Time) (consumed bool, result any, err error) {
+func (db *DB) ArmExternalOrConsumeSignal(ctx context.Context, inst *model.ProcessInstance, taskID string, input any, wakeAt *time.Time) (consumed bool, result any, err error) {
 	tx, qtx, raw, err := db.beginTx(ctx, nil)
 	if err != nil {
 		return false, nil, err
@@ -88,10 +88,12 @@ func (db *DB) ArmExternalOrConsumeSignal(ctx context.Context, inst *model.Proces
 		return true, p, nil
 	}
 
-	// No buffered signal: park. Snapshot the input + per-occurrence token under _external;
+	// No buffered signal: park. Snapshot the input under _external;
 	// UpdateInstance writes the parked state and clears worker_id/lease (the parked instance
 	// is non-runnable, so the engine returns noop).
-	inst.ContextData[model.CtxExternal] = map[string]any{"task_id": taskID, "token": token, "input": input}
+	// No token here: the occurrence is task_epoch on this very row, and a copy in
+	// external_data would be a second thing to keep true.
+	inst.ContextData[model.CtxExternal] = map[string]any{"task_id": taskID, "input": input}
 	delete(inst.ContextData, model.CtxExternalResult)
 	inst.WaitState = model.WaitStateExternal
 	inst.WakeAt = wakeAt

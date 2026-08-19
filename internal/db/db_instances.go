@@ -270,19 +270,6 @@ func withExternalResult(externalData string, result any) (string, error) {
 	return string(b), err
 }
 
-// externalToken extracts the per-occurrence token from an external_data column value.
-func externalToken(externalData string) (string, error) {
-	if externalData == "" {
-		return "", nil
-	}
-	var ext map[string]any
-	if err := numeric.Decode([]byte(externalData), &ext); err != nil {
-		return "", fmt.Errorf("decode external_data: %w", err)
-	}
-	tok, _ := ext["token"].(string)
-	return tok, nil
-}
-
 // encodeEngineState serialises the spawn/children bookkeeping into engine_state.
 // Returns "" when none is present.
 func encodeEngineState(cd map[string]any) (string, error) {

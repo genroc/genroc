@@ -59,7 +59,7 @@ func TestSignals_BufferThenConsumeFIFO(t *testing.T) {
 			}
 
 			// First arming consumes the oldest (FIFO).
-			consumed, result, err := b.db.ArmExternalOrConsumeSignal(ctx, inst, "approval", "tok1", map[string]any{}, nil)
+			consumed, result, err := b.db.ArmExternalOrConsumeSignal(ctx, inst, "approval", map[string]any{}, nil)
 			if err != nil || !consumed {
 				t.Fatalf("arm 1: consumed=%v err=%v (want consumed)", consumed, err)
 			}
@@ -68,13 +68,13 @@ func TestSignals_BufferThenConsumeFIFO(t *testing.T) {
 			}
 
 			// Second arming consumes the next.
-			consumed, result, err = b.db.ArmExternalOrConsumeSignal(ctx, inst, "approval", "tok2", map[string]any{}, nil)
+			consumed, result, err = b.db.ArmExternalOrConsumeSignal(ctx, inst, "approval", map[string]any{}, nil)
 			if err != nil || !consumed || n(result) != 2 {
 				t.Fatalf("arm 2: consumed=%v result=%v err=%v (want consumed n=2)", consumed, result, err)
 			}
 
 			// Buffer drained -> the next arming parks.
-			consumed, _, err = b.db.ArmExternalOrConsumeSignal(ctx, inst, "approval", "tok3", map[string]any{"in": "x"}, nil)
+			consumed, _, err = b.db.ArmExternalOrConsumeSignal(ctx, inst, "approval", map[string]any{"in": "x"}, nil)
 			if err != nil || consumed {
 				t.Fatalf("arm 3: consumed=%v err=%v (want parked)", consumed, err)
 			}
@@ -95,7 +95,7 @@ func TestSignals_ResolveWhenArmed(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			insertExternalParked(t, b.db, "inst-armed", "inst-armed.tok", nil)
+			insertExternalParked(t, b.db, "inst-armed", 0, nil)
 
 			delivered, err := b.db.DeliverSignal(ctx, "inst-armed", "approval", "s1", map[string]any{"approved": true})
 			if err != nil || !delivered {

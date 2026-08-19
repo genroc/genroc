@@ -11,7 +11,6 @@ import (
 	"genroc/internal/db"
 	"genroc/internal/delayspec"
 	"genroc/internal/errcode"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 	"genroc/internal/shape"
 	"genroc/internal/template"
@@ -364,7 +363,10 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	if err != nil {
 		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q input: %v", task.ID, err)))
 	}
-	token := inst.ID + "." + idgen.New()
+	// The token a caller submits identifies WHICH ARMING the result is for, and TaskEpoch
+	// already numbers that -- so it is derived here for the trail and the queue endpoint,
+	// and never stored. Not a secret: the queue hands it to any caller.
+	token := model.ExternalToken(inst.ID, inst.TaskEpoch)
 	// Resolved at arm time, once per occurrence: a re-arm after an external.timeout retry
 	// resolves again, so an `until` deadline stays the same instant while a `for` budget
 	// starts over. wake_at is a DB timestamp, so the instant goes in as resolved — unlike
@@ -398,7 +400,6 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	// A consumed signal comes back through phase 2 above, on a second advance pass.
 	return nil, stop(advanceOutcome{kind: outcomeArm, arm: &externalArm{
 		taskID:   task.ID,
-		token:    token,
 		input:    input,
 		wakeAt:   wakeAt,
 		armedMsg: armedMsg,
@@ -410,7 +411,6 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 // that instead. armedMsg is built here because only advance holds the resolved timeout spec.
 type externalArm struct {
 	taskID   string
-	token    string
 	input    any
 	wakeAt   *time.Time
 	armedMsg string

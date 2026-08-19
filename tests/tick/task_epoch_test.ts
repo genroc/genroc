@@ -17,7 +17,7 @@
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 
-const ctx = useTickEnv(20051);
+const ctx = useTickEnv(20095);
 
 type Env = ReturnType<typeof useTickEnv>["env"];
 
@@ -109,4 +109,169 @@ test("task_epoch — a child's own epoch advances; the batch it belongs to never
   expect(after.task, "the child transitions a→b, so its own epoch moves").toBeGreaterThan(
     before.task,
   );
+});
+
+/**
+ * Batch-level coverage of the paths child_loop_test.ts cannot pin behaviourally.
+ *
+ * buildMapChildOutput overwrites by key and GetChildrenForTask has no ORDER BY, so an
+ * unscoped child_map collect merges duplicate slots with NO error and a nondeterministic
+ * winner; resolveRaisedBatch picks raised[0] the same way. A test asserting on the merged
+ * output would pass or fail by luck. The batch numbers are the deterministic signal.
+ */
+async function batchesPerPass(env: Env, parent: string, taskId: string, expectedPerPass: number) {
+  const id = await env.start(parent);
+  await env.tickUntilIdle(40);
+  const children = env.allChildrenOf(id, taskId);
+  const byBatch = new Map<number, number>();
+  for (const c of children) byBatch.set(c.batch, (byBatch.get(c.batch) ?? 0) + 1);
+  return { id, children, batches: [...byBatch.keys()].sort((a, b) => a - b), byBatch, expectedPerPass };
+}
+
+test("task_epoch — child_map re-entered in a loop puts each pass in its own batch", async () => {
+  const env = ctx.env;
+  const leaf = await defineLeaf(env);
+  const parent = `epoch_map_${crypto.randomUUID()}`;
+  await env.define(parent, [
+    { id: "tick", output: { i: "$: (self.previous.i ?? 0) + 1" }, switch: [{ goto: "$fan" }] },
+    {
+      id: "fan",
+      action: { type: "child_map", children: { a: { name: leaf }, b: { name: leaf } } },
+      switch: [{ case: "outputs.tick.i >= 3", goto: "end" }, { goto: "$tick" }],
+    },
+  ]);
+
+  const r = await batchesPerPass(env, parent, "fan", 2);
+  expect(await env.status(r.id)).toBe("completed");
+  expect(r.children).toHaveLength(6); // 3 passes x 2 keys
+  expect(r.batches, "three passes, three distinct batches").toHaveLength(3);
+  // Two keys per batch and never more: a shared batch is what makes a key collide.
+  for (const b of r.batches) expect(r.byBatch.get(b)).toBe(2);
+});
+
+test("task_epoch — a loop re-entered through a RAISED child's route gets a fresh batch", async () => {
+  const env = ctx.env;
+  const raiser = `epoch_raiser_${crypto.randomUUID()}`;
+  await env.define(raiser, [
+    { id: "t", switch: [{ raise: { code: "always_raises", message: "nope" } }] },
+  ]);
+  const parent = `epoch_raised_${crypto.randomUUID()}`;
+  await env.define(parent, [
+    {
+      id: "call",
+      action: { type: "child", name: raiser },
+      // collect.go's own goto, not advance's switch — its own enterTask call site.
+      on_error: [{ code: ["always_raises"], goto: "$again" }],
+      switch: [{ goto: "end" }],
+    },
+    {
+      id: "again",
+      output: { i: "$: (self.previous.i ?? 0) + 1" },
+      switch: [{ case: "self.output.i >= 3", goto: "end" }, { goto: "$call" }],
+    },
+  ]);
+
+  const r = await batchesPerPass(env, parent, "call", 1);
+  expect(await env.status(r.id)).toBe("completed");
+  expect(r.children).toHaveLength(3);
+  expect(r.batches, "each raised pass spawns into its own batch").toHaveLength(3);
+});
+
+/**
+ * RetryProcess is the one epoch move that is NOT a definition transition: an operator
+ * reviving a failed tree re-enters the task, so its batch must be new. Without the bump a
+ * re-spawn lands in the batch the failed attempt's children already occupy, and the collect
+ * that follows sees both.
+ */
+test("task_epoch — an operator retry re-spawns into a fresh batch", async () => {
+  const env = ctx.env;
+  // Nothing listens on port 1, so this leaf fails every time and poisons its parent.
+  const leaf = `epoch_deadleaf_${crypto.randomUUID()}`;
+  await env.define(leaf, [
+    {
+      id: "t",
+      action: { type: "fetch", url: "http://localhost:1/x", method: "GET" },
+      timeout: 2000,
+      switch: [{ goto: "end" }],
+    },
+  ]);
+  const parent = `epoch_retry_${crypto.randomUUID()}`;
+  await env.define(parent, [
+    { id: "call", action: { type: "child", name: leaf }, switch: [{ goto: "end" }] },
+  ]);
+
+  const id = await env.start(parent);
+  await env.tickUntilIdle(40);
+  expect(await env.status(id)).toBe("failed");
+
+  const first = env.allChildrenOf(id, "call");
+  expect(first).toHaveLength(1);
+  const epochBefore = env.epochs(id).task;
+
+  await env.retry(id);
+  await env.tickUntilIdle(40);
+
+  expect(env.epochs(id).task, "reviving a task is an entry, so the epoch moves").toBeGreaterThan(
+    epochBefore,
+  );
+  const after = env.allChildrenOf(id, "call");
+  expect(new Set(after.map((c) => c.batch)).size, "one batch per attempt").toBe(after.length);
+  // The failure repeats, but as a clean failure — never a collect over two batches.
+  const { data } = await env.client.GET("/instances/{id}", { params: { path: { id } } });
+  expect(String(data?.error ?? ""), "must not be the multi-batch collect error").not.toContain(
+    "expected exactly one child",
+  );
+});
+
+/**
+ * The external token IS the task epoch. A submitted result must land on the arming it was
+ * issued for, and a re-arm (after an external.timeout retry) is a new occurrence — so the
+ * token has to change even though nothing transitioned. That is why the retry branch moves
+ * the epoch: without it the token is identical across armings and a stale result is accepted.
+ */
+test("task_epoch — a re-arm issues a new external token, and the stale one is refused", async () => {
+  const env = ctx.env;
+  const name = `epoch_ext_${crypto.randomUUID()}`;
+  await env.define(name, [
+    {
+      id: "wait",
+      action: { type: "external" },
+      timeout: 1000,
+      on_error: [{ code: ["external.timeout"], retry: 2, goto: "end" }],
+      switch: [{ goto: "end" }],
+    },
+  ]);
+  const id = await env.start(name);
+
+  // Read the token the QUEUE hands out, not one reconstructed here: external_data no
+  // longer stores it, so this also checks the endpoint derives it from the row.
+  const tokenOf = async () => {
+    const { data } = await env.client.GET("/external-tasks", {});
+    const mine = (data?.items ?? []).filter((t) => (t.token ?? "").startsWith(`${id}.`));
+    return mine.length === 1 ? (mine[0].token as string) : "";
+  };
+
+  await env.tick();
+  const first = await tokenOf();
+  expect(first, "the token is derived from the epoch, not minted").toBe(`${id}.${env.epochs(id).task}`);
+
+  // Push past the deadline: the claim raises external.timeout and the rule re-arms.
+  await env.client.POST("/tick", { body: { advance_ms: 5000 } });
+  await env.client.POST("/tick", { body: { advance_ms: 5000 } });
+
+  const second = await tokenOf();
+  expect(second).toBe(`${id}.${env.epochs(id).task}`);
+  expect(second, "a re-arm is a new occurrence, so a new token").not.toBe(first);
+
+  // The guarantee itself: the previous arming's token must no longer resolve this task.
+  const stale = await env.client.POST("/external-tasks/resolve", {
+    body: { token: first, result: { late: true } } as never,
+  });
+  expect(stale.error, "a stale token must be refused").toBeDefined();
+
+  // ...while the current one still does.
+  const fresh = await env.client.POST("/external-tasks/resolve", {
+    body: { token: second, result: { late: false } } as never,
+  });
+  expect(fresh.error).toBeUndefined();
 });

@@ -69,6 +69,11 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 
 	if matched != nil && inst.RetryCount < matched.Retry.Attempts && isRetryAllowed(task, errCode, matched) {
 		inst.RetryCount++
+		// A retry re-attempts the task without transitioning, so nothing else moves the
+		// epoch here -- and the next attempt is a new OCCURRENCE, which is what an external
+		// task's token has to be unique per (see runExternal). Making the epoch count
+		// attempts rather than only entries is what lets the token be derived from it.
+		inst.TaskEpoch++
 		next := db.Now().Add(e.retryDelay(inst.RetryCount, matched.Retry))
 		inst.WakeAt = &next
 		retryMsg := fmt.Sprintf("%s (attempt %d/%d)", errMsg, inst.RetryCount, matched.Retry.Attempts)

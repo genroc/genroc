@@ -10,9 +10,10 @@ import (
 )
 
 // insertExternalParked saves an instance parked on an external task: status=running,
-// wait_state='external', with the _external {task_id, token, input} snapshot the resolve
-// API matches against. wakeAt is the (optional) timeout deadline.
-func insertExternalParked(t *testing.T, db *dbpkg.DB, id, token string, wakeAt *time.Time) {
+// wait_state='external', with the _external {task_id, input} snapshot. The occurrence a
+// resolve must match is task_epoch on the row, not anything inside _external.
+// wakeAt is the (optional) timeout deadline.
+func insertExternalParked(t *testing.T, db *dbpkg.DB, id string, epoch int64, wakeAt *time.Time) {
 	t.Helper()
 	inst := &model.ProcessInstance{
 		ID:             id,
@@ -22,38 +23,38 @@ func insertExternalParked(t *testing.T, db *dbpkg.DB, id, token string, wakeAt *
 		ContextData: map[string]any{
 			model.CtxExternal: map[string]any{
 				"task_id": "approval",
-				"token":   token,
 				"input":   map[string]any{"order_id": float64(42)},
 			},
 		},
 		Status:    model.StatusRunning,
 		WaitState: model.WaitStateExternal,
 		WakeAt:    wakeAt,
+		TaskEpoch: epoch,
 	}
 	if err := db.SaveInstance(inst); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
 	}
 }
 
-// TestResolveExternalTask covers the exact-occurrence token check, the successful
+// TestResolveExternalTask covers the exact-occurrence epoch check, the successful
 // resolve (result stored + un-parked), and double-submit rejection, on both engines.
 func TestResolveExternalTask(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			const token = "inst-ext.nonce-1"
-			insertExternalParked(t, b.db, "inst-ext", token, nil)
+			const epoch = int64(3)
+			insertExternalParked(t, b.db, "inst-ext", epoch, nil)
 
-			// A stale/wrong token is rejected; the task stays parked.
-			if err := b.db.ResolveExternalTask(ctx, "inst-ext", "inst-ext.wrong", map[string]any{"approved": true}); err == nil {
-				t.Fatal("expected wrong-token resolve to fail")
+			// A result submitted against a DIFFERENT arming is rejected; the task stays parked.
+			if err := b.db.ResolveExternalTask(ctx, "inst-ext", epoch-1, map[string]any{"approved": true}); err == nil {
+				t.Fatal("expected a prior-occurrence resolve to fail")
 			}
 			if got, _ := b.db.GetInstance("inst-ext"); got.WaitState != model.WaitStateExternal {
-				t.Fatalf("wrong-token resolve should leave it parked, got wait_state %q", got.WaitState)
+				t.Fatalf("a prior-occurrence resolve should leave it parked, got wait_state %q", got.WaitState)
 			}
 
-			// The correct token resolves: result stored, instance un-parked.
-			if err := b.db.ResolveExternalTask(ctx, "inst-ext", token, map[string]any{"approved": true}); err != nil {
+			// The current occurrence resolves: result stored, instance un-parked.
+			if err := b.db.ResolveExternalTask(ctx, "inst-ext", epoch, map[string]any{"approved": true}); err != nil {
 				t.Fatalf("ResolveExternalTask: %v", err)
 			}
 			got, err := b.db.GetInstance("inst-ext")
@@ -72,7 +73,7 @@ func TestResolveExternalTask(t *testing.T) {
 			}
 
 			// A second submit is rejected: the task is no longer waiting.
-			if err := b.db.ResolveExternalTask(ctx, "inst-ext", token, map[string]any{"approved": false}); err == nil {
+			if err := b.db.ResolveExternalTask(ctx, "inst-ext", epoch, map[string]any{"approved": false}); err == nil {
 				t.Fatal("expected double resolve to fail")
 			}
 		})
@@ -86,9 +87,9 @@ func TestResolveExternalTask_RejectsWhenLeased(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			const token = "inst-to.nonce"
+			const epoch = int64(1)
 			past := time.Now().Add(-time.Minute)
-			insertExternalParked(t, b.db, "inst-to", token, &past) // timeout already due
+			insertExternalParked(t, b.db, "inst-to", epoch, &past) // timeout already due
 
 			// A worker claims it (the timeout firing) -> a live lease.
 			claimed, err := b.db.ClaimInstances("worker-timeout", 30*time.Second, 10, dbpkg.AllowTakeover())
@@ -100,7 +101,7 @@ func TestResolveExternalTask_RejectsWhenLeased(t *testing.T) {
 			}
 
 			// Resolve now races the in-flight timeout claim and must lose.
-			if err := b.db.ResolveExternalTask(ctx, "inst-to", token, map[string]any{"approved": true}); err == nil {
+			if err := b.db.ResolveExternalTask(ctx, "inst-to", epoch, map[string]any{"approved": true}); err == nil {
 				t.Fatal("expected resolve to be rejected while the instance is leased")
 			}
 		})
@@ -112,9 +113,9 @@ func TestResolveExternalTask_RejectsWhenLeased(t *testing.T) {
 func TestClaim_ExternalNoTimeoutNotClaimable(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertExternalParked(t, b.db, "inst-wait", "inst-wait.n", nil) // no timeout
+			insertExternalParked(t, b.db, "inst-wait", 0, nil) // no timeout
 			past := time.Now().Add(-time.Minute)
-			insertExternalParked(t, b.db, "inst-due", "inst-due.n", &past) // timeout due
+			insertExternalParked(t, b.db, "inst-due", 0, &past) // timeout due
 
 			claimed, err := b.db.ClaimInstances("worker-x", 10*time.Second, 10, dbpkg.AllowTakeover())
 			if err != nil {

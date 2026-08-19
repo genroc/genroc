@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"time"
 
 	"genroc/internal/db"
@@ -37,7 +36,8 @@ func (h *Handlers) listExternalTasks(raw json.RawMessage) Reply {
 
 func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalTaskResp {
 	ext, _ := inst.ContextData[model.CtxExternal].(map[string]any)
-	token, _ := ext["token"].(string)
+	// Derived from the row, not read back from external_data — the epoch IS the occurrence.
+	token := model.ExternalToken(inst.ID, inst.TaskEpoch)
 	var resultSchema *schema.Schema
 	if task.Action != nil {
 		resultSchema = task.Action.ResultSchema
@@ -61,11 +61,10 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 	if req.Token == "" {
 		return invalid("token is required").reply()
 	}
-	// The token is instanceID.nonce; instance ids are UUIDs (no '.'), so the part before
-	// the first '.' is the instance id for a PK lookup. The exact-token check happens
-	// under lock in ResolveExternalTask.
-	instanceID, _, ok := strings.Cut(req.Token, ".")
-	if !ok || instanceID == "" {
+	// instanceID for the PK lookup, epoch for the occurrence check — which happens under
+	// lock in ResolveExternalTask, against task_epoch on the row.
+	instanceID, epoch, ok := model.ParseExternalToken(req.Token)
+	if !ok {
 		return invalid("malformed token").reply()
 	}
 	inst, err := h.db.GetInstance(instanceID)
@@ -91,7 +90,7 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 		}
 		req.Result = normalized
 	}
-	if err := h.db.ResolveExternalTask(context.Background(), instanceID, req.Token, req.Result); err != nil {
+	if err := h.db.ResolveExternalTask(context.Background(), instanceID, epoch, req.Result); err != nil {
 		return errReply(err)
 	}
 	return okReply(map[string]any{"resolved": true})

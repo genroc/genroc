@@ -1,6 +1,11 @@
 package model
 
-import "time"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
 
 // Status represents the lifecycle state of a process instance.
 //
@@ -52,11 +57,35 @@ const (
 	WaitStateExternal   WaitState = "external"   // parked on an external task, waiting for a submitted result (or timeout)
 )
 
+// ExternalToken is the handle a caller submits to resolve an external task: the instance,
+// plus the epoch of the ARMING the result belongs to. Derived on demand and never stored --
+// task_epoch on the instance row is the occurrence, so a copy in external_data would only
+// be a second thing that can disagree with it. Not a secret: the queue endpoint hands it to
+// any caller, and it is an occurrence discriminator rather than a capability.
+func ExternalToken(instanceID string, taskEpoch int64) string {
+	return fmt.Sprintf("%s.%d", instanceID, taskEpoch)
+}
+
+// ParseExternalToken is ExternalToken's inverse. Instance ids are UUIDs and carry no '.',
+// so the first dot is the boundary.
+func ParseExternalToken(token string) (instanceID string, epoch int64, ok bool) {
+	id, ep, found := strings.Cut(token, ".")
+	if !found || id == "" {
+		return "", 0, false
+	}
+	n, err := strconv.ParseInt(ep, 10, 64)
+	if err != nil || n < 0 {
+		return "", 0, false
+	}
+	return id, n, true
+}
+
 // Private context_data keys used by the external-task lifecycle. Underscore-prefixed
 // like _children / _spawn_* so they are clearly engine-internal bookkeeping.
 const (
-	// CtxExternal holds the parked external task's metadata: {task_id, token, input}.
-	// The queue endpoint reads token+input from here; never exposed as process output.
+	// CtxExternal holds the parked external task's metadata: {task_id, input}. The queue
+	// endpoint reads input from here and derives the token from the row's task_epoch;
+	// never exposed as process output.
 	CtxExternal = "_external"
 	// CtxExternalResult holds a submitted, validated result placed by the resolve API.
 	// Its presence is how the engine tells "result arrived" from "first arrival".

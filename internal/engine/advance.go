@@ -90,7 +90,7 @@ func (e *Engine) persistSpawn(ctx context.Context, inst *model.ProcessInstance, 
 // the task. Both release the lease; a consume stores the result on the row and the next
 // claim resumes via runExternal phase 2.
 func (e *Engine) persistArm(ctx context.Context, inst *model.ProcessInstance, a *externalArm) error {
-	consumed, _, err := e.db.ArmExternalOrConsumeSignal(ctx, inst, a.taskID, a.token, a.input, a.wakeAt)
+	consumed, _, err := e.db.ArmExternalOrConsumeSignal(ctx, inst, a.taskID, a.input, a.wakeAt)
 	if err != nil {
 		return err
 	}

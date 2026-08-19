@@ -241,10 +241,20 @@ test("api errors — a bad external-task token is 400, a stale one is 409", asyn
   expect(malformed.status).toBe(400);
   expect(malformed.body.code).toBe("invalid");
 
-  const unknown = await errorOf(`/external-tasks/resolve`, {
+  // The suffix is the arming's task_epoch, so a non-numeric one is malformed rather than
+  // merely unknown — the format is tighter than the nonce it replaced.
+  const badEpoch = await errorOf(`/external-tasks/resolve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token: `${MISSING_ID}.abc`, result: {} }),
+  });
+  expect(badEpoch.status).toBe(400);
+  expect(badEpoch.body.code).toBe("invalid");
+
+  const unknown = await errorOf(`/external-tasks/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: `${MISSING_ID}.0`, result: {} }),
   });
   expect(unknown.status).toBe(404);
   expect(unknown.body.code).toBe("not_found");

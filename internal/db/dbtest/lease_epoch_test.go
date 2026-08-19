@@ -164,15 +164,15 @@ func TestLeaseEpoch_OperatorVerbsDoNotBump(t *testing.T) {
 				t.Errorf("retry moved the epoch to %d; revival is not a grant", got)
 			}
 
-			insertExternalParked(t, b.db, "verbs-resolve", "tok-1", nil)
-			if err := b.db.ResolveExternalTask(ctx, "verbs-resolve", "tok-1", map[string]any{"ok": true}); err != nil {
+			insertExternalParked(t, b.db, "verbs-resolve", 0, nil)
+			if err := b.db.ResolveExternalTask(ctx, "verbs-resolve", 0, map[string]any{"ok": true}); err != nil {
 				t.Fatalf("ResolveExternalTask: %v", err)
 			}
 			if got := mustEpoch(t, b.db, "verbs-resolve"); got != 0 {
 				t.Errorf("resolve moved the epoch to %d; it acts on a parked row, not a grant", got)
 			}
 
-			insertExternalParked(t, b.db, "verbs-deliver", "tok-2", nil)
+			insertExternalParked(t, b.db, "verbs-deliver", 0, nil)
 			if delivered, err := b.db.DeliverSignal(ctx, "verbs-deliver", "approval", "sig-1", map[string]any{"n": 1}); err != nil || !delivered {
 				t.Fatalf("DeliverSignal: delivered=%v err=%v", delivered, err)
 			}
@@ -378,7 +378,7 @@ func TestFence_ArmExternal(t *testing.T) {
 			}
 
 			stale := takeOver(t, b.db, "arm-1")
-			if _, _, err := b.db.ArmExternalOrConsumeSignal(ctx, stale, "approval", "tok-stale", map[string]any{}, nil); !errors.Is(err, dbpkg.ErrLeaseLost) {
+			if _, _, err := b.db.ArmExternalOrConsumeSignal(ctx, stale, "approval", map[string]any{}, nil); !errors.Is(err, dbpkg.ErrLeaseLost) {
 				t.Fatalf("stale consume arm: err=%v, want ErrLeaseLost", err)
 			}
 			if c, _ := b.db.CountBufferedSignals("arm-1", "approval"); c != 2 {
@@ -392,7 +392,7 @@ func TestFence_ArmExternal(t *testing.T) {
 			// signal, stale epoch — the instance must not park.
 			insertExternalRunning(t, b.db, "arm-2")
 			stale2 := takeOver(t, b.db, "arm-2")
-			if _, _, err := b.db.ArmExternalOrConsumeSignal(ctx, stale2, "approval", "tok-stale2", map[string]any{}, nil); !errors.Is(err, dbpkg.ErrLeaseLost) {
+			if _, _, err := b.db.ArmExternalOrConsumeSignal(ctx, stale2, "approval", map[string]any{}, nil); !errors.Is(err, dbpkg.ErrLeaseLost) {
 				t.Fatalf("stale park arm: err=%v, want ErrLeaseLost", err)
 			}
 			if got, _ := b.db.GetInstance("arm-2"); got.WaitState == model.WaitStateExternal || got.ContextData[model.CtxExternal] != nil || got.WakeAt != nil {
@@ -405,7 +405,7 @@ func TestFence_ArmExternal(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			consumed, result, err := b.db.ArmExternalOrConsumeSignal(ctx, fresh, "approval", "tok-fresh", map[string]any{}, nil)
+			consumed, result, err := b.db.ArmExternalOrConsumeSignal(ctx, fresh, "approval", map[string]any{}, nil)
 			if err != nil || !consumed || n(result) != 1 {
 				t.Fatalf("current-grant arm: consumed=%v result=%v err=%v, want the FIFO head n=1", consumed, result, err)
 			}
