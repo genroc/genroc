@@ -479,9 +479,27 @@ expression, so the whole request can come from the context.</p>
 
 
 
-<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>url</code></td><td>Request URL.</td></tr><tr><td><code>method</code></td><td>HTTP method. Defaults to <code>POST</code>.</td></tr><tr><td><code>headers</code></td><td>A value evaluating to a string map.</td></tr><tr><td><code>body</code></td><td>Templated request body, sent raw — an object as JSON.</td></tr><tr><td><code>accepted_status</code></td><td>Array of status patterns treated as non-errors: <code>&quot;2xx&quot;</code>…<code>&quot;5xx&quot;</code>, or a 3-digit code. Defaults to any 2xx.</td></tr><tr><td><code>responses</code></td><td>Status pattern → schema for the body that status carries.</td></tr></tbody></table>
+
+
+
+
+<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>url</code></td><td>Request URL.</td></tr><tr><td><code>method</code></td><td>HTTP method. Defaults to <code>POST</code>.</td></tr><tr><td><code>headers</code></td><td>A value evaluating to a string map.</td></tr><tr><td><code>query</code></td><td>Query parameters appended to the url. A value evaluating to a map of scalars; a <code>null</code> value omits its parameter.</td></tr><tr><td><code>body</code></td><td>Templated request body, sent raw — an object as JSON.</td></tr><tr><td><code>accepted_status</code></td><td>Array of status patterns treated as non-errors: <code>&quot;2xx&quot;</code>…<code>&quot;5xx&quot;</code>, or a 3-digit code. Defaults to any 2xx.</td></tr><tr><td><code>responses</code></td><td>Status pattern → schema for the body that status carries.</td></tr></tbody></table>
 <p><code>X-Genroc-Instance-Id</code> and <code>X-Genroc-Task-Id</code> are stamped on every request authoritatively,
 so a caller-supplied header cannot spoof them.</p>
+<h4 id="query"><code>query</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#query"><span></span></a></h4>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">query</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  q</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">$: input.term</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  page</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">$: input.page</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">    # null omits the parameter entirely</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  tag</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">$: input.tags</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">     # an array repeats it: ?tag=a&amp;tag=b</span></span></code></pre>
+<p>Values are URL-encoded, which is the point: interpolating a term into the url escapes
+nothing, so one carrying <code>&amp;</code>, <code>=</code>, <code>#</code> or a space corrupts the url or injects a parameter.
+A space is sent as <code>%20</code>. A value is a scalar, <code>null</code>, or an <strong>array of scalars</strong>, which
+repeats the parameter once per element in the order given — <code>?tag=a&amp;tag=b</code>. An empty array
+behaves like <code>null</code>: nothing is sent. Elements are escaped individually, so one carrying a
+separator cannot add a parameter of its own.
+Parameters are <strong>appended</strong>, so a <code>url</code> may already carry its own <code>?a=1</code>. Values are scalars —
+strings, numbers and booleans — and a <code>null</code> omits its parameter, so an optional one needs no
+conditional. That is deliberately unlike <code>headers</code>, where a null is an error.</p>
 <h4 id="response-metadata">Response metadata<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#response-metadata"><span></span></a></h4>
 <p>A fetch exposes what the response carried besides its body, as siblings of <code>self.result</code> —
 the body keeps its meaning, nothing is re-wrapped:</p>
