@@ -1,88 +1,180 @@
 {
-  "process": "order-pipeline",
+  "process": "weather-logger",
   "process_input": {
     "$ref": "#/$defs/input"
   },
+  "process_output": {
+    "$ref": "#/$defs/output"
+  },
   "tasks": {
-    "first": {
-      "action_type": "rest",
+    "geocode": {
+      "action_type": "fetch",
       "input": {
-        "$ref": "#/$defs/first_input"
+        "type": "object"
+      },
+      "output": {
+        "$ref": "#/$defs/geocode_output"
       }
     },
-    "fourth": {
-      "action_type": "rest",
+    "read_weather": {
+      "action_type": "fetch",
       "input": {
-        "$ref": "#/$defs/fourth_input"
+        "type": "object"
+      },
+      "output": {
+        "$ref": "#/$defs/read_weather_output"
       }
     },
-    "second": {
-      "action_type": "rest",
+    "summarize": {
+      "action_type": "child",
       "input": {
-        "$ref": "#/$defs/second_input"
-      }
-    },
-    "third": {
-      "action_type": "rest",
-      "input": {
-        "$ref": "#/$defs/third_input"
+        "$ref": "#/$defs/summarize_input"
+      },
+      "output": {
+        "$ref": "#/$defs/summarize_output"
       }
     }
   },
   "$defs": {
-    "first_input": {
+    "geocode_output": {
       "type": "object",
       "properties": {
-        "sleep": {
-          "type": "integer"
+        "label": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "lat": {
+          "type": [
+            "null",
+            "number"
+          ]
+        },
+        "lon": {
+          "type": [
+            "null",
+            "number"
+          ]
         }
       },
       "required": [
-        "sleep"
-      ]
-    },
-    "fourth_input": {
-      "type": "object",
-      "properties": {
-        "sleep": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "sleep"
+        "label",
+        "lat",
+        "lon"
       ]
     },
     "input": {
       "type": "object",
       "properties": {
-        "sleep": {
-          "type": "integer"
+        "place": {
+          "type": "string",
+          "default": "Praha"
+        },
+        "script_url": {
+          "type": "string",
+          "default": "http://localhost:3010"
         }
-      },
-      "required": [
-        "sleep"
-      ]
+      }
     },
-    "second_input": {
+    "output": {
       "type": "object",
       "properties": {
-        "sleep": {
-          "type": "integer"
+        "condition": {
+          "type": "string"
+        },
+        "place": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "temperature_c": {
+          "type": "number"
+        },
+        "time": {
+          "type": "string"
         }
       },
       "required": [
-        "sleep"
+        "condition",
+        "place",
+        "summary",
+        "temperature_c",
+        "time"
       ]
     },
-    "third_input": {
+    "read_weather_output": {
       "type": "object",
       "properties": {
-        "sleep": {
+        "code": {
           "type": "integer"
+        },
+        "temperature_c": {
+          "type": "number"
+        },
+        "time": {
+          "type": "string"
         }
       },
       "required": [
-        "sleep"
+        "code",
+        "temperature_c",
+        "time"
+      ]
+    },
+    "summarize_input": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "geo": {
+              "$ref": "#/$defs/geocode_output"
+            },
+            "reading": {
+              "$ref": "#/$defs/read_weather_output"
+            }
+          },
+          "required": [
+            "geo",
+            "reading"
+          ]
+        },
+        "runner_url": {
+          "type": "string",
+          "default": "http://localhost:3010"
+        }
+      },
+      "required": [
+        "code",
+        "input",
+        "runner_url"
+      ]
+    },
+    "summarize_output": {
+      "type": "object",
+      "properties": {
+        "condition": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "temperature_c": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "condition",
+        "summary",
+        "temperature_c"
       ]
     }
   }

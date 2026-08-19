@@ -1,6 +1,14 @@
 # Script tasks: a scaffolded runtime, not an engine feature
 
-Status: **PROPOSAL, 2026-08-07. Not implemented.** The sidecar tier of
+Status: **PROPOSAL, 2026-08-07. Partly built 2026-08-19.** `bun-runtime/` is a first
+evaluator, and the error tiering §"What the template owns" argues for is live — but as a
+plain **`fetch`** at a sidecar, not the `external`-plus-worker-fleet shape below, which
+spends even less engine capability than this doc claims to need. The import directive, the
+type generator and the bundler are unbuilt, so code is inlined in the definition (and
+therefore subject to `${` escaping) and nothing typechecks. What shipped is documented in
+[bun-runtime/README.md](../bun-runtime/README.md); the rest of this doc stands.
+
+The sidecar tier of
 [custom-tasks.md](custom-tasks.md), made turnkey by a scaffolder rather than by the
 engine. "Plugin" here means an optional external component — the toolchain and the
 worker fleet — never dynamically loaded code, which that doc rules out and this keeps out.

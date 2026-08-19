@@ -2,21 +2,36 @@
 // Re-run `bun run playground:generate` after changing process.yaml.
 
 export interface ProcessInput {
-  sleep: number;
+  place?: string;
+  script_url?: string;
 }
 
-export interface FirstInput {
-  sleep: number;
+export interface ProcessOutput {
+  condition: string;
+  place: null | string;
+  summary: string;
+  temperature_c: number;
+  time: string;
 }
 
-export interface FourthInput {
-  sleep: number;
+export interface GeocodeOutput {
+  label: null | string;
+  lat: null | number;
+  lon: null | number;
 }
 
-export interface SecondInput {
-  sleep: number;
+export interface ReadWeatherOutput {
+  code: number;
+  temperature_c: number;
+  time: string;
 }
 
-export interface ThirdInput {
-  sleep: number;
+export interface SummarizeInput {
+  geo: GeocodeOutput;
+  reading: ReadWeatherOutput;
+}
+export interface SummarizeOutput {
+  condition: string;
+  summary: string;
+  temperature_c: number;
 }

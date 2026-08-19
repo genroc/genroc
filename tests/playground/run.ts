@@ -1,65 +1,55 @@
-// Registers the order-pipeline and starts one instance.
-// Requires genroc to be running on localhost:8888.
-//   Start genroc:   go run ./cmd/genroc --http :8888
-//   Start tasks:  bun run playground:server   (in another terminal)
+// Registers weather-logger and runs one instance to completion.
 //
-// Usage: bun run playground:run
+// Two terminals besides this one:
+//   go run ./cmd/genroc --http :8888   # the engine
+//   bun run playground:scripts         # the script evaluator (bun-runtime/)
+//
+// open-meteo is called by genroc itself, so there is no data-source process to start.
+//
+// Usage: bun run playground:run [place]
 
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createClientTyped, waitForInstance } from "../helpers/client.ts";
 import { buildGenctlBinary } from "../helpers/cli.ts";
+import type { ProcessOutput } from "./generated/types.ts";
 
-const PROCESS_NAME = "order-pipeline";
+const PROCESS_NAME = "weather-logger";
+const SERVER = "http://localhost:8888";
+
+const place = process.argv[2] ?? "Praha";
+
 const repoRoot = join(import.meta.dirname, "../..");
-const processYaml = join(import.meta.dirname, "process.yaml");
-
-const client = createClientTyped({ baseUrl: "http://localhost:8888" });
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// ─── 1. register the process definition ────────────────────────────────────
+// Both, and the child first: the parent names `script`, so it must already exist.
+const defs = ["script.yaml", "process.yaml"].map((f) => join(import.meta.dirname, f));
+const client = createClientTyped({ baseUrl: SERVER });
 
 console.log(`\nRegistering "${PROCESS_NAME}"…`);
-const bin = buildGenctlBinary();
-const reg = spawnSync(
-  bin,
-  ["apply", "--server", "http://localhost:8888", "-f", processYaml],
-  { cwd: repoRoot, encoding: "utf8", stdio: "inherit" },
-);
+const reg = spawnSync(buildGenctlBinary(), ["apply", "--server", SERVER, ...defs.flatMap((f) => ["-f", f])], {
+  cwd: repoRoot,
+  encoding: "utf8",
+  stdio: "inherit",
+});
 if (reg.status !== 0) throw new Error("genctl apply failed");
 
-const rounds = 1;
-const maxInterval = 100;
+console.log(`Starting one instance for ${place}.`);
+const { data: started, error: startErr } = await client.POST("/instances", {
+  body: { process: PROCESS_NAME, input: { place } },
+});
+if (startErr) throw new Error(`start failed: ${JSON.stringify(startErr)}`);
 
-for (let i = 0; i < rounds; i++) {
-  startInstance();
-  const interval = maxInterval * ((rounds - (i + 1)) / rounds);
-  console.log(`${i}: ${interval}`);
-  await sleep(interval);
+// The process parks until the next whole 10 seconds before reading, so this takes a few
+// seconds — no timeout here, since waiting on a wall clock is the design.
+const status = await waitForInstance(started!.id, Infinity, client);
+const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+
+console.log(`\n${started!.id} → ${status}`);
+if (status === "completed") {
+  const out = data?.context?.output as ProcessOutput | undefined;
+  console.log(out?.summary);
+} else {
+  // The script's own error detail stays inside the child instance; what crosses the
+  // boundary is a CODE, which is the whole point of the child's throws clause.
+  console.log(`${data?.error_code}: ${data?.error}`);
 }
-
-async function startInstance() {
-  // ─── 2. start an instance ──────────────────────────────────────────────────
-
-  const { data: startData, error: startErr } = await client.POST("/instances", {
-    body: { process: PROCESS_NAME, input: { ttl: 10 } },
-  });
-  if (startErr) throw new Error(`start failed: ${JSON.stringify(startErr)}`);
-
-  const id = startData!.id;
-
-  // ─── 3. wait for completion ────────────────────────────────────────────────
-
-  const status = await waitForInstance(id, Infinity);
-
-  const { data } = await client.GET("/instances/{id}", {
-    params: { path: { id } },
-  });
-  if (data?.status == "failed") {
-    console.log(status, data?.error);
-  } else {
-    console.log(status);
-  }
-  console.log(JSON.stringify(data, null, 2));
-}
+console.log(JSON.stringify(data?.context, null, 2));

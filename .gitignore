@@ -27,6 +27,6 @@
 openapi.json
 tests/generated/
 tests/node_modules/
+bun-runtime/node_modules/
 /p_schema.json
 /p.json
-tests/playground/weather.log

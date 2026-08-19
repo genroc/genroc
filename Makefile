@@ -3,11 +3,12 @@ http    ?= :8448
 tcp     ?=
 uds     ?=
 poll    ?= 500
+script_port ?= 3010
 log     ?= info
 
 # BUILD_FLAGS = CGO_ENABLED=1
 
-.PHONY: run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big swagger client clean generate docs docs-build
+.PHONY: run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big swagger client clean generate docs docs-build script-runner
 
 run:
 	$(BUILD_FLAGS) go run ./cmd/genroc \
@@ -66,6 +67,11 @@ bench-drain-big: client
 
 sqlc:
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
+
+# The script-task evaluator (bun-runtime/). A script task is a plain fetch at this
+# sidecar, so nothing in the engine knows about it; see bun-runtime/README.md.
+script-runner:
+	cd bun-runtime && PORT=$(script_port) ~/.bun/bin/bun run server.ts
 
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
 # per-version build is served from; unset means the site root.

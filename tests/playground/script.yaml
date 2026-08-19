@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=http://localhost:8448/process-schema.json
+#
+# The script task as a CHILD PROCESS: one place that knows the evaluator's wire contract, so
+# a caller writes `type: child` plus a result_schema instead of a fetch plus its own 422
+# handling. This is custom-tasks.md's middle tier — the parent↔child relationship IS the
+# extension point — and the engine still has no idea scripts exist.
+#
+# The output is the TOP TYPE. A forwarding process must not declare a shape that is the
+# caller's concern; the caller narrows it with result_schema, which collect conforms against
+# the real output. See specs/unknown-type.md.
+name: script
+$defs:
+  # The 422 body from bun-runtime. Only this process needs to know it.
+  script_error:
+    type: object
+    properties:
+      kind: { type: string }
+      name: { type: string }
+      message: { type: string }
+      stack: { type: string }
+    required: [kind, name, message]
+input_schema:
+  type: object
+  properties:
+    runner_url: { type: string, default: "http://localhost:3010" }
+    code: { type: string }
+    input:
+      description: "opaque here — whatever the script reads, typed by whoever wrote it"
+    timeout_ms: { type: integer, default: 5000 }
+  required: [code]
+tasks:
+  - id: eval
+    action:
+      type: fetch
+      url: "${ input.runner_url }/eval"
+      body:
+        code: "$: input.code"
+        input: "$: input.input"
+        timeout_ms: "$: input.timeout_ms"
+      responses:
+        200: {}
+        "422": { $ref: "#/$defs/script_error" }
+    # Above the runner's own budget, so a script that overruns comes back as a classified
+    # 422 rather than http.timeout — which is unknowable, and so never retryable.
+    timeout: 30s
+    output: "$: self.result"
+    on_error:
+      - code: ["http.422"]
+        goto: $failed
+    switch:
+      - goto: end
+
+  # The error codes are this process's `throws` clause, and they split on whether a caller
+  # could sensibly react: a script that ran and said no is a raise, a script that is simply
+  # wrong is a panic no one should work around.
+  - id: failed
+    switch:
+      - case: 'error.data.kind == "threw"'
+        raise:
+          code: script_threw
+          message: "the script threw"
+      - case: 'error.data.kind == "timeout"'
+        raise:
+          code: script_timeout
+          message: "the script exceeded its budget"
+      - panic:
+          code: script_broken
+          message: "the script did not compile, or returned what JSON cannot represent"
+
+output: "$: outputs.eval"
