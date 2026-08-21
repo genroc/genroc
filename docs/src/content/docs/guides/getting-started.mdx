@@ -71,6 +71,27 @@ Three things in that file carry most of the language.
 - **`switch` is required on every task.** It says where control goes: `next`, `end`, or
   `$some-task`. There is no fallthrough — a task always states its own routing.
 
+## Editor support
+
+Add this line at the top of any process file and an editor with
+[yaml-language-server](https://github.com/redhat-developer/yaml-language-server) — VS Code
+with the YAML extension, Neovim, Helix — will complete field names, type-check values and
+show the `description` of whatever is under the cursor:
+
+```yaml
+# yaml-language-server: $schema=https://genroc.org/process-schema.json
+```
+
+That URL is the same schema `GET /process-schema.json` serves, republished here on every
+change, so it works with no genroc running. A local server is still the right target when
+you are on an unreleased build: point it at `http://localhost:8448/process-schema.json`.
+
+<Note>
+  Every value position also accepts a string, because `${ }` and `$:` can stand where a
+  value can — so the schema catches misspelled fields and wrong shapes, but says nothing
+  about what an expression evaluates to. `genctl validate` is what checks that.
+</Note>
+
 ## Apply, run, inspect
 
 ```sh

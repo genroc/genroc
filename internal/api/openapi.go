@@ -20,6 +20,10 @@ import (
 // starting the server, to generate static spec files.
 func Spec() []byte { return buildSpec() }
 
+// ProcessSchema returns the JSON Schema for a process definition — the same bytes
+// GET /process-schema.json serves — so the docs site can publish it as a static file.
+func ProcessSchema() []byte { return buildProcessDefinitionSchema() }
+
 var (
 	processSchemaOnce  sync.Once
 	processSchemaBytes []byte

@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=http://localhost:8448/process-schema.json
+# yaml-language-server: $schema=https://genroc.org/process-schema.json
 #
 # The script task as a CHILD PROCESS: one place that knows the evaluator's wire contract, so
 # a caller writes `type: child` plus a result_schema instead of a fetch plus its own 422

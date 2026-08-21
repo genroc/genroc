@@ -8,7 +8,7 @@ log     ?= info
 
 # BUILD_FLAGS = CGO_ENABLED=1
 
-.PHONY: run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big swagger client clean generate docs docs-build script-runner
+.PHONY: run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big swagger client clean generate docs docs-schema docs-build script-runner
 
 run:
 	$(BUILD_FLAGS) go run ./cmd/genroc \
@@ -73,12 +73,19 @@ sqlc:
 script-runner:
 	cd bun-runtime && ~/.bun/bin/bun install && PORT=$(script_port) ~/.bun/bin/bun run server.ts
 
+# The process-definition JSON Schema, as a static file the site serves at
+# genroc.org/process-schema.json — the same bytes GET /process-schema.json returns, so a
+# `# yaml-language-server: $schema=` comment resolves with no genroc running. Generated,
+# never committed: it is a projection of internal/model.
+docs-schema:
+	$(BUILD_FLAGS) go run ./cmd/genrocspec -o "" -schema docs/public/process-schema.json
+
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
 # per-version build is served from; unset means the site root.
-docs:
+docs: docs-schema
 	cd docs && ~/.bun/bin/bun install && ~/.bun/bin/bun run dev
 
-docs-build:
+docs-build: docs-schema
 	cd docs && ~/.bun/bin/bun install && ~/.bun/bin/bun run build
 
 clean:

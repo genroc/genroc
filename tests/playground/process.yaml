@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=http://localhost:8448/process-schema.json
+# yaml-language-server: $schema=https://genroc.org/process-schema.json
 #
 # genroc makes the HTTP calls; a CHILD PROCESS runs the script. `script.yaml` is the only
 # thing that knows the evaluator's wire format, so this definition says `type: child` plus a

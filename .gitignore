@@ -25,6 +25,7 @@
 .vscode/
 *.swp
 openapi.json
+/docs/public/process-schema.json
 tests/generated/
 tests/node_modules/
 bun-runtime/node_modules/

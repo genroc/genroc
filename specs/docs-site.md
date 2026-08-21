@@ -45,6 +45,20 @@ tags are already maintained prose nobody reads); `openapi.json` → API referenc
 components, so the pipeline outlives this page's choices. Snippets get the
 `examples/` treatment — a test fails when they drift.
 
+**The editor schema is published as a static asset** (built 2026-08-21).
+`cmd/genrocspec -schema` writes `docs/public/process-schema.json` and the site serves it
+at `genroc.org/process-schema.json`, so a `# yaml-language-server: $schema=` comment
+resolves with no genroc running — the failure that motivated it. Generated at deploy
+time, never committed: a committed copy is a second thing to keep true.
+
+Which is why **docs.yml carries no `paths:` filter**, against the obvious saving. A filter
+would have to list every package the schema reflects — `internal/model` and its whole
+import closure — and the failure when it misses one is silent: no deploy, and a published
+schema that disagrees with the server until someone notices. Deploying on every push to
+main costs a runner minute and removes the list. It stays quiet because the Astro build is
+byte-stable, so an unrelated push produces an identical `dist/` and the push step exits
+before committing.
+
 **Styling**: plain Astro + CSS, ASCII/terminal aesthetic. React islands only where
 interaction demands (search, version select, mobile nav, tabs, copy) — Radix
 Primitives, because it styles through data attributes (plain CSS against
