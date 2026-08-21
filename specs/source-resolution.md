@@ -178,7 +178,8 @@ Exact rules, each removing a convention someone would otherwise have to guess:
 
 - **`path` is absolute.** genctl resolved it against the source file that held the
   directive; sites in one call can come from different files, so no single cwd would do.
-  The subprocess cwd is `root` instead, which is what a `tsconfig` wants.
+  The subprocess cwd is `root` instead; a resolver that wants a `tsconfig` finds it from
+  the script, not from there ([script-tasks.md](script-tasks.md)).
 - **`pointer` identifies the site**, not `task` — a task may hold two directives.
 - **`$ref` in `input`/`output` points into `schemas[<process>].$defs`**, that process's pool
   and no other.

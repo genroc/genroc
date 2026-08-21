@@ -59,12 +59,30 @@ Recorded so it does not drift back into the engine:
   the types are inferred by validation, so the generator asks for them. See
   [source-resolution.md](source-resolution.md) §Open questions for the one change that
   would.)
-- **The tsconfig is part of the sandbox.** No DOM lib and no Node types means `fetch`,
-  `process` and `setTimeout` do not typecheck, so the authoring layer refuses what the
-  runtime would refuse.
-- **The worker.** Fresh evaluation context per execution — module-level state would
-  otherwise leak between unrelated instances. Cache the compiled artifact by content hash
-  (immutable, so no invalidation) to get the warm start without the leak.
+- **The tsconfig DESCRIBES the realm; the Worker enforces it.** An earlier draft had the
+  tsconfig *be* the sandbox — a fence of `lib` and `types` that refused `process` and
+  `require` at author time. It was the wrong instrument twice over: it could not stop
+  anything at runtime, and it made "import a library" and "reach the host" the same refusal,
+  so a script could not do real work. The realm below is now the containment, and the
+  tsconfig's job is to be *true about it* — `lib: [esnext, webworker]` because a Bun worker
+  has no `document`, and `types` left to the author because the realm genuinely has node's.
+- **The base config is the nearest `tsconfig.json` above the script, not the project root's.**
+  It is the one the author's editor already reads, and checking against a different one buys
+  a red editor over a clean apply. Two scripts under two different base configs are two `tsc`
+  runs: `extends` takes one base, and merging them would check each script under the other
+  author's options. `lib` and `include: []` are still written *after* the `extends` — the
+  first because it is a description the author cannot make true by contradicting it, the
+  second because a base `include` would otherwise drag a whole tree in to be checked as
+  scripts.
+- **The worker is one realm per execution, and that is what makes the budget real.** A
+  synchronous `while(true){}` never yields, so an in-process timer can only *report* a
+  timeout that already failed to happen; killing a thread is the only bound. A fresh global
+  object per execution falls out of the same choice, and so does the answer to `process.exit`
+  — it ends a realm, not the runner. The cost is a realm (~1.7ms) and a recompile per call:
+  **the compile cache an earlier draft proposed cannot exist**, because a cache living in a
+  discarded realm can never be hit. A subprocess (~16.6ms) is the same shape with memory and
+  native crashes contained too, which is the upgrade path if a script ever needs to be
+  distrusted rather than merely bounded.
 - **A pinned clock and seeded RNG, not deleted ones.** Retries re-execute; a script
   reading the wall clock differs on attempt two. Injecting a fixed timestamp keeps
   `Date.now()` working *and* reproducible, where deleting `Date` leaves the generated types

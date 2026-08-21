@@ -2,7 +2,6 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { spawn, type ChildProcess } from "child_process";
 import { join } from "path";
 import { client, waitForInstance } from "../helpers/client.ts";
-import { evaluate } from "../../bun-runtime/eval.ts";
 
 // A script task is a `fetch` at a Bun evaluator — no new engine capability. What these
 // tests pin is the seam between the two: the runner's STATUS is the retryability class
@@ -234,19 +233,79 @@ test("script task — the unescaped ${ is read by genroc and refused at registra
 // target — so without the write-refusing traps a script assigning `Math.random` patches the
 // PROCESS-WIDE global and every later request reads the patch. Called directly rather than
 // over HTTP: the leak is between two evaluations in one process, which is what this asserts.
-test("evaluator — a script cannot patch the real Math or Date", async () => {
-  const realRandom = Math.random;
-  const realNow = Date.now;
+/** One evaluation, straight at the runner — no definition in the way. */
+async function evalDirect(body: Record<string, unknown>) {
+  const res = await fetch(`http://localhost:${port}/eval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, body: await res.json() };
+}
 
+test("evaluator — a script cannot patch the Math or Date the next execution reads", async () => {
   for (const code of ["Math.random = () => 42; return 1;", "Date.now = () => 0; return 1;"]) {
-    const r = await evaluate({ code, now: 1755600000000, seed: "s" });
-    expect(r.ok, `${code} must be refused, not silently applied`).toBe(false);
+    const r = await evalDirect({ code, now: 1755600000000, seed: "s" });
+    expect(r.status, `${code} must be refused, not silently applied`).toBe(422);
   }
 
-  expect(Math.random, "the script poisoned the process-wide Math.random").toBe(realRandom);
-  expect(Date.now, "the script poisoned the process-wide Date.now").toBe(realNow);
+  // The pinning still works, and reads the same on a realm that follows a poisoning attempt:
+  // refusing the writes must not have broken the reads, and nothing carried over.
+  const after = await evalDirect({ code: "return { d: Date.now(), r: Math.random() };", now: 1755600000000, seed: "s" });
+  expect(after.status).toBe(200);
+  expect((after.body as { d: number }).d).toBe(1755600000000);
+  const again = await evalDirect({ code: "return { r: Math.random() };", now: 1755600000000, seed: "s" });
+  expect((again.body as { r: number }).r, "the same seed must give the same first draw").toBe(
+    (after.body as { r: number }).r,
+  );
+});
 
-  // The pinning itself still works — refusing writes must not have broken the reads.
-  const ok = await evaluate({ code: "return { d: Date.now() };", now: 1755600000000, seed: "s" });
-  expect(ok).toEqual({ ok: true, body: JSON.stringify({ d: 1755600000000 }) });
+// ── the realm ───────────────────────────────────────────────────────────────────
+//
+// One Worker per execution. These pin the three things that buys, each of which the previous
+// in-process evaluator could not do. See bun-runtime/README.md.
+
+test("realm — a synchronous busy loop is bounded and the runner keeps serving", async () => {
+  const t0 = Date.now();
+  const r = await evalDirect({ code: "while (true) {}", timeout_ms: 400 });
+  const elapsed = Date.now() - t0;
+
+  // The whole reason the realm is a thread: no in-process timer can interrupt a loop that
+  // never yields, so before this the runner hung forever on exactly this input.
+  expect(r.status, `a busy loop must fault, not hang (took ${elapsed}ms)`).toBe(422);
+  expect((r.body as { kind: string }).kind).toBe("timeout");
+  expect(elapsed, "the budget must be enforced, not merely reported").toBeLessThan(3_000);
+
+  const next = await evalDirect({ code: "return { alive: true };" });
+  expect(next.status, "the killed thread must not have taken the runner with it").toBe(200);
+  expect(next.body).toEqual({ alive: true });
+});
+
+test("realm — a script that ends its own realm faults instead of hanging", async () => {
+  const r = await evalDirect({ code: "process.exit(7); return 1;", timeout_ms: 5_000 });
+
+  // Without the close event this returned nothing at all and the caller waited out the full
+  // budget for an answer that was never coming.
+  expect(r.status).toBe(422);
+  expect((r.body as { kind: string }).kind).toBe("exited");
+  expect((await evalDirect({ code: "return { alive: true };" })).status).toBe(200);
+});
+
+test("realm — one execution cannot leave state behind for the next", async () => {
+  const wrote = await evalDirect({ code: "globalThis.__leak = 'poison'; return { wrote: true };" });
+  expect(wrote.status, "the write itself is allowed — it is the realm's own global").toBe(200);
+
+  const read = await evalDirect({ code: "return { leak: globalThis.__leak ?? null };" });
+  expect(read.body, "a fresh realm per execution is what stops one script configuring another").toEqual({
+    leak: null,
+  });
+});
+
+test("realm — a script can require a node builtin", async () => {
+  // What the bundler emits for `import { platform } from "node:os"`: builtins are externalised
+  // as `require`, and the realm binds one. Under the old browser target this was rewritten to
+  // `{}` and failed at runtime with no diagnostic.
+  const r = await evalDirect({ code: 'const os = require("node:os"); return { platform: os.platform() };' });
+  expect(r.status, JSON.stringify(r.body)).toBe(200);
+  expect(typeof (r.body as { platform: string }).platform).toBe("string");
 });

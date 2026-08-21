@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from "fs";
+import { spawn, type ChildProcess } from "child_process";
 import { tmpdir } from "os";
 import { join, relative } from "path";
-import { beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 import { waitForInstance } from "../helpers/client.ts";
 import { startedID, uid } from "../helpers/genctl.ts";
@@ -17,6 +18,31 @@ let bin: string;
 beforeAll(() => {
   bin = buildGenctlBinary();
 }, 60_000);
+
+// The evaluator, for the one test that runs an imported script rather than only applying it.
+// Started lazily: every other test here stops at the apply and needs no runner.
+let runner: ChildProcess | undefined;
+async function runnerPort(): Promise<number> {
+  if (runner) return runnerReady;
+  runner = spawn("bun", [join(REPO, "bun-runtime/server.ts")], {
+    env: { ...process.env, PORT: "0" },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  runnerReady = new Promise<number>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("script runner did not report a port within 10s")), 10_000);
+    runner!.stdout!.on("data", (chunk: Buffer) => {
+      const m = chunk.toString().match(/localhost:(\d+)/);
+      if (m) {
+        clearTimeout(timer);
+        resolve(Number(m[1]));
+      }
+    });
+    runner!.on("error", reject);
+  });
+  return runnerReady;
+}
+let runnerReady: Promise<number>;
+afterAll(() => runner?.kill());
 
 const REPO = new URL("../../", import.meta.url).pathname;
 
@@ -446,4 +472,217 @@ test("bun-runtime importer — a checked script applies as a self-contained func
   );
 
   expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
+}, 60_000);
+
+test("bun-runtime importer — the sandbox is a worker realm, not the host one", () => {
+  const p = tsProject();
+  p.write(
+    "fee.ts",
+    [
+      'import type { Input, Output } from "./fee.genroc";',
+      "",
+      "export default async function (input: Input): Promise<Output> {",
+      "  const res = await fetch(new URL(String(input.amount), 'http://localhost:9999/'));",
+      "  console.log(res.status);",
+      "  return { fee: input.amount * 0.1 };",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const name = uid("script");
+  const def = p.write("proc.yaml", scriptDef(name, "./fee.ts"));
+
+  // A script that reads an HTTP source is the ordinary case; under a host-realm fence
+  // (`lib: [esnext]` alone) `fetch` and `console` do not resolve and this apply fails.
+  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
+
+  p.write(
+    "host.ts",
+    [
+      'import type { Input, Output } from "./host.genroc";',
+      "",
+      "export default async function (input: Input): Promise<Output> {",
+      "  return { fee: input.amount * Number(process.env.RATE) };",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const hostDef = p.write("host.yaml", scriptDef(uid("script"), "./host.ts"));
+
+  // …and the fence that stays: the host's globals are not the worker's, so reaching for
+  // one is a failed apply even though the evaluator's realm would have answered.
+  const r = runCli(bin, ["apply", "-f", hostDef]);
+  expect(r.ok, `process.env must not typecheck:\n${r.stdout}${r.stderr}`).toBe(false);
+  expect(r.stderr).toContain("Cannot find name 'process'");
+}, 60_000);
+
+test("bun-runtime importer — a script is checked against the nearest tsconfig above it", () => {
+  const p = tsProject();
+  // An alias declared at the project root says nothing about a script that lives in `sub/`:
+  // the author's editor reads sub/tsconfig.json, and so must the apply.
+  p.write("tsconfig.json", JSON.stringify({ compilerOptions: {} }));
+  p.write(
+    "sub/tsconfig.json",
+    JSON.stringify({ compilerOptions: { paths: { "#lib/*": ["./lib/*"] } } }),
+  );
+  p.write("sub/lib/rate.ts", "export const RATE = 0.1;\n");
+  const script = [
+    'import type { Input, Output } from "./fee.genroc";',
+    'import { RATE } from "#lib/rate";',
+    "",
+    "export default async function (input: Input): Promise<Output> {",
+    "  return { fee: input.amount * RATE };",
+    "}",
+    "",
+  ].join("\n");
+  p.write("sub/fee.ts", script);
+  const name = uid("script");
+  const def = p.write("proc.yaml", scriptDef(name, "./sub/fee.ts"));
+
+  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
+
+  // The same script one directory up, where only the root config applies and the alias is
+  // undeclared. Its failure is what makes the apply above evidence of the walk.
+  p.write("fee.ts", script);
+  p.write("lib/rate.ts", "export const RATE = 0.1;\n");
+  const bare = p.write("bare.yaml", scriptDef(uid("script"), "./fee.ts"));
+  const r = runCli(bin, ["apply", "-f", bare]);
+  expect(r.ok, `the root tsconfig declares no alias:\n${r.stdout}${r.stderr}`).toBe(false);
+  expect(r.stderr).toContain("#lib/rate");
+}, 60_000);
+
+test("bun-runtime importer — the author's tsconfig cannot widen the sandbox or the program", () => {
+  const p = tsProject();
+  // Both halves of what `extends` must not let through: a `lib` that reopens the realm, and
+  // an `include` that would drag the author's own tree in to be checked as a script.
+  p.write(
+    "tsconfig.json",
+    JSON.stringify({ compilerOptions: { lib: ["esnext", "dom"] }, include: ["**/*.ts"] }),
+  );
+  p.write("stray.ts", "const oops: number = 'not a number';\n");
+  p.write(
+    "fee.ts",
+    [
+      'import type { Input, Output } from "./fee.genroc";',
+      "",
+      "export default async function (input: Input): Promise<Output> {",
+      "  document.title = String(input.amount);",
+      "  return { fee: input.amount * 0.1 };",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const def = p.write("proc.yaml", scriptDef(uid("script"), "./fee.ts"));
+
+  const r = runCli(bin, ["apply", "-f", def]);
+  expect(r.ok).toBe(false);
+  expect(r.stderr).toContain("Cannot find name 'document'");
+  expect(r.stderr, "stray.ts is the author's file, not this program's to check").not.toContain(
+    "stray.ts",
+  );
+}, 60_000);
+
+test("bun-runtime importer — a package dependency resolves and is bundled in", () => {
+  const p = tsProject();
+  // A package, not a relative file. The worker realm fences GLOBALS, not module resolution:
+  // an author who cannot reach their dependencies has no use for the toolchain.
+  p.write(
+    "node_modules/rate-lib/package.json",
+    JSON.stringify({ name: "rate-lib", version: "1.0.0", main: "index.js", types: "index.d.ts" }),
+  );
+  p.write("node_modules/rate-lib/index.js", "exports.RATE = 0.1;\n");
+  p.write("node_modules/rate-lib/index.d.ts", "export declare const RATE: number;\n");
+  p.write(
+    "fee.ts",
+    [
+      'import type { Input, Output } from "./fee.genroc";',
+      'import { RATE } from "rate-lib";',
+      "",
+      "export default async function (input: Input): Promise<Output> {",
+      "  return { fee: input.amount * RATE };",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const name = uid("script");
+  const def = p.write("proc.yaml", scriptDef(name, "./fee.ts"));
+
+  const r = runCli(bin, ["apply", "-f", def]);
+  expect(r.stdout, `a dependency must typecheck and bundle:\n${r.stdout}${r.stderr}`).toContain(
+    `saved: ${name}@v1`,
+  );
+}, 60_000);
+
+test("bun-runtime importer — a node builtin survives the bundle and runs in the realm", async () => {
+  const port = await runnerPort();
+  const p = tsProject();
+  // The author declares which globals their scripts get; the generated config no longer
+  // dictates `types`, so this is the opt-in. A stub package keeps the test off the repo's
+  // own @types/node.
+  p.write("tsconfig.json", JSON.stringify({ compilerOptions: { types: ["node"] } }));
+  p.write(
+    "node_modules/@types/node/package.json",
+    JSON.stringify({ name: "@types/node", version: "1.0.0", types: "index.d.ts" }),
+  );
+  p.write(
+    "node_modules/@types/node/index.d.ts",
+    'declare module "node:fs" { export function readFileSync(p: string, enc: string): string; }\n',
+  );
+  p.write(
+    "host.ts",
+    [
+      'import type { Input, Output } from "./host.genroc";',
+      'import { readFileSync } from "node:fs";',
+      "",
+      "export default async function (input: Input): Promise<Output> {",
+      "  return { fee: (input.amount ?? 250) * 0.1, host: readFileSync(input.path ?? '', 'utf8').trim() };",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const secret = p.write("secret.txt", "the realm reaches the host\n");
+  const name = uid("script");
+  const def = p.write(
+    "proc.yaml",
+    [
+      `name: ${name}`,
+      "input_schema:",
+      "  type: object",
+      "  properties: { amount: { type: number, default: 250 }, path: { type: string } }",
+      "tasks:",
+      "  - id: price",
+      "    action:",
+      "      type: fetch",
+      `      url: http://localhost:${port}/eval`,
+      "      method: POST",
+      "      body:",
+      '        code: "$import: ./host.ts"',
+      '        input: "$: input"',
+      "      responses:",
+      "        200:",
+      "          type: object",
+      "          properties: { fee: { type: number }, host: { type: string } }",
+      "          required: [fee, host]",
+      "    timeout: 10s",
+      '    output: "$: self.result"',
+      "    switch: [{ goto: end }]",
+      'output: "$: outputs.price"',
+      "",
+    ].join("\n"),
+  );
+
+  const applied = runCli(bin, ["apply", "-f", def]);
+  expect(applied.stdout, `${applied.stdout}${applied.stderr}`).toContain(`saved: ${name}@v1`);
+
+  const started = runCli(bin, ["run", name, "--input", JSON.stringify({ amount: 250, path: secret })]);
+  const id = startedID(`${started.stdout}${started.stderr}`);
+  expect(await waitForInstance(id)).toBe("completed");
+  const instance = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout);
+
+  // Only a real builtin can answer this: under the browser target `node:fs` bundles to `{}`
+  // and `readFileSync` is undefined, so the script reaches the realm and throws.
+  expect(instance.context.output.fee).toBe(25);
+  expect(instance.context.output.host, "the script must have read the real filesystem").toBe(
+    "the realm reaches the host",
+  );
 }, 60_000);

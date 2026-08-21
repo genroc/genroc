@@ -6,7 +6,7 @@
 // code; "build" typechecks and bundles. A separate types hook would mean a second `tsc`
 // over the same project.
 
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 type Schema = Record<string, any>;
 
@@ -163,32 +163,62 @@ function typesPathFor(scriptPath: string): string {
 
 // ── typecheck ──────────────────────────────────────────────────────────────────
 
+/** The nearest tsconfig above the script — the one the author's editor already reads. Two
+ *  different configs mean a red editor over a clean apply, or the reverse. The walk stops at
+ *  the project root: above it is not this project. */
+async function nearestTsconfig(from: string, root: string): Promise<string | null> {
+  for (let dir = from; ; dir = dirname(dir)) {
+    const candidate = join(dir, "tsconfig.json");
+    if (await Bun.file(candidate).exists()) return candidate;
+    if (dir === root || dirname(dir) === dir) return null;
+  }
+}
+
 async function typecheck(root: string, sites: Site[]): Promise<void> {
   const dir = join(root, ".genroc");
   await Bun.write(join(dir, ".gitignore"), "*\n");
 
-  const projectTsconfig = join(root, "tsconfig.json");
-  const hasProject = await Bun.file(projectTsconfig).exists();
-  const config: Record<string, unknown> = {
-    ...(hasProject ? { extends: relative(dir, projectTsconfig) } : {}),
-    compilerOptions: {
-      noEmit: true,
-      strict: true,
-      skipLibCheck: true,
-      moduleDetection: "force",
-      module: "preserve",
-      target: "esnext",
-      // The tsconfig is part of the sandbox: no DOM and no node types means `document`
-      // and `require` do not typecheck, so the authoring layer refuses what the runtime
-      // would refuse. specs/script-tasks.md.
-      lib: ["esnext"],
-      types: [],
-    },
-    files: sites.flatMap((s) => [relative(dir, s.path), relative(dir, typesPathFor(s.path))]),
-  };
-  const configPath = join(dir, "tsconfig.json");
-  await Bun.write(configPath, JSON.stringify(config, null, 2));
+  // One tsc per distinct base config: `extends` takes a single base, so merging two would
+  // check each script under the other author's options.
+  const groups = new Map<string, Site[]>();
+  for (const site of sites) {
+    const base = (await nearestTsconfig(dirname(site.path), root)) ?? "";
+    const group = groups.get(base);
+    if (group) group.push(site);
+    else groups.set(base, [site]);
+  }
 
+  let n = 0;
+  for (const [base, group] of groups) {
+    const config: Record<string, unknown> = {
+      ...(base ? { extends: relative(dir, base) } : {}),
+      compilerOptions: {
+        noEmit: true,
+        strict: true,
+        skipLibCheck: true,
+        moduleDetection: "force",
+        module: "preserve",
+        target: "esnext",
+        // `lib` DESCRIBES the realm and is written after `extends` so a base cannot widen it:
+        // a Bun worker has no document, whatever an author's config claims.
+        lib: ["esnext", "webworker"],
+        // `types` is the author's, and it is how a script opts into node and Bun globals —
+        // the worker realm has them, so refusing the declarations would only lie. With no
+        // base config there is nothing to opt in with, so the default stays none.
+        ...(base ? {} : { types: [] }),
+      },
+      files: group.flatMap((s) => [relative(dir, s.path), relative(dir, typesPathFor(s.path))]),
+      // `files` overrides the base's, but a base `include` survives beside it and would
+      // drag the author's whole tree in, to be checked under the worker lib.
+      include: [],
+    };
+    const configPath = join(dir, groups.size === 1 ? "tsconfig.json" : `tsconfig.${n++}.json`);
+    await Bun.write(configPath, JSON.stringify(config, null, 2));
+    await runTsc(root, configPath);
+  }
+}
+
+async function runTsc(root: string, configPath: string): Promise<void> {
   const tsc = Bun.fileURLToPath(import.meta.resolve("typescript/bin/tsc"));
   const proc = Bun.spawn(["bun", tsc, "--noEmit", "-p", configPath], {
     cwd: root,
@@ -216,7 +246,11 @@ async function bundle(site: Site): Promise<string> {
   const built = await Bun.build({
     entrypoints: [site.path],
     format: "cjs",
-    target: "browser",
+    // Builtins are EXTERNALISED as `require` calls that worker.ts satisfies. Under
+    // `browser` they were rewritten to `{}` instead — a script importing `node:fs` bundled
+    // clean and then failed at runtime with no diagnostic. Not `bun`: that emits Bun's
+    // `@bun-cjs` form, a function expression nothing here calls.
+    target: "node",
     minify: false,
   });
   if (!built.success) {

@@ -25,19 +25,13 @@ export interface GeocodeOutput {
   lon: null | number;
 }
 
-export interface ReadWeatherOutput {
-  code: number;
-  temperature_c: number;
-  time: string;
-}
-
-export interface SummarizeInput {
+export interface ReadingInput {
   geo: GeocodeOutput;
-  reading: ReadWeatherOutput;
 }
-export interface SummarizeOutput {
+export interface ReadingOutput {
   condition: string;
   count: number;
   summary: string;
   temperature_c: number;
+  time: string;
 }

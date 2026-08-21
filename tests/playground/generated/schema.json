@@ -16,22 +16,13 @@
         "$ref": "#/$defs/geocode_output"
       }
     },
-    "read_weather": {
-      "action_type": "fetch",
-      "input": {
-        "type": "object"
-      },
-      "output": {
-        "$ref": "#/$defs/read_weather_output"
-      }
-    },
-    "summarize": {
+    "reading": {
       "action_type": "child",
       "input": {
-        "$ref": "#/$defs/summarize_input"
+        "$ref": "#/$defs/reading_input"
       },
       "output": {
-        "$ref": "#/$defs/summarize_output"
+        "$ref": "#/$defs/reading_output"
       }
     }
   },
@@ -116,26 +107,7 @@
         "time"
       ]
     },
-    "read_weather_output": {
-      "type": "object",
-      "properties": {
-        "code": {
-          "type": "integer"
-        },
-        "temperature_c": {
-          "type": "number"
-        },
-        "time": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "code",
-        "temperature_c",
-        "time"
-      ]
-    },
-    "summarize_input": {
+    "reading_input": {
       "type": "object",
       "properties": {
         "code": {
@@ -146,28 +118,28 @@
           "properties": {
             "geo": {
               "$ref": "#/$defs/geocode_output"
-            },
-            "reading": {
-              "$ref": "#/$defs/read_weather_output"
             }
           },
           "required": [
-            "geo",
-            "reading"
+            "geo"
           ]
         },
         "runner_url": {
           "type": "string",
           "default": "http://localhost:3010"
+        },
+        "timeout_ms": {
+          "type": "integer"
         }
       },
       "required": [
         "code",
         "input",
-        "runner_url"
+        "runner_url",
+        "timeout_ms"
       ]
     },
-    "summarize_output": {
+    "reading_output": {
       "type": "object",
       "properties": {
         "condition": {
@@ -181,13 +153,17 @@
         },
         "temperature_c": {
           "type": "number"
+        },
+        "time": {
+          "type": "string"
         }
       },
       "required": [
         "condition",
         "count",
         "summary",
-        "temperature_c"
+        "temperature_c",
+        "time"
       ]
     }
   }

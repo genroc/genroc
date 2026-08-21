@@ -1,13 +1,4 @@
 # yaml-language-server: $schema=https://genroc.org/process-schema.json
-#
-# genroc makes the HTTP calls; a CHILD PROCESS runs the script. `script.yaml` is the only
-# thing that knows the evaluator's wire format, so this definition says `type: child` plus a
-# result_schema and nothing about 422s — custom-tasks.md's middle tier, with the engine still
-# unaware that scripts exist.
-#
-#   go run ./cmd/genroc --http :8888   # the engine
-#   bun run playground:scripts         # the evaluator (bun-runtime/)
-#   bun run playground:run 3 Praha
 name: weather-logger
 input_schema:
   type: object
@@ -30,27 +21,14 @@ tasks:
         format: json
       responses:
         200:
-          type: object
-          properties:
-            results:
-              type: array
-              items:
-                type: object
-                properties:
-                  latitude: { type: number }
-                  longitude: { type: number }
-                  name: { type: string }
-                  country: { type: string }
-                required: [latitude, longitude, name]
+          $ref: "#/$defs/geo_response"
+
     timeout: 15s
-    output:
-      lat: "$: self.result.results[0].latitude"
-      lon: "$: self.result.results[0].longitude"
-      label: "$: self.result.results[0].name"
+    output: "$: self.result.results[0]"
     switch:
       # An unknown place is not a 404 here — geocoding answers 200 with no `results` key at
       # all, so an empty array is the only evidence, and indexing it gives null.
-      - case: "self.output.lat == null"
+      - case: "self.output == null"
         raise:
           code: unknown_place
           message: "geocoding knows no such place"
@@ -64,87 +42,49 @@ tasks:
       tz: "Europe/Prague"
     switch: next
 
-  # No only_once: this is a GET with no side effect, so refusing to re-run an interrupted
-  # attempt would cost a retry and buy nothing.
-  - id: read_weather
-    action:
-      type: fetch
-      url: "https://api.open-meteo.com/v1/forecast"
-      method: GET
-      query:
-        latitude: "$: outputs.geocode.lat"
-        longitude: "$: outputs.geocode.lon"
-        current: "temperature_2m,weather_code"
-      responses:
-        200:
-          type: object
-          properties:
-            current:
-              type: object
-              properties:
-                time: { type: string }
-                temperature_2m: { type: number }
-                weather_code: { type: integer }
-              required: [time, temperature_2m, weather_code]
-          required: [current]
-    timeout: 15s
-    output:
-      time: "$: self.result.current.time"
-      temperature_c: "$: self.result.current.temperature_2m"
-      code: "$: self.result.current.weather_code"
-    switch: next
-
-  # The script task, as a child call. The code lives in summarize.ts and `genctl apply`
-  # resolves it: tsc runs against the generated Input/Output before the string is ever
-  # produced, so this definition cannot hold a script that does not typecheck.
-  - id: summarize
+  # The whole measurement, as a child call. The code lives in reading.ts
+  - id: reading
     action:
       type: child
       name: script
       input:
         runner_url: "$: input.script_url"
-        code: "$import: ./summarize.ts"
-        # Whole objects only. Two things are refused at a child input that a fetch body
-        # would have taken: a nested LITERAL (Fits walks into the target, and the top type
-        # has no properties to walk into) and NAVIGATION into a sibling's output
-        # (`outputs.geocode.label` — task output types are not resolved in this check).
-        # So the script receives each output whole and picks the fields itself.
+        code: "$import: ./reading.ts"
+        timeout_ms: 20000
         input:
-          reading: "$: outputs.read_weather"
           geo: "$: outputs.geocode"
-      # The child hands back the top type, so this is where the shape is claimed — and
-      # collect conforms the child's real output against it, which is what makes the claim
-      # safe rather than an assertion. See specs/unknown-type.md.
       result_schema:
         type: object
         properties:
+          time: { type: string }
           condition: { type: string }
           temperature_c: { type: number }
           summary: { type: string }
-        required: [condition, temperature_c, summary]
+        required: [time, condition, temperature_c, summary]
     output:
-      condition: "$: self.result.condition"
-      temperature_c: "$: self.result.temperature_c"
-      summary: "$: self.result.summary"
-      # self.previous is this task's prior output, available in an output block but not in
-      # an action's input -- so the counter lives here rather than in the script.
+      result: "$: self.result"
       count: "$: (self.previous.count ?? 0) + 1"
-    # The child's raise codes are its `throws` clause; a panic (a broken script) is
-    # deliberately not catchable and takes this process down with it.
     on_error:
       - code: ["script_threw", "script_timeout"]
         raise:
-          code: summary_failed
-          message: "no reading for ${outputs.geocode.label ?? input.place}: ${error.message}"
+          code: reading_failed
+          message: "no reading for ${outputs.geocode.name ?? input.place}: ${error.message}"
     switch:
       - case: "input.ticks > 0 && self.output.count >= input.ticks"
         goto: end
       - goto: $wait
 
-output:
-  place: "$: outputs.geocode.label"
-  readings: "$: outputs.summarize.count"
-  time: "$: outputs.read_weather.time"
-  temperature_c: "$: outputs.summarize.temperature_c"
-  condition: "$: outputs.summarize.condition"
-  summary: "$: outputs.summarize.summary"
+$defs:
+  geo_response:
+    type: object
+    properties:
+      results:
+        type: array
+        items:
+          type: object
+          properties:
+            latitude: { type: number }
+            longitude: { type: number }
+            name: { type: string }
+            country: { type: string }
+          required: [latitude, longitude, name]
