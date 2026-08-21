@@ -53,18 +53,27 @@ tasks:
   # The error codes are this process's `throws` clause, and they split on whether a caller
   # could sensibly react: a script that ran and said no is a raise, a script that is simply
   # wrong is a panic no one should work around.
+  #
+  # The messages carry the evaluator's own words. A caller still branches on the CODE — this
+  # prose is for whoever reads the failure, and nothing should ever parse it back.
   - id: failed
     switch:
+      # Spelled the way JavaScript prints an error, because that is what it is: `name` is
+      # what a script sets to tell one refusal from another (bun-runtime/README.md).
       - case: 'error.data.kind == "threw"'
         raise:
           code: script_threw
-          message: "Error: ${error.data.message}"
+          message: "${error.data.name}: ${error.data.message}"
+      # The budget is the caller's, so name it — "too slow" without the number sends whoever
+      # reads this to the wrong file.
       - case: 'error.data.kind == "timeout"'
         raise:
           code: script_timeout
-          message: "the script exceeded its budget"
+          message: "the script ran past its ${input.timeout_ms}ms budget"
+      # `kind` discriminates here rather than `name`: this arm covers a script that would not
+      # compile and one that returned what JSON cannot represent, which are fixed differently.
       - panic:
           code: script_broken
-          message: "the script did not compile, or returned what JSON cannot represent"
+          message: "the script is broken (${error.data.kind}) - ${error.data.message}"
 
 output: "$: outputs.eval"

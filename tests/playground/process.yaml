@@ -135,7 +135,7 @@ tasks:
       - code: ["script_threw", "script_timeout"]
         raise:
           code: summary_failed
-          message: "the summary script did not produce a reading"
+          message: "no reading for ${outputs.geocode.label ?? input.place}: ${error.message}"
     switch:
       - case: "input.ticks > 0 && self.output.count >= input.ticks"
         goto: end
