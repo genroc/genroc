@@ -378,10 +378,10 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		// the process output: only `goto: end` finishes a process, and a raise or panic
 		// is an exit from wherever the instance happens to have got to.
 		if matched.Raise != nil {
-			return e.raiseInstance(inst, task, matched.Raise)
+			return e.raiseInstance(inst, task, matched.Raise, self)
 		}
 		if matched.Panic != nil {
-			return e.panicInstance(inst, task, matched.Panic)
+			return e.panicInstance(inst, task, matched.Panic, self)
 		}
 		gotoID := matched.Goto
 

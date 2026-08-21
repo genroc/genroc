@@ -54,8 +54,8 @@ A field (`raise: {code, message}`) so code and message are structurally paired. 
 shared `Fault` type serves raise and panic — they differ in what they do, not what they
 carry; the distinction lives at the use site (`Raise *Fault` / `Panic *Fault`). Valid on
 `SwitchCase` and `ErrorCase`, mutually exclusive with `goto` (R3). `message` is required
-(R1); both fields are literals (R2) — an expression would re-open the data channel this
-design closes.
+(R1); the **code** is a literal (R2), because the raise set has to stay computable. The
+message is prose and may interpolate.
 
 ### 2.2 `panic` — authoring a defect
 
@@ -93,8 +93,18 @@ code into *its* raise set.
 - **R1 — fault shape.** `Code` matches `^[a-z][a-z0-9_]*$`; `Message` non-empty. `.` is
   reserved for engine codes (and re-raising a system code is refused by construction);
   `%` is the match wildcard, so no code ever needs escaping in a pattern.
-- **R2 — faults are static.** No expressions in `Code` (would make `raises(D)`
-  uncomputable and `error_code` unqueryable) or `Message` (would smuggle data).
+- **R2 — the code is static.** No expressions in `Code`: it would make `raises(D)`
+  uncomputable and `error_code` unqueryable. Nothing enforces this separately — no
+  expression can be spelled in `^[a-z][a-z0-9_]*$`, so R1's shape *is* R2 for the code.
+  *Delta (2026-08-21):* this rule was written as "faults are static" and applied to
+  `Message` too, on a smuggling argument. **That half was an oversight, not a decision the
+  design needed** — and the check that implemented it was wrong in three ways at once: it
+  tested for `${` by substring, so it missed a leaf-leading `$:`, matched `$${` (the escape
+  for a literal `${`, leaving no way to write that text), and guarded a door that was not
+  there, since nothing ever rendered a message. A message is now a template, evaluated in
+  its clause's own scope and type-checked to a **non-null string**. The data-channel
+  argument survives where it always belonged: on the code, and on
+  [error-extensions.md](error-extensions.md) X2.
 - **R3 — one terminal clause.** A `SwitchCase` carries exactly one of
   `goto`/`raise`/`panic`. *Delta:* on an `ErrorCase` it is **at most** one — a verb-less
   rule predates this design (exhaust retries, then fail with the engine's code). Checked

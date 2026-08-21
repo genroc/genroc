@@ -197,12 +197,18 @@ func validateActionRequiredFields(s *Task) error {
 // excluded characters are load-bearing — '.' spells engine codes, so forbidding it keeps
 // the namespaces distinct and stops a raise mirroring a system code; '%' is the on_error
 // wildcard, so keeping it out means no pattern ever needs escaping.
+//
+// It is also what enforces R2: a computed code would make the raise set uncomputable and
+// error_code unqueryable, and no expression can be spelled in lower_snake_case.
 var faultCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-// validateFault enforces R1 (code shape, message present) and R2 (both literal) on one
-// raise or panic clause. where locates the case ("switch case 0", "on_error[1]") and
-// clause names it, so the message points at the offending line without the author
-// having to count.
+// validateFault enforces R1 (code shape, message present) on one raise or panic clause.
+// where locates the case ("switch case 0", "on_error[1]") and clause names it, so the
+// message points at the offending line without the author having to count.
+//
+// R2 (the code is a literal) needs no check here: no expression survives faultCodeRe. The
+// MESSAGE is a template, type-checked to a non-null string where its scope is known —
+// validation.checkMessageTemplate, not this package. See specs/child-error-handling.md R2.
 func validateFault(f *Fault, taskID, where, clause string) error {
 	if f == nil {
 		return nil
@@ -221,15 +227,6 @@ func validateFault(f *Fault, taskID, where, clause string) error {
 	}
 	if f.Message == "" {
 		return fmt.Errorf("task %q %s: %s %q: message is required", taskID, where, clause, f.Code)
-	}
-	// R2: a computed code would make the definition's raise set uncomputable and
-	// error_code unqueryable; a computed message would smuggle data across the process
-	// boundary that a payload-free error design exists to keep closed.
-	if strings.Contains(f.Code, "${") {
-		return fmt.Errorf("task %q %s: %s: code must be a literal, not an expression", taskID, where, clause)
-	}
-	if strings.Contains(f.Message, "${") {
-		return fmt.Errorf("task %q %s: %s: message must be a literal, not an expression", taskID, where, clause)
 	}
 	return nil
 }

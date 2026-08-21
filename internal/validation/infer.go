@@ -168,6 +168,29 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					return err
 				}
 			}
+			// A message is a template rendered when the clause fires, so it is checked in
+			// that clause's own scope — a switch case sees `self`, which is why this runs
+			// here rather than beside the code's shape rule in model.
+			for i := range s.Switch {
+				where := fmt.Sprintf("switch case %d", i)
+				if err := checkFaultMessages(s.Switch[i].Raise, s.Switch[i].Panic, switchCtx, s.ID, where); err != nil {
+					return err
+				}
+			}
+		}
+
+		// An on_error rule sees the error it CAUGHT, not the one that reaches a task it
+		// routes to — so its context is built per rule rather than from errs[s.ID].
+		for i, ec := range s.OnError {
+			if ec.Raise == nil && ec.Panic == nil {
+				continue
+			}
+			ruleCtx := contextSchema(required[s.ID], optional[s.ID], taskSchemas,
+				processInput, configSchema, ruleErrAt(s, ec, defs)).WithDefs(defs)
+			where := fmt.Sprintf("on_error[%d]", i)
+			if err := checkFaultMessages(ec.Raise, ec.Panic, ruleCtx, s.ID, where); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -190,6 +213,10 @@ var (
 		schema.Array(schema.Type("string", "number", "boolean", "null")),
 	))
 	boolSchema = schema.Type("boolean")
+	// A raise/panic message is rendered into inst.Error and the audit log, both of which
+	// are text — so unlike url/method it does not take a bare number or boolean. An
+	// interpolation stringifies and always satisfies this; a `$:` leaf must already be one.
+	messageSchema = schema.Type("string")
 	// A delay `for` / `until` expression must be a number: milliseconds for `for`, unix
 	// milliseconds for `until`. The literal grammars never reach the type system — they are
 	// parsed by delayspec at registration — so unlike the old ms slot, string is not
@@ -210,6 +237,40 @@ func checkNonNullTemplate(expr string, ctx schema.Schema, label string) error {
 		},
 	})
 	return err
+}
+
+// checkMessageTemplate type-checks one raise/panic message against the scope its clause
+// fires in. It must be a non-null string: the value lands in inst.Error, the audit log and
+// — via collect — a parent's `error.message`, none of which can hold anything else.
+func checkMessageTemplate(expr string, ctx schema.Schema, label string) error {
+	shp := shape.Shape{Raw: expr, Schema: &messageSchema, Name: label}
+	_, err := shp.CheckWith(ctx, shape.CheckHooks{
+		Result: func(inferred, _ schema.Schema) error {
+			if inferred.HasNull() {
+				return fmt.Errorf("%s may be null; use ?? to provide a default", label)
+			}
+			return fmt.Errorf("%s is %s; a message must be a string", label, inferred.TypeName())
+		},
+	})
+	return err
+}
+
+// checkFaultMessages checks whichever of a clause's raise/panic is set. Ordered rather than
+// ranged over a map so a definition with both reports the same one every run.
+func checkFaultMessages(raise, panics *model.Fault, ctx schema.Schema, taskID, where string) error {
+	for _, c := range []struct {
+		name  string
+		fault *model.Fault
+	}{{"raise", raise}, {"panic", panics}} {
+		if c.fault == nil {
+			continue
+		}
+		label := fmt.Sprintf("task %q %s %s message", taskID, where, c.name)
+		if err := checkMessageTemplate(c.fault.Message, ctx, label); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checkArrayTemplate type-checks a child_list `over` against ctx: it must produce a

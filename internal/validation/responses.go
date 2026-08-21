@@ -300,19 +300,39 @@ func errorDataSchema(tasks []*model.Task, srcs []errSource, defs schema.Defs) (s
 	if !any {
 		return schema.Schema{}, nil
 	}
-	// One body reads as a nullable body — the same spelling the success channel uses. Only a
-	// union of two BODIES needs anyOf, where the arms can overlap. These schemas are served,
-	// so the two channels must not describe one concept two ways.
+	return combineErrData(arms, nullable), nil
+}
+
+// combineErrData joins the bodies an `error.data` slot can hold.
+//
+// One body reads as a nullable body — the same spelling the success channel uses. Only a
+// union of two BODIES needs anyOf, where the arms can overlap. These schemas are served,
+// so the two channels must not describe one concept two ways.
+func combineErrData(arms []schema.Schema, nullable bool) schema.Schema {
+	if len(arms) == 0 {
+		return schema.Schema{}
+	}
 	if len(arms) == 1 {
 		if nullable {
-			return arms[0].WithNull(), nil
+			return arms[0].WithNull()
 		}
-		return arms[0], nil
+		return arms[0]
 	}
 	if nullable {
 		arms = append(arms, schema.Type("null"))
 	}
-	return schema.AnyOf(arms...), nil
+	return schema.AnyOf(arms...)
+}
+
+// ruleErrAt is what `error` looks like INSIDE one on_error rule, as opposed to on entry to
+// a task the rule routes to: it is always present (the rule only runs because the task
+// failed), and its data is what this rule alone can catch.
+func ruleErrAt(t *model.Task, rule model.ErrorCase, defs schema.Defs) errAt {
+	arms, nullable, err := ruleErrorData(t, rule, defs)
+	if err != nil {
+		return errAt{must: true}
+	}
+	return errAt{must: true, data: combineErrData(arms, nullable)}
 }
 
 // errAt is what `error` looks like on entry to one task: whether it is always or possibly

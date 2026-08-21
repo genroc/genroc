@@ -21,7 +21,7 @@ import (
 // keep closed. See specs/child-error-handling.md §2.1 and R2.
 type Fault struct {
 	Code    string `json:"code"    validate:"required" description:"Error code, lower_snake_case, no dots (dots are reserved for engine-produced codes). A literal — never an expression."`
-	Message string `json:"message" validate:"required" description:"Human-readable message explaining the condition. A literal string — never an expression."`
+	Message string `json:"message" validate:"required" description:"Human-readable message explaining the condition. A template: ${ } interpolations are rendered when the clause fires, and must produce a non-null string. Unlike the code, it is not required to be a literal."`
 }
 
 // SwitchCase is a single entry in a Task's switch list: a boolean expression

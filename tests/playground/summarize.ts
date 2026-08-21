@@ -8,13 +8,27 @@ import type { Input, Output } from "./summarize.genroc";
 
 // WMO weather codes, jen ty běžné — cokoliv jiného se vypíše číslem.
 const CONDITIONS: Record<number, string> = {
-  0: "jasno", 1: "skoro jasno", 2: "polojasno", 3: "zataženo",
-  45: "mlha", 48: "namrzající mlha",
-  51: "mrholení", 53: "mrholení", 55: "silné mrholení",
-  61: "slabý déšť", 63: "déšť", 65: "silný déšť",
-  71: "slabé sněžení", 73: "sněžení", 75: "husté sněžení",
-  80: "přeháňky", 81: "přeháňky", 82: "silné přeháňky",
-  95: "bouřka", 96: "bouřka s kroupami", 99: "bouřka s kroupami",
+  0: "jasno",
+  1: "skoro jasno",
+  2: "polojasno",
+  3: "zataženo",
+  45: "mlha",
+  48: "namrzající mlha",
+  51: "mrholení",
+  53: "mrholení",
+  55: "silné mrholení",
+  61: "slabý déšť",
+  63: "déšť",
+  65: "silný déšť",
+  71: "slabé sněžení",
+  73: "sněžení",
+  75: "husté sněžení",
+  80: "přeháňky",
+  81: "přeháňky",
+  82: "silné přeháňky",
+  95: "bouřka",
+  96: "bouřka s kroupami",
+  99: "bouřka s kroupami",
 };
 
 export default async function (input: Input): Promise<Output> {
@@ -22,6 +36,8 @@ export default async function (input: Input): Promise<Output> {
 
   const condition = CONDITIONS[reading.code] ?? `wmo ${reading.code}`;
   const temperature_c = Math.round(reading.temperature_c * 10) / 10;
+
+  throw new Error("hi");
 
   return {
     condition,

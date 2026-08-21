@@ -383,3 +383,163 @@ test("raises — the derived set is published, and excludes panic codes", async 
   // Sorted, deduped, panic-free.
   expect(entry?.raises).toEqual(["alpha_case", "zebra_case"]);
 });
+
+// ── the message is a template ───────────────────────────────────────────────────
+//
+// A raise message is rendered against the scope its clause fires in, so a failure can name
+// the value that caused it. The CODE stays a literal — it is what makes the raise set
+// computable and error_code filterable — while the message is prose nothing branches on.
+// It must be a string: it lands in inst.Error, the audit log, and a parent's error.message.
+
+test("raise message — interpolates the scope the clause fires in", async () => {
+  const name = `raise_msg_${crypto.randomUUID()}`;
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: {
+        type: "object",
+        properties: { amount: { type: "integer" }, who: { type: "string" } },
+        required: ["amount", "who"],
+      },
+      tasks: [
+        {
+          id: "check",
+          switch: [
+            {
+              case: "input.amount > 100",
+              raise: {
+                code: "limit_exceeded",
+                message: "${input.who} asked for ${input.amount}, over the limit",
+              },
+            },
+            { goto: "end" },
+          ],
+        },
+      ],
+    },
+  });
+
+  const { data: started } = await client.POST("/instances", {
+    body: { process: name, input: { amount: 250, who: "sam" } },
+  });
+  const id = started!.id!;
+  expect(await waitForInstance(id)).toBe("raised");
+
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  expect(data!.error).toBe("sam asked for 250, over the limit");
+  // The code is untouched by rendering — an operator still filters on the literal.
+  expect(data!.error_code).toBe("limit_exceeded");
+});
+
+test("raise message — $${ is an escape, so a literal ${ survives", async () => {
+  const name = `raise_esc_${crypto.randomUUID()}`;
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: "check",
+          switch: [{ raise: { code: "syntax_help", message: "write $${x} to escape" } }],
+        },
+      ],
+    },
+  });
+
+  const { data: started } = await client.POST("/instances", {
+    body: { process: name, input: {} },
+  });
+  const id = started!.id!;
+  expect(await waitForInstance(id)).toBe("raised");
+
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  expect(data!.error).toBe("write ${x} to escape");
+});
+
+test("raise message — a non-string message is refused at registration", async () => {
+  const name = `raise_nonstr_${crypto.randomUUID()}`;
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: {
+        type: "object",
+        properties: { amount: { type: "integer" } },
+        required: ["amount"],
+      },
+      tasks: [
+        {
+          id: "check",
+          // A bare `$:` leaf keeps its own type — unlike `${ }`, which stringifies — so
+          // this is a number where prose is required.
+          switch: [{ raise: { code: "too_big", message: "$: input.amount" } }],
+        },
+      ],
+    },
+  });
+  expect(JSON.stringify(error)).toMatch(/message must be a string/);
+});
+
+test("raise message — a possibly-null message is refused, with the fix named", async () => {
+  const name = `raise_null_${crypto.randomUUID()}`;
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: { type: "object", properties: { who: { type: "string" } } },
+      tasks: [
+        {
+          id: "check",
+          switch: [{ raise: { code: "unknown_who", message: "$: input.who" } }],
+        },
+      ],
+    },
+  });
+  expect(JSON.stringify(error)).toMatch(/may be null/);
+  expect(JSON.stringify(error)).toMatch(/\?\?/);
+});
+
+test("raise message — an on_error rule reads the error it caught", async () => {
+  const svc = await startMockService(0, { statusCode: 500, response: { why: "overloaded" } });
+  try {
+    const name = `raise_onerr_${crypto.randomUUID()}`;
+    await client.PUT("/definitions", {
+      body: {
+        name,
+        tasks: [
+          {
+            id: "call",
+            action: {
+              type: "fetch",
+              url: `http://localhost:${svc.port}/boom`,
+              responses: {
+                "200": {},
+                "500": {
+                  type: "object",
+                  properties: { why: { type: "string" } },
+                  required: ["why"],
+                },
+              },
+            },
+            timeout: "5s",
+            on_error: [
+              {
+                code: ["http.500"],
+                raise: { code: "upstream_down", message: "upstream said ${error.data.why}" },
+              },
+            ],
+            switch: [{ goto: "end" }],
+          },
+        ],
+      },
+    });
+
+    const { data: started } = await client.POST("/instances", {
+      body: { process: name, input: {} },
+    });
+    const id = started!.id!;
+    expect(await waitForInstance(id)).toBe("raised");
+
+    const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+    expect(data!.error).toBe("upstream said overloaded");
+  } finally {
+    await svc.stop();
+  }
+});

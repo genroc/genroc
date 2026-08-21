@@ -62,25 +62,32 @@ func TestFault_R1_CodeShapeAndMessage(t *testing.T) {
 	}
 }
 
-// R2: a computed code would make the raise set uncomputable and error_code unqueryable;
-// a computed message would reopen the data channel the design exists to close.
-func TestFault_R2_LiteralsOnly(t *testing.T) {
-	t.Run("expression code rejected", func(t *testing.T) {
-		d := def(raiseTask("t", &Fault{Code: "$: input.code", Message: "m"}))
-		err := d.Validate()
-		// Caught by R1 first (braces are not lower_snake_case) — either rejection is
-		// correct, so assert only that it does not register.
-		if err == nil {
-			t.Fatal("expected rejection")
-		}
-	})
-	t.Run("expression message rejected", func(t *testing.T) {
-		d := def(raiseTask("t", &Fault{Code: "declined", Message: "reason: ${ input.why }"}))
-		err := d.Validate()
-		if err == nil || !strings.Contains(err.Error(), "message must be a literal") {
-			t.Fatalf("want literal-message rejection, got %v", err)
-		}
-	})
+// R2 covers the CODE alone: a computed code would make the raise set uncomputable and
+// error_code unqueryable. Applying it to the message too was an oversight
+// (specs/child-error-handling.md R2), and the substring test that implemented it missed a
+// leaf-leading `$:` while matching `$${` — the escape for a literal `${`, so the one way to
+// write that text was refused along with the thing being banned.
+func TestFault_R2_OnlyTheCodeMustBeLiteral(t *testing.T) {
+	for _, code := range []string{"$: input.code", "${ input.code }", "$${code}", "a${b}", "$$"} {
+		t.Run("code rejected: "+code, func(t *testing.T) {
+			d := def(raiseTask("t", &Fault{Code: code, Message: "m"}))
+			if err := d.Validate(); err == nil {
+				t.Fatalf("code %q registered; a code that is not a literal is not analysable", code)
+			}
+		})
+	}
+
+	// The permission, pinned. A message is free text that nothing reads back, so none of
+	// these is a reason to refuse a definition — including the escaped form, which a
+	// substring test could never have let through.
+	for _, msg := range []string{"reason: ${ input.why }", "write $${x} to escape", "$: literal"} {
+		t.Run("message allowed: "+msg, func(t *testing.T) {
+			d := def(raiseTask("t", &Fault{Code: "declined", Message: msg}))
+			if err := d.Validate(); err != nil {
+				t.Fatalf("message %q refused: %v", msg, err)
+			}
+		})
+	}
 }
 
 // R3 differs by site, deliberately. A switch case must do exactly one thing — it is the

@@ -70,6 +70,15 @@ read it" an easier next ask.
 **Trigger.** Repeated structured data smuggled into `message` prose — grep before
 building.
 
+**2026-08-21: the message is a template** (rendered against the clause's own scope,
+type-checked to a non-null string; the *code* stays a literal, which is what keeps the raise
+set computable). This was a correction, not a loosening — R2 never should have covered the
+message. It does not grant X2, but it moves this trigger: smuggling is now a
+`${ }` away rather than a hand-written string, and it reaches a parent through
+`error.message`, which `collect` already fills. So the grep is for interpolations in raise
+messages, and finding them argues for X2-a — the payload with somewhere honest to go —
+rather than against the template.
+
 ### X2-b — parent-readable, gated on exact code match
 
 > **Superseded (2026-07-24) — rejected on principle, not deferred**: data flows through
@@ -84,8 +93,9 @@ naturally: a declared `detail_schema` first (mirrors `result_schema`, the unknow
 narrowing pattern, no inference), inferred shapes later.
 
 **For:** actually solves the case; the gate is structural, not conventional.
-**Against:** reverses R2's boundary argument for the message half (sanctioned, typed
-smuggling); the declared-tier registration check is real work; and the overuse risk:
+**Against:** sanctioned, typed smuggling (the older wording appealed to R2's message
+half, which turned out never to have been a real rule — see child-error-handling.md R2);
+the declared-tier registration check is real work; and the overuse risk:
 
 **Overuse.** Today "an error is a branch slot, not a value" is enforced by *capability*
 — a raise physically cannot carry data. X2-b downgrades that to documentation, and a

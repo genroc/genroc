@@ -58,7 +58,7 @@ tasks:
       - case: 'error.data.kind == "threw"'
         raise:
           code: script_threw
-          message: "the script threw"
+          message: "Error: ${error.data.message}"
       - case: 'error.data.kind == "timeout"'
         raise:
           code: script_timeout

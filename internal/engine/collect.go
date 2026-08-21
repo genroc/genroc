@@ -32,9 +32,9 @@ func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Tas
 			"task %q: child %q (%s) raised %q: %s; no on_error rule matches",
 			task.ID, first.ProcessName, childSlotLabel(first), first.ErrorCode, first.Error))
 	case rule.Raise != nil:
-		return e.raiseInstance(inst, task, rule.Raise)
+		return e.raiseInstance(inst, task, rule.Raise, nil)
 	case rule.Panic != nil:
-		return e.panicInstance(inst, task, rule.Panic)
+		return e.panicInstance(inst, task, rule.Panic, nil)
 	case rule.Goto == model.GotoEnd:
 		return e.completeViaErrorHandler(inst, task, first.Error, raisedCode)
 	default: // goto $id

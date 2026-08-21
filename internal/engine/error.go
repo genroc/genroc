@@ -6,6 +6,7 @@ import (
 	"genroc/internal/db"
 	"genroc/internal/errcode"
 	"genroc/internal/model"
+	"genroc/internal/shape"
 )
 
 // isRetryAllowed: on an only_once task a retry needs a pre.* code or not_reached:true,
@@ -95,10 +96,10 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 	// `error` (above) so the underlying cause stays visible on the instance detail, while
 	// error_code becomes the authored one -- the code an operator filters and alerts on.
 	if matched != nil && matched.Raise != nil {
-		return e.raiseInstance(inst, task, matched.Raise)
+		return e.raiseInstance(inst, task, matched.Raise, nil)
 	}
 	if matched != nil && matched.Panic != nil {
-		return e.panicInstance(inst, task, matched.Panic)
+		return e.panicInstance(inst, task, matched.Panic, nil)
 	}
 
 	if matched != nil && matched.Goto != "" {
@@ -133,23 +134,44 @@ func (e *Engine) completeViaErrorHandler(inst *model.ProcessInstance, task *mode
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
+// faultMessage renders a fault's message against the scope its clause fires in: a switch
+// case passes `self`, an on_error or collect rule passes nil and reads the `error` already
+// written to the context. The CODE is never rendered — it stays a literal so the raise set
+// remains computable (model.faultCodeRe).
+//
+// A render failure falls back to the source text rather than escalating. This runs while the
+// instance is already concluding, so there is nowhere to report a second error to; the
+// unrendered template is then visible in the message, where turning a clean raise into an
+// engine fault would lose the outcome the author asked for.
+func (e *Engine) faultMessage(inst *model.ProcessInstance, f *model.Fault, self any) string {
+	rendered, err := e.evalShape(inst, shape.Shape{Raw: f.Message}, self)
+	if err != nil {
+		return f.Message
+	}
+	if s, ok := rendered.(string); ok {
+		return s
+	}
+	return f.Message
+}
+
 // raiseInstance concludes as 'raised' (specs/child-error-handling.md). It must keep
 // falling through to FinishChild — a raise is a normal outcome, never marks ancestors
 // failing — and computes no process output (a raise site is not an output terminal).
-func (e *Engine) raiseInstance(inst *model.ProcessInstance, task *model.Task, f *model.Fault) advanceOutcome {
+func (e *Engine) raiseInstance(inst *model.ProcessInstance, task *model.Task, f *model.Fault, self any) advanceOutcome {
+	msg := e.faultMessage(inst, f, self)
 	inst.Status = model.StatusRaised
 	inst.WaitState = model.WaitStateNone
-	inst.Error = f.Message
+	inst.Error = msg
 	inst.ErrorCode = f.Code
 	inst.WakeAt = nil
-	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceRaised, Task: task.ID, Msg: f.Message, Code: errcode.Code(f.Code)})
+	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceRaised, Task: task.ID, Msg: msg, Code: errcode.Code(f.Code)})
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
 // panicInstance is failInstance with the author's words: authoring a defect grants it no
 // special status, so nothing can catch it and it poisons ancestors the same way.
-func (e *Engine) panicInstance(inst *model.ProcessInstance, task *model.Task, f *model.Fault) advanceOutcome {
-	return e.failInstance(inst, errcode.Code(f.Code), f.Message)
+func (e *Engine) panicInstance(inst *model.ProcessInstance, task *model.Task, f *model.Fault, self any) advanceOutcome {
+	return e.failInstance(inst, errcode.Code(f.Code), e.faultMessage(inst, f, self))
 }
 
 // failInstance moves the instance to failed and returns the terminal outcome. code is
