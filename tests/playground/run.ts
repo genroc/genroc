@@ -4,6 +4,11 @@
 //   go run ./cmd/genroc --http :8888   # the engine
 //   bun run playground:scripts         # the script evaluator (bun-runtime/)
 //
+// The summarize task's code lives in summarize.ts, pulled in by `$import` — genroc.yaml
+// registers the resolver, and the apply below typechecks it against generated Input/Output
+// before the string exists. `genctl types -f script.yaml -f process.yaml` regenerates the
+// declarations on their own, which is what an editor wants between applies.
+//
 // open-meteo is called by genroc itself, so there is no data-source process to start.
 //
 // Usage: bun run playground:run [ticks] [place]

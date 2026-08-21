@@ -1,12 +1,17 @@
 # Script tasks: a scaffolded runtime, not an engine feature
 
-Status: **PROPOSAL, 2026-08-07. Partly built 2026-08-19.** `bun-runtime/` is a first
-evaluator, and the error tiering §"What the template owns" argues for is live — but as a
-plain **`fetch`** at a sidecar, not the `external`-plus-worker-fleet shape below, which
-spends even less engine capability than this doc claims to need. The import directive, the
-type generator and the bundler are unbuilt, so code is inlined in the definition (and
-therefore subject to `${` escaping) and nothing typechecks. What shipped is documented in
-[bun-runtime/README.md](../bun-runtime/README.md); the rest of this doc stands.
+Status: **PROPOSAL, 2026-08-07. Partly built 2026-08-19. Superseded in part 2026-08-20.**
+`bun-runtime/` is a first evaluator, and the error tiering §"What the template owns" argues
+for is live — but as a plain **`fetch`** at a sidecar, not the `external`-plus-worker-fleet
+shape below, which spends even less engine capability than this doc claims to need. The
+import directive, the type generator and the bundler are unbuilt, so code is inlined in the
+definition (and therefore subject to `${` escaping) and nothing typechecks. What shipped is
+documented in [bun-runtime/README.md](../bun-runtime/README.md).
+
+**§"What genroc adds" is superseded by
+[source-resolution.md](source-resolution.md)**, which owns the resolution model: this doc
+argued a single pass, and generating types from inferred schemas needs two. Everything else
+here stands.
 
 The sidecar tier of
 [custom-tasks.md](custom-tasks.md), made turnkey by a scaffolder rather than by the
@@ -29,41 +34,31 @@ replaced wholesale by a Python or WASM equivalent without the engine noticing.
 
 ## What genroc adds: the import directive
 
-A syntax in a definition source file that resolves a path into a string, with local
-config naming the binary to run: file in, stdout out, **non-zero exit aborts the build
-with stderr as the diagnostic**. The TypeScript bundler is one configured importer, not a
-feature — the same path serves any language, or a plain text template.
+**Superseded by [source-resolution.md](source-resolution.md).** What this section got right
+stands there: a directive in a source file resolves a path into a string through a binary
+the project names, type checking lives in that binary's exit code rather than in a step
+anyone adds, and resolution is `genctl`-side so **the server having no resolver is the
+security answer**.
 
-That exit code is where type checking lives. It is not a step anyone adds — the importer
-runs `tsc` before it emits, so a type error is a failed import, surfacing from
-`genctl validate` and `genctl apply` alongside the schema errors those already report.
-There is no build command to remember and no bundler in the author's workflow.
-
-Resolution runs **before** validation, since it is what produces the definition to
-validate — so a type error short-circuits and the schema errors of that same run are never
-reached. The consequence is worth stating because nothing enforces it: **a stored
-definition cannot contain code that failed to typecheck**, since the string is never
-produced. An ordering property, not a rule.
-
-Resolution is **`genctl`-side and source-level**: by the time a definition reaches the
-API it is a plain string, and the server has no resolver. That null implementation *is*
-the security answer — there is no directive on the wire to be tricked into executing, so
-the mechanism is Makefile-tier (a binary named in your own config, on your own machine)
-and needs no defense beyond not building one.
-
-It also preserves the property worth keeping: a definition version pins byte-identical
-code forever. No runtime fetch, no dependency drift, and an old instance finishes against
-the code it started with. Do not later trade this for loading a script from a URL.
+What it got wrong is the pass count. Resolution cannot run wholly *before* validation,
+because the `Input` declarations a script typechecks against are the *product* of
+validation's inference. So resolution splits at the line where a resolver's output stops
+being visible to the type checker — structural resolvers before validation, code resolvers
+after it, with the second constrained to produce strings so it cannot invalidate the first.
 
 ## What the template owns
 
 Recorded so it does not drift back into the engine:
 
 - **Types from schemas.** The generator emits `Input`/`Output` declarations and the author
-  fills a typed body; the importer runs `tsc` and strips them. Nothing is lost by checking
+  fills a typed body; the importer runs `tsc` before it bundles. Nothing is lost by checking
   on the author's machine — schemas already validate both ends at runtime, so static types
-  are editor support, not the safety mechanism. This is what keeps definition validation
-  offline and free of any evaluator dependency.
+  are editor support, not the safety mechanism. That is what keeps the *server* free of any
+  evaluator dependency, which was always the claim worth making: the schemas it validates
+  against are its own. (An earlier draft said this kept validation *offline*. It does not —
+  the types are inferred by validation, so the generator asks for them. See
+  [source-resolution.md](source-resolution.md) §Open questions for the one change that
+  would.)
 - **The tsconfig is part of the sandbox.** No DOM lib and no Node types means `fetch`,
   `process` and `setTimeout` do not typecheck, so the authoring layer refuses what the
   runtime would refuse.

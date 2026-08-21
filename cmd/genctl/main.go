@@ -6,6 +6,7 @@
 //
 //	genctl apply    -f file.yaml [-f file2.yaml ...] [--channel latest]
 //	genctl validate -f file.yaml [-f file2.yaml ...]
+//	genctl types    -f file.yaml [-f file2.yaml ...]
 //	genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
 //	genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [-q]
 //	genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [-q]
@@ -68,6 +69,11 @@
 //	genctl config   get <key>
 //	genctl config   set <key> <value>
 //
+// A `$<resolver>: <path>` leaf in a source file is replaced by a string a binary named in
+// the project's genroc.yaml produces, before anything is sent. apply and validate resolve
+// first; types generates the resolver's declarations without building or applying. See
+// specs/source-resolution.md.
+//
 // Environment:
 //
 //	GENROC_SERVER  base URL of the genroc server (default: http://localhost:8448)
@@ -105,6 +111,8 @@ func main() {
 		runApplyCmd(server, args)
 	case "validate":
 		runValidateCmd(server, args)
+	case "types":
+		runTypesCmd(server, args)
 	case "run":
 		runRunCmd(server, args)
 	case "resolve":
@@ -180,6 +188,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `Usage:
   genctl apply    -f file.yaml [-f file2.yaml ...] [--channel latest]
   genctl validate -f file.yaml [-f file2.yaml ...]
+  genctl types    -f file.yaml [-f file2.yaml ...]
   genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
   genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [-q]
   genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [-q]

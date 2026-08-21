@@ -20,16 +20,35 @@ func yamlToAny(n *yaml.Node) (any, error) {
 
 	case yaml.MappingNode:
 		out := make(map[string]any, len(n.Content)/2)
+		var merged []map[string]any
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			var key string
 			if err := n.Content[i].Decode(&key); err != nil {
 				return nil, fmt.Errorf("line %d: object key must be a scalar: %w", n.Content[i].Line, err)
+			}
+			if key == mergeKey {
+				m, err := mergeSource(n.Content[i+1])
+				if err != nil {
+					return nil, err
+				}
+				merged = append(merged, m)
+				continue
 			}
 			v, err := yamlToAny(n.Content[i+1])
 			if err != nil {
 				return nil, err
 			}
 			out[key] = v
+		}
+		// An explicit key beats a merged one — YAML's own precedence, so there is no new
+		// rule to learn. Applied after the loop because a merge may appear above the key
+		// it is overridden by.
+		for _, m := range merged {
+			for k, v := range m {
+				if _, ok := out[k]; !ok {
+					out[k] = v
+				}
+			}
 		}
 		return out, nil
 
@@ -67,4 +86,40 @@ func yamlToAny(n *yaml.Node) (any, error) {
 		return nil, err
 	}
 	return v, nil
+}
+
+// mergeKey is YAML's merge key. Without handling it here the alias landed under a literal
+// "<<" field, which the server ignores as unknown and the canonical re-marshal strips — so
+// a definition using anchors silently lost every merged key. yaml.v3's own decoder merges
+// correctly, so the two readers of one file disagreed.
+const mergeKey = "<<"
+
+// mergeSource resolves a `<<` value to the map it contributes.
+//
+// The SEQUENCE form is refused rather than implemented: YAML 1.1 gives EARLIER entries
+// precedence, the opposite of every other merge in use (`{...a, ...b}`, `{**a, **b}`, the
+// CSS cascade), so `<<: [*base, *override]` would silently do the reverse of what it reads
+// as. One anchor, or nesting, covers the same ground with no ambiguity.
+func mergeSource(n *yaml.Node) (map[string]any, error) {
+	if n.Kind == yaml.SequenceNode {
+		return nil, fmt.Errorf("line %d: `<<` takes a single mapping - a sequence is refused "+
+			"because YAML gives its EARLIER entries precedence, so it reads backwards; "+
+			"merge into one anchor instead", n.Line)
+	}
+	target := n
+	if target.Kind == yaml.AliasNode {
+		target = target.Alias
+	}
+	if target.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("line %d: `<<` needs a mapping, or an alias to one", n.Line)
+	}
+	v, err := yamlToAny(target)
+	if err != nil {
+		return nil, err
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("line %d: `<<` needs a mapping", n.Line)
+	}
+	return m, nil
 }

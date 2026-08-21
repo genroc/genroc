@@ -32,16 +32,16 @@ behavior while the spec stays put, answering a different question. See
   bundler, tsconfig and worker) rather than a subsystem. The sidecar tier of
   [custom-tasks.md](custom-tasks.md) made turnkey, spending none of its no-plugins
   guarantee — "plugin" here is an optional external component, never loaded code. genroc's
-  one addition is a generic `genctl` **import directive** (a configured binary turns a file
-  into a string, so the TS bundler is not a feature); resolution is source-level and
-  client-side, and **the server having no resolver is the security answer** — no directive
-  reaches the wire to be tricked into executing. Type checking is the importer's **exit
-  code**, not a step: `tsc` runs before the bundle is emitted, so a type error is a failed
-  import and a stored definition cannot hold code that failed to typecheck — an ordering
-  property, not an enforced rule. Records what the template owns so it does not drift into
+  one addition is a generic `genctl` **import directive**, whose single-pass form is
+  **superseded by [source-resolution.md](source-resolution.md)** — what survives is that
+  resolution is source-level and client-side, that **the server having no resolver is the
+  security answer** (no directive reaches the wire to be tricked into executing), and that
+  type checking is the resolver's **exit code** rather than a step anyone adds, so a stored
+  definition cannot hold code that failed to typecheck — an ordering property, not an
+  enforced rule. Records what the template owns so it does not drift into
   the engine: types checked on the author's machine (schemas already validate both ends at
-  runtime, so types were never the safety mechanism — which keeps definition validation
-  offline), the tsconfig as sandbox, a **pinned rather than deleted**
+  runtime, so types were never the safety mechanism — which keeps the *server* free of any
+  evaluator dependency), the tsconfig as sandbox, a **pinned rather than deleted**
   clock (retries re-execute; deleting `Date` leaves the generated types asserting what the
   runtime contradicts), and error codes split by honest retryability (a type error and a
   throw are permanent; folding them in with evaluator faults makes the retry budget worse
@@ -51,6 +51,33 @@ behavior while the spec stays put, answering a different question. See
   routing definition values through the store puts the object under the definition version,
   which *is* the retention rule. Constrained by migration 018's serving rule (unredacted
   context-only objects are never served).
+- [source-resolution.md](source-resolution.md) — **code phase built** (2026-08-21;
+  `cmd/genctl/sources.go`, `bun-runtime/import.ts`), structural phase and `$infer` unbuilt.
+  How a definition **source file** becomes a definition: a `genroc.yaml` in the repo registers resolver binaries and a
+  `"$import: ./x.ts"` directive names one, so a TS bundler, a type generator and a YAML
+  fragment loader are all clients of one mechanism. Supersedes script-tasks.md's single-pass
+  directive, which cannot work — the `Input` declarations a script typechecks against are the
+  *product* of validation's inference — so resolution splits into **phases named by
+  permission**: `structural` may change what the typechecker sees and runs before validation,
+  `code` may not and runs after it, constrained to **produce a string**, which is what makes
+  "cannot invalidate phase 1" enforced rather than promised. Records why the placeholder is
+  sound (inference collapses literals to base types today, so
+  [literal-types.md](literal-types.md) landing is the signal to re-read), why the two
+  roundtrips are a **type query then an apply** rather than a validate then a mutate, and
+  that **no server change is required** — `SchemaFile.Tasks[id].Input` is already the
+  inferred action-input type. Phase 2 is **batched**, one call per resolver carrying every
+  site, because N scripts must not mean N `tsc` runs; `mode: "types"` is the same call
+  without the build and is what makes the editor loop work between applies. **genctl passes
+  the sites and a resolver never re-detects them** — not for difficulty but for drift, two
+  parsers for one syntax. Names the escape the feature exists for and that fails silently if
+  skipped (`$` → `$$` on splice, or the Shape layer still reads `${` in the imported code),
+  and `$infer` for the other direction — a script's return type extracted into
+  `result_schema`, requiring an **explicit annotation** because TS return inference reads the
+  parameter type and would otherwise reintroduce the cycle. That makes `$infer`
+  [unknown-type.md](unknown-type.md)'s unbuilt **Infer** result-typing mode reached at author
+  time, which is also the argument for not scheduling the engine-side one. Closes with why a
+  resolver registry is **not the plugin door** [custom-tasks.md](custom-tasks.md) rules out:
+  author time, author's machine, ordinary data on the wire.
 - [literal-types.md](literal-types.md) — infer `"sent"` as `enum: [sent]` rather than
   `string`. Prerequisite for discriminated unions, and it catches provably-false comparisons.
   The feature is not the 4-line production change but the **enum-aware canonicalization** it

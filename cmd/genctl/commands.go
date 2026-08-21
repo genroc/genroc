@@ -35,7 +35,7 @@ func runApplyCmd(server string, args []string) {
 		os.Exit(1)
 	}
 
-	defs, err := loadDefs(files)
+	defs, err := resolvedDefs(files, *serverFlag)
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -74,7 +74,7 @@ func runValidateCmd(server string, args []string) {
 		os.Exit(1)
 	}
 
-	defs, err := loadDefs(files)
+	defs, err := resolvedDefs(files, *serverFlag)
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -84,6 +84,36 @@ func runValidateCmd(server string, args []string) {
 		fatal("%v", err)
 	}
 	printIndented(raw)
+}
+
+// runTypesCmd generates the declarations a resolver's authoring layer needs, without
+// building or applying anything. It exists because the editor needs them to exist BEFORE an
+// apply ever runs - without it an author's file is red until they apply once.
+func runTypesCmd(server string, args []string) {
+	fs := flag.NewFlagSet("types", flag.ExitOnError)
+	var files multiFlag
+	fs.Var(&files, "f", "definition file (YAML or JSON); repeat for multiple files")
+	serverFlag := addServerFlag(fs, server)
+	fs.Parse(args)
+
+	if len(files) == 0 {
+		fmt.Fprintln(os.Stderr, "genctl: -f is required")
+		os.Exit(1)
+	}
+
+	docs, err := loadSourceDocs(files)
+	if err != nil {
+		fatal("%v", err)
+	}
+	n, err := resolveDocs(docs, *serverFlag, "types")
+	if err != nil {
+		fatal("%v", err)
+	}
+	if n == 0 {
+		fmt.Println("no imports found - nothing to generate")
+		return
+	}
+	fmt.Printf("generated types for %d import(s)\n", n)
 }
 
 func runChannelCmd(server string, args []string) {
@@ -897,18 +927,51 @@ func runLastCmd(args []string) {
 }
 
 func loadDefs(files []string) ([]any, error) {
-	var all []any
+	docs, err := loadSourceDocs(files)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]any, len(docs))
+	for i, d := range docs {
+		out[i] = d.doc
+	}
+	return out, nil
+}
+
+// loadSourceDocs is loadDefs keeping the file each document came from: a directive's path
+// resolves against it, and an error has to name it.
+func loadSourceDocs(files []string) ([]sourceDoc, error) {
+	var all []sourceDoc
 	for _, path := range files {
 		docs, err := readFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		all = append(all, docs...)
+		for _, d := range docs {
+			all = append(all, sourceDoc{doc: d, file: path})
+		}
 	}
 	if len(all) == 0 {
 		return nil, fmt.Errorf("no process definitions found in provided files")
 	}
 	return all, nil
+}
+
+// resolvedDefs loads, resolves every import directive, and hands back the plain documents
+// the API takes. By this point no directive remains — the server has no resolver.
+func resolvedDefs(files []string, server string) ([]any, error) {
+	docs, err := loadSourceDocs(files)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := resolveDocs(docs, server, "build"); err != nil {
+		return nil, err
+	}
+	out := make([]any, len(docs))
+	for i, d := range docs {
+		out[i] = d.doc
+	}
+	return out, nil
 }
 
 func readFile(path string) ([]any, error) {

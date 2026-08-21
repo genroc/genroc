@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -156,5 +158,79 @@ func TestSetScalarMarshalsToLiteral(t *testing.T) {
 	}
 	if string(b) != `{"id":`+bigLiteral+`}` {
 		t.Errorf("got %s, want {\"id\":%s}", b, bigLiteral)
+	}
+}
+
+// ── merge keys ──────────────────────────────────────────────────────────────────
+
+// yamlToAny walks mappings itself, so YAML's `<<` is not free: without handling it the
+// alias landed under a literal "<<" field that the server drops as unknown, and a
+// definition sharing task shape by anchor silently lost every merged key.
+
+func TestYamlToAny_MergeKeyFoldsTheAliasedMapIn(t *testing.T) {
+	got := convert(t, "defaults: &d\n  method: GET\n  timeout: 15\ntask:\n  <<: *d\n")
+	task := got.(map[string]any)["task"].(map[string]any)
+	if _, leaked := task["<<"]; leaked {
+		t.Fatalf("`<<` reached the server as a field: %#v", task)
+	}
+	if task["method"] != "GET" {
+		t.Errorf("merged key missing: task = %#v", task)
+	}
+}
+
+func TestYamlToAny_AnExplicitKeyBeatsAMergedOne(t *testing.T) {
+	// YAML's own precedence. Getting it backwards would make every override a no-op while
+	// the definition still applies, which is the failure anchors are reached for.
+	got := convert(t, "defaults: &d\n  timeout: 15\ntask:\n  <<: *d\n  timeout: 30\n")
+	task := got.(map[string]any)["task"].(map[string]any)
+	if fmt.Sprint(task["timeout"]) != "30" {
+		t.Errorf("the merged value won: timeout = %#v", task["timeout"])
+	}
+}
+
+func TestYamlToAny_MergeAboveTheKeyItOverridesStillLoses(t *testing.T) {
+	// Order within the mapping must not decide it: merges are applied after the whole
+	// mapping is read, so the explicit key wins wherever it sits.
+	got := convert(t, "defaults: &d\n  timeout: 15\ntask:\n  timeout: 30\n  <<: *d\n")
+	task := got.(map[string]any)["task"].(map[string]any)
+	if fmt.Sprint(task["timeout"]) != "30" {
+		t.Errorf("position decided precedence: timeout = %#v", task["timeout"])
+	}
+}
+
+func TestYamlToAny_MergeKeepsNumericLiteralsExact(t *testing.T) {
+	// The merged branch must route through yamlToAny, not Decode: a big id arriving via an
+	// anchor would otherwise be floated, which is the whole point of this file.
+	got := convert(t, "d: &d\n  id: "+bigLiteral+"\ntask:\n  <<: *d\n")
+	task := got.(map[string]any)["task"].(map[string]any)
+	if fmt.Sprint(task["id"]) != bigLiteral {
+		t.Errorf("merged literal corrupted: got %v", task["id"])
+	}
+}
+
+func TestYamlToAny_ASequenceMergeIsRefusedRatherThanSilentlyReversed(t *testing.T) {
+	// YAML 1.1 gives EARLIER entries precedence, so `[*base, *override]` does the opposite
+	// of what it reads as. Refusing is the only answer that cannot mislead.
+	var node yaml.Node
+	src := "a: &a\n  k: 1\nb: &b\n  k: 2\ntask:\n  <<: [*a, *b]\n"
+	if err := yaml.Unmarshal([]byte(src), &node); err != nil {
+		t.Fatalf("yaml: %v", err)
+	}
+	_, err := yamlToAny(&node)
+	if err == nil {
+		t.Fatal("a sequence merge was accepted; its precedence reads backwards")
+	}
+	if !strings.Contains(err.Error(), "EARLIER") {
+		t.Errorf("the error does not say why it is refused: %v", err)
+	}
+}
+
+func TestYamlToAny_ANonMappingMergeIsRefused(t *testing.T) {
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte("task:\n  <<: nope\n"), &node); err != nil {
+		t.Fatalf("yaml: %v", err)
+	}
+	if _, err := yamlToAny(&node); err == nil {
+		t.Fatal("`<<: nope` was accepted")
 	}
 }

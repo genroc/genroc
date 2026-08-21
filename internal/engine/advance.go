@@ -454,37 +454,49 @@ func taskSelf(result, previous any, meta *fetchMeta) map[string]any {
 	return self
 }
 
-// setTaskOutput stores value as the task's exported output (outputs.taskID), appending to
-// output_order only the first time the task produces output (a loop re-execution
-// overwrites the value without re-appending).
+// setTaskOutput stores value as the task's exported output (outputs.taskID). A loop
+// re-execution overwrites the value; appendOutputOrder owns keeping the position unique.
 func (e *Engine) setTaskOutput(inst *model.ProcessInstance, taskID string, value any) {
 	if inst.ContextData["outputs"] == nil {
 		inst.ContextData["outputs"] = map[string]any{}
 	}
-	outs := inst.ContextData["outputs"].(map[string]any)
-	_, existed := outs[taskID]
-	outs[taskID] = value
-	if existed {
-		return
-	}
+	inst.ContextData["outputs"].(map[string]any)[taskID] = value
 	appendOutputOrder(inst, taskID)
 }
 
-// appendOutputOrder appends id to the instance's output_order list, tolerating the
-// []any shape the field takes after a JSON round-trip through engine_state.
+// appendOutputOrder records id's position in output_order, **at most once** — and rebuilds
+// the stored list under that rule, so a row already carrying duplicates is repaired rather
+// than merely stopped from growing. It tolerates the []any shape the field takes after a
+// JSON round-trip through engine_state.
+//
+// The uniqueness is load-bearing, not tidiness: `outputs` holds one value per task, so a
+// second position could never be filled. A child task in a loop spawns on every pass
+// (child.go), which grew this list once per iteration — unbounded in context_data — and
+// made the outputs object serialise the same key repeatedly.
 func appendOutputOrder(inst *model.ProcessInstance, id string) {
 	var order []string
+	seen := make(map[string]bool)
+	add := func(s string) {
+		if seen[s] {
+			return
+		}
+		seen[s] = true
+		order = append(order, s)
+	}
 	switch v := inst.ContextData["output_order"].(type) {
 	case []string:
-		order = v
+		for _, s := range v {
+			add(s)
+		}
 	case []any:
 		for _, item := range v {
 			if s, ok := item.(string); ok {
-				order = append(order, s)
+				add(s)
 			}
 		}
 	}
-	inst.ContextData["output_order"] = append(order, id)
+	add(id)
+	inst.ContextData["output_order"] = order
 }
 
 // evalSwitch returns the first matching case (empty Case = catch-all; nil never happens on

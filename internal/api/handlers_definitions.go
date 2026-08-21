@@ -477,7 +477,17 @@ func (h *Handlers) validateSubmitted(defs []model.ProcessDefinition) ([]validati
 	for i := range defs {
 		ptrs[i] = &defs[i]
 	}
-	getter := &batchGetter{batch: ptrs, versions: map[string]int{}, db: h.db}
+	// The version each member WOULD be assigned. Without it a child that exists only in the
+	// batch resolves through the DB and is reported missing, so a batch applyBatch accepts
+	// could not be validated — and `genctl apply` now validates first to infer types.
+	// Hypothetical is sound here: validate writes nothing, and GetDefinition answers from
+	// the batch at exactly these versions.
+	versions := make(map[string]int, len(ptrs))
+	for _, d := range ptrs {
+		latest, _ := h.db.LatestVersion(d.Name)
+		versions[d.Name] = latest + 1
+	}
+	getter := &batchGetter{batch: ptrs, versions: versions, db: h.db}
 	schemas := make([]validation.SchemaFile, 0, len(ptrs))
 	for _, def := range ptrs {
 		if err := def.Validate(); err != nil {

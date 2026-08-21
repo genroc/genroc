@@ -50,6 +50,42 @@ function apply(def: object & { name: string }): string {
 
 // ── run ─────────────────────────────────────────────────────────────────────────
 
+test("get --json — a child task in a loop appears once, not once per iteration", async () => {
+  const kid = uid("dupkid");
+  const parent = uid("dupparent");
+  const file = writeDefs([
+    { name: kid, tasks: [{ id: "t", switch: [{ goto: "end" }] }], output: { ok: true } },
+    {
+      name: parent,
+      tasks: [
+        {
+          id: "call",
+          action: {
+            type: "child",
+            name: kid,
+            input: {},
+            result_schema: { type: "object", properties: { ok: { type: "boolean" } } },
+          },
+          output: { count: "$: (self.previous.count ?? 0) + 1" },
+          switch: [{ case: "self.output.count >= 3", goto: "end" }, { goto: "$call" }],
+        },
+      ],
+    },
+  ]);
+  expect(runCli(bin, ["apply", "-f", file]).ok).toBe(true);
+
+  const id = startedID(runCli(bin, ["run", parent]).stdout);
+  expect(await waitForInstance(id)).toBe("completed");
+
+  // Asserted on RAW stdout: a spawn appended to output_order on every pass, so the outputs
+  // object carried the key three times — and JSON.parse would have hidden that by silently
+  // keeping the last. The stored order list grew per iteration too, unbounded in a loop.
+  const raw = runCli(bin, ["get", id, "--json"]).stdout;
+  const outputs = raw.slice(raw.indexOf('"outputs"')); // _children keys on the task id too
+  const occurrences = outputs.split(`"call":`).length - 1;
+  expect(occurrences, `"call" appears ${occurrences}x in outputs:\n${raw}`).toBe(1);
+});
+
 test("run — prints the id, process and version it started", () => {
   const name = apply(inputDef(uid("proc")));
   const r = runCli(bin, ["run", name, "--set", "count=3"]);

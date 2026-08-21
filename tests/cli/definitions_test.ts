@@ -1,3 +1,6 @@
+import { writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
 import { client } from "../helpers/client.ts";
@@ -26,6 +29,53 @@ function defs(extra: string[] = []): DefRow[] {
 }
 
 // ── apply ───────────────────────────────────────────────────────────────────────
+
+test("apply — a YAML merge key folds the anchored map in, and an explicit key overrides it", () => {
+  const name = uid("merge");
+  const file = join(tmpdir(), `${name}.yaml`);
+  // `two` declares no action type or method of its own, so it can only validate if the
+  // merge landed. Before this worked, `<<` arrived as a literal field the server dropped
+  // as unknown — the definition applied and every merged key was silently gone.
+  writeFileSync(
+    file,
+    [
+      `name: ${name}`,
+      "tasks:",
+      "  - id: one",
+      "    action: &defaults",
+      "      type: fetch",
+      "      method: GET",
+      '      url: "https://example.test/a"',
+      "    timeout: 7s",
+      "    switch: [{ goto: $two }]",
+      "  - id: two",
+      "    action:",
+      "      <<: *defaults",
+      '      url: "https://example.test/b"',
+      "    timeout: 9s",
+      "    switch: [{ goto: end }]",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  expect(runCli(bin, ["apply", "-f", file]).stdout).toContain(`saved: ${name}@v1`);
+});
+
+
+test("validate — a child that exists only in the batch resolves, as it does on apply", () => {
+  const child = uid("vchild");
+  const parent = uid("vparent");
+  const file = writeDefs([switchDef(child), childDef(parent, child)]);
+
+  // Neither is stored. apply has always resolved a sibling from the batch; validate could
+  // not, so a batch that applied cleanly was unvalidatable — and `apply` now validates
+  // first to infer types for imports, which put that gap on the apply path too.
+  const r = runCli(bin, ["validate", "-f", file]);
+  expect(r.stderr).not.toContain("no definitions found");
+  expect(r.ok).toBe(true);
+});
+
 
 test("apply — reports saved for new content and unchanged for a re-apply", () => {
   const name = uid("proc");

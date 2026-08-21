@@ -1,0 +1,8 @@
+# Registers the resolvers `genctl apply|validate|types` runs over any source file in this
+# directory. Discovery walks up from the file, so nothing here depends on the cwd.
+# specs/source-resolution.md.
+resolvers:
+  import:
+    phase: code
+    ext: .ts
+    command: [bun, run, ../../bun-runtime/import.ts]

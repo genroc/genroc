@@ -100,13 +100,57 @@ Set the task `timeout` **above** the runner's `timeout_ms`. If the engine's dead
 first the code is `http.timeout`, which is in `errcode.Unknowable()` — permanently
 unretryable on an `only_once` task, and indistinguishable from the runner being unreachable.
 
-## `${` must be escaped as `$${`
+## `${` must be escaped as `$${` — when the code is inline
 
 A fetch `body` is a Shape, so `${…}` is genroc's interpolation marker and a JS template
 literal inside `code` is read by genroc rather than passed through. Write `` `<$${x}>` ``.
 A leading `$:` on the code string needs `$$:` for the same reason. See
-[specs/typed-values.md](../specs/typed-values.md); the spec's import directive — code in a
-`.ts` file that `genctl` resolves to a string — is what eventually removes this.
+[specs/typed-values.md](../specs/typed-values.md). Moving the code into a `.ts` file
+removes this entirely — see the next section.
+
+## `import.ts` — the author-time half
+
+`import.ts` is the **code-phase resolver** genctl runs before a definition is applied. It
+never serves HTTP and the server never runs it; the two halves share this package only
+because they share a calling convention, which is exactly the coupling that breaks silently
+if they version apart.
+
+Register it in the project's `genroc.yaml`:
+
+```yaml
+resolvers:
+  import: { phase: code, ext: .ts, command: [bun, run, ../bun-runtime/import.ts] }
+```
+
+then write the script as a module and name it from the definition:
+
+```yaml
+body:
+  code: "$import: ./fee.ts"
+  input: "$: input"
+```
+
+```ts
+import type { Input, Output } from "./fee.genroc";
+
+export default async function (input: Input): Promise<Output> {
+  return { fee: input.amount * 0.1 };
+}
+```
+
+`genctl types -f process.yaml` writes `fee.genroc.d.ts` beside the script — named for the
+**script's path**, not the task, so renaming a task cannot break the import line. `Input` is
+the inferred type of what the definition passes; `Output` is what it declares
+(`responses.200`, or `result_schema` on a child). `genctl apply` regenerates them, runs
+`tsc --noEmit`, and bundles — so **a type error is a failed apply**, and a stored definition
+cannot hold code that failed to typecheck.
+
+The bundle is emitted as CJS and wrapped as a function body, which is why nothing in
+`eval.ts` or `server.ts` changed. Imports are resolved at build time, so the string a
+definition version stores is self-contained forever.
+
+**This is what removes the `$${` escaping above** — a template literal in a `.ts` file is
+never read by genroc, because genctl doubles every `$` on splice.
 
 ## Determinism
 
@@ -131,5 +175,6 @@ reproducible only when the definition passes one.
   the timer never fires and the whole runner hangs. Only an unsettled `await` is bounded.
   Containing the synchronous case needs a `Worker` or a subprocess per evaluation —
   `eval.ts` keeps HTTP out precisely so that strategy can be swapped underneath.
-- **No imports, no bundling, no type checking.** One self-contained function body. The
-  generator/bundler/tsconfig the spec describes are not built.
+- **Not where imports and type checking happen.** The evaluator still takes one
+  self-contained function body and knows nothing about TypeScript; `import.ts` is what
+  turns a module into that body, at author time. See below.

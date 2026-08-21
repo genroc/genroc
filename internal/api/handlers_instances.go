@@ -266,11 +266,16 @@ func orderedContext(ctxData map[string]any) map[string]any {
 	var buf bytes.Buffer
 	buf.WriteByte('{')
 	first := true
+	// output_order is written unique (engine.appendOutputOrder), but rows persisted before
+	// that was true still hold repeats — and emitting one twice would put a duplicate key
+	// in the JSON object, which parsers resolve by silently keeping the last.
+	emitted := make(map[string]bool, len(order))
 	for _, key := range order {
 		val, ok := outputs[key]
-		if !ok {
+		if !ok || emitted[key] {
 			continue
 		}
+		emitted[key] = true
 		if !first {
 			buf.WriteByte(',')
 		}

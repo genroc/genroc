@@ -94,40 +94,16 @@ tasks:
       code: "$: self.result.current.weather_code"
     switch: next
 
-  # The script task, as a child call. A lookup table with a fallback and a rounded format
-  # string are what the expression language has no way to say — the whole case for a script.
-  # `${` would be read by genroc, so a template literal here would need `$${`.
+  # The script task, as a child call. The code lives in summarize.ts and `genctl apply`
+  # resolves it: tsc runs against the generated Input/Output before the string is ever
+  # produced, so this definition cannot hold a script that does not typecheck.
   - id: summarize
     action:
       type: child
       name: script
       input:
         runner_url: "$: input.script_url"
-        code: |
-          const reading = input.reading;
-
-          // WMO weather codes, jen ty běžné — cokoliv jiného se vypíše číslem.
-          const conditions = {
-            0: "jasno", 1: "skoro jasno", 2: "polojasno", 3: "zataženo",
-            45: "mlha", 48: "namrzající mlha",
-            51: "mrholení", 53: "mrholení", 55: "silné mrholení",
-            61: "slabý déšť", 63: "déšť", 65: "silný déšť",
-            71: "slabé sněžení", 73: "sněžení", 75: "husté sněžení",
-            80: "přeháňky", 81: "přeháňky", 82: "silné přeháňky",
-            95: "bouřka", 96: "bouřka s kroupami", 99: "bouřka s kroupami",
-          };
-
-          const condition = conditions[reading.code] ?? ("wmo " + reading.code);
-          const t = Math.round(reading.temperature_c * 10) / 10;
-          const summary = input.geo.label + "  " + reading.time + "  " + t + " °C  " + condition;
-
-          console.log(condition, t, summary)
-
-          return {
-            condition,
-            temperature_c: t,
-            summary,
-          };
+        code: "$import: ./summarize.ts"
         # Whole objects only. Two things are refused at a child input that a fetch body
         # would have taken: a nested LITERAL (Fits walks into the target, and the top type
         # has no properties to walk into) and NAVIGATION into a sibling's output
