@@ -2,8 +2,8 @@
 // thread the host can kill mid-loop — the only thing that bounds a synchronous busy loop.
 // eval.ts owns the budget and does the killing; nothing here knows about time.
 //
-// Everything that touches the script's VALUE lives on this side of the boundary — pinning,
-// compiling, classifying, serialising — because this is the only realm the value exists in.
+// Everything that touches the script's VALUE lives on this side of the boundary — compiling,
+// classifying, serialising — because this is the only realm the value exists in.
 
 import { createRequire } from "node:module";
 
@@ -29,7 +29,7 @@ const STACK_BYTES = 2_048;
  */
 const lineOffset: Promise<number> = (async () => {
   // Same parameter list as a real compile: the preamble is what is being measured.
-  const probe = new AsyncFunction("input", "ctx", "Date", "Math", "require", STRICT + "throw new Error('probe');");
+  const probe = new AsyncFunction("input", "require", STRICT + "throw new Error('probe');");
   try {
     await probe();
     return 0;
@@ -52,70 +52,6 @@ function reportedLine(err: unknown): number {
   const frame = stack.split("\n").find((l) => ANON_FRAME.test(l)) ?? "";
   const m = frame.match(FRAME);
   return m ? Number(m[3]) : 1;
-}
-
-function fnv1a(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-// A Proxy forwards writes to its target, so without these a script assigning `Math.random`
-// or `Date.now` patches its realm's globals. The realm dies with the execution, so this is
-// no longer about leaking — refusing is a TypeError under "use strict", which is the honest
-// answer to code whose determinism the caller is relying on.
-const readOnly = {
-  set: () => false,
-  defineProperty: () => false,
-  deleteProperty: () => false,
-} as const;
-
-/**
- * `Date` with its reading of "now" pinned, NOT deleted: a retry re-executes the script, so
- * an unpinned clock makes attempt two differ from attempt one — while deleting `Date`
- * would leave the generated types asserting what the runtime contradicts.
- * A Proxy over the real Date so `new Date(x)`, `Date.parse`, `Date.UTC` and `instanceof`
- * all keep working.
- */
-function pinnedDate(now: number): DateConstructor {
-  return new Proxy(Date, {
-    ...readOnly,
-    construct(target, args, newTarget) {
-      if (args.length === 0) return Reflect.construct(target, [now], newTarget);
-      return Reflect.construct(target, args, newTarget);
-    },
-    apply() {
-      return new Date(now).toString();
-    },
-    get(target, prop, receiver) {
-      if (prop === "now") return () => now;
-      return Reflect.get(target, prop, receiver);
-    },
-  }) as DateConstructor;
-}
-
-function pinnedMath(seed: string): Math {
-  const random = mulberry32(fnv1a(seed));
-  return new Proxy(Math, {
-    ...readOnly,
-    get(target, prop, receiver) {
-      if (prop === "random") return random;
-      return Reflect.get(target, prop, receiver);
-    },
-  });
 }
 
 /** Renumbers each script frame to the line the AUTHOR wrote and drops the runner's own. */
@@ -158,15 +94,14 @@ async function run(req: WorkerRequest): Promise<WorkerReply> {
   try {
     // No compile cache: the realm is discarded after this execution, so a cache in it could
     // never be hit. Repeated compilation is the price of the fresh global object.
-    fn = new AsyncFunction("input", "ctx", "Date", "Math", "require", STRICT + req.code);
+    fn = new AsyncFunction("input", "require", STRICT + req.code);
   } catch (err) {
     return { ok: false, failure: describe(err, "compile_error", offset) };
   }
 
   let value: unknown;
   try {
-    const ctx = { now: req.now, seed: req.seed };
-    value = await fn(req.input, ctx, pinnedDate(req.now), pinnedMath(req.seed), scriptRequire);
+    value = await fn(req.input, scriptRequire);
   } catch (err) {
     return { ok: false, failure: describe(err, "threw", offset) };
   }

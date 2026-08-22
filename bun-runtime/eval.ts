@@ -10,8 +10,6 @@
 export type EvalRequest = {
   code: string;
   input?: unknown;
-  now?: number;
-  seed?: string;
   timeout_ms?: number;
 };
 
@@ -33,7 +31,7 @@ export type EvalResult =
   | { ok: false; failure: EvalFailure };
 
 /** The message the host posts into the realm, and the only reply it accepts back. */
-export type WorkerRequest = { code: string; input?: unknown; now: number; seed: string };
+export type WorkerRequest = { code: string; input?: unknown };
 export type WorkerReply = EvalResult;
 
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -49,8 +47,6 @@ class RealmFault extends Error {
 }
 
 export async function evaluate(req: EvalRequest): Promise<EvalResult> {
-  const now = typeof req.now === "number" ? req.now : Date.now();
-  const seed = req.seed ?? "";
   const budget = typeof req.timeout_ms === "number" ? req.timeout_ms : DEFAULT_TIMEOUT_MS;
 
   const worker = new Worker(WORKER_URL);
@@ -63,7 +59,7 @@ export async function evaluate(req: EvalRequest): Promise<EvalResult> {
       // otherwise present as a hang until the budget expired.
       worker.addEventListener("close", (e) => resolve(exited(e.code)), { once: true });
       worker.addEventListener("error", (e) => reject(new RealmFault(errorText(e))), { once: true });
-      worker.postMessage({ code: req.code, input: req.input, now, seed } satisfies WorkerRequest);
+      worker.postMessage({ code: req.code, input: req.input } satisfies WorkerRequest);
     });
   } finally {
     clearTimeout(timer);

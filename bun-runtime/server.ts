@@ -9,11 +9,6 @@ import { evaluate, type EvalRequest, type EvalFailure } from "./eval.ts";
 const PORT = Number(process.env.PORT ?? 3010);
 const MAX_BODY_BYTES = 4 << 20;
 
-// genroc stamps these on every fetch; the task+instance pair is stable across retries,
-// which is exactly what a default seed needs to be.
-const HEADER_INSTANCE = "x-genroc-instance-id";
-const HEADER_TASK = "x-genroc-task-id";
-
 const JSON_HEADERS = { "content-type": "application/json" };
 
 /** 422 is the whole permanent-fault class: a retry re-runs the same code on the same input
@@ -42,10 +37,7 @@ async function handleEval(req: Request): Promise<Response> {
   const r = body as Partial<EvalRequest>;
   if (typeof r.code !== "string") return badRequest("`code` is required and must be a string");
 
-  const seed =
-    r.seed ?? `${req.headers.get(HEADER_INSTANCE) ?? ""}:${req.headers.get(HEADER_TASK) ?? ""}`;
-
-  const result = await evaluate({ ...r, code: r.code, seed });
+  const result = await evaluate({ ...r, code: r.code });
   if (!result.ok) return failure(result.failure);
 
   // The script's return value IS the body, so `responses: {200: T}` types self.result as

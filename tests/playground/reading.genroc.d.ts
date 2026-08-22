@@ -8,9 +8,6 @@ export type geocode_output = null | {
   name: string;
 };
 
-/** The clock and RNG the runner pins, so a retry re-executes identically. */
-export type Ctx = { now: number; seed: string };
-
 export type Input = {
   geo: geocode_output;
 };

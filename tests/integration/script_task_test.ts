@@ -164,28 +164,6 @@ test("script task — a compile error shares 422 and is told apart by error.data
   expect((data?.context?.outputs as any)?.failed).toEqual({ kind: "compile_error", name: "SyntaxError" });
 });
 
-// Retries re-execute, so an unpinned clock makes attempt two differ from attempt one. The
-// runner pins `now` rather than deleting Date — deleting it would leave the generated types
-// asserting what the runtime contradicts.
-test("script task — Date.now() reads the pinned clock the caller passed", async () => {
-  const pinned = 1755600000000;
-  const t = scriptTask("return { now: Date.now(), year: new Date().getUTCFullYear() };", { now: pinned });
-  t.action.responses = {
-    200: {
-      type: "object",
-      properties: { now: { type: "integer" }, year: { type: "integer" } },
-      required: ["now", "year"],
-    },
-  };
-
-  const { status, data } = await run(`script_clock_${crypto.randomUUID()}`, [
-    { ...t, output: { now: "$: self.result.now", year: "$: self.result.year" }, switch: [{ goto: "end" }] },
-  ]);
-
-  expect(status).toBe("completed");
-  expect((data?.context?.outputs as any)?.run).toEqual({ now: pinned, year: 2025 });
-});
-
 // The trap every script author hits: a fetch body is a Shape, so `${` is genroc's
 // interpolation marker and a JS template literal inside the code string is read by genroc
 // rather than passed through. `$${` is the escape.
@@ -229,10 +207,6 @@ test("script task — the unescaped ${ is read by genroc and refused at registra
   expect(JSON.stringify(error)).toContain("x");
 });
 
-// `Date` and `Math` are handed to the script as Proxies, and a Proxy forwards writes to its
-// target — so without the write-refusing traps a script assigning `Math.random` patches the
-// PROCESS-WIDE global and every later request reads the patch. Called directly rather than
-// over HTTP: the leak is between two evaluations in one process, which is what this asserts.
 /** One evaluation, straight at the runner — no definition in the way. */
 async function evalDirect(body: Record<string, unknown>) {
   const res = await fetch(`http://localhost:${port}/eval`, {
@@ -243,21 +217,22 @@ async function evalDirect(body: Record<string, unknown>) {
   return { status: res.status, body: await res.json() };
 }
 
-test("evaluator — a script cannot patch the Math or Date the next execution reads", async () => {
-  for (const code of ["Math.random = () => 42; return 1;", "Date.now = () => 0; return 1;"]) {
-    const r = await evalDirect({ code, now: 1755600000000, seed: "s" });
-    expect(r.status, `${code} must be refused, not silently applied`).toBe(422);
-  }
+// The runner hands the script the realm's OWN globals — no pinned clock, no seeded RNG.
+// Called directly rather than over HTTP: what this asserts is the relationship between two
+// evaluations in one process, which no single definition can see.
+test("evaluator — Math and Date are the realm's own, and die with it", async () => {
+  const patched = await evalDirect({ code: "Math.random = () => 0.5; return Math.random();" });
+  expect(patched.status, "a script owns its realm — patching a global in it is not a fault").toBe(200);
+  expect(patched.body).toBe(0.5);
 
-  // The pinning still works, and reads the same on a realm that follows a poisoning attempt:
-  // refusing the writes must not have broken the reads, and nothing carried over.
-  const after = await evalDirect({ code: "return { d: Date.now(), r: Math.random() };", now: 1755600000000, seed: "s" });
-  expect(after.status).toBe(200);
-  expect((after.body as { d: number }).d).toBe(1755600000000);
-  const again = await evalDirect({ code: "return { r: Math.random() };", now: 1755600000000, seed: "s" });
-  expect((again.body as { r: number }).r, "the same seed must give the same first draw").toBe(
-    (after.body as { r: number }).r,
-  );
+  const next = await evalDirect({ code: "return Math.random();" });
+  expect(next.body, "the patch must have died with the realm that made it").not.toBe(0.5);
+
+  const again = await evalDirect({ code: "return Math.random();" });
+  expect(again.body, "two executions must draw differently — the RNG is not seeded per request").not.toBe(next.body);
+
+  const clock = await evalDirect({ code: "return Date.now();" });
+  expect(Math.abs((clock.body as number) - Date.now()), "the script reads the wall clock").toBeLessThan(5_000);
 });
 
 // ── the realm ───────────────────────────────────────────────────────────────────

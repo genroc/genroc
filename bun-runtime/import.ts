@@ -145,9 +145,6 @@ function declarations(site: Site, defs: Record<string, Schema>): string {
     "",
     ...emitted,
     emitted.length ? "" : "",
-    "/** The clock and RNG the runner pins, so a retry re-executes identically. */",
-    "export type Ctx = { now: number; seed: string };",
-    "",
     `export type Input = ${input};`,
     "",
     `export type Output = ${output};`,
@@ -264,7 +261,7 @@ async function bundle(site: Site): Promise<string> {
     'if (typeof __genroc_main !== "function") {',
     `  throw new Error(${JSON.stringify(`${site.path} has no default export function`)});`,
     "}",
-    "return await __genroc_main(input, ctx);",
+    "return await __genroc_main(input);",
   ].join("\n");
 }
 

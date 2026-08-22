@@ -83,10 +83,15 @@ Recorded so it does not drift back into the engine:
   discarded realm can never be hit. A subprocess (~16.6ms) is the same shape with memory and
   native crashes contained too, which is the upgrade path if a script ever needs to be
   distrusted rather than merely bounded.
-- **A pinned clock and seeded RNG, not deleted ones.** Retries re-execute; a script
-  reading the wall clock differs on attempt two. Injecting a fixed timestamp keeps
-  `Date.now()` working *and* reproducible, where deleting `Date` leaves the generated types
-  asserting what the runtime contradicts.
+- **~~A pinned clock and seeded RNG~~ — built 2026-08-19, removed 2026-08-21.** The
+  argument was that retries re-execute, so a script reading the wall clock differs on
+  attempt two. What it missed is that the pin is only real if a caller can pass a stable
+  `now`, and nothing can: the expression environment exposes no clock, so every definition
+  fell through to the runner's own `Date.now()` and the "pin" was the wall clock renamed.
+  It cost a `ctx` parameter, a seeded PRNG, and write-refusing Proxies to defend the two —
+  surface with nothing behind it. Reopening this means giving the engine a per-attempt
+  timestamp *first*; the value would then travel through `input` like any other, and the
+  runtime would need nothing.
 - **Error codes with honest retryability.** A type error and a thrown exception are
   permanent; only an evaluator fault is worth retrying. The worker picks distinct codes and
   the scaffolded `on_error` rules act on them — folding all three into one failure makes the

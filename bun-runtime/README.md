@@ -19,16 +19,13 @@ which spends no engine capability at all. Moving between them is a definition-le
 {
   "code": "return { fee: input.amount * 0.1 };",  // required — an async function body
   "input": { "amount": 250 },                     // optional — bound as `input`
-  "now": 1755600000000,                           // optional — pins Date.now()
-  "seed": "abc",                                  // optional — seeds Math.random()
   "timeout_ms": 5000                              // optional — default 5000
 }
 ```
 
 `code` is the **body of an async function**, so `await` works and the value reaches genroc
-through `return`. It is compiled with `input`, `ctx`, `Date`, `Math` and `require` as
-parameters, under `"use strict"`. `ctx` is `{ now, seed }`; `require` is what a bundled
-`import` of a node builtin lands on.
+through `return`. It is compiled with `input` and `require` as parameters, under
+`"use strict"` — `require` is what a bundled `import` of a node builtin lands on.
 
 `GET /health` answers `{"ok": true}`.
 
@@ -174,20 +171,6 @@ Of that config, three keys are the toolchain's and the rest are yours:
 **This is what removes the `$${` escaping above** — a template literal in a `.ts` file is
 never read by genroc, because genctl doubles every `$` on splice.
 
-## Determinism
-
-Retries re-execute, so the clock is **pinned rather than deleted**: pass `now` and
-`Date.now()`, `new Date()` and `ctx.now` all read it, while `new Date(x)`, `Date.parse`,
-`Date.UTC` and `instanceof` keep working. Deleting `Date` would leave a generated `Input`
-type asserting what the runtime contradicts.
-
-`Math.random()` is a seeded PRNG. With no `seed` the runner derives one from the
-`X-Genroc-Instance-Id` and `X-Genroc-Task-Id` headers genroc stamps on every fetch — stable
-across attempts of the same task, different between tasks, and free to the author.
-
-**Omitting `now` falls back to the wall clock**, so a script that reads the time is
-reproducible only when the definition passes one.
-
 ## The realm — one Worker per execution
 
 `evaluate()` starts a Worker, posts the code into it, and races the reply against the budget;
@@ -209,6 +192,12 @@ It costs about **1.7ms per execution** for the realm, plus recompiling the body 
 
 ## What this is not
 
+- **Not deterministic.** A script reads the real clock and the real RNG, and a retry
+  re-executes — so attempt two can differ from attempt one. An earlier version injected a
+  pinned `Date` and a seeded `Math`; nothing could supply a stable `now` (the expression
+  environment has no clock), so the pin was the wall clock under another name, and the `ctx`
+  it needed was surface with nothing behind it. A value that must survive a retry belongs in
+  the definition, passed through `input`.
 - **Not a sandbox.** The realm isolates *execution*, not *authority*: a script gets the
   runner's filesystem, network and environment, and `require` of any node builtin. That is
   deliberate — a script task is meant to do real work — but the trust boundary stays the

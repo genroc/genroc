@@ -71,7 +71,7 @@ export default async function (input: Input): Promise<Output> {
 
   console.log(summary);
 
-  await appendFile("weather.log", summary);
+  await appendFile("weather.log", `${new Date().toISOString()} ${summary}\n`);
 
   return { time: current.time, condition, temperature_c, summary };
 }
