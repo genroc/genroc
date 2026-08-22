@@ -60,6 +60,11 @@ jobs:
           if [ "$src" != "$dst" ]; then mkdir -p "$HOME/.bun/bin" && ln -sf "$src" "$dst"; fi
       - name: Install test dependencies
         run: cd tests && bun install --frozen-lockfile
+      - name: Install bun-runtime dependencies
+        # The import resolver shells out to typescript/bin/tsc, resolved from bun-runtime's
+        # OWN node_modules (import.meta.resolve, relative to import.ts) — which is gitignored,
+        # so without this every resolver test fails with "Cannot find module".
+        run: cd bun-runtime && bun install --frozen-lockfile
       - name: make test
         run: make test
 
