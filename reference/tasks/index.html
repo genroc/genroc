@@ -248,7 +248,7 @@ instance.</p>
 
 
 
-<table><thead><tr><th>Key</th><th>Meaning</th></tr></thead><tbody><tr><td><code>case</code></td><td>Expression selecting this arm. Omit on the final catch-all.</td></tr><tr><td><code>goto</code></td><td>Task to route to: <code>$task-id</code> or <code>end</code>.</td></tr><tr><td><code>raise</code></td><td>Terminate as <code>raised</code> with a <code>code</code> / <code>message</code>.</td></tr><tr><td><code>panic</code></td><td>Terminate as <code>failed</code> with a <code>code</code> / <code>message</code>.</td></tr></tbody></table>
+<table><thead><tr><th>Key</th><th>Meaning</th></tr></thead><tbody><tr><td><code>case</code></td><td>Expression selecting this arm. Omit on the final catch-all.</td></tr><tr><td><code>goto</code></td><td>Task to route to: <code>$task-id</code> or <code>end</code>.</td></tr><tr><td><code>raise</code></td><td>Terminate as <code>raised</code>. See <a href="#raise-and-panic">raise and panic</a>.</td></tr><tr><td><code>panic</code></td><td>Terminate as <code>failed</code>. See <a href="#raise-and-panic">raise and panic</a>.</td></tr></tbody></table>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> case</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">self.output.attempt &gt;= input.max_attempts</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    raise</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
@@ -407,6 +407,45 @@ that carries no body at all, widens the type to admit <code>null</code>.</p>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    retry</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> attempts</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 5</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> delay</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2s</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> factor</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 2</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> max_delay</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">1m</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $compensate</span></span></code></pre>
 <p>Not supported on child tasks — retry inside the child, then raise.</p>
+<h3 id="raise-and-panic"><code>raise</code> and <code>panic</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#raise-and-panic"><span></span></a></h3>
+<p>The same three keys on both clauses, wherever they appear — a <code>switch</code> case or an <code>on_error</code>
+rule. They differ in what they do: a <code>raise</code> concludes the instance as <code>raised</code>, a condition
+a parent may react to by naming the code; a <code>panic</code> fails it, and nothing can ever catch one.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Key</th><th>Meaning</th></tr></thead><tbody><tr><td><code>code</code></td><td>A literal <code>lower_snake_case</code> name, never an expression — it is what a parent branches on and what <code>error_code</code> is filtered by.</td></tr><tr><td><code>message</code></td><td>Prose, rendered when the clause fires; must produce a non-null string.</td></tr><tr><td><code>data</code></td><td>Optional structured payload, evaluated in the same scope as the message.</td></tr></tbody></table>
+<p><code>data</code> lands on this instance’s own <code>error.data</code>, where the instance detail and the logs show
+it. Omitting it <strong>clears</strong> that slot rather than leaving behind whatever the rule caught, so a
+fault carries only what it says it carries — forward a caught body explicitly when you want it.</p>
+<p>A <strong>parent</strong> reads a raise’s <code>data</code> only where its call declares a shape for that code under
+<a href="#raises"><code>raises</code></a>; a panic’s reaches an operator and nobody else, since nothing can catch a
+panic. A panic’s payload also stays on the instance that authored it — ancestors inherit its
+code and message, not its data.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">on_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">http.422</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    raise</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> script_threw</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      message</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">${ error.data.name }: ${ error.data.message }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      data</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">$: error.data</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span></code></pre>
 <h2 id="action-types">Action types<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#action-types"><span></span></a></h2>
 
 
@@ -631,9 +670,60 @@ that, or declare <code>&quot;4xx&quot;: {}</code>, which conforms to anything an
 
 
 
-<table><thead><tr><th>Field</th><th>On</th><th>Meaning</th></tr></thead><tbody><tr><td><code>name</code></td><td><code>child</code>, <code>child_list</code></td><td>Child process to invoke.</td></tr><tr><td><code>version</code></td><td>all</td><td>Version to run; <code>0</code> means the latest published version.</td></tr><tr><td><code>input</code></td><td><code>child</code>, <code>child_map</code> entries</td><td>Templated value building the child’s input payload.</td></tr><tr><td><code>over</code></td><td><code>child_list</code></td><td>A <code>$:</code> expression evaluating to an array. One child per element, the element being its input. An empty array spawns nothing and yields <code>[]</code>.</td></tr><tr><td><code>children</code></td><td><code>child_map</code></td><td>Keyed map of children run concurrently. Keys become the access names in <code>outputs.&lt;taskID&gt;</code>.</td></tr><tr><td><code>result_schema</code></td><td>all</td><td>Validates and exposes the child’s output — per element for <code>child_list</code>.</td></tr></tbody></table>
+
+
+
+
+
+<table><thead><tr><th>Field</th><th>On</th><th>Meaning</th></tr></thead><tbody><tr><td><code>name</code></td><td><code>child</code>, <code>child_list</code></td><td>Child process to invoke.</td></tr><tr><td><code>version</code></td><td>all</td><td>Version to run; <code>0</code> means the latest published version.</td></tr><tr><td><code>input</code></td><td><code>child</code>, <code>child_map</code> entries</td><td>Templated value building the child’s input payload.</td></tr><tr><td><code>over</code></td><td><code>child_list</code></td><td>A <code>$:</code> expression evaluating to an array. One child per element, the element being its input. An empty array spawns nothing and yields <code>[]</code>.</td></tr><tr><td><code>children</code></td><td><code>child_map</code></td><td>Keyed map of children run concurrently. Keys become the access names in <code>outputs.&lt;taskID&gt;</code>.</td></tr><tr><td><code>result_schema</code></td><td>all</td><td>Validates and exposes the child’s output — per element for <code>child_list</code>.</td></tr><tr><td><code>raises</code></td><td><code>child</code>, <code>child_list</code>, <code>child_map</code> entries</td><td>Raise code → schema for the payload that code’s fault carries.</td></tr></tbody></table>
 <p>Declaring a shape where the child left a value untyped (<code>{}</code>, the top type) narrows it: the
-collected output is conformed against the schema, and undeclared keys are dropped.</p>
+collected output is conformed against the schema, and undeclared keys are dropped. A child
+whose output does not satisfy the declaration reports <code>output.invalid</code>, catchable on this
+task.</p>
+<h4 id="raises"><code>raises</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#raises"><span></span></a></h4>
+<p><code>result_schema</code> types what a child returns; <code>raises</code> types what its faults carry. The <strong>caller</strong>
+declares it, keyed by raise code, which is what lets a shared child stay generic: it attaches a
+payload, and each caller says what it expects of it.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> child</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> script</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  result_schema</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> $ref</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">#/$defs/reading</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  raises</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    script_threw</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">   {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> $ref</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">#/$defs/script_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">   # typed</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    script_timeout</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {}</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">                                  # present, narrow it yourself</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">    # script_unknown: not declared → error.data is absent for it</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">on_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">script_threw</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $classify</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">        # error.data is the declared shape here</span></span></code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Declaration</th><th><code>error.data</code> at a rule catching that code</th></tr></thead><tbody><tr><td>a schema</td><td>that shape, conformed — undeclared keys dropped</td></tr><tr><td><code>{}</code></td><td>the top type: present, and narrowed before it can be read</td></tr><tr><td>no key</td><td>absent</td></tr></tbody></table>
+<p>A rule whose patterns can also reach a code nothing declares — a wildcard, a catch-all, or
+<code>output.invalid</code> — widens the type to admit <code>null</code>. Each declared code must be one the child
+can actually raise; a code it never raises is refused at registration, like an <code>on_error</code> rule
+for one.</p>
+<p>The payload is conformed when the batch resolves. A payload that does not fit — including a
+raise that attached none — <strong>replaces</strong> the raised code with <code>output.invalid</code>, so a rule naming
+the raised code no longer fires and a rule naming <code>output.invalid</code> does.</p>
 <h3 id="delay"><code>delay</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#delay"><span></span></a></h3>
 <p>Parks the instance until a duration elapses (<code>for</code>) or an instant arrives (<code>until</code>), without
 holding a worker, then routes via <code>switch</code>. Exactly one of the two.</p>
@@ -681,4 +771,4 @@ No worker is held while waiting.</p>
 
 <table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>input</code></td><td>Templated value, snapshotted and exposed to the resolver through the queue — the only context the resolver sees.</td></tr><tr><td><code>result_schema</code></td><td>Validates the submitted result before the instance resumes. Without it any JSON result is accepted.</td></tr></tbody></table>
 <p>An optional task <code>timeout</code> raises the catchable <code>external.timeout</code>; absent, it waits forever.
-This is the one place an absolute <code>until</code> deadline is accepted.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#fields">Fields</a></li><li class="depth-3"><a href="#timeout">timeout</a></li><li class="depth-3"><a href="#only_once">only_once</a></li><li class="depth-3"><a href="#output">output</a></li><li class="depth-2"><a href="#switch">switch</a></li><li class="depth-2"><a href="#on_error">on_error</a></li><li class="depth-3"><a href="#code-patterns">Code patterns</a></li><li class="depth-3"><a href="#the-error-value">The error value</a></li><li class="depth-3"><a href="#retry">retry</a></li><li class="depth-2"><a href="#action-types">Action types</a></li><li class="depth-3"><a href="#fetch">fetch</a></li><li class="depth-3"><a href="#child-child_map-child_list">child, child_map, child_list</a></li><li class="depth-3"><a href="#delay">delay</a></li><li class="depth-3"><a href="#external">external</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
+This is the one place an absolute <code>until</code> deadline is accepted.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#fields">Fields</a></li><li class="depth-3"><a href="#timeout">timeout</a></li><li class="depth-3"><a href="#only_once">only_once</a></li><li class="depth-3"><a href="#output">output</a></li><li class="depth-2"><a href="#switch">switch</a></li><li class="depth-2"><a href="#on_error">on_error</a></li><li class="depth-3"><a href="#code-patterns">Code patterns</a></li><li class="depth-3"><a href="#the-error-value">The error value</a></li><li class="depth-3"><a href="#retry">retry</a></li><li class="depth-3"><a href="#raise-and-panic">raise and panic</a></li><li class="depth-2"><a href="#action-types">Action types</a></li><li class="depth-3"><a href="#fetch">fetch</a></li><li class="depth-3"><a href="#child-child_map-child_list">child, child_map, child_list</a></li><li class="depth-3"><a href="#delay">delay</a></li><li class="depth-3"><a href="#external">external</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
