@@ -10,6 +10,7 @@ input_schema:
       default: 0
       description: "kolik mereni udelat; 0 = bezet donekonecna"
 tasks:
+  # script for getting the location
   - id: location
     action:
       type: child
@@ -43,16 +44,7 @@ tasks:
         timeout_ms: 20000
         input:
           geo: "$: outputs.location"
-      result_schema:
-        type: object
-        properties:
-          time: { type: string }
-          condition: { type: string }
-          temperature_c: { type: number }
-          summary: { type: string }
-        required: [time, condition, temperature_c, summary]
     output:
-      result: "$: self.result"
       count: "$: (self.previous.count ?? 0) + 1"
     on_error:
       - code: ["script_threw", "script_timeout"]
