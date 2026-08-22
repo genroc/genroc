@@ -1,0 +1,71 @@
+# A caller declares the shape of a child's raised payload; narrowing that declaration is an
+# UPGRADE break and not a contract one. The break lands where the payload is read — the task
+# the rule routes to — because `raises` types `error.data` there, and an instance parked in
+# the child call resumes into a definition that demands more of the payload than the one it
+# was spawned under. The outside world submits and reads nothing here, so the contract holds.
+apply:
+  - channel: declined_a
+    definitions:
+      - name: declined_kid
+        tasks:
+          - id: charge
+            switch:
+              - case: "true"
+                raise:
+                  code: declined
+                  message: "no"
+                  data: {why: "card", code: "51"}
+              - goto: end
+      - name: declined_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: declined_kid
+              raises:
+                declined: {type: object, properties: {why: {type: string}, code: {type: string}}}
+            on_error:
+              - code: [declined]
+                goto: $explain
+            switch: end
+          - id: explain
+            output: {why: '$: error.data.why'}
+            switch: end
+  - channel: declined_b
+    definitions:
+      - name: declined_kid
+        tasks:
+          - id: charge
+            switch:
+              - case: "true"
+                raise:
+                  code: declined
+                  message: "no"
+                  data: {why: "card", code: "51"}
+              - goto: end
+      - name: declined_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: declined_kid
+              raises:
+                declined: {type: object, properties: {why: {type: string}, code: {type: string}}, required: [why]}
+            on_error:
+              - code: [declined]
+                goto: $explain
+            switch: end
+          - id: explain
+            output: {why: '$: error.data.why'}
+            switch: end
+run: [--from, declined_a, --to, declined_b]
+
+expect: |
+  declined_boss  v1 → v2  breaking: upgrade; compatible
+    explain            (breaking: upgrade)
+      error.data.why: newly required field
+    work:child.raises  (ok)
+
+  declined_kid   v1       unchanged
+
+  exit 1

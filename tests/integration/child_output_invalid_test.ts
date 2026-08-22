@@ -102,3 +102,100 @@ test("with no rule the parent still fails terminally — as output.invalid, not 
   expect(kid?.status, "a mismatch must not retroactively fail the child").toBe("completed");
   expect(kid?.context?.output).toBe(42);
 });
+
+// The catchable set widened by exactly ONE code, not by a family: every other engine code is
+// still unreachable on a child task, so naming one is the typo R5 exists to catch.
+test("only output.invalid joins the set — another engine code is still refused", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `oi_child3_${uid}`;
+  await putForwarder(child);
+
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name: `oi_narrow_${uid}`,
+      tasks: [
+        {
+          id: "call",
+          action: { type: "child" as const, name: child, input: { value: 42 } },
+          on_error: [{ code: ["output.parse"], goto: "end" }],
+          switch: [{ goto: "end" }],
+        },
+      ],
+    },
+  });
+  expect(JSON.stringify(error)).toContain("no child of this task can raise");
+});
+
+// The conform runs per collected child, so the split covers the fan-out shapes too: one bad
+// element takes the whole batch to output.invalid rather than engine.collect.
+test("a child_map entry that fails its own narrowing reports output.invalid", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `oi_map_child_${uid}`;
+  const parent = `oi_map_${uid}`;
+  await putForwarder(child);
+
+  await client.PUT("/definitions", {
+    body: {
+      name: parent,
+      tasks: [
+        {
+          id: "call",
+          action: {
+            type: "child_map" as const,
+            children: {
+              // Each entry narrows on its own, so the failing one is the one that decides.
+              good: { name: child, input: { value: { ok: true } } },
+              bad: {
+                name: child,
+                input: { value: 42 },
+                result_schema: { type: "object", properties: { ok: { type: "boolean" } } },
+              },
+            },
+          },
+          on_error: [{ code: ["output.invalid"], goto: "$fallback" }],
+          switch: [{ goto: "end" }],
+        },
+        { id: "fallback", output: { code: "$: error.code" }, switch: [{ goto: "end" }] },
+      ],
+      output: "$: outputs.fallback",
+    },
+  });
+
+  const { data: started } = await client.POST("/instances", { body: { process: parent } });
+  expect(await waitForInstance(started!.id)).toBe("completed");
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  expect((data?.context?.output as any)?.code).toBe("output.invalid");
+});
+
+test("a child_list element that fails the narrowing reports output.invalid", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `oi_list_child_${uid}`;
+  const parent = `oi_list_${uid}`;
+  await putForwarder(child);
+
+  await client.PUT("/definitions", {
+    body: {
+      name: parent,
+      tasks: [
+        {
+          id: "call",
+          action: {
+            type: "child_list" as const,
+            name: child,
+            over: '$: [{"value": 1}, {"value": 2}]',
+            result_schema: { type: "object", properties: { ok: { type: "boolean" } } },
+          },
+          on_error: [{ code: ["output.invalid"], goto: "$fallback" }],
+          switch: [{ goto: "end" }],
+        },
+        { id: "fallback", output: { code: "$: error.code" }, switch: [{ goto: "end" }] },
+      ],
+      output: "$: outputs.fallback",
+    },
+  });
+
+  const { data: started } = await client.POST("/instances", { body: { process: parent } });
+  expect(await waitForInstance(started!.id)).toBe("completed");
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  expect((data?.context?.output as any)?.code).toBe("output.invalid");
+});

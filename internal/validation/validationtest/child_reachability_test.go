@@ -232,29 +232,3 @@ func TestR5_CoexistsWithInputCheck(t *testing.T) {
 	}
 }
 
-// A child task's catchable set is raises(D) ∪ {output.invalid}: the conform that narrows an
-// open child output can fail with both definitions consistent, so the rule that reacts to it
-// must register. specs/error-extensions.md §X2-c.
-func TestR5_OutputInvalidIsCatchableOnAChildTask(t *testing.T) {
-	getter := stubGetter{"charge-card": raisingChild("charge-card", "card_declined")}
-	def := childActionParent("charge-card", []model.ErrorCase{
-		{Code: []string{"output.invalid"}, Goto: model.GotoEnd},
-	})
-	if err := def.Normalize(); err != nil {
-		t.Fatalf("normalize: %v", err)
-	}
-	assertValidateOK(t, def, getter)
-}
-
-// Only that one dotted code: the rest of the engine's namespace still cannot reach a child
-// task, so naming one is the same typo R5 exists to catch.
-func TestR5_OtherEngineCodesStillUnreachableOnAChildTask(t *testing.T) {
-	getter := stubGetter{"charge-card": raisingChild("charge-card", "card_declined")}
-	def := childActionParent("charge-card", []model.ErrorCase{
-		{Code: []string{"output.parse"}, Goto: model.GotoEnd},
-	})
-	if err := def.Normalize(); err != nil {
-		t.Fatalf("normalize: %v", err)
-	}
-	assertValidateErr(t, def, getter, `no child of this task can raise a code matching "output.parse"`)
-}

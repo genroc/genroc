@@ -127,12 +127,14 @@ const everySlotDoc = `{"name":"total",
    "output":{"n":"$: 1"},"switch":"next"},
   {"id":"hold","action":{"type":"delay","until":"+1d 08:00"},"switch":"next"},
   {"id":"work","action":{"type":"child","name":"kid","version":1,"input":{"seed":"$: 1"},
-             "result_schema":{"type":"object","properties":{"id":{"type":"string"}}}},
+             "result_schema":{"type":"object","properties":{"id":{"type":"string"}}},
+             "raises":{"declined":{"type":"object","properties":{"why":{"type":"string"}}}}},
    "switch":"next"},
   {"id":"each","action":{"type":"child_list","name":"kid","over":"$: [1, 2]"},"switch":"next"},
   {"id":"fan","action":{"type":"child_map","children":{
              "a":{"name":"kid","version":1,"input":{"seed":"$: 1"},
-                  "result_schema":{"type":"object","properties":{"id":{"type":"string"}}}},
+                  "result_schema":{"type":"object","properties":{"id":{"type":"string"}}},
+                  "raises":{"declined":{"type":"object","properties":{"why":{"type":"string"}}}}},
              "b":{"name":"kid"}}},
    "switch":"end"}]}`
 
@@ -189,6 +191,18 @@ func TestChangedSlots_EveryDifferentDocumentIsReported(t *testing.T) {
 		{"a bodyless status added", func(d *model.ProcessDefinition) {
 			d.Tasks[0].Action.Responses["202"] = nil
 		}},
+		{"action.raises", func(d *model.ProcessDefinition) { delete(d.Tasks[3].Action.Raises, "declined") }},
+		{"a raises schema", func(d *model.ProcessDefinition) {
+			d.Tasks[3].Action.Raises["declined"] = &schema.Schema{}
+		}},
+		{"a code declared where none was", func(d *model.ProcessDefinition) {
+			d.Tasks[3].Action.Raises["expired"] = &schema.Schema{}
+		}},
+		{"a child_map key's raises", func(d *model.ProcessDefinition) {
+			entry := d.Tasks[5].Action.Children["a"]
+			entry.Raises = nil
+			d.Tasks[5].Action.Children["a"] = entry
+		}},
 		{"action.for", func(d *model.ProcessDefinition) { d.Tasks[1].Action.For = "2h" }},
 		{"action.tz", func(d *model.ProcessDefinition) { d.Tasks[1].Action.TZ = "Europe/Prague" }},
 		{"action.until", func(d *model.ProcessDefinition) { d.Tasks[2].Action.Until = "+2d 08:00" }},
@@ -232,7 +246,10 @@ func TestChangedSlots_NothingDiffersAgainstItself(t *testing.T) {
 		Action: &model.Action{
 			Type: model.ActionTypeChildMap,
 			Children: map[string]model.ChildEntry{
-				"a": {Name: "one"}, "b": {Name: "two"}, "c": {Name: "three"},
+				"a": {Name: "one", Raises: model.Raises{
+					"declined": &schema.Schema{}, "expired": &schema.Schema{}, "bounced": &schema.Schema{},
+				}},
+				"b": {Name: "two"}, "c": {Name: "three"},
 			},
 		},
 		Timeout:  model.TimeoutFor("5s"),

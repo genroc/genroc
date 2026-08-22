@@ -293,3 +293,379 @@ test("a code only some child_map entries declare is nullable; declared by all, i
   const { error: fullErr } = await client.PUT("/definitions", { body: def(`raises_full_${uid}`, true) });
   expect(fullErr, "with every entry covered the same read is sound").toBeUndefined();
 });
+
+// The slot refuses three things it cannot mean. Each is a decision with a message that has
+// to point somewhere: null at "omit or {}", a wrong action type at the child family, a dotted
+// key at the fact that no engine code carries a declared payload.
+test("raises refuses null, a non-child action, and a code that is not one", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `raises_refuse_child_${uid}`;
+  await putDecliner(child, { decline_code: "51", retry_after: 3600 });
+
+  async function refused(suffix: string, action: unknown, expected: string) {
+    const { error } = await client.PUT("/definitions", {
+      body: {
+        name: `raises_refuse_${suffix}_${uid}`,
+        tasks: [{ id: "pay", action: action as never, switch: [{ goto: "end" }] }],
+      },
+    });
+    expect(JSON.stringify(error), `${suffix} must be refused with its own message`).toContain(expected);
+  }
+
+  await refused(
+    "null",
+    { type: "child", name: child, raises: { card_declined: null } },
+    "null is not a declaration",
+  );
+  await refused(
+    "fetch",
+    { type: "fetch", url: "http://localhost:1/x", raises: { card_declined: {} } },
+    "only valid on a child",
+  );
+  await refused(
+    "dotted",
+    { type: "child", name: child, raises: { "output.invalid": {} } },
+    "is not a raise code",
+  );
+});
+
+// The third declaration state: {} is the top type — present, forwardable whole, and not
+// readable field by field until something restates its shape.
+test("{} exposes the payload opaquely: forwardable, but a field read is refused", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `raises_open_child_${uid}`;
+  await putDecliner(child, { decline_code: "51", retry_after: 3600 });
+
+  const def = (name: string, output: Record<string, string>) => ({
+    name,
+    tasks: [
+      {
+        id: "pay",
+        action: { type: "child" as const, name: child, raises: { card_declined: {} } },
+        on_error: [{ code: ["card_declined"], goto: "$carry" }],
+        switch: [{ goto: "end" }],
+      },
+      { id: "carry", output, switch: [{ goto: "end" }] },
+    ],
+    output: "$: outputs.carry",
+  });
+
+  const { error: fieldErr } = await client.PUT("/definitions", {
+    body: def(`raises_open_field_${uid}`, { why: "$: error.data.decline_code" }),
+  });
+  expect(JSON.stringify(fieldErr), "the top type is carried, never read").toBeTruthy();
+  expect(fieldErr).toBeDefined();
+
+  const whole = `raises_open_whole_${uid}`;
+  const { error: wholeErr } = await client.PUT("/definitions", {
+    body: def(whole, { payload: "$: error.data" }),
+  });
+  expect(wholeErr).toBeUndefined();
+
+  const { data: started } = await client.POST("/instances", { body: { process: whole } });
+  expect(await waitForInstance(started!.id)).toBe("completed");
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  expect((data?.context?.output as any)?.payload).toEqual({ decline_code: "51", retry_after: 3600 });
+});
+
+// The conform NORMALIZES, exactly as result_schema does on the success path: the caller sees
+// the shape it declared, not whatever the child happened to attach.
+test("the payload is conformed, not passed through: extras dropped, defaults filled", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `raises_norm_child_${uid}`;
+  await putDecliner(child, { decline_code: "51", retry_after: 3600, note: "chatty" });
+
+  const name = `raises_norm_${uid}`;
+  const { error: putErr } = await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: "pay",
+          action: {
+            type: "child" as const,
+            name: child,
+            // `note` is undeclared and must be dropped; `channel` is declared with a default
+            // the child never sent, and must appear.
+            raises: {
+              card_declined: {
+                type: "object",
+                properties: {
+                  decline_code: { type: "string" },
+                  channel: { type: "string", default: "unknown" },
+                },
+              },
+            },
+          },
+          on_error: [{ code: ["card_declined"], goto: "$carry" }],
+          switch: [{ goto: "end" }],
+        },
+        { id: "carry", output: { seen: "$: error.data" }, switch: [{ goto: "end" }] },
+      ],
+      output: "$: outputs.carry",
+    },
+  });
+  expect(putErr).toBeUndefined();
+
+  const { data: started } = await client.POST("/instances", { body: { process: name } });
+  expect(await waitForInstance(started!.id)).toBe("completed");
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  expect((data?.context?.output as any)?.seen).toEqual({ decline_code: "51", channel: "unknown" });
+});
+
+// child_list declares on the action (one process for every element), and the first raised
+// slot in index order is the one whose payload crosses.
+test("child_list declares on the action, and the first raised slot's payload crosses", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `raises_list_child_${uid}`;
+  await putDecliner(child, { decline_code: "51", retry_after: 3600 });
+
+  const name = `raises_list_${uid}`;
+  const { error: putErr } = await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: "pay",
+          action: {
+            type: "child_list" as const,
+            name: child,
+            over: "$: [1, 2]",
+            raises: { card_declined: DECLINE_SHAPE },
+          },
+          on_error: [{ code: ["card_declined"], goto: "$backoff" }],
+          switch: [{ goto: "end" }],
+        },
+        {
+          id: "backoff",
+          output: { slot: "$: error.child_index", why: "$: error.data.decline_code" },
+          switch: [{ goto: "end" }],
+        },
+      ],
+      output: "$: outputs.backoff",
+    },
+  });
+  expect(putErr).toBeUndefined();
+
+  const { data: started } = await client.POST("/instances", { body: { process: name } });
+  expect(await waitForInstance(started!.id)).toBe("completed");
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  expect(data?.context?.output).toEqual({ slot: 0, why: "51" });
+});
+
+// A declaration is an ordinary schema document, so it may name a shared definition — which
+// means the process pool has to be baked into it before inference embeds it in a context.
+test("a raises schema may be a $ref into the process $defs", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `raises_ref_child_${uid}`;
+  await putDecliner(child, { decline_code: "51", retry_after: 3600 });
+
+  const name = `raises_ref_${uid}`;
+  const { error: putErr } = await client.PUT("/definitions", {
+    body: {
+      name,
+      $defs: { decline: DECLINE_SHAPE },
+      tasks: [
+        {
+          id: "pay",
+          action: {
+            type: "child" as const,
+            name: child,
+            raises: { card_declined: { $ref: "#/$defs/decline" } },
+          },
+          on_error: [{ code: ["card_declined"], goto: "$backoff" }],
+          switch: [{ goto: "end" }],
+        },
+        { id: "backoff", output: { wait: "$: error.data.retry_after" }, switch: [{ goto: "end" }] },
+      ],
+      output: "$: outputs.backoff",
+    },
+  });
+  expect(putErr).toBeUndefined();
+
+  const { data: started } = await client.POST("/instances", { body: { process: name } });
+  expect(await waitForInstance(started!.id)).toBe("completed");
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  expect(data?.context?.output).toEqual({ wait: 3600 });
+});
+
+// Past the 2 KiB inline cutoff the payload lives in the object store, so crossing to the
+// parent means resolving it before the conform — the path a stack trace actually takes.
+test("a payload past the inline cutoff externalizes and still crosses whole", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `raises_big_child_${uid}`;
+  const blob = "S".repeat(8 * 1024);
+  await putDecliner(child, { decline_code: "51", retry_after: 3600, trace: blob });
+
+  const name = `raises_big_${uid}`;
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: "pay",
+          action: {
+            type: "child" as const,
+            name: child,
+            raises: {
+              card_declined: { type: "object", properties: { trace: { type: "string" } }, required: ["trace"] },
+            },
+          },
+          on_error: [{ code: ["card_declined"], goto: "$keep" }],
+          switch: [{ goto: "end" }],
+        },
+        { id: "keep", output: { trace: "$: error.data.trace" }, switch: [{ goto: "end" }] },
+      ],
+      output: "$: outputs.keep",
+    },
+  });
+
+  const { data: started } = await client.POST("/instances", { body: { process: name } });
+  expect(await waitForInstance(started!.id)).toBe("completed");
+
+  // The proof that the object store was involved is on the CHILD's row, where the payload was
+  // written: error.data is enveloped alone, so past the cutoff it reads as a {ref, size}
+  // marker until something asks for it.
+  const { data: lazy } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  const childId = (lazy?.context as any)?._children?.pay as string;
+  const { data: kid } = await client.GET("/instances/{id}", { params: { path: { id: childId } } });
+  const marker = (kid?.context?.error as any)?.data;
+  expect(marker?.ref, "8 KiB is past the 2 KiB cutoff, so the payload must be externalized").toBeTruthy();
+
+  const { data } = await client.GET("/instances/{id}", {
+    params: { path: { id: started!.id }, query: { resolve: true } },
+  });
+  expect((data?.context?.output as any)?.trace).toBe(blob);
+});
+
+// A wildcard reaches codes no key declares, so it admits null even where every code it
+// happens to match is declared — the raise set belongs to another definition.
+test("a wildcard rule widens the type to admit null; the literal does not", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `raises_wild_child_${uid}`;
+  await putDecliner(child, { decline_code: "51", retry_after: 3600 });
+
+  const def = (name: string, code: string) => ({
+    name,
+    tasks: [
+      {
+        id: "pay",
+        action: { type: "child" as const, name: child, raises: { card_declined: DECLINE_SHAPE } },
+        on_error: [{ code: [code], goto: "$explain" }],
+        switch: [{ goto: "end" }],
+      },
+      {
+        id: "explain",
+        switch: [
+          { case: "true", raise: { code: "gave_up", message: "declined: ${error.data.decline_code}" } },
+          { goto: "end" },
+        ],
+      },
+    ],
+  });
+
+  const { error: wildErr } = await client.PUT("/definitions", { body: def(`raises_wild_${uid}`, "card_%") });
+  expect(JSON.stringify(wildErr), "a wildcard can reach a code nothing declares").toContain("may be null");
+
+  const { error: litErr } = await client.PUT("/definitions", { body: def(`raises_lit_${uid}`, "card_declined") });
+  expect(litErr, "the declared literal is exactly covered").toBeUndefined();
+});
+
+// checkDeclaredRaises is the error-channel member of the child/parent compatibility family
+// (input subset, output narrowing, R5 reachability), so it has to hold on every shape that
+// family covers — and on the one code kind that is never raisable.
+test("a declaration is checked against the raise set on every child shape", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `raises_shape_child_${uid}`;
+  await putDecliner(child, { decline_code: "51", retry_after: 3600 });
+
+  const cases: [string, Record<string, unknown>][] = [
+    ["map", { type: "child_map", children: { a: { name: child, raises: { card_expired: DECLINE_SHAPE } } } }],
+    ["list", { type: "child_list", name: child, over: "$: [1]", raises: { card_expired: DECLINE_SHAPE } }],
+  ];
+  for (const [label, action] of cases) {
+    const { error } = await client.PUT("/definitions", {
+      body: {
+        name: `raises_shape_${label}_${uid}`,
+        tasks: [{ id: "pay", action: action as never, switch: [{ goto: "end" }] }],
+      },
+    });
+    expect(JSON.stringify(error), `${label} must check its own declarations`).toContain("never raises");
+  }
+});
+
+// A panic code is excluded from raises(D) by construction, so no declaration can ever apply
+// to one: nothing catches a panic, and its payload reaches an operator only.
+test("a panic-only code cannot be declared — nothing can ever catch it", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `raises_panic_child_${uid}`;
+  await client.PUT("/definitions", {
+    body: {
+      name: child,
+      tasks: [
+        {
+          id: "check",
+          switch: [
+            { case: "true", panic: { code: "script_broken", message: "broken", data: { kind: "syntax" } } },
+            { goto: "end" },
+          ],
+        },
+      ],
+    },
+  });
+
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name: `raises_panic_parent_${uid}`,
+      tasks: [
+        {
+          id: "run",
+          action: { type: "child" as const, name: child, raises: { script_broken: { type: "object" } } },
+          switch: [{ goto: "end" }],
+        },
+      ],
+    },
+  });
+  expect(JSON.stringify(error), "a panic code is not in the raise set").toContain("never raises");
+});
+
+// A self-reference resolves to the definition being registered, so its own raise set is what
+// a declaration on it is checked against — the raises analogue of R5 terminating on itself.
+test("a self-referencing call checks declarations against the definition being registered", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const name = `raises_self_${uid}`;
+  const def = (code: string) => ({
+    name,
+    input_schema: { type: "object", properties: { depth: { type: "integer" } } },
+    tasks: [
+      // The guard is the entry task: it raises at depth, and everything else routes from it.
+      {
+        id: "guard",
+        switch: [
+          {
+            case: "(input.depth ?? 0) > 3",
+            raise: { code: "too_deep", message: "too deep", data: { decline_code: "d", retry_after: 1 } },
+          },
+          { goto: "next" },
+        ],
+      },
+      {
+        id: "recurse",
+        action: {
+          type: "child" as const,
+          name,
+          input: { depth: "$: (input.depth ?? 0) + 1" },
+          raises: { [code]: DECLINE_SHAPE },
+        },
+        on_error: [{ code: ["too_deep"], goto: "end" }],
+        switch: [{ goto: "end" }],
+      },
+    ],
+  });
+
+  const { error: ok } = await client.PUT("/definitions", { body: def("too_deep") });
+  expect(ok, "the code this definition raises is declarable on a call to itself").toBeUndefined();
+
+  const { error: typo } = await client.PUT("/definitions", { body: def("too_shallow") });
+  expect(JSON.stringify(typo)).toContain("never raises");
+});
