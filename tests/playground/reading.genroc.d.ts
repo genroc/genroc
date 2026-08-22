@@ -2,6 +2,12 @@
 // weather-logger / reading  (/tasks/2/action/input/code)
 
 export type location_output = geo_response;
+export type reading = {
+  condition: string;
+  summary: string;
+  temperature_c: number;
+  time: string;
+};
 export type geo_response = {
   country?: string;
   latitude: number;
@@ -13,4 +19,4 @@ export type Input = {
   geo: location_output;
 };
 
-export type Output = unknown;
+export type Output = reading;

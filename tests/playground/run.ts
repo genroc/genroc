@@ -9,8 +9,8 @@
 // before the string exists. `genctl types -f script.yaml -f process.yaml` regenerates the
 // declarations on their own, which is what an editor wants between applies.
 //
-// Each reading is printed by the evaluator, not here: the script logs it. This prints only
-// the process's own output once it finishes.
+// Each reading is printed by the evaluator, not here: the script logs it. This prints the
+// process's own output once it finishes - the count and the last reading it kept.
 //
 // Usage: bun run playground:run [ticks] [place]
 
@@ -61,8 +61,8 @@ const { data } = await client.GET("/instances/{id}", {
 console.log(`\n${started!.id} → ${status}`);
 if (status === "completed") {
   const out = data?.context?.output as ProcessOutput | undefined;
-  console.log(`${out?.readings} reading(s)`);
-  console.log(out?.summary);
+  console.log(`${out?.readings} reading(s) of ${out?.place}`);
+  console.log(out?.last?.summary);
 } else {
   // The script's own error detail stays inside the child instance; what crosses the
   // boundary is a CODE, which is the whole point of the child's throws clause.

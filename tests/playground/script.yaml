@@ -41,8 +41,8 @@ tasks:
       - code: ["http.422"]
         goto: $failed
       - raise:
-          code: 'engine_not_available'
-          message: error.message
+          code: engine_not_available
+          message: "${error.message}"
     switch:
       - goto: end
 

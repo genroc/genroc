@@ -1,11 +1,9 @@
 // Emits TypeScript types for process.yaml, from the schemas genroc INFERRED — so the types
 // follow the definition rather than being asserted beside it.
 //
-// For a script task the useful type is the script's own signature: `input` as the body
-// hands it over, and the task output as the definition reads it back. That is what the
-// spec's type generator is for; the half that is missing is the import directive, so the
-// code still lives inline in the YAML and these types are editor reference, not a check.
-// See specs/script-tasks.md.
+// This is the CALLER's view: ProcessInput/ProcessOutput as an API client sees them over
+// the wire. The script author's view - `Input`/`Output` for each `$import`ed .ts - comes
+// from `genctl types` instead, and is typechecked at apply. See specs/script-tasks.md.
 //
 // Requires the genroc server to be running (genctl validate calls it).
 //
@@ -23,7 +21,10 @@ import { spawnSync } from "node:child_process";
 const dir = join(import.meta.dirname, "generated");
 const opts = { bannerComment: "", additionalProperties: false };
 const repoRoot = join(import.meta.dirname, "../..");
-const processYaml = join(import.meta.dirname, "process.yaml");
+const PROCESS = "weather-logger";
+// script.yaml travels along because weather-logger names it: validation resolves the child
+// against the files on the command line before it falls back to the server.
+const yamls = ["script.yaml", "process.yaml"].map((f) => join(import.meta.dirname, f));
 
 function toPascalCase(s: string): string {
   return s
@@ -34,7 +35,14 @@ function toPascalCase(s: string): string {
 
 const result = spawnSync(
   "go",
-  ["run", "./cmd/genctl", "validate", "--server", "http://localhost:8888", "-f", processYaml],
+  [
+    "run",
+    "./cmd/genctl",
+    "validate",
+    "--server",
+    "http://localhost:8888",
+    ...yamls.flatMap((f) => ["-f", f]),
+  ],
   { cwd: repoRoot, encoding: "utf8" },
 );
 
@@ -45,13 +53,17 @@ if (result.status !== 0) {
 type Ref = { $ref: string };
 type TaskEntry = { input?: Ref; output?: Ref; action_type: string };
 type SchemaFile = {
+  process: string;
   process_input?: Ref;
   process_output?: Ref;
   tasks?: Record<string, TaskEntry>;
   $defs?: Record<string, object>;
 };
 
-const schemaFile = (JSON.parse(result.stdout) as SchemaFile[])[0];
+const schemaFile = (JSON.parse(result.stdout) as SchemaFile[]).find(
+  (s) => s.process === PROCESS,
+);
+if (!schemaFile) throw new Error(`no schemas for ${PROCESS}`);
 const { process_input: processInput, process_output: processOutput, tasks = {}, $defs: defs = {} } = schemaFile;
 
 await writeFile(join(dir, "schema.json"), JSON.stringify(schemaFile, null, 2) + "\n");
@@ -68,9 +80,9 @@ function withDefs(s: object): object {
   return { ...s, $defs: defs };
 }
 
-// A script task is a fetch whose body is {code, input}. Detected by that shape rather than
-// declared, because nothing in the definition marks one — which is the whole design: the
-// engine has no script action type. See bun-runtime/README.md.
+// A script task is a child call whose input is {code, input}. Detected by that shape rather
+// than declared, because nothing in the definition marks one — which is the whole design:
+// the engine has no script action type. See bun-runtime/README.md.
 function scriptInput(taskInput: Record<string, any> | undefined): object | undefined {
   const props = taskInput?.properties;
   if (props?.code?.type !== "string" || !props?.input) return undefined;

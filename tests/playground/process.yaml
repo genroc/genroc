@@ -9,7 +9,6 @@ input_schema:
       default: 0
       description: "how many measurements to do; 0 = run forever"
 tasks:
-  # script for getting the location
   - id: location
     action:
       type: child
@@ -28,7 +27,6 @@ tasks:
     action:
       type: delay
       until: "*:*:0/10"
-      tz: "Europe/Prague"
     switch: next
 
   # The whole measurement, as a child call. The code lives in reading.ts
@@ -38,17 +36,30 @@ tasks:
       name: script
       input:
         code: "$import: ./reading.ts"
+        # The script's own budget. script.yaml waits 30s on top of it, so an overrun
+        # arrives here as script_timeout rather than an unknowable http.timeout.
         timeout_ms: 20000
         input:
           geo: "$: outputs.location"
+      result_schema:
+        $ref: "#/$defs/reading"
     output:
       count: "$: (self.previous.count ?? 0) + 1"
+      last: "$: self.result"
     on_error:
-      - goto: $wait
+      # A refusal from the sky is a reason to look again at the next window. Anything else
+      # (the evaluator gone, a broken script) is not, and travels on up.
+      - code: ["script_threw", "script_timeout"]
+        goto: $wait
     switch:
       - case: "input.ticks > 0 && self.output.count >= input.ticks"
         goto: end
       - goto: $wait
+
+output:
+  place: "$: outputs.location.name"
+  readings: "$: outputs.reading.count"
+  last: "$: outputs.reading.last"
 
 $defs:
   geo_response:
@@ -59,3 +70,12 @@ $defs:
       name: { type: string }
       country: { type: string }
     required: [latitude, longitude, name]
+
+  reading:
+    type: object
+    properties:
+      time: { type: string }
+      condition: { type: string }
+      temperature_c: { type: number }
+      summary: { type: string }
+    required: [time, condition, temperature_c, summary]

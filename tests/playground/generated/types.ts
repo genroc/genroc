@@ -3,35 +3,46 @@
 
 export interface ProcessInput {
   place?: string;
-  script_url?: string;
   /**
-   * kolik mereni udelat; 0 = bezet donekonecna
+   * how many measurements to do; 0 = run forever
    */
   ticks?: number;
 }
 
 export interface ProcessOutput {
-  condition: string;
-  place: null | string;
+  last: Reading;
+  place: string;
   readings: number;
+}
+export interface Reading {
+  condition: string;
   summary: string;
   temperature_c: number;
   time: string;
 }
 
-export interface GeocodeOutput {
-  label: null | string;
-  lat: null | number;
-  lon: null | number;
+export interface LocationInput {
+  place: string;
+}
+
+export interface LocationOutput {
+  country?: string;
+  latitude: number;
+  longitude: number;
+  name: string;
 }
 
 export interface ReadingInput {
-  geo: GeocodeOutput;
+  geo: GeoResponse;
 }
+export interface GeoResponse {
+  country?: string;
+  latitude: number;
+  longitude: number;
+  name: string;
+}
+
 export interface ReadingOutput {
-  condition: string;
   count: number;
-  summary: string;
-  temperature_c: number;
-  time: string;
+  last: Reading;
 }

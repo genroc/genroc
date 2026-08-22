@@ -7,13 +7,13 @@
     "$ref": "#/$defs/output"
   },
   "tasks": {
-    "geocode": {
-      "action_type": "fetch",
+    "location": {
+      "action_type": "child",
       "input": {
-        "type": "object"
+        "$ref": "#/$defs/location_input"
       },
       "output": {
-        "$ref": "#/$defs/geocode_output"
+        "$ref": "#/$defs/location_output"
       }
     },
     "reading": {
@@ -27,32 +27,26 @@
     }
   },
   "$defs": {
-    "geocode_output": {
+    "geo_response": {
       "type": "object",
       "properties": {
-        "label": {
-          "type": [
-            "null",
-            "string"
-          ]
+        "country": {
+          "type": "string"
         },
-        "lat": {
-          "type": [
-            "null",
-            "number"
-          ]
+        "latitude": {
+          "type": "number"
         },
-        "lon": {
-          "type": [
-            "null",
-            "number"
-          ]
+        "longitude": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
         }
       },
       "required": [
-        "label",
-        "lat",
-        "lon"
+        "latitude",
+        "longitude",
+        "name"
       ]
     },
     "input": {
@@ -62,31 +56,64 @@
           "type": "string",
           "default": "Praha"
         },
-        "script_url": {
-          "type": "string",
-          "default": "http://localhost:3010"
-        },
         "ticks": {
           "type": "integer",
-          "description": "kolik mereni udelat; 0 = bezet donekonecna",
+          "description": "how many measurements to do; 0 = run forever",
           "default": 0
         }
       }
     },
+    "location_input": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "input": {
+          "type": "object",
+          "properties": {
+            "place": {
+              "type": "string",
+              "default": "Praha"
+            }
+          },
+          "required": [
+            "place"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "input"
+      ]
+    },
+    "location_output": {
+      "$ref": "#/$defs/geo_response"
+    },
     "output": {
+      "type": "object",
+      "properties": {
+        "last": {
+          "$ref": "#/$defs/reading"
+        },
+        "place": {
+          "type": "string"
+        },
+        "readings": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "last",
+        "place",
+        "readings"
+      ]
+    },
+    "reading": {
       "type": "object",
       "properties": {
         "condition": {
           "type": "string"
-        },
-        "place": {
-          "type": [
-            "null",
-            "string"
-          ]
-        },
-        "readings": {
-          "type": "integer"
         },
         "summary": {
           "type": "string"
@@ -99,12 +126,10 @@
         }
       },
       "required": [
+        "time",
         "condition",
-        "place",
-        "readings",
-        "summary",
         "temperature_c",
-        "time"
+        "summary"
       ]
     },
     "reading_input": {
@@ -117,16 +142,12 @@
           "type": "object",
           "properties": {
             "geo": {
-              "$ref": "#/$defs/geocode_output"
+              "$ref": "#/$defs/location_output"
             }
           },
           "required": [
             "geo"
           ]
-        },
-        "runner_url": {
-          "type": "string",
-          "default": "http://localhost:3010"
         },
         "timeout_ms": {
           "type": "integer"
@@ -135,35 +156,22 @@
       "required": [
         "code",
         "input",
-        "runner_url",
         "timeout_ms"
       ]
     },
     "reading_output": {
       "type": "object",
       "properties": {
-        "condition": {
-          "type": "string"
-        },
         "count": {
           "type": "integer"
         },
-        "summary": {
-          "type": "string"
-        },
-        "temperature_c": {
-          "type": "number"
-        },
-        "time": {
-          "type": "string"
+        "last": {
+          "$ref": "#/$defs/reading"
         }
       },
       "required": [
-        "condition",
         "count",
-        "summary",
-        "temperature_c",
-        "time"
+        "last"
       ]
     }
   }
