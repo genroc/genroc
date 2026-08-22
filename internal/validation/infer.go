@@ -44,7 +44,11 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			hasFor := isDelay && s.Action.For != nil
 			hasUntil := isDelay && s.Action.Until != nil
 			hasTimeout := !s.Timeout.IsZero()
-			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout {
+			hasRetry := false
+			for _, ec := range s.OnError {
+				hasRetry = hasRetry || !ec.Retry.IsZero()
+			}
+			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout || hasRetry {
 				ctx := contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID]).WithDefs(defs)
 				// The child_list `over` expression must be a non-null array; each
 				// element becomes one child's input. Type-check it here so a malformed or
@@ -72,6 +76,13 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				// same way — a literal against the grammar, a $: expression to a number.
 				if hasTimeout {
 					if err := checkTimeout(&s.Timeout, ctx, s.ID); err != nil {
+						return err
+					}
+				}
+				// A retry policy's slots are the same syntactic split as a delay's: a literal
+				// was checked by the decoder, a $: expression is type-checked here.
+				if hasRetry {
+					if err := checkRetrySlots(s, ctx); err != nil {
 						return err
 					}
 				}
@@ -351,6 +362,37 @@ func checkTimeout(t *model.Timeout, ctx schema.Schema, taskID string) error {
 		return checkDelaySlot(t.For, ctx, taskID, "timeout", "for")
 	}
 	return checkDelaySlot(t.Until, ctx, taskID, "timeout", "until")
+}
+
+// checkRetrySlots type-checks the $: slots of every on_error retry policy. The engine
+// reduces the whole policy to numbers when the rule fires, so every slot must infer to one;
+// the bounds (attempts whole and non-negative, factor >= 1, max_delay >= delay) can only be
+// judged then, and Retry.Resolve judges them.
+func checkRetrySlots(s *model.Task, ctx schema.Schema) error {
+	for i, ec := range s.OnError {
+		slots := []struct{ name, expr string }{
+			{"attempts", ec.Retry.Attempts.Expr()},
+			{"delay", ec.Retry.Delay.Expr()},
+			{"factor", ec.Retry.Factor.Expr()},
+			{"max_delay", ec.Retry.MaxDelay.Expr()},
+		}
+		for _, slot := range slots {
+			if slot.expr == "" {
+				continue
+			}
+			label := fmt.Sprintf("task %q on_error[%d] retry.%s", s.ID, i, slot.name)
+			shp := shape.Shape{Raw: slot.expr, Schema: &delaySchema, Name: label}
+			_, err := shp.CheckWith(ctx, shape.CheckHooks{
+				Result: func(inferred, _ schema.Schema) error {
+					return fmt.Errorf("%s must evaluate to a number, got %q", label, inferred.TypeName())
+				},
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // checkDelayLiteral parses a pure literal at registration, so a typo fails when the

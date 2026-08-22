@@ -80,7 +80,10 @@ func TestRetryDelay_ImmediateRetriesOverridesAnAuthoredCurve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseRetryDuration: %v", err)
 	}
-	policy := model.Retry{Attempts: 3, Delay: hour}
+	policy, err := model.Retry{Attempts: model.RetryCount(3), Delay: hour}.Resolve(nil)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
 
 	if got := (&Engine{immediateRetries: true}).retryDelay(1, policy); got != 0 {
 		t.Fatalf("with immediate retries the delay is %v, want 0", got)
@@ -93,10 +96,13 @@ func TestRetryDelay_ImmediateRetriesOverridesAnAuthoredCurve(t *testing.T) {
 // An unset slot must read as its default, not as its zero value: a zero base is a hot retry
 // loop and a zero ceiling clamps every wait to nothing.
 func TestRetryDefaults_ApplyPerSlot(t *testing.T) {
-	only := model.Retry{Attempts: 3}
-	if only.Base() != model.DefaultRetryDelay || only.Growth() != model.DefaultRetryFactor || only.Ceiling() != model.DefaultRetryMaxDelay {
+	only, err := model.Retry{Attempts: model.RetryCount(3)}.Resolve(nil)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if only.Base != model.DefaultRetryDelay || only.Factor != model.DefaultRetryFactor || only.Ceiling != model.DefaultRetryMaxDelay {
 		t.Fatalf("bare attempts resolved to %v/%v/%v, want the default curve %v/%v/%v",
-			only.Base(), only.Growth(), only.Ceiling(),
+			only.Base, only.Factor, only.Ceiling,
 			model.DefaultRetryDelay, model.DefaultRetryFactor, model.DefaultRetryMaxDelay)
 	}
 
@@ -104,9 +110,12 @@ func TestRetryDefaults_ApplyPerSlot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseRetryDuration: %v", err)
 	}
-	slow := model.Retry{Attempts: 3, Delay: hour}
-	if slow.Ceiling() != time.Hour {
+	slow, err := model.Retry{Attempts: model.RetryCount(3), Delay: hour}.Resolve(nil)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if slow.Ceiling != time.Hour {
 		t.Fatalf("delay 1h with no max_delay resolved to ceiling %v; the 5m default would clamp the "+
-			"only slot the author set back to 5m", slow.Ceiling())
+			"only slot the author set back to 5m", slow.Ceiling)
 	}
 }

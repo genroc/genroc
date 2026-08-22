@@ -2,7 +2,9 @@
 
 Status: **implemented (2026-08-02).** An `on_error` rule's `retries: N` became
 `retry: {attempts, delay, factor, max_delay}`, with `retry: 3` as the scalar shorthand.
-Line numbers and behaviour are as of that date.
+Line numbers and behaviour are as of that date. **Every slot also accepts a `$:`
+expression (2026-08-22)** — see §"Expression-valued slots" below, which supersedes the
+first bullet of "What was deliberately left out".
 
 ## What was wrong with a count
 
@@ -77,6 +79,41 @@ Decisions worth recording, since each had a cheaper alternative:
   was never an option: a dropped key leaves a rule that still matches and still routes,
   and only never retries.
 
+## Expression-valued slots
+
+Every slot — `attempts`, `delay`, `factor`, `max_delay` — accepts a `$:` expression
+alongside its literal form:
+
+```yaml
+on_error:
+  - code: [pre.error, pre.timeout]
+    retry:
+      attempts: "$: config.retry_attempts"
+      delay: "$: config.retry_delay_ms"
+```
+
+**The classification is syntactic, decided at decode**, the same split `DelaySpec` makes:
+a bare number is the literal, a `$:` leaf is an expression, and a `${ }` interpolation is
+refused by name because it produces a string. A quoted number stays refused too — the one
+string form a numeric slot takes is an expression.
+
+Three consequences, each of which is a way this goes silently wrong:
+
+- **A slot has no value at registration, so its bounds move to runtime.** `validateRetry`
+  guards every check on `IsExpr()`, and `Retry.Resolve` repeats all of them with the same
+  wording. Anything checked in only one of the two places is a bound config can walk past.
+- **A policy resolves once per error, before it is consulted, and a resolution failure
+  fails the instance.** Falling through instead would turn an unreadable policy into "no
+  retries" — the author's attempt budget vanishing with nothing reporting it.
+- **An expression `attempts` counts as retries for the `only_once` tiers.** Its value is
+  unknown at registration and the conservative reading is the one that keeps the tiers in
+  force; the runtime half (`isRetryAllowed`) gates by code regardless.
+
+A retry expression is evaluated *before* `error` is written to the context, so it cannot
+read the error it is retrying — only `input`, `outputs`, and `config`. This is not a
+restriction anyone asked to lift: the policy answers "how long do we wait for this
+dependency", which is a property of the deployment, not of the individual failure.
+
 ## What was deliberately left out
 
 - **`jitter`**, as a strategy or a factor. It is always on, always in the upper half, and
@@ -84,9 +121,13 @@ Decisions worth recording, since each had a cheaper alternative:
 - **A wall-clock budget** (`retry_for: 10m`, or `until:`). The right unit conceptually,
   but it collides with pause/resume (does a 10-minute budget survive a two-day pause?)
   and with the per-attempt `timeout`. Real design work, deferred until asked for.
-- **Expression-valued delays**, and with them the `Retry-After` case — a server saying
-  when to come back. This is the frontier, and it
-  is **not blocked on retry config**: it needs response headers, string-literal indexing,
-  and a seconds→ms conversion, all listed in
-  [fetch-http-surface.md](fetch-http-surface.md). Built now it would be inert. When those
-  land, `delay` is the slot it goes in.
+- **`Retry-After`** — a server saying when to come back. Still the frontier: it needs
+  response headers, string-literal indexing, and a seconds→ms conversion, all listed in
+  [fetch-http-surface.md](fetch-http-surface.md). Expression-valued slots (below) are the
+  syntax it will use; what is missing is the value to put in them.
+
+  This deferral once covered expression-valued slots as a whole, on the reasoning that
+  they existed *for* `Retry-After`. That turned out to be wrong: the case that arrived
+  first was a curve that has to differ per environment — a Kubernetes cold start is
+  minutes, a laptop is seconds — and it needs nothing from the HTTP surface, because
+  `config` is already resolved every tick and already in scope.

@@ -9,11 +9,11 @@ import (
 
 // retryDelay returns how long to park before retry number `attempt` (1-based, so the first
 // retry waits the policy's base delay exactly).
-func (e *Engine) retryDelay(attempt int, r model.Retry) time.Duration {
+func (e *Engine) retryDelay(attempt int, r model.ResolvedRetry) time.Duration {
 	if e.immediateRetries {
 		return 0
 	}
-	return backoff(attempt, r.Base(), r.Growth(), r.Ceiling())
+	return backoff(attempt, r.Base, r.Factor, r.Ceiling)
 }
 
 // backoff grows base by factor, clamps at ceiling, then jitters within the upper half.

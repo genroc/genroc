@@ -61,7 +61,7 @@ wake-up, so both decode to the same `DelaySpec` (`for` / `until` / `tz`) and sha
 An `on_error` rule's `retry` is `{attempts, delay, factor, max_delay}`, with the scalar
 `retry: 3` desugaring to `{attempts: 3}`. Design and the survey behind the field set:
 [specs/retry-policy.md](../../specs/retry-policy.md). The curve itself is
-[internal/engine/CLAUDE.md](../engine/CLAUDE.md). Four things that break silently:
+[internal/engine/CLAUDE.md](../engine/CLAUDE.md). Five things that break silently:
 
 1. **The pre-policy `retries` key must stay in `ruleFieldHints`.** It is the one rename in
    this rule that is invisible when dropped: unknown keys are refused, but without the hint
@@ -77,6 +77,11 @@ An `on_error` rule's `retry` is `{attempts, delay, factor, max_delay}`, with the
    until a timezone and a start instant fix it.
 4. **Nothing may embed `Retry`.** Same trap as `DelaySpec`: an `UnmarshalJSON` on an
    embedded struct is promoted to the outer type and silently swallows the whole object.
+5. **Every slot also accepts a `$:` expression, so no slot may be read for its number.**
+   `Retry.Resolve` is the only reader; the `Literal()` accessors exist for the static
+   checks and every one of them is guarded by `IsExpr()`. A bound enforced only in
+   `validateRetry` is a bound config walks past at runtime, so `Resolve` repeats each one
+   — same wording, so a wrong curve reads the same whichever half caught it.
 
 ## Pointers
 

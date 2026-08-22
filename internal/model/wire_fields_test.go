@@ -77,7 +77,7 @@ func TestRuleDecode_KnownFieldsSurvive(t *testing.T) {
 		`{"code": ["http.409"], "retry": 2, "goto": "$handler", "not_reached": true}`)); err != nil {
 		t.Fatalf("on_error: %v", err)
 	}
-	if len(ec.Code) != 1 || ec.Retry.Attempts != 2 || ec.Goto != "handler" || ec.NotReached == nil || !*ec.NotReached {
+	if len(ec.Code) != 1 || ec.Retry.Attempts.Literal() != 2 || ec.Goto != "handler" || ec.NotReached == nil || !*ec.NotReached {
 		t.Fatalf("on_error decoded to %+v", ec)
 	}
 	if err := (&ErrorCase{}).UnmarshalJSON([]byte(

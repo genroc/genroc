@@ -13,6 +13,14 @@ config_schema:
   type: object
   properties:
     runner_url: { type: string, default: "http://localhost:3010" }
+    # How long to keep trying an evaluator that is not answering yet. The defaults suit a
+    # local runner; a deployment where the evaluator is a pod wants minutes, because a cold
+    # start that pulls an image looks exactly like an evaluator that is gone.
+    # GENROC_SCRIPT_RETRY_ATTEMPTS=8 GENROC_SCRIPT_RETRY_MAX_DELAY_MS=60000
+    retry_attempts: { type: integer, default: 4 }
+    retry_delay_ms: { type: integer, default: 1000 }
+    retry_factor: { type: number, default: 3 }
+    retry_max_delay_ms: { type: integer, default: 30000 }
 input_schema:
   type: object
   properties:
@@ -40,9 +48,33 @@ tasks:
     on_error:
       - code: ["http.422"]
         goto: $failed
-      - raise:
+      # Nothing ran — the request never left, or a gateway refused on the backend's behalf.
+      # Only a spent budget makes "not available" true, which is what lets a caller fail on
+      # it rather than loop. The curve is config so it can outlast a cold start.
+      #
+      # Retrying a 5xx trades on the evaluator being idempotent: from here an ingress
+      # refusing for a dead backend and the app itself answering 503 look identical.
+      - code: [pre.error, pre.timeout, http.502, http.503, http.504]
+        retry:
+          attempts: "$: config.retry_attempts"
+          delay: "$: config.retry_delay_ms"
+          factor: "$: config.retry_factor"
+          max_delay: "$: config.retry_max_delay_ms"
+        raise:
           code: engine_not_available
-          message: "${error.message}"
+          message: "no answer from the evaluator: ${error.message}"
+      # The request left and nothing came back. Whether the script ran is unknowable, so
+      # this is never retried here — only a caller knows whether a rerun is safe.
+      - code: [http.timeout, http.disconnected]
+        raise:
+          code: script_unknown
+          message: "the evaluator stopped answering; the script may have run: ${error.message}"
+      # The runner answers 200 or 422 and nothing else (bun-runtime/server.ts). A 404, a 500
+      # or an unparseable body is our own deployment broken, not a condition to react to.
+      # The gateway statuses above are caught first, so this arm never sees them.
+      - panic:
+          code: engine_broken
+          message: "the evaluator broke its contract (${error.code}): ${error.message}"
     switch:
       - goto: end
 

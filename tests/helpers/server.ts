@@ -77,6 +77,9 @@ function spawnProc(
       GENROC_GLOBAL_ENDPOINT_URL: "http://localhost:14101",
       // A secret config value for the API-redaction test.
       GENROC_GLOBAL_API_KEY: "supersecret-api-key",
+      // Retry policy driven from the environment (retry_policy_test). The schema default
+      // is 0, so a run that retries at all proves the env value reached the curve.
+      GENROC_GLOBAL_E2E_RETRY_ATTEMPTS: "2",
     },
   });
 }

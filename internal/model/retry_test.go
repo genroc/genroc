@@ -2,10 +2,15 @@ package model
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 )
+
+// noEval is the evaluator an all-literal policy must never reach: doing so means a slot was
+// misclassified as an expression.
+func noEval(string) (any, error) { return nil, errors.New("no expression slot expected") }
 
 // SaveDefinition stores json.Marshal of the decoded struct, so whatever these produce is
 // what every later reader — and every later decode — sees.
@@ -84,8 +89,8 @@ func TestRetry_RejectsIncoherentPolicies(t *testing.T) {
 		{"quoted attempts", `"3"`, "quoted"},
 		{"boolean", `true`, "must be a number of attempts or an object"},
 		{"array", `[]`, "must be a number of attempts or an object"},
-		{"non-scalar duration", `{"attempts":3,"delay":{}}`, "expected a duration string or a number"},
-		{"boolean duration", `{"attempts":3,"delay":true}`, "expected a duration string or a number"},
+		{"non-scalar duration", `{"attempts":3,"delay":{}}`, "expected a duration string, a number of milliseconds, or a $: expression"},
+		{"boolean duration", `{"attempts":3,"delay":true}`, "expected a duration string, a number of milliseconds, or a $: expression"},
 		{"fractional milliseconds", `{"attempts":3,"delay":1.5}`, "whole number of milliseconds"},
 	}
 	for _, tt := range tests {
@@ -157,7 +162,7 @@ func TestValidateRetry_RejectsIncoherentCombinations(t *testing.T) {
 	}{
 		{
 			name:    "ceiling below the base",
-			retry:   Retry{Attempts: 3, Delay: mustDur("10m"), MaxDelay: mustDur("30s")},
+			retry:   Retry{Attempts: RetryCount(3), Delay: mustDur("10m"), MaxDelay: mustDur("30s")},
 			wantErr: "shorter than retry.delay",
 		},
 		{
@@ -169,12 +174,12 @@ func TestValidateRetry_RejectsIncoherentCombinations(t *testing.T) {
 		// them here — which is the whole reason this check is duplicated at registration.
 		{
 			name:    "negative attempts",
-			retry:   Retry{Attempts: -1},
+			retry:   Retry{Attempts: RetryCount(-1)},
 			wantErr: "must not be negative",
 		},
 		{
 			name:    "shrinking factor",
-			retry:   Retry{Attempts: 3, Factor: 0.5},
+			retry:   Retry{Attempts: RetryCount(3), Factor: RetryNumber{n: 0.5}},
 			wantErr: "shrink the wait",
 		},
 	}
@@ -193,11 +198,171 @@ func TestValidateRetry_RejectsIncoherentCombinations(t *testing.T) {
 	// The pairing is only rejected when both slots are authored: an explicit delay above
 	// the *default* ceiling widens the ceiling instead (Retry.Ceiling), which is what keeps
 	// a lone `delay` from being silently clamped back.
-	ok := Retry{Attempts: 3, Delay: mustDur("1h")}
+	ok := Retry{Attempts: RetryCount(3), Delay: mustDur("1h")}
 	if err := validateRetry(ok, "call", "on_error[0]"); err != nil {
 		t.Fatalf("a delay longer than the default ceiling must be legal on its own: %v", err)
 	}
-	if ok.Ceiling() != time.Hour {
-		t.Fatalf("ceiling = %v, want 1h", ok.Ceiling())
+	resolved, err := ok.Resolve(noEval)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if resolved.Ceiling != time.Hour {
+		t.Fatalf("ceiling = %v, want 1h", resolved.Ceiling)
+	}
+}
+
+// A "$:" slot has no value at registration, so the decoder must keep it as a source rather
+// than coercing it to a number — a slot that decoded to 0 is a policy that never retries.
+func TestRetry_DecodesExpressionSlots(t *testing.T) {
+	var r Retry
+	src := `{"attempts":"$: config.retry_attempts","delay":"$: config.retry_delay_ms","factor":"$: config.retry_factor","max_delay":"$: config.retry_max_delay_ms"}`
+	if err := json.Unmarshal([]byte(src), &r); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, slot := range []struct {
+		name   string
+		isExpr bool
+		expr   string
+	}{
+		{"attempts", r.Attempts.IsExpr(), r.Attempts.Expr()},
+		{"delay", r.Delay.IsExpr(), r.Delay.Expr()},
+		{"factor", r.Factor.IsExpr(), r.Factor.Expr()},
+		{"max_delay", r.MaxDelay.IsExpr(), r.MaxDelay.Expr()},
+	} {
+		if !slot.isExpr {
+			t.Fatalf("%s decoded as a literal; an unresolved slot reads as 0, which is a policy that never retries", slot.name)
+		}
+		if !strings.HasPrefix(slot.expr, "$:") {
+			t.Fatalf("%s kept %q, want the $: source", slot.name, slot.expr)
+		}
+	}
+	if r.IsZero() {
+		t.Fatal("an all-expression policy reads as absent, so validateOnError would skip every check on it")
+	}
+
+	// SaveDefinition stores the marshalled struct: an expression that did not round-trip
+	// would be re-read as a literal or lost outright.
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var back Retry
+	if err := json.Unmarshal(out, &back); err != nil {
+		t.Fatalf("re-decode %s: %v", out, err)
+	}
+	if back.Attempts.Expr() != "$: config.retry_attempts" || back.Delay.Expr() != "$: config.retry_delay_ms" {
+		t.Fatalf("round-trip lost the sources: %s", out)
+	}
+}
+
+// "${ }" produces a string at runtime, so it is refused by name in every numeric slot —
+// the same failure the delay grammar removes.
+func TestRetry_RejectsInterpolationAndLiteralStrings(t *testing.T) {
+	for _, tt := range []struct{ name, src, want string }{
+		{"interpolated attempts", `{"attempts":"${ config.n }"}`, "not a number"},
+		{"interpolated factor", `{"attempts":2,"factor":"${ config.f }"}`, "not a number"},
+		{"quoted number", `{"attempts":"3"}`, "not a number"},
+		{"scalar shorthand cannot be an expression", `"$: config.n"`, "the attempt count is a bare number"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var r Retry
+			err := json.Unmarshal([]byte(tt.src), &r)
+			if err == nil {
+				t.Fatalf("accepted %s as %+v", tt.src, r)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error %q does not contain %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// Resolve is where an expression slot is finally judged, so it must repeat every bound
+// validateRetry applies to a literal — otherwise config supplies what the grammar refuses.
+func TestRetry_ResolveAppliesBoundsAndDefaults(t *testing.T) {
+	expr := func(src string) Retry {
+		var r Retry
+		if err := json.Unmarshal([]byte(src), &r); err != nil {
+			t.Fatalf("decode %s: %v", src, err)
+		}
+		return r
+	}
+	eval := func(v any) func(string) (any, error) {
+		return func(string) (any, error) { return v, nil }
+	}
+
+	t.Run("an expression supplies the curve", func(t *testing.T) {
+		r := expr(`{"attempts":"$: config.n","delay":"$: config.d"}`)
+		got, err := r.Resolve(eval(json.Number("2500")))
+		if err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		if got.Attempts != 2500 || got.Base != 2500*time.Millisecond {
+			t.Fatalf("resolved to %+v, want attempts 2500 and a 2.5s base", got)
+		}
+		// An unset slot still defaults, exactly as it does for a literal policy.
+		if got.Factor != DefaultRetryFactor {
+			t.Fatalf("factor = %v, want the %v default", got.Factor, DefaultRetryFactor)
+		}
+	})
+
+	for _, tt := range []struct {
+		name, src string
+		val       any
+		want      string
+	}{
+		{"a fractional attempt count", `{"attempts":"$: config.n"}`, 2.5, "not a whole number of attempts"},
+		{"a negative attempt count", `{"attempts":"$: config.n"}`, -1, "must not be negative"},
+		{"a shrinking factor", `{"attempts":2,"factor":"$: config.f"}`, 0.5, "shrink the wait"},
+		{"a non-number", `{"attempts":"$: config.n"}`, "lots", "must evaluate to a number"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := expr(tt.src).Resolve(eval(tt.val))
+			if err == nil {
+				t.Fatalf("resolve accepted %v", tt.val)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error %q does not contain %q", err, tt.want)
+			}
+		})
+	}
+
+	// The pairing check has to survive both slots being expressions, since that is the one
+	// arrangement registration cannot judge at all.
+	both := expr(`{"attempts":2,"delay":"$: config.d","max_delay":"$: config.m"}`)
+	n := 0
+	_, err := both.Resolve(func(string) (any, error) {
+		n++
+		if n == 1 {
+			return 600000, nil // delay: 10m
+		}
+		return 30000, nil // max_delay: 30s
+	})
+	if err == nil || !strings.Contains(err.Error(), "shorter than retry.delay") {
+		t.Fatalf("a ceiling under the base resolved without complaint: %v", err)
+	}
+}
+
+// An expression cannot be read as an attempt count at registration, so the only_once tiers
+// must treat it as one — reading it as 0 would wave a catch-all rule straight through.
+func TestValidateOnError_ExpressionAttemptsKeepsOnlyOnceTiers(t *testing.T) {
+	var r Retry
+	if err := json.Unmarshal([]byte(`{"attempts":"$: config.n"}`), &r); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	yes := true
+	task := &Task{
+		ID:      "call",
+		Action:  &Action{Type: ActionTypeFetch, URL: "http://x"},
+		OnlyOnce: &yes,
+		OnError:  []ErrorCase{{Retry: r}},
+		Switch:   SwitchMap{{Goto: GotoEnd}},
+	}
+	err := validateOnError(task, map[string]struct{}{"call": {}})
+	if err == nil {
+		t.Fatal("a catch-all with expression-valued attempts was accepted on an only_once task")
+	}
+	if !strings.Contains(err.Error(), "catch-all rule cannot have retries") {
+		t.Fatalf("error %q is not the catch-all tier message", err)
 	}
 }

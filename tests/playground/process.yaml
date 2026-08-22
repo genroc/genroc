@@ -47,9 +47,10 @@ tasks:
       count: "$: (self.previous.count ?? 0) + 1"
       last: "$: self.result"
     on_error:
-      # A refusal from the sky is a reason to look again at the next window. Anything else
-      # (the evaluator gone, a broken script) is not, and travels on up.
-      - code: ["script_threw", "script_timeout"]
+      # A refusal from the sky is a reason to look again at the next window, and so is a
+      # reading that may or may not have happened — reading.ts pins nothing, so a rerun is
+      # free. engine_not_available means the child already retried, so it travels on up.
+      - code: ["script_threw", "script_timeout", "script_unknown"]
         goto: $wait
     switch:
       - case: "input.ticks > 0 && self.output.count >= input.ticks"

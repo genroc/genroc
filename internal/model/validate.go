@@ -238,21 +238,27 @@ func validateRetry(r Retry, taskID, where string) error {
 	if r.IsZero() {
 		return nil
 	}
-	if r.Attempts < 0 {
-		return fmt.Errorf("task %q %s: retry.attempts must not be negative", taskID, where)
+	// Every bound below is guarded on the slot being a literal: an expression has no value
+	// until the rule fires, so Retry.Resolve repeats each of these at runtime.
+	if !r.Attempts.IsExpr() {
+		if r.Attempts.Literal() < 0 {
+			return fmt.Errorf("task %q %s: retry.attempts must not be negative", taskID, where)
+		}
+		// A curve without attempts never runs. Refused rather than defaulted, because the
+		// alternative is an authored backoff that silently does nothing.
+		if r.Attempts.Literal() == 0 {
+			return fmt.Errorf("task %q %s: retry names a backoff but no attempts, so it would never retry; add attempts, or drop retry entirely", taskID, where)
+		}
 	}
-	// A curve without attempts never runs. Refused rather than defaulted, because the
-	// alternative is an authored backoff that silently does nothing.
-	if r.Attempts == 0 {
-		return fmt.Errorf("task %q %s: retry names a backoff but no attempts, so it would never retry; add attempts, or drop retry entirely", taskID, where)
-	}
-	if r.Factor != 0 && r.Factor < 1 {
-		return fmt.Errorf("task %q %s: retry.factor %g would shrink the wait after every attempt; use 1 for a constant delay", taskID, where, r.Factor)
+	if !r.Factor.IsExpr() && r.Factor.Literal() != 0 && r.Factor.Literal() < 1 {
+		return fmt.Errorf("task %q %s: retry.factor %g would shrink the wait after every attempt; use 1 for a constant delay", taskID, where, r.Factor.Literal())
 	}
 	// Checked against the authored slots, not against Ceiling(), which papers over exactly
 	// this by widening a default cap to fit the base.
-	if base, capped := r.Delay.Duration(), r.MaxDelay.Duration(); base > 0 && capped > 0 && capped < base {
-		return fmt.Errorf("task %q %s: retry.max_delay (%s) is shorter than retry.delay (%s), so the first wait would already be clamped and the delay never applied", taskID, where, capped, base)
+	if !r.Delay.IsExpr() && !r.MaxDelay.IsExpr() {
+		if base, capped := r.Delay.Duration(), r.MaxDelay.Duration(); base > 0 && capped > 0 && capped < base {
+			return fmt.Errorf("task %q %s: retry.max_delay (%s) is shorter than retry.delay (%s), so the first wait would already be clamped and the delay never applied", taskID, where, capped, base)
+		}
 	}
 	return nil
 }
@@ -386,7 +392,9 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 			return err
 		}
 
-		if onlyOnce && ec.Retry.Attempts > 0 {
+		// An expression-valued attempts counts as "retries": its value is unknown here, and
+		// the conservative reading is the one that keeps the tiers below in force.
+		if onlyOnce && (ec.Retry.Attempts.IsExpr() || ec.Retry.Attempts.Literal() > 0) {
 			notReached := ec.NotReached != nil && *ec.NotReached
 			if len(ec.Code) == 0 {
 				return fmt.Errorf("task %q %s: a catch-all rule cannot have retries on an only_once task; restrict it to pre.%% patterns, or add not_reached:true and name the exact codes that are safe to retry", s.ID, where)

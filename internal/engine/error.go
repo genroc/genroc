@@ -68,16 +68,31 @@ func (e *Engine) handleCallError(inst *model.ProcessInstance, task *model.Task, 
 func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Task, errMsg string, errCode errcode.Code, extra map[string]any) advanceOutcome {
 	matched := matchOnError(task, errCode)
 
-	if matched != nil && inst.RetryCount < matched.Retry.Attempts && isRetryAllowed(task, errCode, matched) {
+	// Any slot of a policy may be a "$:" expression, so it is resolved before it is
+	// consulted. A resolution failure fails the instance rather than falling through: a
+	// policy that quietly became "no retries" is the attempt budget an author wrote
+	// vanishing with nothing reporting it.
+	var policy model.ResolvedRetry
+	if matched != nil && !matched.Retry.IsZero() {
+		resolved, err := matched.Retry.Resolve(func(expr string) (any, error) {
+			return e.evalShape(inst, shape.Shape{Raw: expr}, nil)
+		})
+		if err != nil {
+			return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q on_error: %v", task.ID, err))
+		}
+		policy = resolved
+	}
+
+	if inst.RetryCount < policy.Attempts && isRetryAllowed(task, errCode, matched) {
 		inst.RetryCount++
 		// A retry re-attempts the task without transitioning, so nothing else moves the
 		// epoch here -- and the next attempt is a new OCCURRENCE, which is what an external
 		// task's token has to be unique per (see runExternal). Making the epoch count
 		// attempts rather than only entries is what lets the token be derived from it.
 		inst.TaskEpoch++
-		next := db.Now().Add(e.retryDelay(inst.RetryCount, matched.Retry))
+		next := db.Now().Add(e.retryDelay(inst.RetryCount, policy))
 		inst.WakeAt = &next
-		retryMsg := fmt.Sprintf("%s (attempt %d/%d)", errMsg, inst.RetryCount, matched.Retry.Attempts)
+		retryMsg := fmt.Sprintf("%s (attempt %d/%d)", errMsg, inst.RetryCount, policy.Attempts)
 		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: task.ID, Msg: retryMsg, Code: errCode})
 		return advanceOutcome{kind: outcomeUpdate}
 	}
