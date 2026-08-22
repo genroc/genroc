@@ -13,9 +13,4 @@ export type Input = {
   geo: location_output;
 };
 
-export type Output = {
-  condition: string;
-  summary: string;
-  temperature_c: number;
-  time: string;
-};
+export type Output = unknown;

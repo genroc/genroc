@@ -9,20 +9,13 @@
 # caller's concern; the caller narrows it with result_schema, which collect conforms against
 # the real output. See specs/unknown-type.md.
 name: script
-$defs:
-  # The 422 body from bun-runtime. Only this process needs to know it.
-  script_error:
-    type: object
-    properties:
-      kind: { type: string }
-      name: { type: string }
-      message: { type: string }
-      stack: { type: string }
-    required: [kind, name, message]
-input_schema:
+config_schema:
   type: object
   properties:
     runner_url: { type: string, default: "http://localhost:3010" }
+input_schema:
+  type: object
+  properties:
     code: { type: string }
     input:
       description: "opaque here — whatever the script reads, typed by whoever wrote it"
@@ -32,7 +25,7 @@ tasks:
   - id: eval
     action:
       type: fetch
-      url: "${ input.runner_url }/eval"
+      url: "${ config.runner_url }/eval"
       body:
         code: "$: input.code"
         input: "$: input.input"
@@ -47,6 +40,9 @@ tasks:
     on_error:
       - code: ["http.422"]
         goto: $failed
+      - raise:
+          code: 'engine_not_available'
+          message: error.message
     switch:
       - goto: end
 
@@ -77,3 +73,14 @@ tasks:
           message: "the script is broken (${error.data.kind}) - ${error.data.message}"
 
 output: "$: outputs.eval"
+
+$defs:
+  # The 422 body from bun-runtime. Only this process needs to know it.
+  script_error:
+    type: object
+    properties:
+      kind: { type: string }
+      name: { type: string }
+      message: { type: string }
+      stack: { type: string }
+    required: [kind, name, message]

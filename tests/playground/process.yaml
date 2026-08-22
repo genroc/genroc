@@ -3,12 +3,11 @@ name: weather-logger
 input_schema:
   type: object
   properties:
-    script_url: { type: string, default: "http://localhost:3010" }
     place: { type: string, default: "Praha" }
     ticks:
       type: integer
       default: 0
-      description: "kolik mereni udelat; 0 = bezet donekonecna"
+      description: "how many measurements to do; 0 = run forever"
 tasks:
   # script for getting the location
   - id: location
@@ -16,14 +15,13 @@ tasks:
       type: child
       name: script
       input:
-        runner_url: "$: input.script_url"
         code: "$import: ./location.ts"
         input:
           place: "$: input.place"
       result_schema:
         $ref: "#/$defs/geo_response"
     output: "$: self.result"
-    switch: $wait
+    switch: next
 
   # Parks the instance until the next whole 10 seconds, holding no worker.
   - id: wait
@@ -39,7 +37,6 @@ tasks:
       type: child
       name: script
       input:
-        runner_url: "$: input.script_url"
         code: "$import: ./reading.ts"
         timeout_ms: 20000
         input:
@@ -47,10 +44,7 @@ tasks:
     output:
       count: "$: (self.previous.count ?? 0) + 1"
     on_error:
-      - code: ["script_threw", "script_timeout"]
-        raise:
-          code: reading_failed
-          message: "no reading for ${outputs.location.name ?? input.place}: ${error.message}"
+      - goto: $wait
     switch:
       - case: "input.ticks > 0 && self.output.count >= input.ticks"
         goto: end

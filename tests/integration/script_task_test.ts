@@ -23,7 +23,7 @@ beforeAll(async () => {
   port = await new Promise<number>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("script runner did not report a port within 10s")), 10_000);
     runner.stdout!.on("data", (chunk: Buffer) => {
-      const m = chunk.toString().match(/localhost:(\d+)/);
+      const m = chunk.toString().match(/listening on http:\/\/\S+:(\d+)/);
       if (m) {
         clearTimeout(timer);
         resolve(Number(m[1]));

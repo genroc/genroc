@@ -11,6 +11,10 @@ which spends no engine capability at all. Moving between them is a definition-le
 
     PORT=3010 bun run bun-runtime/server.ts
 
+It binds **loopback only**. `POST /eval` is unauthenticated arbitrary code execution with the
+runner's full authority (see §"What this is not"), so reaching it from another host means
+deciding to — `HOST=0.0.0.0`, and only where the network already is the trust boundary.
+
 ## Request
 
 `POST /eval`

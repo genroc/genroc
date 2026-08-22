@@ -7,6 +7,10 @@
 import { evaluate, type EvalRequest, type EvalFailure } from "./eval.ts";
 
 const PORT = Number(process.env.PORT ?? 3010);
+// Loopback by default because /eval is unauthenticated arbitrary code execution with this
+// process's full filesystem, network and environment (README §"What this is not"). Bun's own
+// default is 0.0.0.0, so dropping `hostname` publishes that to every interface.
+const HOST = process.env.HOST ?? "127.0.0.1";
 const MAX_BODY_BYTES = 4 << 20;
 
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -46,6 +50,7 @@ async function handleEval(req: Request): Promise<Response> {
 }
 
 const server = Bun.serve({
+  hostname: HOST,
   port: PORT,
   // Never hang up on an idle connection. Bun's 10s default matched a caller polling every
   // 10s exactly, and each tick was a coin flip on whether the close raced the next request
@@ -76,4 +81,4 @@ const server = Bun.serve({
   },
 });
 
-console.log(`script runner listening on http://localhost:${server.port}`);
+console.log(`script runner listening on http://${server.hostname}:${server.port}`);
