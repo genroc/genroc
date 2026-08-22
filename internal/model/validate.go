@@ -114,6 +114,9 @@ func validateTask(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int, po
 	if err := validateResponses(s, pool); err != nil {
 		return err
 	}
+	if err := validateRaises(s, pool); err != nil {
+		return err
+	}
 	return validateActionSchemas(s, pool)
 }
 
@@ -207,8 +210,9 @@ var faultCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 // message points at the offending line without the author having to count.
 //
 // R2 (the code is a literal) needs no check here: no expression survives faultCodeRe. The
-// MESSAGE is a template, type-checked to a non-null string where its scope is known —
-// validation.checkMessageTemplate, not this package. See specs/child-error-handling.md R2.
+// MESSAGE and DATA are evaluated when the clause fires, so they are type-checked where
+// their scope is known — validation.checkFaultClauses, not this package. See
+// specs/child-error-handling.md R2.
 func validateFault(f *Fault, taskID, where, clause string) error {
 	if f == nil {
 		return nil
@@ -490,6 +494,72 @@ func sortedResponseKeys(m map[string]*schema.Schema) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// validateRaises places the `raises` slot exactly where result_schema sits: on the action for
+// child/child_list, on each entry for a child_map, whose entries can be different processes
+// with different payloads for one code. Whether the child can raise a declared code at all is
+// checked where the child is resolved (validation.checkDeclaredRaises).
+func validateRaises(s *Task, pool schema.Defs) error {
+	if s.Action == nil {
+		return nil
+	}
+	switch s.Action.Type {
+	case ActionTypeChild, ActionTypeChildList:
+	case ActionTypeChildMap:
+		if len(s.Action.Raises) > 0 {
+			return fmt.Errorf("task %q: action.raises is declared per entry on a child_map — move it under children[<key>].raises, beside that entry's result_schema", s.ID)
+		}
+	default:
+		if len(s.Action.Raises) > 0 {
+			return fmt.Errorf("task %q: action.raises is only valid on a child, child_map or child_list task — a %q task catches engine codes, which carry no declared payload", s.ID, s.Action.Type)
+		}
+		return nil
+	}
+	if err := checkRaisesDoc(fmt.Sprintf("task %q action.raises", s.ID), s.Action.Raises, pool); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(s.Action.Children))
+	for key := range s.Action.Children {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		where := fmt.Sprintf("task %q action.children[%q].raises", s.ID, key)
+		if err := checkRaisesDoc(where, s.Action.Children[key].Raises, pool); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkRaisesDoc validates one raises map: R1-shaped keys, a real schema document under each.
+// A null value is refused rather than read as "carries nothing" — omitting the key already
+// says that, while as a declaration it would fail the caller the day the child attaches one.
+func checkRaisesDoc(where string, r Raises, pool schema.Defs) error {
+	for _, code := range sortedRaiseCodes(r) {
+		if !faultCodeRe.MatchString(code) {
+			return fmt.Errorf("%s: %q is not a raise code — codes are lower_snake_case with no dots (dots are reserved for engine codes, and no engine code carries a declared payload)", where, code)
+		}
+		if r[code] == nil {
+			return fmt.Errorf("%s[%q]: null is not a declaration — omit the code to leave error.data absent, or declare {} to expose the payload for a rule to narrow", where, code)
+		}
+		if err := checkSchemaDoc(fmt.Sprintf("%s[%q]", where, code), r[code], pool); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sortedRaiseCodes orders the keys so a definition with two bad ones reports the same one
+// every run.
+func sortedRaiseCodes(r Raises) []string {
+	codes := make([]string, 0, len(r))
+	for code := range r {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	return codes
 }
 
 // validateActionSchemas checks that any attached result_schema documents (task-level and

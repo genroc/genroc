@@ -148,7 +148,7 @@ for a `child_map` — never from a copy taken at spawn. The schema used to be ma
 every child row as `_spawn_result_schema`; dropping it was the prerequisite for upgrading a
 live instance ([specs/version-compatibility.md](../../specs/version-compatibility.md) §5a).
 
-Two things that break silently if it goes back:
+Three things that break silently if it goes back:
 
 1. **The conform NORMALIZES**, stripping undeclared properties. A field added to a child's
    output and the parent's `result_schema` in one release would arrive stripped for
@@ -156,6 +156,10 @@ Two things that break silently if it goes back:
    declares it optional.
 2. **The external path already resolves its schema this way**, from the pinned definition
    when the result arrives. Two answers to one question is what let them drift.
+3. **`raisedData` is the same conform on the error channel** — a raised child's `data` against
+   the caller's `raises` — and carries the same rule, so both must move together. It runs
+   BEFORE the rules match, because a mismatch replaces the raised code with `output.invalid`;
+   matching first would route on a code the payload has already invalidated.
 
 ## Pointers
 

@@ -35,7 +35,15 @@ type ChildEntry struct {
 	Version      int            `json:"version,omitempty"       description:"Version to run; 0 means latest published version."`
 	Input        *Shape         `json:"input,omitempty"         description:"Templated value (a string expression or nested object of expressions) evaluated against the current context to build the child's input payload."`
 	ResultSchema *schema.Schema `json:"result_schema,omitempty" description:"JSON Schema to validate and expose this child's output. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it — the output is conformed against this schema when collected."`
+	Raises       Raises         `json:"raises,omitempty"        description:"Shapes this child's raised faults carry, keyed by raise code — the error channel's counterpart to result_schema. A declared code makes the fault's data readable as error.data in an on_error rule that catches it; an undeclared one leaves error.data absent. Use {} to expose it opaquely for a rule to narrow. The payload is conformed against this schema when the batch resolves; a mismatch reports output.invalid instead of the raised code."`
 }
+
+// Raises maps a raise code to the shape that code's fault data carries, declared by the
+// CALLER rather than the child — which is what keeps a generic child generic: it emits a
+// payload, and each caller says what it expects of it, exactly as result_schema narrows an
+// untyped output. A nil value is refused at registration; {} is the top type, and omitting a
+// code entirely is how you say you do not read it. specs/error-extensions.md §X2-c.
+type Raises map[string]*schema.Schema
 
 // Action describes how to invoke a task's action. It is a discriminated union on Type.
 //   - "fetch":      URL (required), Method (optional, default POST), Headers (optional),
@@ -43,12 +51,14 @@ type ChildEntry struct {
 //     like fetch(url, {method, headers, body}); every field is an expression/shape, so the
 //     whole request can come from the context. The body is sent raw (an object as JSON).
 //     A fetch has no ResultSchema: Responses types the body per status instead.
-//   - "child":      Name (required), Version (optional), Input (optional), ResultSchema (optional) —
+//   - "child":      Name (required), Version (optional), Input (optional), ResultSchema (optional),
+//     Raises (optional) —
 //     runs one named child process and waits for it; the result is that child's output directly
 //     (unwrapped), unlike child_map's keyed object. Use it when a task delegates to a single child.
 //   - "child_map":  Children (required, keyed map) — concurrent named child processes; the result is
 //     an object keyed by child name.
-//   - "child_list": Name (required), Over (required), Version (optional), ResultSchema (optional) —
+//   - "child_list": Name (required), Over (required), Version (optional), ResultSchema (optional),
+//     Raises (optional) —
 //     runs one child per element of the Over array; each element is that child's input, and the
 //     collected result is an array of the children's outputs in the same order as Over.
 //   - "delay":      exactly one of For / Until (required), TZ (optional) — pauses the instance
@@ -71,6 +81,12 @@ type ChildEntry struct {
 // ResultSchema (child/child_list/external): when set, the result is validated before the
 // instance resumes (the submitted result, for external). Without it the result is available
 // only as "self" in this task's switch.
+//
+// Raises (child/child_list; child_map declares it per entry): raise code -> schema for the
+// payload that code's fault carries. A declared code makes it readable as error.data in a rule
+// that catches the code, an undeclared one leaves the slot absent, and the payload is conformed
+// when the batch resolves — a mismatch reports output.invalid in place of the raised code.
+// See specs/error-extensions.md §X2-c.
 //
 // Responses (fetch only): status pattern -> schema for the body that status carries. A 2xx
 // key types self.result AND makes that status accepted; a non-2xx key types error.data and
@@ -100,6 +116,7 @@ type Action struct {
 	AcceptedStatus *Shape                    `json:"accepted_status,omitempty"` // fetch: a shape evaluating to an array of HTTP status patterns accepted as non-errors
 	Responses      map[string]*schema.Schema `json:"responses,omitempty"`       // fetch: status pattern -> body schema; a present key with a nil schema declares "no body"
 	ResultSchema   *schema.Schema            `json:"result_schema,omitempty"`   // child/child_list/external: validate & persist output
+	Raises         Raises                    `json:"raises,omitempty"`          // child/child_list: raise code -> the shape that code's fault data carries (child_map declares per entry)
 	Name           string                    `json:"name,omitempty"`            // child/child_list
 	Version        int                       `json:"version,omitempty"`         // child/child_list
 	Body           *Shape                    `json:"body,omitempty"`            // fetch: templated request body
@@ -241,7 +258,13 @@ var actionSchemaTemplate = `{
 					"name":          {"type": "string", "description": "Name of the child process to invoke."},
 					"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
 					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the child's input payload."},
-					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose the child's output. Without it the output is available only as self.result in this task's switch. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it, making it readable here; the collected output is conformed against this schema."}
+					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose the child's output. Without it the output is available only as self.result in this task's switch. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it, making it readable here; the collected output is conformed against this schema."},
+					"raises": {
+						"type": "object",
+						"description": "Raise code -> JSON Schema for the payload that code's fault carries — the error channel's counterpart to result_schema. A declared code makes the payload readable as error.data in an on_error rule that catches it; {} exposes it opaquely for a rule to narrow; omitting a code leaves error.data absent. The payload is conformed when the batch resolves, and a mismatch reports output.invalid instead of the raised code.",
+						"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+						"additionalProperties": {"type": "object", "additionalProperties": true}
+					}
 				},
 				"required": ["type", "name"],
 				"additionalProperties": false
@@ -260,7 +283,13 @@ var actionSchemaTemplate = `{
 								"name":          {"type": "string", "description": "Name of the child process to invoke."},
 								"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
 								"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the child's input payload."},
-								"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose this child's output. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it; the collected output is conformed against this schema."}
+								"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose this child's output. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it; the collected output is conformed against this schema."},
+								"raises": {
+									"type": "object",
+									"description": "Raise code -> JSON Schema for the payload that code's fault carries, for THIS entry — the error channel's counterpart to result_schema, declared per entry because entries can be different processes. A declared code makes the payload readable as error.data in an on_error rule that catches it; {} exposes it opaquely; omitting a code leaves error.data absent.",
+									"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+									"additionalProperties": {"type": "object", "additionalProperties": true}
+								}
 							},
 							"required": ["name"],
 							"additionalProperties": false
@@ -279,7 +308,13 @@ var actionSchemaTemplate = `{
 					"name":          {"type": "string", "description": "Name of the child process to invoke for every element."},
 					"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
 					"over":          {"type": "string", "description": "A $: expression evaluating to an array (e.g. \"$: input.items\"); the engine spawns one child per element, passing the element as that child's input. An empty array spawns no children and yields an empty-array result."},
-					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose EACH child's output. The collected result is an array of values conforming to this schema. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it, per element."}
+					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose EACH child's output. The collected result is an array of values conforming to this schema. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it, per element."},
+					"raises": {
+						"type": "object",
+						"description": "Raise code -> JSON Schema for the payload that code's fault carries — the error channel's counterpart to result_schema. A declared code makes the payload readable as error.data in an on_error rule that catches it; {} exposes it opaquely for a rule to narrow; omitting a code leaves error.data absent. The payload is conformed when the batch resolves, and a mismatch reports output.invalid instead of the raised code.",
+						"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+						"additionalProperties": {"type": "object", "additionalProperties": true}
+					}
 				},
 				"required": ["type", "name", "over"],
 				"additionalProperties": false
@@ -433,6 +468,9 @@ func (d *ProcessDefinition) Normalize() error {
 			}
 			s.Action.Responses[key] = normalized
 		}
+		if err := normalizeRaises(s.Action.Raises, norm, fmt.Sprintf("task %q action.raises", s.ID)); err != nil {
+			return err
+		}
 		if s.Action.Type == ActionTypeChildMap {
 			for key, entry := range s.Action.Children {
 				if entry.ResultSchema != nil {
@@ -444,7 +482,30 @@ func (d *ProcessDefinition) Normalize() error {
 					s.Action.Children[key] = entry
 				}
 			}
+			for key, entry := range s.Action.Children {
+				if err := normalizeRaises(entry.Raises, norm, fmt.Sprintf("task %q action.children[%q].raises", s.ID, key)); err != nil {
+					return err
+				}
+			}
 		}
+	}
+	return nil
+}
+
+// normalizeRaises bakes each declared payload schema self-contained, for the reason the
+// responses loop above gives: a `$ref` into the process pool resolves nowhere once inference
+// embeds the document in a task context. Maps are reference types, so writing back in place
+// updates the caller's map.
+func normalizeRaises(r Raises, norm func(*schema.Schema) (*schema.Schema, error), where string) error {
+	for code, sc := range r {
+		if sc == nil {
+			continue // refused at registration; nothing to bake
+		}
+		normalized, err := norm(sc)
+		if err != nil {
+			return fmt.Errorf("%s[%q]: %w", where, code, err)
+		}
+		r[code] = normalized
 	}
 	return nil
 }

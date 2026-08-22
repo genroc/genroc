@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -17,10 +18,26 @@ import (
 func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Task, raised []*model.ProcessInstance) advanceOutcome {
 	inst.WaitState = model.WaitStateNone
 	first := raised[0]
-	e.setBatchError(inst, task, first)
 	// A child's error_code arrives as a persisted string — it may be an authored raise
 	// code as easily as an engine one — so it is converted once, here, at the boundary.
 	raisedCode := errcode.Code(first.ErrorCode)
+
+	// The conform runs BEFORE the rules: a payload that does not satisfy what this call
+	// declared REPLACES the code, so a rule naming the raised code stops catching it — the
+	// fetch precedent, where a malformed declared body takes a 400 away from `http.4%`.
+	data, declared, err := e.raisedData(task, first, raisedCode)
+	if err != nil {
+		msg := fmt.Sprintf("child %q (%s) raised %q: %v",
+			first.ProcessName, childSlotLabel(first), first.ErrorCode, err)
+		var invalid outputInvalid
+		if errors.As(err, &invalid) {
+			return e.handleCallError(inst, task, msg, errcode.OutputInvalid)
+		}
+		// Not a lost bet: the payload could not be read at all, which is the same corruption
+		// the collect path reports rather than a shape the caller got wrong.
+		return e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %s", task.ID, msg))
+	}
+	e.setBatchError(inst, task, first, data, declared)
 	rule := matchOnError(task, raisedCode)
 
 	switch {
@@ -75,14 +92,19 @@ func raisedInSlotOrder(siblings []*model.ProcessInstance, task *model.Task) []*m
 	return raised
 }
 
-// setBatchError writes `error` for a routed batch: first raised child's identity, code,
-// message — no child data crosses (I6). child_key (string) and child_index (integer) are
-// separate single-typed fields so an expression never type-switches.
-func (e *Engine) setBatchError(inst *model.ProcessInstance, task *model.Task, first *model.ProcessInstance) {
+// setBatchError writes `error` for a routed batch: the first raised child's identity, code,
+// message, and its `data` where this call declared a shape for the code — key presence is
+// what says the payload is readable, so an undeclared code leaves the slot absent rather than
+// null (I6 as amended). child_key (string) and child_index (integer) are separate
+// single-typed fields so an expression never type-switches.
+func (e *Engine) setBatchError(inst *model.ProcessInstance, task *model.Task, first *model.ProcessInstance, data any, declared bool) {
 	errCtx := map[string]any{
 		"task":    task.ID,
 		"code":    first.ErrorCode,
 		"message": first.Error,
+	}
+	if declared {
+		errCtx["data"] = data
 	}
 	addChildSlot(errCtx, first)
 	inst.ContextData["error"] = errCtx
@@ -121,9 +143,10 @@ func spawnKey(child *model.ProcessInstance) string {
 	return key
 }
 
-// outputInvalid marks the one collect failure a caller may react to: a child output that
-// failed the result_schema this task narrowed it with — a lost bet, not a defect, since a
-// child exporting the open type states no shape to disagree with. specs/error-extensions.md §X2-c.
+// outputInvalid marks the collect failures a caller may react to: a value that failed a shape
+// THIS task declared for it — an output against result_schema, a raised fault's data against
+// raises. A lost bet, not a defect, since the child states no shape to disagree with. Every
+// other failure here is corruption and stays engine.collect. specs/error-extensions.md §X2-c.
 type outputInvalid struct{ error }
 
 // buildChildOutput merges a settled batch into self.result (map for child_map, array for
@@ -208,6 +231,44 @@ func (e *Engine) resolveAndValidateChildOutput(resultSchema *schema.Schema, chil
 		return nil, outputInvalid{fmt.Errorf("child process %q (%s) output validation: %v", child.ID, child.ProcessName, err)}
 	}
 	return normalized, nil
+}
+
+// raisedData conforms a raised child's payload against what THIS call declared for the code
+// under `raises` — the error channel's resolveAndValidateChildOutput, and read from the
+// parent's CURRENT task for the same reason. declared=false is how an undeclared code stays
+// unreadable: the slot is absent rather than null. specs/error-extensions.md §X2-c.
+func (e *Engine) raisedData(task *model.Task, child *model.ProcessInstance, code errcode.Code) (any, bool, error) {
+	sc := declaredRaiseSchema(task, child, string(code))
+	if sc == nil {
+		return nil, false, nil
+	}
+	raw, err := e.resolveValue(child, childFaultData(child))
+	if err != nil {
+		return nil, false, fmt.Errorf("resolving its data: %v", err)
+	}
+	normalized, err := sc.Validate(raw)
+	if err != nil {
+		return nil, false, outputInvalid{fmt.Errorf("data validation: %v", err)}
+	}
+	return normalized, true, nil
+}
+
+// declaredRaiseSchema reads the declaration for one code: a child_map declares per entry,
+// since its entries can be different processes, while child and child_list declare on the
+// action — the same split result_schema has.
+func declaredRaiseSchema(task *model.Task, child *model.ProcessInstance, code string) *schema.Schema {
+	if task.Action.Type == model.ActionTypeChildMap {
+		return task.Action.Children[spawnKey(child)].Raises[code]
+	}
+	return task.Action.Raises[code]
+}
+
+// childFaultData reads what the raise clause attached, which applyFaultData left on the
+// child's own error.data. A raise that attached nothing reads as nil, and a declared shape
+// that does not admit null reports the mismatch — the caller declared what it did not get.
+func childFaultData(child *model.ProcessInstance) any {
+	errCtx, _ := child.ContextData["error"].(map[string]any)
+	return errCtx["data"]
 }
 
 // spawnIndex reads a child's _spawn_index. It round-trips through JSON (engine_state),

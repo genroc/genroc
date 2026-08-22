@@ -1,6 +1,9 @@
 package validation
 
 import (
+	"sort"
+	"strings"
+
 	"genroc/internal/errcode"
 	"genroc/internal/model"
 	"genroc/internal/schema"
@@ -223,7 +226,13 @@ func ruleCatches(rule model.ErrorCase, code errcode.Code) bool {
 // statuses contributes only the null — there is no body on that path to type.
 func ruleErrorData(t *model.Task, rule model.ErrorCase, defs schema.Defs) ([]schema.Schema, bool, error) {
 	a := t.Action
-	if a == nil || a.Type != model.ActionTypeFetch || len(a.Responses) == 0 {
+	if a == nil {
+		return nil, true, nil
+	}
+	if a.Type != model.ActionTypeFetch {
+		return childRuleErrorData(a, rule, defs)
+	}
+	if len(a.Responses) == 0 {
 		return nil, true, nil
 	}
 	accepted, static := acceptedPatterns(a)
@@ -270,6 +279,102 @@ func ruleErrorData(t *model.Task, rule model.ErrorCase, defs schema.Defs) ([]sch
 		}
 	}
 	return arms, nullable, nil
+}
+
+// childRuleErrorData is ruleErrorData for a child task: the payload shapes the CALLER
+// declared under `raises` for the codes this rule can catch. Any other action type declares
+// nothing, so it contributes only the null.
+func childRuleErrorData(a *model.Action, rule model.ErrorCase, defs schema.Defs) ([]schema.Schema, bool, error) {
+	decl, partial := declaredRaises(a)
+	if len(decl) == 0 {
+		return nil, true, nil
+	}
+	var arms []schema.Schema
+	nullable := reachesUndeclaredCode(rule, decl)
+	for _, code := range sortedDeclaredCodes(decl) {
+		if !ruleCatches(rule, errcode.Code(code)) {
+			continue
+		}
+		// One entry of a child_map declaring a code says nothing about the entry that
+		// actually raised it: that one may declare no shape, and its payload is then absent
+		// at runtime. The arm admits null so the handler cannot read a slot that is not there.
+		nullable = nullable || partial[code]
+		for _, sc := range decl[code] {
+			merged, err := sc.MergeInto(defs)
+			if err != nil {
+				return nil, false, err
+			}
+			arms = append(arms, merged)
+		}
+	}
+	return arms, nullable, nil
+}
+
+// reachesUndeclaredCode: whether this rule can fire on a code no key declares, which is what
+// puts the null arm in. A wildcard counts even where the child happens to raise only declared
+// codes — the raise set belongs to another definition and is not read here, so the answer
+// stays conservative in the direction that costs a narrowing rather than a wrong type.
+// output.invalid is an undeclared literal like any other and falls out of the same rule.
+func reachesUndeclaredCode(rule model.ErrorCase, decl map[string][]*schema.Schema) bool {
+	if len(rule.Code) == 0 {
+		return true // the catch-all reaches everything
+	}
+	for _, p := range rule.Code {
+		if strings.ContainsRune(p, '%') || len(decl[p]) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// declaredRaises collects a child task's declarations, keyed by raise code, plus the codes
+// only SOME entries of a child_map declare: the entries can be different processes, so one
+// code's payload is whatever the entry that raised it declared — the type is the union over
+// them, and a gap in that cover is what `partial` reports.
+func declaredRaises(a *model.Action) (decl map[string][]*schema.Schema, partial map[string]bool) {
+	switch a.Type {
+	case model.ActionTypeChild, model.ActionTypeChildList:
+		if len(a.Raises) == 0 {
+			return nil, nil
+		}
+		decl = make(map[string][]*schema.Schema, len(a.Raises))
+		for code, sc := range a.Raises {
+			decl[code] = []*schema.Schema{sc}
+		}
+		return decl, nil
+	case model.ActionTypeChildMap:
+		decl, partial = map[string][]*schema.Schema{}, map[string]bool{}
+		keys := make([]string, 0, len(a.Children))
+		for key := range a.Children {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			entry := a.Children[key]
+			codes := make([]string, 0, len(entry.Raises))
+			for code := range entry.Raises {
+				codes = append(codes, code)
+			}
+			sort.Strings(codes)
+			for _, code := range codes {
+				decl[code] = append(decl[code], entry.Raises[code])
+			}
+		}
+		for code := range decl {
+			partial[code] = len(decl[code]) < len(a.Children)
+		}
+		return decl, partial
+	}
+	return nil, nil
+}
+
+func sortedDeclaredCodes(decl map[string][]*schema.Schema) []string {
+	codes := make([]string, 0, len(decl))
+	for code := range decl {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	return codes
 }
 
 // errorDataSchema types error.data at a task: the union over every on_error rule that can

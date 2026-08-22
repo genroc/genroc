@@ -43,19 +43,38 @@ tasks:
           geo: "$: outputs.location"
       result_schema:
         $ref: "#/$defs/reading"
+      # What this caller needs of a throw. `script` is generic and cannot mint a code for
+      # reading.ts's refusals (R2), so `name` would die at the process boundary; declaring the
+      # shape here is what carries it across, exactly as result_schema carries the output.
+      raises:
+        script_threw:
+          $ref: "#/$defs/script_throw"
     output:
       count: "$: (self.previous.count ?? 0) + 1"
       last: "$: self.result"
     on_error:
-      # A refusal from the sky is a reason to look again at the next window, and so is a
-      # reading that may or may not have happened — reading.ts pins nothing, so a rerun is
-      # free. engine_not_available means the child already retried, so it travels on up.
-      - code: ["script_threw", "script_timeout", "script_unknown"]
+      # A reading that may or may not have happened is a reason to look again at the next
+      # window — reading.ts pins nothing, so a rerun is free. engine_not_available means the
+      # child already retried, so it travels on up.
+      - code: ["script_timeout", "script_unknown"]
         goto: $wait
+      # A throw splits on which refusal it was, which is a value and not a code.
+      - code: ["script_threw"]
+        goto: $classify
     switch:
       - case: "input.ticks > 0 && self.output.count >= input.ticks"
         goto: end
       - goto: $wait
+
+  # The sky refusing is transient; anything else reading.ts throws is a bug in it, and
+  # looping on a bug would hide it forever behind a process that never finishes.
+  - id: classify
+    switch:
+      - case: 'error.data.name == "UpstreamError"'
+        goto: $wait
+      - panic:
+          code: reading_broken
+          message: "reading.ts threw ${error.data.name}: ${error.data.message}"
 
 output:
   place: "$: outputs.location.name"
@@ -63,6 +82,15 @@ output:
   last: "$: outputs.reading.last"
 
 $defs:
+  # Only the two fields this process reads: the conform narrows the forwarded payload to
+  # exactly what was declared, so kind and stack stay where they were produced.
+  script_throw:
+    type: object
+    properties:
+      name: { type: string }
+      message: { type: string }
+    required: [name, message]
+
   geo_response:
     type: object
     properties:

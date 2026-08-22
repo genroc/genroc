@@ -184,7 +184,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			// here rather than beside the code's shape rule in model.
 			for i := range s.Switch {
 				where := fmt.Sprintf("switch case %d", i)
-				if err := checkFaultMessages(s.Switch[i].Raise, s.Switch[i].Panic, switchCtx, s.ID, where); err != nil {
+				if err := checkFaultClauses(s.Switch[i].Raise, s.Switch[i].Panic, switchCtx, s.ID, where); err != nil {
 					return err
 				}
 			}
@@ -199,7 +199,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			ruleCtx := contextSchema(required[s.ID], optional[s.ID], taskSchemas,
 				processInput, configSchema, ruleErrAt(s, ec, defs)).WithDefs(defs)
 			where := fmt.Sprintf("on_error[%d]", i)
-			if err := checkFaultMessages(ec.Raise, ec.Panic, ruleCtx, s.ID, where); err != nil {
+			if err := checkFaultClauses(ec.Raise, ec.Panic, ruleCtx, s.ID, where); err != nil {
 				return err
 			}
 		}
@@ -266,9 +266,11 @@ func checkMessageTemplate(expr string, ctx schema.Schema, label string) error {
 	return err
 }
 
-// checkFaultMessages checks whichever of a clause's raise/panic is set. Ordered rather than
-// ranged over a map so a definition with both reports the same one every run.
-func checkFaultMessages(raise, panics *model.Fault, ctx schema.Schema, taskID, where string) error {
+// checkFaultClauses checks whichever of a clause's raise/panic is set: the message renders
+// to a non-null string, and `data` type-checks against the same scope — any type will do
+// there, since a caller declares the shape it expects. Ordered rather than ranged over a
+// map so a definition with both reports the same one every run.
+func checkFaultClauses(raise, panics *model.Fault, ctx schema.Schema, taskID, where string) error {
 	for _, c := range []struct {
 		name  string
 		fault *model.Fault
@@ -276,9 +278,16 @@ func checkFaultMessages(raise, panics *model.Fault, ctx schema.Schema, taskID, w
 		if c.fault == nil {
 			continue
 		}
-		label := fmt.Sprintf("task %q %s %s message", taskID, where, c.name)
-		if err := checkMessageTemplate(c.fault.Message, ctx, label); err != nil {
+		label := fmt.Sprintf("task %q %s %s", taskID, where, c.name)
+		if err := checkMessageTemplate(c.fault.Message, ctx, label+" message"); err != nil {
 			return err
+		}
+		if c.fault.Data.Present() {
+			data := *c.fault.Data
+			data.Name = label + " data"
+			if _, err := data.Check(ctx); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

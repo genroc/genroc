@@ -46,6 +46,7 @@ var actionSlots = []slot[*model.Action]{
 	{"action.input", "Input", func(a *model.Action) any { return a.Input }},
 	{"action.result_schema", "ResultSchema", func(a *model.Action) any { return a.ResultSchema }},
 	{"action.responses", "Responses", func(a *model.Action) any { return a.Responses }},
+	{"action.raises", "Raises", func(a *model.Action) any { return a.Raises }},
 	{"action.name", "Name", func(a *model.Action) any { return a.Name }},
 	{"action.version", "Version", func(a *model.Action) any { return a.Version }},
 	{"action.over", "Over", func(a *model.Action) any { return a.Over }},
@@ -62,6 +63,7 @@ var childEntrySlots = []slot[model.ChildEntry]{
 	{"version", "Version", func(c model.ChildEntry) any { return c.Version }},
 	{"input", "Input", func(c model.ChildEntry) any { return c.Input }},
 	{"result_schema", "ResultSchema", func(c model.ChildEntry) any { return c.ResultSchema }},
+	{"raises", "Raises", func(c model.ChildEntry) any { return c.Raises }},
 }
 
 // definitionSlots are the process-level slots. `config_schema` and `$defs` are here to be
@@ -134,7 +136,7 @@ func slotAffects(slot string) []Member {
 		return []Member{MemberUpgrade}
 	// Whether it is ALSO an upgrade concern depends on the action type rather than the slot,
 	// so that half is decided by the caller — see taskSlotAffects.
-	case "action.result_schema", "action.responses":
+	case "action.result_schema", "action.responses", "action.raises":
 		return []Member{MemberContract}
 	}
 	return nil
@@ -220,10 +222,11 @@ func changedChildKeySlots(old, new *model.Task) []SlotChange {
 }
 
 // childEntrySlotAffects is slotAffects for one key of a child_map, which always parks — so
-// its `result_schema` bears on both questions. The rest are judged by nothing: §2c has why a
-// key's `name` needs no rule, and a pinned `version` is the child's own row to report.
+// its `result_schema` and `raises` bear on both questions, each being a conform standing
+// between this caller and the child. The rest are judged by nothing: §2c has why a key's
+// `name` needs no rule, and a pinned `version` is the child's own row to report.
 func childEntrySlotAffects(slot string) []Member {
-	if slot == "result_schema" {
+	if slot == "result_schema" || slot == "raises" {
 		return []Member{MemberUpgrade, MemberContract}
 	}
 	return nil
@@ -234,11 +237,12 @@ func typeChanged(old, new *model.Task) bool {
 }
 
 // taskSlotAffects is slotAffects plus the one rule that depends on the action rather than the
-// slot: a result schema is ALSO an upgrade concern where the task can park mid-flight, since
+// slot: a schema the engine conforms a settled call against — `result_schema`, and `raises`
+// for the error channel — is ALSO an upgrade concern where the task can park mid-flight, since
 // the instance holds state the entry context does not describe (§2c).
 func taskSlotAffects(slot, actionType string) []Member {
 	affects := slotAffects(slot)
-	if slot == "action.result_schema" && parksMidTask(actionType) {
+	if (slot == "action.result_schema" || slot == "action.raises") && parksMidTask(actionType) {
 		affects = append([]Member{MemberUpgrade}, affects...)
 	}
 	return affects

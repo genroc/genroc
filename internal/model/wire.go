@@ -9,19 +9,20 @@ import (
 	"genroc/internal/shape"
 )
 
-// Fault is a terminal error: a machine-readable code and a human-readable message,
-// both static literals. Used by both `raise` and `panic` — they carry the same thing
-// for the same reasons and differ only in what they do, so one type serves both and
+// Fault is a terminal error: a machine-readable code, a human-readable message, and an
+// optional structured payload. Used by both `raise` and `panic` — they carry the same
+// thing for the same reasons and differ only in what they do, so one type serves both and
 // there is no pair of near-identical structs to drift apart. The distinction lives in
 // the field name at the use site (Raise / Panic), which is where a reader looks anyway.
 //
-// Both fields are literals, never expressions: a computed code would make a
-// definition's raise set uncomputable and error_code unqueryable, and a computed
-// message would smuggle data across a process boundary that this design exists to
-// keep closed. See specs/child-error-handling.md §2.1 and R2.
+// Only the CODE is a literal: a computed one would make a definition's raise set
+// uncomputable and error_code unqueryable. Message and Data are evaluated when the clause
+// fires, in the scope of the clause itself. See specs/child-error-handling.md §2.1 and R2,
+// and specs/error-extensions.md §X2-c for what a parent may read of Data.
 type Fault struct {
 	Code    string `json:"code"    validate:"required" description:"Error code, lower_snake_case, no dots (dots are reserved for engine-produced codes). A literal — never an expression."`
 	Message string `json:"message" validate:"required" description:"Human-readable message explaining the condition. A template: ${ } interpolations are rendered when the clause fires, and must produce a non-null string. Unlike the code, it is not required to be a literal."`
+	Data    *Shape `json:"data,omitempty" description:"Structured payload this fault carries: an expression, or an object of expressions, evaluated when the clause fires in the same scope as the message. It lands on this instance's error.data, which an operator reads on the instance detail and in logs. Omit to carry nothing — the slot is then cleared rather than left holding the error this instance caught."`
 }
 
 // SwitchCase is a single entry in a Task's switch list: a boolean expression

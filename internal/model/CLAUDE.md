@@ -83,6 +83,17 @@ An `on_error` rule's `retry` is `{attempts, delay, factor, max_delay}`, with the
    `validateRetry` is a bound config walks past at runtime, so `Resolve` repeats each one
    — same wording, so a wrong curve reads the same whichever half caught it.
 
+## A new `Action` or `ChildEntry` field needs three edits, and only one of them is loud
+
+The struct tag is the field. `Action.JSONSchemaBytes` is a hand-written discriminated union
+whose every variant sets `additionalProperties: false`, so a field missing from the variant it
+belongs to is **refused at the edge** by the editor schema and the OpenAPI blob while the Go
+struct accepts it — the failure lands nowhere near the change (specs/child-error-handling.md
+§7.2). The third is `validation/changedslots.go`, which is the loud one:
+`TestChangedSlots_EveryActionFieldIsReported` fails until the field is either a compat slot or
+in `notASlot` with its reason. `raises` is the worked example — it is on the child variants,
+the `child_map` entry, and both slot lists.
+
 ## Pointers
 
 - `Action` decoding of `delay` (`for` / `until`, no `DisallowUnknownFields`) —

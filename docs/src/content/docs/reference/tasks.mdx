@@ -70,8 +70,8 @@ The last case must be a catch-all, with `case` omitted.
 |---|---|
 | `case` | Expression selecting this arm. Omit on the final catch-all. |
 | `goto` | Task to route to: `$task-id` or `end`. |
-| `raise` | Terminate as `raised` with a `code` / `message`. |
-| `panic` | Terminate as `failed` with a `code` / `message`. |
+| `raise` | Terminate as `raised`. See [raise and panic](#raise-and-panic). |
+| `panic` | Terminate as `failed`. See [raise and panic](#raise-and-panic). |
 
 ```yaml
 switch:
@@ -174,6 +174,36 @@ on_error:
 ```
 
 Not supported on child tasks — retry inside the child, then raise.
+
+### `raise` and `panic`
+
+The same three keys on both clauses, wherever they appear — a `switch` case or an `on_error`
+rule. They differ in what they do: a `raise` concludes the instance as `raised`, a condition
+a parent may react to by naming the code; a `panic` fails it, and nothing can ever catch one.
+
+| Key | Meaning |
+|---|---|
+| `code` | A literal `lower_snake_case` name, never an expression — it is what a parent branches on and what `error_code` is filtered by. |
+| `message` | Prose, rendered when the clause fires; must produce a non-null string. |
+| `data` | Optional structured payload, evaluated in the same scope as the message. |
+
+`data` lands on this instance's own `error.data`, where the instance detail and the logs show
+it. Omitting it **clears** that slot rather than leaving behind whatever the rule caught, so a
+fault carries only what it says it carries — forward a caught body explicitly when you want it.
+
+A **parent** reads a raise's `data` only where its call declares a shape for that code under
+[`raises`](#raises); a panic's reaches an operator and nobody else, since nothing can catch a
+panic. A panic's payload also stays on the instance that authored it — ancestors inherit its
+code and message, not its data.
+
+```yaml
+on_error:
+  - code: [http.422]
+    raise:
+      code: script_threw
+      message: "${ error.data.name }: ${ error.data.message }"
+      data: "$: error.data"
+```
 
 ## Action types
 
@@ -304,9 +334,47 @@ that, or declare `"4xx": {}`, which conforms to anything and never escalates.
 | `over` | `child_list` | A `$:` expression evaluating to an array. One child per element, the element being its input. An empty array spawns nothing and yields `[]`. |
 | `children` | `child_map` | Keyed map of children run concurrently. Keys become the access names in `outputs.<taskID>`. |
 | `result_schema` | all | Validates and exposes the child's output — per element for `child_list`. |
+| `raises` | `child`, `child_list`, `child_map` entries | Raise code → schema for the payload that code's fault carries. |
 
 Declaring a shape where the child left a value untyped (`{}`, the top type) narrows it: the
-collected output is conformed against the schema, and undeclared keys are dropped.
+collected output is conformed against the schema, and undeclared keys are dropped. A child
+whose output does not satisfy the declaration reports `output.invalid`, catchable on this
+task.
+
+#### `raises`
+
+`result_schema` types what a child returns; `raises` types what its faults carry. The **caller**
+declares it, keyed by raise code, which is what lets a shared child stay generic: it attaches a
+payload, and each caller says what it expects of it.
+
+```yaml
+action:
+  type: child
+  name: script
+  result_schema: { $ref: "#/$defs/reading" }
+  raises:
+    script_threw:   { $ref: "#/$defs/script_error" }   # typed
+    script_timeout: {}                                  # present, narrow it yourself
+    # script_unknown: not declared → error.data is absent for it
+on_error:
+  - code: [script_threw]
+    goto: $classify        # error.data is the declared shape here
+```
+
+| Declaration | `error.data` at a rule catching that code |
+|---|---|
+| a schema | that shape, conformed — undeclared keys dropped |
+| `{}` | the top type: present, and narrowed before it can be read |
+| no key | absent |
+
+A rule whose patterns can also reach a code nothing declares — a wildcard, a catch-all, or
+`output.invalid` — widens the type to admit `null`. Each declared code must be one the child
+can actually raise; a code it never raises is refused at registration, like an `on_error` rule
+for one.
+
+The payload is conformed when the batch resolves. A payload that does not fit — including a
+raise that attached none — **replaces** the raised code with `output.invalid`, so a rule naming
+the raised code no longer fires and a rule naming `output.invalid` does.
 
 ### `delay`
 

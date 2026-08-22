@@ -4,7 +4,7 @@ Status: **fully implemented 2026-07-20** — all three phases (§10): raise/pani
 `error_code`, single-child catch, batch resolution. Where implementation refined the
 draft, a **Delta** notes it inline. Considered extensions (batch-shape routing, raise
 payloads, exhaustiveness) live in [error-extensions.md](error-extensions.md) — of which
-**raise payloads are now accepted and unbuilt**, amending I6; the other two stay declined.
+**raise payloads shipped 2026-08-22**, amending I6; the other two stay declined.
 Examples predate the `{{ }}` → `${ }` retarget; read accordingly.
 
 Decisions closed at shipping: D3 confirmed (reachability only — the one decision that is
@@ -220,8 +220,8 @@ error beside it.
   `result_schema` conform having moved off `engine.collect` so a caller narrowing an
   **unknown** child output can react to a bet that lost. See error-extensions.md §X2-c.
 - **I6 — no data crosses.** After an error route the only child-derived values in the
-  parent are code, message, and which child. **Amended by the accepted X2-c** (2026-08-22,
-  unbuilt): a `Fault` may also carry `data`. From a raise it is readable by the parent
+  parent are code, message, and which child. **Amended by X2-c** (2026-08-22, built): a
+  `Fault` may also carry `data`. From a raise it is readable by the parent
   only where the call declares its shape in `raises`; from a panic it reaches no parent at
   all, only an operator. The invariant survives in the form that mattered — data crosses
   only when the *caller* asked for it and said what it is.

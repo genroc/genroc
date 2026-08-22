@@ -1,6 +1,6 @@
 # Process error model: considered extensions
 
-Status: **X2 accepted 2026-08-22 (design below, unbuilt); X1 and X3 remain open
+Status: **X2 built 2026-08-22 (§X2-c, shipped as designed); X1 and X3 remain open
 discussion, neither accepted nor scheduled.** Extends
 [child-error-handling.md](child-error-handling.md) — its vocabulary (raise, panic,
 defect, batch, slot, raise set) and invariants (I1–I6) apply throughout. Each entry
@@ -44,7 +44,7 @@ specifies.
 **Trigger:** D7's own — the §10.1 workaround used repeatedly on batches big enough for
 the waste to matter.
 
-## X2 — A payload on `raise` — **ACCEPTED 2026-08-22, unbuilt**
+## X2 — A payload on `raise` — **BUILT 2026-08-22** (§X2-c)
 
 **Gap.** A raise carries code + message only (I6); a raising child computes no output.
 `card_declined` plus `{decline_code: "51", retry_after: 3600}` has nowhere to go but
@@ -130,9 +130,13 @@ unnecessary — the discriminant test *is* the narrowing.
 features is free, but narrowing rules are near-permanent once definitions rely on them
 — draw the supported patterns from real usage, do not guess.
 
-### X2-c — parent-readable, caller-declared (the accepted design)
+### X2-c — parent-readable, caller-declared (the accepted design, built)
 
-Two arguments closed this, both from 2026-08-22.
+Two arguments closed this, both from 2026-08-22. Shipped the same day, in three parts, each
+landing on its own: the `output.invalid` split below, then `data` on `Fault`, then `raises`.
+Two decisions were taken during the build and are recorded where they belong — the size cap
+was **dropped** (see its section) and a `raises` value of `null` is **refused**, since omitting
+the code already says "carries nothing" while `{}` says "present, narrow it".
 
 **1. The trigger fired.** X2-a asked for a grep before building. Six interpolations in
 `tests/playground/script.yaml`, the one real definition — `${error.data.name}`,
@@ -191,7 +195,7 @@ raise:
 Named `data`, not X2-a/b's `detail`: it is read as `error.data` at the only place it is
 ever read, and two names for one value is a second thing to keep true.
 
-**The slot is on `Fault`, so it is on `panic` too** — §2.1 of child-error-handling.md says
+**The slot is on `Fault`, so it is on `panic` too** (both **built 2026-08-22**) — §2.1 of child-error-handling.md says
 raise and panic "differ in what they do, not what they carry", and excluding one would
 mean special-casing validation to refuse it. Who may read it then follows from what the
 clause already means, rather than being stipulated:
@@ -314,7 +318,16 @@ On the raise path the code is **replaced**, so a rule matching the original rais
 longer fires — the fetch precedent, where a declared body that fails validation means
 `code: [http.4%]` "no longer catches a 400 whose body is malformed".
 
-#### Size cap at the raising end
+#### Size cap at the raising end — **dropped 2026-08-22, not built**
+
+The reasoning below still holds about *where* a cap would go, and it is kept for that: at
+the raising end, failing the child as its own defect, because capping at the reading end
+means truncating and truncated JSON cannot satisfy a declared shape. What was dropped is
+the cap itself. A process `output` carries no limit either, and `data` is the same kind of
+value written by the same author — a limit here and none there is a rule to remember rather
+than a guard, and the object store already absorbs the size. The X2-b "cheapest fourth
+guard" argument does not survive X2-c: the guard that ended up doing the work is
+ergonomics (the table in argument 2), not a byte count.
 
 A cap belongs where the value is attached, failing the *child* as its own defect — on
 both clauses, since an over-cap payload is an authoring bug either way. Capping
@@ -374,6 +387,7 @@ wrong default for something most parents do not want.
 | **X1** | `when: all` quantifier | real branch, zero type cost | adjacent to rejected D2; threshold slope |
 | **X1-b** | partial re-spawn | removes the waste that makes X1 matter | per-slot attempts inside the deadlock discipline |
 | **X2-a** | operator-only detail | I6 survives; sharpens §0 | misses its own example; widening pressure |
+| **X2-c** | caller-declared `raises` | **built** — the panic half is X2-a exactly | costs a caller a declaration per code it reads |
 | **X2-b** | typed detail, exact-gated | ~~solves the case~~ | **closed** — data belongs in the success path |
 | **X3** | per-entry `exhaustive: true` | right shape for a subscription | helps only the careful; CLI diff may dominate |
 | **X3-alt** | required catch-all | catches the careless | breaking, non-uniform, unpleasant syntax |

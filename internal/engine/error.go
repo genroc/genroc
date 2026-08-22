@@ -174,6 +174,9 @@ func (e *Engine) faultMessage(inst *model.ProcessInstance, f *model.Fault, self 
 // failing — and computes no process output (a raise site is not an output terminal).
 func (e *Engine) raiseInstance(inst *model.ProcessInstance, task *model.Task, f *model.Fault, self any) advanceOutcome {
 	msg := e.faultMessage(inst, f, self)
+	if err := e.applyFaultData(inst, f, self); err != nil {
+		return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q raise data: %v", task.ID, err))
+	}
 	inst.Status = model.StatusRaised
 	inst.WaitState = model.WaitStateNone
 	inst.Error = msg
@@ -186,7 +189,37 @@ func (e *Engine) raiseInstance(inst *model.ProcessInstance, task *model.Task, f 
 // panicInstance is failInstance with the author's words: authoring a defect grants it no
 // special status, so nothing can catch it and it poisons ancestors the same way.
 func (e *Engine) panicInstance(inst *model.ProcessInstance, task *model.Task, f *model.Fault, self any) advanceOutcome {
-	return e.failInstance(inst, errcode.Code(f.Code), e.faultMessage(inst, f, self))
+	msg := e.faultMessage(inst, f, self)
+	if err := e.applyFaultData(inst, f, self); err != nil {
+		return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q panic data: %v", task.ID, err))
+	}
+	return e.failInstance(inst, errcode.Code(f.Code), msg)
+}
+
+// applyFaultData evaluates a clause's `data` in the scope its message renders in and lands
+// it on error.data, the slot an operator reads on this instance's row. An absent clause
+// CLEARS it: what sits there otherwise is the error this instance CAUGHT, which the fault
+// never chose to carry.
+//
+// A failed evaluation is not degraded the way a message is: the payload is a contract, so
+// dropping it silently would report the loss at the caller's conform rather than here.
+// specs/error-extensions.md §X2-c.
+func (e *Engine) applyFaultData(inst *model.ProcessInstance, f *model.Fault, self any) error {
+	errCtx, _ := inst.ContextData["error"].(map[string]any)
+	if !f.Data.Present() {
+		delete(errCtx, "data")
+		return nil
+	}
+	value, err := e.evalShape(inst, *f.Data, self)
+	if err != nil {
+		return err
+	}
+	if errCtx == nil {
+		errCtx = map[string]any{}
+		inst.ContextData["error"] = errCtx
+	}
+	errCtx["data"] = value
+	return nil
 }
 
 // failInstance moves the instance to failed and returns the terminal outcome. code is

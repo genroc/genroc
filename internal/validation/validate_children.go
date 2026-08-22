@@ -2,6 +2,7 @@ package validation
 
 import (
 	"fmt"
+	"sort"
 
 	"genroc/internal/errcode"
 	"genroc/internal/model"
@@ -45,6 +46,7 @@ func ValidateChildProcessRefs(def *model.ProcessDefinition, currentVersion int, 
 				Version:      s.Action.Version,
 				Input:        s.Action.Input,
 				ResultSchema: s.Action.ResultSchema,
+				Raises:       s.Action.Raises,
 			}
 			if err := validateChildEntry(s.ID, "child", entry, ctx, defs, def, currentVersion, getter); err != nil {
 				return err
@@ -178,7 +180,38 @@ func validateChildEntry(taskID string, label string, p model.ChildEntry, ctx sch
 		}
 	}
 
+	if err := checkDeclaredRaises(prefix, child, childVersion, p.Raises); err != nil {
+		return err
+	}
 	return checkChildOutputType(prefix, child, p.ResultSchema)
+}
+
+// checkDeclaredRaises: a caller may only declare payload shapes for codes the child can
+// actually raise. Same direction and same value as R5 — a typo'd key is a declaration that
+// can never apply, and the type it would give error.data is one no rule can ever read.
+func checkDeclaredRaises(prefix string, child *model.ProcessDefinition, childVersion int, raises model.Raises) error {
+	if len(raises) == 0 {
+		return nil
+	}
+	raisable := map[string]bool{}
+	for _, code := range child.Raises() {
+		raisable[code] = true
+	}
+	for _, code := range sortedCodes(raises) {
+		if !raisable[code] {
+			return fmt.Errorf("%s: raises declares %q, which %q v%d never raises", prefix, code, child.Name, childVersion)
+		}
+	}
+	return nil
+}
+
+func sortedCodes(raises model.Raises) []string {
+	codes := make([]string, 0, len(raises))
+	for code := range raises {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	return codes
 }
 
 // checkChildOutputType: the child's declared output must NarrowsTo the parent's
@@ -274,5 +307,8 @@ func validateChildListEntry(taskID string, action *model.Action, ctx schema.Sche
 	// result_schema types each element of the child_list output, and each child's output
 	// is validated against it individually — so the per-child check is childOutput ⊆
 	// action.ResultSchema, the same shape as child_map's.
+	if err := checkDeclaredRaises(prefix, child, childVersion, action.Raises); err != nil {
+		return err
+	}
 	return checkChildOutputType(prefix, child, action.ResultSchema)
 }
