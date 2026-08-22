@@ -340,9 +340,10 @@ including <code>_</code> and <code>.</code> — is literal, so <code>order_%</co
 <p>Internal <code>engine.*</code> failures — <code>engine.spawn</code>, <code>engine.collect</code>, <code>engine.expression</code> — are
 terminal and are <strong>not</strong> routed through <code>on_error</code>.</p>
 <p>On a <code>child</code>, <code>child_map</code> or <code>child_list</code> task the codes match the codes the child processes
-can <strong>raise</strong>, and each pattern is checked at registration against the child’s raise set. A
-child that <em>failed</em> rather than raised is never catchable; convert the failure into a raise
-inside the child.</p>
+can <strong>raise</strong>, plus <code>output.invalid</code> — a child that completed, but whose output did not
+satisfy the <code>result_schema</code> this task narrowed it with. Each pattern is checked at
+registration against that set. A child that <em>failed</em> rather than raised is never catchable;
+convert the failure into a raise inside the child.</p>
 <h3 id="the-error-value">The <code>error</code> value<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-error-value"><span></span></a></h3>
 <p>A rule that routes with <code>goto</code> makes the failure readable at the task it routes to, as
 <code>error</code>:</p>
