@@ -215,8 +215,8 @@ error beside it.
   same, so a reclaimed parent resumes identically.
 - **I5 — caller independence.** A child's terminal status and its ancestor effects do
   not depend on who spawned it.
-- **E6 amended (2026-08-22, unbuilt).** §2.4's "there is nothing else they can see" no
-  longer holds: a child task's catchable set becomes `raises(D) ∪ {output.invalid}`, the
+- **E6 amended (2026-08-22, built).** §2.4's "there is nothing else they can see" no
+  longer holds: a child task's catchable set is `raises(D) ∪ {output.invalid}`, the
   `result_schema` conform having moved off `engine.collect` so a caller narrowing an
   **unknown** child output can react to a bet that lost. See error-extensions.md §X2-c.
 - **I6 — no data crosses.** After an error route the only child-derived values in the

@@ -121,6 +121,11 @@ func spawnKey(child *model.ProcessInstance) string {
 	return key
 }
 
+// outputInvalid marks the one collect failure a caller may react to: a child output that
+// failed the result_schema this task narrowed it with — a lost bet, not a defect, since a
+// child exporting the open type states no shape to disagree with. specs/error-extensions.md §X2-c.
+type outputInvalid struct{ error }
+
 // buildChildOutput merges a settled batch into self.result (map for child_map, array for
 // child_list). Reached only with every child completed — failed/paused/raised are each
 // blocked upstream — so the guard asserts an invariant, not a case to handle.
@@ -200,7 +205,7 @@ func (e *Engine) resolveAndValidateChildOutput(resultSchema *schema.Schema, chil
 	// as-is rather than re-normalized per collected child.
 	normalized, err := resultSchema.Validate(output)
 	if err != nil {
-		return nil, fmt.Errorf("child process %q (%s) output validation: %v", child.ID, child.ProcessName, err)
+		return nil, outputInvalid{fmt.Errorf("child process %q (%s) output validation: %v", child.ID, child.ProcessName, err)}
 	}
 	return normalized, nil
 }

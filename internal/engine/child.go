@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -36,6 +37,13 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 		output, err := e.buildChildOutput(task, siblings)
 		if err != nil {
 			inst.WaitState = model.WaitStateNone
+			// A failed conform is the caller's narrowing bet losing, so it routes through
+			// on_error as output.invalid; every other failure here is corruption of the
+			// batch and stays a defect. specs/error-extensions.md §X2-c.
+			var invalid outputInvalid
+			if errors.As(err, &invalid) {
+				return nil, stop(e.handleCallError(inst, task, invalid.Error(), errcode.OutputInvalid))
+			}
 			return nil, stop(e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %v", task.ID, err)))
 		}
 		inst.WaitState = model.WaitStateNone

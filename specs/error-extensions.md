@@ -295,7 +295,7 @@ exactly as today. `engine.collect` removed a choice and bought nothing.
 
 **So the shipped success path changes too**, and this half is independent of the rest of
 X2 — it is about `result_schema`, needs none of the `raises` machinery, and could land
-first. Three notes:
+first. It did: **built 2026-08-22**, ahead of the rest. Three notes:
 
 - **A split, not a rename.** Only the conform becomes `output.invalid`. The four other
   failures reaching the same `failInstance` are corruption rather than contract — a
