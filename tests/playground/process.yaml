@@ -10,29 +10,19 @@ input_schema:
       default: 0
       description: "kolik mereni udelat; 0 = bezet donekonecna"
 tasks:
-  - id: geocode
+  - id: location
     action:
-      type: fetch
-      url: "https://geocoding-api.open-meteo.com/v1/search"
-      method: GET
-      query:
-        name: "$: input.place"
-        count: 1
-        format: json
-      responses:
-        200:
-          $ref: "#/$defs/geo_response"
-
-    timeout: 15s
-    output: "$: self.result.results[0]"
-    switch:
-      # An unknown place is not a 404 here — geocoding answers 200 with no `results` key at
-      # all, so an empty array is the only evidence, and indexing it gives null.
-      - case: "self.output == null"
-        raise:
-          code: unknown_place
-          message: "geocoding knows no such place"
-      - goto: $wait
+      type: child
+      name: script
+      input:
+        runner_url: "$: input.script_url"
+        code: "$import: ./location.ts"
+        input:
+          place: "$: input.place"
+      result_schema:
+        $ref: "#/$defs/geo_response"
+    output: "$: self.result"
+    switch: $wait
 
   # Parks the instance until the next whole 10 seconds, holding no worker.
   - id: wait
@@ -52,7 +42,7 @@ tasks:
         code: "$import: ./reading.ts"
         timeout_ms: 20000
         input:
-          geo: "$: outputs.geocode"
+          geo: "$: outputs.location"
       result_schema:
         type: object
         properties:
@@ -68,7 +58,7 @@ tasks:
       - code: ["script_threw", "script_timeout"]
         raise:
           code: reading_failed
-          message: "no reading for ${outputs.geocode.name ?? input.place}: ${error.message}"
+          message: "no reading for ${outputs.location.name ?? input.place}: ${error.message}"
     switch:
       - case: "input.ticks > 0 && self.output.count >= input.ticks"
         goto: end
@@ -78,13 +68,8 @@ $defs:
   geo_response:
     type: object
     properties:
-      results:
-        type: array
-        items:
-          type: object
-          properties:
-            latitude: { type: number }
-            longitude: { type: number }
-            name: { type: string }
-            country: { type: string }
-          required: [latitude, longitude, name]
+      latitude: { type: number }
+      longitude: { type: number }
+      name: { type: string }
+      country: { type: string }
+    required: [latitude, longitude, name]

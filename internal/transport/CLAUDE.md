@@ -70,6 +70,15 @@ Five things must not change:
 The client is a parameter of `sendHTTP` rather than read from the package var **so that
 that test can exist** — h2 needs the test server's own client to trust its certificate.
 
+The remote cannot argue with any of this: the mark is read off genroc's own transport, never
+off anything the peer says, so a peer can only push the answer toward *unknowable* (accept,
+read, reset) — never toward `pre.*`. The assumption underneath is that no request byte can
+precede a connection, which TLS 1.3 **0-RTT early data would break**: the request would ride
+with the handshake, so a handshake failure would report `pre.*` for a request the server
+received and may replay. Go gates every early-data path on `c.quic != nil` (assigned only by
+`tls.QUICClient`), and `tls.Conn.Write` handshakes first, so `net/http` cannot reach it
+today. Re-check this before adopting HTTP/3, or if Go ships client-side 0-RTT over TCP.
+
 ## The shared client must not gain a `Client.Timeout`
 
 `client` sets no `Timeout` on purpose. The per-attempt budget is the caller's context
