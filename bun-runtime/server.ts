@@ -47,6 +47,10 @@ async function handleEval(req: Request): Promise<Response> {
 
 const server = Bun.serve({
   port: PORT,
+  // Never hang up on an idle connection. Bun's 10s default matched a caller polling every
+  // 10s exactly, and each tick was a coin flip on whether the close raced the next request
+  // into a reset the client cannot retry; letting the caller's pool close first cannot race.
+  idleTimeout: 0,
   maxRequestBodySize: MAX_BODY_BYTES,
   async fetch(req) {
     const { pathname } = new URL(req.url);

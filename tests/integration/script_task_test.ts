@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { spawn, type ChildProcess } from "child_process";
 import { join } from "path";
+import { connect } from "node:net";
 import { client, waitForInstance } from "../helpers/client.ts";
 
 // A script task is a `fetch` at a Bun evaluator — no new engine capability. What these
@@ -33,6 +34,40 @@ beforeAll(async () => {
 });
 
 afterAll(() => runner?.kill());
+
+// The runner must outlast any caller's connection pool, and it is the caller — the side
+// that knows whether a request is in flight — that must hang up first. Bun's 10s default
+// sat exactly on a 10s polling cadence: every tick was a coin flip on whether the server's
+// close raced the next request into a reset, which a POST cannot retry. genroc pools
+// connections for 90s (internal/transport), so the runner may not close at all.
+test("runner — never hangs up on an idle keep-alive connection", { timeout: 25_000 }, async () => {
+  const socket = connect({ port, host: "127.0.0.1" });
+  await new Promise<void>((resolve, reject) => {
+    socket.once("connect", () => resolve());
+    socket.once("error", reject);
+  });
+
+  const body = JSON.stringify({ code: "return 1" });
+  socket.write(
+    `POST /eval HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n` +
+      `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+  );
+  await new Promise<void>((resolve) => socket.once("data", () => resolve()));
+
+  let hungUp = false;
+  socket.once("close", () => {
+    hungUp = true;
+  });
+  // Past the ~12s at which the old default fired, so this bites rather than passes by luck.
+  await new Promise((resolve) => setTimeout(resolve, 13_000));
+  socket.destroy();
+
+  expect(
+    hungUp,
+    "the runner closed an idle connection; a caller that reuses it races that close into a " +
+      "reset it cannot retry, which is how a transient blip fails a whole process",
+  ).toBe(false);
+});
 
 /** A task calling the runner. `code` is passed through verbatim — mind `$${` (see below). */
 function scriptTask(code: string, extra: Record<string, unknown> = {}) {

@@ -26,6 +26,50 @@ Everything below breaks silently — none of it is a compile error.
 was refused. Adding it to the unknowable set would make it permanently unretryable on an
 `only_once` task, for a call whose outcome is in fact knowable.
 
+## `pre.*` requires evidence, and `sendHTTP` is the only thing that has it
+
+`ClassifyGoError` may return `pre.*` **only** for a failure `sendHTTP` wrapped in `notSent`.
+That prefix is not a diagnosis, it is an assertion the engine acts on: `IsNotReached` lets
+`isRetryAllowed` retry the call even on an `only_once` task. A reset or an `EOF` arriving
+while the client awaits a response looks identical, at the client, to a remote that read the
+request, acted on it, and died answering — so it classifies `http.disconnected`, which is in
+`errcode.Unknowable()`.
+
+The evidence is `httptrace`, not the shape of the error. Matching on `*net.OpError.Op` was
+the previous rule and it was unsound in the expensive direction: the open-ended set of
+post-write errors all fell through to `pre.error`. The four genuine not-reached failures —
+DNS, refused, unreachable, TLS — have four unrelated error shapes, so a whitelist of them is
+narrower than reality, and what it misses lands in the unknowable set where `not_reached`
+cannot buy the retry back.
+
+Five things must not change:
+
+1. **`GotConn`, not `WroteRequest`, is what the mark rests on.** `GotConn` is delivered
+   before the request reaches the write goroutine, so "no connection was acquired" is a
+   stable fact once `Do` returns — and no connection means no bytes, whatever the write
+   goroutine is doing. `WroteRequest` fires from that goroutine and races the return, so
+   reading it alone would make `pre.*` a claim about scheduling. It stays in the trace
+   because the disjunction can only widen the answer. Both are latched: the transport
+   retries internally, and any attempt that got a connection counts.
+2. **The traced context must reach `c.Do`.** This fails silently in the *unsafe* direction:
+   rebuild the request on a context without the hooks and the flag stays false forever, so
+   every failure — resets included — becomes `pre.*`.
+   `TestClassifyGoError_PreOnlyWhenTheRequestNeverLeft` catches it; its reset, close and
+   mid-write-deadline cases go red the moment the trace stops arriving.
+3. **`sendHTTP` wraps `doHTTP` for no other reason.** Every early return in `doHTTP` happens
+   before the write, so one check at the boundary marks them all — a new early return cannot
+   silently inherit the wrong default. Do not move the body back up.
+4. **Any write attempt counts as sent**, including `WroteRequest` with a non-nil `Err`. A
+   partial request is bytes on the wire; a conforming server will not dispatch it, but
+   `only_once` is not the place to bet on the remote conforming.
+5. **Both write paths are covered.** h2 serialises through HEADERS frames rather than
+   `Request.write`, and the shared transport keeps `ForceAttemptHTTP2`, so every HTTPS
+   endpoint takes that path. `TestClassifyGoError_HTTP2RequestThatReachedTheRemote` pins it;
+   without it, an h2 regression in the hook would silently reclassify the whole path.
+
+The client is a parameter of `sendHTTP` rather than read from the package var **so that
+that test can exist** — h2 needs the test server's own client to trust its certificate.
+
 ## The shared client must not gain a `Client.Timeout`
 
 `client` sets no `Timeout` on purpose. The per-attempt budget is the caller's context

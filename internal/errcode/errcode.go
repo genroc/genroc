@@ -21,13 +21,14 @@ type Code string
 
 // Call codes — reported by an action's call, and CATCHABLE by on_error on the action task.
 const (
-	HTTPTimeout     Code = "http.timeout"     // connected, but no response arrived in time
-	PreTimeout      Code = "pre.timeout"      // timed out during dial — the request never left
-	PreError        Code = "pre.error"        // dial-phase failure — the request never left
-	OutputParse     Code = "output.parse"     // the response body was not valid JSON
-	OutputTooLarge  Code = "output.too_large" // the response body exceeded the size a fetch will read
-	OutputInvalid   Code = "output.invalid"   // the response did not satisfy its result_schema
-	ExternalTimeout Code = "external.timeout" // an external task's wait deadline elapsed
+	HTTPTimeout      Code = "http.timeout"      // connected, but no response arrived in time
+	HTTPDisconnected Code = "http.disconnected" // the request went out, the connection broke before a response
+	PreTimeout       Code = "pre.timeout"       // timed out before the request was written — it never left
+	PreError         Code = "pre.error"         // failed before the request was written — it never left
+	OutputParse      Code = "output.parse"      // the response body was not valid JSON
+	OutputTooLarge   Code = "output.too_large"  // the response body exceeded the size a fetch will read
+	OutputInvalid    Code = "output.invalid"    // the response did not satisfy its result_schema
+	ExternalTimeout  Code = "external.timeout"  // an external task's wait deadline elapsed
 )
 
 // HTTP formats the code for a rejected HTTP status: HTTP(500) == "http.500". The status is
@@ -57,7 +58,7 @@ func (c Code) IsNotReached() bool { return strings.HasPrefix(string(c), NotReach
 // outcome is undeterminable — never retryable on only_once, not_reached does not override.
 // Enforced at registration AND runtime (pre-rule definitions never re-validate). A slice:
 // validation iterates it and order shows in messages.
-var unknowable = []Code{OnlyOnceInterrupted, HTTPTimeout, ExternalTimeout}
+var unknowable = []Code{OnlyOnceInterrupted, HTTPTimeout, HTTPDisconnected, ExternalTimeout}
 
 // Unknowable returns the codes whose outcome cannot be determined either way. The
 // returned slice must not be modified.

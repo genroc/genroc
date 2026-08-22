@@ -187,7 +187,7 @@ no declaration behind it, and on the path where the payload is least trustworthy
 
 **This is the only source of `null`,** which is why enforcement matters: `error.data` at a
 handler is nullable exactly when some code reaching it has no declared schema — `pre.*`,
-`http.timeout`, a child raise, an undeclared status, or a body-validation code, since those
+`http.timeout`, `http.disconnected`, a child raise, an undeclared status, or a body-validation code, since those
 carry no conforming body either. `code: [http.400]` against `{"400": A}` is therefore exactly
 `A`, and the null returns precisely when an author asks for it by widening the patterns. Absent from
 the context is not absent from the record — `action_failed` still carries the body in its
@@ -304,7 +304,8 @@ one type where one rule reaches one handler.
 - `error` gains `data`, written beside `task`/`message`/`code` at
   [error.go:71](../internal/engine/error.go#L71) and typed as an optional nullable property on
   `errSchema` at [infer.go:424](../internal/validation/infer.go#L424). Absent for every error
-  carrying no response at all (`pre.*`, `http.timeout`, `only_once.interrupted`, a child
+  carrying no response at all (`pre.*`, `http.timeout`, `http.disconnected`,
+  `only_once.interrupted`, a child
   raise), which is most of the set — nullable is not a formality.
 - **`error.data` persists like a task output, which is a change: `error` is not a value-slot
   today.** `encodeContext` marshals it straight into the `error_data` column

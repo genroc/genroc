@@ -66,6 +66,8 @@ its own).
 The retry ban is drawn around the property, not the code: **a retry is refused when the
 definition cannot, even in principle, know whether the call took effect** — the request
 left and nothing came back. Members: `only_once.interrupted`, `http.timeout`,
+`http.disconnected` (the bytes went out, the connection broke before a response —
+at the client this is indistinguishable from a remote that acted and died answering),
 `external.timeout` (armed, deadline passed, nothing learned — the member most worth a
 second opinion, since `only_once` external tasks are rare). Outside it, `not_reached:
 true` keeps working: `pre.*` (never left; safe with no assertion), and any code where a
@@ -100,7 +102,7 @@ Wildcards stay legal for **matching**: `{code: ["%"], goto: verify}` is fine;
   only_once: true
   action: { type: fetch, url: "https://psp.example/charge" }
   on_error:
-    - code: [only_once.interrupted, http.timeout]   # both mean "outcome unknown"
+    - code: [only_once.interrupted, http.timeout, http.disconnected]   # all mean "outcome unknown"
       goto: verify_charge
 - id: verify_charge
   action: { type: fetch, url: "https://psp.example/charges/${ order_id }" }
@@ -110,8 +112,8 @@ Wildcards stay legal for **matching**: `{code: ["%"], goto: verify}` is fine;
     - goto: charge_card        # did not happen — re-run, deliberately
 ```
 
-Handlers should list **both** unknowable HTTP-path codes: they arise differently but
-leave the definition in the same position. The re-entry is sanctioned: the guard runs
+Handlers should list **all three** unknowable HTTP-path codes: they arise differently
+but leave the definition in the same position. The re-entry is sanctioned: the guard runs
 once per claim in `prepareAdvance` against the parked task; a routed `goto` ends the
 advance, so a later `goto` back executes as an ordinary first attempt — the engine never
 repeats on its own, the definition may once it has established safety. Not expressible:

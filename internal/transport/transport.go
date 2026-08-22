@@ -9,9 +9,10 @@ import (
 	"genroc/internal/errcode"
 	"genroc/internal/numeric"
 	"io"
-	"net"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
+	"sync/atomic"
 
 	"genroc/internal/model"
 )
@@ -74,13 +75,42 @@ const errorMessageBytes = 512
 func Send(ctx context.Context, call *model.Action, url, method string, acceptedStatus []string, headers map[string]string, body any) (*Response, error) {
 	switch call.Type {
 	case model.ActionTypeFetch:
-		return sendHTTP(ctx, url, method, acceptedStatus, headers, body)
+		return sendHTTP(ctx, client, url, method, acceptedStatus, headers, body)
 	default:
-		return nil, fmt.Errorf("unknown call type: %q", call.Type)
+		return nil, notSent{fmt.Errorf("unknown call type: %q", call.Type)}
 	}
 }
 
-func sendHTTP(ctx context.Context, url, method string, acceptedStatus []string, headers map[string]string, body any) (*Response, error) {
+// notSent marks a failure that never even acquired a connection — the positive evidence
+// pre.* asserts. Anything weaker than that is a guess: pre.* licenses a retry on an
+// only_once task, so "we did not observe a write" is not enough, only "there was nothing
+// to write to".
+type notSent struct{ err error }
+
+func (e notSent) Error() string { return e.err.Error() }
+func (e notSent) Unwrap() error { return e.err }
+
+// sendHTTP wraps doHTTP solely to apply that mark in ONE place: every failure before the
+// request hits the wire is caught here, so a new early return in doHTTP cannot silently
+// inherit the unknowable default.
+func sendHTTP(ctx context.Context, c *http.Client, url, method string, acceptedStatus []string, headers map[string]string, body any) (*Response, error) {
+	var mayHaveSent atomic.Bool
+	// GotConn is the load-bearing half: it is delivered before the request is handed to the
+	// write goroutine, so "no connection" is stable by the time Do returns, whereas
+	// WroteRequest races that return. No connection, no bytes. WroteRequest is kept as the
+	// belt to that braces — it can only widen the answer, never narrow it.
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotConn:      func(httptrace.GotConnInfo) { mayHaveSent.Store(true) },
+		WroteRequest: func(httptrace.WroteRequestInfo) { mayHaveSent.Store(true) },
+	})
+	resp, err := doHTTP(ctx, c, url, method, acceptedStatus, headers, body)
+	if err != nil && !mayHaveSent.Load() {
+		return nil, notSent{err}
+	}
+	return resp, err
+}
+
+func doHTTP(ctx context.Context, c *http.Client, url, method string, acceptedStatus []string, headers map[string]string, body any) (*Response, error) {
 	if method == "" {
 		method = http.MethodPost
 	}
@@ -111,7 +141,7 @@ func sendHTTP(ctx context.Context, url, method string, acceptedStatus []string, 
 		req.Header.Set(k, v)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err // caller uses ClassifyGoError
 	}
@@ -206,16 +236,24 @@ func methodAllowsBody(method string) bool {
 }
 
 // ClassifyGoError maps a transport-level Go error (a REST call that never got an HTTP
-// response) to an error code: pre.timeout / pre.error for a failure during the dial phase
-// (server never received the request), http.timeout when the connection was established
-// but no response arrived in time.
+// response) to an error code. The split is retry safety, not diagnosis: pre.* asserts the
+// remote CANNOT have seen the request, so only a failure sendHTTP marked notSent earns it —
+// an outcome merely believed not to have happened is unknowable and stays that way.
+// Everything else is unknowable — a connection that breaks once the bytes are out cannot
+// say whether the remote already acted, and a reset is indistinguishable at the client
+// from a server that processed the request and died answering it.
 func ClassifyGoError(err error) errcode.Code {
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		var netErr *net.OpError
-		if errors.As(err, &netErr) && netErr.Op == "dial" {
-			return errcode.PreTimeout
+	var unsent notSent
+	sent := !errors.As(err, &unsent)
+	switch {
+	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
+		if sent {
+			return errcode.HTTPTimeout
 		}
-		return errcode.HTTPTimeout
+		return errcode.PreTimeout
+	case sent:
+		return errcode.HTTPDisconnected
+	default:
+		return errcode.PreError
 	}
-	return errcode.PreError
 }

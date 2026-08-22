@@ -42,8 +42,9 @@ When `true`, the engine guarantees at-most-once execution:
   `on_error` rules carrying `not_reached: true`.
 - A rule that is not restricted to `pre.*` needs `not_reached: true` **and** must name exact
   codes — no wildcards.
-- `http.timeout`, `external.timeout` and `only_once.interrupted` can never be retried at
-  all: the request left and nothing came back, so nothing can be asserted about it.
+- `http.timeout`, `http.disconnected`, `external.timeout` and `only_once.interrupted` can
+  never be retried at all: the request left and nothing came back, so nothing can be
+  asserted about it.
 
 An attempt cut short by a crash raises `only_once.interrupted`, which `on_error` can catch —
 typically to ask the system of record what happened and then carry on.
@@ -104,6 +105,7 @@ Catchable engine codes, reported by an action task's call:
 |---|---|
 | `http.NNN` | The response status was not accepted (e.g. `http.500`, `http.202`). |
 | `http.timeout` | The request left and no response came back in time. |
+| `http.disconnected` | The request left and the connection broke before a response. |
 | `pre.error`, `pre.timeout` | The call never reached the remote. |
 | `output.parse` | The response body is not valid JSON. |
 | `output.too_large` | The response body exceeds the fetch response cap. |
