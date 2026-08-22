@@ -13,10 +13,13 @@ behavior while the spec stays put, answering a different question. See
 
 ## Design drafts (proposed, not implemented)
 
-- [error-extensions.md](error-extensions.md) — three considered-and-declined extensions to
-  the child error model (batch-shape routing, a diagnostic payload on `raise`, opt-in
-  exhaustiveness). Unlike the others these are **open questions, not intended work** — each
-  records the case for and against and the signal that should reopen it.
+- [error-extensions.md](error-extensions.md) — three considered extensions to the child
+  error model. **X2 (a payload on `raise`) was accepted 2026-08-22 and is unbuilt**; X1
+  (batch-shape routing) and X3 (opt-in exhaustiveness) remain open questions rather than
+  intended work, each recording the case both ways and the signal that should reopen it.
+  X2's own trigger — "grep for structured data smuggled into message prose" — is what
+  fired, and the accepted design (X2-c) is caller-declared rather than child-declared, so
+  it costs none of the schema machinery the earlier variants were rejected for.
 - [custom-tasks.md](custom-tasks.md) — north-star: extend genroc **without plugins** —
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the

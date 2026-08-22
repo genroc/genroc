@@ -1,6 +1,7 @@
 # Process error model: considered extensions
 
-Status: **open discussion, none accepted, none scheduled (2026-07-24).** Extends
+Status: **X2 accepted 2026-08-22 (design below, unbuilt); X1 and X3 remain open
+discussion, neither accepted nor scheduled.** Extends
 [child-error-handling.md](child-error-handling.md) — its vocabulary (raise, panic,
 defect, batch, slot, raise set) and invariants (I1–I6) apply throughout. Each entry
 records the shape, the case both ways, and the **trigger** that should reopen it, so
@@ -43,11 +44,15 @@ specifies.
 **Trigger:** D7's own — the §10.1 workaround used repeatedly on batches big enough for
 the waste to matter.
 
-## X2 — A diagnostic payload on `raise`
+## X2 — A payload on `raise` — **ACCEPTED 2026-08-22, unbuilt**
 
 **Gap.** A raise carries code + message only (I6); a raising child computes no output.
 `card_declined` plus `{decline_code: "51", retry_after: 3600}` has nowhere to go but
 message prose.
+
+The accepted design is §X2-c below. X2-a and X2-b are kept as the record of how it was
+reached: X2-a's trigger is what fired, and X2-b's gate is the idea X2-c replaces with a
+cheaper one. **Read X2-c first** — the two below it are history.
 
 **Why the unrestricted version is expensive:** typed parent-readable `detail` is one
 variant per raise code, discriminated by `error_code` — `Raises()` becomes
@@ -124,6 +129,204 @@ unnecessary — the discriminant test *is* the narrowing.
 **Deferred (2026-07-24)** with a warning unlike the X-items': deferring additive
 features is free, but narrowing rules are near-permanent once definitions rely on them
 — draw the supported patterns from real usage, do not guess.
+
+### X2-c — parent-readable, caller-declared (the accepted design)
+
+Two arguments closed this, both from 2026-08-22.
+
+**1. The trigger fired.** X2-a asked for a grep before building. Six interpolations in
+`tests/playground/script.yaml`, the one real definition — `${error.data.name}`,
+`${error.data.kind}`, `${error.data.message}` twice, `${error.message}` three times. Two
+of those are machine-readable discriminators being flattened into prose that the file's
+own comment forbids parsing back. Sharper than the count: `$defs/script_error` declares
+`stack`, the fetch validates it, and no raise message can carry it, because a stack trace
+in a one-line message is unreadable. The most useful field for debugging a failed script
+is fetched, typed, and dropped.
+
+**2. The Overuse objection rested on a false comparison.** X2-b's costing says "a typed
+raise is strictly more ergonomic than `{ok: false}` outputs". It is not, because
+`on_error` has no `case:` — a rule selects by code and nothing else. The gradient:
+
+| branch on | cost |
+|---|---|
+| a code | one line, inline in `on_error` |
+| an output | inline in `switch`, with narrowing |
+| **error data** | `goto: $handler` **plus a whole extra task** |
+
+Error data is the least convenient of the three (`script.yaml`'s `failed` task exists to
+pay exactly this toll). So the principle is not downgraded from *capability* to
+*documentation* as X2-b feared — it is downgraded to *ergonomics*, which is a real guard
+pointing the right way: codes stay the path of least resistance and data stays the thing
+you reach for when you must.
+
+> **This makes "no `case:` on `on_error`" load-bearing.** It reads today like a syntax
+> gap and is now the guard the whole feature rests on. A future proposal to add
+> expression matching to a rule — an obvious convenience, and it would let you branch on
+> `error.data.kind` inline — must be judged as a proposal to dissolve this, not as an
+> ergonomic tidy-up.
+
+**Third argument, which decides the shape rather than the yes/no:** the gap is created
+by *reuse*. `bun-runtime/README.md` shows the intended pattern — call the script inline,
+branch on `error.data.name == "LimitExceeded"`, mint a specific code. That works today.
+The playground factored the call into a reusable `script.yaml` child, and a generic
+wrapper cannot mint a caller-specific code (R2: codes are literals), so `name` dies at
+the process boundary. That is the exact mirror of what `unknown-type.md` already solves
+on the success path — the wrapper emits the top type, the caller narrows with
+`result_schema` — and the error channel had no counterpart.
+
+#### Syntax
+
+The child attaches a value; the caller declares its shape. A Shape on the clause, the
+same form as `output` (a string expression or a nested object of expressions), rendered
+in the scope the `message` template already renders in (`faultMessage`) — so no new scope
+rules, and an `on_error` rule can forward a fetch's error body untouched:
+
+```yaml
+raise:
+  code: script_threw
+  message: "${error.data.name}: ${error.data.message}"
+  data: "$: error.data"                  # kind, name, message, stack
+```
+
+Named `data`, not X2-a/b's `detail`: it is read as `error.data` at the only place it is
+ever read, and two names for one value is a second thing to keep true.
+
+**The slot is on `Fault`, so it is on `panic` too** — §2.1 of child-error-handling.md says
+raise and panic "differ in what they do, not what they carry", and excluding one would
+mean special-casing validation to refuse it. Who may read it then follows from what the
+clause already means, rather than being stipulated:
+
+| clause | catchable | who reads `data` |
+|---|---|---|
+| `raise` | yes | the parent, as `error.data`, where the call declares a shape in `raises` — plus an operator |
+| `panic` | never | an operator only: the instance row, logs, the API |
+
+A panic code is excluded from `raises(D)` by construction (§2.3), so no declaration could
+ever apply to one and there is nothing to type. That makes the panic half **exactly X2-a**,
+and it needs none of the machinery below it: no schema table, no `ruleErrorData` branch, no
+typing — write the evaluated shape to `error_data` and stop. It is the cheaper half and
+could land first.
+
+Its motivating case is the one X2-a always had. `script.yaml` panics `script_broken` with
+`message: "the script is broken (${error.data.kind}) - ${error.data.message}"` and drops
+the stack, because a stack trace in a one-line message is unreadable. `data: "$: error.data"`
+puts it on the row, which is the only place it was ever going to be read — nobody can catch
+`script_broken`.
+
+**A panic's data stays on the instance that authored it.** A panic poisons its ancestors
+(§2.3) and they inherit its code and message, as an unhandled raise's do; the payload does
+not travel. An operator follows `error_code` down to the deepest instance, and copying a
+payload onto every ancestor row would bloat each one to say the same thing.
+
+The caller declares shapes in a table on the **action**, keyed by raise code — the exact
+analogue of a fetch's status-keyed `responses`, and on the action rather than the rule
+for the same reason `responses` is: it describes what the call can hand back, not what
+you do about it. One declaration serves every rule, two rules catching one code cannot
+disagree about its shape, and R5 already validates rule codes against the child's raise
+set, so the same check catches a typo'd key.
+
+```yaml
+action:
+  type: child
+  name: script
+  result_schema: { $ref: "#/$defs/reading" }     # success channel (existing)
+  raises:                                         # error channel  (new)
+    script_threw: { $ref: "#/$defs/script_error" }
+    script_timeout: {}                            # declared, unknown
+    # script_unknown undeclared → error.data absent
+```
+
+Three declaration states, all inherited from `responses`: **absent** → `error.data`
+absent (undeclared data is never accessible); **`{}`** → the unknown type, present but
+requiring narrowing; **a schema** → typed and navigable. Widening a rule's `code:`
+patterns widens the type — a rule catching several declared codes sees `anyOf`, one that
+can also catch an undeclared code gets `| null`.
+
+#### What this costs to build
+
+Much less than X2-b costed, because the caller declares. No `Raises()` becomes
+`map[string]Schema`, no schema propagation across child versions, no compat surface for a
+child's payload shapes. And the union-across-wildcard-patterns machinery X2-b named as
+the expensive part **already exists and is already generic**: `errorDataSchema` unions the
+arms of every reaching rule, and its own comment says the narrowing is "done by the rules
+themselves rather than by any type-system machinery"; `ruleCatches(rule, code)` already
+takes an `errcode.Code`. Only `ruleErrorData`'s *source* is fetch-specific — it reads
+`a.Responses`. A child branch reading `a.Raises` sits beside it.
+
+#### A mismatch is `output.invalid`, and the success path changes to match
+
+This applies to `raise` alone — a panic's data is never declared, so there is nothing for
+it to mismatch. A `data` value that does not satisfy the caller's declared schema reports
+**`output.invalid`**, catchable by an `on_error` rule on the child task.
+
+Getting here took two reversals, and both are worth keeping because the reasoning is the
+same reasoning that governs the success path.
+
+**What the code does today, verified rather than assumed (2026-08-22).** A child whose
+output is the **unknown** type, narrowed by a caller's `result_schema` it does not satisfy,
+registers fine — `checkChildOutputType` skips the open type, "no declared output = open
+type = nothing to check" — and then fails at runtime:
+
+```
+parent: failed / engine.collect   "output validation: expected type object, got integer"
+child:  completed, output 42
+```
+
+Two things follow that survive the reversals. **The runtime conform is not vestigial**: the
+static check passes by construction for exactly the generic-wrapper case this feature
+exists for, so the runtime one is the only gate that ever fires there. And **a hard failure
+does not destroy the error being diagnosed** — an earlier draft objected that it would, and
+the two rows disprove it: on the raise path the child keeps `raised`, its code, its message
+and its `data`, while the parent's row names the mismatch.
+
+**Why not terminal, after all.** The first reading was that a mismatch means two
+definitions disagree about a contract registration already cross-checked — a defect, so
+uncatchable, and `engine.collect` was the existing precedent. The open type breaks that
+reading. When a generic wrapper forwards an unknown and a caller narrows it, the caller is
+making a *bet* about a shape neither definition states, and the bet can lose with both
+definitions perfectly consistent — a script's return changed, an upstream API changed.
+That is not a defect; it is precisely what `output.invalid` already means on a fetch
+("the response did not satisfy its result_schema"). Two mechanisms both named
+`result_schema`, failing for the same reason with different codes and different
+catchability, was the real inconsistency.
+
+Catchable also forecloses nothing: a caller with no matching rule still fails terminally,
+exactly as today. `engine.collect` removed a choice and bought nothing.
+
+**So the shipped success path changes too**, and this half is independent of the rest of
+X2 — it is about `result_schema`, needs none of the `raises` machinery, and could land
+first. Three notes:
+
+- **A split, not a rename.** Only the conform becomes `output.invalid`. The four other
+  failures reaching the same `failInstance` are corruption rather than contract — a
+  sibling that is not `completed` ("an invariant, not a case to handle"), a single-child
+  task with ≠1 sibling, an invalid `_spawn_index`, and object-store resolution failing in
+  `resolveValue`. Those stay `engine.collect`.
+- **It amends E6.** §2.4 of child-error-handling.md justifies the no-namespace rule with
+  "there is nothing else they can see: every other failure path … goes straight to
+  `failInstance`". A child task's catchable set becomes `raises(D) ∪ {output.invalid}`.
+  That stays unambiguous for the reason §2.4 itself gives — R1 forbids dots in raised
+  codes and every engine code has one — but the sentence is false as written.
+- **R5 admits the one dotted code.** `matchesSomeRaise` rejects
+  `code: ["output.invalid"]` on a child task today.
+
+On the raise path the code is **replaced**, so a rule matching the original raised code no
+longer fires — the fetch precedent, where a declared body that fails validation means
+`code: [http.4%]` "no longer catches a 400 whose body is malformed".
+
+#### Size cap at the raising end
+
+A cap belongs where the value is attached, failing the *child* as its own defect — on
+both clauses, since an over-cap payload is an authoring bug either way. Capping
+at the reading end would mean truncating, and truncated JSON cannot satisfy a declared
+shape — it would trip the mismatch above and kill the parent for the wrong reason. The
+invariant to preserve: `data` either conforms or the definitions are wrong.
+
+#### Not in scope
+
+Inferring the child's `data` shapes into `raises(D)` — the caller declares, which is what
+keeps a generic wrapper generic. If discoverability becomes the complaint, `raises(D)` is
+already published per version and can carry shapes later without changing this syntax.
 
 ## X3 — Opt-in exhaustiveness over a child's raise set
 
