@@ -669,3 +669,140 @@ test("a self-referencing call checks declarations against the definition being r
   const { error: typo } = await client.PUT("/definitions", { body: def("too_shallow") });
   expect(JSON.stringify(typo)).toContain("never raises");
 });
+
+// A wildcard catching SEVERAL declared codes combines their shapes: error.data is the union
+// of every declaration the rule can reach, and the arm that arrives is the one the raised
+// code declared. A field only one arm carries is therefore nullable, not refused.
+const DECLINED_SHAPE = {
+  type: "object",
+  properties: { kind: { type: "string" }, decline_code: { type: "string" } },
+  required: ["kind", "decline_code"],
+} as const;
+const EXPIRED_SHAPE = {
+  type: "object",
+  properties: { kind: { type: "string" }, expired_on: { type: "string" } },
+  required: ["kind", "expired_on"],
+} as const;
+
+// A child that picks its code from its input, so one definition produces both arms.
+async function putTwoCoded(name: string) {
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: { type: "object", properties: { expired: { type: "boolean" } } },
+      tasks: [
+        {
+          id: "charge",
+          switch: [
+            {
+              case: "input.expired == true",
+              raise: { code: "card_expired", message: "expired", data: { kind: "expired", expired_on: "2026-01" } },
+            },
+            {
+              case: "true",
+              raise: { code: "card_declined", message: "declined", data: { kind: "declined", decline_code: "51" } },
+            },
+            { goto: "end" },
+          ],
+        },
+      ],
+    } as never,
+  });
+  expect(error).toBeUndefined();
+}
+
+test("a % rule unions every declared shape it can reach, and the raised code decides the arm", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `union_child_${uid}`;
+  const parent = `union_parent_${uid}`;
+  await putTwoCoded(child);
+
+  const { error: putErr } = await client.PUT("/definitions", {
+    body: {
+      name: parent,
+      input_schema: { type: "object", properties: { expired: { type: "boolean" } } },
+      tasks: [
+        {
+          id: "pay",
+          action: {
+            type: "child" as const,
+            name: child,
+            input: { expired: "$: input.expired ?? false" },
+            raises: { card_declined: DECLINED_SHAPE, card_expired: EXPIRED_SHAPE },
+          },
+          on_error: [{ code: ["card_%"], goto: "$handle" }],
+          switch: [{ goto: "end" }],
+        },
+        {
+          id: "handle",
+          // Both arms' own fields are read here: neither reads unless BOTH declarations are
+          // in the union, which is what makes this a test of combining rather than of one arm.
+          output: {
+            seen: "$: error.data",
+            kind: "$: error.data.kind",
+            declined: "$: error.data.decline_code",
+            expired: "$: error.data.expired_on",
+          },
+          switch: [{ goto: "end" }],
+        },
+      ],
+      output: "$: outputs.handle",
+    } as never,
+  });
+  expect(putErr).toBeUndefined();
+
+  for (const [expired, expectedArm] of [
+    [false, { kind: "declined", decline_code: "51" }],
+    [true, { kind: "expired", expired_on: "2026-01" }],
+  ] as const) {
+    const { data: started } = await client.POST("/instances", {
+      body: { process: parent, input: { expired } },
+    });
+    expect(await waitForInstance(started!.id)).toBe("completed");
+    const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+    const out = data?.context?.output as any;
+    expect(out?.seen, `expired=${expired} must arrive as its own declared shape`).toEqual(expectedArm);
+    expect(out?.kind).toBe(expectedArm.kind);
+    // The other arm's field is present in the TYPE and null in this VALUE.
+    expect(expired ? out?.declined : out?.expired).toBeNull();
+  }
+});
+
+test("a field only one arm of the union declares reads as null when the other arrives", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `union_one_child_${uid}`;
+  const parent = `union_one_parent_${uid}`;
+  await putTwoCoded(child);
+
+  const { error: putErr } = await client.PUT("/definitions", {
+    body: {
+      name: parent,
+      input_schema: { type: "object", properties: { expired: { type: "boolean" } } },
+      tasks: [
+        {
+          id: "pay",
+          action: {
+            type: "child" as const,
+            name: child,
+            input: { expired: "$: input.expired ?? false" },
+            raises: { card_declined: DECLINED_SHAPE, card_expired: EXPIRED_SHAPE },
+          },
+          on_error: [{ code: ["card_%"], goto: "$handle" }],
+          switch: [{ goto: "end" }],
+        },
+        // decline_code exists in one arm only. The read is legal — the union admits it — and
+        // it is null on the run where the other arm arrived.
+        { id: "handle", output: { code: "$: error.data.decline_code" }, switch: [{ goto: "end" }] },
+      ],
+      output: "$: outputs.handle",
+    } as never,
+  });
+  expect(putErr, "a one-arm field is nullable, not unreadable").toBeUndefined();
+
+  const { data: started } = await client.POST("/instances", {
+    body: { process: parent, input: { expired: true } },
+  });
+  expect(await waitForInstance(started!.id)).toBe("completed");
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  expect((data?.context?.output as any)?.code, "card_expired carries no decline_code").toBeNull();
+});

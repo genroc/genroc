@@ -173,53 +173,63 @@ func (e *Engine) faultMessage(inst *model.ProcessInstance, f *model.Fault, self 
 // falling through to FinishChild — a raise is a normal outcome, never marks ancestors
 // failing — and computes no process output (a raise site is not an output terminal).
 func (e *Engine) raiseInstance(inst *model.ProcessInstance, task *model.Task, f *model.Fault, self any) advanceOutcome {
-	msg := e.faultMessage(inst, f, self)
-	if err := e.applyFaultData(inst, f, self); err != nil {
+	data, err := e.evalFaultData(inst, f, self)
+	if err != nil {
 		return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q raise data: %v", task.ID, err))
 	}
+	msg := e.faultMessage(inst, f, self)
 	inst.Status = model.StatusRaised
 	inst.WaitState = model.WaitStateNone
 	inst.Error = msg
 	inst.ErrorCode = f.Code
 	inst.WakeAt = nil
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceRaised, Task: task.ID, Msg: msg, Code: errcode.Code(f.Code)})
+	setFaultData(inst, data)
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
 // panicInstance is failInstance with the author's words: authoring a defect grants it no
 // special status, so nothing can catch it and it poisons ancestors the same way.
 func (e *Engine) panicInstance(inst *model.ProcessInstance, task *model.Task, f *model.Fault, self any) advanceOutcome {
-	msg := e.faultMessage(inst, f, self)
-	if err := e.applyFaultData(inst, f, self); err != nil {
+	data, err := e.evalFaultData(inst, f, self)
+	if err != nil {
 		return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q panic data: %v", task.ID, err))
 	}
-	return e.failInstance(inst, errcode.Code(f.Code), msg)
+	msg := e.faultMessage(inst, f, self)
+	out := e.failInstance(inst, errcode.Code(f.Code), msg)
+	setFaultData(inst, data)
+	return out
 }
 
-// applyFaultData evaluates a clause's `data` in the scope its message renders in and lands
-// it on error.data, the slot an operator reads on this instance's row. An absent clause
-// CLEARS it: what sits there otherwise is the error this instance CAUGHT, which the fault
-// never chose to carry.
+// evalFaultData evaluates a clause's `data` in the scope its message renders in. It only
+// READS: the write is setFaultData, and the two are split because the audit line in between
+// scrubs secrets by collecting them from the context — clearing the slot first would leave
+// the message's own interpolation unscrubbable.
 //
 // A failed evaluation is not degraded the way a message is: the payload is a contract, so
 // dropping it silently would report the loss at the caller's conform rather than here.
 // specs/error-extensions.md §X2-c.
-func (e *Engine) applyFaultData(inst *model.ProcessInstance, f *model.Fault, self any) error {
-	errCtx, _ := inst.ContextData["error"].(map[string]any)
+func (e *Engine) evalFaultData(inst *model.ProcessInstance, f *model.Fault, self any) (any, error) {
 	if !f.Data.Present() {
-		delete(errCtx, "data")
-		return nil
+		return nil, nil
 	}
-	value, err := e.evalShape(inst, *f.Data, self)
-	if err != nil {
-		return err
+	return e.evalShape(inst, *f.Data, self)
+}
+
+// setFaultData lands the evaluated payload on error.data, the slot an operator reads on this
+// instance's row. A nil value CLEARS it: what sits there otherwise is the error this instance
+// CAUGHT, which the fault never chose to carry.
+func setFaultData(inst *model.ProcessInstance, data any) {
+	errCtx, _ := inst.ContextData["error"].(map[string]any)
+	if data == nil {
+		delete(errCtx, "data")
+		return
 	}
 	if errCtx == nil {
 		errCtx = map[string]any{}
 		inst.ContextData["error"] = errCtx
 	}
-	errCtx["data"] = value
-	return nil
+	errCtx["data"] = data
 }
 
 // failInstance moves the instance to failed and returns the terminal outcome. code is

@@ -11,6 +11,7 @@ import (
 	"genroc/internal/logview"
 	"genroc/internal/model"
 	"genroc/internal/schema"
+	"genroc/internal/validation"
 )
 
 // snippetResult redacts an action's raw result body against the schema declared for it, then
@@ -107,6 +108,11 @@ func (e *Engine) contextSecrets(inst *model.ProcessInstance) []string {
 				collect(v, ts.Output)
 			}
 		}
+	}
+	// A declared payload can carry a secret too, and which task wrote the `error` in hand is
+	// not knowable from the row — hence the definition-wide union.
+	if ev, ok := inst.ContextData["error"].(map[string]any); ok {
+		collect(ev["data"], validation.ErrorDataSchema(sf))
 	}
 	// Scrub the longest value first: when one secret is a prefix/substring of
 	// another (e.g. an input array [5, 50, 500]), replacing the shorter one first

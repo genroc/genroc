@@ -15,6 +15,11 @@ type TaskSchemas struct {
 	ActionType model.ActionType `json:"action_type"`
 	Input      schema.Schema    `json:"input,omitzero"`
 	Output     schema.Schema    `json:"output,omitzero"`
+	// Error is the type of `error.data` at this task — a declared fetch response body or a
+	// child's declared raise payload. It rides in the SchemaFile because redaction reads it
+	// from here: a `secret: true` inside a declared payload is invisible to a context schema
+	// that has no error slot, and the value reaches the API and the logs in the clear.
+	Error schema.Schema `json:"error,omitzero"`
 }
 
 // SchemaFile is the top-level output.
@@ -132,6 +137,25 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 		name := uniqueDefName("output", defs)
 		defs.Set(name, outputSchema)
 		result.ProcessOutput = schema.Ref(name)
+	}
+
+	// The same per-task error facts inference uses, kept so redaction can see inside a
+	// declared payload (specs/error-extensions.md §X2-c). The entry is CREATED where there is
+	// none: collectTaskRefs lists only tasks that export an output, and a handler that merely
+	// reads error.data usually exports nothing — which is exactly where a secret would hide.
+	_, _, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
+	errs := errContexts(def.Tasks, mustErr, mayErr, errSrc, defs)
+	for _, t := range def.Tasks {
+		e, ok := errs[t.ID]
+		if !ok || e.data.IsZero() {
+			continue
+		}
+		ts := tasks[t.ID]
+		if ts.ActionType == "" && t.Action != nil {
+			ts.ActionType = t.Action.Type
+		}
+		ts.Error = e.data
+		tasks[t.ID] = ts
 	}
 
 	if len(tasks) > 0 {

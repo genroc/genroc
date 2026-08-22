@@ -231,4 +231,3 @@ func TestR5_CoexistsWithInputCheck(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
-

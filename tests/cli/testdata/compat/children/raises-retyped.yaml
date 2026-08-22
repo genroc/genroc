@@ -1,0 +1,67 @@
+# The same declaration, a different shape underneath it: the handler still reads the field, so
+# the break lands on what it reads rather than on the slot that was edited — and it reaches the
+# CONTRACT too, because this handler projects the value into the process output.
+apply:
+  - channel: retyped_a
+    definitions:
+      - name: retyped_kid
+        tasks:
+          - id: charge
+            switch:
+              - case: "true"
+                raise: {code: declined, message: "no", data: {why: "card"}}
+              - goto: end
+      - name: retyped_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: retyped_kid
+              raises:
+                declined: {type: object, properties: {why: {type: string}}, required: [why]}
+            on_error:
+              - code: [declined]
+                goto: $explain
+            switch: end
+          - id: explain
+            output: {why: '$: error.data.why'}
+            switch: end
+        output: {why: '$: outputs.explain.why'}
+  - channel: retyped_b
+    definitions:
+      - name: retyped_kid
+        tasks:
+          - id: charge
+            switch:
+              - case: "true"
+                raise: {code: declined, message: "no", data: {why: "card"}}
+              - goto: end
+      - name: retyped_boss
+        tasks:
+          - id: work
+            action:
+              type: child
+              name: retyped_kid
+              raises:
+                declined: {type: object, properties: {why: {type: integer}}, required: [why]}
+            on_error:
+              - code: [declined]
+                goto: $explain
+            switch: end
+          - id: explain
+            output: {why: '$: error.data.why'}
+            switch: end
+        output: {why: '$: outputs.explain.why'}
+run: [--from, retyped_a, --to, retyped_b]
+
+expect: |
+  retyped_boss  v1 → v2  breaking: upgrade, contract
+    explain            (breaking: upgrade)
+      error.data.why: string → integer
+    output             (breaking: contract)
+      why: null|string → integer|null
+    work:child.raises  (ok)
+
+  retyped_kid   v1       unchanged
+
+  exit 1

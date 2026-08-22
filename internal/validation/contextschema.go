@@ -1,6 +1,9 @@
 package validation
 
 import (
+	"encoding/json"
+	"sort"
+
 	"genroc/internal/model"
 	"genroc/internal/schema"
 )
@@ -58,5 +61,43 @@ func SchemaFileContext(sf SchemaFile) schema.Schema {
 	if !sf.ProcessOutput.IsZero() {
 		ctx = ctx.WithProperty("output", sf.ProcessOutput, false)
 	}
+	if data := ErrorDataSchema(sf); !data.IsZero() {
+		ctx = ctx.WithProperty("error", schema.Object().WithProperty("data", data, false), false)
+	}
 	return ctx.WithDefs(sf.Defs)
+}
+
+// ErrorDataSchema unions what `error.data` can hold ANYWHERE in the definition. A reader of a
+// stored context cannot know which task wrote the error it is holding — a routed instance
+// sits past the task that caught it, a failed one sits on it — so redaction takes every
+// declared payload at once: over-marking costs a "***", missing one prints a secret.
+// Identical declarations collapse, because a union no arm is alone in hides its own secrets.
+func ErrorDataSchema(sf SchemaFile) schema.Schema {
+	ids := make([]string, 0, len(sf.Tasks))
+	for id := range sf.Tasks {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	var arms []schema.Schema
+	seen := map[string]bool{}
+	for _, id := range ids {
+		e := sf.Tasks[id].Error
+		if e.IsZero() {
+			continue
+		}
+		key, err := json.Marshal(e)
+		if err != nil || seen[string(key)] {
+			continue
+		}
+		seen[string(key)] = true
+		arms = append(arms, e)
+	}
+	switch len(arms) {
+	case 0:
+		return schema.Schema{}
+	case 1:
+		return arms[0]
+	}
+	return schema.AnyOf(arms...)
 }
