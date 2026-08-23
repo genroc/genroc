@@ -231,17 +231,29 @@ type ExternalTaskResp struct {
 	TaskID       string         `json:"task_id"`
 	Input        any            `json:"input"`                   // the task's evaluated input snapshot
 	ResultSchema *schema.Schema `json:"result_schema,omitempty"` // JSON Schema the submitted result must satisfy
+	Raises       model.Raises   `json:"raises,omitempty"`        // code -> JSON Schema the failure payload must satisfy, for /external-tasks/fail
 	WaitingSince string         `json:"waiting_since"`           // RFC3339 park time
 }
 
+// FailureReq is the error half of a submitted outcome. A pointer field on the two request
+// types, so its PRESENCE is the discriminator: `result: null` stays an ordinary success, and
+// nothing has to be spelled to say which channel a submission is on.
+type FailureReq struct {
+	Code    string `json:"code"`           // lower_snake_case, no dots: the code on_error rules match
+	Message string `json:"message"`        // human-readable cause; lands on error.message
+	Data    any    `json:"data,omitempty"` // payload, validated against the task's raises[code]
+}
+
 type ResolveExternalTaskReq struct {
-	Token  string `json:"token"`  // the token from the external-task queue
-	Result any    `json:"result"` // the result payload, validated against the task's result_schema
+	Token  string      `json:"token"`            // the token from the external-task queue
+	Result any         `json:"result,omitempty"` // the result payload, validated against the task's result_schema
+	Error  *FailureReq `json:"error,omitempty"`  // set INSTEAD of result to answer on the error channel
 }
 
 type SignalInstanceReq struct {
-	TaskID string `json:"task_id"` // the external task to deliver to (addressed, not by token)
-	Result any    `json:"result"`  // the result, validated against the task's result_schema
+	TaskID string      `json:"task_id"`          // the external task to deliver to (addressed, not by token)
+	Result any         `json:"result,omitempty"` // the result, validated against the task's result_schema
+	Error  *FailureReq `json:"error,omitempty"`  // set INSTEAD of result to answer on the error channel
 }
 
 type ListLogsReq struct {

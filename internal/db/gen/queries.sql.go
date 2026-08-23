@@ -623,7 +623,7 @@ func (q *Queries) InsertLog(ctx context.Context, arg InsertLogParams) error {
 
 const insertSignal = `-- name: InsertSignal :exec
 
-INSERT INTO process_signals (id, instance_id, task_id, result, created_at)
+INSERT INTO process_signals (id, instance_id, task_id, outcome, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5)
 `
 
@@ -631,7 +631,7 @@ type InsertSignalParams struct {
 	ID         string
 	InstanceID string
 	TaskID     string
-	Result     string
+	Outcome    string
 	CreatedAt  int64
 }
 
@@ -643,7 +643,7 @@ func (q *Queries) InsertSignal(ctx context.Context, arg InsertSignalParams) erro
 		arg.ID,
 		arg.InstanceID,
 		arg.TaskID,
-		arg.Result,
+		arg.Outcome,
 		arg.CreatedAt,
 	)
 	return err
@@ -778,7 +778,7 @@ WHERE id = (
     WHERE s.instance_id = ?1 AND s.task_id = ?2
     ORDER BY s.created_at, s.id LIMIT 1
 )
-RETURNING result
+RETURNING outcome
 `
 
 type PopOldestSignalParams struct {
@@ -790,9 +790,9 @@ type PopOldestSignalParams struct {
 // delivery. Run inside the arm transaction, which already holds the instance row lock.
 func (q *Queries) PopOldestSignal(ctx context.Context, arg PopOldestSignalParams) (string, error) {
 	row := q.db.QueryRowContext(ctx, popOldestSignal, arg.InstanceID, arg.TaskID)
-	var result string
-	err := row.Scan(&result)
-	return result, err
+	var outcome string
+	err := row.Scan(&outcome)
+	return outcome, err
 }
 
 const referenceLogObject = `-- name: ReferenceLogObject :exec
@@ -863,7 +863,7 @@ func (q *Queries) RenewWorkerLeasesChunk(ctx context.Context, arg RenewWorkerLea
 	return result.RowsAffected()
 }
 
-const setExternalResult = `-- name: SetExternalResult :exec
+const setExternalOutcome = `-- name: SetExternalOutcome :exec
 UPDATE process_instances
 SET external_data = ?1,
     wait_state   = '',
@@ -872,18 +872,20 @@ SET external_data = ?1,
 WHERE id = ?3
 `
 
-type SetExternalResultParams struct {
+type SetExternalOutcomeParams struct {
 	ExternalData string
 	UpdatedAt    int64
 	ID           string
 }
 
-// Un-parks an external task: stores the submitted/buffered result in external_data and
-// clears the wait. Callers act on a PARKED row under the row lock, so there is no grant
-// to fence; worker_id stays -- clearing it destroys a crashed owner's ReclaimedExpired
-// evidence. (The engine's consume path writes via the fenced UpdateInstanceProgress.)
-func (q *Queries) SetExternalResult(ctx context.Context, arg SetExternalResultParams) error {
-	_, err := q.db.ExecContext(ctx, setExternalResult, arg.ExternalData, arg.UpdatedAt, arg.ID)
+// Un-parks an external task: stores the submitted/buffered outcome -- a result or a failure --
+// in external_data and clears the wait. Callers act on a PARKED row under the row lock, so
+// there is no grant to fence; worker_id stays -- clearing it destroys a crashed owner's
+// ReclaimedExpired evidence. (The engine's consume path writes via the fenced
+// UpdateInstanceProgress.) Clearing wake_at is load-bearing beyond tidiness: an answered wait
+// must not later fire external.timeout, which on an only_once task can never be retried.
+func (q *Queries) SetExternalOutcome(ctx context.Context, arg SetExternalOutcomeParams) error {
+	_, err := q.db.ExecContext(ctx, setExternalOutcome, arg.ExternalData, arg.UpdatedAt, arg.ID)
 	return err
 }
 

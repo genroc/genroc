@@ -297,7 +297,7 @@ test("a code only some child_map entries declare is nullable; declared by all, i
 // The slot refuses three things it cannot mean. Each is a decision with a message that has
 // to point somewhere: null at "omit or {}", a wrong action type at the child family, a dotted
 // key at the fact that no engine code carries a declared payload.
-test("raises refuses null, a non-child action, and a code that is not one", async () => {
+test("raises refuses a boolean, a non-declaring action, and a code that is not one", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_refuse_child_${uid}`;
   await putDecliner(child, { decline_code: "51", retry_after: 3600 });
@@ -312,10 +312,15 @@ test("raises refuses null, a non-child action, and a code that is not one", asyn
     expect(JSON.stringify(error), `${suffix} must be refused with its own message`).toContain(expected);
   }
 
+  // null used to be refused ("omitting the code already says that"). It is now the third
+  // declaration state — the code is declared and carries nothing — because on an external
+  // task omitting means NOT SUBMITTABLE, so the two stopped being the same statement.
+  // A boolean takes over the refusal: raises[code] is a schema position, and genroc has no
+  // boolean schemas.
   await refused(
-    "null",
-    { type: "child", name: child, raises: { card_declined: null } },
-    "null is not a declaration",
+    "boolean",
+    { type: "child", name: child, raises: { card_declined: true } },
+    "boolean schemas are not supported",
   );
   await refused(
     "fetch",

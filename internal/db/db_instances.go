@@ -234,7 +234,7 @@ func encodeContext(inst *model.ProcessInstance) (cols contextCols, pending []*pe
 }
 
 // encodeExternalData serialises the parked external-task bookkeeping (task_id, token,
-// input snapshot, submitted result) into external_data, or "" when none is present.
+// input snapshot, submitted outcome) into external_data, or "" when none is present.
 // External payloads stay inline (their own column keeps them off the runnable index).
 func encodeExternalData(cd map[string]any) (string, error) {
 	ext := map[string]any{}
@@ -247,6 +247,10 @@ func encodeExternalData(cd map[string]any) (string, error) {
 		ext["result"] = r
 		ext["has_result"] = true
 	}
+	if f, ok := cd[model.CtxExternalError]; ok {
+		ext["error"] = f
+		ext["has_error"] = true
+	}
 	if len(ext) == 0 {
 		return "", nil
 	}
@@ -254,18 +258,30 @@ func encodeExternalData(cd map[string]any) (string, error) {
 	return string(b), err
 }
 
-// withExternalResult writes a result into an external_data column value, marking
-// has_result so the engine consumes it on the next claim. Used by the resolve/deliver
-// paths that operate on the column string rather than the in-memory context map.
-func withExternalResult(externalData string, result any) (string, error) {
+// withExternalOutcome writes a submitted outcome into an external_data column value, under
+// the slot its kind owns, marking has_<slot> so the engine consumes it on the next claim.
+// Used by the resolve/deliver paths that operate on the column string rather than the
+// in-memory context map. The two slots are mutually exclusive by construction: every caller
+// holds the instance row lock and has already refused a row that is not parked, which is what
+// lets phase 2 read them in a fixed order rather than reconciling them.
+func withExternalOutcome(externalData string, o model.ExternalOutcome) (string, error) {
+	key, v := o.ContextValue()
+	slot := "result"
+	if key == model.CtxExternalError {
+		slot = "error"
+	}
+	return withExternalSlot(externalData, slot, v)
+}
+
+func withExternalSlot(externalData, slot string, v any) (string, error) {
 	ext := map[string]any{}
 	if externalData != "" {
 		if err := numeric.Decode([]byte(externalData), &ext); err != nil {
 			return "", fmt.Errorf("decode external_data: %w", err)
 		}
 	}
-	ext["result"] = result
-	ext["has_result"] = true
+	ext[slot] = v
+	ext["has_"+slot] = true
 	b, err := json.Marshal(ext)
 	return string(b), err
 }
@@ -636,13 +652,22 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 		}
 		hasResult, _ := ext["has_result"].(bool)
 		result := ext["result"]
+		hasError, _ := ext["has_error"].(bool)
+		failure, _ := ext["error"].(map[string]any)
 		delete(ext, "has_result")
 		delete(ext, "result")
+		delete(ext, "has_error")
+		delete(ext, "error")
+		// The remainder is the parked bookkeeping (task_id, input); what is left after both
+		// outcomes are lifted out is what _external holds.
 		if len(ext) > 0 {
 			cd[model.CtxExternal] = ext
 		}
 		if hasResult {
 			cd[model.CtxExternalResult] = result
+		}
+		if hasError {
+			cd[model.CtxExternalError] = failure
 		}
 	}
 	if r.EngineState != "" {

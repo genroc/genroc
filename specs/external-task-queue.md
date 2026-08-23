@@ -1,6 +1,7 @@
 # The external-task queue: claim, lease, and an error channel
 
-Status: **PROPOSAL, 2026-08-23. Not implemented.** Turning `external` from a wait point
+Status: **PROPOSAL, 2026-08-23. Phase 1 (the error channel) BUILT 2026-08-23**; the claim,
+lease and renewal below are unbuilt. Turning `external` from a wait point
 into a queue a worker fleet pulls from, with the claim/lease machinery the engine already
 runs against `process_instances` — and the error channel `external` has never had. The
 motivating consumer is [`evaluator/`](../evaluator/README.md), which ships as a `fetch`
@@ -152,6 +153,23 @@ epoch (it would fence the worker out of its own resolve) and must not clear the 
 
 ### The error channel
 
+**One outcome, two addressing modes — not a third endpoint.** [built, revised] The first cut
+added `POST /external-tasks/fail` beside `resolve`, and that was wrong in a way the build made
+visible: `/instances/{id}/signal` was left able to report success and not failure, and
+`process_signals` had a single `result` column that could not have held the other half anyway
+(migration 021 had named it for the success channel on the grounds that "the value delivered to
+an external task IS its result"). Meanwhile every layer *below* the API had already unified —
+`SetExternalOutcome`, `withExternalOutcome`, a phase 2 reading both slots — because a result and
+a failure are one event: the wait is over.
+
+So a submission carries an **outcome**: `{result}` or `{error: {code, message, data?}}`,
+discriminated by key presence on `error` so a null result stays an ordinary success (both keys
+present is a 400). `resolve` (by token) and `signal` (by instance + task) each take either;
+`/external-tasks/fail` is deleted. Migration 027 renames `process_signals.result` → `outcome`
+holding that same envelope, which is what lets a failure buffer when the task is not yet armed.
+The name `resolve` stays: you resolve the *task*, the way you resolve a ticket, not the way a
+promise resolves-versus-rejects.
+
 **Routing happens in phase 2, not the API handler.** `handleCallErrorWith`
 ([error.go:68](../internal/engine/error.go#L68)) resolves the retry policy and mutates the
 instance, which needs the lease. So `fail` does what `resolve` does — store the failure on
@@ -167,17 +185,53 @@ the row and un-park — and `runExternal` routes it on the next claim:
 child's `raise` uses and `matchOnError` already serves. Rejected: a reserved `external.*`
 family (it would sit in a namespace `errcode` documents as engine-produced) and a single
 `external.failed` carrying the real code in `error.data` (it hides the discriminator from
-the thing that exists to match on it).
+the thing that exists to match on it). The shape is **enforced on submission**
+(`model.ValidFaultCode`), which is not decoration: without it a worker could send `http.500`
+and be caught by a rule written for the wire, or `external.timeout` and reach the unknowable
+set an `only_once` task can never retry.
 
-`raises` becomes legal on an external action; the payload is conformed as `raisedData`
-conforms a child's, mismatch included (`output.invalid`, before the rules match). The
-catchable set becomes `raises(task) ∪ {external.timeout, external.lost, output.invalid}`,
-checkable at registration like the child path.
+`raises` becomes legal on an external action. **[built]** Two things came out differently
+from the paragraph this replaces:
+
+- **The payload is conformed on submission, not in the engine.** A child's raiser is another
+  process that cannot be told, so its mismatch can only degrade to `output.invalid` at
+  collect. An external submitter is an HTTP caller holding the connection, so the mismatch is
+  a `400` it can act on — and because the task stays parked, answering again with a corrected
+  payload is the ordinary path rather than a stranded instance. `resolve` already set this
+  precedent for the success channel.
+- **`raises` is a CLOSED set on an external task**, unlike on a child. A code outside it is
+  refused with a 400 listing what is accepted, and a task declaring no `raises` has no error
+  channel. The asymmetry is the point: a child's raisable codes come from its own definition,
+  so R5 already catches an `on_error` typo at registration — nothing about a worker is
+  knowable until it submits, which makes submission the only place a wrong code can ever be
+  caught. Left open, `limit_exceded` would quietly reach whatever catch-all exists. The cost
+  is that adding a failure mode to a worker is a definition change; that is what declaring a
+  contract buys.
+- **`raises: {code: null}` declares a code that carries nothing.** The three declarations are
+  `null` (no `data`; submitting one is refused; `error.data` absent), `{}` (opaque) and a
+  schema (typed) — so "an error with no payload" has a spelling that is still a declaration,
+  which a closed set requires. This reverses the old rule that null is never a declaration,
+  and the reversal is sound because that rule's premise is gone: it held that "omitting the
+  code already says that", which stops being true once omission means *not submittable*.
+
+  **Null rather than a boolean**, having tried `true` first. `raises[code]` is a schema
+  position, genroc has no boolean schemas, and JSON Schema's bare `true` means "any value
+  validates" — so `true` would spell "nothing" with the standard symbol for "anything".
+  `internal/schema` already refuses the boolean form on the stated principle that *closed is
+  expressed by absence rather than an explicit false*; no payload is the absence of a schema.
+  It is also the cheaper half: null round-trips through `map[string]*schema.Schema` natively,
+  where `true` needed a custom `UnmarshalJSON` **and** a `MarshalJSON` — the latter only
+  because nil would otherwise marshal to `null` and fail to load on the read after the write
+  that stored it. Both are deleted.
 
 **No worker-supplied `not_reached`.** An authored code is neither `pre.*` nor unknowable, so
 the default classification is "potentially reached" — not retryable on `only_once` without
 the author asserting otherwise. That flag is a claim about what an error *means*, and the
-author owns it.
+author owns it. **[built]** This turned out to be enforced at *registration*, not merely at
+runtime: `only_once` + a `retry` naming a worker code is refused at `PUT /definitions` unless
+the rule carries `not_reached: true` and names exact codes. Stronger than this paragraph
+assumed, and it needed no new code — the existing guard does not care that the code is
+authored rather than an engine code.
 
 ### Pause suspends execution, not delivery
 
@@ -236,9 +290,14 @@ answers the latency note, but second — it changes connection lifetime, not the
 
 ## Phasing
 
-1. **Error channel.** No migration; `external_data` keys, one endpoint, `raises` on
-   external, phase-2 routing. Worth shipping first and alone: the evaluator needs it under
-   either shape, and under `fetch` it changes nothing.
+1. **Error channel.** ✅ **Built 2026-08-23.** An `error` outcome on
+   `/external-tasks/resolve` and `/instances/{id}/signal` (`genctl resolve|signal --code`); `external_data` gains `error`/`has_error` (`SetExternalResult` generalised
+   to `SetExternalOutcome`); `model.CtxExternalError` routed by `runExternal` phase 2a
+   through `handleCallErrorWith`; `raises` legal on an external action, typed into
+   `error.data` by `declaredRaises`; `raises` closed on external, with `null` as the no-payload
+   declaration. Carried the §Pause fix with it, since
+   `resolve` and `fail` cannot differ on which statuses accept an answer
+   (`model.Status.AcceptsExternalOutcome`). Tests: `tests/integration/external_fail_test.ts`.
 2. **Claim, lease, renew, release.** Migration 027 and the mirror of `ClaimInstances`.
 3. **`only_once` fidelity.** `external.lost`, and splitting `external.timeout`.
 4. **Long-poll, `queue:` naming, evaluator switchover.** Its loop becomes claim(N) →

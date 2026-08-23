@@ -165,7 +165,7 @@ func TestLeaseEpoch_OperatorVerbsDoNotBump(t *testing.T) {
 			}
 
 			insertExternalParked(t, b.db, "verbs-resolve", 0, nil)
-			if err := b.db.ResolveExternalTask(ctx, "verbs-resolve", 0, map[string]any{"ok": true}); err != nil {
+			if err := b.db.ResolveExternalTask(ctx, "verbs-resolve", 0, model.ExternalOutcome{Result: map[string]any{"ok": true}}); err != nil {
 				t.Fatalf("ResolveExternalTask: %v", err)
 			}
 			if got := mustEpoch(t, b.db, "verbs-resolve"); got != 0 {
@@ -173,7 +173,7 @@ func TestLeaseEpoch_OperatorVerbsDoNotBump(t *testing.T) {
 			}
 
 			insertExternalParked(t, b.db, "verbs-deliver", 0, nil)
-			if delivered, err := b.db.DeliverSignal(ctx, "verbs-deliver", "approval", "sig-1", map[string]any{"n": 1}); err != nil || !delivered {
+			if delivered, err := b.db.DeliverSignal(ctx, "verbs-deliver", "approval", "sig-1", model.ExternalOutcome{Result: map[string]any{"n": 1}}); err != nil || !delivered {
 				t.Fatalf("DeliverSignal: delivered=%v err=%v", delivered, err)
 			}
 			if got := mustEpoch(t, b.db, "verbs-deliver"); got != 0 {
@@ -372,7 +372,7 @@ func TestFence_ArmExternal(t *testing.T) {
 			ctx := context.Background()
 			insertExternalRunning(t, b.db, "arm-1")
 			for i, sig := range []string{"s1", "s2"} {
-				if delivered, err := b.db.DeliverSignal(ctx, "arm-1", "approval", sig, map[string]any{"n": i + 1}); err != nil || delivered {
+				if delivered, err := b.db.DeliverSignal(ctx, "arm-1", "approval", sig, model.ExternalOutcome{Result: map[string]any{"n": i + 1}}); err != nil || delivered {
 					t.Fatalf("buffer %s: delivered=%v err=%v", sig, delivered, err)
 				}
 			}

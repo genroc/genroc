@@ -47,6 +47,15 @@ func (s Status) Terminal() bool {
 	return s == StatusCompleted || s == StatusFailed || s == StatusRaised
 }
 
+// AcceptsExternalOutcome reports whether a submitted result or failure may be delivered to
+// an instance in this status. A pause suspends execution, not delivery: refusing here would
+// discard work an outside caller has already performed, and on an only_once task the
+// external.timeout that follows can never be retried. The claim side refuses a suspended
+// tree instead. specs/external-task-queue.md §Pause.
+func (s Status) AcceptsExternalOutcome() bool {
+	return s == StatusRunning || s == StatusPaused || s == StatusPausing
+}
+
 // WaitState tracks where a parent instance is in the child-process lifecycle.
 type WaitState string
 
@@ -90,6 +99,12 @@ const (
 	// CtxExternalResult holds a submitted, validated result placed by the resolve API.
 	// Its presence is how the engine tells "result arrived" from "first arrival".
 	CtxExternalResult = "_external_result"
+	// CtxExternalError holds a submitted failure placed by the fail API: {code, message,
+	// data?}, where `data` is present only if the task declared a shape for the code. The
+	// engine routes it through on_error on the next claim -- it cannot be routed where it
+	// is submitted, because retry budgeting is a write on the leased row. Checked BEFORE
+	// CtxExternalResult, so the two can never both apply to one arming.
+	CtxExternalError = "_external_error"
 )
 
 // ProcessInstance is a single running execution of a ProcessDefinition.

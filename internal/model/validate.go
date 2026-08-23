@@ -205,6 +205,12 @@ func validateActionRequiredFields(s *Task) error {
 // error_code unqueryable, and no expression can be spelled in lower_snake_case.
 var faultCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+// ValidFaultCode reports whether s is a well-formed authored error code. Exported for the
+// external-tasks fail API, whose submitter is an outside worker rather than a definition:
+// without this check a worker could send "http.500" or "external.timeout" and impersonate an
+// engine code, including the unknowable ones an only_once task can never retry.
+func ValidFaultCode(s string) bool { return faultCodeRe.MatchString(s) }
+
 // validateFault enforces R1 (code shape, message present) on one raise or panic clause.
 // where locates the case ("switch case 0", "on_error[1]") and clause names it, so the
 // message points at the offending line without the author having to count.
@@ -505,14 +511,17 @@ func validateRaises(s *Task, pool schema.Defs) error {
 		return nil
 	}
 	switch s.Action.Type {
-	case ActionTypeChild, ActionTypeChildList:
+	// External declares the same slot for a different producer: the code arrives from a
+	// worker's /external-tasks/fail rather than from a child, so the declared set is a
+	// contract rather than a knowable set — which is why no reachability rule (R5) applies.
+	case ActionTypeChild, ActionTypeChildList, ActionTypeExternal:
 	case ActionTypeChildMap:
 		if len(s.Action.Raises) > 0 {
 			return fmt.Errorf("task %q: action.raises is declared per entry on a child_map — move it under children[<key>].raises, beside that entry's result_schema", s.ID)
 		}
 	default:
 		if len(s.Action.Raises) > 0 {
-			return fmt.Errorf("task %q: action.raises is only valid on a child, child_map or child_list task — a %q task catches engine codes, which carry no declared payload", s.ID, s.Action.Type)
+			return fmt.Errorf("task %q: action.raises is only valid on a child, child_map, child_list or external task — a %q task catches engine codes, which carry no declared payload", s.ID, s.Action.Type)
 		}
 		return nil
 	}
@@ -533,16 +542,16 @@ func validateRaises(s *Task, pool schema.Defs) error {
 	return nil
 }
 
-// checkRaisesDoc validates one raises map: R1-shaped keys, a real schema document under each.
-// A null value is refused rather than read as "carries nothing" — omitting the key already
-// says that, while as a declaration it would fail the caller the day the child attaches one.
+// checkRaisesDoc validates one raises map: R1-shaped keys, and a real schema document under
+// each key that has one. A nil value is `null` — a code declared to carry nothing — and has
+// no document to check.
 func checkRaisesDoc(where string, r Raises, pool schema.Defs) error {
 	for _, code := range sortedRaiseCodes(r) {
 		if !faultCodeRe.MatchString(code) {
 			return fmt.Errorf("%s: %q is not a raise code — codes are lower_snake_case with no dots (dots are reserved for engine codes, and no engine code carries a declared payload)", where, code)
 		}
 		if r[code] == nil {
-			return fmt.Errorf("%s[%q]: null is not a declaration — omit the code to leave error.data absent, or declare {} to expose the payload for a rule to narrow", where, code)
+			continue
 		}
 		if err := checkSchemaDoc(fmt.Sprintf("%s[%q]", where, code), r[code], pool); err != nil {
 			return err

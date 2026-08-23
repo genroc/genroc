@@ -235,7 +235,7 @@ func TestPersistArm_ConsumeStoresResultAndReleases(t *testing.T) {
 	}
 
 	// The signal arrives first: nothing is armed, so it buffers.
-	if delivered, err := database.DeliverSignal(ctx, id, "wait", "sig-1", map[string]any{"ok": true}); err != nil {
+	if delivered, err := database.DeliverSignal(ctx, id, "wait", "sig-1", model.ExternalOutcome{Result: map[string]any{"ok": true}}); err != nil {
 		t.Fatalf("DeliverSignal: %v", err)
 	} else if delivered {
 		t.Fatal("the signal was delivered to an unarmed task; it should have buffered")

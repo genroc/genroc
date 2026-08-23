@@ -62,9 +62,10 @@ func (e *Engine) handleCallError(inst *model.ProcessInstance, task *model.Task, 
 }
 
 // handleCallErrorWith is handleCallError plus fields merged into `error` beyond
-// task/message/code — today only `data`, the body of an unaccepted response whose status a
-// `responses` key declared. A nil map leaves `error` exactly as it was; a map holding a nil
-// `data` is NOT the same thing, because key presence is what says the status was described.
+// task/message/code — today only `data`: the body of an unaccepted response whose status a
+// `responses` key declared, or the payload a worker submitted for a code an external task
+// declared under `raises`. A nil map leaves `error` exactly as it was; a map holding a nil
+// `data` is NOT the same thing, because key presence is what says the shape was described.
 func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Task, errMsg string, errCode errcode.Code, extra map[string]any) advanceOutcome {
 	matched := matchOnError(task, errCode)
 

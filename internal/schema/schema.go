@@ -32,6 +32,7 @@
 package schema
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"genroc/internal/numeric"
@@ -142,6 +143,13 @@ type node struct {
 func (n *node) UnmarshalJSON(data []byte) error {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
+		// A bare boolean is JSON Schema's true/false schema, which genroc does not have (see
+		// additionalProperties below for the reason). Caught here so the author reads why
+		// rather than encoding/json's "cannot unmarshal bool into map[string]json.RawMessage",
+		// which names an internal type and no fix.
+		if b := bytes.TrimSpace(data); string(b) == "true" || string(b) == "false" {
+			return fmt.Errorf("boolean schemas are not supported: write {} for the top type (any value) rather than %s", b)
+		}
 		return err
 	}
 	for k := range raw {

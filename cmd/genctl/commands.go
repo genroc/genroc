@@ -306,28 +306,30 @@ func runRunCmd(server string, args []string) {
 
 func runResolveCmd(server string, args []string) {
 	if len(args) == 0 {
-		fatal("usage: genctl resolve <token> [--result <json|-> | -f file] [--set k=v ...] [-q]")
+		fatal("usage: genctl resolve <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]")
 	}
 	token := args[0]
 
 	fs := flag.NewFlagSet("resolve", flag.ExitOnError)
 	serverFlag := addServerFlag(fs, server)
 	resultFlag := fs.String("result", "", "result as a JSON/YAML literal, or - for stdin")
-	fileFlag := fs.String("f", "", "read result from a file (path)")
+	fileFlag := fs.String("f", "", "read result/payload from a file (path)")
+	codeFlag := fs.String("code", "", "answer on the ERROR channel with this code (lower_snake_case, no dots)")
+	messageFlag := fs.String("message", "", "with --code: human-readable cause; lands on error.message")
 	var sets multiFlag
-	fs.Var(&sets, "set", "set a result field: key=value (repeatable; dotted keys nest, values are type-inferred)")
+	fs.Var(&sets, "set", "set a result/payload field: key=value (repeatable; dotted keys nest, values are type-inferred)")
 	quietFlag := fs.Bool("quiet", false, "on success print nothing (exit 0); by default prints a confirmation line")
 	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")
 	fs.Parse(args[1:])
 
 	// A missing --result/-f/--set means an empty result: valid for a task with no
 	// result_schema, and rejected by the server otherwise (surfaced below).
-	result, _, err := buildInput(*resultFlag, *fileFlag, sets)
+	payload, _, err := buildInput(*resultFlag, *fileFlag, sets)
 	if err != nil {
 		fatal("%v", err)
 	}
 
-	body := map[string]any{"token": token, "result": result}
+	body := outcomeBody(map[string]any{"token": token}, payload, *codeFlag, *messageFlag)
 
 	var resp struct {
 		Resolved bool `json:"resolved"`
@@ -343,34 +345,59 @@ func runResolveCmd(server string, args []string) {
 	if *quietFlag {
 		return
 	}
+	if *codeFlag != "" {
+		fmt.Printf("resolved: %s (error %s)\n", token, *codeFlag)
+		return
+	}
 	fmt.Printf("resolved: %s\n", token)
 }
 
-// runSignalCmd delivers a result to an instance's external task by id + --task (not a
-// queue token like resolve): resolved now if the task is armed, else buffered FIFO until armed.
+// outcomeBody puts the payload on the channel --code selects: the error half when a code is
+// given, the result half otherwise. Shared by resolve and signal so the two spell one
+// submission the same way.
+func outcomeBody(body map[string]any, payload any, code, message string) map[string]any {
+	if code == "" {
+		body["result"] = payload
+		return body
+	}
+	if message == "" {
+		fatal("--message is required with --code")
+	}
+	fail := map[string]any{"code": code, "message": message}
+	if payload != nil {
+		fail["data"] = payload
+	}
+	body["error"] = fail
+	return body
+}
+
+// runSignalCmd delivers an outcome to an instance's external task by id + --task (not a queue
+// token like resolve): resolved now if the task is armed, else buffered FIFO until armed.
 func runSignalCmd(server string, args []string) {
 	fs := flag.NewFlagSet("signal", flag.ExitOnError)
 	serverFlag := addServerFlag(fs, server)
 	taskFlag := fs.String("task", "", "the external task id to signal")
 	resultFlag := fs.String("result", "", "result as a JSON/YAML literal, or - for stdin")
-	fileFlag := fs.String("f", "", "read result from a file (path)")
+	fileFlag := fs.String("f", "", "read result/payload from a file (path)")
+	codeFlag := fs.String("code", "", "answer on the ERROR channel with this code (lower_snake_case, no dots)")
+	messageFlag := fs.String("message", "", "with --code: human-readable cause; lands on error.message")
 	var sets multiFlag
-	fs.Var(&sets, "set", "set a result field: key=value (repeatable; dotted keys nest, values are type-inferred)")
+	fs.Var(&sets, "set", "set a result/payload field: key=value (repeatable; dotted keys nest, values are type-inferred)")
 	quietFlag := fs.Bool("quiet", false, "on success print nothing (exit 0); by default prints a confirmation line")
 	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")
 	// The instance id is the sole positional (before or after flags); resolves @last.
 	id := instanceIDAndFlags(fs, args)
 
 	if *taskFlag == "" {
-		fatal("usage: genctl signal <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [-q]")
+		fatal("usage: genctl signal <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]")
 	}
 
-	result, _, err := buildInput(*resultFlag, *fileFlag, sets)
+	payload, _, err := buildInput(*resultFlag, *fileFlag, sets)
 	if err != nil {
 		fatal("%v", err)
 	}
 
-	body := map[string]any{"task_id": *taskFlag, "result": result}
+	body := outcomeBody(map[string]any{"task_id": *taskFlag}, payload, *codeFlag, *messageFlag)
 
 	var resp struct {
 		Delivered bool `json:"delivered"`

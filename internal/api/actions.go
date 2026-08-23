@@ -535,7 +535,7 @@ var registry = func() []actionDef {
 			Name:    "resolve_external_task",
 			Method:  http.MethodPost,
 			Path:    "/external-tasks/resolve",
-			Summary: "Submit a result for a waiting external task; validates it against the task's result_schema and resumes the process",
+			Summary: "Submit an outcome for a waiting external task — a result, or an `error` routed through the task's on_error rules; validated against what the task declares, then the process resumes",
 			Tags:    []string{"External Tasks"},
 			Errors:  []Code{CodeNotFound, CodeConflict},
 			Req: ResolveExternalTaskReq{
@@ -551,7 +551,7 @@ var registry = func() []actionDef {
 			Name:    "signal_instance",
 			Method:  http.MethodPost,
 			Path:    "/instances/{id}/signal",
-			Summary: "Deliver a signal (result) to an external task by id: resolves it if armed now, else buffers FIFO until the task next arms",
+			Summary: "Deliver an outcome (result or error) to an external task by id: resolves it if armed now, else buffers FIFO until the task next arms",
 			Tags:    []string{"External Tasks"},
 			Errors:  []Code{CodeNotFound, CodeConflict},
 			PathQuery: struct {

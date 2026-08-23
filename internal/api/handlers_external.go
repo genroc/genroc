@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"sort"
+	"strings"
 	"time"
 
 	"genroc/internal/db"
@@ -42,6 +44,10 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 	if task.Action != nil {
 		resultSchema = task.Action.ResultSchema
 	}
+	var raises model.Raises
+	if task.Action != nil {
+		raises = task.Action.Raises
+	}
 	return ExternalTaskResp{
 		Token:        token,
 		Process:      inst.ProcessName,
@@ -49,8 +55,90 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 		TaskID:       task.ID,
 		Input:        ext["input"],
 		ResultSchema: resultSchema,
+		Raises:       raises,
 		WaitingSince: inst.UpdatedAt.Format(time.RFC3339),
 	}
+}
+
+// buildOutcome validates a submitted outcome against what the task declares and returns the
+// value to store. Both addressing modes go through it, so resolve (by token) and signal (by
+// instance + task) cannot drift on what they accept — the drift that left signal able to
+// report success and not failure in the first place.
+//
+// The failure payload is conformed HERE rather than in the engine: unlike a child's raise,
+// whose producer is another process that cannot be told, the submitter is an HTTP caller
+// holding the connection, so a mismatch is a 400 it can act on and answer again after.
+func buildOutcome(task *model.Task, result any, fail *FailureReq) (model.ExternalOutcome, *Error) {
+	if fail == nil {
+		if task.Action != nil {
+			normalized, err := task.Action.ValidateOutput(result)
+			if err != nil {
+				// The "result validation: " prefix is load-bearing — genctl keys on it
+				// (cmd/genctl/commands.go, resultValidationError).
+				return model.ExternalOutcome{}, invalid("result validation: %w", err)
+			}
+			result = normalized
+		}
+		return model.ExternalOutcome{Result: result}, nil
+	}
+	if fail.Message == "" {
+		return model.ExternalOutcome{}, invalid("error.message is required — it is what error.message carries and what the audit trail shows")
+	}
+	// The code lands in error_code and is what on_error rules match, so a caller must not be
+	// able to spell an engine code: "http.500" would be caught by a rule written for the wire,
+	// and "external.timeout" is unknowable, which an only_once task can never retry.
+	if strings.Contains(fail.Code, ".") {
+		return model.ExternalOutcome{}, invalid("error.code %q must not contain '.' — dots are reserved for engine-produced codes", fail.Code)
+	}
+	if !model.ValidFaultCode(fail.Code) {
+		return model.ExternalOutcome{}, invalid("error.code %q is not a valid error code (lower_snake_case, no dots)", fail.Code)
+	}
+
+	// `raises` IS the error channel's contract on an external task: a code outside it is
+	// refused rather than routed to whatever catch-all happens to exist. Unlike a child --
+	// whose raisable set comes from its own definition, so a typo in an on_error pattern is
+	// already caught at registration -- nothing about a caller is knowable until it submits,
+	// which makes this the only place a wrong code can ever be caught.
+	var declared model.Raises
+	if task.Action != nil {
+		declared = task.Action.Raises
+	}
+	sc, ok := declared[fail.Code]
+	if !ok {
+		if len(declared) == 0 {
+			return model.ExternalOutcome{}, invalid("task %q declares no raises, so it has no error channel — declare the codes a caller may submit before answering with one", task.ID)
+		}
+		return model.ExternalOutcome{}, invalid("error.code %q is not declared by task %q; it accepts: %s", fail.Code, task.ID, strings.Join(sortedRaiseCodes(declared), ", "))
+	}
+
+	out := &model.ExternalFailure{Code: fail.Code, Message: fail.Message}
+	if sc == nil {
+		// `raises: {code: null}` — declared to carry nothing. Sending a payload anyway is a
+		// contract violation like any shape mismatch, and `data` stays absent rather than
+		// null: absence is what the validator infers for this code, and a context richer than
+		// its type is how an expression comes to read a slot the next reader cannot.
+		if fail.Data != nil {
+			return model.ExternalOutcome{}, invalid("error.code %q is declared as carrying no data (raises[%q] is null), but data was submitted", fail.Code, fail.Code)
+		}
+		return model.ExternalOutcome{Failure: out}, nil
+	}
+	normalized, err := sc.Validate(fail.Data)
+	if err != nil {
+		return model.ExternalOutcome{}, invalid("error.data validation: %w", err)
+	}
+	out.Data, out.HasData = normalized, true
+	return model.ExternalOutcome{Failure: out}, nil
+}
+
+// sortedRaiseCodes renders the accepted set for a refusal message, in a stable order so the
+// same wrong code reports the same line every time.
+func sortedRaiseCodes(r model.Raises) []string {
+	codes := make([]string, 0, len(r))
+	for code := range r {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	return codes
 }
 
 func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
@@ -60,6 +148,9 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 	}
 	if req.Token == "" {
 		return invalid("token is required").reply()
+	}
+	if req.Error != nil && req.Result != nil {
+		return invalid("a submission carries one outcome: `result` or `error`, not both").reply()
 	}
 	// instanceID for the PK lookup, epoch for the occurrence check — which happens under
 	// lock in ResolveExternalTask, against task_epoch on the row.
@@ -75,22 +166,16 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	if inst.Status != model.StatusRunning || inst.WaitState != model.WaitStateExternal || task == nil {
+	if !inst.Status.AcceptsExternalOutcome() || inst.WaitState != model.WaitStateExternal || task == nil {
 		return conflict("task is not waiting for an external result").reply()
 	}
-	// Validate the submitted result against the parked task's result_schema (no-op when
-	// absent). The task definition is immutable, so validating the pre-lock snapshot is
-	// safe; ResolveExternalTask re-checks the parked state + token atomically.
-	if task.Action != nil {
-		normalized, err := task.Action.ValidateOutput(req.Result)
-		if err != nil {
-			// The "result validation: " prefix is load-bearing — genctl keys on it
-			// (cmd/genctl/commands.go, resultValidationError).
-			return invalid("result validation: %w", err).reply()
-		}
-		req.Result = normalized
+	// The task definition is immutable, so validating the pre-lock snapshot is safe;
+	// ResolveExternalTask re-checks the parked state + token atomically.
+	outcome, bad := buildOutcome(task, req.Result, req.Error)
+	if bad != nil {
+		return bad.reply()
 	}
-	if err := h.db.ResolveExternalTask(context.Background(), instanceID, epoch, req.Result); err != nil {
+	if err := h.db.ResolveExternalTask(context.Background(), instanceID, epoch, outcome); err != nil {
 		return errReply(err)
 	}
 	return okReply(map[string]any{"resolved": true})
@@ -107,6 +192,9 @@ func (h *Handlers) signalInstance(id string, raw json.RawMessage) Reply {
 	if req.TaskID == "" {
 		return invalid("task_id is required").reply()
 	}
+	if req.Error != nil && req.Result != nil {
+		return invalid("a submission carries one outcome: `result` or `error`, not both").reply()
+	}
 	inst, err := h.db.GetInstance(id)
 	if err != nil {
 		return errReply(err)
@@ -115,8 +203,7 @@ func (h *Handlers) signalInstance(id string, raw json.RawMessage) Reply {
 	// task consumes one when it next arms after a resume. A pause suspends execution,
 	// not delivery; rejecting here would make a pause lose events. The correlation
 	// decision (deliver now vs buffer) is made under the row lock in SignalInstance.
-	if inst.Status != model.StatusRunning &&
-		inst.Status != model.StatusPaused && inst.Status != model.StatusPausing {
+	if !inst.Status.AcceptsExternalOutcome() {
 		return conflict("instance is not running (status %s)", inst.Status).reply()
 	}
 	// Resolve the target external task from the pinned definition — it may be a wait point
@@ -139,12 +226,11 @@ func (h *Handlers) signalInstance(id string, raw json.RawMessage) Reply {
 	if target.Action == nil || target.Action.Type != model.ActionTypeExternal {
 		return invalid("task %q is not an external task", req.TaskID).reply()
 	}
-	normalized, err := target.Action.ValidateOutput(req.Result)
-	if err != nil {
-		return invalid("result validation: %w", err).reply()
+	outcome, bad := buildOutcome(target, req.Result, req.Error)
+	if bad != nil {
+		return bad.reply()
 	}
-	req.Result = normalized
-	delivered, err := h.db.DeliverSignal(context.Background(), id, req.TaskID, idgen.New(), req.Result)
+	delivered, err := h.db.DeliverSignal(context.Background(), id, req.TaskID, idgen.New(), outcome)
 	if err != nil {
 		return errReply(err)
 	}

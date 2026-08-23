@@ -8,7 +8,7 @@
 //	genctl validate -f file.yaml [-f file2.yaml ...]
 //	genctl types    -f file.yaml [-f file2.yaml ...]
 //	genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
-//	genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [-q]
+//	genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
 //	genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [-q]
 //	genctl instances [--status <status>] [--error-code <code>] [--sort updated|created] [--since <when>] [--until <when>] [--json]
 //	genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
@@ -190,8 +190,8 @@ func usage() {
   genctl validate -f file.yaml [-f file2.yaml ...]
   genctl types    -f file.yaml [-f file2.yaml ...]
   genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
-  genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [-q]
-  genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [-q]
+  genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
+  genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
   genctl instances [--status <status>] [--error-code <code>] [--sort updated|created] [--since <when>] [--until <when>] [--json]
   genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
   genctl external-tasks [--process <name>] [--version <n>] [--task <id>] [--since <when>] [--until <when>] [--json]
@@ -214,11 +214,14 @@ func usage() {
 
 Flags:
   -f        apply: definition file(s), YAML or JSON, multi-doc --- (repeatable);
-            run/resolve/signal: read the input/result from a file (path — tab-completes)
+            run/resolve/signal: read the input/result/payload from a file (path — tab-completes)
   --input   process input: a JSON/YAML literal, or - for stdin
   --result  external-task result (resolve/signal): a JSON/YAML literal, or - for stdin
   --task    the external task id to signal
-  --set     input/result field key=value (repeatable; dotted keys nest, values type-inferred)
+  --code    resolve/signal: answer on the ERROR channel with this code; the result
+            flags then carry the failure payload, conformed against raises[code]
+  --message required with --code; lands on error.message
+  --set     input/result/payload field key=value (repeatable; dotted keys nest, values type-inferred)
   --server  genroc server URL (overrides $GENROC_SERVER and config file)
   --since   read forward from here — a duration back from now (2h, 45m) or a timestamp
             (2006-01-02, "2006-01-02 15:04"). Without it a list shows its newest N
@@ -261,7 +264,9 @@ External tasks:
   external-tasks lists the queue of instances waiting on an external result.
   resolve takes a task's resolve token (the "<instance-id>.<nonce>" TOKEN column
   from that list); signal addresses a task by instance id + --task and buffers the
-  result if the task is not armed yet.
+  result if the task is not armed yet. Both answer on the error channel with
+  --code/--message instead of a result: the code is routed through the task's
+  on_error rules like any other call error, and buffers the same way.
 
 Config keys:
   server    genroc server base URL`)

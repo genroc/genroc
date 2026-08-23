@@ -47,17 +47,19 @@ func (db *DB) ListExternalTasks(processName string, processVersion int, task str
 	return db.queryInstancePage(b)
 }
 
-// ResolveExternalTask atomically delivers a result to an instance parked on an external
-// task and un-parks it. Under the row lock (FOR UPDATE on Postgres; SQLite single-writer)
-// it rejects anything but a live external wait: an expired/absent wait, a live lease (a
-// timeout claim in flight — the timeout wins), or an epoch mismatch (a result submitted
-// against a PRIOR arming — the exact-occurrence guarantee). The engine consumes the stored
-// result on the next claim.
+// ResolveExternalTask atomically delivers an outcome -- a result or a failure -- to an
+// instance parked on an external task, and un-parks it. The engine consumes it on the next
+// claim; a failure is routed through on_error there rather than here, because resolving a
+// retry policy and moving retry_count/wake_at are writes on a leased row and this call holds
+// no lease. See specs/external-task-queue.md.
 //
-// The epoch comes off the row rather than a token copied into external_data: task_epoch is
-// already the number of the occurrence, so storing it twice only creates two things that
-// can disagree. See internal/db/CLAUDE.md.
-func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch int64, result any) error {
+// Under the row lock (FOR UPDATE on Postgres; SQLite single-writer) it rejects an
+// expired/absent wait, a live lease (a timeout claim in flight -- the timeout wins), and an
+// epoch mismatch (an outcome submitted against a PRIOR arming -- the exact-occurrence
+// guarantee). The epoch comes off the row rather than a token copied into external_data:
+// task_epoch is already the number of the occurrence, so storing it twice only creates two
+// things that can disagree. See internal/db/CLAUDE.md.
+func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch int64, outcome model.ExternalOutcome) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
 		var status, waitState, externalData string
@@ -75,7 +77,13 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch 
 			return fmt.Errorf("lock instance: %w", err)
 		}
 
-		if status != string(model.StatusRunning) || model.WaitState(waitState) != model.WaitStateExternal {
+		// A pause suspends execution, not delivery: an answer to work already handed out is
+		// always accepted, and only the CLAIM side refuses a suspended tree. Refusing here
+		// would leave the instance parked with its deadline still running, and on an
+		// only_once task the external.timeout that follows can never be retried -- so the
+		// work would be lost after it had already taken effect. Mirrors the status set
+		// DeliverSignal accepts. specs/external-task-queue.md §Pause.
+		if !model.Status(status).AcceptsExternalOutcome() || model.WaitState(waitState) != model.WaitStateExternal {
 			return fmt.Errorf("task is not waiting for an external result: %w", ErrConflict)
 		}
 		// A live lease means a worker already claimed this instance (a timeout firing); the
@@ -88,13 +96,13 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch 
 			return fmt.Errorf("token does not match the waiting task (it may have already been resolved or re-armed): %w", ErrConflict)
 		}
 
-		newExt, err := withExternalResult(externalData, result)
+		newExt, err := withExternalOutcome(externalData, outcome)
 		if err != nil {
 			return fmt.Errorf("marshal external_data: %w", err)
 		}
 		// The status/wait_state/token/lease checks above ran under the row lock, so the
 		// un-park is unconditional here.
-		if err := qtx.SetExternalResult(ctx, dbgen.SetExternalResultParams{
+		if err := qtx.SetExternalOutcome(ctx, dbgen.SetExternalOutcomeParams{
 			ExternalData: newExt,
 			UpdatedAt:    nowMillis(),
 			ID:           instanceID,

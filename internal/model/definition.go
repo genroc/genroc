@@ -41,8 +41,17 @@ type ChildEntry struct {
 // Raises maps a raise code to the shape that code's fault data carries, declared by the
 // CALLER rather than the child — which is what keeps a generic child generic: it emits a
 // payload, and each caller says what it expects of it, exactly as result_schema narrows an
-// untyped output. A nil value is refused at registration; {} is the top type, and omitting a
-// code entirely is how you say you do not read it. specs/error-extensions.md §X2-c.
+// untyped output. specs/error-extensions.md §X2-c.
+//
+// The value is a schema, or **null** for a code whose fault carries no data. Null rather than
+// a boolean because this is a schema position and genroc has no boolean schemas: `true` there
+// is JSON Schema's "any value validates", the opposite of what it would mean here, and
+// `internal/schema` rejects the boolean form outright so that "closed" is always spelled by
+// absence. No payload is the absence of a schema.
+//
+// Null is DISTINCT from omitting the code, which declares nothing at all — no weight on a
+// child, where the raisable set comes from the child's own definition, but load-bearing on an
+// external task, whose raises IS the closed set of codes a worker may submit.
 type Raises map[string]*schema.Schema
 
 // Action describes how to invoke a task's action. It is a discriminated union on Type.
@@ -68,8 +77,9 @@ type Raises map[string]*schema.Schema
 //     also accept a bare number (milliseconds for For, unix milliseconds for Until) and a
 //     "$:" expression inferring to number; a "${ }" interpolation is rejected, because it
 //     would produce a string at runtime. See internal/delayspec for the literal grammars.
-//   - "external":   Input (optional), ResultSchema (optional) — parks the instance until an
-//     outside caller submits a result via the external-tasks API; no worker is held while waiting.
+//   - "external":   Input (optional), ResultSchema (optional), Raises (optional) — parks the
+//     instance until an outside caller submits a result (or a failure) via the external-tasks
+//     API; no worker is held while waiting.
 //     An optional Task.Timeout (absent = wait forever) raises a catchable "external.timeout"
 //     error. It is the one place `until` is accepted: a deadline for a parked task is a real
 //     instant ("approve by Friday 17:00"), which no duration from arm time can express.
@@ -82,11 +92,14 @@ type Raises map[string]*schema.Schema
 // instance resumes (the submitted result, for external). Without it the result is available
 // only as "self" in this task's switch.
 //
-// Raises (child/child_list; child_map declares it per entry): raise code -> schema for the
-// payload that code's fault carries. A declared code makes it readable as error.data in a rule
-// that catches the code, an undeclared one leaves the slot absent, and the payload is conformed
-// when the batch resolves — a mismatch reports output.invalid in place of the raised code.
-// See specs/error-extensions.md §X2-c.
+// Raises (child/child_list/external; child_map declares it per entry): raise code -> schema
+// for the payload that code's fault carries. A declared code makes it readable as error.data
+// in a rule that catches the code, an undeclared one leaves the slot absent, and the payload is
+// conformed when the fault resolves — a mismatch reports output.invalid in place of the code.
+// On an external task the code comes from the worker's /external-tasks/fail submission rather
+// than from a child, so the declared set is a contract with the worker, not a knowable set:
+// an undeclared code is accepted and reads as an absent slot, exactly as a child's does.
+// See specs/error-extensions.md §X2-c and specs/external-task-queue.md.
 //
 // Responses (fetch only): status pattern -> schema for the body that status carries. A 2xx
 // key types self.result AND makes that status accepted; a non-2xx key types error.data and
@@ -261,9 +274,9 @@ var actionSchemaTemplate = `{
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose the child's output. Without it the output is available only as self.result in this task's switch. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it, making it readable here; the collected output is conformed against this schema."},
 					"raises": {
 						"type": "object",
-						"description": "Raise code -> JSON Schema for the payload that code's fault carries — the error channel's counterpart to result_schema. A declared code makes the payload readable as error.data in an on_error rule that catches it; {} exposes it opaquely for a rule to narrow; omitting a code leaves error.data absent. The payload is conformed when the batch resolves, and a mismatch reports output.invalid instead of the raised code.",
+						"description": "Raise code -> JSON Schema for the payload that code's fault carries — the error channel's counterpart to result_schema. A declared code makes the payload readable as error.data in an on_error rule that catches it; {} exposes it opaquely; null declares a code that carries no data for a rule to narrow; omitting a code leaves error.data absent. The payload is conformed when the batch resolves, and a mismatch reports output.invalid instead of the raised code.",
 						"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
-						"additionalProperties": {"type": "object", "additionalProperties": true}
+						"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
 					}
 				},
 				"required": ["type", "name"],
@@ -286,9 +299,9 @@ var actionSchemaTemplate = `{
 								"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose this child's output. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it; the collected output is conformed against this schema."},
 								"raises": {
 									"type": "object",
-									"description": "Raise code -> JSON Schema for the payload that code's fault carries, for THIS entry — the error channel's counterpart to result_schema, declared per entry because entries can be different processes. A declared code makes the payload readable as error.data in an on_error rule that catches it; {} exposes it opaquely; omitting a code leaves error.data absent.",
+									"description": "Raise code -> JSON Schema for the payload that code's fault carries, for THIS entry — the error channel's counterpart to result_schema, declared per entry because entries can be different processes. A declared code makes the payload readable as error.data in an on_error rule that catches it; {} exposes it opaquely; null declares a code that carries no data; omitting a code leaves error.data absent.",
 									"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
-									"additionalProperties": {"type": "object", "additionalProperties": true}
+									"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
 								}
 							},
 							"required": ["name"],
@@ -311,9 +324,9 @@ var actionSchemaTemplate = `{
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose EACH child's output. The collected result is an array of values conforming to this schema. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it, per element."},
 					"raises": {
 						"type": "object",
-						"description": "Raise code -> JSON Schema for the payload that code's fault carries — the error channel's counterpart to result_schema. A declared code makes the payload readable as error.data in an on_error rule that catches it; {} exposes it opaquely for a rule to narrow; omitting a code leaves error.data absent. The payload is conformed when the batch resolves, and a mismatch reports output.invalid instead of the raised code.",
+						"description": "Raise code -> JSON Schema for the payload that code's fault carries — the error channel's counterpart to result_schema. A declared code makes the payload readable as error.data in an on_error rule that catches it; {} exposes it opaquely; null declares a code that carries no data for a rule to narrow; omitting a code leaves error.data absent. The payload is conformed when the batch resolves, and a mismatch reports output.invalid instead of the raised code.",
 						"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
-						"additionalProperties": {"type": "object", "additionalProperties": true}
+						"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
 					}
 				},
 				"required": ["type", "name", "over"],
@@ -341,7 +354,13 @@ var actionSchemaTemplate = `{
 				"properties": {
 					"type":          {"type": "string", "const": "external"},
 					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value evaluated against the current context, snapshotted and exposed to the resolver via the queue (the only context the resolver sees)."},
-					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema the submitted result is validated against before the instance resumes. Without it any JSON result is accepted, available as self.result."}
+					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema the submitted result is validated against before the instance resumes. Without it any JSON result is accepted, available as self.result."},
+					"raises": {
+						"type": "object",
+						"description": "Code -> JSON Schema for the payload that code's fault carries, for a worker submitting to /external-tasks/fail. A declared code makes the payload readable as error.data in an on_error rule that catches it; {} exposes it opaquely; null declares a code that carries no data; an undeclared code is still accepted and leaves error.data absent. The payload is conformed on submission, and a mismatch reports output.invalid instead of the submitted code.",
+						"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+						"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
+					}
 				},
 				"required": ["type"],
 				"additionalProperties": false
@@ -499,7 +518,7 @@ func (d *ProcessDefinition) Normalize() error {
 func normalizeRaises(r Raises, norm func(*schema.Schema) (*schema.Schema, error), where string) error {
 	for code, sc := range r {
 		if sc == nil {
-			continue // refused at registration; nothing to bake
+			continue // null: the code carries no payload, so there is no document to bake
 		}
 		normalized, err := norm(sc)
 		if err != nil {

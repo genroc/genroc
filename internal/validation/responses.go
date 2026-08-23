@@ -281,9 +281,9 @@ func ruleErrorData(t *model.Task, rule model.ErrorCase, defs schema.Defs) ([]sch
 	return arms, nullable, nil
 }
 
-// childRuleErrorData is ruleErrorData for a child task: the payload shapes the CALLER
-// declared under `raises` for the codes this rule can catch. Any other action type declares
-// nothing, so it contributes only the null.
+// childRuleErrorData is ruleErrorData for the tasks that declare `raises` — the child family
+// and external, whose payload shapes the CALLER declared for the codes this rule can catch.
+// Any other action type declares nothing, so it contributes only the null.
 func childRuleErrorData(a *model.Action, rule model.ErrorCase, defs schema.Defs) ([]schema.Schema, bool, error) {
 	decl, partial := declaredRaises(a)
 	if len(decl) == 0 {
@@ -300,6 +300,14 @@ func childRuleErrorData(a *model.Action, rule model.ErrorCase, defs schema.Defs)
 		// at runtime. The arm admits null so the handler cannot read a slot that is not there.
 		nullable = nullable || partial[code]
 		for _, sc := range decl[code] {
+			// A nil declaration is `raises: {code: null}` — the code is declared and carries
+			// nothing. It contributes no ARM, so a rule catching only such codes types
+			// error.data as absent; caught alongside a code that does carry a payload it
+			// admits null, since the handler cannot know which one arrived.
+			if sc == nil {
+				nullable = true
+				continue
+			}
 			merged, err := sc.MergeInto(defs)
 			if err != nil {
 				return nil, false, err
@@ -333,7 +341,7 @@ func reachesUndeclaredCode(rule model.ErrorCase, decl map[string][]*schema.Schem
 // them, and a gap in that cover is what `partial` reports.
 func declaredRaises(a *model.Action) (decl map[string][]*schema.Schema, partial map[string]bool) {
 	switch a.Type {
-	case model.ActionTypeChild, model.ActionTypeChildList:
+	case model.ActionTypeChild, model.ActionTypeChildList, model.ActionTypeExternal:
 		if len(a.Raises) == 0 {
 			return nil, nil
 		}

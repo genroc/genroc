@@ -46,7 +46,7 @@ func TestResolveExternalTask(t *testing.T) {
 			insertExternalParked(t, b.db, "inst-ext", epoch, nil)
 
 			// A result submitted against a DIFFERENT arming is rejected; the task stays parked.
-			if err := b.db.ResolveExternalTask(ctx, "inst-ext", epoch-1, map[string]any{"approved": true}); err == nil {
+			if err := b.db.ResolveExternalTask(ctx, "inst-ext", epoch-1, model.ExternalOutcome{Result: map[string]any{"approved": true}}); err == nil {
 				t.Fatal("expected a prior-occurrence resolve to fail")
 			}
 			if got, _ := b.db.GetInstance("inst-ext"); got.WaitState != model.WaitStateExternal {
@@ -54,7 +54,7 @@ func TestResolveExternalTask(t *testing.T) {
 			}
 
 			// The current occurrence resolves: result stored, instance un-parked.
-			if err := b.db.ResolveExternalTask(ctx, "inst-ext", epoch, map[string]any{"approved": true}); err != nil {
+			if err := b.db.ResolveExternalTask(ctx, "inst-ext", epoch, model.ExternalOutcome{Result: map[string]any{"approved": true}}); err != nil {
 				t.Fatalf("ResolveExternalTask: %v", err)
 			}
 			got, err := b.db.GetInstance("inst-ext")
@@ -73,7 +73,7 @@ func TestResolveExternalTask(t *testing.T) {
 			}
 
 			// A second submit is rejected: the task is no longer waiting.
-			if err := b.db.ResolveExternalTask(ctx, "inst-ext", epoch, map[string]any{"approved": false}); err == nil {
+			if err := b.db.ResolveExternalTask(ctx, "inst-ext", epoch, model.ExternalOutcome{Result: map[string]any{"approved": false}}); err == nil {
 				t.Fatal("expected double resolve to fail")
 			}
 		})
@@ -101,7 +101,7 @@ func TestResolveExternalTask_RejectsWhenLeased(t *testing.T) {
 			}
 
 			// Resolve now races the in-flight timeout claim and must lose.
-			if err := b.db.ResolveExternalTask(ctx, "inst-to", epoch, map[string]any{"approved": true}); err == nil {
+			if err := b.db.ResolveExternalTask(ctx, "inst-to", epoch, model.ExternalOutcome{Result: map[string]any{"approved": true}}); err == nil {
 				t.Fatal("expected resolve to be rejected while the instance is leased")
 			}
 		})

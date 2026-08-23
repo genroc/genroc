@@ -88,9 +88,9 @@ behavior while the spec stays put, answering a different question. See
   time, which is also the argument for not scheduling the engine-side one. Closes with why a
   resolver registry is **not the plugin door** [custom-tasks.md](custom-tasks.md) rules out:
   author time, author's machine, ordinary data on the wire.
-- [external-task-queue.md](external-task-queue.md) — turn `external` into a queue a worker
-  fleet **pulls** from: claim, visibility timeout, renewal, release, and the error channel it
-  has never had. Opens by discarding the usual reason for moving
+- [external-task-queue.md](external-task-queue.md) — **the error channel is BUILT
+  (2026-08-23)**; the claim, visibility timeout and renewal are proposal. Turn `external` into
+  a queue a worker fleet **pulls** from. Opens by discarding the usual reason for moving
   [`evaluator/`](../evaluator/README.md) off `fetch` — requests are not lost under overload,
   since a failed fetch is a routed code and the instance stays durable; what overload
   produces is a worse *code* (`http.timeout`, unknowable, never retried on `only_once`),
@@ -108,7 +108,28 @@ behavior while the spec stays put, answering a different question. See
   guarantee the claim makes stronger: `external.timeout` conflates "nobody picked this up"
   with "a worker died mid-execution", and a claim record separates them — hence
   `external.lost`. Phased so the error channel ships first and alone, since the evaluator
-  needs it under either shape.
+  needs it under either shape. Its sharpest correction came from building it: the first cut
+  added a third endpoint (`/external-tasks/fail`) and that was wrong in a way only the code
+  showed — `/instances/{id}/signal` was left able to report success and not failure, and
+  `process_signals` had one `result` column that could not have held the other half, while
+  every layer *below* the API had already unified because a result and a failure are one event.
+  A submission now carries an **outcome** (`{result}` or `{error}`, discriminated by key
+  presence so a null result stays a success) and both addressing modes take either; migration
+  027 renames the buffer column to match, which is what lets a failure buffer before the task
+  arms. Two further things moved in that build and are marked **[built]** in the doc: the failure payload is conformed **on submission** (a 400 the caller can act on,
+  the task left parked) rather than degrading to `output.invalid` the way a child's raise
+  must, because the submitter is an HTTP caller and a child's raiser is not; and `raises` is a
+  **closed set** on an external task where it is only a payload typing on a child — a child's
+  raisable codes come from its own definition so R5 catches a typo at registration, while
+  nothing about a worker is knowable until it submits, making submission the only place a
+  wrong code can be caught. That closure is what gives `raises: {code: null}` its job — an
+  error with no payload still needs a declaration, which reverses the old "null is never a
+  declaration" rule on the ground that its premise (omitting already says that) dies with the
+  closed set. Null rather than a boolean: it is a schema position, genroc has no boolean
+  schemas, and JSON Schema's bare `true` means "any value validates" — the opposite. Null also
+  round-trips natively where `true` needed a custom marshaller in each direction. The `only_once` interaction needed no code at all: the existing
+  guard already refuses a retry on a worker-reported code at `PUT /definitions` unless the
+  rule carries `not_reached: true`.
 - [literal-types.md](literal-types.md) — infer `"sent"` as `enum: [sent]` rather than
   `string`. Prerequisite for discriminated unions, and it catches provably-false comparisons.
   The feature is not the 4-line production change but the **enum-aware canonicalization** it

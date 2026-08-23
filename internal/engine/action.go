@@ -332,12 +332,35 @@ func (e *Engine) delayNumber(inst *model.ProcessInstance, raw any) (int64, error
 	return delayMillis(v)
 }
 
-// runExternal, by wait_state and _external_result: (1) first arrival — snapshot input,
-// mint a token, park on 'external' with wake_at from the timeout; (2) result submitted —
-// consume it; (3) still parked ⇒ claimable only because wake_at passed ⇒ external.timeout.
+// runExternal, by wait_state and the submitted outcome: (1) first arrival — snapshot input,
+// mint a token, park on 'external' with wake_at from the timeout; (2) an outcome submitted —
+// a failure routes through on_error, a result is consumed; (3) still parked ⇒ claimable only
+// because wake_at passed ⇒ external.timeout.
 // Returns (result, nil) to continue or (nil, outcome) to stop and persist.
 func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *advanceOutcome) {
-	// Phase 2: a result was submitted (the resolve API or a direct signal already un-parked
+	// Phase 2a: a failure was submitted. Routed HERE rather than where it was submitted
+	// because resolving a retry policy and moving retry_count/wake_at are writes on the
+	// leased row, which the fail API does not hold. The two outcome slots are mutually
+	// exclusive by construction -- both writes take the instance row lock and refuse a row
+	// that is not parked -- so reading the error first fixes a reading without arbitrating.
+	if f, ok := inst.ContextData[model.CtxExternalError].(map[string]any); ok {
+		delete(inst.ContextData, model.CtxExternalError)
+		delete(inst.ContextData, model.CtxExternal)
+		code, _ := f["code"].(string)
+		msg, _ := f["message"].(string)
+		var extra map[string]any
+		// Key PRESENCE is the signal, not the value: the fail API drops `data` for a code the
+		// task declared no shape for, which is how error.data stays absent rather than null --
+		// the same distinction a child's undeclared raise makes. A map holding a nil `data` is
+		// not the same thing as no map at all.
+		if data, declared := f["data"]; declared {
+			extra = map[string]any{"data": data}
+		}
+		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventExternalFailed, Task: task.ID, Msg: msg, Code: errcode.Code(code)})
+		return nil, stop(e.handleCallErrorWith(inst, task, msg, errcode.Code(code), extra))
+	}
+
+	// Phase 2b: a result was submitted (the resolve API or a direct signal already un-parked
 	// us by storing _external_result).
 	if res, ok := inst.ContextData[model.CtxExternalResult]; ok {
 		delete(inst.ContextData, model.CtxExternalResult)

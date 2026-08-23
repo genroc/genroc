@@ -268,8 +268,9 @@ Both exist only on a `fetch`; no other action type has a status. Header keys are
 `self.headers['retry-after']` silently null — and repeated headers are comma-joined, which
 `Set-Cookie` is the casualty of. Any key may be absent, so reading one yields `string | null`.
 
-Together with `accepted_status` this is how a definition branches on the status itself rather
-than routing a healthy response through `on_error`:
+This is how a definition branches on the status itself rather than routing a healthy response
+through `on_error`. Declaring the status in [`responses`](#responses) is all it takes —
+a 2xx key accepts that status, so `accepted_status` is not needed here:
 
 ```yaml
 - id: check
@@ -277,14 +278,18 @@ than routing a healthy response through `on_error`:
     type: fetch
     url: "${ config.api }/jobs/${ input.id }"
     method: GET
-    accepted_status: ["200", "202"]     # 202 is a state, not a failure
     responses:
-      "2xx": {}
+      200: { type: object, properties: { result: { type: string } } }
+      202: null                        # 202 is a state, not a failure — and carries no body
   switch:
-    - case: "self.status == 202"        # still running
+    - case: "self.status == 202"       # still running
       goto: $wait
     - goto: end
 ```
+
+Reach for `accepted_status` when `responses` cannot say it: to accept a **non-2xx** status
+(a `404` key types `error.data` but never accepts it, so `accepted_status: ["200", "404"]`
+is the only spelling), or to compute the set with an expression.
 
 #### `responses`
 
@@ -311,7 +316,8 @@ key that is not a plain number.
 | `{}` | the status carries a body of unknown shape — exportable, not readable until a consumer restates it |
 
 **Declaring a 2xx narrows what is accepted.** With `{200: T}` and nothing else, a `201`
-raises `http.201`. Widen it with `accepted_status`, or declare the status you expect.
+raises `http.201`. Widen it with `accepted_status`, or declare the status you expect —
+`201: null` accepts it and says it carries no body, which is usually what you meant.
 
 `self.result` is the union of the schemas for the statuses that can be accepted, plus `null`
 where an accepted status is described by no key. So `{200: T}` types it as exactly `T`, while
@@ -334,7 +340,7 @@ that, or declare `"4xx": {}`, which conforms to anything and never escalates.
 | `over` | `child_list` | A `$:` expression evaluating to an array. One child per element, the element being its input. An empty array spawns nothing and yields `[]`. |
 | `children` | `child_map` | Keyed map of children run concurrently. Keys become the access names in `outputs.<taskID>`. |
 | `result_schema` | all | Validates and exposes the child's output — per element for `child_list`. |
-| `raises` | `child`, `child_list`, `child_map` entries | Raise code → schema for the payload that code's fault carries. |
+| `raises` | `child`, `child_list`, `child_map` entries, `external` | Raise code → schema for the payload that code's fault carries, or `null` for a code that carries none. On `external` it is also the closed set of submittable codes. |
 
 Declaring a shape where the child left a value untyped (`{}`, the top type) narrows it: the
 collected output is conformed against the schema, and undeclared keys are dropped. A child
@@ -355,6 +361,7 @@ action:
   raises:
     script_threw:   { $ref: "#/$defs/script_error" }   # typed
     script_timeout: {}                                  # present, narrow it yourself
+    script_aborted:                                     # null: declared, carries nothing
     # script_unknown: not declared → error.data is absent for it
 on_error:
   - code: [script_threw]
@@ -365,7 +372,13 @@ on_error:
 |---|---|
 | a schema | that shape, conformed — undeclared keys dropped |
 | `{}` | the top type: present, and narrowed before it can be read |
+| `null` | absent — the code is declared, and carries nothing |
 | no key | absent |
+
+`null` and no key read the same here; they diverge on an [`external`](#external) task, where
+`raises` is the closed set of submittable codes and omitting one means it cannot be sent at
+all. A boolean is not accepted in either position — this is a schema slot, and genroc has no
+boolean schemas.
 
 A rule whose patterns can also reach a code nothing declares — a wildcard, a catch-all, or
 `output.invalid` — widens the type to admit `null`. Each declared code must be one the child
@@ -396,6 +409,79 @@ No worker is held while waiting.
 |---|---|
 | `input` | Templated value, snapshotted and exposed to the resolver through the queue — the only context the resolver sees. |
 | `result_schema` | Validates the submitted result before the instance resumes. Without it any JSON result is accepted. |
+| `raises` | The codes a caller may answer with, each mapped to the payload it carries (or `null` for none). This is a **closed set** — a code outside it is refused. |
 
 An optional task `timeout` raises the catchable `external.timeout`; absent, it waits forever.
 This is the one place an absolute `until` deadline is accepted.
+
+#### The error channel
+
+A submission carries one **outcome** — a `result` or an `error`, never both — and the same two
+endpoints take either:
+
+| | addressed by | unarmed task |
+|---|---|---|
+| `POST /external-tasks/resolve` | the queue `token` | rejected — the token names a live arming |
+| `POST /instances/{id}/signal` | instance id + `task_id` | buffered FIFO until the task next arms |
+
+An `error` is routed through the task's `on_error` rules exactly like a call error:
+
+```jsonc
+// POST /external-tasks/resolve
+{ "token": "…", "result": { "fee": 25 } }          // the success channel
+{ "token": "…", "error":  { "code": "limit_exceeded",
+                            "message": "over the approval limit",
+                            "data": { "limit": 1000 } } }
+```
+
+```yaml
+- id: price
+  action:
+    type: external
+    input: { amount: "$: input.amount" }
+    raises:
+      limit_exceeded: { type: object, properties: { limit: { type: number } } }
+      worker_crashed:            # declared, carries no data (null)
+  on_error:
+    - code: [limit_exceeded]
+      goto: $over_limit          # error.data.limit is readable here
+    - code: ["%"]
+      raise: { code: worker_failed, message: "the worker could not price it" }
+  switch: [{ goto: end }]
+```
+
+**`raises` is the closed set of codes a caller may submit.** A code outside it is refused with
+a 400 listing what is accepted, and a task declaring no `raises` has no error channel at all.
+This is stricter than a child task, where `raises` only types payloads — and deliberately so:
+a child's raisable codes come from its own definition, so a typo in an `on_error` pattern is
+already caught at registration, while nothing about an outside caller is knowable until it
+submits. Submission is the only place a wrong code can ever be caught.
+
+Each declaration says what the code carries:
+
+| declaration | the caller sends | `error.data` |
+|---|---|---|
+| `code:` (null) | no `data` — sending one is refused | absent |
+| `code: {}` | anything | present, opaque — narrow it in a rule |
+| `code: {type: object, …}` | a matching payload | present, typed |
+
+Null rather than a boolean because this is a schema position, and genroc has no boolean
+schemas: `true` there is JSON Schema's "any value validates" — the opposite of what it would
+mean — so "no payload" is spelled by the absence of a schema.
+
+The payload is conformed **when it is submitted**: a mismatch is rejected at the API, the task
+stays parked, and the caller can answer again with a corrected one.
+
+The submitted `code` is an authored code — lower_snake_case, no dots — so a caller cannot
+spell an engine code such as `http.500` or `external.timeout` and be caught by a rule written
+for the wire.
+
+Either outcome is accepted while the instance is **paused**: a pause suspends execution, not
+delivery, and it is consumed when the tree resumes. A failure signalled before the task arms
+buffers exactly as a result does. Rejecting it would discard
+work the caller has already done — and on an `only_once` task the `external.timeout` that
+followed could never be retried.
+
+An answer that reports a failure means the work was reached, so on an `only_once` task a
+retry needs `not_reached: true` naming the exact code — the same rule every other
+potentially-reached error follows.

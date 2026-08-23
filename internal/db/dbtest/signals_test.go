@@ -2,6 +2,7 @@ package dbtest
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	dbpkg "genroc/internal/db"
@@ -25,9 +26,19 @@ func insertExternalRunning(t *testing.T, db *dbpkg.DB, id string) {
 	}
 }
 
-func n(v any) float64 {
-	m, _ := v.(map[string]any)
-	f, _ := m["n"].(float64)
+// n reads the marker off a consumed outcome. json.Number, not float64: buffered signals now
+// decode through internal/numeric, so an integer keeps its exact literal instead of being
+// collapsed — the corruption that decoder exists to prevent, on a path that used to skip it.
+func n(o model.ExternalOutcome) float64 {
+	m, _ := o.Result.(map[string]any)
+	num, ok := m["n"].(json.Number)
+	if !ok {
+		return -1
+	}
+	f, err := num.Float64()
+	if err != nil {
+		return -1
+	}
 	return f
 }
 
@@ -41,11 +52,11 @@ func TestSignals_BufferThenConsumeFIFO(t *testing.T) {
 			insertExternalRunning(t, b.db, "inst-sig")
 
 			// Two signals arrive before the task is armed -> both buffered.
-			d1, err := b.db.DeliverSignal(ctx, "inst-sig", "approval", "s1", map[string]any{"n": 1})
+			d1, err := b.db.DeliverSignal(ctx, "inst-sig", "approval", "s1", model.ExternalOutcome{Result: map[string]any{"n": 1}})
 			if err != nil || d1 {
 				t.Fatalf("deliver s1: delivered=%v err=%v (want buffered)", d1, err)
 			}
-			d2, _ := b.db.DeliverSignal(ctx, "inst-sig", "approval", "s2", map[string]any{"n": 2})
+			d2, _ := b.db.DeliverSignal(ctx, "inst-sig", "approval", "s2", model.ExternalOutcome{Result: map[string]any{"n": 2}})
 			if d2 {
 				t.Fatal("deliver s2 should buffer, not deliver")
 			}
@@ -97,7 +108,7 @@ func TestSignals_ResolveWhenArmed(t *testing.T) {
 			ctx := context.Background()
 			insertExternalParked(t, b.db, "inst-armed", 0, nil)
 
-			delivered, err := b.db.DeliverSignal(ctx, "inst-armed", "approval", "s1", map[string]any{"approved": true})
+			delivered, err := b.db.DeliverSignal(ctx, "inst-armed", "approval", "s1", model.ExternalOutcome{Result: map[string]any{"approved": true}})
 			if err != nil || !delivered {
 				t.Fatalf("deliver to armed task: delivered=%v err=%v (want delivered)", delivered, err)
 			}
@@ -128,7 +139,7 @@ func TestSignals_RejectsNonRunning(t *testing.T) {
 			if err := b.db.UpdateInstance(inst); err != nil {
 				t.Fatalf("UpdateInstance: %v", err)
 			}
-			if _, err := b.db.DeliverSignal(ctx, "inst-done", "approval", "s1", map[string]any{"n": 1}); err == nil {
+			if _, err := b.db.DeliverSignal(ctx, "inst-done", "approval", "s1", model.ExternalOutcome{Result: map[string]any{"n": 1}}); err == nil {
 				t.Fatal("expected signal to a completed instance to be rejected")
 			}
 		})

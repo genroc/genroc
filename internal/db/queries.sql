@@ -145,8 +145,8 @@ WHERE id = sqlc.arg(id);
 -- external-task queue is still served by the partial idx_external_queue index.
 
 -- name: InsertSignal :exec
-INSERT INTO process_signals (id, instance_id, task_id, result, created_at)
-VALUES (sqlc.arg(id), sqlc.arg(instance_id), sqlc.arg(task_id), sqlc.arg(result), sqlc.arg(created_at));
+INSERT INTO process_signals (id, instance_id, task_id, outcome, created_at)
+VALUES (sqlc.arg(id), sqlc.arg(instance_id), sqlc.arg(task_id), sqlc.arg(outcome), sqlc.arg(created_at));
 
 -- name: PopOldestSignal :one
 -- Deletes and returns the oldest buffered signal for (instance, task), giving FIFO
@@ -157,13 +157,15 @@ WHERE id = (
     WHERE s.instance_id = sqlc.arg(instance_id) AND s.task_id = sqlc.arg(task_id)
     ORDER BY s.created_at, s.id LIMIT 1
 )
-RETURNING result;
+RETURNING outcome;
 
--- name: SetExternalResult :exec
--- Un-parks an external task: stores the submitted/buffered result in external_data and
--- clears the wait. Callers act on a PARKED row under the row lock, so there is no grant
--- to fence; worker_id stays -- clearing it destroys a crashed owner's ReclaimedExpired
--- evidence. (The engine's consume path writes via the fenced UpdateInstanceProgress.)
+-- name: SetExternalOutcome :exec
+-- Un-parks an external task: stores the submitted/buffered outcome -- a result or a failure --
+-- in external_data and clears the wait. Callers act on a PARKED row under the row lock, so
+-- there is no grant to fence; worker_id stays -- clearing it destroys a crashed owner's
+-- ReclaimedExpired evidence. (The engine's consume path writes via the fenced
+-- UpdateInstanceProgress.) Clearing wake_at is load-bearing beyond tidiness: an answered wait
+-- must not later fire external.timeout, which on an only_once task can never be retried.
 UPDATE process_instances
 SET external_data = sqlc.arg(external_data),
     wait_state   = '',
