@@ -88,6 +88,27 @@ behavior while the spec stays put, answering a different question. See
   time, which is also the argument for not scheduling the engine-side one. Closes with why a
   resolver registry is **not the plugin door** [custom-tasks.md](custom-tasks.md) rules out:
   author time, author's machine, ordinary data on the wire.
+- [external-task-queue.md](external-task-queue.md) — turn `external` into a queue a worker
+  fleet **pulls** from: claim, visibility timeout, renewal, release, and the error channel it
+  has never had. Opens by discarding the usual reason for moving
+  [`evaluator/`](../evaluator/README.md) off `fetch` — requests are not lost under overload,
+  since a failed fetch is a routed code and the instance stays durable; what overload
+  produces is a worse *code* (`http.timeout`, unknowable, never retried on `only_once`),
+  which is fixable inside the push design. The real case is that a fetch holds one of
+  `--max-concurrent` for its duration and an `external` holds none, plus connection
+  direction. Its central finding is a schema one: a claim must **not** reuse `worker_id` /
+  `lease_expires_at` / `lease_epoch`, which mean "an engine worker is advancing this
+  instance" while a claim means the instance is parked — aliasing them locks a worker out of
+  its own resolve, delays the `external.timeout` the engine owes at `wake_at`, and forges the
+  `ReclaimedExpired` evidence `only_once.interrupted` reads. Separate columns make the task
+  deadline stay authoritative over the claim's lease with *no code change*, which is why a
+  test must pin it. The error channel routes **through `runExternal` phase 2, not the API
+  handler** (retry budgeting needs the lease), and uses the **authored** code namespace a
+  child's `raise` already occupies rather than a reserved `external.*` family. Records one
+  guarantee the claim makes stronger: `external.timeout` conflates "nobody picked this up"
+  with "a worker died mid-execution", and a claim record separates them — hence
+  `external.lost`. Phased so the error channel ships first and alone, since the evaluator
+  needs it under either shape.
 - [literal-types.md](literal-types.md) — infer `"sent"` as `enum: [sent]` rather than
   `string`. Prerequisite for discriminated unions, and it catches provably-false comparisons.
   The feature is not the 4-line production change but the **enum-aware canonicalization** it
