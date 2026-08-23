@@ -46,15 +46,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
         with:
-          bun-version: "1.3.14"
-      - name: Ensure ~/.bun/bin/bun (Makefile invokes that path)
-        run: |
-          src="$(command -v bun)"; dst="$HOME/.bun/bin/bun"
-          if [ "$src" != "$dst" ]; then mkdir -p "$HOME/.bun/bin" && ln -sf "$src" "$dst"; fi
+          node-version: "24"
       - name: Install test dependencies
-        run: cd tests && bun install --frozen-lockfile
+        run: cd tests && npm ci
 
       - name: Run bench
         run: BENCH_JSON="$RUNNER_TEMP/${{ matrix.workload }}.json" make bench-${{ matrix.workload }}

@@ -39,10 +39,10 @@ schema:
 	$(BUILD_FLAGS) go run ./cmd/genrocschema $(ARGS)
 
 client: swagger
-	cd tests && bun run generate
+	cd tests && npm run generate
 
 test-int: client
-	cd tests && ~/.bun/bin/bun run typecheck && ~/.bun/bin/bun run test
+	cd tests && npm run typecheck && npm test
 
 # Spawn benchmarks: YAML-defined workloads (tests/bench/workloads/), SQLite vs Postgres.
 # bench-recursive — full binary tree (wide); measures concurrent throughput ceiling.
@@ -54,24 +54,24 @@ test-int: client
 # recursive/deep defaults are sized to the same instance count (~8k) so the shapes
 # compare directly. Set POSTGRES_DSN to also benchmark Postgres.
 bench-recursive: client
-	cd tests && ~/.bun/bin/bun run bench-recursive
+	cd tests && npm run bench-recursive
 
 bench-deep: client
-	cd tests && ~/.bun/bin/bun run bench-deep
+	cd tests && npm run bench-deep
 
 bench-drain: client
-	cd tests && ~/.bun/bin/bun run bench-drain
+	cd tests && npm run bench-drain
 
 bench-drain-big: client
-	cd tests && ~/.bun/bin/bun run bench-drain-big
+	cd tests && npm run bench-drain-big
 
 sqlc:
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
 
-# The script-task evaluator (bun-runtime/). A script task is a plain fetch at this
-# sidecar, so nothing in the engine knows about it; see bun-runtime/README.md.
+# The script-task evaluator (evaluator/). A script task is a plain fetch at this
+# sidecar, so nothing in the engine knows about it; see evaluator/README.md.
 script-runner:
-	cd bun-runtime && ~/.bun/bin/bun install && PORT=$(script_port) ~/.bun/bin/bun run server.ts
+	cd evaluator && npm install && PORT=$(script_port) node server.ts
 
 # The process-definition JSON Schema, as a static file the site serves at
 # genroc.org/process-schema.json — the same bytes GET /process-schema.json returns, so a
@@ -83,10 +83,10 @@ docs-schema:
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
 # per-version build is served from; unset means the site root.
 docs: docs-schema
-	cd docs && ~/.bun/bin/bun install && ~/.bun/bin/bun run dev
+	cd docs && npm install && npm run dev
 
 docs-build: docs-schema
-	cd docs && ~/.bun/bin/bun install && ~/.bun/bin/bun run build
+	cd docs && npm install && npm run build
 
 clean:
 	rm -f genroc genctl $(db)

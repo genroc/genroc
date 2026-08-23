@@ -69,7 +69,7 @@ tasks:
         raise:
           code: script_unknown
           message: "the evaluator stopped answering; the script may have run: ${error.message}"
-      # The runner answers 200 or 422 and nothing else (bun-runtime/server.ts). A 404, a 500
+      # The runner answers 200 or 422 and nothing else (evaluator/server.ts). A 404, a 500
       # or an unparseable body is our own deployment broken, not a condition to react to.
       # The gateway statuses above are caught first, so this arm never sees them.
       - panic:
@@ -88,7 +88,7 @@ tasks:
   - id: failed
     switch:
       # Spelled the way JavaScript prints an error, because that is what it is: `name` is
-      # what a script sets to tell one refusal from another (bun-runtime/README.md).
+      # what a script sets to tell one refusal from another (evaluator/README.md).
       - case: 'error.data.kind == "threw"'
         raise:
           code: script_threw
@@ -117,7 +117,7 @@ tasks:
 output: "$: outputs.eval"
 
 $defs:
-  # The 422 body from bun-runtime. Only this process needs to know it.
+  # The 422 body from the evaluator. Only this process needs to know it.
   script_error:
     type: object
     properties:

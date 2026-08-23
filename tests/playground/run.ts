@@ -2,7 +2,7 @@
 //
 // Two terminals besides this one:
 //   go run ./cmd/genroc --http :8888   # the engine
-//   bun run playground:scripts         # the script evaluator (bun-runtime/)
+//   npm run playground:scripts         # the script evaluator (evaluator/)
 //
 // The reading task's code lives in reading.ts, pulled in by `$import` — genroc.yaml
 // registers the resolver, and the apply below typechecks it against generated Input/Output
@@ -12,7 +12,7 @@
 // Each reading is printed by the evaluator, not here: the script logs it. This prints the
 // process's own output once it finishes - the count and the last reading it kept.
 //
-// Usage: bun run playground:run [ticks] [place]
+// Usage: npm run playground:run [ticks] [place]
 
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";

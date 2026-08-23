@@ -1,12 +1,12 @@
 # Script tasks: a scaffolded runtime, not an engine feature
 
 Status: **PROPOSAL, 2026-08-07. Partly built 2026-08-19. Superseded in part 2026-08-20.**
-`bun-runtime/` is a first evaluator, and the error tiering §"What the template owns" argues
+`evaluator/` is a first evaluator, and the error tiering §"What the template owns" argues
 for is live — but as a plain **`fetch`** at a sidecar, not the `external`-plus-worker-fleet
 shape below, which spends even less engine capability than this doc claims to need. The
 import directive, the type generator and the bundler are unbuilt, so code is inlined in the
 definition (and therefore subject to `${` escaping) and nothing typechecks. What shipped is
-documented in [bun-runtime/README.md](../bun-runtime/README.md).
+documented in [evaluator/README.md](../evaluator/README.md).
 
 **§"What genroc adds" is superseded by
 [source-resolution.md](source-resolution.md)**, which owns the resolution model: this doc
@@ -64,7 +64,7 @@ Recorded so it does not drift back into the engine:
   `require` at author time. It was the wrong instrument twice over: it could not stop
   anything at runtime, and it made "import a library" and "reach the host" the same refusal,
   so a script could not do real work. The realm below is now the containment, and the
-  tsconfig's job is to be *true about it* — `lib: [esnext, webworker]` because a Bun worker
+  tsconfig's job is to be *true about it* — `lib: [esnext, webworker]` because a worker
   has no `document`, and `types` left to the author because the realm genuinely has node's.
 - **The base config is the nearest `tsconfig.json` above the script, not the project root's.**
   It is the one the author's editor already reads, and checking against a different one buys

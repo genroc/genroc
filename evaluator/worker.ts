@@ -6,6 +6,7 @@
 // classifying, serialising — because this is the only realm the value exists in.
 
 import { createRequire } from "node:module";
+import { parentPort } from "node:worker_threads";
 
 import type { EvalFailure, FailureKind, WorkerReply, WorkerRequest } from "./eval.ts";
 
@@ -15,9 +16,9 @@ const AsyncFunction = async function () {}.constructor as new (
 
 const STRICT = '"use strict";\n';
 
-// Bundled `node:*` imports survive as `require` calls — Bun externalises builtins and inlines
-// everything else — and a function built by the AsyncFunction constructor has no `require` in
-// scope. Passing one in is what makes an import of a builtin work at runtime rather than at
+// Bundled `node:*` imports survive as `require` calls — the importer externalises builtins and
+// inlines everything else — and a function built by the AsyncFunction constructor has no
+// `require` in scope. Passing one in is what makes an import of a builtin work at runtime rather than at
 // typecheck only. Resolution is anchored here, which is right: only builtins reach it.
 const scriptRequire = createRequire(import.meta.url);
 const STACK_BYTES = 2_048;
@@ -38,34 +39,43 @@ const lineOffset: Promise<number> = (async () => {
   }
 })();
 
-// Bun attributes a dynamically-compiled function's frames to the file that CALLED the
-// constructor, so the path in them is worker.ts and only the line number is the script's.
-// The `anonymous` frame is therefore the boundary: everything above it is script code,
-// everything below is runner plumbing.
-const ANON_FRAME = /\bat anonymous\b/;
-// `    at name (path:LINE:COL)` — name and the wrapping parens are both optional.
-const FRAME = /^(\s*)at\s+(?:(.*?)\s+)?\(?(?:.*?):(\d+):(\d+)\)?$/;
+// V8 marks a frame compiled by the AsyncFunction constructor with the site that CALLED the
+// constructor, then the script's OWN position:
+//   at inner (eval at run (file:///…/worker.ts:107:10), <anonymous>:6:9)
+// `eval at` is therefore what separates script frames from runner plumbing — matched without
+// the function name, which is whatever encloses the `new AsyncFunction` below. The LAST such
+// frame is the body's top level: frames interleave, since a script can throw inside a native
+// callback.
+const SCRIPT_FRAME = /\(eval at /;
+// The trailing `<anonymous>:LINE:COL` — the script's position, after the host file's own.
+const POSITION = /<anonymous>:(\d+):(\d+)\)?\s*$/;
+// `    at name (` — absent on the top-level frame, which V8 names `eval`.
+const FRAME_NAME = /^\s*at\s+(?:async\s+)?([^\s(]+)\s*\(/;
 
 /** Line number of the throw as the engine reported it, or 1 if the stack is unreadable. */
 function reportedLine(err: unknown): number {
   const stack = err instanceof Error && typeof err.stack === "string" ? err.stack : "";
-  const frame = stack.split("\n").find((l) => ANON_FRAME.test(l)) ?? "";
-  const m = frame.match(FRAME);
-  return m ? Number(m[3]) : 1;
+  const frame = stack.split("\n").find((l) => SCRIPT_FRAME.test(l)) ?? "";
+  const m = frame.match(POSITION);
+  return m ? Number(m[1]) : 1;
 }
 
-/** Renumbers each script frame to the line the AUTHOR wrote and drops the runner's own. */
+/** Renumbers each script frame to the line the AUTHOR wrote and drops the runner's own.
+ *  Rewriting the whole location is also what keeps the runner's path out of a script's
+ *  stack — V8 puts it inside every compiled frame. */
 function scriptStack(err: unknown, offset: number): string | undefined {
   if (!(err instanceof Error) || typeof err.stack !== "string") return undefined;
   const lines = err.stack.split("\n");
-  const boundary = lines.findIndex((l) => ANON_FRAME.test(l));
+  let boundary = -1;
+  for (let i = 0; i < lines.length; i++) if (SCRIPT_FRAME.test(lines[i]!)) boundary = i;
   const frames = (boundary >= 0 ? lines.slice(0, boundary + 1) : lines.slice(0, 1))
     .map((line) => {
-      const m = line.match(FRAME);
-      if (!m) return line; // the `Error: message` header, kept as-is
-      const [, indent, name, ln, col] = m;
-      const at = name && name !== "anonymous" ? `at ${name} ` : "at ";
-      return `${indent}${at}(script:${Math.max(1, Number(ln) - offset)}:${col})`;
+      const pos = line.match(POSITION);
+      if (!pos) return line; // the `Error: message` header and native frames, kept as-is
+      const name = line.match(FRAME_NAME)?.[1];
+      const at = name && name !== "eval" && name !== "anonymous" ? `at ${name} ` : "at ";
+      const indent = line.match(/^\s*/)![0];
+      return `${indent}${at}(script:${Math.max(1, Number(pos[1]) - offset)}:${pos[2]})`;
     })
     .join("\n");
   return frames.length > STACK_BYTES ? frames.slice(0, STACK_BYTES) : frames;
@@ -115,9 +125,8 @@ async function run(req: WorkerRequest): Promise<WorkerReply> {
   }
 }
 
-declare const self: { onmessage: ((event: MessageEvent) => void) | null };
-declare function postMessage(message: unknown): void;
-
-self.onmessage = async (event: MessageEvent) => {
-  postMessage(await run(event.data as WorkerRequest));
-};
+// Non-null because this module only ever runs as a worker entry point; a null port here
+// would mean eval.ts loaded it as a plain module, which nothing does.
+parentPort!.on("message", async (req: WorkerRequest) => {
+  parentPort!.postMessage(await run(req));
+});

@@ -2,7 +2,7 @@
 
 Status: **PROPOSAL 2026-08-20; the code phase BUILT 2026-08-21.** What ships is the
 project config, value-position `$<resolver>: <path>` directives, the batched manifest,
-`genctl types`, and `bun-runtime/import.ts` as the first resolver
+`genctl types`, and `evaluator/import.ts` as the first resolver
 (`cmd/genctl/sources.go`, `tests/cli/imports_test.ts`). **Unbuilt: the structural phase**
 — no phase-1 resolver exists, `$infer` is not implemented, and `phase: structural` in a
 config is refused rather than ignored. The key-position merge form (§Directive syntax
@@ -95,8 +95,8 @@ not. Different owners, different lifetimes, different files.
 
 ```yaml
 resolvers:
-  import: { phase: code,       ext: .ts, command: [bun, run, tools/genroc-import.ts] }
-  infer:  { phase: structural, ext: .ts, command: [bun, run, tools/genroc-infer.ts] }
+  import: { phase: code,       ext: .ts, command: [node, tools/genroc-import.ts] }
+  infer:  { phase: structural, ext: .ts, command: [node, tools/genroc-infer.ts] }
 ```
 
 The directive names the resolver, so `ext` is **an assertion, not a dispatch key**: it makes
@@ -122,7 +122,7 @@ one** — and resolution is an application concern that happens in exactly one p
 encoding it in the syntax hands an opinion about it to every YAML reader that ever touches a
 definition source file. This repo has three besides genctl: `js-yaml` throws outright
 (`unknown scalar tag !<!import>`) in `tests/helpers/compat-fixtures.ts` and four
-`examples_*_test.ts` files, Bun's native `.yaml` import backs `tests/bench/run.ts`, and
+`examples_*_test.ts` files, `js-yaml` backs `tests/bench/run.ts`, and
 `yaml-language-server` needs `yaml.customTags` configured per workspace before it stops
 flagging the node. `.json` sources cannot carry a tag at all, and `readFile` accepts them.
 
@@ -131,7 +131,7 @@ visible to every tool, when the property wanted is the opposite.
 
 ## Escaping on splice — the thing the feature is *for*
 
-[bun-runtime/README.md](../bun-runtime/README.md) promises the directive removes `$${`. It
+[evaluator/README.md](../evaluator/README.md) promises the directive removes `$${`. It
 does not come free. Splice a file's text in as a plain string and the Shape layer reads
 `${` in it exactly as before. **genctl doubles every `$` on splice** — `escapeDollars`.
 

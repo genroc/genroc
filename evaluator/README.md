@@ -1,4 +1,4 @@
-# bun-runtime — the script-task evaluator
+# evaluator — the script-task runner
 
 An HTTP sidecar that evaluates a TypeScript/JavaScript function body and answers with its
 return value. A **script task is a plain `fetch`** at this server: no new action type, no
@@ -9,7 +9,10 @@ Design record: [specs/script-tasks.md](../specs/script-tasks.md). It proposes th
 variant (engine parks, a worker fleet pulls from the queue); this is the `fetch` variant,
 which spends no engine capability at all. Moving between them is a definition-level change.
 
-    PORT=3010 bun run bun-runtime/server.ts
+    PORT=3010 node evaluator/server.ts
+
+It needs **Node 24 or newer**: the sources are TypeScript and are run as-is, by Node's own
+type stripping.
 
 It binds **loopback only**. `POST /eval` is unauthenticated arbitrary code execution with the
 runner's full authority (see §"What this is not"), so reaching it from another host means
@@ -121,7 +124,7 @@ Register it in the project's `genroc.yaml`:
 
 ```yaml
 resolvers:
-  import: { phase: code, ext: .ts, command: [bun, run, ../bun-runtime/import.ts] }
+  import: { phase: code, ext: .ts, command: [node, ../evaluator/import.ts] }
 ```
 
 then write the script as a module and name it from the definition:
@@ -148,7 +151,8 @@ the inferred type of what the definition passes; `Output` is what it declares
 cannot hold code that failed to typecheck.
 
 The bundle is emitted as CJS and wrapped as a function body, so the evaluator needs to know
-nothing about modules. Imports are resolved at build time and inlined, so the string a
+nothing about modules. Imports resolve through TypeScript under the same config the check
+ran with, so a `paths` alias that typechecks also bundles. They are inlined at build time, so the string a
 definition version stores is self-contained forever — with one exception: **node builtins
 stay as `require` calls**, which the realm satisfies. A package is frozen into the
 definition; `node:fs` is resolved by whatever runner executes it.
@@ -163,13 +167,13 @@ Of that config, three keys are the toolchain's and the rest are yours:
 
 | key | owner | why |
 |---|---|---|
-| `lib` | the toolchain | Describes the realm. A Bun worker has no `document`, whatever a config claims. |
+| `lib` | the toolchain | Describes the realm. A worker thread has no `document`, whatever a config claims. |
 | `include` | the toolchain | Forced to `[]`. A base `include` survives beside our `files` and would drag your whole tree in to be checked as scripts. |
-| `types` | **you** | How a script opts into node and Bun globals. The realm has them, so refusing the declarations would only lie. With no tsconfig at all the default is `[]`. |
+| `types` | **you** | How a script opts into the node globals. The realm has them, so refusing the declarations would only lie. With no tsconfig at all the default is `[]`. |
 
 ```jsonc
 // tsconfig.json beside your scripts
-{ "compilerOptions": { "types": ["bun"] } }   // now `import { appendFile } from "node:fs/promises"` typechecks
+{ "compilerOptions": { "types": ["node"] } }  // now `import { appendFile } from "node:fs/promises"` typechecks
 ```
 
 **This is what removes the `$${` escaping above** — a template literal in a `.ts` file is
@@ -183,16 +187,23 @@ exactly three things the previous in-process evaluator could not:
 
 - **The budget is enforced, not merely reported.** A synchronous `while(true){}` never
   yields, so no in-process timer can interrupt it — the old evaluator hung forever on that
-  input, and said so in this file. Killing the thread is the only bound. Measured on Bun
-  1.3.14: `terminate()` stops a spinning worker, and the CPU it was burning goes with it.
+  input, and said so in this file. Killing the thread is the only bound. Measured on Node
+  24: `terminate()` stops a spinning worker, and the CPU it was burning goes with it.
 - **A fresh global object per execution.** One script cannot configure the next. It is also
   why there is no compile cache any more: a cache inside a discarded realm can never be hit.
 - **The script's mistakes stay the script's.** An uncaught throw, and `process.exit()`, end
   the realm and come back as a `422` — neither reaches the runner.
 
-It costs about **1.7ms per execution** for the realm, plus recompiling the body (~40ms for a
-201 KiB bundle, which is a large one). A subprocess per execution was the alternative at
-~16.6ms, and it is the upgrade path for the two things a thread does not contain.
+It costs about **50ms per execution** end to end for a trivial script (Node 24, M-series
+laptop), a 200 KiB body about 63ms. Roughly 19ms of that is Node re-stripping `worker.ts`'s
+types on every realm — precompiling it to JavaScript would buy that back, and is deliberately
+not done: a build artefact that goes stale against its source fails silently, and this file
+is the one where a wrong line number is invisible.
+
+That also changes an old trade-off. A subprocess per execution measures ~48ms here — within
+noise of the thread — where on the previous runtime it was ten times the thread's cost. The
+thread no longer wins on price, and a subprocess contains the two things a thread cannot
+(below), so it is the live upgrade path rather than a theoretical one.
 
 ## What this is not
 
@@ -208,9 +219,11 @@ It costs about **1.7ms per execution** for the realm, plus recompiling the body 
   same-trust-domain one (your genroc, your machine). It is not the multi-tenant story, and
   nothing here should be mistaken for one.
 - **A thread does not contain memory or a native crash.** A worker shares the process
-  address space, so a script that exhausts memory takes the runner with it. Containing that
-  is what the subprocess strategy is for — `eval.ts` keeps HTTP out precisely so it can be
-  swapped underneath.
+  address space, so a script that exhausts memory takes the runner with it — and so does a
+  fault in the runtime itself, which is not hypothetical: the previous one segfaulted on
+  resume from laptop sleep, taking the in-flight evaluation with it. Containing that is what
+  the subprocess strategy is for — `eval.ts` keeps HTTP out precisely so it can be swapped
+  underneath.
 - **Nothing caps concurrency.** Each request is a thread, so N concurrent script tasks are N
   threads; genroc's own concurrency limits are what bound this today.
 - **Not where imports and type checking happen.** The evaluator still takes one

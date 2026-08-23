@@ -28,7 +28,8 @@ openapi.json
 /docs/public/process-schema.json
 tests/generated/
 tests/node_modules/
-bun-runtime/node_modules/
+evaluator/node_modules/
+docs/node_modules/
 /p_schema.json
 /p.json
 tests/weather.log

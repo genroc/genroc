@@ -4,8 +4,8 @@
 // engines, and reports throughput. It isolates engine + DB throughput and compares
 // SQLite (single writer) vs Postgres (concurrent workers).
 //
-//   bun run bench/run.ts recursive                              # SQLite only
-//   POSTGRES_DSN=postgres://… bun run bench/run.ts recursive    # + Postgres compare
+//   node bench/run.ts recursive                             # SQLite only
+//   POSTGRES_DSN=postgres://… node bench/run.ts recursive   # + Postgres compare
 //   make bench-recursive | bench-deep | bench-drain            # via Makefile
 //
 // Every workload runs the SAME two-phase way: (1) load — a tick-only server (--poll 0)
@@ -37,7 +37,8 @@
 // selects the workload, BENCH_ENGINES filters which engines run, BENCH_JSON sets the
 // results output path, GENROC_SQLITE_SYNCHRONOUS sets SQLite durability (default FULL).
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { load as loadYaml } from "js-yaml";
 import { join } from "node:path";
 import { arch, cpus, platform, release, totalmem } from "node:os";
 import {
@@ -47,18 +48,16 @@ import {
   type GenrocProcess,
 } from "../helpers/server.ts";
 
-// Workloads are statically imported (Bun parses .yaml natively) so tsc and the
-// bundler resolve them; adding a workload = a new YAML + one line here.
-import recursive from "./workloads/recursive.yaml";
-import deep from "./workloads/deep.yaml";
-import drain from "./workloads/drain.yaml";
-import drainBig from "./workloads/drain_big.yaml";
+// Read rather than imported: no bundler here parses .yaml, and a static import of one
+// resolves at typecheck and then fails at run. Adding a workload = a new YAML + one line.
+const readWorkload = (name: string): Workload =>
+  loadYaml(readFileSync(new URL(`./workloads/${name}.yaml`, import.meta.url), "utf8")) as Workload;
 
 const WORKLOADS: Record<string, Workload> = {
-  recursive,
-  deep,
-  drain,
-  drain_big: drainBig,
+  recursive: readWorkload("recursive"),
+  deep: readWorkload("deep"),
+  drain: readWorkload("drain"),
+  drain_big: readWorkload("drain_big"),
 };
 
 // Per-engine knobs (under bench.sqlite / bench.postgres).

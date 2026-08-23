@@ -137,7 +137,8 @@ test("a dereferenced, unlogged context object is deleted immediately (not left f
     server = undefined;
     await waitDown();
 
-    // Read process_objects directly (sqlite3 -json; bun:sqlite isn't resolvable in vitest).
+    // Read process_objects directly through the sqlite3 CLI (-json): there is no SQLite
+    // driver among the test dependencies, and this needs no schema knowledge.
     const r = spawnSync(
       "sqlite3",
       [

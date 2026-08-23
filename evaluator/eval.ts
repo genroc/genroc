@@ -4,8 +4,9 @@
 //
 // The containment is a Worker per execution (worker.ts). It is what makes the budget real:
 // a synchronous busy loop never yields, so no in-process timer can interrupt it, and only a
-// thread the host can kill bounds it. Measured on Bun 1.3.14: `terminate()` stops a spinning
-// worker, and a fresh realm costs ~1.7ms.
+// thread the host can kill bounds it.
+
+import { Worker } from "node:worker_threads";
 
 export type EvalRequest = {
   code: string;
@@ -35,7 +36,7 @@ export type WorkerRequest = { code: string; input?: unknown };
 export type WorkerReply = EvalResult;
 
 const DEFAULT_TIMEOUT_MS = 5_000;
-const WORKER_URL = new URL("./worker.ts", import.meta.url).href;
+const WORKER_URL = new URL("./worker.ts", import.meta.url);
 
 /** Thrown, not returned: a realm that fails to start is the RUNNER faulting, and server.ts
  *  turns a thrown error into the one retryable status. A script fault is a return value. */
@@ -54,18 +55,19 @@ export async function evaluate(req: EvalRequest): Promise<EvalResult> {
   try {
     return await new Promise<EvalResult>((resolve, reject) => {
       timer = setTimeout(() => resolve(timedOut(budget)), budget);
-      worker.addEventListener("message", (e) => resolve(e.data as WorkerReply), { once: true });
+      worker.once("message", (reply: WorkerReply) => resolve(reply));
       // A script may end its own realm (`process.exit()`), which is not a throw and would
-      // otherwise present as a hang until the budget expired.
-      worker.addEventListener("close", (e) => resolve(exited(e.code)), { once: true });
-      worker.addEventListener("error", (e) => reject(new RealmFault(errorText(e))), { once: true });
+      // otherwise present as a hang until the budget expired. Our own terminate() raises
+      // this too, by which time the promise has settled and the first result stands.
+      worker.once("exit", (code: number) => resolve(exited(code)));
+      worker.once("error", (err: Error) => reject(new RealmFault(errorText(err))));
       worker.postMessage({ code: req.code, input: req.input } satisfies WorkerRequest);
     });
   } finally {
     clearTimeout(timer);
-    // Unconditional, and the whole point: on the timeout path a thread is still burning a
-    // core, and a worker that outlives its evaluation is a leaked thread on every path.
-    worker.terminate();
+    // Awaited, and the whole point: on the timeout path a thread is still burning a core, and
+    // resolving before it is gone would report an evaluation the machine is still running.
+    await worker.terminate();
   }
 }
 

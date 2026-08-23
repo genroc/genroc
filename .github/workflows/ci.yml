@@ -51,20 +51,21 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
         with:
-          bun-version: "1.3.14"
-      - name: Ensure ~/.bun/bin/bun (Makefile invokes that path)
-        run: |
-          src="$(command -v bun)"; dst="$HOME/.bun/bin/bun"
-          if [ "$src" != "$dst" ]; then mkdir -p "$HOME/.bun/bin" && ln -sf "$src" "$dst"; fi
+          node-version: "24"
       - name: Install test dependencies
-        run: cd tests && bun install --frozen-lockfile
-      - name: Install bun-runtime dependencies
-        # The import resolver shells out to typescript/bin/tsc, resolved from bun-runtime's
-        # OWN node_modules (import.meta.resolve, relative to import.ts) — which is gitignored,
-        # so without this every resolver test fails with "Cannot find module".
-        run: cd bun-runtime && bun install --frozen-lockfile
+        run: cd tests && npm ci
+      - name: Install evaluator dependencies
+        # The import resolver shells out to typescript/bin/tsc and to rollup, resolved from
+        # the evaluator's OWN node_modules (import.meta.resolve, relative to import.ts) —
+        # which is gitignored, so without this every resolver test fails with "Cannot find
+        # module".
+        run: cd evaluator && npm ci
+      - name: Typecheck the evaluator
+        # It is the shipped artefact and nothing else checks it: `make test` covers the Go
+        # engine and the test suite, and the evaluator only ever gets RUN.
+        run: cd evaluator && npm run typecheck
       - name: make test
         run: make test
 

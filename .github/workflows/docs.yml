@@ -28,9 +28,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
         with:
-          bun-version: "1.3.14"
+          node-version: "24"
 
       # Into docs/public/, so the built site serves it at /process-schema.json. Must run
       # before the Astro build — public/ is copied into dist/ at build time.
@@ -40,8 +40,8 @@ jobs:
       - name: Build site
         run: |
           cd docs
-          bun install --frozen-lockfile
-          bun run build
+          npm ci
+          npm run build
           # Pages runs Jekyll on branch deploys, which drops _astro/ (underscore dirs).
           touch dist/.nojekyll
 

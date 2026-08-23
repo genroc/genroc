@@ -4,11 +4,11 @@ import { join } from "path";
 import { connect } from "node:net";
 import { client, waitForInstance } from "../helpers/client.ts";
 
-// A script task is a `fetch` at a Bun evaluator — no new engine capability. What these
+// A script task is a `fetch` at an evaluator process — no new engine capability. What these
 // tests pin is the seam between the two: the runner's STATUS is the retryability class
 // on_error matches, and everything finer is a body field a switch branches on.
 //
-// See bun-runtime/README.md for the wire contract.
+// See evaluator/README.md for the wire contract.
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 
@@ -16,7 +16,7 @@ let runner: ChildProcess;
 let port: number;
 
 beforeAll(async () => {
-  runner = spawn("bun", [join(ROOT, "bun-runtime/server.ts")], {
+  runner = spawn("node", [join(ROOT, "evaluator/server.ts")], {
     env: { ...process.env, PORT: "0" },
     stdio: ["ignore", "pipe", "inherit"],
   });
@@ -36,9 +36,9 @@ beforeAll(async () => {
 afterAll(() => runner?.kill());
 
 // The runner must outlast any caller's connection pool, and it is the caller — the side
-// that knows whether a request is in flight — that must hang up first. Bun's 10s default
-// sat exactly on a 10s polling cadence: every tick was a coin flip on whether the server's
-// close raced the next request into a reset, which a POST cannot retry. genroc pools
+// that knows whether a request is in flight — that must hang up first. A runtime default
+// (Node's is 5s) under a polling cadence makes every tick a coin flip on whether the
+// server's close races the next request into a reset, which a POST cannot retry. genroc pools
 // connections for 90s (internal/transport), so the runner may not close at all.
 test("runner — never hangs up on an idle keep-alive connection", { timeout: 25_000 }, async () => {
   const socket = connect({ port, host: "127.0.0.1" });
@@ -67,6 +67,54 @@ test("runner — never hangs up on an idle keep-alive connection", { timeout: 25
     "the runner closed an idle connection; a caller that reuses it races that close into a " +
       "reset it cannot retry, which is how a transient blip fails a whole process",
   ).toBe(false);
+});
+
+// ── the HTTP surface ────────────────────────────────────────────────────────────
+//
+// Each status below is a retryability class genroc branches on, which is why a refusal must
+// be a STATUS: a connection reset would arrive as http.disconnected instead — the unknowable
+// class, never retried on an only_once task.
+
+test("surface — a body over the cap is refused with a status, not a reset", async () => {
+  const oversized = JSON.stringify({ code: "return 1;", input: "x".repeat(5 * 1024 * 1024) });
+  const res = await fetch(`http://localhost:${port}/eval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: oversized,
+  }).catch((e: Error) => e);
+
+  expect(res, `the cap must answer, not drop the connection: ${res instanceof Error ? res.message : ""}`).not.toBeInstanceOf(Error);
+  expect((res as Response).status).toBe(413);
+
+  const next = await evalDirect({ code: "return 1;" });
+  expect(next.status, "refusing one request must not cost the runner").toBe(200);
+});
+
+test("surface — a malformed request is a 400 that never reaches a realm", async () => {
+  const notJson = await fetch(`http://localhost:${port}/eval`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{ not json",
+  });
+  expect(notJson.status).toBe(400);
+
+  const noCode = await evalDirect({ input: { amount: 1 } });
+  expect(noCode.status, "`code` is the one required field").toBe(400);
+  expect((noCode.body as { kind: string }).kind).toBe("bad_request");
+});
+
+test("surface — an unknown route is a 404, not a 500", async () => {
+  const res = await fetch(`http://localhost:${port}/nope`);
+  expect(res.status).toBe(404);
+});
+
+test("evaluator — a return value JSON cannot represent is the script's fault", async () => {
+  const r = await evalDirect({ code: "const a = {}; a.self = a; return a;" });
+
+  // Serialising INSIDE the realm is what makes this a classified 422 rather than a 500
+  // thrown out of the response path.
+  expect(r.status).toBe(422);
+  expect((r.body as { kind: string }).kind).toBe("nonserializable");
 });
 
 /** A task calling the runner. `code` is passed through verbatim — mind `$${` (see below). */
@@ -270,10 +318,40 @@ test("evaluator — Math and Date are the realm's own, and die with it", async (
   expect(Math.abs((clock.body as number) - Date.now()), "the script reads the wall clock").toBeLessThan(5_000);
 });
 
+// The 422 body's `stack` is renumbered to the lines the AUTHOR wrote. The compiled body sits
+// under a wrapper whose preamble is ENGINE-specific, so the offset is measured at startup
+// rather than assumed (evaluator/worker.ts) — and a stack that points confidently at the
+// wrong line is worse than no stack at all.
+test("stack — a throw reports the author's line, and the function that threw", async () => {
+  const code = [
+    "const rate = 0.1;", //          1
+    "function fee(amount) {", //     2
+    "  throw new Error('nope');", // 3
+    "}", //                          4
+    "return fee(10);", //            5
+  ].join("\n");
+
+  const r = await evalDirect({ code });
+  const stack = (r.body as { stack?: string }).stack ?? "";
+
+  expect(stack, `the throw is on line 3 of what the author wrote:\n${stack}`).toContain("at fee (script:3:");
+  expect(stack, `the call is on line 5, and the top-level frame carries no name:\n${stack}`).toContain("at (script:5:");
+});
+
+test("stack — the runner's own frames and file path stay out of it", async () => {
+  const r = await evalDirect({ code: "\n\nthrow new Error('boom');" });
+  const stack = (r.body as { stack?: string }).stack ?? "";
+
+  expect(stack, `line 3, and nothing above it:\n${stack}`).toContain("(script:3:");
+  expect(stack, `a script's author cannot act on the runner's plumbing:\n${stack}`).not.toMatch(
+    /worker\.ts|node:internal|MessagePort|evaluator\//,
+  );
+});
+
 // ── the realm ───────────────────────────────────────────────────────────────────
 //
 // One Worker per execution. These pin the three things that buys, each of which the previous
-// in-process evaluator could not do. See bun-runtime/README.md.
+// in-process evaluator could not do. See evaluator/README.md.
 
 test("realm — a synchronous busy loop is bounded and the runner keeps serving", async () => {
   const t0 = Date.now();

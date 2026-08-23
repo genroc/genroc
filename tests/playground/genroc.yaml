@@ -5,4 +5,4 @@ resolvers:
   import:
     phase: code
     ext: .ts
-    command: [bun, run, ../../bun-runtime/import.ts]
+    command: [node, ../../evaluator/import.ts]

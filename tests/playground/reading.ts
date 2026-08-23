@@ -3,8 +3,8 @@
 // declares. Both are generated — run `genctl types -f script.yaml -f process.yaml`, or just
 // apply.
 //
-// `fetch` and `console` typecheck because the authoring sandbox is a worker realm; `process`
-// and `Bun` still do not. See specs/script-tasks.md.
+// `fetch`, `console` and the node builtins typecheck because the authoring sandbox is a
+// worker realm with node's globals; the DOM is not. See specs/script-tasks.md.
 //
 // Template literals need no escaping here: genctl doubles every `$` on splice, so `${…}` is
 // JavaScript rather than a genroc interpolation. That is the whole point of the import.
@@ -57,7 +57,7 @@ export default async function (input: Input): Promise<Output> {
   const res = await fetch(url);
   if (!res.ok) {
     // `name` is what the caller's switch tells one refusal from another by; the status is
-    // for whoever reads the failure. bun-runtime/README.md.
+    // for whoever reads the failure. evaluator/README.md.
     const err = new Error(`open-meteo answered ${res.status}`);
     err.name = "UpstreamError";
     throw err;

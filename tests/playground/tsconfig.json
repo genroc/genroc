@@ -2,6 +2,6 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "types": ["bun"]
+    "types": ["node"]
   }
 }

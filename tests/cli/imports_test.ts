@@ -12,7 +12,7 @@ import { startedID, uid } from "../helpers/genctl.ts";
 //
 // The fake resolver below returns file contents verbatim — the mechanism is
 // language-agnostic, and a plain text template exercises every part of it except tsc.
-// The bun-runtime importer gets its own tests at the bottom.
+// The evaluator's importer gets its own tests at the bottom.
 
 let bin: string;
 beforeAll(() => {
@@ -24,7 +24,7 @@ beforeAll(() => {
 let runner: ChildProcess | undefined;
 async function runnerPort(): Promise<number> {
   if (runner) return runnerReady;
-  runner = spawn("bun", [join(REPO, "bun-runtime/server.ts")], {
+  runner = spawn("node", [join(REPO, "evaluator/server.ts")], {
     env: { ...process.env, PORT: "0" },
     stdio: ["ignore", "pipe", "inherit"],
   });
@@ -48,11 +48,14 @@ const REPO = new URL("../../", import.meta.url).pathname;
 
 /** A resolver that echoes each site's file and dumps the manifest for inspection. */
 const ECHO_RESOLVER = `
-const m = await Bun.stdin.json();
-await Bun.write(new URL("./manifest.json", import.meta.url).pathname, JSON.stringify(m, null, 2));
+import { readFileSync, writeFileSync } from "node:fs";
+const chunks = [];
+for await (const c of process.stdin) chunks.push(c);
+const m = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+writeFileSync(new URL("./manifest.json", import.meta.url), JSON.stringify(m, null, 2));
 if (m.mode === "types") process.exit(0);
 const code = [];
-for (const s of m.sites) code.push(await Bun.file(s.path).text());
+for (const s of m.sites) code.push(readFileSync(s.path, "utf8"));
 process.stdout.write(JSON.stringify({ code }));
 `;
 
@@ -61,7 +64,7 @@ type Project = { dir: string; write: (name: string, body: string) => string; man
 function project(resolvers: string): Project {
   const dir = mkdtempSync(join(tmpdir(), "genroc_import_"));
   writeFileSync(join(dir, "genroc.yaml"), resolvers, "utf8");
-  writeFileSync(join(dir, "echo.ts"), ECHO_RESOLVER, "utf8");
+  writeFileSync(join(dir, "echo.mjs"), ECHO_RESOLVER, "utf8");
   return {
     dir,
     write: (name, body) => {
@@ -75,7 +78,7 @@ function project(resolvers: string): Project {
 }
 
 function echoProject(): Project {
-  return project(`resolvers:\n  import: { phase: code, command: [bun, run, echo.ts] }\n`);
+  return project(`resolvers:\n  import: { phase: code, command: [node, echo.mjs] }\n`);
 }
 
 // ── the resolution pass ─────────────────────────────────────────────────────────
@@ -273,8 +276,8 @@ test("apply — a missing file is refused before anything is sent", () => {
 });
 
 test("apply — a resolver's exit code aborts the apply with its stderr", () => {
-  const p = project(`resolvers:\n  import: { phase: code, command: [bun, run, fail.ts] }\n`);
-  p.write("fail.ts", 'console.error("summarize.ts(3,7): error TS2322: nope");\nprocess.exit(1);\n');
+  const p = project(`resolvers:\n  import: { phase: code, command: [node, fail.mjs] }\n`);
+  p.write("fail.mjs", 'console.error("summarize.ts(3,7): error TS2322: nope");\nprocess.exit(1);\n');
   p.write("body.txt", "x");
   const name = uid("import");
   const def = p.write(
@@ -301,9 +304,9 @@ test("apply — a resolver's exit code aborts the apply with its stderr", () => 
 
 test("apply — an ext mismatch is refused by name rather than inside the toolchain", () => {
   const p = project(
-    `resolvers:\n  import: { phase: code, ext: .ts, command: [bun, run, echo.ts] }\n`,
+    `resolvers:\n  import: { phase: code, ext: .ts, command: [node, echo.mjs] }\n`,
   );
-  writeFileSync(join(p.dir, "echo.ts"), ECHO_RESOLVER, "utf8");
+  writeFileSync(join(p.dir, "echo.mjs"), ECHO_RESOLVER, "utf8");
   p.write("body.txt", "x");
   const def = p.write(
     "proc.yaml",
@@ -360,11 +363,11 @@ test("apply — a definition with no directives spends no resolver and no extra 
   expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
 });
 
-// ── the bun-runtime importer ────────────────────────────────────────────────────
+// ── the evaluator's importer ────────────────────────────────────────────────────
 
 function tsProject(): Project {
   const p = project(
-    `resolvers:\n  import: { phase: code, ext: .ts, command: [bun, run, ${join(REPO, "bun-runtime/import.ts")}] }\n`,
+    `resolvers:\n  import: { phase: code, ext: .ts, command: [node, ${join(REPO, "evaluator/import.ts")}] }\n`,
   );
   return p;
 }
@@ -393,7 +396,7 @@ function scriptDef(name: string, script: string): string {
   ].join("\n");
 }
 
-test("bun-runtime importer — generates declarations keyed by the script's path", () => {
+test("evaluator importer — generates declarations keyed by the script's path", () => {
   const p = tsProject();
   p.write(
     "fee.ts",
@@ -418,7 +421,7 @@ test("bun-runtime importer — generates declarations keyed by the script's path
   expect(decls).toContain("fee: number");
 }, 60_000);
 
-test("bun-runtime importer — a type error is a failed import, so nothing is stored", () => {
+test("evaluator importer — a type error is a failed import, so nothing is stored", () => {
   const p = tsProject();
   p.write(
     "bad.ts",
@@ -444,7 +447,7 @@ test("bun-runtime importer — a type error is a failed import, so nothing is st
   expect(rows.some((row) => row.name === name)).toBe(false);
 }, 60_000);
 
-test("bun-runtime importer — a checked script applies as a self-contained function body", () => {
+test("evaluator importer — a checked script applies as a self-contained function body", () => {
   const p = tsProject();
   p.write("rate.ts", "export const RATE = 0.1;\n");
   p.write(
@@ -474,7 +477,7 @@ test("bun-runtime importer — a checked script applies as a self-contained func
   expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
 }, 60_000);
 
-test("bun-runtime importer — the sandbox is a worker realm, not the host one", () => {
+test("evaluator importer — the sandbox is a worker realm, not the host one", () => {
   const p = tsProject();
   p.write(
     "fee.ts",
@@ -516,7 +519,7 @@ test("bun-runtime importer — the sandbox is a worker realm, not the host one",
   expect(r.stderr).toContain("Cannot find name 'process'");
 }, 60_000);
 
-test("bun-runtime importer — a script is checked against the nearest tsconfig above it", () => {
+test("evaluator importer — a script is checked against the nearest tsconfig above it", () => {
   const p = tsProject();
   // An alias declared at the project root says nothing about a script that lives in `sub/`:
   // the author's editor reads sub/tsconfig.json, and so must the apply.
@@ -551,7 +554,7 @@ test("bun-runtime importer — a script is checked against the nearest tsconfig 
   expect(r.stderr).toContain("#lib/rate");
 }, 60_000);
 
-test("bun-runtime importer — the author's tsconfig cannot widen the sandbox or the program", () => {
+test("evaluator importer — the author's tsconfig cannot widen the sandbox or the program", () => {
   const p = tsProject();
   // Both halves of what `extends` must not let through: a `lib` that reopens the realm, and
   // an `include` that would drag the author's own tree in to be checked as a script.
@@ -582,7 +585,90 @@ test("bun-runtime importer — the author's tsconfig cannot widen the sandbox or
   );
 }, 60_000);
 
-test("bun-runtime importer — a package dependency resolves and is bundled in", () => {
+test("evaluator importer — a data file imported as JSON is inlined and reaches the realm", async () => {
+  const port = await runnerPort();
+  const p = tsProject();
+  // A `.json` import is a build-time data file, not JavaScript: whichever bundler is
+  // underneath has to be told to parse it, and one that is not hands JSON to the JS parser.
+  // Running it is what proves the VALUE was inlined — the realm has no file to read.
+  p.write("rates.json", JSON.stringify({ rate: 0.25 }));
+  p.write(
+    "fee.ts",
+    [
+      'import type { Input, Output } from "./fee.genroc";',
+      'import rates from "./rates.json";',
+      "",
+      "export default async function (input: Input): Promise<Output> {",
+      "  return { fee: input.amount * rates.rate };",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const name = uid("script");
+  const def = p.write(
+    "proc.yaml",
+    [
+      `name: ${name}`,
+      "input_schema:",
+      "  type: object",
+      "  properties: { amount: { type: number } }",
+      "  required: [amount]",
+      "tasks:",
+      "  - id: price",
+      "    action:",
+      "      type: fetch",
+      `      url: http://localhost:${port}/eval`,
+      "      body:",
+      '        code: "$import: ./fee.ts"',
+      '        input: "$: input"',
+      "      responses:",
+      "        200: { type: object, properties: { fee: { type: number } }, required: [fee] }",
+      "    timeout: 10s",
+      '    output: "$: self.result"',
+      "    switch: [{ goto: end }]",
+      'output: "$: outputs.price"',
+      "",
+    ].join("\n"),
+  );
+
+  const applied = runCli(bin, ["apply", "-f", def]);
+  expect(applied.stdout, `a json import must bundle:\n${applied.stdout}${applied.stderr}`).toContain(
+    `saved: ${name}@v1`,
+  );
+
+  const started = runCli(bin, ["run", name, "--input", JSON.stringify({ amount: 100 })]);
+  const id = startedID(`${started.stdout}${started.stderr}`);
+  expect(await waitForInstance(id)).toBe("completed");
+  const instance = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout);
+  expect(instance.context.output.fee, "0.25 must have been baked into the bundle").toBe(25);
+}, 60_000);
+
+test("evaluator importer — an import that resolves to nothing is a failed apply", () => {
+  const p = tsProject();
+  // The bundler's default for an unresolved import is to leave it as a require of a module
+  // that will not be there: it bundles clean and fails inside the realm, where the author
+  // cannot see it. Typecheck catches this one first; the refusal must hold either way.
+  p.write(
+    "fee.ts",
+    [
+      'import type { Input, Output } from "./fee.genroc";',
+      '// @ts-expect-error — the point is a module that is not installed',
+      'import { RATE } from "not-installed-anywhere";',
+      "",
+      "export default async function (input: Input): Promise<Output> {",
+      "  return { fee: input.amount * RATE };",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const def = p.write("proc.yaml", scriptDef(uid("script"), "./fee.ts"));
+
+  const r = runCli(bin, ["apply", "-f", def]);
+  expect(r.ok, `an unresolvable import must not produce a stored definition:\n${r.stdout}${r.stderr}`).toBe(false);
+  expect(r.stderr).toContain("not-installed-anywhere");
+}, 60_000);
+
+test("evaluator importer — a package dependency resolves and is bundled in", () => {
   const p = tsProject();
   // A package, not a relative file. The worker realm fences GLOBALS, not module resolution:
   // an author who cannot reach their dependencies has no use for the toolchain.
@@ -613,7 +699,7 @@ test("bun-runtime importer — a package dependency resolves and is bundled in",
   );
 }, 60_000);
 
-test("bun-runtime importer — a node builtin survives the bundle and runs in the realm", async () => {
+test("evaluator importer — a node builtin survives the bundle and runs in the realm", async () => {
   const port = await runnerPort();
   const p = tsProject();
   // The author declares which globals their scripts get; the generated config no longer

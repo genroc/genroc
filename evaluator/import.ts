@@ -6,7 +6,17 @@
 // code; "build" typechecks and bundles. A separate types hook would mean a second `tsc`
 // over the same project.
 
+import { spawn } from "node:child_process";
+import { access, mkdir, writeFile } from "node:fs/promises";
+import { builtinModules } from "node:module";
 import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import commonjs from "@rollup/plugin-commonjs";
+import json from "@rollup/plugin-json";
+import { nodeResolve } from "@rollup/plugin-node-resolve";
+import { rollup, type Plugin } from "rollup";
+import ts from "typescript";
 
 type Schema = Record<string, any>;
 
@@ -30,6 +40,21 @@ type Manifest = {
 function die(message: string): never {
   console.error(message);
   process.exit(1);
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Creates the parent directory, which `.genroc/` relies on: nothing else makes it. */
+async function write(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, content);
 }
 
 // ── JSON Schema → TypeScript ───────────────────────────────────────────────────
@@ -166,14 +191,14 @@ function typesPathFor(scriptPath: string): string {
 async function nearestTsconfig(from: string, root: string): Promise<string | null> {
   for (let dir = from; ; dir = dirname(dir)) {
     const candidate = join(dir, "tsconfig.json");
-    if (await Bun.file(candidate).exists()) return candidate;
+    if (await exists(candidate)) return candidate;
     if (dir === root || dirname(dir) === dir) return null;
   }
 }
 
 async function typecheck(root: string, sites: Site[]): Promise<void> {
   const dir = join(root, ".genroc");
-  await Bun.write(join(dir, ".gitignore"), "*\n");
+  await write(join(dir, ".gitignore"), "*\n");
 
   // One tsc per distinct base config: `extends` takes a single base, so merging two would
   // check each script under the other author's options.
@@ -197,9 +222,9 @@ async function typecheck(root: string, sites: Site[]): Promise<void> {
         module: "preserve",
         target: "esnext",
         // `lib` DESCRIBES the realm and is written after `extends` so a base cannot widen it:
-        // a Bun worker has no document, whatever an author's config claims.
+        // a worker thread has no document, whatever an author's config claims.
         lib: ["esnext", "webworker"],
-        // `types` is the author's, and it is how a script opts into node and Bun globals —
+        // `types` is the author's, and it is how a script opts into the node globals —
         // the worker realm has them, so refusing the declarations would only lie. With no
         // base config there is nothing to opt in with, so the default stays none.
         ...(base ? {} : { types: [] }),
@@ -210,23 +235,25 @@ async function typecheck(root: string, sites: Site[]): Promise<void> {
       include: [],
     };
     const configPath = join(dir, groups.size === 1 ? "tsconfig.json" : `tsconfig.${n++}.json`);
-    await Bun.write(configPath, JSON.stringify(config, null, 2));
+    await write(configPath, JSON.stringify(config, null, 2));
     await runTsc(root, configPath);
   }
 }
 
 async function runTsc(root: string, configPath: string): Promise<void> {
-  const tsc = Bun.fileURLToPath(import.meta.resolve("typescript/bin/tsc"));
-  const proc = Bun.spawn(["bun", tsc, "--noEmit", "-p", configPath], {
+  const tsc = fileURLToPath(import.meta.resolve("typescript/bin/tsc"));
+  const proc = spawn(process.execPath, [tsc, "--noEmit", "-p", configPath], {
     cwd: root,
-    stdout: "pipe",
-    stderr: "pipe",
+    stdio: ["ignore", "pipe", "pipe"],
   });
-  const [out, err, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
+  let out = "";
+  let err = "";
+  proc.stdout.on("data", (c: Buffer) => (out += c));
+  proc.stderr.on("data", (c: Buffer) => (err += c));
+  const code = await new Promise<number>((resolve, reject) => {
+    proc.on("error", reject);
+    proc.on("close", (c) => resolve(c ?? 1));
+  });
   if (code !== 0) {
     // tsc reports on stdout; the exit code IS the type check, so this is the diagnostic
     // genctl surfaces and the reason a failed import never produces a string.
@@ -236,24 +263,78 @@ async function runTsc(root: string, configPath: string): Promise<void> {
 
 // ── bundle ─────────────────────────────────────────────────────────────────────
 
+/** Transpiles only. The typecheck above already ran over the author's OWN tsconfig, and a
+ *  second opinion from a config they do not control could fail a build they cannot fix. */
+const transpile: Plugin = {
+  name: "genroc-transpile",
+  transform(code, id) {
+    if (!id.endsWith(".ts") && !id.endsWith(".tsx")) return null;
+    const out = ts.transpileModule(code, {
+      fileName: id,
+      compilerOptions: {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        verbatimModuleSyntax: false,
+        jsx: id.endsWith(".tsx") ? ts.JsxEmit.ReactJSX : undefined,
+      },
+    });
+    return { code: out.outputText, map: out.sourceMapText ?? null };
+  },
+};
+
+const BUILTIN = new Set([...builtinModules, ...builtinModules.map((m) => `node:${m}`)]);
+
+/** Resolves imports through TYPESCRIPT, using the same config the typecheck ran under, so a
+ *  `paths` alias that compiles also bundles. Reimplementing `paths` here would be a second
+ *  resolver to keep in agreement with tsc; this one cannot disagree.
+ *  A package resolving to a `.d.ts` is declined — that is a type, not the implementation —
+ *  which leaves node_modules to nodeResolve. */
+function tsResolve(configPath: string | null): Plugin {
+  let options: ts.CompilerOptions = {};
+  if (configPath) {
+    const read = ts.readConfigFile(configPath, ts.sys.readFile);
+    options = ts.parseJsonConfigFileContent(read.config ?? {}, ts.sys, dirname(configPath)).options;
+  }
+  return {
+    name: "genroc-ts-resolve",
+    resolveId(source, importer) {
+      if (!importer || BUILTIN.has(source)) return null;
+      const { resolvedModule } = ts.resolveModuleName(source, importer, options, ts.sys);
+      if (!resolvedModule || resolvedModule.isExternalLibraryImport) return null;
+      return resolvedModule.resolvedFileName.endsWith(".d.ts") ? null : resolvedModule.resolvedFileName;
+    },
+  };
+}
+
 /** Bundles to CJS and wraps it as an async function BODY, which is what /eval compiles.
  *  The runtime stays unchanged: bundling is entirely the importer's job, and the string it
  *  produces is self-contained, so a definition version pins its code forever. */
-async function bundle(site: Site): Promise<string> {
-  const built = await Bun.build({
-    entrypoints: [site.path],
-    format: "cjs",
-    // Builtins are EXTERNALISED as `require` calls that worker.ts satisfies. Under
-    // `browser` they were rewritten to `{}` instead — a script importing `node:fs` bundled
-    // clean and then failed at runtime with no diagnostic. Not `bun`: that emits Bun's
-    // `@bun-cjs` form, a function expression nothing here calls.
-    target: "node",
-    minify: false,
-  });
-  if (!built.success) {
-    die(`${site.path}: ${built.logs.map((l) => String(l)).join("\n")}`);
-  }
-  const cjs = await built.outputs[0]!.text();
+async function bundle(site: Site, root: string): Promise<string> {
+  // Builtins are EXTERNALISED as `require` calls that worker.ts satisfies. Anything else
+  // unresolved is a REFUSAL, not an external: rollup's default is to leave it as a require
+  // of a module that will not be there, which bundles clean and fails at runtime.
+  const built = await rollup({
+    input: site.path,
+    external: (id) => BUILTIN.has(id),
+    plugins: [
+      tsResolve(await nearestTsconfig(dirname(site.path), root)),
+      nodeResolve({ extensions: [".ts", ".tsx", ".mjs", ".js", ".json"] }),
+      commonjs(),
+      // A `.json` import is a data file inlined at build time, which the previous bundler
+      // did natively; without it rollup hands the JSON to the JS parser.
+      json(),
+      transpile,
+    ],
+    onwarn(warning) {
+      if (warning.code === "UNRESOLVED_IMPORT") {
+        die(`${site.path}: cannot resolve ${warning.exporter ?? "an import"} — is it installed?`);
+      }
+    },
+  }).catch((e: unknown) => die(`${site.path}: ${e instanceof Error ? e.message : String(e)}`));
+
+  const { output } = await built.generate({ format: "cjs", exports: "auto", inlineDynamicImports: true });
+  await built.close();
+  const cjs = output[0].code;
   return [
     "var module = { exports: {} }, exports = module.exports;",
     cjs,
@@ -267,7 +348,14 @@ async function bundle(site: Site): Promise<string> {
 
 // ── main ───────────────────────────────────────────────────────────────────────
 
-const manifest = (await Bun.stdin.json()) as Manifest;
+const stdin: string = await new Promise((resolve, reject) => {
+  let raw = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (c) => (raw += c));
+  process.stdin.on("end", () => resolve(raw));
+  process.stdin.on("error", reject);
+});
+const manifest = JSON.parse(stdin) as Manifest;
 if (!manifest || !Array.isArray(manifest.sites)) die("stdin is not a genroc resolver manifest");
 
 // One script at two sites with different input types is a refusal, not a union: the union
@@ -291,7 +379,7 @@ for (const site of manifest.sites) {
 
 for (const site of byPath.values()) {
   const defs = (manifest.schemas[site.process]?.$defs ?? {}) as Record<string, Schema>;
-  await Bun.write(typesPathFor(site.path), declarations(site, defs));
+  await write(typesPathFor(site.path), declarations(site, defs));
 }
 
 if (manifest.mode === "types") {
@@ -302,6 +390,6 @@ await typecheck(manifest.root, [...byPath.values()]);
 
 const code: string[] = [];
 for (const site of manifest.sites) {
-  code.push(await bundle(site));
+  code.push(await bundle(site, manifest.root));
 }
 process.stdout.write(JSON.stringify({ code }));

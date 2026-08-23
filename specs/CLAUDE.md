@@ -31,11 +31,11 @@ behavior while the spec stays put, answering a different question. See
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the
   child-as-worker contract (idempotency, cancel, versioning).
-- [script-tasks.md](script-tasks.md) — **partly built** (`bun-runtime/`, 2026-08-19), unlike
+- [script-tasks.md](script-tasks.md) — **partly built** (`evaluator/`, 2026-08-19), unlike
   the rest of this list: a first evaluator ships with the error tiering live, but as a plain
   **`fetch`** at a sidecar rather than the `external` shape argued below, and with none of the
   toolchain — code is inlined in the definition and nothing typechecks. Read
-  [bun-runtime/README.md](../bun-runtime/README.md) for shipped behavior and this doc for the
+  [evaluator/README.md](../evaluator/README.md) for shipped behavior and this doc for the
   decisions. Running user TypeScript needs **no new engine
   capability**: a script task is an `external` task whose input carries a code string, so
   the feature is a setup experience (`create-genroc-app` scaffolds the type generator,
@@ -62,7 +62,7 @@ behavior while the spec stays put, answering a different question. See
   which *is* the retention rule. Constrained by migration 018's serving rule (unredacted
   context-only objects are never served).
 - [source-resolution.md](source-resolution.md) — **code phase built** (2026-08-21;
-  `cmd/genctl/sources.go`, `bun-runtime/import.ts`), structural phase and `$infer` unbuilt.
+  `cmd/genctl/sources.go`, `evaluator/import.ts`), structural phase and `$infer` unbuilt.
   How a definition **source file** becomes a definition: a `genroc.yaml` in the repo registers resolver binaries and a
   `"$import: ./x.ts"` directive names one, so a TS bundler, a type generator and a YAML
   fragment loader are all clients of one mechanism. Supersedes script-tasks.md's single-pass

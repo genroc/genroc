@@ -351,8 +351,8 @@ test(
     await waitDown();
 
     // ── Verify the GC invariant against the raw tables ──────────────────────────
-    // Read the DB via the sqlite3 CLI (-json): vitest's module loader can't resolve
-    // the bun:sqlite builtin. The selected columns are all small — an externalized
+    // Read the DB via the sqlite3 CLI (-json): there is no SQLite driver among the test
+    // dependencies. The selected columns are all small — an externalized
     // slot stores only its {refs} envelope, never the content — so the JSON stays tiny.
     const sqlJson = <T,>(query: string): T[] => {
       const r = spawnSync("sqlite3", ["-json", dbPath, query], {
