@@ -570,20 +570,24 @@ the body keeps its meaning, nothing is re-wrapped:</p>
 <strong>lowercased</strong> — Go canonicalises to <code>Retry-After</code>, so a canonicalised map would make
 <code>self.headers[&#39;retry-after&#39;]</code> silently null — and repeated headers are comma-joined, which
 <code>Set-Cookie</code> is the casualty of. Any key may be absent, so reading one yields <code>string | null</code>.</p>
-<p>Together with <code>accepted_status</code> this is how a definition branches on the status itself rather
-than routing a healthy response through <code>on_error</code>:</p>
+<p>This is how a definition branches on the status itself rather than routing a healthy response
+through <code>on_error</code>. Declaring the status in <a href="#responses"><code>responses</code></a> is all it takes —
+a 2xx key accepts that status, so <code>accepted_status</code> is not needed here:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">-</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> check</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> fetch</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">${ config.api }/jobs/${ input.id }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    method</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> GET</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    accepted_status</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">200</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">202</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">     # 202 is a state, not a failure</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    responses</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">      &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2xx</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {}</span></span>
+<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">      200</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> properties</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> result</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">      202</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> null</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">                        # 202 is a state, not a failure — and carries no body</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> case</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">self.status == 202</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">        # still running</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> case</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">self.status == 202</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">       # still running</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $wait</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> end</span></span></code></pre>
+<p>Reach for <code>accepted_status</code> when <code>responses</code> cannot say it: to accept a <strong>non-2xx</strong> status
+(a <code>404</code> key types <code>error.data</code> but never accepts it, so <code>accepted_status: [&quot;200&quot;, &quot;404&quot;]</code>
+is the only spelling), or to compute the set with an expression.</p>
 <h4 id="responses"><code>responses</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#responses"><span></span></a></h4>
 <p>One map describes the whole endpoint. The status class splits it: a <strong>2xx</strong> key types
 <code>self.result</code> <em>and</em> makes that status accepted; a <strong>non-2xx</strong> key types <code>error.data</code> and
@@ -619,7 +623,8 @@ key that is not a plain number.</p>
 
 <table><thead><tr><th>Entry</th><th>Means</th></tr></thead><tbody><tr><td>a schema</td><td>the status carries a body of that shape</td></tr><tr><td><code>null</code></td><td>the status carries no body</td></tr><tr><td><code>{}</code></td><td>the status carries a body of unknown shape — exportable, not readable until a consumer restates it</td></tr></tbody></table>
 <p><strong>Declaring a 2xx narrows what is accepted.</strong> With <code>{200: T}</code> and nothing else, a <code>201</code>
-raises <code>http.201</code>. Widen it with <code>accepted_status</code>, or declare the status you expect.</p>
+raises <code>http.201</code>. Widen it with <code>accepted_status</code>, or declare the status you expect —
+<code>201: null</code> accepts it and says it carries no body, which is usually what you meant.</p>
 <p><code>self.result</code> is the union of the schemas for the statuses that can be accepted, plus <code>null</code>
 where an accepted status is described by no key. So <code>{200: T}</code> types it as exactly <code>T</code>, while
 <code>{200: T, 202: null}</code> types it as <code>T | null</code>. Declare nothing and the result is untyped —
@@ -675,7 +680,7 @@ that, or declare <code>&quot;4xx&quot;: {}</code>, which conforms to anything an
 
 
 
-<table><thead><tr><th>Field</th><th>On</th><th>Meaning</th></tr></thead><tbody><tr><td><code>name</code></td><td><code>child</code>, <code>child_list</code></td><td>Child process to invoke.</td></tr><tr><td><code>version</code></td><td>all</td><td>Version to run; <code>0</code> means the latest published version.</td></tr><tr><td><code>input</code></td><td><code>child</code>, <code>child_map</code> entries</td><td>Templated value building the child’s input payload.</td></tr><tr><td><code>over</code></td><td><code>child_list</code></td><td>A <code>$:</code> expression evaluating to an array. One child per element, the element being its input. An empty array spawns nothing and yields <code>[]</code>.</td></tr><tr><td><code>children</code></td><td><code>child_map</code></td><td>Keyed map of children run concurrently. Keys become the access names in <code>outputs.&lt;taskID&gt;</code>.</td></tr><tr><td><code>result_schema</code></td><td>all</td><td>Validates and exposes the child’s output — per element for <code>child_list</code>.</td></tr><tr><td><code>raises</code></td><td><code>child</code>, <code>child_list</code>, <code>child_map</code> entries</td><td>Raise code → schema for the payload that code’s fault carries.</td></tr></tbody></table>
+<table><thead><tr><th>Field</th><th>On</th><th>Meaning</th></tr></thead><tbody><tr><td><code>name</code></td><td><code>child</code>, <code>child_list</code></td><td>Child process to invoke.</td></tr><tr><td><code>version</code></td><td>all</td><td>Version to run; <code>0</code> means the latest published version.</td></tr><tr><td><code>input</code></td><td><code>child</code>, <code>child_map</code> entries</td><td>Templated value building the child’s input payload.</td></tr><tr><td><code>over</code></td><td><code>child_list</code></td><td>A <code>$:</code> expression evaluating to an array. One child per element, the element being its input. An empty array spawns nothing and yields <code>[]</code>.</td></tr><tr><td><code>children</code></td><td><code>child_map</code></td><td>Keyed map of children run concurrently. Keys become the access names in <code>outputs.&lt;taskID&gt;</code>.</td></tr><tr><td><code>result_schema</code></td><td>all</td><td>Validates and exposes the child’s output — per element for <code>child_list</code>.</td></tr><tr><td><code>raises</code></td><td><code>child</code>, <code>child_list</code>, <code>child_map</code> entries, <code>external</code></td><td>Raise code → schema for the payload that code’s fault carries, or <code>null</code> for a code that carries none. On <code>external</code> it is also the closed set of submittable codes.</td></tr></tbody></table>
 <p>Declaring a shape where the child left a value untyped (<code>{}</code>, the top type) narrows it: the
 collected output is conformed against the schema, and undeclared keys are dropped. A child
 whose output does not satisfy the declaration reports <code>output.invalid</code>, catchable on this
@@ -691,6 +696,7 @@ payload, and each caller says what it expects of it.</p>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  raises</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    script_threw</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">   {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> $ref</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">#/$defs/script_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">   # typed</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    script_timeout</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {}</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">                                  # present, narrow it yourself</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    script_aborted</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">                                     # null: declared, carries nothing</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">    # script_unknown: not declared → error.data is absent for it</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">on_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">script_threw</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
@@ -716,7 +722,15 @@ payload, and each caller says what it expects of it.</p>
 
 
 
-<table><thead><tr><th>Declaration</th><th><code>error.data</code> at a rule catching that code</th></tr></thead><tbody><tr><td>a schema</td><td>that shape, conformed — undeclared keys dropped</td></tr><tr><td><code>{}</code></td><td>the top type: present, and narrowed before it can be read</td></tr><tr><td>no key</td><td>absent</td></tr></tbody></table>
+
+
+
+
+<table><thead><tr><th>Declaration</th><th><code>error.data</code> at a rule catching that code</th></tr></thead><tbody><tr><td>a schema</td><td>that shape, conformed — undeclared keys dropped</td></tr><tr><td><code>{}</code></td><td>the top type: present, and narrowed before it can be read</td></tr><tr><td><code>null</code></td><td>absent — the code is declared, and carries nothing</td></tr><tr><td>no key</td><td>absent</td></tr></tbody></table>
+<p><code>null</code> and no key read the same here; they diverge on an <a href="#external"><code>external</code></a> task, where
+<code>raises</code> is the closed set of submittable codes and omitting one means it cannot be sent at
+all. A boolean is not accepted in either position — this is a schema slot, and genroc has no
+boolean schemas.</p>
 <p>A rule whose patterns can also reach a code nothing declares — a wildcard, a catch-all, or
 <code>output.invalid</code> — widens the type to admit <code>null</code>. Each declared code must be one the child
 can actually raise; a code it never raises is refused at registration, like an <code>on_error</code> rule
@@ -769,6 +783,102 @@ No worker is held while waiting.</p>
 
 
 
-<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>input</code></td><td>Templated value, snapshotted and exposed to the resolver through the queue — the only context the resolver sees.</td></tr><tr><td><code>result_schema</code></td><td>Validates the submitted result before the instance resumes. Without it any JSON result is accepted.</td></tr></tbody></table>
+
+
+
+
+<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>input</code></td><td>Templated value, snapshotted and exposed to the resolver through the queue — the only context the resolver sees.</td></tr><tr><td><code>result_schema</code></td><td>Validates the submitted result before the instance resumes. Without it any JSON result is accepted.</td></tr><tr><td><code>raises</code></td><td>The codes a caller may answer with, each mapped to the payload it carries (or <code>null</code> for none). This is a <strong>closed set</strong> — a code outside it is refused.</td></tr></tbody></table>
 <p>An optional task <code>timeout</code> raises the catchable <code>external.timeout</code>; absent, it waits forever.
-This is the one place an absolute <code>until</code> deadline is accepted.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#fields">Fields</a></li><li class="depth-3"><a href="#timeout">timeout</a></li><li class="depth-3"><a href="#only_once">only_once</a></li><li class="depth-3"><a href="#output">output</a></li><li class="depth-2"><a href="#switch">switch</a></li><li class="depth-2"><a href="#on_error">on_error</a></li><li class="depth-3"><a href="#code-patterns">Code patterns</a></li><li class="depth-3"><a href="#the-error-value">The error value</a></li><li class="depth-3"><a href="#retry">retry</a></li><li class="depth-3"><a href="#raise-and-panic">raise and panic</a></li><li class="depth-2"><a href="#action-types">Action types</a></li><li class="depth-3"><a href="#fetch">fetch</a></li><li class="depth-3"><a href="#child-child_map-child_list">child, child_map, child_list</a></li><li class="depth-3"><a href="#delay">delay</a></li><li class="depth-3"><a href="#external">external</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
+This is the one place an absolute <code>until</code> deadline is accepted.</p>
+<h4 id="the-error-channel">The error channel<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-error-channel"><span></span></a></h4>
+<p>A submission carries one <strong>outcome</strong> — a <code>result</code> or an <code>error</code>, never both — and the same two
+endpoints take either:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th>addressed by</th><th>unarmed task</th></tr></thead><tbody><tr><td><code>POST /external-tasks/resolve</code></td><td>the queue <code>token</code></td><td>rejected — the token names a live arming</td></tr><tr><td><code>POST /instances/{id}/signal</code></td><td>instance id + <code>task_id</code></td><td>buffered FIFO until the task next arms</td></tr></tbody></table>
+<p>An <code>error</code> is routed through the task’s <code>on_error</code> rules exactly like a call error:</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="jsonc"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">// POST /external-tasks/resolve</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">{</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">token</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">…</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">result</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">fee</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 25</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">          // the success channel</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">{</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">token</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">…</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  {</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">limit_exceeded</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">                            &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">message</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">over the approval limit</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">                            &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">data</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">limit</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 1000</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span></code></pre>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">-</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> price</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> external</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> amount</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">$: input.amount</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    raises</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      limit_exceeded</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> properties</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> limit</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> number</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      worker_crashed</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">            # declared, carries no data (null)</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  on_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">limit_exceeded</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $over_limit</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">          # error.data.limit is readable here</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">%</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      raise</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> worker_failed</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> message</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">the worker could not price it</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [{</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> end</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }]</span></span></code></pre>
+<p><strong><code>raises</code> is the closed set of codes a caller may submit.</strong> A code outside it is refused with
+a 400 listing what is accepted, and a task declaring no <code>raises</code> has no error channel at all.
+This is stricter than a child task, where <code>raises</code> only types payloads — and deliberately so:
+a child’s raisable codes come from its own definition, so a typo in an <code>on_error</code> pattern is
+already caught at registration, while nothing about an outside caller is knowable until it
+submits. Submission is the only place a wrong code can ever be caught.</p>
+<p>Each declaration says what the code carries:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>declaration</th><th>the caller sends</th><th><code>error.data</code></th></tr></thead><tbody><tr><td><code>code:</code> (null)</td><td>no <code>data</code> — sending one is refused</td><td>absent</td></tr><tr><td><code>code: {}</code></td><td>anything</td><td>present, opaque — narrow it in a rule</td></tr><tr><td><code>code: {type: object, …}</code></td><td>a matching payload</td><td>present, typed</td></tr></tbody></table>
+<p>Null rather than a boolean because this is a schema position, and genroc has no boolean
+schemas: <code>true</code> there is JSON Schema’s “any value validates” — the opposite of what it would
+mean — so “no payload” is spelled by the absence of a schema.</p>
+<p>The payload is conformed <strong>when it is submitted</strong>: a mismatch is rejected at the API, the task
+stays parked, and the caller can answer again with a corrected one.</p>
+<p>The submitted <code>code</code> is an authored code — lower_snake_case, no dots — so a caller cannot
+spell an engine code such as <code>http.500</code> or <code>external.timeout</code> and be caught by a rule written
+for the wire.</p>
+<p>Either outcome is accepted while the instance is <strong>paused</strong>: a pause suspends execution, not
+delivery, and it is consumed when the tree resumes. A failure signalled before the task arms
+buffers exactly as a result does. Rejecting it would discard
+work the caller has already done — and on an <code>only_once</code> task the <code>external.timeout</code> that
+followed could never be retried.</p>
+<p>An answer that reports a failure means the work was reached, so on an <code>only_once</code> task a
+retry needs <code>not_reached: true</code> naming the exact code — the same rule every other
+potentially-reached error follows.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#fields">Fields</a></li><li class="depth-3"><a href="#timeout">timeout</a></li><li class="depth-3"><a href="#only_once">only_once</a></li><li class="depth-3"><a href="#output">output</a></li><li class="depth-2"><a href="#switch">switch</a></li><li class="depth-2"><a href="#on_error">on_error</a></li><li class="depth-3"><a href="#code-patterns">Code patterns</a></li><li class="depth-3"><a href="#the-error-value">The error value</a></li><li class="depth-3"><a href="#retry">retry</a></li><li class="depth-3"><a href="#raise-and-panic">raise and panic</a></li><li class="depth-2"><a href="#action-types">Action types</a></li><li class="depth-3"><a href="#fetch">fetch</a></li><li class="depth-3"><a href="#child-child_map-child_list">child, child_map, child_list</a></li><li class="depth-3"><a href="#delay">delay</a></li><li class="depth-3"><a href="#external">external</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
