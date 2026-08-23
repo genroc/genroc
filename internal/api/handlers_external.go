@@ -69,6 +69,9 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 // whose producer is another process that cannot be told, the submitter is an HTTP caller
 // holding the connection, so a mismatch is a 400 it can act on and answer again after.
 func buildOutcome(task *model.Task, result any, fail *FailureReq) (model.ExternalOutcome, *Error) {
+	if fail != nil && result != nil {
+		return model.ExternalOutcome{}, invalid("a submission carries one outcome: `result` or `error`, not both")
+	}
 	if fail == nil {
 		if task.Action != nil {
 			normalized, err := task.Action.ValidateOutput(result)
@@ -149,9 +152,6 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 	if req.Token == "" {
 		return invalid("token is required").reply()
 	}
-	if req.Error != nil && req.Result != nil {
-		return invalid("a submission carries one outcome: `result` or `error`, not both").reply()
-	}
 	// instanceID for the PK lookup, epoch for the occurrence check — which happens under
 	// lock in ResolveExternalTask, against task_epoch on the row.
 	instanceID, epoch, ok := model.ParseExternalToken(req.Token)
@@ -191,9 +191,6 @@ func (h *Handlers) signalInstance(id string, raw json.RawMessage) Reply {
 	}
 	if req.TaskID == "" {
 		return invalid("task_id is required").reply()
-	}
-	if req.Error != nil && req.Result != nil {
-		return invalid("a submission carries one outcome: `result` or `error`, not both").reply()
 	}
 	inst, err := h.db.GetInstance(id)
 	if err != nil {

@@ -442,3 +442,126 @@ test("a submission carries one outcome, not both", async () => {
   });
   expect(error, "result and error together must be refused").toBeTruthy();
 });
+
+// Validation is shared (api.buildOutcome), but the two modes reach it differently: resolve
+// validates against the instance's CURRENT task, signal against the task it NAMES, looked up
+// in the pinned definition. So signal can validate against the wrong task and resolve cannot —
+// which is what these pin, rather than re-running the shared rules.
+
+test("signal validates the failure against the task it names, not another task's raises", async () => {
+  const name = `sig_wrong_task_${crypto.randomUUID()}`;
+  const { error: defErr } = await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: "first",
+          action: { type: "external" as const, input: {}, raises: { only_on_first: null } },
+          on_error: [{ code: ["%"], goto: "$done" }],
+          switch: [{ goto: "next" }],
+        },
+        {
+          id: "second",
+          action: { type: "external" as const, input: {}, raises: { only_on_second: null } },
+          on_error: [{ code: ["%"], goto: "$done" }],
+          switch: [{ goto: "end" }],
+        },
+        { id: "done", switch: [{ goto: "end" }] },
+      ],
+    },
+  });
+  expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
+  const id = await start(name);
+  await waitForQueued(name); // parked on `first`
+
+  // `only_on_first` is declared by the CURRENT task but not by the one being signalled, so
+  // addressing `second` with it must be refused: signal's closed set is the named task's.
+  const { error: wrong } = await client.POST("/instances/{id}/signal", {
+    params: { path: { id } },
+    body: { task_id: "second", error: { code: "only_on_first", message: "m" } },
+  });
+  expect(wrong, "signal must validate against the task it names, not the current one").toBeTruthy();
+  expect(JSON.stringify(wrong)).toContain("only_on_second"); // the message lists that task's set
+
+  // And the converse: the named task's own code is accepted, buffered for when it arms.
+  const { data, error } = await client.POST("/instances/{id}/signal", {
+    params: { path: { id } },
+    body: { task_id: "second", error: { code: "only_on_second", message: "m" } },
+  });
+  expect(error, `the named task's own code was refused: ${JSON.stringify(error)}`).toBeUndefined();
+  expect((data as any)?.buffered).toBe(true);
+});
+
+test("signal runs the same outcome validation as resolve", async () => {
+  const name = `sig_validation_${crypto.randomUUID()}`;
+  await define(name);
+  const id = await start(name);
+  await waitForQueued(name);
+
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ["an undeclared code", { error: { code: "not_declared", message: "m" } }],
+    ["a dotted code", { error: { code: "http.500", message: "m" } }],
+    ["a missing message", { error: { code: "limit_exceeded" } }],
+    ["a payload violating raises[code]", { error: { code: "limit_exceeded", message: "m", data: { limit: "lots" } } }],
+    ["a payload for a null-declared code", { error: { code: "worker_crashed", message: "m", data: { x: 1 } } }],
+    ["both outcomes at once", { result: { ok: true }, error: { code: "limit_exceeded", message: "m", data: { limit: 1 } } }],
+  ];
+  for (const [label, body] of cases) {
+    const { error } = await client.POST("/instances/{id}/signal", {
+      params: { path: { id } },
+      body: { task_id: "work", ...body } as never,
+    });
+    expect(error, `signal must refuse ${label}, as resolve does`).toBeTruthy();
+  }
+
+  // Still answerable afterwards: every refusal above is a 400 that left the task parked.
+  const { error: ok } = await client.POST("/instances/{id}/signal", {
+    params: { path: { id } },
+    body: { task_id: "work", error: { code: "limit_exceeded", message: "m", data: { limit: 9 } } },
+  });
+  expect(ok, `the valid submission was rejected: ${JSON.stringify(ok)}`).toBeUndefined();
+  expect(await waitForInstance(id)).toBe("completed");
+  expect((await outputsOf(id)).over_limit.limit).toBe(9);
+});
+
+test("signal validates a result against result_schema", async () => {
+  const name = `sig_result_schema_${crypto.randomUUID()}`;
+  const { error: defErr } = await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: "work",
+          action: {
+            type: "external" as const,
+            input: {},
+            result_schema: {
+              type: "object",
+              properties: { approved: { type: "boolean" } },
+              required: ["approved"],
+            },
+          },
+          output: "$: self.result",
+          switch: [{ goto: "end" }],
+        },
+      ],
+    },
+  });
+  expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
+  const id = await start(name);
+  await waitForQueued(name);
+
+  const { error } = await client.POST("/instances/{id}/signal", {
+    params: { path: { id } },
+    body: { task_id: "work", result: { approved: "yes" } },
+  });
+  expect(error, "signal must conform a result to result_schema, as resolve does").toBeTruthy();
+
+  const { error: ok } = await client.POST("/instances/{id}/signal", {
+    params: { path: { id } },
+    body: { task_id: "work", result: { approved: true } },
+  });
+  expect(ok, `the valid result was rejected: ${JSON.stringify(ok)}`).toBeUndefined();
+  expect(await waitForInstance(id)).toBe("completed");
+  expect((await outputsOf(id)).work).toEqual({ approved: true });
+});
