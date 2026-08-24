@@ -38,6 +38,7 @@ func main() {
 	logPayloads := flag.Bool("log-payloads", true, "Capture truncated request/response snippets in per-instance audit logs")
 	logPayloadBytes := flag.Int("log-payload-bytes", 2048, "Max bytes per captured request/response snippet in audit logs")
 	logRetention := flag.Duration("log-retention", 168*time.Hour, "Delete per-instance audit logs older than this; 0 = keep forever")
+	objectGrace := flag.Duration("object-grace", time.Hour, "How long a released large value stays fetchable by a reference already handed out. A read hands out references and fetching them is a second call, so the data can move on in between; this is the window in which that cannot lose. Raise it for slow consumers, lower it for processes that churn big values in a loop.")
 	flag.Parse()
 
 	mode, err := logview.ParseMode(*logMode)
@@ -81,6 +82,7 @@ func main() {
 		Retention:    *logRetention,
 		Mode:         mode,
 	}
+	database.SetObjectGrace(*objectGrace)
 	eng := engine.New(database, time.Duration(*pollMs)*time.Millisecond, *maxConcurrent, *immediateRetries, *leaseDuration, *leaseRenewInterval, logCfg, log)
 	handlers := api.NewHandlers(database, eng)
 	srv := api.NewServer(handlers, log)

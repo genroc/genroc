@@ -10,8 +10,8 @@ import {
 } from "../helpers/server.ts";
 import { createClientTyped, listAllInstances } from "../helpers/client.ts";
 
-// GC-under-chaos (SQLite, one server crashed/restarted at random). process_objects rows
-// are legitimate iff pinned by a live context slot or referenced by a live log; this
+// GC-under-chaos (SQLite, one server crashed/restarted at random). An object is legitimate iff
+// some claim holds it -- a live context slot, a log, or a grace window; this
 // hammers that bookkeeping -- big blobs round-tripping parent->child->parent, flaky 500s,
 // random SIGKILLs, pauses/resumes/force-retries -- then reads the raw tables and asserts
 // every row is reachable and every reference resolves. SQLite-only: the check reads the
@@ -25,7 +25,7 @@ const PORT = 8950;
 const BASE_URL = `http://localhost:${PORT}`;
 
 // Both comfortably over the 8 KiB externalization threshold so every slot that holds
-// one lands in process_objects.
+// one lands in the object store.
 const BLOB = "B".repeat(12 * 1024);
 const PAD = "P".repeat(12 * 1024);
 
@@ -139,7 +139,7 @@ afterAll(async () => {
 });
 
 test(
-  "every process_objects row stays reachable through crash/error/pause/retry chaos",
+  "every object stays claimed, and every claim resolves, through crash/error/pause/retry chaos",
   async () => {
     const suffix = crypto.randomUUID();
     const leaf = `gc_leaf_${suffix}`;
@@ -147,8 +147,8 @@ test(
     const isMine = (p?: string) => p === leaf || p === root;
 
     // The LEAF is a looping worker that externalizes values three ways:
-    //   • input.blob              — large input (pinned + logged on inst_created → shared row)
-    //   • gen → self.result       — large action result (pinned while current + logged → churned to log-only on each loop)
+    //   • input.blob              — large input (instance + log claims on inst_created → one shared object)
+    //   • gen → self.result       — large action result (instance + log claims while current → churned to log-only each loop)
     //   • scratch → blob + i      — large task output, NOT logged (pure context; deleted outright on each loop)
     // gen loops back through scratch until the mock reports done, then the leaf returns
     // the big blob in its OUTPUT.
@@ -364,13 +364,16 @@ test(
       return out ? (JSON.parse(out) as T[]) : [];
     };
 
-    const objs = sqlJson<{
-      instanceId: string;
+    // Content and claims are separate tables now: one object per distinct content, and a row
+    // per owner holding it. specs/object-store.md.
+    const objs = sqlJson<{ hash: string }>("SELECT hash FROM objects");
+    const refs = sqlJson<{
       hash: string;
-      pinned: number;
-      logUntil: number | null;
+      ownerKind: string;
+      ownerId: string;
+      expiresAt: number | null;
     }>(
-      "SELECT instance_id AS instanceId, hash, pinned, log_until AS logUntil FROM process_objects",
+      "SELECT hash, owner_kind AS ownerKind, owner_id AS ownerId, expires_at AS expiresAt FROM object_refs",
     );
     const insts = sqlJson<{
       id: string;
@@ -427,57 +430,79 @@ test(
     const logRefs = new Set<string>();
     for (const l of logs) addRef(logRefs, l.instanceId, l.data);
 
-    const rowByKey = new Map(objs.map((o) => [key(o.instanceId, o.hash), o]));
+    // A claim is (kind, owner, hash). The old shape could only say that SOMEONE pinned a row;
+    // this can say who, so the checks below are stricter than the ones they replace.
+    const claims = new Set(refs.map((r) => `${r.ownerKind}|${r.ownerId}|${r.hash}`));
+    const claimsByHash = new Map<string, number>();
+    for (const r of refs) claimsByHash.set(r.hash, (claimsByHash.get(r.hash) ?? 0) + 1);
 
     // The chaos must have actually externalized objects, else the test proves nothing.
     expect(objs.length, "chaos produced externalized objects").toBeGreaterThan(0);
     expect(contextRefs.size, "live contexts reference objects").toBeGreaterThan(0);
 
-    const pinnedOnly = objs.filter((o) => o.pinned === 1 && o.logUntil === null).length;
-    const logOnly = objs.filter((o) => o.pinned === 0 && o.logUntil !== null).length;
-    const shared = objs.filter((o) => o.pinned === 1 && o.logUntil !== null).length;
+    const byKind = (k: string) => refs.filter((r) => r.ownerKind === k).length;
+    const sharedObjects = [...claimsByHash.values()].filter((n) => n > 1).length;
     console.log(
-      `[gc_chaos] crashes=${crashes} instances=${insts.length} logs=${logs.length} objects=${objs.length} ` +
-        `(pinned-only=${pinnedOnly}, log-only=${logOnly}, shared=${shared}) ` +
-        `mockCalls=${mock.calls()}`,
+      `[gc_chaos] crashes=${crashes} instances=${insts.length} logs=${logs.length} ` +
+        `objects=${objs.length} claims=${refs.length} ` +
+        `(instance=${byKind("instance")}, log=${byKind("log")}, grace=${byKind("grace")}, ` +
+        `shared=${sharedObjects}) mockCalls=${mock.calls()}`,
     );
 
-    // 1. Every live context reference resolves to a row that is pinned.
+
+    // 1. Every live context reference resolves to content, held by a claim belonging to THAT
+    //    instance. The old shape could only check that the row was pinned by someone.
     for (const k of contextRefs) {
-      const row = rowByKey.get(k);
-      expect(row, `context ref ${k} missing from process_objects`).toBeDefined();
-      expect(row!.pinned, `context ref ${k} is not pinned`).toBe(1);
-    }
-
-    // 2. Every log reference resolves to a row still flagged as log-needed (serve-safe).
-    for (const k of logRefs) {
-      const row = rowByKey.get(k);
-      expect(row, `log ref ${k} missing from process_objects`).toBeDefined();
-      expect(row!.logUntil, `log ref ${k} has a null log_until`).not.toBeNull();
-    }
-
-    // 3. No leaked objects: every row must be kept alive by a context pin OR a log
-    //    horizon (the real invariant — alive iff pinned OR log_until set). An unpinned,
-    //    unlogged row is a dereference that failed to delete immediately; it would linger
-    //    only until the sweep. This deliberately tolerates a crash-orphaned log object
-    //    (log_until set, but its async-buffered log row lost to a SIGKILL): that row is
-    //    horizon-alive and reclaimed by the sweep at log_until, not a leak — so we check
-    //    log_until is set rather than that a current log row still references it.
-    for (const o of objs) {
+      const [instanceId, hash] = k.split("|");
+      expect(objs.some((o) => o.hash === hash), `context ref ${k} has no content`).toBe(true);
       expect(
-        o.pinned === 1 || o.logUntil !== null,
-        `object ${key(o.instanceId, o.hash)} is unpinned and unlogged (pinned=${o.pinned}, log_until=${o.logUntil}) — a dereferenced object was not deleted`,
+        claims.has(`instance|${instanceId}|${hash}`),
+        `context ref ${k} is not claimed by its own instance`,
       ).toBe(true);
     }
 
-    // 4. No leaked pins: a pinned row must be backed by a live context slot.
+    // 2. Every log reference resolves to content held by a log claim of that instance.
+    for (const k of logRefs) {
+      const [instanceId, hash] = k.split("|");
+      expect(objs.some((o) => o.hash === hash), `log ref ${k} has no content`).toBe(true);
+      expect(claims.has(`log|${instanceId}|${hash}`), `log ref ${k} has no log claim`).toBe(true);
+    }
+
+
+    // 3. No leaked content: every object must be held by at least one claim of any kind. This
+    //    is the whole GC rule, and it is the one invariant that survives the re-architecture
+    //    unchanged — only the spelling of "held" moved from two columns to a row.
+    //
+    //    It tolerates two things on purpose. A crash-orphaned LOG claim (its async-buffered log
+    //    row lost to a SIGKILL) is horizon-alive and reclaimed at expiry, not a leak — which is
+    //    why this checks the claim rather than a surviving log row. And a GRACE claim is a
+    //    released object still inside its window, which is a claim like any other.
     for (const o of objs) {
-      if (o.pinned === 1) {
-        expect(
-          contextRefs.has(key(o.instanceId, o.hash)),
-          `object ${o.instanceId}|${o.hash} is pinned but no live context slot references it`,
-        ).toBe(true);
-      }
+      expect(
+        (claimsByHash.get(o.hash) ?? 0) > 0,
+        `object ${o.hash} has no claim at all — content outlived every reference to it`,
+      ).toBe(true);
+    }
+
+    // 4. No dangling claims: a claim on content that is gone is the failure the store's
+    //    ON CONFLICT DO UPDATE exists to prevent, and the one a crash could otherwise leave.
+    const haveContent = new Set(objs.map((o) => o.hash));
+    for (const r of refs) {
+      expect(
+        haveContent.has(r.hash),
+        `${r.ownerKind} claim by ${r.ownerId} points at content that is gone (${r.hash})`,
+      ).toBe(true);
+    }
+
+    // 5. No leaked claims: an INSTANCE claim must be backed by a live context slot. Log and
+    //    grace claims are exempt by construction — a log claim outlives its slot on purpose, and
+    //    a grace claim exists precisely because no slot references it any more.
+    for (const r of refs) {
+      if (r.ownerKind !== "instance") continue;
+      expect(
+        contextRefs.has(key(r.ownerId, r.hash)),
+        `instance ${r.ownerId} claims ${r.hash} but no live context slot references it`,
+      ).toBe(true);
     }
   },
   120_000,

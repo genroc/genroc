@@ -118,6 +118,42 @@ sqlc reads the migrations directory directly, so no extra step is needed for que
 
     POSTGRES_DSN=postgres://user:pass@localhost/genroc go test ./internal/db/...
 
+## The object store: content, and who holds it
+
+`objects` holds content once, globally, keyed by its hash; `object_refs` holds the claims on it.
+Design and rejected alternatives: [specs/object-store.md](../../specs/object-store.md). Four
+things break silently if you touch this:
+
+1. **Deletion is "no claim remains", never "my claim went".** Content is shared across
+   instances now, so the second rule destroys an unrelated instance's value — and its own
+   instance still resolves, so nothing local looks wrong. `CollectUnreferencedObjects` is the
+   only statement that deletes content, and its `NOT EXISTS` is the whole rule.
+2. **`PutObject` is `ON CONFLICT DO UPDATE SET size`, not `DO NOTHING`.** `DO NOTHING` writes
+   nothing and takes no row lock, so a sweep can delete an object between a writer taking the
+   conflict path and its claim becoming visible, leaving a claim on content that is gone. The
+   update is a no-op by construction (one hash, one content, one length) and exists only to hold
+   the row. SQLite's single writer hides this; Postgres does not, and no test pins it — see the
+   note on `TestObjects_ResurrectionAgainstALiveSweeper`.
+3. **Releasing a claim stamps a grace claim, and only an owner may stamp one.** A read hands out
+   references and fetching them is a second call, so deleting at release 404s a client on a
+   reference it was just given; `--object-grace` (default 1h) is the window in which that cannot
+   happen. If the *sweep* ever stamps one, an expiring grace claim earns itself another window
+   forever and nothing is ever collected.
+4. **`owner_kind` governs lifetime, not access.** Reads (`GetObject`) are addressed by content
+   hash and consult no claim — knowing a hash is knowing the bytes that produce it. Do not add
+   an owner parameter back "for safety": it would be checked against nothing meaningful and
+   would imply a guarantee the scheme does not make (it discloses existence; that is recorded
+   in the spec).
+
+A `definition` claim never expires and nothing drops it, which needs no branch anywhere: an
+object with a claim is never collectable, so permanence falls out of the general rule.
+
+**The sweep is not gated on log retention** (`Engine.collectObjects`, deliberately outside
+`pruneLogs`). Objects are released by ordinary work — a task overwriting a big output — and wait
+on a grace claim rather than being deleted on the spot, so running with retention disabled
+("keep logs forever") would otherwise collect nothing and grow without bound. The coupling was
+harmless while releases deleted eagerly and is not any more.
+
 ## Process lifecycle: pause/resume vs retry
 
 Full rationale, prior art and known gaps: [specs/pause-resume.md](../../specs/pause-resume.md).

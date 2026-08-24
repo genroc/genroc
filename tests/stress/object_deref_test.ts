@@ -6,17 +6,20 @@ import { buildGenrocBinary, startGenroc, tmpPath, type GenrocProcess } from "../
 
 // Deterministic object-store GC test (SQLite, single server, no chaos).
 //
-// Covers the IMMEDIATE half of the object lifecycle: when a context value-slot stops
-// referencing an object and no log needs it, the row is deleted in that same write —
-// not left for the retention sweep (DeleteDereferencedObject, queries.sql). The sweep
-// itself and crash-orphan handling are deliberately out of scope.
+// This test used to assert the OPPOSITE: that releasing a context slot deleted its object in
+// that same write, so a replaced value never lingered. specs/object-store.md §Collection gave
+// that up deliberately — reading now hands out references and fetching them is a second call,
+// so deleting at release means a client 404s on a reference the server gave it moments earlier.
+// A release leaves a grace claim instead, and the sweep collects past the window.
 //
-// A single task loops with a REST action — so each round persists and reclaims — and
-// recomputes a large output whose content changes every round (the input blob plus a
-// monotonic counter from the mock). Each new output externalizes into process_objects
-// and dereferences the previous round's object; task outputs are never logged, so the
-// dereferenced row must be gone at once. The proof: however many rounds run, the store
-// holds only the input plus the latest output — it never grows one row per round.
+// So what it covers now is the RELEASE half of the lifecycle: every released object stays
+// claimed (by its grace window) rather than vanishing, and every claim resolves. The store
+// growing one object per round is expected here, not a leak — the window is the bound, and
+// bounding it is what --object-grace is for.
+//
+// A single task loops with a REST action — so each round persists and reclaims — and recomputes
+// a large output whose content changes every round (the input blob plus a monotonic counter from
+// the mock).
 
 const PORT = 8951;
 const BLOB = "B".repeat(12 * 1024); // over the 8 KiB externalization threshold
@@ -73,7 +76,7 @@ afterAll(() => {
   server?.stop();
 });
 
-test("a dereferenced, unlogged context object is deleted immediately (not left for the sweep)", async () => {
+test("a released context object is held by its grace window, and every claim still resolves", async () => {
   const mock = startCountingMock(ROUNDS);
   const mockPort = await mock.listen();
   server = await startGenroc(bin, PORT, dbPath, undefined, 50 /* poll */, 8 /* max-concurrent */);
@@ -137,38 +140,53 @@ test("a dereferenced, unlogged context object is deleted immediately (not left f
     server = undefined;
     await waitDown();
 
-    // Read process_objects directly through the sqlite3 CLI (-json): there is no SQLite
-    // driver among the test dependencies, and this needs no schema knowledge.
-    const r = spawnSync(
-      "sqlite3",
-      [
-        "-json",
-        dbPath,
-        `SELECT pinned, log_until AS logUntil FROM process_objects WHERE instance_id = '${id}'`,
-      ],
-      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+    // Read the store directly through the sqlite3 CLI (-json): there is no SQLite driver among
+    // the test dependencies. Every object, and every claim on it — content is global now, so
+    // this cannot be scoped to one instance the way the old per-instance table was.
+    const sql = <T>(q: string): T[] => {
+      const r = spawnSync("sqlite3", ["-json", dbPath, q], {
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      expect(r.status, `sqlite3 failed: ${r.stderr}`).toBe(0);
+      return (r.stdout.trim() ? JSON.parse(r.stdout.trim()) : []) as T[];
+    };
+    const objs = sql<{ hash: string }>("SELECT hash FROM objects");
+    const refs = sql<{ hash: string; ownerKind: string; ownerId: string }>(
+      "SELECT hash, owner_kind AS ownerKind, owner_id AS ownerId FROM object_refs",
     );
-    expect(r.status, `sqlite3 failed: ${r.stderr}`).toBe(0);
-    const objs = (r.stdout.trim() ? JSON.parse(r.stdout.trim()) : []) as {
-      pinned: number;
-      logUntil: number | null;
-    }[];
+    void id;
 
-    // The invariant: every surviving object must be kept alive by a context pin OR a log
-    // horizon (alive iff pinned OR log_until set). An unpinned, unlogged row is exactly a
-    // dereferenced object that should have been deleted in its write but wasn't — it would
-    // otherwise linger until the 60s sweep (which never runs in this short test).
-    const leaked = objs.filter((o) => o.pinned === 0 && o.logUntil === null);
+    // 1. Nothing is orphaned: every object carries at least one claim. A released output is
+    //    held by its grace claim, which is what makes a reference handed out before the release
+    //    still resolve.
+    const claimed = new Set(refs.map((r) => r.hash));
+    const orphans = objs.filter((o) => !claimed.has(o.hash));
     expect(
-      leaked.length,
-      `${leaked.length} unpinned, unlogged object(s) survived after ${ROUNDS} rounds — a dereferenced object was not deleted immediately`,
+      orphans.length,
+      `${orphans.length} object(s) with no claim at all after ${ROUNDS} rounds — content outlived every reference to it`,
     ).toBe(0);
 
-    // And the store does not accumulate: only the input (its context object, plus possibly
-    // a byte-identical log object) and the latest output remain — never one row per round.
+    // 2. And nothing dangles: every claim resolves to content that is still there.
+    const haveContent = new Set(objs.map((o) => o.hash));
+    const dangling = refs.filter((r) => !haveContent.has(r.hash));
     expect(
-      objs.length,
-      `expected <=3 objects (input + latest output), got ${objs.length} after ${ROUNDS} rounds`,
+      dangling.length,
+      `${dangling.length} claim(s) point at content that is gone — the release path deleted something someone still held`,
+    ).toBe(0);
+
+    // 3. Exactly one object is claimed by a live context slot: the latest output. Every earlier
+    //    round's output has handed its instance claim back and holds only a grace claim, which
+    //    is the behaviour this file was rewritten to assert.
+    const instanceClaims = refs.filter((r) => r.ownerKind === "instance");
+    const graceClaims = refs.filter((r) => r.ownerKind === "grace");
+    expect(
+      graceClaims.length,
+      `expected released outputs to be held by grace claims after ${ROUNDS} rounds`,
+    ).toBeGreaterThan(0);
+    expect(
+      instanceClaims.length,
+      `expected few live instance claims (input + latest output), got ${instanceClaims.length}`,
     ).toBeLessThanOrEqual(3);
   } finally {
     await mock.stop();

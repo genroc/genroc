@@ -8,6 +8,21 @@ import (
 	"database/sql"
 )
 
+type Object struct {
+	Hash      string
+	Content   string
+	Size      int64
+	CreatedAt int64
+}
+
+type ObjectRef struct {
+	Hash      string
+	OwnerKind string
+	OwnerID   string
+	ExpiresAt sql.NullInt64
+	CreatedAt int64
+}
+
 type ProcessChannel struct {
 	Name      string
 	Channel   string
@@ -75,16 +90,6 @@ type ProcessLog struct {
 	Data       string
 	CreatedAt  int64
 	Meta       string
-}
-
-type ProcessObject struct {
-	InstanceID string
-	Hash       string
-	Content    string
-	Size       int64
-	Pinned     int64
-	LogUntil   sql.NullInt64
-	CreatedAt  int64
 }
 
 type ProcessSignal struct {

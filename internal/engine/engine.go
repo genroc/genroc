@@ -282,6 +282,7 @@ func (e *Engine) runPump(ctx context.Context) {
 		if nowMs := db.Now().UnixMilli(); nowMs >= nextPruneMs {
 			nextPruneMs = nowMs + logPruneInterval.Milliseconds()
 			e.pruneLogs()
+			e.collectObjects()
 		}
 
 		// Acquire every free slot up front so the dispatch loop below never blocks:
@@ -410,11 +411,20 @@ func (e *Engine) pruneLogs() {
 	} else if n > 0 {
 		e.logOnly(logEvent{Level: model.LogDebug, Msg: "pruned audit logs", Meta: map[string]any{"count": n, "older_than": e.logCfg.Retention}})
 	}
-	// Objects share the horizon: their expiry was stamped to now+retention on release.
-	if n, err := e.db.DeleteExpiredObjects(db.Now().UnixMilli()); err != nil {
-		e.logOnly(logEvent{Level: model.LogError, Msg: "prune objects: " + err.Error()})
+}
+
+// collectObjects retires expired claims and deletes content nothing claims any more.
+//
+// Deliberately NOT inside pruneLogs, and not gated on log retention. Objects are released by
+// ordinary work -- a task overwriting a big output -- and wait on a grace claim rather than
+// being deleted on the spot, so a run with retention disabled ("keep logs forever") would
+// otherwise never collect anything and grow without bound. The two sweeps share a tick and
+// nothing else.
+func (e *Engine) collectObjects() {
+	if n, err := e.db.CollectObjects(db.Now().UnixMilli()); err != nil {
+		e.logOnly(logEvent{Level: model.LogError, Msg: "collect objects: " + err.Error()})
 	} else if n > 0 {
-		e.logOnly(logEvent{Level: model.LogDebug, Msg: "pruned objects", Meta: map[string]any{"count": n}})
+		e.logOnly(logEvent{Level: model.LogDebug, Msg: "collected objects", Meta: map[string]any{"count": n}})
 	}
 }
 
@@ -428,6 +438,7 @@ func (e *Engine) ManualTick() bool { return e.pollEvery == 0 }
 // concurrently. Returns the number of instances claimed and processed.
 func (e *Engine) Tick(ctx context.Context) (int, error) {
 	e.pruneLogs()
+	e.collectObjects()
 	// No lease gate: a tick waits for every advance it starts, so it cannot re-claim its
 	// own in-flight work.
 	instances, err := e.db.ClaimInstances(e.workerID, e.leaseDuration, cap(e.sem), db.AllowTakeover())

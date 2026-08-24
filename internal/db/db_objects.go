@@ -16,7 +16,7 @@ import (
 	"genroc/internal/model"
 )
 
-// Inline cutoff for a context value-slot; larger values externalize to process_objects.
+// Inline cutoff for a context value-slot; larger values externalize to the object store.
 // ~2 KiB aligns with Postgres TOAST_TUPLE_THRESHOLD (above it a claim TOAST-fetches the
 // inline value anyway) and keeps SQLite rows off overflow pages. One value, both engines.
 const contextObjectThreshold = 2 * 1024
@@ -28,6 +28,11 @@ const logForeverMillis = math.MaxInt64
 // SetObjectRetention sets the retention window so a log-referenced object outlives its
 // log; the engine passes the same window it uses for audit-log retention.
 func (db *DB) SetObjectRetention(d time.Duration) { db.objectRetentionMs.Store(d.Milliseconds()) }
+
+// SetObjectGrace sets how long a released object stays fetchable. It is the contract a client
+// relies on: a reference it has been handed resolves for this long whatever happens to the data
+// that produced it. specs/object-store.md.
+func (db *DB) SetObjectGrace(d time.Duration) { db.objectGraceMs.Store(d.Milliseconds()) }
 
 // pendingObject is a content object an encode step wants written. Hash is the
 // content address of Content (see hashContent); it is the object's id and the
@@ -75,51 +80,85 @@ func decodeEnvelope(env model.Envelope) any {
 	return env.Data
 }
 
-func (db *DB) loadObjectValue(ctx context.Context, instanceID, hash string) (any, error) {
-	content, err := db.q.GetObject(ctx, dbgen.GetObjectParams{InstanceID: instanceID, Hash: hash})
+func (db *DB) loadObjectValue(ctx context.Context, hash string) (any, error) {
+	row, err := db.q.GetObject(ctx, hash)
 	if err != nil {
 		return nil, fmt.Errorf("load object %s: %w", hash, err)
 	}
 	var v any
-	if err := numeric.Decode([]byte(content), &v); err != nil {
+	if err := numeric.Decode([]byte(row.Content), &v); err != nil {
 		return nil, fmt.Errorf("decode object %s: %w", hash, err)
 	}
 	return v, nil
 }
 
-func (db *DB) ResolveObject(ctx context.Context, instanceID string, ref *model.ObjectRef) (any, error) {
-	return db.loadObjectValue(ctx, instanceID, ref.Ref)
+// ResolveObject loads an externalized value. Addressed by content hash and nothing else: the
+// owner is not a parameter because it would not be consulted, and a signature that accepts one
+// it ignores is a lie the next reader has to disprove. specs/object-store.md.
+func (db *DB) ResolveObject(ctx context.Context, ref *model.ObjectRef) (any, error) {
+	return db.loadObjectValue(ctx, ref.Ref)
 }
 
-// applyContextObjectDiff, inside the caller's transaction: pending (new) written+pinned;
-// dereferenced (loaded − referenced) deleted immediately when no live log needs the row
-// — replaced secrets must not linger — else unpinned for the sweep. loaded ∩ referenced untouched.
+// GetObjectContent returns an object's raw content and size for the read endpoint.
+func (db *DB) GetObjectContent(hash string) (string, int64, error) {
+	row, err := db.q.GetObject(context.Background(), hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", 0, fmt.Errorf("object %q: %w", hash, ErrNotFound)
+	}
+	if err != nil {
+		return "", 0, err
+	}
+	return row.Content, row.Size, nil
+}
+
+// applyContextObjectDiff, inside the caller's transaction: content for every pending object is
+// written once (globally, deduped by hash) and this instance claims it; hashes it loaded but no
+// longer references have that claim released.
+//
+// Releasing is never a delete. Another owner may hold the same bytes -- that is the point of one
+// global store -- and even when none does, a client may be holding a reference it was handed
+// moments ago. So a release leaves a grace claim and the sweep collects later.
 func (db *DB) applyContextObjectDiff(ctx context.Context, qtx *dbgen.Queries, instanceID string, pending []*pendingObject, loaded, referenced map[string]struct{}, now int64) error {
 	for _, obj := range pending {
-		if err := qtx.PinContextObject(ctx, dbgen.PinContextObjectParams{
-			InstanceID: instanceID,
-			Hash:       obj.Hash,
-			Content:    obj.Content,
-			Size:       obj.Size,
-			CreatedAt:  now,
+		if err := qtx.PutObject(ctx, dbgen.PutObjectParams{
+			Hash:      obj.Hash,
+			Content:   obj.Content,
+			Size:      obj.Size,
+			CreatedAt: now,
 		}); err != nil {
 			return fmt.Errorf("write object %s: %w", obj.Hash, err)
+		}
+		if err := qtx.PutObjectRef(ctx, dbgen.PutObjectRefParams{
+			Hash:      obj.Hash,
+			OwnerKind: string(model.ObjectOwnerInstance),
+			OwnerID:   instanceID,
+			CreatedAt: now,
+		}); err != nil {
+			return fmt.Errorf("claim object %s: %w", obj.Hash, err)
 		}
 	}
 	for h := range loaded {
 		if _, stillRef := referenced[h]; stillRef {
 			continue
 		}
-		// Delete outright unless a log still needs it; then unpin the survivor.
-		if err := qtx.DeleteDereferencedObject(ctx, dbgen.DeleteDereferencedObjectParams{
-			InstanceID: instanceID,
-			Hash:       h,
-			Now:        nullInt64(now),
+		if err := qtx.DropObjectRef(ctx, dbgen.DropObjectRefParams{
+			Hash:      h,
+			OwnerKind: string(model.ObjectOwnerInstance),
+			OwnerID:   instanceID,
 		}); err != nil {
-			return fmt.Errorf("delete dereferenced object %s: %w", h, err)
+			return fmt.Errorf("release object %s: %w", h, err)
 		}
-		if err := qtx.UnpinObject(ctx, dbgen.UnpinObjectParams{InstanceID: instanceID, Hash: h}); err != nil {
-			return fmt.Errorf("unpin object %s: %w", h, err)
+		// Unconditional: no "was that the last claim" check, because a redundant grace claim on
+		// an object someone else holds simply lapses unnoticed, and the check would be one more
+		// thing to get wrong under concurrency.
+		if err := qtx.PutObjectRef(ctx, dbgen.PutObjectRefParams{
+			Hash:      h,
+			OwnerKind: string(model.ObjectOwnerGrace),
+			OwnerID:   model.GraceOwnerID,
+			ExpiresAt: nullInt64(now + db.objectGraceMs.Load()),
+			CreatedAt: now,
+		}); err != nil {
+			return fmt.Errorf("grace object %s: %w", h, err)
 		}
 	}
 	return nil
@@ -134,7 +173,7 @@ func (db *DB) HydrateContext(inst *model.ProcessInstance) error {
 		if !ok {
 			return v, nil
 		}
-		val, err := db.loadObjectValue(context.Background(), inst.ID, ref.Ref)
+		val, err := db.loadObjectValue(context.Background(), ref.Ref)
 		if errors.Is(err, sql.ErrNoRows) {
 			// The value was superseded (and its object deleted) between reading the row
 			// and hydrating it — a benign race for the detail view; show it as absent.
@@ -172,41 +211,50 @@ func (db *DB) HydrateContext(inst *model.ProcessInstance) error {
 	return nil
 }
 
-// WriteLogObject records a (pre-redacted) log payload too large to keep inline and
-// returns a reference. The object is kept until the log-retention horizon (forever when
-// disabled) so it outlives its log row. Content that collides with an existing object
-// shares the row — only the log horizon is extended.
+// WriteLogObject records a (pre-redacted) log payload too large to keep inline and returns a
+// reference. The log's claim carries the retention horizon so the object outlives its log row;
+// content that collides with an existing object shares it, and only the claim is added.
 func (db *DB) WriteLogObject(instanceID, content string) (*model.ObjectRef, error) {
+	ctx := context.Background()
 	h := hashContent([]byte(content))
 	logUntil := int64(logForeverMillis)
 	if retention := db.objectRetentionMs.Load(); retention > 0 {
 		logUntil = nowMillis() + retention
 	}
-	if err := db.q.ReferenceLogObject(context.Background(), dbgen.ReferenceLogObjectParams{
-		InstanceID: instanceID,
-		Hash:       h,
-		Content:    content,
-		Size:       int64(len(content)),
-		LogUntil:   nullInt64(logUntil),
-		CreatedAt:  nowMillis(),
+	now := nowMillis()
+	if err := db.q.PutObject(ctx, dbgen.PutObjectParams{
+		Hash: h, Content: content, Size: int64(len(content)), CreatedAt: now,
 	}); err != nil {
-		return nil, fmt.Errorf("reference log object: %w", err)
+		return nil, fmt.Errorf("write log object: %w", err)
+	}
+	if err := db.q.PutObjectRef(ctx, dbgen.PutObjectRefParams{
+		Hash:      h,
+		OwnerKind: string(model.ObjectOwnerLog),
+		OwnerID:   instanceID,
+		ExpiresAt: nullInt64(logUntil),
+		CreatedAt: now,
+	}); err != nil {
+		return nil, fmt.Errorf("claim log object: %w", err)
 	}
 	return &model.ObjectRef{Ref: h, Size: int64(len(content))}, nil
 }
 
-// GetLogObject returns a log-referenced object's raw content. Non-log-referenced
-// (unredacted, context-only) objects are never served here — see the query.
-func (db *DB) GetLogObject(instanceID, hash string) (string, error) {
-	content, err := db.q.GetLogObject(context.Background(), dbgen.GetLogObjectParams{InstanceID: instanceID, Hash: hash})
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("log payload %q for instance %q: %w", hash, instanceID, ErrNotFound)
+// CollectObjects is the sweep, in the order the two questions must be asked: retire claims whose
+// horizon has passed (a log past retention, a grace window elapsed), then delete content nothing
+// claims any more. Returns how many objects went.
+//
+// It never STAMPS a grace claim -- only an owner releasing one does. That is what keeps an
+// expiring grace claim from earning itself another window forever.
+func (db *DB) CollectObjects(now int64) (int64, error) {
+	ctx := context.Background()
+	if _, err := db.q.DropExpiredObjectRefs(ctx, nullInt64(now)); err != nil {
+		return 0, fmt.Errorf("retire expired object claims: %w", err)
 	}
-	return content, err
+	return db.q.CollectUnreferencedObjects(ctx)
 }
 
-// DeleteExpiredObjects removes objects no longer pinned by context and no longer
-// needed by any log (log_until passed). Called from the log-retention sweep.
-func (db *DB) DeleteExpiredObjects(before int64) (int64, error) {
-	return db.q.DeleteExpiredObjects(context.Background(), nullInt64(before))
+// CountObjectRefs reports how many owners hold an object. The cross-instance sharing this store
+// exists for is invisible without it.
+func (db *DB) CountObjectRefs(hash string) (int64, error) {
+	return db.q.CountObjectRefs(context.Background(), hash)
 }

@@ -138,6 +138,68 @@ behavior while the spec stays put, answering a different question. See
   round-trips natively where `true` needed a custom marshaller in each direction. The `only_once` interaction needed no code at all: the existing
   guard already refuses a retry on a worker-reported code at `PUT /definitions` unless the
   rule carries `not_reached: true`.
+- [object-store.md](object-store.md) — **the store is BUILT (2026-08-24)**; definition objects, the wire and worker caching remain proposal. Re-architects `process_objects` from a per-instance blob
+  table into a global content-addressed store (`objects`) with explicit ownership
+  (`object_refs`: instance / log / definition). Opens with a measurement rather than a design:
+  a 221 KB script is copied verbatim into every instance's `external_data` (ten instances =
+  2.23 MB) and re-shipped on every claim (670 KB for three tasks, **one** distinct hash), while
+  `process_objects` holds zero rows. The four limits it names are shape, not bugs: identity is
+  `(instance_id, hash)` so content is per-instance; there is no owner but an instance, which is
+  why definition-embedded values are never externalized at all; `pinned` is a boolean that is
+  only correct because every write is handed the complete referenced set; and a context pin (a
+  reference) and a log horizon (a TTL) are ORed in every predicate, so a third owner would add a
+  third clause. Refs collapse both into one rule — an object is collectable when no ref is live.
+  Records what the change is most able to break and must be hunted: **a dereference deleting
+  content another instance still holds**, deletion being "no live refs remain" and never "my ref
+  is gone". Two decisions settled in discussion cut it down further: `owner_kind` governs
+  **lifetime, not access**, so reads are one endpoint (`GET /objects/{hash}`) with the content
+  address as the whole access rule — knowing a hash is knowing the bytes, so serving by hash
+  discloses only **existence**, which is written down as the scheme's honest limit rather than
+  claimed away. And **redaction is a display concern, not a boundary**: `secret: true` means "do
+  not print this", protecting values at rest is encryption's job, and migration 018's
+  unservable-context rule plus `?resolve=true` are retired rather than reimplemented. The
+  inconsistency that exposes (inline context redacted, the same value over 2 KiB returned whole)
+  is not introduced by the change but *revealed* by it. Records one apparent regression that
+  dissolves on inspection and is kept so it is not rediscovered: shared content surviving one
+  holder's dereference looks like 018's "a replaced value does not linger" breaking, but the
+  property 018 wanted is *no object outlives every claim on it*, which refs preserve exactly —
+  the surviving bytes are the other holder's live data, and sharing only ever happens between
+  owners that independently produced them. Collection gained a **grace window** on contact with the split read: handing out a
+  reference and fetching it are two calls, so the data can move on in between and take the object
+  with it — a race `?resolve=true` never had, because materializing was atomic with the read. So
+  releasing a claim leaves a `grace` ref (`--object-grace`, default 1h) rather than deleting, the
+  GC rule is untouched, and the contract becomes sayable: *a reference you hold is fetchable for
+  the window whatever happens to the data*. Only owners stamp grace claims, never the sweep,
+  which is what stops an expiring grace earning another window forever. An object on nothing but a grace claim is **unclaimed, not dead** — writing the same
+  bytes again claims the row that is already there — and that resurrection races the sweep in a
+  way `ON CONFLICT DO NOTHING` causes: it writes nothing, takes no lock, and the collector can
+  delete the object between the content upsert and the claim, leaving a dangling ref. The upsert
+  must be `DO UPDATE SET size = excluded.size` so it holds the row; SQLite's single writer hides
+  the bug and Postgres does not. It retires 018's
+  immediate deletion knowingly, and records the price — the window, not the live set, is the
+  dominant storage cost for a task that churns a big output in a loop. A **definition claim is
+  permanent** (nothing deletes a
+  definition version -- verified, not assumed), and needs no branch in the GC: "collectable when
+  no ref remains" already means an object with one is never collected, which is the test of
+  whether the ref model was the right shape. On the wire, refs leave the data
+  entirely for an `objects` section of `{path, ref, size}` with **array** paths (a JSON Pointer
+  string would make every recipient implement RFC 6901 unescaping, and is ambiguous between the
+  object key "0" and index 0) — the disk format already refuses in-band sentinels and the API had
+  reintroduced one. Redaction narrows all the way to the server's **stdout**: the stored trail
+  and every API response carry values verbatim, `secret: true` becomes a console-display hint,
+  and logs stop being a special case — an externalized log payload is listed like any other
+  object and `resolve=true` goes there too. The CLI splits on what a human wants: `get --resolve`
+  splices client-side, `logs` prints object ids and never resolves (a trail is scanned, not read,
+  and those payloads are large by definition), and a new `genctl object <ref>` fetches the one
+  line that matters. `secret: true` is narrowed to **config only** and refused at
+  registration anywhere else, which turned a complication into a deletion: the schema-driven
+  redaction of a fetch's response body existed only because the value-based scrub cannot see a
+  body that never enters the context, and it was the half that could not move (it collapses value
+  to string *before* audit is called, leaving nothing unredacted to store). Config-only removes
+  it instead of solving it, and takes the whole taint system with it — `Taint`,
+  `ReferencesSecret`, `SecretAt`, `Schema.Redact` propagate secretness through inference purely
+  so a redactor can find derived values, and every consumer goes. What is left is one string
+  replacement of known config values, on the console copy, in one function.
 - [literal-types.md](literal-types.md) — infer `"sent"` as `enum: [sent]` rather than
   `string`. Prerequisite for discriminated unions, and it catches provably-false comparisons.
   The feature is not the 4-line production change but the **enum-aware canonicalization** it

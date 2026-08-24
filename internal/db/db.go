@@ -46,7 +46,11 @@ type DB struct {
 	logStop    chan struct{} // closed by Close() to stop the flusher
 	logStopped chan struct{} // closed by the flusher after its final flush
 
-	// objectRetentionMs: how long a dereferenced process_objects row survives before GC,
+	// objectGraceMs: how long a RELEASED object stays fetchable, so a reference already handed
+	// out still resolves after the data moved on. specs/object-store.md.
+	objectGraceMs atomic.Int64
+
+	// objectRetentionMs: how long a log's claim on an object survives before GC,
 	// mirroring log retention so a log referencing an object outlives the log. Set by the
 	// engine at startup; 0 = keep forever, consistent with logs-forever.
 	objectRetentionMs atomic.Int64

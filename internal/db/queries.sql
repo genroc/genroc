@@ -271,47 +271,54 @@ VALUES
 -- name: DeleteLogsBefore :execrows
 DELETE FROM process_logs WHERE created_at < sqlc.arg(before);
 
--- name: PinContextObject :exec
--- Writes (or re-pins) a context object. ON CONFLICT keeps the immutable content and
--- sets pinned = 1: re-referencing a previously-dereferenced object (a looping task
--- recomputing the same big output) makes it pinned again without touching any log
--- reference the row may also carry.
-INSERT INTO process_objects (instance_id, hash, content, size, pinned, log_until, created_at)
-VALUES (sqlc.arg(instance_id), sqlc.arg(hash), sqlc.arg(content), sqlc.arg(size), 1, NULL, sqlc.arg(created_at))
-ON CONFLICT (instance_id, hash) DO UPDATE SET pinned = 1;
+-- name: PutObject :exec
+-- Write the content once, globally. Immutable by construction -- the hash IS the content -- so
+-- the conflict path has nothing to change.
+--
+-- DO UPDATE, not DO NOTHING, and that is load-bearing rather than style. DO NOTHING writes
+-- nothing and takes no row lock, so a concurrent sweep can delete the object between this
+-- statement and the claim that follows it, leaving a ref pointing at content that is gone.
+-- Setting size (the same value by construction) holds the row, and the sweep's DELETE then
+-- re-evaluates its predicate and finds the new claim. SQLite's single writer hides the race;
+-- Postgres does not. specs/object-store.md.
+INSERT INTO objects (hash, content, size, created_at)
+VALUES (sqlc.arg(hash), sqlc.arg(content), sqlc.arg(size), sqlc.arg(created_at))
+ON CONFLICT (hash) DO UPDATE SET size = excluded.size;
 
--- name: ReferenceLogObject :exec
--- Records that a log row references this (pre-redacted) content until log_until, so
--- it survives at least as long as the log. ON CONFLICT keeps the immutable content and
--- extends the horizon, leaving any context pin intact (a shared, secret-free row).
-INSERT INTO process_objects (instance_id, hash, content, size, pinned, log_until, created_at)
-VALUES (sqlc.arg(instance_id), sqlc.arg(hash), sqlc.arg(content), sqlc.arg(size), 0, sqlc.arg(log_until), sqlc.arg(created_at))
-ON CONFLICT (instance_id, hash) DO UPDATE SET log_until = excluded.log_until;
+-- name: PutObjectRef :exec
+-- Claim an object for an owner. A repeat claim refreshes the horizon, which is how a log
+-- re-referencing the same payload extends it, and how a release refreshes the grace window.
+INSERT INTO object_refs (hash, owner_kind, owner_id, expires_at, created_at)
+VALUES (sqlc.arg(hash), sqlc.arg(owner_kind), sqlc.arg(owner_id), sqlc.arg(expires_at), sqlc.arg(created_at))
+ON CONFLICT (hash, owner_kind, owner_id) DO UPDATE SET expires_at = excluded.expires_at;
+
+-- name: DropObjectRef :exec
+-- Release one owner's claim. It does NOT touch content: another owner may hold the same hash,
+-- and deleting here is exactly how a shared store loses an unrelated instance's value. The
+-- caller stamps a grace claim instead, so a reference already handed out stays fetchable.
+DELETE FROM object_refs
+WHERE hash = sqlc.arg(hash) AND owner_kind = sqlc.arg(owner_kind) AND owner_id = sqlc.arg(owner_id);
 
 -- name: GetObject :one
--- Trusted internal read for context resolution (the instance owns the object).
-SELECT content FROM process_objects WHERE instance_id = sqlc.arg(instance_id) AND hash = sqlc.arg(hash);
+-- The only read. Addressed by content hash and consulting no ref: knowing a hash is knowing the
+-- bytes that produce it, so this discloses nothing a holder of the hash did not already have.
+SELECT content, size FROM objects WHERE hash = sqlc.arg(hash);
 
--- name: GetLogObject :one
--- Serve-safe read for the log endpoint: only log-referenced rows are returned, whose
--- content is always pre-redacted or (when shared) byte-identical to it, hence secret-free.
-SELECT content FROM process_objects
-WHERE instance_id = sqlc.arg(instance_id) AND hash = sqlc.arg(hash) AND log_until IS NOT NULL;
+-- name: DropExpiredObjectRefs :execrows
+-- Sweep, step one: retire claims whose horizon has passed -- a log past its retention, a grace
+-- window that elapsed. Separate from step two so the two questions stay separate: this is "is
+-- this claim still live", that is "is anyone still claiming".
+DELETE FROM object_refs
+WHERE expires_at IS NOT NULL AND expires_at < sqlc.arg(before);
 
--- name: DeleteDereferencedObject :exec
--- Context dereference: delete the row outright when no live log still needs it, so a
--- replaced value (and any secret in it) does not linger.
-DELETE FROM process_objects
-WHERE instance_id = sqlc.arg(instance_id) AND hash = sqlc.arg(hash)
-  AND (log_until IS NULL OR log_until < sqlc.arg(now));
+-- name: CollectUnreferencedObjects :execrows
+-- Sweep, step two, and the whole GC rule: an object goes when no claim remains. Never "was mine
+-- the last one", which is the question a refcount would have to get right and the way a shared
+-- store loses someone else's value.
+DELETE FROM objects
+WHERE NOT EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = objects.hash);
 
--- name: UnpinObject :exec
--- Context dereference for a row a log still needs: drop the context pin so the GC sweep
--- reclaims it once the log horizon passes. No-op if DeleteDereferencedObject removed it.
-UPDATE process_objects SET pinned = 0
-WHERE instance_id = sqlc.arg(instance_id) AND hash = sqlc.arg(hash);
-
--- name: DeleteExpiredObjects :execrows
--- GC sweep: reclaim rows no longer pinned by context and no longer needed by any log.
-DELETE FROM process_objects
-WHERE pinned = 0 AND (log_until IS NULL OR log_until < sqlc.arg(before));
+-- name: CountObjectRefs :one
+-- How many owners hold this object. Diagnostics, and the only way a test can see the
+-- cross-instance sharing this store exists for.
+SELECT COUNT(*) FROM object_refs WHERE hash = sqlc.arg(hash);

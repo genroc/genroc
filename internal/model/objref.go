@@ -1,5 +1,7 @@
 package model
 
+import "fmt"
+
 // Envelope is the on-disk representation of a value-slot (process input, a task
 // output, the process output, an external payload). A slot is ALWAYS stored as an
 // envelope, never as a raw value, so user data is always nested under Data and is
@@ -33,3 +35,35 @@ type ObjectRef struct {
 }
 
 func (e Envelope) IsRef() bool { return len(e.Refs) > 0 }
+
+// ObjectOwner is who holds a claim on an object. It governs LIFETIME and nothing else: reads are
+// addressed by content hash and consult no claim, because the address IS the content.
+// specs/object-store.md.
+type ObjectOwner string
+
+const (
+	// ObjectOwnerInstance: a live context value-slot, held until the slot stops referencing the
+	// hash. OwnerID is the instance.
+	ObjectOwnerInstance ObjectOwner = "instance"
+	// ObjectOwnerLog: a (pre-redacted) log payload. OwnerID is the instance; the claim carries
+	// the retention horizon, so the object outlives the log row that names it.
+	ObjectOwnerLog ObjectOwner = "log"
+	// ObjectOwnerDefinition: a value embedded in a definition version, OwnerID "name@version".
+	// It never expires: nothing deletes a definition version, and an instance pinned to an old
+	// one must still be able to load its bundle.
+	ObjectOwnerDefinition ObjectOwner = "definition"
+	// ObjectOwnerGrace: nobody holds this any more, but a reference was handed out recently.
+	// Stamped when a claim is released, so a client that read a reference can still fetch it;
+	// OwnerID is empty, one per object. Only owners stamp it -- never the sweep, or an expiring
+	// grace claim would earn itself another window forever.
+	ObjectOwnerGrace ObjectOwner = "grace"
+)
+
+// GraceOwnerID is the owner_id of a grace claim: there is one per object, so it needs no
+// subject. Empty rather than a sentinel word, because the kind already says what it is.
+const GraceOwnerID = ""
+
+// DefinitionOwnerID is the owner_id a definition version claims objects under.
+func DefinitionOwnerID(name string, version int) string {
+	return fmt.Sprintf("%s@%d", name, version)
+}

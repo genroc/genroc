@@ -10,6 +10,22 @@ import (
 	"database/sql"
 )
 
+const collectUnreferencedObjects = `-- name: CollectUnreferencedObjects :execrows
+DELETE FROM objects
+WHERE NOT EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = objects.hash)
+`
+
+// Sweep, step two, and the whole GC rule: an object goes when no claim remains. Never "was mine
+// the last one", which is the question a refcount would have to get right and the way a shared
+// store loses someone else's value.
+func (q *Queries) CollectUnreferencedObjects(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, collectUnreferencedObjects)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countActiveSiblings = `-- name: CountActiveSiblings :one
 SELECT COUNT(*) FROM process_instances
 WHERE parent_id = ?1
@@ -51,6 +67,19 @@ func (q *Queries) CountBufferedSignals(ctx context.Context, arg CountBufferedSig
 	return count, err
 }
 
+const countObjectRefs = `-- name: CountObjectRefs :one
+SELECT COUNT(*) FROM object_refs WHERE hash = ?1
+`
+
+// How many owners hold this object. Diagnostics, and the only way a test can see the
+// cross-instance sharing this store exists for.
+func (q *Queries) CountObjectRefs(ctx context.Context, hash string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countObjectRefs, hash)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteChannel = `-- name: DeleteChannel :exec
 DELETE FROM process_channels WHERE name = ?1 AND channel = ?2
 `
@@ -83,39 +112,6 @@ func (q *Queries) DeleteDependencies(ctx context.Context, arg DeleteDependencies
 	return err
 }
 
-const deleteDereferencedObject = `-- name: DeleteDereferencedObject :exec
-DELETE FROM process_objects
-WHERE instance_id = ?1 AND hash = ?2
-  AND (log_until IS NULL OR log_until < ?3)
-`
-
-type DeleteDereferencedObjectParams struct {
-	InstanceID string
-	Hash       string
-	Now        sql.NullInt64
-}
-
-// Context dereference: delete the row outright when no live log still needs it, so a
-// replaced value (and any secret in it) does not linger.
-func (q *Queries) DeleteDereferencedObject(ctx context.Context, arg DeleteDereferencedObjectParams) error {
-	_, err := q.db.ExecContext(ctx, deleteDereferencedObject, arg.InstanceID, arg.Hash, arg.Now)
-	return err
-}
-
-const deleteExpiredObjects = `-- name: DeleteExpiredObjects :execrows
-DELETE FROM process_objects
-WHERE pinned = 0 AND (log_until IS NULL OR log_until < ?1)
-`
-
-// GC sweep: reclaim rows no longer pinned by context and no longer needed by any log.
-func (q *Queries) DeleteExpiredObjects(ctx context.Context, before sql.NullInt64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteExpiredObjects, before)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const deleteLogsBefore = `-- name: DeleteLogsBefore :execrows
 
 DELETE FROM process_logs WHERE created_at < ?1
@@ -132,6 +128,41 @@ func (q *Queries) DeleteLogsBefore(ctx context.Context, before int64) (int64, er
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const dropExpiredObjectRefs = `-- name: DropExpiredObjectRefs :execrows
+DELETE FROM object_refs
+WHERE expires_at IS NOT NULL AND expires_at < ?1
+`
+
+// Sweep, step one: retire claims whose horizon has passed -- a log past its retention, a grace
+// window that elapsed. Separate from step two so the two questions stay separate: this is "is
+// this claim still live", that is "is anyone still claiming".
+func (q *Queries) DropExpiredObjectRefs(ctx context.Context, before sql.NullInt64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, dropExpiredObjectRefs, before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const dropObjectRef = `-- name: DropObjectRef :exec
+DELETE FROM object_refs
+WHERE hash = ?1 AND owner_kind = ?2 AND owner_id = ?3
+`
+
+type DropObjectRefParams struct {
+	Hash      string
+	OwnerKind string
+	OwnerID   string
+}
+
+// Release one owner's claim. It does NOT touch content: another owner may hold the same hash,
+// and deleting here is exactly how a shared store loses an unrelated instance's value. The
+// caller stamps a grace claim instead, so a reference already handed out stays fetchable.
+func (q *Queries) DropObjectRef(ctx context.Context, arg DropObjectRefParams) error {
+	_, err := q.db.ExecContext(ctx, dropObjectRef, arg.Hash, arg.OwnerKind, arg.OwnerID)
+	return err
 }
 
 const failAncestors = `-- name: FailAncestors :exec
@@ -425,40 +456,22 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 	return i, err
 }
 
-const getLogObject = `-- name: GetLogObject :one
-SELECT content FROM process_objects
-WHERE instance_id = ?1 AND hash = ?2 AND log_until IS NOT NULL
-`
-
-type GetLogObjectParams struct {
-	InstanceID string
-	Hash       string
-}
-
-// Serve-safe read for the log endpoint: only log-referenced rows are returned, whose
-// content is always pre-redacted or (when shared) byte-identical to it, hence secret-free.
-func (q *Queries) GetLogObject(ctx context.Context, arg GetLogObjectParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, getLogObject, arg.InstanceID, arg.Hash)
-	var content string
-	err := row.Scan(&content)
-	return content, err
-}
-
 const getObject = `-- name: GetObject :one
-SELECT content FROM process_objects WHERE instance_id = ?1 AND hash = ?2
+SELECT content, size FROM objects WHERE hash = ?1
 `
 
-type GetObjectParams struct {
-	InstanceID string
-	Hash       string
+type GetObjectRow struct {
+	Content string
+	Size    int64
 }
 
-// Trusted internal read for context resolution (the instance owns the object).
-func (q *Queries) GetObject(ctx context.Context, arg GetObjectParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, getObject, arg.InstanceID, arg.Hash)
-	var content string
-	err := row.Scan(&content)
-	return content, err
+// The only read. Addressed by content hash and consulting no ref: knowing a hash is knowing the
+// bytes that produce it, so this discloses nothing a holder of the hash did not already have.
+func (q *Queries) GetObject(ctx context.Context, hash string) (GetObjectRow, error) {
+	row := q.db.QueryRowContext(ctx, getObject, hash)
+	var i GetObjectRow
+	err := row.Scan(&i.Content, &i.Size)
+	return i, err
 }
 
 const getWaitState = `-- name: GetWaitState :one
@@ -752,35 +765,6 @@ func (q *Queries) LoadDefinitionsOnChannel(ctx context.Context, channel string) 
 	return items, nil
 }
 
-const pinContextObject = `-- name: PinContextObject :exec
-INSERT INTO process_objects (instance_id, hash, content, size, pinned, log_until, created_at)
-VALUES (?1, ?2, ?3, ?4, 1, NULL, ?5)
-ON CONFLICT (instance_id, hash) DO UPDATE SET pinned = 1
-`
-
-type PinContextObjectParams struct {
-	InstanceID string
-	Hash       string
-	Content    string
-	Size       int64
-	CreatedAt  int64
-}
-
-// Writes (or re-pins) a context object. ON CONFLICT keeps the immutable content and
-// sets pinned = 1: re-referencing a previously-dereferenced object (a looping task
-// recomputing the same big output) makes it pinned again without touching any log
-// reference the row may also carry.
-func (q *Queries) PinContextObject(ctx context.Context, arg PinContextObjectParams) error {
-	_, err := q.db.ExecContext(ctx, pinContextObject,
-		arg.InstanceID,
-		arg.Hash,
-		arg.Content,
-		arg.Size,
-		arg.CreatedAt,
-	)
-	return err
-}
-
 const popOldestSignal = `-- name: PopOldestSignal :one
 DELETE FROM process_signals
 WHERE id = (
@@ -805,31 +789,60 @@ func (q *Queries) PopOldestSignal(ctx context.Context, arg PopOldestSignalParams
 	return outcome, err
 }
 
-const referenceLogObject = `-- name: ReferenceLogObject :exec
-INSERT INTO process_objects (instance_id, hash, content, size, pinned, log_until, created_at)
-VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)
-ON CONFLICT (instance_id, hash) DO UPDATE SET log_until = excluded.log_until
+const putObject = `-- name: PutObject :exec
+INSERT INTO objects (hash, content, size, created_at)
+VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT (hash) DO UPDATE SET size = excluded.size
 `
 
-type ReferenceLogObjectParams struct {
-	InstanceID string
-	Hash       string
-	Content    string
-	Size       int64
-	LogUntil   sql.NullInt64
-	CreatedAt  int64
+type PutObjectParams struct {
+	Hash      string
+	Content   string
+	Size      int64
+	CreatedAt int64
 }
 
-// Records that a log row references this (pre-redacted) content until log_until, so
-// it survives at least as long as the log. ON CONFLICT keeps the immutable content and
-// extends the horizon, leaving any context pin intact (a shared, secret-free row).
-func (q *Queries) ReferenceLogObject(ctx context.Context, arg ReferenceLogObjectParams) error {
-	_, err := q.db.ExecContext(ctx, referenceLogObject,
-		arg.InstanceID,
+// Write the content once, globally. Immutable by construction -- the hash IS the content -- so
+// the conflict path has nothing to change.
+//
+// DO UPDATE, not DO NOTHING, and that is load-bearing rather than style. DO NOTHING writes
+// nothing and takes no row lock, so a concurrent sweep can delete the object between this
+// statement and the claim that follows it, leaving a ref pointing at content that is gone.
+// Setting size (the same value by construction) holds the row, and the sweep's DELETE then
+// re-evaluates its predicate and finds the new claim. SQLite's single writer hides the race;
+// Postgres does not. specs/object-store.md.
+func (q *Queries) PutObject(ctx context.Context, arg PutObjectParams) error {
+	_, err := q.db.ExecContext(ctx, putObject,
 		arg.Hash,
 		arg.Content,
 		arg.Size,
-		arg.LogUntil,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const putObjectRef = `-- name: PutObjectRef :exec
+INSERT INTO object_refs (hash, owner_kind, owner_id, expires_at, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5)
+ON CONFLICT (hash, owner_kind, owner_id) DO UPDATE SET expires_at = excluded.expires_at
+`
+
+type PutObjectRefParams struct {
+	Hash      string
+	OwnerKind string
+	OwnerID   string
+	ExpiresAt sql.NullInt64
+	CreatedAt int64
+}
+
+// Claim an object for an owner. A repeat claim refreshes the horizon, which is how a log
+// re-referencing the same payload extends it, and how a release refreshes the grace window.
+func (q *Queries) PutObjectRef(ctx context.Context, arg PutObjectRefParams) error {
+	_, err := q.db.ExecContext(ctx, putObjectRef,
+		arg.Hash,
+		arg.OwnerKind,
+		arg.OwnerID,
+		arg.ExpiresAt,
 		arg.CreatedAt,
 	)
 	return err
@@ -896,23 +909,6 @@ type SetExternalOutcomeParams struct {
 // must not later fire external.timeout, which on an only_once task can never be retried.
 func (q *Queries) SetExternalOutcome(ctx context.Context, arg SetExternalOutcomeParams) error {
 	_, err := q.db.ExecContext(ctx, setExternalOutcome, arg.ExternalData, arg.UpdatedAt, arg.ID)
-	return err
-}
-
-const unpinObject = `-- name: UnpinObject :exec
-UPDATE process_objects SET pinned = 0
-WHERE instance_id = ?1 AND hash = ?2
-`
-
-type UnpinObjectParams struct {
-	InstanceID string
-	Hash       string
-}
-
-// Context dereference for a row a log still needs: drop the context pin so the GC sweep
-// reclaims it once the log horizon passes. No-op if DeleteDereferencedObject removed it.
-func (q *Queries) UnpinObject(ctx context.Context, arg UnpinObjectParams) error {
-	_, err := q.db.ExecContext(ctx, unpinObject, arg.InstanceID, arg.Hash)
 	return err
 }
 

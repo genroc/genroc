@@ -22,7 +22,7 @@ func (e *Engine) resolveValue(inst *model.ProcessInstance, v any) (any, error) {
 	if cached, ok := inst.ResolvedObjects[ref.Ref]; ok {
 		return cached, nil
 	}
-	val, err := e.db.ResolveObject(context.Background(), inst.ID, ref)
+	val, err := e.db.ResolveObject(context.Background(), ref)
 	if err != nil {
 		return nil, err
 	}

@@ -54,12 +54,11 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 	resp := make([]LogEntryResp, len(logs))
 	for i, l := range logs {
 		data, ref := decodeLogData(l.Data)
-		// With resolve=true, replace the preview + data_ref with the full payload
-		// inline. The object is owned by the log's own instance (l.InstanceID), which
-		// differs from the queried root for subtree logs. Log objects are stored
-		// pre-redacted, so serving them inline leaks nothing the data_ref didn't.
+		// With resolve=true, replace the preview + data_ref with the full payload inline.
+		// Addressed by hash alone: the address IS the content, so no owner is consulted.
+		// specs/object-store.md.
 		if req.Resolve && ref != nil {
-			if content, oerr := h.db.GetLogObject(l.InstanceID, ref.Ref); oerr == nil {
+			if content, _, oerr := h.db.GetObjectContent(ref.Ref); oerr == nil {
 				data, ref = content, nil
 			}
 		}
@@ -86,7 +85,7 @@ func (h *Handlers) getLogObject(id, hash string) Reply {
 	if id == "" || hash == "" {
 		return invalid("id and ref are required").reply()
 	}
-	content, err := h.db.GetLogObject(id, hash)
+	content, _, err := h.db.GetObjectContent(hash)
 	if err != nil {
 		// GetLogObject reports an absent object as db.ErrNotFound, so the classification
 		// comes through unaided; a read failure stays internal instead of being
