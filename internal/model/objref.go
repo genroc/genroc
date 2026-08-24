@@ -43,8 +43,10 @@ func (e Envelope) IsRef() bool { return len(e.Refs) > 0 }
 // expression, so the dependency cannot run the other way. specs/lazy-context.md.
 func (r *ObjectRef) ExternalRef() (string, int64) { return r.Ref, r.Size }
 
-// ObjectOwner is who holds a claim on an object. It governs LIFETIME and nothing else: reads are
-// addressed by content hash and consult no claim, because the address IS the content.
+// ObjectOwner is who holds a claim on an object. Every kind names the entity that actually
+// carries the reference, so an owner changing or going away means updating its own claims and
+// nothing else -- what makes the object collectable is the absence of ALL claims, which only the
+// sweep is in a position to see. Reads consult no claim at all: the address IS the content.
 // specs/object-store.md.
 type ObjectOwner string
 
@@ -52,23 +54,14 @@ const (
 	// ObjectOwnerInstance: a live context value-slot, held until the slot stops referencing the
 	// hash. OwnerID is the instance.
 	ObjectOwnerInstance ObjectOwner = "instance"
-	// ObjectOwnerLog: a log payload. OwnerID is the instance; the claim carries
-	// the retention horizon, so the object outlives the log row that names it.
+	// ObjectOwnerLog: a log payload. OwnerID is the LOG ROW, not the instance, so the claim is
+	// wanted exactly while the row is and the prune needs no horizon to say so.
 	ObjectOwnerLog ObjectOwner = "log"
 	// ObjectOwnerDefinition: a value embedded in a definition version, OwnerID "name@version".
 	// It never expires: nothing deletes a definition version, and an instance pinned to an old
 	// one must still be able to load its bundle.
 	ObjectOwnerDefinition ObjectOwner = "definition"
-	// ObjectOwnerGrace: nobody holds this any more, but a reference was handed out recently.
-	// Stamped when a claim is released, so a client that read a reference can still fetch it;
-	// OwnerID is empty, one per object. Only owners stamp it -- never the sweep, or an expiring
-	// grace claim would earn itself another window forever.
-	ObjectOwnerGrace ObjectOwner = "grace"
 )
-
-// GraceOwnerID is the owner_id of a grace claim: there is one per object, so it needs no
-// subject. Empty rather than a sentinel word, because the kind already says what it is.
-const GraceOwnerID = ""
 
 // DefinitionOwnerID is the owner_id a definition version claims objects under.
 func DefinitionOwnerID(name string, version int) string {

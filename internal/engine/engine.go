@@ -86,7 +86,6 @@ func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateR
 	}
 	// Dereferenced objects survive on the same horizon as audit logs, so a log that
 	// references an object stays resolvable for as long as the log itself lives.
-	database.SetObjectRetention(logCfg.Retention)
 	e := &Engine{
 		db:                 database,
 		pollEvery:          pollEvery,

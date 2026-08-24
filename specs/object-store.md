@@ -228,14 +228,130 @@ ON CONFLICT (hash) DO UPDATE SET size = excluded.size;   -- NOT "DO NOTHING"
 ```
 
 `size` is the same value by construction — one hash, one content, one length — so the update
-changes nothing and exists only to hold the row against a concurrent delete, which then
-re-evaluates its predicate and finds the new claim. **`DO NOTHING` is the reading that looks
-obviously right here**, which is why the reason belongs in the query.
+changes nothing and exists only to hold the row against a concurrent delete. **`DO NOTHING` is
+the reading that looks obviously right here**, which is why the reason belongs in the query.
 
-One property falls out and is worth keeping: because a writer always supplies the bytes, an
-object deleted while a ref survives is *re-created* by the next write of that content. That
-makes the store self-healing against this class of bug rather than merely broken, and it is the
-reason the race is a silent loss for readers in between rather than permanent corruption.
+**[corrected 2026-08-24] The lock is half the fix, and this doc claimed it was the whole one.**
+It said the blocked DELETE "then re-evaluates its predicate and finds the new claim". It does
+not. Postgres wakes a blocked DELETE and re-checks the newer version of the TARGET ROW; the
+`NOT EXISTS` subquery keeps the statement's original snapshot, so it still reports no claims and
+the delete proceeds. Measured, not argued: the writer commits its claim, the sweep unblocks, and
+the result is `objects = 0, claims = 1` — the exact dangling ref the upsert was supposed to
+prevent, still there with `DO UPDATE` in place.
+
+The other half is on the sweep. Read committed takes a fresh snapshot per **statement**, so the
+wait and the decision must be two statements:
+
+```sql
+SELECT hash FROM objects o WHERE NOT EXISTS (…) FOR UPDATE;  -- blocks on the writer
+DELETE FROM objects o WHERE NOT EXISTS (…);                  -- fresh snapshot: sees the claim
+```
+
+`collectUnreferencedPG` does this in one transaction; SQLite keeps the single statement, because
+its single writer means no claim can commit between a statement's snapshot and its delete. Both
+defences are now pinned by `TestObjects_ContentSurvivesASweepRacingItsResurrection`, which fails
+with a distinct message when either is removed — neither works alone.
+
+Worth recording for the next invariant of this kind: the stress test that was supposed to cover
+this (`TestObjects_ResurrectionAgainstALiveSweeper`) stayed green through eight runs with BOTH
+defences dismantled. The window is the microseconds between two adjacent statements inside one
+transaction; chance will not find it, and a test that hopes to is a test that reports success.
+
+**Both defences assume one transaction, and the log path did not have one.** The row lock lasts
+as long as the statement that took it, so two autocommit statements -- write the content, then
+claim it -- leave the object committed and held by nobody in between. `CutLogValue` wrote that
+way, and the gap was not microsecond-narrow: an observer polling for "an object nobody claims"
+caught it **452 times across 200 log writes**, more than twice per write. SQLite is not spared
+either; its single writer stops concurrent *writes*, not a sweep running between two committed
+ones. The fix is the same transaction the context path already had (`db.withTx`), and the count
+goes to zero -- which is what `TestLogObjects_ContentAndClaimAreWrittenAtomically` asserts.
+
+The general rule this leaves: **an object writer that is not transactional has no defences at
+all**, however carefully the upsert and the sweep are written.
+
+So the addition half is now one function, `claimObjects`, taking a transaction's queries — the
+instance path joins the instance write, the log path opens its own. Owner and horizon are the only
+parameters that vary. `archtest.TestObjectWritesGoThroughClaimObjects` fails on any other caller of
+`PutObject`/`PutObjectRef`, because both times this broke it was a second copy of the same loop.
+
+**Removal stays separate on purpose.** An instance claim is dropped when the value stops
+referencing it and leaves a grace stamp; a log claim is never dropped — it carries a horizon and
+the sweep retires it. One is "does this value still point here", the other "has this claim's time
+passed". Merging them would mean inventing a release logs do not have, or giving an instance claim
+an expiry, which is a silent way to delete live data.
+
+**But the guarantee must be the same, and the reason it was not is one wrong join**
+[fixed 2026-08-24]. `object_refs` is an n:n table between objects and the things that hold them,
+and `owner_id` should always BE the holder. For `instance` it is the instance and for `definition`
+the version — but for `log` it was the **instance**, while the thing that actually carries the
+reference is the log **row**.
+
+Everything awkward followed from that. A row's deletion said nothing about whether the claim was
+still wanted, so a log claim could not be released the way an instance value is; so its life was
+guessed with a retention horizon; so the grace window had to be folded into the horizon; so object
+lifetime was coupled to `--log-retention`, with a `logForeverMillis` sentinel for "retention
+disabled". Three mechanisms compensating for a join to the wrong entity.
+
+`owner_id` is now the log row's id (both columns are TEXT, so no schema change), and all of it
+collapses to the rule everything else already followed: **an owner releases, and the release stamps
+grace.** The sweep notices a claim whose owner row is gone — `NOT EXISTS (SELECT 1 FROM
+process_logs …)` — releases it and stamps grace. Driven by the owner being absent rather than by
+ids the prune collected, so a crash between deleting rows and releasing claims is repaired by the
+next sweep instead of leaking. `SetObjectRetention`, `logForeverMillis` and the horizon arithmetic
+are deleted rather than replaced.
+
+Two things the change forced, both worth keeping:
+
+- **A log row with objects is written synchronously, row and claims in one transaction**
+  (`AppendLogValue`). Log rows are normally buffered and flushed in batches; a buffered row would
+  leave a claim whose owner does not exist yet, and the orphan sweep retires exactly those. Rows
+  with no objects — nearly all of them — keep the batched path.
+- **The sweep may stamp grace here and nowhere else.** The old rule was "only owners stamp grace,
+  never the sweep", protecting against a grace claim earning itself another window forever. The
+  real requirement is termination: a *grace* claim must never be re-graced, while a log claim
+  retired once has no owner left to retire it again.
+
+Migration: none. Claims written under the old ownership carry a horizon and an instance id, and
+`OrphanedLogRefs` is scoped to `expires_at IS NULL` so they drain on their horizon exactly as
+before rather than all looking orphaned at once. The clause is vacuous afterwards.
+
+### The grace window is a mark, not a claim [decided 2026-08-24]
+
+A grace claim was a row in an ownership table whose `owner_id` was `''` — not an owner, a timer
+wearing a claim's costume. What exposed it was asking who is responsible for stamping one.
+
+**No releaser can be.** An owner dropping its claim cannot tell whether it dropped the LAST one;
+it knows only its own references. So "stamp a grace claim on release" was a distributed obligation
+nobody was in a position to satisfy, and it showed: the rule "only owners stamp grace, never the
+sweep" needed an exception the first time a new releaser appeared (orphaned log claims), and any
+claim retired by the expiry sweep got no window at all.
+
+The sweep is the one component that sees every claim, so it decides. `objects.released_at` is the
+mark, and the sweep maintains it in three steps:
+
+```sql
+UPDATE objects SET released_at = NULL  WHERE released_at IS NOT NULL AND EXISTS (a claim);
+UPDATE objects SET released_at = $now  WHERE released_at IS NULL     AND NOT EXISTS (a claim);
+DELETE FROM objects WHERE NOT EXISTS (a claim) AND released_at < $now - $grace;
+```
+
+Every owner is then free to care only about its own references — add them, remove them, done.
+Gone with it: `owner_kind = 'grace'`, `GraceOwnerID`, `expires_at` on `object_refs`,
+`DropExpiredObjectRefs`, and the never-re-stamp invariant that made the whole thing terminate.
+
+**The mark is cleared in two places, and each covers what the other cannot.** The sweep's own pass
+handles a claim added without re-writing content — what a passed-through reference does. But a
+claim made and released entirely BETWEEN two sweeps is invisible to it: by the time the next sweep
+looks, the object is unclaimed again and carrying a mark from before a claim nobody observed,
+already older than the window. `PutObject`'s conflict path clears it at the instant the claim is
+made, and that statement is already writing the row to take the sweep's lock — so the second
+defence is free. `size` is written for the lock; `released_at` is written because it is true.
+
+**The cost is stated rather than hidden.** The window starts when the sweep notices, not when the
+release happened, and the sweep is a once-a-minute janitor — so released content lingers up to a
+minute past `--object-grace`. That errs toward keeping data, and it is why an object can be
+legitimately unclaimed AND unmarked, which is a state the old model could not produce. The stress
+tests assert "nothing overdue" instead of "everything claimed" for exactly that reason.
 
 ### The window is the dominant storage cost for churny processes
 

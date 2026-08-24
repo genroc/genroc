@@ -78,7 +78,6 @@ func TestObjects_BigValueRoundTrip(t *testing.T) {
 func TestObjects_DerefKeepsItForTheGraceWindow(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			b.db.SetObjectRetention(time.Hour)
 			b.db.SetObjectGrace(time.Hour)
 
 			inst := &model.ProcessInstance{
@@ -136,13 +135,13 @@ func TestObjects_DerefKeepsItForTheGraceWindow(t *testing.T) {
 	}
 }
 
-// TestObjects_LogReferencedSurvivesDeref verifies that an object a log references is
-// NOT deleted when the context slot sharing it is dereferenced — it stays fetchable
-// via the log endpoint until the retention horizon, then the GC sweep reclaims it.
+// TestObjects_LogReferencedSurvivesDeref verifies that an object a log references is NOT deleted
+// when the context slot sharing it is dereferenced — it stays fetchable while the log ROW that
+// claims it exists, and is reclaimed once that row is pruned and the grace window passes.
 func TestObjects_LogReferencedSurvivesDeref(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			b.db.SetObjectRetention(time.Hour)
+			b.db.SetObjectGrace(time.Hour)
 
 			// One value reached by two paths: the context slot's cut and the log payload's
 			// cut produce the same leaf, so both claims land on one row.
@@ -162,9 +161,13 @@ func TestObjects_LogReferencedSurvivesDeref(t *testing.T) {
 			}
 			// ...and log a payload whose cut produces the identical leaf. Same bytes, same
 			// hash, one row -- which is the whole reason the log reuses the context's cut.
-			env, err := b.db.CutLogValue("inst-shared", map[string]any{"input": val}, 128)
-			if err != nil {
-				t.Fatalf("CutLogValue: %v", err)
+			entry := &model.LogEntry{InstanceID: "inst-shared", Level: model.LogInfo, Event: "probe"}
+			if err := b.db.AppendLogValue(entry, map[string]any{"input": val}, 128); err != nil {
+				t.Fatalf("AppendLogValue: %v", err)
+			}
+			var env model.Envelope
+			if err := json.Unmarshal([]byte(entry.Data), &env); err != nil {
+				t.Fatalf("decode log envelope: %v", err)
 			}
 			if len(env.Refs) != 1 {
 				t.Fatalf("expected the log payload to externalize one leaf, got %d", len(env.Refs))
@@ -190,12 +193,21 @@ func TestObjects_LogReferencedSurvivesDeref(t *testing.T) {
 				t.Errorf("log object content mismatch")
 			}
 
-			// Before the horizon the sweep leaves it; past the horizon it is reclaimed.
+			// While the log row stands the sweep leaves it; once the row is pruned the claim's
+			// owner is gone, and the object goes after the grace window.
 			if n, err := b.db.CollectObjects(nowPlusHours(0)); err != nil || n != 0 {
 				t.Fatalf("premature sweep: n=%d err=%v", n, err)
 			}
-			if n, err := b.db.CollectObjects(nowPlusHours(2)); err != nil || n != 1 {
-				t.Fatalf("expected 1 object swept after horizon, got n=%d err=%v", n, err)
+			if _, err := b.db.PruneLogs(nowPlusHours(1)); err != nil {
+				t.Fatalf("PruneLogs: %v", err)
+			}
+			// This sweep retires the orphaned claim and stamps grace, so it collects nothing --
+			// a reference handed out before the prune still resolves.
+			if n, err := b.db.CollectObjects(nowPlusHours(2)); err != nil || n != 0 {
+				t.Fatalf("the grace window did not open: n=%d err=%v", n, err)
+			}
+			if n, err := b.db.CollectObjects(nowPlusHours(5)); err != nil || n != 1 {
+				t.Fatalf("expected 1 object swept once the grace window closed, got n=%d err=%v", n, err)
 			}
 			if _, _, err := b.db.GetObjectContent(ref.Ref); err == nil {
 				t.Fatalf("expected log object to be swept after horizon")
@@ -296,11 +308,19 @@ func TestObjects_ReleaseKeepsContentAnotherInstanceHolds(t *testing.T) {
 			}
 
 			// Once the LAST claim goes it becomes collectable — after its window, not before.
+			// The window starts when a sweep NOTICES nothing claims it, so the first sweep marks
+			// and a later one collects.
 			replaceOutput(t, b.db, "inst-keep", "small")
 			if _, err := b.db.ResolveObject(context.Background(), ref); err != nil {
 				t.Fatalf("released content vanished inside its grace window: %v", err)
 			}
-			if n, err := b.db.CollectObjects(nowPlusHours(2)); err != nil || n != 1 {
+			if n, err := b.db.CollectObjects(nowPlusHours(2)); err != nil || n != 0 {
+				t.Fatalf("the marking sweep collected it immediately: n=%d err=%v", n, err)
+			}
+			if _, err := b.db.ResolveObject(context.Background(), ref); err != nil {
+				t.Fatalf("released content vanished inside its grace window: %v", err)
+			}
+			if n, err := b.db.CollectObjects(nowPlusHours(4)); err != nil || n != 1 {
 				t.Fatalf("expected 1 object collected past the window, got n=%d err=%v", n, err)
 			}
 		})
@@ -324,9 +344,13 @@ func TestObjects_ReleasedObjectIsResurrectedByAReWrite(t *testing.T) {
 			if got := outputRef(t, b.db, "inst-alt"); got.Ref != ref1.Ref {
 				t.Fatalf("re-writing identical content produced a different object: %s vs %s", got.Ref, ref1.Ref)
 			}
-			// The proof it is alive rather than merely still inside its window: a sweep well past
-			// the window leaves it, because a real claim is holding it now.
-			if n, err := b.db.CollectObjects(nowPlusHours(48)); err != nil {
+			// The proof it is alive rather than merely still inside its window: sweeps well past
+			// the window leave it, because a real claim is holding it now. The first marks v2
+			// (nothing claims it), the second collects it; v1 survives both.
+			if n, err := b.db.CollectObjects(nowPlusHours(48)); err != nil || n != 0 {
+				t.Fatalf("the marking sweep collected something: n=%d err=%v", n, err)
+			}
+			if n, err := b.db.CollectObjects(nowPlusHours(50)); err != nil {
 				t.Fatalf("CollectObjects: %v", err)
 			} else if n != 1 {
 				// v2 is the one that should go; v1 is claimed.
@@ -486,15 +510,114 @@ func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CountObjectRefs: %v", err)
 			}
-			// One grace claim, not the instance's: released, and fetchable for its window.
-			if n != 1 {
-				t.Fatalf("claims after resolution = %d, want 1 (the grace claim)", n)
+			// No claim left at all: the instance released it, and the grace window is a mark the
+			// sweep keeps rather than a claim anyone stamps.
+			if n != 0 {
+				t.Fatalf("claims after resolution = %d, want 0 — the instance claim leaked", n)
+			}
+			if _, err := b.db.ResolveObject(context.Background(), ref); err != nil {
+				t.Fatalf("released bundle vanished before any sweep ran: %v", err)
+			}
+			if swept, err := b.db.CollectObjects(nowPlusHours(2)); err != nil || swept != 0 {
+				t.Fatalf("the marking sweep collected it immediately: swept=%d err=%v", swept, err)
 			}
 			if _, err := b.db.ResolveObject(context.Background(), ref); err != nil {
 				t.Fatalf("released bundle vanished inside its grace window: %v", err)
 			}
-			if swept, err := b.db.CollectObjects(nowPlusHours(2)); err != nil || swept != 1 {
-				t.Fatalf("past the window: swept=%d err=%v, want 1 — the instance claim leaked", swept, err)
+			if swept, err := b.db.CollectObjects(nowPlusHours(4)); err != nil || swept != 1 {
+				t.Fatalf("past the window: swept=%d err=%v, want 1", swept, err)
+			}
+		})
+	}
+}
+
+// A resurrected object gets a FRESH window when it is released again -- the mark from its previous
+// release must not survive the re-claim.
+//
+// Without the clear, release -> sweep (marks) -> re-claim -> release leaves a mark already older
+// than the window, so the next sweep collects the content on the spot and a reference handed out
+// moments earlier resolves to nothing. The object is safe while it is CLAIMED (the delete checks
+// claims first), which is exactly why a stale mark stays invisible until the second release.
+//
+// Two things clear it, deliberately: PutObject's conflict path, which is the moment a writer
+// re-claims content and already writes the row to take its lock, and the sweep's own pass for a
+// claim added without re-writing content. specs/object-store.md.
+func TestObjects_ResurrectionClearsTheReleaseMark(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			b.db.SetObjectGrace(time.Hour)
+			v1, v2 := bigString("churn1"), bigString("churn2")
+			saveWithOutput(t, b.db, "inst-churn", v1)
+			ref := outputRef(t, b.db, "inst-churn")
+
+			// Release v1, and let a sweep notice: it is now marked.
+			replaceOutput(t, b.db, "inst-churn", v2)
+			if _, err := b.db.CollectObjects(nowPlusHours(0)); err != nil {
+				t.Fatalf("CollectObjects: %v", err)
+			}
+
+			// Re-claim it, well past the point where that first mark would have expired.
+			replaceOutput(t, b.db, "inst-churn", v1)
+			if _, err := b.db.CollectObjects(nowPlusHours(5)); err != nil {
+				t.Fatalf("CollectObjects: %v", err)
+			}
+			if _, err := b.db.ResolveObject(context.Background(), ref); err != nil {
+				t.Fatalf("a re-claimed object was collected on its old mark: %v", err)
+			}
+
+			// Release it again: the window must start now, not at the first release.
+			replaceOutput(t, b.db, "inst-churn", v2)
+			if _, err := b.db.CollectObjects(nowPlusHours(6)); err != nil {
+				t.Fatalf("CollectObjects: %v", err)
+			}
+			if _, err := b.db.ResolveObject(context.Background(), ref); err != nil {
+				t.Fatalf("a re-released object lost its grace window to a stale mark: %v", err)
+			}
+
+			// And it is still bounded: past the fresh window it goes.
+			if _, err := b.db.CollectObjects(nowPlusHours(8)); err != nil {
+				t.Fatalf("CollectObjects: %v", err)
+			}
+			if _, err := b.db.ResolveObject(context.Background(), ref); err == nil {
+				t.Fatal("the object outlived its fresh window")
+			}
+		})
+	}
+}
+
+// The claim the sweeper never sees: marked, re-claimed and released again all BETWEEN two sweeps.
+//
+// Only the content upsert can catch this one. The sweep's own clear runs when it observes a live
+// claim, and here there is no observation to make — by the time the next sweep looks, the object
+// is unclaimed again and carrying a mark from before the claim it never saw. Left alone that mark
+// is already older than the window, so the content goes with no grace at all.
+//
+// PutObject's conflict path clears it because that is the instant the claim is made, and the row
+// is being written anyway to take the sweep's lock. specs/object-store.md.
+func TestObjects_AClaimBetweenTwoSweepsStillEarnsAWindow(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			b.db.SetObjectGrace(time.Hour)
+			v1, v2 := bigString("blink1"), bigString("blink2")
+			saveWithOutput(t, b.db, "inst-blink", v1)
+			ref := outputRef(t, b.db, "inst-blink")
+
+			replaceOutput(t, b.db, "inst-blink", v2)
+			if _, err := b.db.CollectObjects(nowPlusHours(0)); err != nil {
+				t.Fatalf("CollectObjects: %v", err)
+			}
+
+			// Claimed and released again with NO sweep in between: the sweeper sees neither event.
+			replaceOutput(t, b.db, "inst-blink", v1)
+			replaceOutput(t, b.db, "inst-blink", v2)
+
+			// Long after the FIRST mark would have expired. The claim in between must have reset
+			// the clock, or this collects content whose window never ran.
+			if _, err := b.db.CollectObjects(nowPlusHours(5)); err != nil {
+				t.Fatalf("CollectObjects: %v", err)
+			}
+			if _, err := b.db.ResolveObject(context.Background(), ref); err != nil {
+				t.Fatalf("a claim the sweeper never saw left the object on a stale mark, and it was collected with no window: %v", err)
 			}
 		})
 	}

@@ -50,7 +50,12 @@ func TestCollectObjects_RunsWithLogRetentionDisabled(t *testing.T) {
 	if err := database.UpdateInstanceProgress(reloaded); err != nil {
 		t.Fatalf("UpdateInstanceProgress: %v", err)
 	}
-	db.AdvanceClock(time.Second) // past the zero-length grace window
+	// Two sweeps: the first NOTICES that nothing claims it and starts the clock, the second
+	// collects once that mark is older than the (zero-length) window. The window runs from when
+	// the sweep noticed, not from the release -- no releaser can tell whether it dropped the last
+	// claim. specs/object-store.md.
+	eng.collectObjects()
+	db.AdvanceClock(time.Second)
 	eng.collectObjects()
 
 	if n, err := database.CountObjectRefs(ref.Ref); err != nil {

@@ -9,17 +9,17 @@ import (
 )
 
 type Object struct {
-	Hash      string
-	Content   string
-	Size      int64
-	CreatedAt int64
+	Hash       string
+	Content    string
+	Size       int64
+	CreatedAt  int64
+	ReleasedAt sql.NullInt64
 }
 
 type ObjectRef struct {
 	Hash      string
 	OwnerKind string
 	OwnerID   string
-	ExpiresAt sql.NullInt64
 	CreatedAt int64
 }
 

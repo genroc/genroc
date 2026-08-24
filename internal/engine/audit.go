@@ -53,16 +53,15 @@ func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 	}
 	// Console shows a capped excerpt regardless of how the full payload is persisted.
 	e.emitWithData(consoleEv, truncateStr(text, e.payloadCap()))
-	if err := e.db.AppendLog(&model.LogEntry{
+	if err := e.db.AppendLogValue(&model.LogEntry{
 		InstanceID: ev.ID,
 		Level:      ev.Level,
 		Event:      ev.Event,
 		TaskID:     ev.Task,
 		Message:    ev.Msg,
 		Code:       string(ev.Code),
-		Data:       e.encodeLogData(ev.ID, ev.Data),
 		Meta:       ev.Meta,
-	}); err != nil {
+	}, ev.Data, int64(e.payloadCap())); err != nil {
 		e.logOnly(logEvent{Level: model.LogError, ID: ev.ID, Msg: "append audit log: " + err.Error()})
 	}
 }
@@ -257,28 +256,4 @@ func truncateStr(s string, max int) string {
 		return s[:max] + "…(truncated)"
 	}
 	return s
-}
-
-// encodeLogData renders a scrubbed payload into the data column: small inline, large as a
-// log object + short preview, so high-churn process_logs never holds a huge value.
-// Best-effort: a failed object write falls back to a truncated inline preview.
-func (e *Engine) encodeLogData(instanceID string, v any) string {
-	if v == nil {
-		return ""
-	}
-	// The same cut as any other value: the fewest, largest leaves move out and the rest stays
-	// inline. A payload repeating something the instance already externalized -- a child's input
-	// carrying a script bundle -- produces the identical leaf, hashes the same, and SHARES that
-	// object rather than storing a second copy of it.
-	env, err := e.db.CutLogValue(instanceID, v, int64(e.payloadCap()))
-	if err != nil {
-		if b, mErr := json.Marshal(model.Envelope{Data: truncateStr(dataText(v), e.payloadCap())}); mErr == nil {
-			return string(b)
-		}
-		return ""
-	}
-	if b, err := json.Marshal(env); err == nil {
-		return string(b)
-	}
-	return ""
 }

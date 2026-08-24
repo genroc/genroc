@@ -147,8 +147,8 @@ test(
     const isMine = (p?: string) => p === leaf || p === root;
 
     // The LEAF is a looping worker that externalizes values three ways:
-    //   • input.blob              — large input (instance + log claims on inst_created → one shared object)
-    //   • gen → self.result       — large action result (instance + log claims while current → churned to log-only each loop)
+    //   • input.blob              — large input (instance claim + a log claim on inst_created's row → one shared object)
+    //   • gen → self.result       — large action result (instance claim + per-row log claims → churned to log-only each loop)
     //   • scratch → blob + i      — large task output, NOT logged (pure context; deleted outright on each loop)
     // gen loops back through scratch until the mock reports done, then the leaf returns
     // the big blob in its OUTPUT.
@@ -366,14 +366,15 @@ test(
 
     // Content and claims are separate tables now: one object per distinct content, and a row
     // per owner holding it. specs/object-store.md.
-    const objs = sqlJson<{ hash: string }>("SELECT hash FROM objects");
+    const objs = sqlJson<{ hash: string; releasedAt: number | null }>(
+      "SELECT hash, released_at AS releasedAt FROM objects",
+    );
     const refs = sqlJson<{
       hash: string;
       ownerKind: string;
       ownerId: string;
-      expiresAt: number | null;
     }>(
-      "SELECT hash, owner_kind AS ownerKind, owner_id AS ownerId, expires_at AS expiresAt FROM object_refs",
+      "SELECT hash, owner_kind AS ownerKind, owner_id AS ownerId FROM object_refs",
     );
     const insts = sqlJson<{
       id: string;
@@ -383,8 +384,8 @@ test(
     }>(
       "SELECT id, input_data AS input, outputs_data AS outputs, output_data AS output FROM process_instances",
     );
-    const logs = sqlJson<{ instanceId: string; data: string }>(
-      "SELECT instance_id AS instanceId, data FROM process_logs",
+    const logs = sqlJson<{ id: string; instanceId: string; data: string }>(
+      "SELECT id, instance_id AS instanceId, data FROM process_logs",
     );
 
     const key = (instanceId: string, ref: string) => `${instanceId}|${ref}`;
@@ -426,9 +427,11 @@ test(
       }
     }
 
-    // Log references: each process_logs.data envelope that externalized its payload.
+    // Log references: each process_logs.data envelope that externalized its payload, keyed by
+    // the ROW. A log claim's owner is the row that carries the payload, not the instance — which
+    // is what lets the claim be released when the row is pruned instead of expiring on a guess.
     const logRefs = new Set<string>();
-    for (const l of logs) addRef(logRefs, l.instanceId, l.data);
+    for (const l of logs) addRef(logRefs, l.id, l.data);
 
     // A claim is (kind, owner, hash). The old shape could only say that SOMEONE pinned a row;
     // this can say who, so the checks below are stricter than the ones they replace.
@@ -461,26 +464,27 @@ test(
       ).toBe(true);
     }
 
-    // 2. Every log reference resolves to content held by a log claim of that instance.
+    // 2. Every log reference resolves to content held by a log claim of that ROW.
     for (const k of logRefs) {
-      const [instanceId, hash] = k.split("|");
+      const [logId, hash] = k.split("|");
       expect(objs.some((o) => o.hash === hash), `log ref ${k} has no content`).toBe(true);
-      expect(claims.has(`log|${instanceId}|${hash}`), `log ref ${k} has no log claim`).toBe(true);
+      expect(claims.has(`log|${logId}|${hash}`), `log ref ${k} has no log claim`).toBe(true);
     }
 
 
-    // 3. No leaked content: every object must be held by at least one claim of any kind. This
-    //    is the whole GC rule, and it is the one invariant that survives the re-architecture
-    //    unchanged — only the spelling of "held" moved from two columns to a row.
+    // 3. No OVERDUE content. Unclaimed is not a leak: the sweep marks an object when it notices
+    //    nothing holds it and collects a window later, and the janitor runs once a minute — so a
+    //    recent release is legitimately unclaimed and unmarked. A leak is content whose window
+    //    passed long ago and which is still here.
     //
-    //    It tolerates two things on purpose. A crash-orphaned LOG claim (its async-buffered log
-    //    row lost to a SIGKILL) is horizon-alive and reclaimed at expiry, not a leak — which is
-    //    why this checks the claim rather than a surviving log row. And a GRACE claim is a
-    //    released object still inside its window, which is a claim like any other.
+    //    A crash-orphaned LOG claim (its row lost to a SIGKILL before the write landed) is
+    //    likewise a pending release, not a leak: the sweep drops it once it sees the owner is
+    //    gone, which is why this checks the claim rather than a surviving log row.
     for (const o of objs) {
+      const overdue = o.releasedAt !== null && Date.now() - o.releasedAt > 10 * 60_000;
       expect(
-        (claimsByHash.get(o.hash) ?? 0) > 0,
-        `object ${o.hash} has no claim at all — content outlived every reference to it`,
+        (claimsByHash.get(o.hash) ?? 0) > 0 || !overdue,
+        `object ${o.hash} is unclaimed and long past its window — the collector is not collecting`,
       ).toBe(true);
     }
 

@@ -276,21 +276,30 @@ DELETE FROM process_logs WHERE created_at < sqlc.arg(before);
 -- the conflict path has nothing to change.
 --
 -- DO UPDATE, not DO NOTHING, and that is load-bearing rather than style. DO NOTHING writes
--- nothing and takes no row lock, so a concurrent sweep can delete the object between this
--- statement and the claim that follows it, leaving a ref pointing at content that is gone.
--- Setting size (the same value by construction) holds the row, and the sweep's DELETE then
--- re-evaluates its predicate and finds the new claim. SQLite's single writer hides the race;
--- Postgres does not. specs/object-store.md.
+-- nothing and takes no row lock, so a concurrent sweep never even pauses before deleting the
+-- object this statement is about to claim. The update is what makes the sweep WAIT.
+--
+-- It also clears the release mark, and this is the right moment for it: the writer is about to
+-- claim the object, so any window the sweep opened is void. Doing it here rather than leaving it
+-- to the sweep's own clear closes the gap where an object is marked, claimed and released again
+-- BETWEEN two sweeps -- which would leave a mark already older than the window and collect the
+-- content with no grace at all. size is written for the lock; released_at is written because it
+-- is true.
+--
+-- Waiting is only half of it, and the half this comment used to claim on its own was wrong: a
+-- one-statement sweep wakes and re-checks the row, not its subquery, so it deleted anyway. The
+-- other half is the sweep's lock-then-delete split (collectUnreferencedPG). Neither works alone.
+-- specs/object-store.md.
 INSERT INTO objects (hash, content, size, created_at)
 VALUES (sqlc.arg(hash), sqlc.arg(content), sqlc.arg(size), sqlc.arg(created_at))
-ON CONFLICT (hash) DO UPDATE SET size = excluded.size;
+ON CONFLICT (hash) DO UPDATE SET size = excluded.size, released_at = NULL;
 
 -- name: PutObjectRef :exec
--- Claim an object for an owner. A repeat claim refreshes the horizon, which is how a log
--- re-referencing the same payload extends it, and how a release refreshes the grace window.
-INSERT INTO object_refs (hash, owner_kind, owner_id, expires_at, created_at)
-VALUES (sqlc.arg(hash), sqlc.arg(owner_kind), sqlc.arg(owner_id), sqlc.arg(expires_at), sqlc.arg(created_at))
-ON CONFLICT (hash, owner_kind, owner_id) DO UPDATE SET expires_at = excluded.expires_at;
+-- Claim an object for an owner. Idempotent: a repeat claim keeps the row it already has, so a
+-- caller never needs to know which of the hashes it references are new.
+INSERT INTO object_refs (hash, owner_kind, owner_id, created_at)
+VALUES (sqlc.arg(hash), sqlc.arg(owner_kind), sqlc.arg(owner_id), sqlc.arg(created_at))
+ON CONFLICT (hash, owner_kind, owner_id) DO UPDATE SET created_at = object_refs.created_at;
 
 -- name: DropObjectRef :exec
 -- Release one owner's claim. It does NOT touch content: another owner may hold the same hash,
@@ -304,21 +313,43 @@ WHERE hash = sqlc.arg(hash) AND owner_kind = sqlc.arg(owner_kind) AND owner_id =
 -- bytes that produce it, so this discloses nothing a holder of the hash did not already have.
 SELECT content, size FROM objects WHERE hash = sqlc.arg(hash);
 
--- name: DropExpiredObjectRefs :execrows
--- Sweep, step one: retire claims whose horizon has passed -- a log past its retention, a grace
--- window that elapsed. Separate from step two so the two questions stay separate: this is "is
--- this claim still live", that is "is anyone still claiming".
-DELETE FROM object_refs
-WHERE expires_at IS NOT NULL AND expires_at < sqlc.arg(before);
-
 -- name: CollectUnreferencedObjects :execrows
 -- Sweep, step two, and the whole GC rule: an object goes when no claim remains. Never "was mine
 -- the last one", which is the question a refcount would have to get right and the way a shared
 -- store loses someone else's value.
+--
+-- SQLITE ONLY. Its single writer means no claim can commit between this statement's snapshot and
+-- its delete. Postgres needs the lock-then-delete split in collectUnreferencedPG: one statement
+-- has one snapshot, so a concurrent claim stays invisible to the NOT EXISTS however long the
+-- statement waited on a row lock.
 DELETE FROM objects
-WHERE NOT EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = objects.hash);
+WHERE NOT EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = objects.hash)
+  AND released_at IS NOT NULL AND released_at < sqlc.arg(before);
+
+-- name: ClearObjectRelease :execrows
+-- Something claims it again, so the mark is void. Runs before the mark, so an object that gained
+-- and kept a claim is never collected on a stale one.
+UPDATE objects SET released_at = NULL
+WHERE released_at IS NOT NULL
+  AND EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = objects.hash);
+
+-- name: MarkObjectReleased :execrows
+-- Nothing claims it, and nothing had noticed yet: start the clock. The sweep decides this rather
+-- than the releaser, because no owner dropping ITS claim can tell whether it dropped the last one
+-- -- which is what made stamping a grace claim a distributed obligation nobody could satisfy.
+UPDATE objects SET released_at = sqlc.arg(now)
+WHERE released_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM object_refs r WHERE r.hash = objects.hash);
 
 -- name: CountObjectRefs :one
 -- How many owners hold this object. Diagnostics, and the only way a test can see the
 -- cross-instance sharing this store exists for.
 SELECT COUNT(*) FROM object_refs WHERE hash = sqlc.arg(hash);
+
+-- name: OrphanedLogRefs :many
+-- Log claims whose owner row is gone. owner_id IS the log row's id, so a claim is wanted exactly
+-- while its row is and needs no horizon to say so.
+--
+SELECT hash, owner_id FROM object_refs
+WHERE owner_kind = 'log'
+  AND NOT EXISTS (SELECT 1 FROM process_logs l WHERE l.id = object_refs.owner_id);

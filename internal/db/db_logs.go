@@ -69,6 +69,43 @@ func (db *DB) AppendLog(entry *model.LogEntry) error {
 	return nil
 }
 
+// AppendLogValue stores one audit row whose payload is a VALUE, cutting it like any other and
+// claiming each externalized piece for the row itself.
+//
+// A row with objects is written synchronously, row and claims in ONE transaction, rather than
+// through the buffer. The claim's owner is the row, so a buffered row would leave a claim whose
+// owner does not exist yet -- and the sweep, which retires exactly those, would take it. Rows
+// without objects (nearly all of them) keep the buffered path and its batching.
+func (db *DB) AppendLogValue(entry *model.LogEntry, v any, target int64) error {
+	if v == nil {
+		return db.AppendLog(entry) // no payload, no envelope: the column stays empty
+	}
+	env, objs, referenced, err := cutLogPayload(v, target)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(env)
+	if err != nil {
+		return err
+	}
+	entry.Data = string(b)
+	if len(referenced) == 0 {
+		return db.AppendLog(entry)
+	}
+	params, err := buildLogParams(entry)
+	if err != nil {
+		return err
+	}
+	now := nowMillis()
+	return db.withTx(context.Background(), func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
+		if err := claimObjects(context.Background(), qtx, model.ObjectOwnerLog, params.ID,
+			objs, referenced, now); err != nil {
+			return err
+		}
+		return qtx.InsertLog(context.Background(), params)
+	})
+}
+
 // buildLogParams stamps an entry's id/created_at/meta into the process_logs row params.
 // A blank id gets a fresh UUIDv7 (monotonic within a millisecond, so the (created_at,
 // id) sort preserves insertion order for co-millisecond events); a zero CreatedAt gets

@@ -20,6 +20,7 @@ Hand-written SQL (the exceptions below) uses `?` placeholders run through the re
 
 Exceptions (hand-written in Go, not in `queries.sql`):
 - `ClaimInstances` (`db_claim.go`) — PostgreSQL uses `FOR UPDATE SKIP LOCKED` for concurrent workers; SQLite's single-writer model does not support this.
+- `collectUnreferencedPG` (`db_objects.go`) — the object sweep splits into `SELECT … FOR UPDATE` then `DELETE` on Postgres, so the delete decides on a snapshot taken after any writer it waited for. Neither statement binds a value, so the raw `db.sqldb` transaction needs no placeholder rewriting.
 - `PauseProcess` / `ResumeProcess` / `RetryProcess` (`db_lifecycle.go`) and subtree log queries (`db_logs.go`) — enumerate a process tree with a `WITH RECURSIVE` walk over `parent_id` (`subtreeCTE`), which sqlc's SQLite grammar can't parse. The recursive CTE takes no row locks; the mutating step then locks the result `ORDER BY created_at, id FOR UPDATE` in a separate step (Postgres only) — the global order shared with `FinishChild`/`FailInstanceAndAncestors` that prevents deadlocks (Postgres also forbids `FOR UPDATE` inside a recursive CTE, forcing this split).
 - The list endpoints — `ListInstances`, `ListExternalTasks`, `ListDefinitions`, `ListChannels`, `ListLogs`/`ListTreeLogs` — take a dynamic `ORDER BY` + keyset cursor, which sqlc can't express (a column name / `ASC`/`DESC` is never a bind value). They share the bidirectional keyset paginator in `paginate.go`: a wrapper declares a `paginator` (its table, columns, the **index-backed** sortable columns, and the filterable columns), adds filters by column+value via `Eq`/`EqIf`/`GteIf`, and calls `build()` (or `buildSource()` for a recursive-CTE prefix like `ListTreeLogs`) to get the page query (`SELECT … FROM … WHERE … ORDER BY … LIMIT ?`). Column names and operators come only from the whitelists; all values are bound `?`, so there is no injection surface. After the page is scanned, `orient` flips a backward page back to display order and yields its boundary key values, then `built.countQuery` counts how many rows fall before the first / after the last row as **two bounded subqueries** (`SELECT (SELECT COUNT(*) FROM (… WHERE <before-keyset> LIMIT cap+1)), (SELECT COUNT(*) FROM (… WHERE <after-keyset> LIMIT cap+1))`) — each scans at most `pageCountCap+1` (1001) rows, so a value of 1001 means ">1000" (UI shows "1000+"); there is no unbounded grand `COUNT(*)`. `db.pageInfo` assembles `PageInfo`. The cursor is an opaque base64 token carrying the sort key+direction (rejected if reused under a different sort/direction); `After` pages forward, `Before` backward. The HTTP layer returns `{items, page:{size, items_before, items_after, sort, order, after, before}}` (`PageResp[T]`). `sort`/`order` echo the effective sort key + direction; `after`/`before` are the cursors to pass straight back as `?after`/`?before` (same names as the request params) and each is set only in a direction that has more rows — so cursor presence is itself the has-more signal and a page-to-end loop terminates when `after` is absent. Page size defaults to 20, capped at 100. Sorts are restricted to index-backed columns and extended by adding a key to the `sorts` map (with a matching index).
 
@@ -126,19 +127,55 @@ things break silently if you touch this:
 
 1. **Deletion is "no claim remains", never "my claim went".** Content is shared across
    instances now, so the second rule destroys an unrelated instance's value — and its own
-   instance still resolves, so nothing local looks wrong. `CollectUnreferencedObjects` is the
-   only statement that deletes content, and its `NOT EXISTS` is the whole rule.
-2. **`PutObject` is `ON CONFLICT DO UPDATE SET size`, not `DO NOTHING`.** `DO NOTHING` writes
-   nothing and takes no row lock, so a sweep can delete an object between a writer taking the
-   conflict path and its claim becoming visible, leaving a claim on content that is gone. The
-   update is a no-op by construction (one hash, one content, one length) and exists only to hold
-   the row. SQLite's single writer hides this; Postgres does not, and no test pins it — see the
-   note on `TestObjects_ResurrectionAgainstALiveSweeper`.
-3. **Releasing a claim stamps a grace claim, and only an owner may stamp one.** A read hands out
+   instance still resolves, so nothing local looks wrong. Its `NOT EXISTS` is the whole rule,
+   in both engines' paths (`CollectUnreferencedObjects` on SQLite, `collectUnreferencedPG` on
+   Postgres).
+2. **The resurrection race needs TWO defences, and neither works alone.** A writer re-creating
+   released content races the sweep, and the store loses the content while keeping the claim.
+   - `PutObject` is `ON CONFLICT DO UPDATE SET size, released_at = NULL`, not `DO NOTHING`.
+     `DO NOTHING` writes nothing and takes no row lock, so the sweep does not even pause. The
+     update holds the row — and clears the release mark, which is the same instant a writer
+     re-claims the content (see 3).
+   - The Postgres sweep is `SELECT … FOR UPDATE` **then** `DELETE`, in one transaction
+     (`collectUnreferencedPG`). A single DELETE has one snapshot: it waits on the row lock, then
+     re-checks the target ROW and not its subquery, so it deletes on a view of `object_refs`
+     taken before the claim committed. Read committed re-snapshots per statement, which is what
+     makes the split work. SQLite keeps the single statement — its single writer means nothing
+     can commit in between.
+
+   Both are pinned by `TestObjects_ContentSurvivesASweepRacingItsResurrection` (Postgres only),
+   which fails distinctly for each. Do NOT rely on `TestObjects_ResurrectionAgainstALiveSweeper`:
+   it stayed green through eight runs with both defences removed.
+
+   **Both defences assume the content write and its claim share a transaction.** Neither helps
+   otherwise — the lock is released at the end of the statement that took it. So the ADDITION half
+   has exactly one spelling, `claimObjects`, which takes a transaction's queries: the instance
+   path joins the instance write, `AppendLogValue` opens its own.
+   `archtest.TestObjectWritesGoThroughClaimObjects` stops the next copy of the loop from existing.
+
+3. **The grace window is a MARK the sweep keeps, not a claim anyone stamps.** A read hands out
    references and fetching them is a second call, so deleting at release 404s a client on a
    reference it was just given; `--object-grace` (default 1h) is the window in which that cannot
-   happen. If the *sweep* ever stamps one, an expiring grace claim earns itself another window
-   forever and nothing is ever collected.
+   happen. `objects.released_at` records it, and the sweep maintains it: clear where a claim
+   exists, set where none does, collect once the mark is older than the window.
+
+   **The sweep decides because no releaser can.** An owner dropping its claim cannot tell whether
+   it dropped the LAST one, so stamping a window was a distributed obligation nobody could
+   satisfy — it needed an exception the first time a new releaser appeared, and claims retired by
+   the expiry sweep got no window at all. Now every owner touches only its own refs.
+
+   Two things clear the mark, and each covers what the other cannot:
+   - `PutObject`'s conflict path, at the instant a writer re-claims content. This is the only
+     thing that catches a claim made and released BETWEEN two sweeps
+     (`TestObjects_AClaimBetweenTwoSweepsStillEarnsAWindow`).
+   - the sweep's own pass, for a claim added without re-writing content — what a passed-through
+     reference does (`TestObjects_ResurrectionClearsTheReleaseMark`).
+
+   The cost is that the window starts when the sweep NOTICES, and the sweep is a once-a-minute
+   janitor — so released content lingers up to a minute longer than `--object-grace`. Accepted
+   deliberately; it errs toward keeping data. It also means an object can be legitimately
+   unclaimed and unmarked, which is why the stress tests assert "nothing OVERDUE" rather than
+   "everything claimed".
 4. **`owner_kind` governs lifetime, not access.** Reads (`GetObject`) are addressed by content
    hash and consult no claim — knowing a hash is knowing the bytes that produce it. Do not add
    an owner parameter back "for safety": it would be checked against nothing meaningful and
