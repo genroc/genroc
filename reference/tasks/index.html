@@ -206,7 +206,7 @@ waits indefinitely.</p>
 <code>on_error</code> rules carrying <code>not_reached: true</code>.</li>
 <li>A rule that is not restricted to <code>pre.*</code> needs <code>not_reached: true</code> <strong>and</strong> must name exact
 codes — no wildcards.</li>
-<li><code>http.timeout</code>, <code>http.disconnected</code>, <code>external.timeout</code> and <code>only_once.interrupted</code> can
+<li><code>http.timeout</code>, <code>http.disconnected</code>, <code>external.timeout</code>, <code>external.lost</code> and <code>only_once.interrupted</code> can
 never be retried at all: the request left and nothing came back, so nothing can be
 asserted about it.</li>
 </ul>
@@ -336,7 +336,11 @@ including <code>_</code> and <code>.</code> — is literal, so <code>order_%</co
 
 
 
-<table><thead><tr><th>Code</th><th>Raised when</th></tr></thead><tbody><tr><td><code>http.NNN</code></td><td>The response status was not accepted (e.g. <code>http.500</code>, <code>http.202</code>).</td></tr><tr><td><code>http.timeout</code></td><td>The request left and no response came back in time.</td></tr><tr><td><code>http.disconnected</code></td><td>The request left and the connection broke before a response.</td></tr><tr><td><code>pre.error</code>, <code>pre.timeout</code></td><td>The call never reached the remote.</td></tr><tr><td><code>output.parse</code></td><td>The response body is not valid JSON.</td></tr><tr><td><code>output.too_large</code></td><td>The response body exceeds the fetch response cap.</td></tr><tr><td><code>output.invalid</code></td><td>The body does not validate against the schema declared for it.</td></tr><tr><td><code>external.timeout</code></td><td>An <code>external</code> task’s deadline passed with no submitted result.</td></tr></tbody></table>
+
+
+
+
+<table><thead><tr><th>Code</th><th>Raised when</th></tr></thead><tbody><tr><td><code>http.NNN</code></td><td>The response status was not accepted (e.g. <code>http.500</code>, <code>http.202</code>).</td></tr><tr><td><code>http.timeout</code></td><td>The request left and no response came back in time.</td></tr><tr><td><code>http.disconnected</code></td><td>The request left and the connection broke before a response.</td></tr><tr><td><code>pre.error</code>, <code>pre.timeout</code></td><td>The call never reached the remote.</td></tr><tr><td><code>output.parse</code></td><td>The response body is not valid JSON.</td></tr><tr><td><code>output.too_large</code></td><td>The response body exceeds the fetch response cap.</td></tr><tr><td><code>output.invalid</code></td><td>The body does not validate against the schema declared for it.</td></tr><tr><td><code>external.timeout</code></td><td>An <code>external</code> task’s deadline passed with no submitted outcome.</td></tr><tr><td><code>external.lost</code></td><td>A worker’s claim on an <code>only_once</code> <code>external</code> task lapsed with no answer, so the task was not handed out again.</td></tr></tbody></table>
 <p>Internal <code>engine.*</code> failures — <code>engine.spawn</code>, <code>engine.collect</code>, <code>engine.expression</code> — are
 terminal and are <strong>not</strong> routed through <code>on_error</code>.</p>
 <p>On a <code>child</code>, <code>child_map</code> or <code>child_list</code> task the codes match the codes the child processes
@@ -916,6 +920,11 @@ which is a deliberate hand-back rather than a lapse.</li>
 <p>A claim never delays the task’s own <code>timeout</code>: the deadline is authoritative, and <code>external.timeout</code>
 fires on time however long a worker holds the task. Tasks already past their deadline are not
 offered, since answering them would no longer be accepted.</p>
+<p>On an <a href="#only_once"><code>only_once</code></a> task a lapsed claim is handled differently, because the first
+worker may already have done the work: the task is <strong>not</strong> offered again, and the instance
+raises the catchable <code>external.lost</code> instead. Like <code>external.timeout</code> it is unknowable — nothing
+came back to interpret — so <code>not_reached</code> cannot buy a retry for it; catch it and ask the system
+of record what actually happened, exactly as with <code>only_once.interrupted</code>.</p>
 <p>Either outcome is accepted while the instance is <strong>paused</strong>: a pause suspends execution, not
 delivery, and it is consumed when the tree resumes. A failure signalled before the task arms
 buffers exactly as a result does. Rejecting it would discard
