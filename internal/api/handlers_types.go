@@ -231,8 +231,11 @@ type ExternalTaskResp struct {
 	TaskID       string         `json:"task_id"`
 	Input        any            `json:"input"`                   // the task's evaluated input snapshot
 	ResultSchema *schema.Schema `json:"result_schema,omitempty"` // JSON Schema the submitted result must satisfy
-	Raises       model.Raises   `json:"raises,omitempty"`        // code -> JSON Schema the failure payload must satisfy, for /external-tasks/fail
+	Raises       model.Raises   `json:"raises,omitempty"`        // the codes this task accepts on the error channel -> the payload each carries (null = none)
 	WaitingSince string         `json:"waiting_since"`           // RFC3339 park time
+	Deadline     string         `json:"deadline,omitempty"`      // RFC3339 task timeout; absent = waits forever. Past it the engine raises external.timeout whatever a claim holds
+	ClaimedBy    string         `json:"claimed_by,omitempty"`    // worker holding a live claim; absent = claimable
+	ClaimExpires string         `json:"claim_expires,omitempty"` // RFC3339 visibility timeout of that claim
 }
 
 // FailureReq is the error half of a submitted outcome. A pointer field on the two request
@@ -248,6 +251,25 @@ type ResolveExternalTaskReq struct {
 	Token  string      `json:"token"`            // the token from the external-task queue
 	Result any         `json:"result,omitempty"` // the result payload, validated against the task's result_schema
 	Error  *FailureReq `json:"error,omitempty"`  // set INSTEAD of result to answer on the error channel
+}
+
+type ClaimExternalTasksReq struct {
+	WorkerID string `json:"worker_id"`          // who is claiming; recorded as the holder and required to renew
+	Limit    int    `json:"limit,omitempty"`    // max tasks to claim (default 1, cap 100)
+	LeaseMs  int64  `json:"lease_ms,omitempty"` // visibility timeout in ms (default 30000)
+	Process  string `json:"process,omitempty"`  // filter: process name
+	Version  int    `json:"version,omitempty"`  // filter: process version (0 = any)
+	Task     string `json:"task,omitempty"`     // filter: task id
+}
+
+type RenewExternalClaimsReq struct {
+	WorkerID string   `json:"worker_id"`          // the holder; a claim it no longer holds is not renewed
+	Tokens   []string `json:"tokens"`             // the claim tokens to extend
+	LeaseMs  int64    `json:"lease_ms,omitempty"` // new visibility timeout in ms (default 30000)
+}
+
+type ReleaseExternalTaskReq struct {
+	Token string `json:"token"` // the claim token to hand back
 }
 
 type SignalInstanceReq struct {

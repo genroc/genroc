@@ -48,17 +48,20 @@ function park(prefix: string): { name: string; id: string } {
 
 // ── the queue: displayed fields ─────────────────────────────────────────────────
 
-test("external-tasks — the table commits to WAITING, PROCESS, TASK and TOKEN", async () => {
+test("external-tasks — the table commits to WAITING, PROCESS, TASK, CLAIMED BY and TOKEN", async () => {
   const { name, id } = park("etcols");
   const token = await waitForExternalToken(id);
 
   const lines = runCli(bin, ["external-tasks", "--process", name]).stdout.trim().split("\n");
-  expect(lines[0].split(/\s+/)).toEqual(["WAITING", "PROCESS", "TASK", "TOKEN"]);
+  expect(lines[0].split(/\s\s+/)).toEqual(["WAITING", "PROCESS", "TASK", "CLAIMED BY", "TOKEN"]);
 
   const row = lines[1];
   expect(row).toContain("just now"); // WAITING is a relative age
   expect(row).toContain(`${name}@v1`);
   expect(row).toContain("approval");
+  // A dash, not a blank: unclaimed work and a column that failed to render must not look the
+  // same in a queue read to find work that is stuck.
+  expect(row).toContain("-");
   // The token goes last because it is long, and it is what `resolve` takes.
   expect(row.trimEnd().endsWith(token)).toBe(true);
 

@@ -33,32 +33,35 @@ type ProcessDependency struct {
 }
 
 type ProcessInstance struct {
-	ID              string
-	ProcessName     string
-	ProcessVersion  int64
-	ParentID        string
-	CallStack       string
-	RetryCount      int64
-	WakeAt          sql.NullInt64
-	Status          string
-	Error           string
-	CreatedAt       int64
-	UpdatedAt       int64
-	WorkerID        sql.NullString
-	LeaseExpiresAt  sql.NullInt64
-	WaitState       string
-	SpawnTaskID     string
-	InputData       string
-	OutputsData     string
-	OutputData      string
-	ErrorData       string
-	ExternalData    string
-	EngineState     string
-	Task            string
-	ErrorCode       string
-	LeaseEpoch      int64
-	TaskEpoch       int64
-	ParentTaskEpoch int64
+	ID                     string
+	ProcessName            string
+	ProcessVersion         int64
+	ParentID               string
+	CallStack              string
+	RetryCount             int64
+	WakeAt                 sql.NullInt64
+	Status                 string
+	Error                  string
+	CreatedAt              int64
+	UpdatedAt              int64
+	WorkerID               sql.NullString
+	LeaseExpiresAt         sql.NullInt64
+	WaitState              string
+	SpawnTaskID            string
+	InputData              string
+	OutputsData            string
+	OutputData             string
+	ErrorData              string
+	ExternalData           string
+	EngineState            string
+	Task                   string
+	ErrorCode              string
+	LeaseEpoch             int64
+	TaskEpoch              int64
+	ParentTaskEpoch        int64
+	ExternalWorkerID       sql.NullString
+	ExternalLeaseExpiresAt sql.NullInt64
+	ExternalClaimEpoch     int64
 }
 
 type ProcessLog struct {

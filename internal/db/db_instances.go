@@ -58,7 +58,8 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 	call_stack, retry_count, wake_at, status, error,
 	created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
 	input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-	error_code, lease_epoch, task_epoch, parent_task_epoch`
+	error_code, lease_epoch, task_epoch, parent_task_epoch,
+	external_worker_id, external_lease_expires_at, external_claim_epoch`
 
 // Lightweight ListInstances projection — no context/call-stack blobs; order matches
 // scanInstanceSummary. error_code stays despite the rule: short, and it is what a list
@@ -98,6 +99,7 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
 		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
 		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
+		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch,
 	)
 	return r, err
 }
@@ -557,6 +559,10 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 		LeaseEpoch:      r.LeaseEpoch,
 		TaskEpoch:       r.TaskEpoch,
 		ParentTaskEpoch: r.ParentTaskEpoch,
+
+		ExternalWorkerID:       nullStringPtr(r.ExternalWorkerID),
+		ExternalLeaseExpiresAt: toTimePtr(r.ExternalLeaseExpiresAt),
+		ExternalClaimEpoch:     r.ExternalClaimEpoch,
 	}
 	cd, loaded, err := decodeContext(r)
 	if err != nil {

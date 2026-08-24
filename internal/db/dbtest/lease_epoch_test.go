@@ -165,7 +165,7 @@ func TestLeaseEpoch_OperatorVerbsDoNotBump(t *testing.T) {
 			}
 
 			insertExternalParked(t, b.db, "verbs-resolve", 0, nil)
-			if err := b.db.ResolveExternalTask(ctx, "verbs-resolve", 0, model.ExternalOutcome{Result: map[string]any{"ok": true}}); err != nil {
+			if err := b.db.ResolveExternalTask(ctx, "verbs-resolve", 0, dbpkg.Unclaimed, model.ExternalOutcome{Result: map[string]any{"ok": true}}); err != nil {
 				t.Fatalf("ResolveExternalTask: %v", err)
 			}
 			if got := mustEpoch(t, b.db, "verbs-resolve"); got != 0 {

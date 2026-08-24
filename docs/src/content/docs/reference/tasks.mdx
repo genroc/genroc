@@ -421,7 +421,7 @@ endpoints take either:
 
 | | addressed by | unarmed task |
 |---|---|---|
-| `POST /external-tasks/resolve` | the queue `token` | rejected — the token names a live arming |
+| `POST /external-tasks/resolve` | a `token` (from the queue, or from a claim) | rejected — the token names a live arming |
 | `POST /instances/{id}/signal` | instance id + `task_id` | buffered FIFO until the task next arms |
 
 An `error` is routed through the task's `on_error` rules exactly like a call error:
@@ -475,6 +475,36 @@ stays parked, and the caller can answer again with a corrected one.
 The submitted `code` is an authored code — lower_snake_case, no dots — so a caller cannot
 spell an engine code such as `http.500` or `external.timeout` and be caught by a rule written
 for the wire.
+
+#### Pulling work: claim, renew, release
+
+`GET /external-tasks` lists the queue and `POST /external-tasks/resolve` answers it — enough
+for a person or a webhook. A **worker fleet** wants the pull half instead, so two of them do
+not run the same task:
+
+| | |
+|---|---|
+| `POST /external-tasks/claim` | leases parked tasks to a `worker_id`, oldest park first. Filters by `process` / `version` / `task`, `limit` per batch, `lease_ms` for the visibility timeout (default 30s). |
+| `POST /external-tasks/renew` | extends this worker's claims. `renewed` reports how many it still held — a worker learns it lost one here rather than when its answer is refused. |
+| `POST /external-tasks/release` | hands a claim back at once instead of waiting out the lease. |
+
+A claim returns a **three-part token** — `<instance>.<arming>.<grant>` — and that is the only
+handle accepted while the claim is live. The two-part token the queue publishes still answers
+an *unclaimed* task, so the approval-UI path is untouched, but it cannot answer over a worker
+mid-flight. A signal, which carries no handle at all, is buffered rather than delivered while a
+claim is live, for the same reason.
+
+Expiry and re-claim are deliberately asymmetric:
+
+- **Expiry writes nothing.** A lapsed claim just makes the row claimable again — so a worker
+  that overran its lease and was *never taken over* can still answer. Discarding work already
+  done is strictly worse.
+- **A re-claim is a new grant**, and voids the previous holder's token. So does a release,
+  which is a deliberate hand-back rather than a lapse.
+
+A claim never delays the task's own `timeout`: the deadline is authoritative, and `external.timeout`
+fires on time however long a worker holds the task. Tasks already past their deadline are not
+offered, since answering them would no longer be accepted.
 
 Either outcome is accepted while the instance is **paused**: a pause suspends execution, not
 delivery, and it is consumed when the tree resumes. A failure signalled before the task arms

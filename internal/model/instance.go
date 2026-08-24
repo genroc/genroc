@@ -66,27 +66,50 @@ const (
 	WaitStateExternal   WaitState = "external"   // parked on an external task, waiting for a submitted result (or timeout)
 )
 
-// ExternalToken is the handle a caller submits to resolve an external task: the instance,
-// plus the epoch of the ARMING the result belongs to. Derived on demand and never stored --
-// task_epoch on the instance row is the occurrence, so a copy in external_data would only
-// be a second thing that can disagree with it. Not a secret: the queue endpoint hands it to
-// any caller, and it is an occurrence discriminator rather than a capability.
+// ExternalToken is the handle a caller submits to answer an external task: the instance, plus
+// the epoch of the ARMING the answer belongs to. Derived on demand and never stored --
+// task_epoch on the instance row is the occurrence, so a copy in external_data would only be a
+// second thing that can disagree with it. Not a secret: the queue endpoint hands it to any
+// caller, and it is an occurrence discriminator rather than a capability.
+//
+// This two-part form is the UNCLAIMED handle. A claim grants the three-part ClaimToken, and a
+// row under a live claim accepts only that -- see ParseExternalToken.
 func ExternalToken(instanceID string, taskEpoch int64) string {
 	return fmt.Sprintf("%s.%d", instanceID, taskEpoch)
 }
 
-// ParseExternalToken is ExternalToken's inverse. Instance ids are UUIDs and carry no '.',
-// so the first dot is the boundary.
-func ParseExternalToken(token string) (instanceID string, epoch int64, ok bool) {
-	id, ep, found := strings.Cut(token, ".")
+// ClaimToken is the handle ClaimExternalTasks grants: ExternalToken plus the claim epoch.
+// The extra field is not decoration. Two workers can claim the same ARMING in sequence -- the
+// first claim expires, the second is granted -- and task_epoch does not move for either, so
+// without the claim epoch the dead worker's handle stays valid and its late answer would be
+// accepted over the live holder's.
+func ClaimToken(instanceID string, taskEpoch, claimEpoch int64) string {
+	return fmt.Sprintf("%s.%d.%d", instanceID, taskEpoch, claimEpoch)
+}
+
+// ParseExternalToken accepts both forms. hasClaim distinguishes them: false is a caller
+// answering unclaimed work (the queue-then-resolve path a UI uses), true a claim holder
+// naming the grant it is answering under.
+//
+// Instance ids are UUIDs and carry no '.', so the first dot is the instance boundary.
+func ParseExternalToken(token string) (instanceID string, taskEpoch, claimEpoch int64, hasClaim, ok bool) {
+	id, rest, found := strings.Cut(token, ".")
 	if !found || id == "" {
-		return "", 0, false
+		return "", 0, 0, false, false
 	}
-	n, err := strconv.ParseInt(ep, 10, 64)
+	epochStr, claimStr, hasClaim := strings.Cut(rest, ".")
+	n, err := strconv.ParseInt(epochStr, 10, 64)
 	if err != nil || n < 0 {
-		return "", 0, false
+		return "", 0, 0, false, false
 	}
-	return id, n, true
+	if !hasClaim {
+		return id, n, 0, false, true
+	}
+	c, err := strconv.ParseInt(claimStr, 10, 64)
+	if err != nil || c < 0 {
+		return "", 0, 0, false, false
+	}
+	return id, n, c, true, true
 }
 
 // Private context_data keys used by the external-task lifecycle. Underscore-prefixed
@@ -119,6 +142,15 @@ type ProcessInstance struct {
 	// the definition's tasks from here onward (immutable and version-pinned), and a switch only
 	// moves this pointer. Empty means the instance ran off the end.
 	Task string
+
+	// ExternalWorkerID / ExternalLeaseExpiresAt / ExternalClaimEpoch are the external-task
+	// CLAIM: a worker holding a parked task for a visibility timeout. Deliberately not the
+	// engine's WorkerID/LeaseExpiresAt/LeaseEpoch, which mean an engine worker is ADVANCING
+	// this instance -- a claim means the opposite, that it is parked and no worker is held.
+	// specs/external-task-queue.md.
+	ExternalWorkerID       *string
+	ExternalLeaseExpiresAt *time.Time
+	ExternalClaimEpoch     int64
 
 	// ContextData is the accumulated key/value state passed between tasks.
 	ContextData map[string]any

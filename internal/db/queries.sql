@@ -129,14 +129,17 @@ WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch);
 
 -- name: GetInstance :one
 -- Column order matches the process_instances row struct (context columns then task then
--- error_code then lease_epoch, appended by migrations 019, 020, 023 and 025) so sqlc
--- returns dbgen.ProcessInstance directly. That is why error_code trails the list instead
--- of sitting beside `error`: the order is the table's, not a reading order.
+-- error_code then lease_epoch then the external-claim trio, appended by migrations 019, 020,
+-- 023, 025, 026 and 028) so sqlc returns dbgen.ProcessInstance directly. That is why
+-- error_code trails the list instead of sitting beside `error`: the order is the table's, not
+-- a reading order. A column added to the table must be appended HERE too, or sqlc emits a
+-- subset row type and every toInstance caller stops compiling.
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code, lease_epoch, task_epoch, parent_task_epoch
+       error_code, lease_epoch, task_epoch, parent_task_epoch,
+       external_worker_id, external_lease_expires_at, external_claim_epoch
 FROM process_instances
 WHERE id = sqlc.arg(id);
 
@@ -223,7 +226,8 @@ SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code, lease_epoch, task_epoch, parent_task_epoch
+       error_code, lease_epoch, task_epoch, parent_task_epoch,
+       external_worker_id, external_lease_expires_at, external_claim_epoch
 FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id)

@@ -705,6 +705,7 @@ func runExternalTasksCmd(server string, args []string) {
 		Version      int    `json:"version"`
 		TaskID       string `json:"task_id"`
 		WaitingSince string `json:"waiting_since"`
+		ClaimedBy    string `json:"claimed_by"`
 	}
 
 	// TOKEN goes last (it is long) and is what you pass to `genctl resolve`.
@@ -713,11 +714,17 @@ func runExternalTasksCmd(server string, args []string) {
 	capped, err := fetchOrdered(u, limit, newestFirst, func(page []taskRow) error {
 		for _, r := range page {
 			if rows == 0 {
-				fmt.Fprintln(w, "WAITING\tPROCESS\tTASK\tTOKEN")
+				fmt.Fprintln(w, "WAITING\tPROCESS\tTASK\tCLAIMED BY\tTOKEN")
 			}
 			rows++
-			fmt.Fprintf(w, "%s\t%s@v%d\t%s\t%s\n",
-				shortTime(r.WaitingSince), r.Process, r.Version, r.TaskID, r.Token)
+			// A dash rather than a blank: an unclaimed task and a column that failed to
+			// render should not look the same in a queue you are reading to find stuck work.
+			claimedBy := r.ClaimedBy
+			if claimedBy == "" {
+				claimedBy = "-"
+			}
+			fmt.Fprintf(w, "%s\t%s@v%d\t%s\t%s\t%s\n",
+				shortTime(r.WaitingSince), r.Process, r.Version, r.TaskID, claimedBy, r.Token)
 		}
 		return nil
 	})

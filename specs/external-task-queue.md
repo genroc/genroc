@@ -1,7 +1,8 @@
 # The external-task queue: claim, lease, and an error channel
 
-Status: **PROPOSAL, 2026-08-23. Phase 1 (the error channel) BUILT 2026-08-23**; the claim,
-lease and renewal below are unbuilt. Turning `external` from a wait point
+Status: **Phases 1 and 2 BUILT (error channel 2026-08-23; claim/lease/renew/release
+2026-08-24).** Phase 3 (`external.lost` and the `only_once` split) and phase 4 (long-poll, the
+evaluator switchover) are unbuilt. Turning `external` from a wait point
 into a queue a worker fleet pulls from, with the claim/lease machinery the engine already
 runs against `process_instances` — and the error channel `external` has never had. The
 motivating consumer is [`evaluator/`](../evaluator/README.md), which ships as a `fetch`
@@ -90,7 +91,7 @@ about, so its cutoff is plain `now`.
 
 ## Design
 
-### Schema — migration 027
+### Schema — migration 028
 
     external_worker_id        TEXT
     external_lease_expires_at BIGINT
@@ -150,6 +151,17 @@ a suspended tree, even though an answer to work already handed out is always acc
 scoped to an explicit id list intersected with `external_worker_id`, must not bump the claim
 epoch (it would fence the worker out of its own resolve) and must not clear the worker id.
 `ReleaseExternalTask(token)` is the nack, which is what makes graceful shutdown possible.
+
+**[built] A release bumps the epoch; an expiry does not.** The asymmetry is the point and was
+not in the original draft: a lapse is the absence of a live lease, so a worker that overran and
+was never taken over still answers, whereas a release is a deliberate hand-back and must void
+the releasing worker's own handle at once. Both are pinned, in both directions.
+
+**[built] A signal defers to a live claim rather than being refused by it.** Signal carries no
+handle, so it has nothing to fence with — and `DeliverSignal` already had exactly this rule for
+the engine's live lease ("don't race it; buffer instead, and the signal is consumed if the task
+re-arms"). A claim is the same situation with a different holder, so it got the same treatment
+rather than a rule of its own.
 
 ### The error channel
 

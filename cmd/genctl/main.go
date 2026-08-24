@@ -261,7 +261,8 @@ Instance id:
   recently started instance (recorded by run), or run "genctl last" to print it.
 
 External tasks:
-  external-tasks lists the queue of instances waiting on an external result.
+  external-tasks lists the queue of instances waiting on an external result, and who
+  holds a live claim on each (CLAIMED BY; "-" means claimable).
   resolve takes a task's resolve token (the "<instance-id>.<nonce>" TOKEN column
   from that list); signal addresses a task by instance id + --task and buffers the
   result if the task is not armed yet. Both answer on the error channel with

@@ -131,12 +131,14 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID, signalID st
 	defer tx.Rollback()
 
 	var status, waitState, currentTask, externalData string
-	var workerID sql.NullString
-	var leaseExpiresAt sql.NullInt64
+	var workerID, extWorkerID sql.NullString
+	var leaseExpiresAt, extLeaseExpiresAt sql.NullInt64
 	switch err := raw.QueryRowContext(ctx,
-		`SELECT status, wait_state, task, external_data, worker_id, lease_expires_at
+		`SELECT status, wait_state, task, external_data, worker_id, lease_expires_at,
+		        external_worker_id, external_lease_expires_at
 		   FROM process_instances WHERE id = ?`+db.forUpdate(), instanceID).
-		Scan(&status, &waitState, &currentTask, &externalData, &workerID, &leaseExpiresAt); {
+		Scan(&status, &waitState, &currentTask, &externalData, &workerID, &leaseExpiresAt,
+			&extWorkerID, &extLeaseExpiresAt); {
 	case err == nil:
 	case errors.Is(err, sql.ErrNoRows):
 		return false, fmt.Errorf("instance %q: %w", instanceID, ErrNotFound)
@@ -156,8 +158,13 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID, signalID st
 	// treating it as unarmed would buffer a result no re-arm will ever read.
 	armed := model.WaitState(waitState) == model.WaitStateExternal && currentTask == taskID
 	// A live lease means a worker is mid-advance on this row (a timeout firing); don't race
-	// it — buffer instead, and the signal is consumed if the task re-arms.
-	liveLeased := workerID.Valid && leaseExpiresAt.Valid && leaseExpiresAt.Int64 > nowMillis()
+	// it — buffer instead, and the signal is consumed if the task re-arms. A live external
+	// CLAIM is the same situation with a different holder — someone is working on this answer
+	// right now — so it gets the same treatment rather than a rule of its own. A signal is
+	// deliberately the unclaimed push route: it carries no handle to fence with, so deferring
+	// is the only way it cannot answer over a worker mid-flight.
+	liveLeased := (workerID.Valid && leaseExpiresAt.Valid && leaseExpiresAt.Int64 > nowMillis()) ||
+		(extWorkerID.Valid && extLeaseExpiresAt.Valid && extLeaseExpiresAt.Int64 > nowMillis())
 
 	if armed && !liveLeased {
 		newExt, err := withExternalOutcome(externalData, outcome)

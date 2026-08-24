@@ -253,7 +253,8 @@ SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code, lease_epoch, task_epoch, parent_task_epoch
+       error_code, lease_epoch, task_epoch, parent_task_epoch,
+       external_worker_id, external_lease_expires_at, external_claim_epoch
 FROM process_instances
 WHERE parent_id = ?1
   AND spawn_task_id = ?2
@@ -302,6 +303,9 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.LeaseEpoch,
 			&i.TaskEpoch,
 			&i.ParentTaskEpoch,
+			&i.ExternalWorkerID,
+			&i.ExternalLeaseExpiresAt,
+			&i.ExternalClaimEpoch,
 		); err != nil {
 			return nil, err
 		}
@@ -372,15 +376,18 @@ SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
-       error_code, lease_epoch, task_epoch, parent_task_epoch
+       error_code, lease_epoch, task_epoch, parent_task_epoch,
+       external_worker_id, external_lease_expires_at, external_claim_epoch
 FROM process_instances
 WHERE id = ?1
 `
 
 // Column order matches the process_instances row struct (context columns then task then
-// error_code then lease_epoch, appended by migrations 019, 020, 023 and 025) so sqlc
-// returns dbgen.ProcessInstance directly. That is why error_code trails the list instead
-// of sitting beside `error`: the order is the table's, not a reading order.
+// error_code then lease_epoch then the external-claim trio, appended by migrations 019, 020,
+// 023, 025, 026 and 028) so sqlc returns dbgen.ProcessInstance directly. That is why
+// error_code trails the list instead of sitting beside `error`: the order is the table's, not
+// a reading order. A column added to the table must be appended HERE too, or sqlc emits a
+// subset row type and every toInstance caller stops compiling.
 func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, error) {
 	row := q.db.QueryRowContext(ctx, getInstance, id)
 	var i ProcessInstance
@@ -411,6 +418,9 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.LeaseEpoch,
 		&i.TaskEpoch,
 		&i.ParentTaskEpoch,
+		&i.ExternalWorkerID,
+		&i.ExternalLeaseExpiresAt,
+		&i.ExternalClaimEpoch,
 	)
 	return i, err
 }

@@ -47,6 +47,39 @@ func (db *DB) ListExternalTasks(processName string, processVersion int, task str
 	return db.queryInstancePage(b)
 }
 
+// ClaimBinding is the claim half of a submitted handle: the epoch a three-part token named, or
+// Unclaimed for the two-part form. It is checked under the same row lock as the wait state and
+// task_epoch -- requireFenced/ErrLeaseLost in the API's vocabulary, refusing with a conflict
+// that names re-claim as the cause.
+type ClaimBinding struct {
+	epoch int64
+	bound bool
+}
+
+// Unclaimed is the binding a two-part token carries: no grant is being named.
+var Unclaimed = ClaimBinding{}
+
+// BoundToClaim binds an answer to the grant a three-part token named.
+func BoundToClaim(epoch int64) ClaimBinding { return ClaimBinding{epoch: epoch, bound: true} }
+
+// check enforces the two directions. A bound handle must name the CURRENT grant: an expiry
+// writes nothing, so a worker that overran its lease and was never taken over still answers
+// successfully -- strictly better than discarding work already done, and how the engine treats
+// its own late writes. An unbound handle is refused only while a claim is LIVE: the queue hands
+// two-part tokens to any caller, and one must not be able to answer over a working holder.
+func (c ClaimBinding) check(current int64, worker sql.NullString, expires sql.NullInt64) error {
+	if c.bound {
+		if c.epoch != current {
+			return fmt.Errorf("claim was taken over (the lease expired and the task was re-claimed): %w", ErrConflict)
+		}
+		return nil
+	}
+	if worker.Valid && expires.Valid && expires.Int64 > nowMillis() {
+		return fmt.Errorf("task is claimed by worker %q; answer with the claim's token or wait for it to expire: %w", worker.String, ErrConflict)
+	}
+	return nil
+}
+
 // ResolveExternalTask atomically delivers an outcome -- a result or a failure -- to an
 // instance parked on an external task, and un-parks it. The engine consumes it on the next
 // claim; a failure is routed through on_error there rather than here, because resolving a
@@ -59,17 +92,19 @@ func (db *DB) ListExternalTasks(processName string, processVersion int, task str
 // guarantee). The epoch comes off the row rather than a token copied into external_data:
 // task_epoch is already the number of the occurrence, so storing it twice only creates two
 // things that can disagree. See internal/db/CLAUDE.md.
-func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch int64, outcome model.ExternalOutcome) error {
+func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch int64, claim ClaimBinding, outcome model.ExternalOutcome) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
 		var status, waitState, externalData string
-		var workerID sql.NullString
-		var leaseExpiresAt sql.NullInt64
-		var taskEpoch int64
+		var workerID, extWorkerID sql.NullString
+		var leaseExpiresAt, extLeaseExpiresAt sql.NullInt64
+		var taskEpoch, claimEpoch int64
 		err := raw.QueryRowContext(ctx,
-			`SELECT status, wait_state, external_data, worker_id, lease_expires_at, task_epoch
+			`SELECT status, wait_state, external_data, worker_id, lease_expires_at, task_epoch,
+			        external_worker_id, external_lease_expires_at, external_claim_epoch
 		   FROM process_instances WHERE id = ?`+db.forUpdate(), instanceID).
-			Scan(&status, &waitState, &externalData, &workerID, &leaseExpiresAt, &taskEpoch)
+			Scan(&status, &waitState, &externalData, &workerID, &leaseExpiresAt, &taskEpoch,
+				&extWorkerID, &extLeaseExpiresAt, &claimEpoch)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("external task: %w", ErrNotFound)
 		}
@@ -94,6 +129,9 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch 
 
 		if taskEpoch != epoch {
 			return fmt.Errorf("token does not match the waiting task (it may have already been resolved or re-armed): %w", ErrConflict)
+		}
+		if err := claim.check(claimEpoch, extWorkerID, extLeaseExpiresAt); err != nil {
+			return err
 		}
 
 		newExt, err := withExternalOutcome(externalData, outcome)

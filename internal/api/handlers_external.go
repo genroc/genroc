@@ -48,6 +48,18 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 	if task.Action != nil {
 		raises = task.Action.Raises
 	}
+	var claimedBy, claimExpires string
+	// A holder whose visibility timeout has passed is not reported: the row is claimable
+	// again, and naming a dead worker would read as work in progress. The column keeps the id
+	// regardless — that is the evidence a lost claim is recognised by.
+	if inst.ExternalWorkerID != nil && inst.ExternalLeaseExpiresAt != nil && inst.ExternalLeaseExpiresAt.After(db.Now()) {
+		claimedBy = *inst.ExternalWorkerID
+		claimExpires = inst.ExternalLeaseExpiresAt.Format(time.RFC3339)
+	}
+	var deadline string
+	if inst.WakeAt != nil {
+		deadline = inst.WakeAt.Format(time.RFC3339)
+	}
 	return ExternalTaskResp{
 		Token:        token,
 		Process:      inst.ProcessName,
@@ -57,6 +69,9 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 		ResultSchema: resultSchema,
 		Raises:       raises,
 		WaitingSince: inst.UpdatedAt.Format(time.RFC3339),
+		Deadline:     deadline,
+		ClaimedBy:    claimedBy,
+		ClaimExpires: claimExpires,
 	}
 }
 
@@ -152,11 +167,15 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 	if req.Token == "" {
 		return invalid("token is required").reply()
 	}
-	// instanceID for the PK lookup, epoch for the occurrence check — which happens under
-	// lock in ResolveExternalTask, against task_epoch on the row.
-	instanceID, epoch, ok := model.ParseExternalToken(req.Token)
+	// instanceID for the PK lookup, the epochs for the occurrence and grant checks — both
+	// happen under lock in ResolveExternalTask, against the row's own columns.
+	instanceID, epoch, claimEpoch, hasClaim, ok := model.ParseExternalToken(req.Token)
 	if !ok {
 		return invalid("malformed token").reply()
+	}
+	claim := db.Unclaimed
+	if hasClaim {
+		claim = db.BoundToClaim(claimEpoch)
 	}
 	inst, err := h.db.GetInstance(instanceID)
 	if err != nil {
@@ -175,7 +194,7 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 	if bad != nil {
 		return bad.reply()
 	}
-	if err := h.db.ResolveExternalTask(context.Background(), instanceID, epoch, outcome); err != nil {
+	if err := h.db.ResolveExternalTask(context.Background(), instanceID, epoch, claim, outcome); err != nil {
 		return errReply(err)
 	}
 	return okReply(map[string]any{"resolved": true})
@@ -232,4 +251,116 @@ func (h *Handlers) signalInstance(id string, raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	return okReply(map[string]any{"delivered": delivered, "buffered": !delivered})
+}
+
+// Defaults for a claim's visibility timeout and batch size. The lease is short on purpose: a
+// worker that dies should return its work quickly, and one that needs longer renews rather than
+// asking for a long grant it may not survive.
+const (
+	defaultClaimLeaseMs = 30_000
+	maxClaimLeaseMs     = 3_600_000
+	defaultClaimLimit   = 1
+	maxClaimLimit       = 100
+)
+
+func claimLease(ms int64) (time.Duration, *Error) {
+	if ms == 0 {
+		return defaultClaimLeaseMs * time.Millisecond, nil
+	}
+	if ms < 0 || ms > maxClaimLeaseMs {
+		return 0, invalid("lease_ms must be between 1 and %d", maxClaimLeaseMs)
+	}
+	return time.Duration(ms) * time.Millisecond, nil
+}
+
+// claimExternalTasks leases parked external tasks to a worker. The response is the queue entry
+// plus a three-part token: the handle that names the grant, and the only one accepted while the
+// claim is live.
+func (h *Handlers) claimExternalTasks(raw json.RawMessage) Reply {
+	req, err := decodeBody[ClaimExternalTasksReq](raw)
+	if err != nil {
+		return errReply(err)
+	}
+	if req.WorkerID == "" {
+		return invalid("worker_id is required — it is the claim's holder, and what renew is scoped to").reply()
+	}
+	lease, bad := claimLease(req.LeaseMs)
+	if bad != nil {
+		return bad.reply()
+	}
+	limit := req.Limit
+	if limit == 0 {
+		limit = defaultClaimLimit
+	}
+	if limit < 0 || limit > maxClaimLimit {
+		return invalid("limit must be between 1 and %d", maxClaimLimit).reply()
+	}
+
+	instances, err := h.db.ClaimExternalTasks(req.WorkerID, lease, limit, req.Process, req.Version, req.Task)
+	if err != nil {
+		return errReply(err)
+	}
+	resp := make([]ExternalTaskResp, 0, len(instances))
+	for _, inst := range instances {
+		task, err := h.db.CurrentTask(inst)
+		if err != nil || task == nil {
+			continue // a concurrent transition; the claim expires on its own
+		}
+		entry := externalTaskToResp(inst, task)
+		entry.Token = model.ClaimToken(inst.ID, inst.TaskEpoch, inst.ExternalClaimEpoch)
+		resp = append(resp, entry)
+	}
+	return okReply(map[string]any{"items": resp})
+}
+
+// renewExternalClaims extends this worker's claims. Renewing is scoped to the holder and never
+// bumps the claim epoch: a renewal extends a grant, and bumping would fence the worker out of
+// its own answer. renewed reports how many were still held, so a worker learns it lost one here
+// rather than when its answer is refused.
+func (h *Handlers) renewExternalClaims(raw json.RawMessage) Reply {
+	req, err := decodeBody[RenewExternalClaimsReq](raw)
+	if err != nil {
+		return errReply(err)
+	}
+	if req.WorkerID == "" {
+		return invalid("worker_id is required").reply()
+	}
+	if len(req.Tokens) == 0 {
+		return invalid("tokens is required").reply()
+	}
+	lease, bad := claimLease(req.LeaseMs)
+	if bad != nil {
+		return bad.reply()
+	}
+	ids := make([]string, 0, len(req.Tokens))
+	for _, t := range req.Tokens {
+		id, _, _, hasClaim, ok := model.ParseExternalToken(t)
+		if !ok || !hasClaim {
+			return invalid("token %q is not a claim token — renew takes the three-part token a claim granted", t).reply()
+		}
+		ids = append(ids, id)
+	}
+	n, err := h.db.RenewExternalClaims(context.Background(), req.WorkerID, ids, lease)
+	if err != nil {
+		return errReply(err)
+	}
+	return okReply(map[string]any{"renewed": n, "requested": len(req.Tokens)})
+}
+
+// releaseExternalTask hands a claim back to the queue immediately instead of waiting out its
+// lease. It bumps the claim epoch, unlike an expiry, which writes nothing: a release is
+// deliberate, so the releasing worker's own handle must stop working at once.
+func (h *Handlers) releaseExternalTask(raw json.RawMessage) Reply {
+	req, err := decodeBody[ReleaseExternalTaskReq](raw)
+	if err != nil {
+		return errReply(err)
+	}
+	id, epoch, claimEpoch, hasClaim, ok := model.ParseExternalToken(req.Token)
+	if !ok || !hasClaim {
+		return invalid("token must be the three-part token a claim granted").reply()
+	}
+	if err := h.db.ReleaseExternalClaim(context.Background(), id, epoch, claimEpoch); err != nil {
+		return errReply(err)
+	}
+	return okReply(map[string]any{"released": true})
 }

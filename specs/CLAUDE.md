@@ -88,9 +88,9 @@ behavior while the spec stays put, answering a different question. See
   time, which is also the argument for not scheduling the engine-side one. Closes with why a
   resolver registry is **not the plugin door** [custom-tasks.md](custom-tasks.md) rules out:
   author time, author's machine, ordinary data on the wire.
-- [external-task-queue.md](external-task-queue.md) — **the error channel is BUILT
-  (2026-08-23)**; the claim, visibility timeout and renewal are proposal. Turn `external` into
-  a queue a worker fleet **pulls** from. Opens by discarding the usual reason for moving
+- [external-task-queue.md](external-task-queue.md) — **BUILT through phase 2** (error channel
+  2026-08-23; claim/lease/renew/release 2026-08-24). `external.lost` and the evaluator
+  switchover remain proposal. Turns `external` into a queue a worker fleet **pulls** from. Opens by discarding the usual reason for moving
   [`evaluator/`](../evaluator/README.md) off `fetch` — requests are not lost under overload,
   since a failed fetch is a routed code and the instance stays durable; what overload
   produces is a worse *code* (`http.timeout`, unknowable, never retried on `only_once`),
