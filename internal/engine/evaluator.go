@@ -17,7 +17,11 @@ import (
 func (e *Engine) resolveValue(inst *model.ProcessInstance, v any) (any, error) {
 	ref, ok := v.(*model.ObjectRef)
 	if !ok {
-		return v, nil
+		// A slot can be cut in several places rather than wholly externalized, so a value that
+		// is not itself a marker may still contain them. Resolving the whole slot once it is
+		// read keeps the semantics a whole-slot ref always had: laziness is per SLOT, and a slot
+		// nothing reads is never loaded.
+		return e.resolveNested(inst, v)
 	}
 	if cached, ok := inst.ResolvedObjects[ref.Ref]; ok {
 		return cached, nil
@@ -177,4 +181,66 @@ func evalBool(expr string, contextData, config map[string]any, self any) (bool, 
 		return false, fmt.Errorf("switch %q: expected bool, got %T", expr, result)
 	}
 	return b, nil
+}
+
+// maxInlineResolveBytes bounds what the engine will materialize into an outgoing request. A
+// safety limit rather than a tuning knob, in the sense the 8 MiB response cap already
+// established: past it the fix is to change what the definition sends, not to raise the number.
+const maxInlineResolveBytes = 8 << 20
+
+// ResolveRefsInPlace materializes every *ObjectRef inside v, for a consumer that cannot follow
+// one. A fetch body is read by a remote server with no way to call genroc, so a reference
+// reaching it is a value that never arrives -- unlike an external task's input, which a worker
+// fetches for itself. specs/object-store.md §Resolution.
+func (e *Engine) resolveRefsInPlace(inst *model.ProcessInstance, v any) (any, error) {
+	var refs []*model.ObjectRef
+	stripped := model.Extract(v, nil, &refs)
+	if len(refs) == 0 {
+		return v, nil
+	}
+	var total int64
+	for _, r := range refs {
+		total += r.Size
+	}
+	if total > maxInlineResolveBytes {
+		return nil, fmt.Errorf("request body needs %d bytes of externalized values, over the %d-byte limit", total, maxInlineResolveBytes)
+	}
+	for _, r := range refs {
+		val, err := e.resolveValue(inst, &model.ObjectRef{Ref: r.Ref, Size: r.Size})
+		if err != nil {
+			return nil, err
+		}
+		if len(r.Path) == 0 {
+			return val, nil
+		}
+		if !model.Place(stripped, r.Path, val) {
+			return nil, fmt.Errorf("resolved value for %s has nowhere to go", r.Ref)
+		}
+	}
+	return stripped, nil
+}
+
+// resolveNested materializes every marker inside a partially externalized slot.
+func (e *Engine) resolveNested(inst *model.ProcessInstance, v any) (any, error) {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, val := range t {
+			rv, err := e.resolveValue(inst, val)
+			if err != nil {
+				return nil, err
+			}
+			t[k] = rv
+		}
+		return t, nil
+	case []any:
+		for i, val := range t {
+			rv, err := e.resolveValue(inst, val)
+			if err != nil {
+				return nil, err
+			}
+			t[i] = rv
+		}
+		return t, nil
+	}
+	return v, nil
 }

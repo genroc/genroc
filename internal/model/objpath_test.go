@@ -1,24 +1,22 @@
-package api
+package model
 
 import (
 	"reflect"
 	"testing"
-
-	"genroc/internal/model"
 )
 
-func ref(h string, n int64) *model.ObjectRef { return &model.ObjectRef{Ref: h, Size: n} }
+func ref(h string, n int64) *ObjectRef { return &ObjectRef{Ref: h, Size: n} }
 
-// TestExtractObjects_LeavesUserDataThatLooksLikeAReference is the property the whole wire design
+// TestExtract_LeavesUserDataThatLooksLikeAReference is the property the whole wire design
 // rests on. The old shape put {"ref": …, "size": …} INSIDE a context value, indistinguishable
 // from a process whose output legitimately has those two keys. Extraction discriminates on the
 // Go type, never on the shape, so a user value that mimics a marker is untouched and unlisted.
-func TestExtractObjects_LeavesUserDataThatLooksLikeAReference(t *testing.T) {
+func TestExtract_LeavesUserDataThatLooksLikeAReference(t *testing.T) {
 	mimic := map[string]any{"ref": "not-a-handle", "size": float64(7)}
 	ctx := map[string]any{"outputs": map[string]any{"decoy": mimic}}
 
-	var got []ObjectEntry
-	out := extractObjects(ctx, []any{"context"}, &got)
+	var got []*ObjectRef
+	out := Extract(ctx, []any{"context"}, &got)
 
 	if len(got) != 0 {
 		t.Fatalf("listed %d objects for user data shaped like a reference: %+v", len(got), got)
@@ -29,10 +27,10 @@ func TestExtractObjects_LeavesUserDataThatLooksLikeAReference(t *testing.T) {
 	}
 }
 
-// TestExtractObjects_SiblingsGetDistinctPaths catches a shared backing array: appending to the
+// TestExtract_SiblingsGetDistinctPaths catches a shared backing array: appending to the
 // parent's path in place gives every sibling the same slice, so two entries name one location and
 // the second value silently overwrites the first when a client splices.
-func TestExtractObjects_SiblingsGetDistinctPaths(t *testing.T) {
+func TestExtract_SiblingsGetDistinctPaths(t *testing.T) {
 	// Nested three deep before the siblings, deliberately. append() only aliases once the
 	// parent slice has SPARE capacity, and Go's growth gives that at length three — so a
 	// shallower fixture passes with the bug present, which this test did on its first writing.
@@ -42,8 +40,8 @@ func TestExtractObjects_SiblingsGetDistinctPaths(t *testing.T) {
 		},
 		"input": ref("ccc", 30),
 	}
-	var got []ObjectEntry
-	extractObjects(ctx, []any{"context"}, &got)
+	var got []*ObjectRef
+	Extract(ctx, []any{"context"}, &got)
 
 	if len(got) != 3 {
 		t.Fatalf("got %d entries, want 3", len(got))
@@ -64,13 +62,13 @@ func TestExtractObjects_SiblingsGetDistinctPaths(t *testing.T) {
 	}
 }
 
-// TestExtractObjects_RemovesRatherThanMarks: the slot is gone, not null and not a marker. A
+// TestExtract_RemovesRatherThanMarks: the slot is gone, not null and not a marker. A
 // client that ignores the section must see a MISSING value rather than a plausible object it
 // will treat as data.
-func TestExtractObjects_RemovesRatherThanMarks(t *testing.T) {
+func TestExtract_RemovesRatherThanMarks(t *testing.T) {
 	ctx := map[string]any{"input": ref("aaa", 10), "small": "kept"}
-	var got []ObjectEntry
-	out := extractObjects(ctx, []any{"context"}, &got).(map[string]any)
+	var got []*ObjectRef
+	out := Extract(ctx, []any{"context"}, &got).(map[string]any)
 
 	if _, present := out["input"]; present {
 		t.Fatalf("the externalized slot is still present: %+v", out["input"])
@@ -83,14 +81,14 @@ func TestExtractObjects_RemovesRatherThanMarks(t *testing.T) {
 	}
 }
 
-// TestExtractObjects_InsideAnArray pins the branch nothing reaches yet: a whole value-slot is
+// TestExtract_InsideAnArray pins the branch nothing reaches yet: a whole value-slot is
 // what externalizes today, so no path currently carries an index. ObjectRef.Path is reserved for
 // granular externalization, and this is what that would produce — a number in the path, not the
 // decimal string a JSON Pointer would force.
-func TestExtractObjects_InsideAnArray(t *testing.T) {
+func TestExtract_InsideAnArray(t *testing.T) {
 	ctx := map[string]any{"outputs": map[string]any{"list": []any{"small", ref("aaa", 10)}}}
-	var got []ObjectEntry
-	out := extractObjects(ctx, []any{"context"}, &got)
+	var got []*ObjectRef
+	out := Extract(ctx, []any{"context"}, &got)
 
 	if len(got) != 1 {
 		t.Fatalf("got %d entries, want 1", len(got))

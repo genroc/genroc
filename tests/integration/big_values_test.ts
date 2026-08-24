@@ -40,12 +40,15 @@ test("big values are returned as references by default", async () => {
   expect(error).toBeUndefined();
   // The big input and the big computed output are LISTED, and absent from the data — nothing
   // in the context can be mistaken for a reference, because no marker is left behind.
-  expect((data!.context as any).input).toBeUndefined();
-  expect((data!.context as any).output).toBeUndefined();
-  const input = objectAt(data, ["context", "input"]);
-  expect(input, "the big input is listed").toBeDefined();
-  expect(input!.size).toBeGreaterThan(BLOB.length);
-  expect(objectAt(data, ["context", "output"]), "the big output is listed").toBeDefined();
+  // The LEAF is cut, not the whole slot: what is over the target is `blob`, and its wrapper
+  // stays inline. Cutting the slot would fold any sibling in with it, which is what stopped
+  // three runs of one script from sharing the script.
+  expect((data!.context as any).input.blob).toBeUndefined();
+  expect((data!.context as any).output.echo).toBeUndefined();
+  const input = objectAt(data, ["context", "input", "blob"]);
+  expect(input, "the big input leaf is listed").toBeDefined();
+  expect(input!.size).toBeGreaterThan(BLOB.length - 10);
+  expect(objectAt(data, ["context", "output", "echo"]), "the big output leaf is listed").toBeDefined();
 });
 
 // The recipient fetches what it wants and puts it back. The server never materializes a whole
@@ -62,16 +65,18 @@ test("big values are spliced back by the recipient, not by the server", async ()
   expect(error).toBeUndefined();
   // The slots are ABSENT, not markers: nothing in the data can be mistaken for a reference.
   expect((data!.context as any).input?.blob).toBeUndefined();
-  expect(objectAt(data, ["context", "input"]), "input is listed as an object").toBeDefined();
+  expect(objectAt(data, ["context", "input", "blob"]), "the input's big leaf is listed").toBeDefined();
 
   await spliceObjects(data);
   expect((data!.context as any).input.blob).toBe(BLOB);
   expect((data!.context as any).output.echo).toBe(BLOB);
 });
 
-// A large log payload is externalized: the entry carries no inline data, and the response's
-// objects section names where it belongs. A log entry is not a special kind of response.
-test("large log payloads are externalized and fetchable", async () => {
+// A log payload is cut exactly like a context slot: the oversized LEAF moves out, the shell
+// stays inline, and the entry lists where it went. Same shape, and therefore the same object --
+// a payload repeating a value the instance already externalized shares it instead of storing a
+// second copy, which is what made three runs of one script cost three copies of the script.
+test("large log payloads are cut per-leaf and share the instance's object", async () => {
   await defineProc();
   const { data: started } = await client.POST("/instances", {
     body: { process: proc, input: { blob: BLOB } },
@@ -87,14 +92,21 @@ test("large log payloads are externalized and fetchable", async () => {
     (l) => l.event === "inst_completed",
   );
   expect(completed).toBeDefined();
-  // Too big to carry inline: no data on the entry, and the entry lists it instead — at a path
-  // rooted at the ENTRY, so accumulating pages or reversing rows cannot invalidate it.
-  expect(completed!.data).toBeFalsy();
-  const listed = objectAt(completed, ["data"]);
-  expect(listed, "the externalized log payload is listed by its entry").toBeDefined();
+  // The shell is carried, the leaf is listed -- at a path rooted at the ENTRY, so accumulating
+  // pages or reversing rows cannot invalidate it.
+  expect(completed!.data, "the shell around the cut leaf is still carried").toEqual({});
+  const listed = objectAt(completed, ["data", "echo"]);
+  expect(listed, "the oversized log LEAF is listed by its entry").toBeDefined();
+  expect(await fetchObject(listed!.ref)).toBe(JSON.stringify(BLOB));
 
-  // Fetched by content hash, from the one endpoint that serves objects.
-  expect(await fetchObject(listed!.ref)).toBe(JSON.stringify({ echo: BLOB }));
+  // The same bytes the instance's own output externalized: one object, two claims.
+  const { data: detail } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const slot = objectAt(detail, ["context", "output", "echo"]);
+  expect(listed!.ref, "the log shares the context slot's object rather than copying it").toBe(slot!.ref);
+
+  // And the recipient splices an entry's section exactly as it splices the body's.
+  await spliceObjects(data);
+  expect((completed as { data?: unknown }).data).toEqual({ echo: BLOB });
 });
 
 // Within one instance, only the slots that exceed the threshold are externalized: a
@@ -125,8 +137,8 @@ test("only oversized slots become references; small ones stay inline", async () 
   });
   expect(error).toBeUndefined();
   // Big input → listed and absent; small output → carried inline, and NOT listed.
-  expect((data!.context as any).input).toBeUndefined();
-  expect(objectAt(data, ["context", "input"])).toBeDefined();
+  expect((data!.context as any).input.blob).toBeUndefined();
+  expect(objectAt(data, ["context", "input", "blob"])).toBeDefined();
   expect((data!.context as any).output).toEqual({ ok: "done" });
   expect(objectAt(data, ["context", "output"])).toBeUndefined();
 });
@@ -136,43 +148,36 @@ test("only oversized slots become references; small ones stay inline", async () 
 // which is the documented consequence of redaction being a recording concern.
 test("an externalized value is listed, and comes back whole when fetched", async () => {
   const name = `secret_big_ctx_${crypto.randomUUID()}`;
-  const secret = "S".repeat(20 * 1024); // > threshold → the input slot is externalized
+  const secret = "S".repeat(20 * 1024); // > threshold → the leaf is externalized
   await client.PUT("/definitions", {
     body: {
       name,
-      input_schema: {
-        type: "object",
-        required: ["token"],
-        properties: { token: { type: "string", secret: true } },
-      },
-      tasks: [{ id: "work", switch: [{ goto: "end" }] }],
-    },
+      input_schema: { type: "object", properties: { token: { type: "string" } } },
+      tasks: [{ id: "t", output: { got: "$: input.token" }, switch: [{ goto: "end" }] }],
+      output: "$: outputs.t",
+    } as never,
   });
   const { data: started } = await client.POST("/instances", {
     body: { process: name, input: { token: secret } },
   });
-  const id = started!.id;
-  await waitForInstance(id);
+  await waitForInstance(started!.id);
 
-  // Default: the value is never loaded — a bare reference, no secret anywhere.
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  // The slot is listed, not carried — so the detail read stays small whatever it holds.
-  expect((data!.context as any).input).toBeUndefined();
-  expect(objectAt(data, ["context", "input"])).toBeDefined();
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  // Listed, not carried: a detail read stays small whatever the slot holds.
+  expect((data!.context as any).input.token).toBeUndefined();
+  expect(objectAt(data, ["context", "input", "token"])).toBeDefined();
   expect(JSON.stringify(data)).not.toContain("SSSSSSSSSS");
 
-  // Fetched, it comes back IN FULL — secret included. Redaction is a recording concern, not a
-  // read concern: it protects the server's stdout, where a value is read by someone who did not
-  // ask for it, and an object endpoint addressed by content hash is not that.
-  // specs/object-store.md §Redaction.
+  // And it comes back whole when asked for. The API returns what happened; `secret: true` keeps
+  // a value off the server's console and does nothing here. specs/object-store.md §Redaction.
   await spliceObjects(data);
   expect((data!.context as any).input.token).toBe(secret);
 });
 
 // A subtree log's externalized payload was written by a child, not the queried root. That used
-// to matter — the fetch was scoped to the owning instance — and no longer does: an object is
+// to matter -- the fetch was scoped to the owning instance -- and no longer does: an object is
 // addressed by its content hash, so a child's payload is listed and fetched like any other.
-test("recursive + resolve inlines a child instance's externalized payload", async () => {
+test("a subtree log lists a child instance's externalized payload", async () => {
   const child = `recos_child_${crypto.randomUUID()}`;
   const parent = `recos_parent_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
@@ -231,10 +236,10 @@ test("recursive + resolve inlines a child instance's externalized payload", asyn
 
   const { entry: found } = await childCreated();
   expect(found, "the child's inst_created entry is present").toBeDefined();
-  expect(found!.data, "its big payload is not carried inline").toBeFalsy();
-  const childListed = objectAt(found, ["data"]);
-  expect(childListed, "and the entry lists it instead").toBeDefined();
-  expect(await fetchObject(childListed!.ref)).toBe(JSON.stringify({ blob: BLOB }));
+  expect(found!.data, "the shell around the cut leaf is carried inline").toEqual({});
+  const childListed = objectAt(found, ["data", "blob"]);
+  expect(childListed, "and the entry lists the oversized leaf instead").toBeDefined();
+  expect(await fetchObject(childListed!.ref)).toBe(JSON.stringify(BLOB));
 });
 
 // A big value passed into a child's input and returned in the child's output flows all
@@ -304,8 +309,8 @@ test("a big value round-trips through a child's input and output back to the par
     params: { path: { id } },
   });
   expect(error).toBeUndefined();
-  expect(objectAt(lazy, ["context", "outputs", "spawn"])).toBeDefined();
-  expect(objectAt(lazy, ["context", "output"])).toBeDefined();
+  expect(objectAt(lazy, ["context", "outputs", "spawn", "echo"])).toBeDefined();
+  expect(objectAt(lazy, ["context", "output", "echo"])).toBeDefined();
 
   // Spliced: the big value is intact after the full parent → child → parent round-trip.
   await spliceObjects(lazy);

@@ -124,6 +124,9 @@ const (
 	// engine turns it into errcode.ExternalLost on its next claim. A marker rather than a
 	// derivation: external_worker_id alone cannot say whether the lapse was already reported.
 	CtxExternalLost = "lost"
+	// CtxExternalObjects, inside _external, is the list of refs the input carries and where each
+	// belongs. Beside the data, never inside it -- see model.Extract.
+	CtxExternalObjects = "objects"
 	// CtxExternalResult holds a submitted, validated result placed by the resolve API.
 	// Its presence is how the engine tells "result arrived" from "first arrival".
 	CtxExternalResult = "_external_result"

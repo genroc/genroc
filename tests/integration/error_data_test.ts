@@ -201,12 +201,12 @@ test("error.data — a large error body externalizes and is still readable", asy
   const ctx = (data?.context ?? {}) as any;
   expect(ctx.outputs?.handler).toEqual({ readable: true });
   // Listed rather than carried, which is what says the body went to the object store instead of
-  // swelling the instance row.
-  expect(ctx.error?.data, "the slot is absent, not a marker").toBeUndefined();
-  expect(
-    objectAt(data, ["context", "error", "data"]),
-    "a body past the cutoff must externalize",
-  ).toBeDefined();
+  // swelling the instance row. The cut takes the big LEAF inside error.data, so the wrapper
+  // stays inline and the listing names the leaf.
+  const listed = (data!.objects ?? []).find(
+    (o: any) => o.path[0] === "context" && o.path[1] === "error" && o.path[2] === "data",
+  );
+  expect(listed, "a body past the cutoff must externalize").toBeDefined();
   expect(ctx.error?.code).toBe("http.422");
 
   failing.stop();

@@ -21,13 +21,60 @@ const RENEW_MS = Math.max(1_000, Math.floor(LEASE_MS / 3));
 const PROCESS_FILTER = process.env.PROCESS ?? "";
 const TASK_FILTER = process.env.TASK ?? "";
 
+type ObjectEntry = { path: (string | number)[]; ref: string; size: number };
+
 type QueueTask = {
   token: string;
   process: string;
   task_id: string;
   input: unknown;
+  objects?: ObjectEntry[];
   raises?: Record<string, unknown>;
 };
+
+// Values too large to ship inline are listed rather than carried, and a bundle is exactly that:
+// one object shared by every instance of a definition version, fetched once instead of copied
+// into each task. A ref is a content hash, so it is immutable — the cache never invalidates.
+const objectCache = new Map<string, unknown>();
+
+async function fetchObject(ref: string): Promise<unknown> {
+  const cached = objectCache.get(ref);
+  if (cached !== undefined) return cached;
+  const res = await fetch(`${SERVER}/objects/${encodeURIComponent(ref)}`);
+  if (!res.ok) throw new Error(`fetch object ${ref}: HTTP ${res.status}`);
+  const { data } = (await res.json()) as { data: string };
+  let value: unknown;
+  try {
+    value = JSON.parse(data);
+  } catch {
+    value = data;
+  }
+  objectCache.set(ref, value);
+  return value;
+}
+
+/** Put each listed value back where its path says it belongs. Paths are arrays of keys, so this
+ *  needs no parser: the whole reason they are not JSON Pointer strings. */
+async function resolveObjects(job: QueueTask): Promise<unknown> {
+  let input: any = job.input;
+  for (const e of job.objects ?? []) {
+    const value = await fetchObject(e.ref);
+    if (e.path.length === 0) {
+      input = value;
+      continue;
+    }
+    // The path is rooted at the entry and starts with "input", which is the value being rebuilt.
+    const rest = e.path[0] === "input" ? e.path.slice(1) : e.path;
+    if (rest.length === 0) {
+      input = value;
+      continue;
+    }
+    let cur: any = input;
+    for (let i = 0; i < rest.length - 1; i++) cur = cur?.[rest[i]!];
+    if (cur) cur[rest[rest.length - 1]!] = value;
+  }
+  return input;
+}
 
 async function call(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: any }> {
   const res = await fetch(SERVER + path, {
@@ -94,7 +141,17 @@ async function answer(token: string, outcome: Record<string, unknown>): Promise<
 }
 
 async function run(job: QueueTask): Promise<void> {
-  const req = asEvalRequest(job.input);
+  let resolved: unknown;
+  try {
+    resolved = await resolveObjects(job);
+  } catch (err) {
+    // The values are there or they are not; this is the runner failing to read them, not the
+    // script failing, so hand the task back for someone else rather than reporting an outcome.
+    console.error(`resolving objects for ${job.token}: ${err instanceof Error ? err.message : String(err)}`);
+    await release(job.token);
+    return;
+  }
+  const req = asEvalRequest(resolved);
   if (typeof req === "string") {
     await answer(job.token, {
       error: { code: "compile_error", message: req, data: { name: "BadTaskInput" } },

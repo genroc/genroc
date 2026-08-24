@@ -27,7 +27,7 @@ func (d *ProcessDefinition) Validate() error {
 	if err := checkSchemaDoc("input_schema", d.InputSchema, d.Defs); err != nil {
 		return err
 	}
-	if err := checkSchemaDoc("config_schema", d.ConfigSchema, schema.Defs{}); err != nil {
+	if err := checkSchemaDocAllowingSecrets("config_schema", d.ConfigSchema, schema.Defs{}); err != nil {
 		return err
 	}
 	if err := validateConfigSchema(d.ConfigSchema); err != nil {
@@ -668,6 +668,20 @@ func validateConfigSchema(cs *schema.Schema) error {
 // checkSchemaDoc verifies s is a well-formed schema document; the $defs pool is merged in
 // so a schema referencing a shared definition validates before Normalize bakes it in.
 func checkSchemaDoc(field string, s *schema.Schema, pool schema.Defs) error {
+	if err := checkSchemaDocAllowingSecrets(field, s, pool); err != nil {
+		return err
+	}
+	// `secret: true` lives in config_schema and nowhere else. It keeps a value out of the
+	// server's stdout, and the scrubber finds values by knowing them verbatim -- which it does
+	// for config and cannot for anything a process computes. Accepting the marker elsewhere
+	// would promise a protection nothing delivers. specs/object-store.md.
+	if s != nil && s.ContainsSecret() {
+		return fmt.Errorf("%s: secret: true is only valid in config_schema — it keeps a value out of the server's stdout, which the log scrubber can only do for values it knows verbatim; everything else is returned and stored as it is", field)
+	}
+	return nil
+}
+
+func checkSchemaDocAllowingSecrets(field string, s *schema.Schema, pool schema.Defs) error {
 	if s == nil {
 		return nil
 	}

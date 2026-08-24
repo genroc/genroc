@@ -428,6 +428,12 @@ func runGetCmd(server string, args []string) {
 	id := instanceIDAndFlags(fs, args)
 
 	u := *serverFlag + "/instances/" + url.PathEscape(id)
+	if *resolveFlag {
+		// The server splices what fits and leaves the rest listed, so ask it first and then
+		// fetch whatever it could not carry: two round trips at most for the small case, and
+		// the big values still never pass through a response nobody sized.
+		u += "?resolve=true"
+	}
 	if *jsonFlag {
 		var raw json.RawMessage
 		if err := callGet(u, &raw); err != nil {
@@ -841,22 +847,17 @@ func runLogsCmd(server string, args []string) {
 		return
 	}
 
-	type objectEntry struct {
-		Path []any  `json:"path"`
-		Ref  string `json:"ref"`
-		Size int64  `json:"size"`
-	}
 	type logRow struct {
-		Time     string         `json:"time"`
-		Instance string         `json:"instance"`
-		Level    string         `json:"level"`
-		Event    string         `json:"event"`
-		Task     string         `json:"task"`
-		Message  string         `json:"message"`
-		Code     string         `json:"code"`
-		Data     string         `json:"data"`
-		Meta     map[string]any `json:"meta"`
-		Objects  []objectEntry  `json:"objects"`
+		Time     string          `json:"time"`
+		Instance string          `json:"instance"`
+		Level    string          `json:"level"`
+		Event    string          `json:"event"`
+		Task     string          `json:"task"`
+		Message  string          `json:"message"`
+		Code     string          `json:"code"`
+		Data     json.RawMessage `json:"data"`
+		Meta     map[string]any  `json:"meta"`
+		Objects  []objectEntry   `json:"objects"`
 	}
 	// Shared logview layout, so a row reads identically here and on the server console. The
 	// header waits for the first row (an empty trail prints nothing); day carries the last
@@ -873,17 +874,7 @@ func runLogsCmd(server string, args []string) {
 				fmt.Fprintln(out, logview.DateBreak(t))
 				day = d
 			}
-			// An externalized payload is listed by the entry rather than carried — show the
-			// reference in the body's place (rendered raw via the leading "{"). logs never
-			// fetches: a trail is scanned, and these payloads are large by definition.
-			// `genctl object <ref>` gets the one that matters.
-			data := l.Data
-			if data == "" && len(l.Objects) > 0 {
-				if b, err := json.Marshal(map[string]any{"ref": l.Objects[0].Ref, "size": l.Objects[0].Size}); err == nil {
-					data = string(b)
-				}
-			}
-			rec := logview.Record{Event: l.Event, Task: l.Task, Msg: l.Message, Code: l.Code, Data: data, Meta: l.Meta}
+			rec := logview.Record{Event: l.Event, Task: l.Task, Msg: l.Message, Code: l.Code, Data: logData(l.Data, l.Objects), Meta: l.Meta}
 			idTag := ""
 			if *recursiveFlag {
 				idTag = shortID(l.Instance)
@@ -1539,6 +1530,43 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// objectEntry is one row of a response's `objects` section: where a value was cut from, and the
+// handle to fetch it with.
+type objectEntry struct {
+	Path []any  `json:"path"`
+	Ref  string `json:"ref"`
+	Size int64  `json:"size"`
+}
+
+// logData renders a log payload for one row: whatever the entry carried inline, with each
+// externalized piece shown as its {ref,size} handle in the place it was cut from. logs never
+// fetches -- a trail is scanned, and these payloads are large by definition; `genctl object
+// <ref>` gets the one that matters.
+func logData(raw json.RawMessage, objects []objectEntry) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return string(raw)
+	}
+	if len(objects) > 0 {
+		wrapper := map[string]any{"data": value}
+		for _, o := range objects {
+			place(wrapper, o.Path, map[string]any{"ref": o.Ref, "size": o.Size})
+		}
+		value = wrapper["data"]
+	}
+	if str, ok := value.(string); ok {
+		return str
+	}
+	b, err := json.Marshal(value)
+	if err != nil {
+		return string(raw)
+	}
+	return string(b)
 }
 
 // spliceObjects fetches every value a response listed under `objects` and puts it back at the

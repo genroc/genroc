@@ -140,15 +140,15 @@ func (db *DB) CurrentTask(inst *model.ProcessInstance) (*model.Task, error) {
 // (appended to pending, recorded in referenced), small ones stay inline, and an
 // unchanged *model.ObjectRef is re-emitted with no new object.
 func encodeValueSlot(v any, pending *[]*pendingObject, referenced map[string]struct{}) (model.Envelope, error) {
-	env, p, err := encodeContextValue(v)
+	env, objs, err := encodeContextValue(v)
 	if err != nil {
 		return model.Envelope{}, err
 	}
-	if p != nil {
-		*pending = append(*pending, p)
-	}
-	if env.IsRef() {
-		referenced[env.Refs[0].Ref] = struct{}{}
+	*pending = append(*pending, objs...)
+	// EVERY ref, not just the first: a slot can now be cut in several places, and a hash missing
+	// from referenced is a claim the write releases while the slot still points at it.
+	for _, r := range env.Refs {
+		referenced[r.Ref] = struct{}{}
 	}
 	return env, nil
 }
@@ -228,7 +228,7 @@ func encodeContext(inst *model.ProcessInstance) (cols contextCols, pending []*pe
 		}
 		cols.ErrorData = string(b)
 	}
-	if cols.ExternalData, err = encodeExternalData(cd); err != nil {
+	if cols.ExternalData, err = encodeExternalData(cd, &pending, referenced); err != nil {
 		return
 	}
 	cols.EngineState, err = encodeEngineState(cd)
@@ -238,12 +238,37 @@ func encodeContext(inst *model.ProcessInstance) (cols contextCols, pending []*pe
 // encodeExternalData serialises the parked external-task bookkeeping (task_id, token,
 // input snapshot, submitted outcome) into external_data, or "" when none is present.
 // External payloads stay inline (their own column keeps them off the runnable index).
-func encodeExternalData(cd map[string]any) (string, error) {
+func encodeExternalData(cd map[string]any, pending *[]*pendingObject, referenced map[string]struct{}) (string, error) {
 	ext := map[string]any{}
 	if e, ok := cd[model.CtxExternal].(map[string]any); ok {
 		for k, v := range e {
 			ext[k] = v
 		}
+		// The input is cut to fit rather than thresholded piece by piece: the fewest, largest
+		// leaves move out, and only if the slot is over target at all. Leaves first is what
+		// preserves sharing -- a bundle beside per-instance data must be cut alone, or every
+		// instance hashes a different value. specs/object-store.md §Choosing what to externalize.
+		if input, ok := ext["input"]; ok {
+			stripped, refs, objs, err := cutForSize(input, contextObjectThreshold)
+			if err != nil {
+				return "", err
+			}
+			ext["input"] = stripped
+			*pending = append(*pending, objs...)
+			for _, r := range refs {
+				// Rooted at _external, matching where the decode puts them back and where the
+				// queue entry reports them.
+				r.Path = append([]any{"input"}, r.Path...)
+				referenced[r.Ref] = struct{}{}
+			}
+			if len(refs) > 0 {
+				ext[model.CtxExternalObjects] = refs
+			}
+		}
+		// A reference never goes in the data, here any more than on the wire: it would marshal
+		// to {"ref":…,"size":…} and come back a plain map, so the type saying "this is a
+		// reference" would be gone and the only way back is guessing from the shape -- which
+		// misreads a task input that legitimately has those keys. specs/object-store.md.
 	}
 	if r, ok := cd[model.CtxExternalResult]; ok {
 		ext["result"] = r
@@ -607,7 +632,9 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 			return fmt.Errorf("decode %s envelope: %w", key, err)
 		}
 		if env.IsRef() {
-			loaded[env.Refs[0].Ref] = struct{}{}
+			for _, r := range env.Refs {
+				loaded[r.Ref] = struct{}{}
+			}
 		}
 		cd[key] = decodeEnvelope(env)
 		return nil
@@ -628,7 +655,9 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 				return nil, nil, fmt.Errorf("decode output %s envelope: %w", k, err)
 			}
 			if env.IsRef() {
-				loaded[env.Refs[0].Ref] = struct{}{}
+				for _, r := range env.Refs {
+					loaded[r.Ref] = struct{}{}
+				}
 			}
 			items[k] = decodeEnvelope(env)
 		}
@@ -653,7 +682,9 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 					return nil, nil, fmt.Errorf("decode error data envelope: %w", err)
 				}
 				if env.IsRef() {
-					loaded[env.Refs[0].Ref] = struct{}{}
+					for _, r := range env.Refs {
+						loaded[r.Ref] = struct{}{}
+					}
 				}
 				ev[k] = decodeEnvelope(env)
 				continue
@@ -670,6 +701,19 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 		var ext map[string]any
 		if err := numeric.Decode([]byte(r.ExternalData), &ext); err != nil {
 			return nil, nil, fmt.Errorf("decode external_data: %w", err)
+		}
+		// Put the refs back where they belong before anything reads the input, so every consumer
+		// sees the same typed *ObjectRef the engine produced.
+		if raw, ok := ext[model.CtxExternalObjects]; ok {
+			delete(ext, model.CtxExternalObjects)
+			for _, r := range decodeObjectRefs(raw) {
+				model.Place(ext, r.Path, r)
+				// Into loaded, exactly as a context slot's ref is. The write path releases what
+				// it LOADED and no longer references, so a ref missing from this set is a claim
+				// nothing can ever drop: the task resolves, _external goes, and the object is
+				// held for the life of the database by an instance that finished with it.
+				loaded[r.Ref] = struct{}{}
+			}
 		}
 		hasResult, _ := ext["has_result"].(bool)
 		result := ext["result"]
@@ -703,4 +747,46 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 		}
 	}
 	return cd, loaded, nil
+}
+
+// decodeObjectRefs reads the stored refs list back into typed refs. It comes off a JSON decode,
+// so every field arrives as a generic value.
+func decodeObjectRefs(raw any) []*model.ObjectRef {
+	list, _ := raw.([]any)
+	out := make([]*model.ObjectRef, 0, len(list))
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		hash, _ := m["ref"].(string)
+		path, _ := m["path"].([]any)
+		if hash == "" || len(path) == 0 {
+			continue
+		}
+		out = append(out, &model.ObjectRef{Ref: hash, Size: toInt64(m["size"]), Path: path})
+	}
+	return out
+}
+
+func toInt64(v any) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case float64:
+		return int64(n)
+	}
+	if j, ok := v.(interface{ Int64() (int64, error) }); ok {
+		if got, err := j.Int64(); err == nil {
+			return got
+		}
+	}
+	return 0
+}
+
+func childPathOf(at []any, key any) []any {
+	out := make([]any, len(at)+1)
+	copy(out, at)
+	out[len(at)] = key
+	return out
 }

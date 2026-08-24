@@ -36,14 +36,15 @@ test("logs — inst_created carries input, inst_completed carries output", async
   expect(error).toBeUndefined();
   const items = data!.items ?? [];
 
-  // data is the engine's compact JSON marshalling of the value, stored raw.
+  // data is the value itself, not a rendering of it: a log entry is not a special kind of
+  // response, so a payload small enough to carry inline is carried as it is.
   const created = items.find((l) => l.event === "inst_created");
   expect(created).toBeDefined();
-  expect(created!.data).toBe('{"name":"Sam"}');
+  expect(created!.data).toEqual({ name: "Sam" });
 
   const completed = items.find((l) => l.event === "inst_completed");
   expect(completed).toBeDefined();
-  expect(completed!.data).toBe('{"greeting":"Sam"}');
+  expect(completed!.data).toEqual({ greeting: "Sam" });
 
   // inst_created is the first event in the trail.
   expect(items[0]?.event).toBe("inst_created");

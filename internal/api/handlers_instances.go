@@ -11,7 +11,7 @@ import (
 	"genroc/internal/db"
 	"genroc/internal/idgen"
 	"genroc/internal/model"
-	"genroc/internal/validation"
+	"genroc/internal/numeric"
 )
 
 func (h *Handlers) startInstance(raw json.RawMessage) Reply {
@@ -113,7 +113,13 @@ func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 	return okReply(PageResp[InstanceSummaryResp]{Items: resp, Page: info})
 }
 
-func (h *Handlers) getInstance(id string) Reply {
+// maxInlineResolveBytes bounds what ?resolve=true will splice into one response. Per OBJECT, not
+// per response: an object under it is materialized, one over it stays listed for the caller to
+// fetch. That answers the objection resolve=true was removed for -- an unbounded response behind
+// one query parameter -- while degrading rather than failing, so the answer is always usable.
+const maxInlineResolveBytes = 1 << 20
+
+func (h *Handlers) getInstance(id string, resolve bool) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
 	}
@@ -121,14 +127,10 @@ func (h *Handlers) getInstance(id string) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	// Redact secret-derived values from the returned context (the DB still holds
-	// them plainly; they are just not exposed over the API).
+	// No redaction here. `secret: true` keeps a value out of the server's stdout, where an
+	// operator reads it without asking; an API response is someone asking. specs/object-store.md
+	// §Redaction.
 	ctxData := inst.ContextData
-	if sf, ok := h.schemas.Get(inst.ProcessName, inst.ProcessVersion, func() (*model.ProcessDefinition, error) {
-		return h.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
-	}); ok {
-		ctxData = validation.RedactContext(inst.ContextData, sf)
-	}
 	// Externalized slots leave the context entirely and are listed instead, with the path they
 	// belong at. There is no resolve=true: materializing every slot server-side put an unbounded
 	// response behind one query parameter, and the recipient is the side that knows which values
@@ -141,6 +143,32 @@ func (h *Handlers) getInstance(id string) Reply {
 	// with this response.
 	var objects []ObjectEntry
 	ctxData, _ = extractObjects(ctxData, []any{"context"}, &objects).(map[string]any)
+
+	if resolve {
+		kept := objects[:0]
+		for _, e := range objects {
+			if e.Size > maxInlineResolveBytes {
+				kept = append(kept, e) // too big to splice; the caller fetches this one
+				continue
+			}
+			content, _, err := h.db.GetObjectContent(e.Ref)
+			if err != nil {
+				kept = append(kept, e)
+				continue
+			}
+			var value any
+			if err := numeric.Decode([]byte(content), &value); err != nil {
+				kept = append(kept, e)
+				continue
+			}
+			// The path is rooted at the response, so drop the leading "context" to place it in
+			// the context map this handler still holds separately.
+			if !model.Place(ctxData, e.Path[1:], value) {
+				kept = append(kept, e)
+			}
+		}
+		objects = kept
+	}
 
 	resp := instanceToResp(inst)
 	resp.Context = orderedContext(ctxData)

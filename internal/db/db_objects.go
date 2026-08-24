@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"genroc/internal/numeric"
@@ -52,32 +51,47 @@ func hashContent(b []byte) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-// encodeContextValue: small values stay inline ({data:v}); large ones become a reference
-// with the bytes as a pendingObject to persist+pin in the same transaction. An unchanged
-// *model.ObjectRef re-emits as-is, so an untouched big slot avoids any rewrite.
-func encodeContextValue(v any) (model.Envelope, *pendingObject, error) {
+// encodeContextValue cuts a slot to fit: the fewest, largest leaves move to the object store and
+// the rest stays inline. specs/object-store.md §Choosing what to externalize.
+//
+// It used to be all-or-nothing over 2 KiB, and the playground showed what that costs. The
+// documented way to run a script is a child process whose INPUT carries the bundle beside the
+// caller's own arguments; folding them into one object gives every call a different hash, so
+// three runs of one script stored three copies of it and shared nothing. Cutting the bundle
+// alone is what makes it one object with three claims.
+func encodeContextValue(v any) (model.Envelope, []*pendingObject, error) {
 	if ref, ok := v.(*model.ObjectRef); ok {
 		return model.Envelope{Refs: []*model.ObjectRef{ref}}, nil, nil
 	}
-	b, err := json.Marshal(v)
+	stripped, refs, objs, err := cutForSize(v, contextObjectThreshold)
 	if err != nil {
 		return model.Envelope{}, nil, fmt.Errorf("marshal value for externalization: %w", err)
 	}
-	if len(b) <= contextObjectThreshold {
+	if len(refs) == 0 {
 		return model.Envelope{Data: v}, nil, nil
 	}
-	h := hashContent(b)
-	return model.Envelope{Refs: []*model.ObjectRef{{Ref: h, Size: int64(len(b))}}},
-		&pendingObject{Hash: h, Content: string(b), Size: int64(len(b))}, nil
+	// A ref covering the whole slot keeps the shape the store has always had: no data, one ref.
+	if len(refs) == 1 && len(refs[0].Path) == 0 {
+		return model.Envelope{Refs: refs}, objs, nil
+	}
+	return model.Envelope{Data: stripped, Refs: refs}, objs, nil
 }
 
-// decodeEnvelope turns a stored envelope into an in-memory value: inline values as-is,
-// externalized ones into an *model.ObjectRef marker the engine resolves lazily.
+// decodeEnvelope turns a stored envelope into an in-memory value: inline values as-is, and every
+// externalized part back into an *model.ObjectRef marker at the path it came from, which the
+// engine resolves when an expression reads it.
 func decodeEnvelope(env model.Envelope) any {
-	if env.IsRef() {
-		return env.Refs[0]
+	if !env.IsRef() {
+		return env.Data
 	}
-	return env.Data
+	if len(env.Refs) == 1 && len(env.Refs[0].Path) == 0 {
+		return env.Refs[0] // the whole slot
+	}
+	out := env.Data
+	for _, r := range env.Refs {
+		model.Place(out, r.Path, r)
+	}
+	return out
 }
 
 func (db *DB) loadObjectValue(ctx context.Context, hash string) (any, error) {
@@ -164,34 +178,6 @@ func (db *DB) applyContextObjectDiff(ctx context.Context, qtx *dbgen.Queries, in
 	return nil
 }
 
-// WriteLogObject records a (pre-redacted) log payload too large to keep inline and returns a
-// reference. The log's claim carries the retention horizon so the object outlives its log row;
-// content that collides with an existing object shares it, and only the claim is added.
-func (db *DB) WriteLogObject(instanceID, content string) (*model.ObjectRef, error) {
-	ctx := context.Background()
-	h := hashContent([]byte(content))
-	logUntil := int64(logForeverMillis)
-	if retention := db.objectRetentionMs.Load(); retention > 0 {
-		logUntil = nowMillis() + retention
-	}
-	now := nowMillis()
-	if err := db.q.PutObject(ctx, dbgen.PutObjectParams{
-		Hash: h, Content: content, Size: int64(len(content)), CreatedAt: now,
-	}); err != nil {
-		return nil, fmt.Errorf("write log object: %w", err)
-	}
-	if err := db.q.PutObjectRef(ctx, dbgen.PutObjectRefParams{
-		Hash:      h,
-		OwnerKind: string(model.ObjectOwnerLog),
-		OwnerID:   instanceID,
-		ExpiresAt: nullInt64(logUntil),
-		CreatedAt: now,
-	}); err != nil {
-		return nil, fmt.Errorf("claim log object: %w", err)
-	}
-	return &model.ObjectRef{Ref: h, Size: int64(len(content))}, nil
-}
-
 // CollectObjects is the sweep, in the order the two questions must be asked: retire claims whose
 // horizon has passed (a log past retention, a grace window elapsed), then delete content nothing
 // claims any more. Returns how many objects went.
@@ -210,4 +196,43 @@ func (db *DB) CollectObjects(now int64) (int64, error) {
 // exists for is invisible without it.
 func (db *DB) CountObjectRefs(hash string) (int64, error) {
 	return db.q.CountObjectRefs(context.Background(), hash)
+}
+
+// CutLogValue cuts a log payload the same way a value-slot is cut and claims each piece for the
+// log. Same machinery deliberately: a payload that repeats something the instance externalized
+// produces the identical leaf, hashes the same, and shares that object instead of storing a
+// second copy -- which is what a per-instance copy of a script bundle was doing.
+func (db *DB) CutLogValue(instanceID string, v any, target int64) (model.Envelope, error) {
+	stripped, refs, objs, err := cutForSize(v, target)
+	if err != nil {
+		return model.Envelope{}, err
+	}
+	if len(refs) == 0 {
+		return model.Envelope{Data: v}, nil
+	}
+	now := nowMillis()
+	logUntil := int64(logForeverMillis)
+	if retention := db.objectRetentionMs.Load(); retention > 0 {
+		logUntil = now + retention
+	}
+	ctx := context.Background()
+	for _, o := range objs {
+		if err := db.q.PutObject(ctx, dbgen.PutObjectParams{
+			Hash: o.Hash, Content: o.Content, Size: o.Size, CreatedAt: now,
+		}); err != nil {
+			return model.Envelope{}, fmt.Errorf("write log object: %w", err)
+		}
+	}
+	for _, r := range refs {
+		if err := db.q.PutObjectRef(ctx, dbgen.PutObjectRefParams{
+			Hash:      r.Ref,
+			OwnerKind: string(model.ObjectOwnerLog),
+			OwnerID:   instanceID,
+			ExpiresAt: nullInt64(logUntil),
+			CreatedAt: now,
+		}); err != nil {
+			return model.Envelope{}, fmt.Errorf("claim log object: %w", err)
+		}
+	}
+	return model.Envelope{Data: stripped, Refs: refs}, nil
 }

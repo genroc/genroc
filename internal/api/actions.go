@@ -361,7 +361,8 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID string `path:"id" format:"uuid"`
+				ID      string `path:"id" format:"uuid"`
+				Resolve bool   `query:"resolve" description:"Splice externalized values into the context where they fit; anything over the per-object limit stays listed under objects for the caller to fetch"`
 			}{},
 			Resp: InstanceStatusResp{
 				InstanceSummaryResp: InstanceSummaryResp{
@@ -372,8 +373,19 @@ var registry = func() []actionDef {
 				Context: map[string]any{"order_id": 42, "charged": true},
 				Objects: []ObjectEntry{{Path: []any{"context", "outputs", "render"}, Ref: "9f2ac1b4e7d05f38", Size: 221110}},
 			},
+			fromHTTP: func(r *http.Request) (Envelope, error) {
+				resolve, _ := strconv.ParseBool(r.URL.Query().Get("resolve"))
+				b, _ := json.Marshal(map[string]bool{"resolve": resolve})
+				return Envelope{Action: "get_instance", ID: r.PathValue("id"), Payload: b}, nil
+			},
 			handle: func(h *Handlers, env Envelope) Reply {
-				return h.getInstance(env.ID)
+				p, err := decodeOptionalBody[struct {
+					Resolve bool `json:"resolve"`
+				}](env.Payload)
+				if err != nil {
+					return errReply(err)
+				}
+				return h.getInstance(env.ID, p.Resolve)
 			},
 		},
 		{

@@ -123,9 +123,11 @@ a runnable definition. Routing definition-embedded values through the store puts
 under the definition version, which *is* the retention rule code needs; the correct lifetime
 falls out rather than needing a special case.
 
-Constrained by migration 018: unredacted context-only objects are never served, only
-log-referenced (pre-redacted) rows. Anything letting a worker fetch by ref must not become
-a general read primitive over context.
+~~Constrained by migration 018: unredacted context-only objects are never served, only
+log-referenced rows.~~ **Superseded by [object-store.md](object-store.md):** there is one store
+and one endpoint, addressed by content hash, and redaction never touched stored values -- it
+protects the server console. A worker fetching by ref *is* the read primitive now, and holding
+the hash is holding the bytes that produce it.
 
 ## Open questions
 

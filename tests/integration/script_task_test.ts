@@ -328,3 +328,97 @@ test("realm — a script can require a node builtin", async () => {
   expect(r.ok, JSON.stringify(r)).toBe(true);
   expect(typeof (r.ok === true && JSON.parse(r.body).platform)).toBe("string");
 });
+
+// The bundle case this whole store exists for: a script past the inline cutoff is stored ONCE as
+// an object and listed by each task rather than copied into every instance. The worker follows
+// the reference and caches it by content hash, which never invalidates.
+test("script task — a large script is shared, not copied, and still runs", async () => {
+  const name = `script_big_${crypto.randomUUID()}`;
+  // Well past the 2 KiB cutoff, and identical across instances — which is what makes it one
+  // object with many claims instead of one copy each.
+  const pad = Array.from({ length: 400 }, (_, i) => `const pad_${i} = "${"x".repeat(64)}";`).join("\n");
+  const t = withInput(scriptTask(`${pad}\nreturn { doubled: input.n * 2 };`));
+
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: { type: "object", properties: { n: { type: "number" } }, required: ["n"] },
+      tasks: [{ ...t, output: "$: self.result", switch: [{ goto: "end" }] }],
+    } as never,
+  });
+
+  const ids = await Promise.all(
+    [1, 2, 3].map(async (n) => {
+      const { data } = await client.POST("/instances", { body: { process: name, input: { n } } as never });
+      return { id: data!.id, n };
+    }),
+  );
+
+  for (const { id, n } of ids) {
+    expect(await waitForInstance(id, 40_000)).toBe("completed");
+    const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+    expect((data?.context?.outputs as any)?.run).toEqual({ doubled: n * 2 });
+  }
+}, 60_000);
+
+// The property the test above cannot see: it passes whether or not the bundle is externalized,
+// because a script carried inline still runs. What must be pinned is that the code LEFT the
+// instance — one object, listed by every task, instead of a copy in each.
+//
+// The task id is deliberately not "run", so this file's worker (TASK=run) leaves it parked and
+// the queue can be inspected.
+test("script task — a large script leaves the instance and is listed, not carried", async () => {
+  const name = `script_shared_${crypto.randomUUID()}`;
+  const pad = Array.from({ length: 400 }, (_, i) => `const pad_${i} = "${"x".repeat(64)}";`).join("\n");
+  const code = `${pad}\nreturn { ok: true };`;
+
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: { type: "object", properties: { n: { type: "number" } }, required: ["n"] },
+      tasks: [
+        {
+          id: "parked",
+          action: { type: "external" as const, input: { code, input: "$: input" }, result_schema: {} },
+          switch: [{ goto: "end" }],
+        },
+      ],
+    } as never,
+  });
+  await Promise.all(
+    [1, 2].map((n) => client.POST("/instances", { body: { process: name, input: { n } } as never })),
+  );
+
+  const deadline = Date.now() + 20_000;
+  let entries: any[] = [];
+  while (Date.now() < deadline) {
+    const { data } = await client.GET("/external-tasks", { params: { query: { process: name } } });
+    entries = ((data as any)?.items ?? []) as any[];
+    if (entries.length === 2) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  expect(entries.length, "both instances parked").toBe(2);
+
+  for (const e of entries) {
+    // The code is gone from the input and named by the entry instead.
+    expect(e.input?.code, "the bundle must not be carried in the task input").toBeUndefined();
+    const listed = (e.objects ?? []).find(
+      (o: any) => o.path.length === 2 && o.path[0] === "input" && o.path[1] === "code",
+    );
+    expect(listed, "the bundle is listed at input.code").toBeDefined();
+    expect(listed.size).toBeGreaterThan(code.length - 100);
+    // The per-instance half stays inline: externalizing the whole input would fold it in and
+    // give every instance a different hash, which is the sharing this exists for, lost.
+    expect(e.input?.input?.n).toBeGreaterThan(0);
+  }
+
+  // One object, two tasks: byte-identical code across instances is stored once.
+  const refs = new Set(entries.map((e) => e.objects[0].ref));
+  expect(refs.size, "both instances name the SAME object — the bundle is stored once").toBe(1);
+
+  // And it is fetchable by that hash, which is how a worker gets it.
+  const { data: obj } = await client.GET("/objects/{ref}", {
+    params: { path: { ref: [...refs][0] } },
+  });
+  expect(JSON.parse((obj as any).data)).toBe(code);
+}, 40_000);

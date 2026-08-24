@@ -534,10 +534,12 @@ test("a payload past the inline cutoff externalizes and still crosses whole", as
   const { data: lazy } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
   const childId = (lazy?.context as any)?._children?.pay as string;
   const { data: kid } = await client.GET("/instances/{id}", { params: { path: { id: childId } } });
+  // The cut takes the big leaf inside the raised payload, so the listing names a path THROUGH
+  // error.data rather than error.data itself.
   expect(
-    objectAt(kid, ["context", "error", "data"]),
+    (kid!.objects ?? []).some((o: any) => o.path[0] === "context" && o.path[1] === "error" && o.path[2] === "data"),
     "8 KiB is past the 2 KiB cutoff, so the payload must be externalized",
-  ).toBeTruthy();
+  ).toBe(true);
 
   const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
   await spliceObjects(data);

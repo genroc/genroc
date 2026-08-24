@@ -130,11 +130,11 @@ test("successful run records task and completion events with response snippet", 
   expect(started?.task).toBe("first");
   expect(String(started?.meta?.worker ?? "")).not.toBe("");
 
-  // action_succeeded carries the raw (capped) response body in data and the HTTP
-  // status in the structured meta.
+  // action_succeeded carries the response body in data -- as the VALUE it is, the same shape
+  // every other payload takes -- and the HTTP status in the structured meta.
   const firstSucceeded = logs.find((l) => l.event === "action_succeeded");
   expect(firstSucceeded?.task).toBe("first");
-  expect(firstSucceeded?.data).toContain("ok");
+  expect(firstSucceeded?.data).toEqual({ ok: true });
   expect(firstSucceeded?.meta?.status).toBe(200);
 
   // action_started records the action type in message, the request body in data,

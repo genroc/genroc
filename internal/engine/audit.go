@@ -10,22 +10,7 @@ import (
 	"genroc/internal/errcode"
 	"genroc/internal/logview"
 	"genroc/internal/model"
-	"genroc/internal/schema"
-	"genroc/internal/validation"
 )
-
-// snippetResult redacts an action's raw result body against the schema declared for it, then
-// returns the capped JSON snippet. The response body is not in the instance context, so
-// audit's context-secret pass can't scrub it — it is schema-redacted here instead.
-func (e *Engine) snippetResult(task *model.Task, status int, body any) string {
-	if !e.logCfg.Payloads || task.Action == nil {
-		return e.snippet(body)
-	}
-	if sc := task.Action.ResultRedactionSchema(status); sc != nil {
-		body = sc.Redact(body)
-	}
-	return e.snippet(body)
-}
 
 // logEvent is the structured payload of one log line. Level and Event are
 // required; the rest are optional. It is shared by audit (console + durable DB
@@ -38,8 +23,12 @@ type logEvent struct {
 	Task  string
 	Msg   string // human note (rendered as note=…, since slog uses msg for the event)
 	Code  errcode.Code
-	Data  string // body (request/response/input/output/…); shown under its event Label
-	Meta  map[string]any
+	// Data is the body (request/response/input/output/…) as a VALUE, not pre-rendered text. It
+	// is cut like any other value on the way to storage -- so a payload that repeats something
+	// the instance already externalized shares that object instead of copying it -- and rendered
+	// once for the console. specs/object-store.md.
+	Data any
+	Meta map[string]any
 }
 
 // audit records an instance event to the console (slog) and the durable per-instance DB
@@ -47,18 +36,23 @@ type logEvent struct {
 // can never abort an advance.
 func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 	ev.ID = inst.ID
-	// Scrub every secret value (config + input + output, via the taint schemas) at this one
-	// sink: expressions have no functions, so a secret always appears verbatim in any logged
-	// value — nothing can reach a log line in a form a string-replace would miss.
+	// Redaction is a RECORDING concern and its one sink is stdout, where a value is read by an
+	// operator who did not ask for it. The durable trail and every API response carry what
+	// actually happened: protecting a value at rest is encryption's job, and redacting on read
+	// was never that. specs/object-store.md §Redaction.
+	//
+	// Scrubbing works by replacing the secret VALUES: expressions have no functions, so a secret
+	// always appears verbatim in anything logged, and nothing reaches a line in a form a
+	// string-replace would miss.
+	consoleEv := ev
+	text := dataText(ev.Data)
 	if secrets := e.contextSecrets(inst); len(secrets) > 0 {
-		ev.Data = redactSecrets(ev.Data, secrets)
-		ev.Msg = redactSecrets(ev.Msg, secrets)
-		ev.Meta = redactMeta(ev.Meta, secrets)
+		text = redactSecrets(text, secrets)
+		consoleEv.Msg = redactSecrets(consoleEv.Msg, secrets)
+		consoleEv.Meta = redactMeta(consoleEv.Meta, secrets)
 	}
 	// Console shows a capped excerpt regardless of how the full payload is persisted.
-	consoleEv := ev
-	consoleEv.Data = truncateStr(ev.Data, e.payloadCap())
-	e.emit(consoleEv)
+	e.emitWithData(consoleEv, truncateStr(text, e.payloadCap()))
 	if err := e.db.AppendLog(&model.LogEntry{
 		InstanceID: ev.ID,
 		Level:      ev.Level,
@@ -73,51 +67,25 @@ func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 	}
 }
 
-// contextSecrets gathers the secret values currently in context so audit can scrub them
-// from log text. Unresolved *ObjectRefs are skipped — never loaded means never logged —
-// which relies on eval paths feeding inst.ResolvedObjects BEFORE the audit call; keep that.
+// contextSecrets gathers the secret values to keep out of stdout. `secret: true` is valid only
+// in config_schema (model.validate refuses it anywhere else), so this is the config and nothing
+// more -- no schema walk over the context, no taint to follow.
+//
+// That narrowing is what removed the whole second redaction mechanism. A fetch RESPONSE BODY
+// never enters the context, so a value-based scrub could not see it and a schema-driven pass had
+// to blank it structurally while building the log snippet -- before audit was called, leaving
+// nothing unredacted to store. With no `secret: true` outside config there is nothing for it to
+// blank. specs/object-store.md §secret: true is CONFIG-ONLY.
 func (e *Engine) contextSecrets(inst *model.ProcessInstance) []string {
 	def, err := e.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
 	if err != nil {
 		return nil
 	}
 	out := def.SecretConfigValues(inst.Config)
-	sf, ok := e.schemaFile(inst)
-	if !ok {
-		return out
-	}
-	collect := func(v any, sc schema.Schema) {
-		if sc.IsZero() {
-			return
-		}
-		if ref, isRef := v.(*model.ObjectRef); isRef {
-			cached, ok := inst.ResolvedObjects[ref.Ref]
-			if !ok {
-				return // never materialized this advance → cannot be in any log line
-			}
-			v = cached
-		}
-		out = append(out, sc.WithDefs(sf.Defs).CollectSecrets(v)...)
-	}
-	if v, ok := inst.ContextData["input"]; ok {
-		collect(v, sf.ProcessInput)
-	}
-	if outs, ok := inst.ContextData["outputs"].(map[string]any); ok {
-		for tid, v := range outs {
-			if ts, ok := sf.Tasks[tid]; ok {
-				collect(v, ts.Output)
-			}
-		}
-	}
-	// A declared payload can carry a secret too, and which task wrote the `error` in hand is
-	// not knowable from the row — hence the definition-wide union.
-	if ev, ok := inst.ContextData["error"].(map[string]any); ok {
-		collect(ev["data"], validation.ErrorDataSchema(sf))
-	}
-	// Scrub the longest value first: when one secret is a prefix/substring of
-	// another (e.g. an input array [5, 50, 500]), replacing the shorter one first
-	// consumes the shared lead and leaves the longer one's tail exposed ("***0",
-	// "***00"). Length-descending order makes each value redacted as a whole.
+	// Scrub the longest value first: when one secret is a prefix/substring of another (e.g. an
+	// input array [5, 50, 500]), replacing the shorter one first consumes the shared lead and
+	// leaves the longer one's tail exposed ("***0", "***00"). Length-descending order makes each
+	// value redacted as a whole.
 	sort.Slice(out, func(i, j int) bool { return len(out[i]) > len(out[j]) })
 	return out
 }
@@ -160,7 +128,25 @@ func (e *Engine) logOnly(ev logEvent) {
 // level is enabled, keeping audit's hot path — the DB write — cheap. A record with an
 // Event is a structured audit event (rendered in aligned columns); one without is
 // operational (free-form). Fields come from logview.Record so console and CLI match.
-func (e *Engine) emit(ev logEvent) {
+func (e *Engine) emit(ev logEvent) { e.emitWithData(ev, dataText(ev.Data)) }
+
+// dataText renders a log value for the console. Storage keeps the value; only the operator's
+// line needs text.
+func dataText(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func (e *Engine) emitWithData(ev logEvent, data string) {
 	lvl := slogLevel(ev.Level)
 	if !e.log.Enabled(context.Background(), lvl) {
 		return
@@ -179,7 +165,7 @@ func (e *Engine) emit(ev logEvent) {
 	}
 	// audit: the event is the slog message; id/task become columns; the rest detail.
 	detail := logview.Record{
-		Event: ev.Event, Msg: ev.Msg, Code: string(ev.Code), Data: ev.Data, Meta: ev.Meta,
+		Event: ev.Event, Msg: ev.Msg, Code: string(ev.Code), Data: data, Meta: ev.Meta,
 	}.Detail(e.logCfg.Mode)
 	attrs := make([]any, 0, 6+2*len(detail))
 	attrs = append(attrs, logview.AuditKey, true, "id", ev.ID, "task", ev.Task)
@@ -231,32 +217,28 @@ func (e *Engine) AuditCreated(inst *model.ProcessInstance) {
 }
 
 // outputData is the snippet of the process's final output (context_data["output"], set by
-// computeOutput) for the instance_completed event; "" when there is no output or payload
+// computeOutput) for the instance_completed event; nil when there is no output or payload
 // logging is off.
-func (e *Engine) outputData(inst *model.ProcessInstance) string {
+func (e *Engine) outputData(inst *model.ProcessInstance) any {
 	return e.snippet(inst.ContextData["output"])
 }
 
-// snippet renders v as JSON for an audit detail, returning the FULL payload (no
-// truncation — audit caps it for the console and externalizes oversized values, so the
-// capture is never lossy). Returns "" when payload capture is off or v is empty.
-func (e *Engine) snippet(v any) string {
-	if !e.logCfg.Payloads || v == nil {
-		return ""
+// snippet passes v through as an audit detail, keeping the FULL payload (no truncation --
+// audit caps it for the console and cuts oversized values, so the capture is never lossy).
+// Returns nil when payload capture is off.
+func (e *Engine) snippet(v any) any {
+	if !e.logCfg.Payloads {
+		return nil
 	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return ""
-	}
-	return string(b)
+	return v
 }
 
 // snippetRaw returns an already-string payload (e.g. a raw error response body) in full;
 // audit caps/externalizes it like snippet. Returns "" when payload capture is off or s
 // is empty.
-func (e *Engine) snippetRaw(s string) string {
-	if !e.logCfg.Payloads {
-		return ""
+func (e *Engine) snippetRaw(s string) any {
+	if !e.logCfg.Payloads || s == "" {
+		return nil
 	}
 	return s
 }
@@ -270,10 +252,6 @@ func (e *Engine) payloadCap() int {
 	return defaultPayloadBytes
 }
 
-// logPreviewBytes is the length of the inline excerpt kept on a log row whose full
-// payload was externalized, so a listing can show a snippet without loading the object.
-const logPreviewBytes = 512
-
 func truncateStr(s string, max int) string {
 	if max > 0 && len(s) > max {
 		return s[:max] + "…(truncated)"
@@ -284,24 +262,22 @@ func truncateStr(s string, max int) string {
 // encodeLogData renders a scrubbed payload into the data column: small inline, large as a
 // log object + short preview, so high-churn process_logs never holds a huge value.
 // Best-effort: a failed object write falls back to a truncated inline preview.
-func (e *Engine) encodeLogData(instanceID, full string) string {
-	if full == "" {
+func (e *Engine) encodeLogData(instanceID string, v any) string {
+	if v == nil {
 		return ""
 	}
-	if len(full) <= e.payloadCap() {
-		if b, err := json.Marshal(model.Envelope{Data: full}); err == nil {
-			return string(b)
-		}
-		return ""
-	}
-	ref, err := e.db.WriteLogObject(instanceID, full)
+	// The same cut as any other value: the fewest, largest leaves move out and the rest stays
+	// inline. A payload repeating something the instance already externalized -- a child's input
+	// carrying a script bundle -- produces the identical leaf, hashes the same, and SHARES that
+	// object rather than storing a second copy of it.
+	env, err := e.db.CutLogValue(instanceID, v, int64(e.payloadCap()))
 	if err != nil {
-		if b, mErr := json.Marshal(model.Envelope{Data: truncateStr(full, e.payloadCap())}); mErr == nil {
+		if b, mErr := json.Marshal(model.Envelope{Data: truncateStr(dataText(v), e.payloadCap())}); mErr == nil {
 			return string(b)
 		}
 		return ""
 	}
-	if b, err := json.Marshal(model.Envelope{Refs: []*model.ObjectRef{ref}, Preview: truncateStr(full, logPreviewBytes)}); err == nil {
+	if b, err := json.Marshal(env); err == nil {
 		return string(b)
 	}
 	return ""

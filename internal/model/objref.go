@@ -8,23 +8,15 @@ import "fmt"
 // never confused with the envelope itself — there is no in-band sentinel to collide
 // with arbitrary user JSON.
 //
-// Exactly one of Data / Refs is populated:
-//   - Data: the value is small enough to keep inline.
-//   - Refs: the value lives in process_objects; v1 holds a single root reference
-//     (no Path), i.e. the whole slot is externalized.
-//
-// The shape is intentionally forward-compatible: ObjectRef.Path (granular/nested
-// externalization) and an encryption discriminator are additive later without
-// changing how existing envelopes decode.
+// Data and Refs are populated TOGETHER: the cut moves out the fewest, largest leaves and Data
+// keeps everything else, so a value is usually part-inline and part-referenced. Each ref carries
+// the Path it was taken from, and Refs is empty when nothing had to move.
 type Envelope struct {
 	Data any          `json:"data,omitempty"`
 	Refs []*ObjectRef `json:"refs,omitempty"`
-	// Preview is a short, human-readable excerpt of an externalized value, set only
-	// for log payloads so a log listing can show a snippet without loading the object.
-	Preview string `json:"preview,omitempty"`
 }
 
-// ObjectRef points at one row in process_objects. Ref is the content address — the
+// ObjectRef points at one row in objects. Ref is the content address — the
 // first 16 bytes (128 bits) of the content's sha256, hex-encoded (32 chars); it
 // doubles as the object id and the change-detection key (a re-encoded value with the
 // same hash needs no new write). Size is the byte length of the content, surfaced to
@@ -32,6 +24,16 @@ type Envelope struct {
 type ObjectRef struct {
 	Ref  string `json:"ref"`
 	Size int64  `json:"size"`
+	// Path is where the value belongs inside the slot, as keys from the slot's root: object
+	// keys as strings, array indices as numbers. Empty means the whole slot.
+	//
+	// It is what lets a composite carry a reference for ONE of its leaves -- a task input whose
+	// code is a definition-owned object and whose other fields are per-instance data. Without
+	// it the only way to record that is a marker inside the value, which does not survive the
+	// round trip: a *ObjectRef marshals to {"ref":…,"size":…} and comes back a plain map, and
+	// recovering the type means guessing from the shape, which misreads user data that
+	// legitimately has those keys. specs/object-store.md.
+	Path []any `json:"path,omitempty"`
 }
 
 func (e Envelope) IsRef() bool { return len(e.Refs) > 0 }
@@ -45,7 +47,7 @@ const (
 	// ObjectOwnerInstance: a live context value-slot, held until the slot stops referencing the
 	// hash. OwnerID is the instance.
 	ObjectOwnerInstance ObjectOwner = "instance"
-	// ObjectOwnerLog: a (pre-redacted) log payload. OwnerID is the instance; the claim carries
+	// ObjectOwnerLog: a log payload. OwnerID is the instance; the claim carries
 	// the retention horizon, so the object outlives the log row that names it.
 	ObjectOwnerLog ObjectOwner = "log"
 	// ObjectOwnerDefinition: a value embedded in a definition version, OwnerID "name@version".

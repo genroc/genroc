@@ -8,21 +8,28 @@ import (
 	"genroc/internal/model"
 )
 
-// decodeLogData unpacks the stored log-data envelope into the API view: an inline payload as its
-// string value, an externalized one as the ref it is listed under, a non-envelope value verbatim.
-func decodeLogData(raw string) (string, *model.ObjectRef) {
+// decodeLogData unpacks the stored log-data envelope into the API view: the payload as a VALUE
+// (a string only when the payload itself was one) and the objects section for whatever the cut
+// moved out, with paths rooted at the entry. Same shape as every other response -- the log has
+// no convention of its own. specs/object-store.md.
+func decodeLogData(raw string) (any, []ObjectEntry) {
 	if raw == "" {
-		return "", nil
+		return nil, nil
 	}
 	var env model.Envelope
 	if err := json.Unmarshal([]byte(raw), &env); err != nil {
 		return raw, nil
 	}
-	if env.IsRef() {
-		return "", env.Refs[0]
+	var objects []ObjectEntry
+	for _, r := range env.Refs {
+		objects = append(objects, ObjectEntry{Path: childPath([]any{"data"}, r.Path), Ref: r.Ref, Size: r.Size})
 	}
-	s, _ := env.Data.(string)
-	return s, nil
+	return env.Data, objects
+}
+
+func childPath(root []any, rest []any) []any {
+	out := make([]any, 0, len(root)+len(rest))
+	return append(append(out, root...), rest...)
 }
 
 func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
@@ -56,11 +63,7 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 	// that matters. The preview is gone with it -- a truncated excerpt of a value nobody asked
 	// for is the cost this whole change is about.
 	for i, l := range logs {
-		data, ref := decodeLogData(l.Data)
-		var objects []ObjectEntry
-		if ref != nil {
-			objects = []ObjectEntry{{Path: []any{"data"}, Ref: ref.Ref, Size: ref.Size}}
-		}
+		data, objects := decodeLogData(l.Data)
 		resp[i] = LogEntryResp{
 			Time:     l.CreatedAt.Format(time.RFC3339Nano),
 			Instance: l.InstanceID,

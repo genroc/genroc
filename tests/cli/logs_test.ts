@@ -255,7 +255,9 @@ test("logs — an externalized payload shows its ref, and `object` fetches it", 
 
   const plain = runCli(bin, ["logs", id]);
   expect(plain.ok).toBe(true);
-  expect(plain.stdout).toMatch(/input=\{"ref":"[0-9a-f]{32}","size":\d+\}/);
+  // The handle sits where the value was cut from, inside the payload's own shape -- the entry
+  // is not replaced by a ref, only the leaf that was too big to carry.
+  expect(plain.stdout).toMatch(/input=\{"blob":\{"ref":"[0-9a-f]{32}","size":\d+\}\}/);
   expect(plain.stdout).not.toContain("BBBBBBBBBB");
 
   // The escape hatch: fetch the one payload by the ref the trail printed.

@@ -138,7 +138,7 @@ behavior while the spec stays put, answering a different question. See
   round-trips natively where `true` needed a custom marshaller in each direction. The `only_once` interaction needed no code at all: the existing
   guard already refuses a retry on a worker-reported code at `PUT /definitions` unless the
   rule carries `not_reached: true`.
-- [object-store.md](object-store.md) — **the store is BUILT (2026-08-24)**; definition objects, the wire and worker caching remain proposal. Re-architects `process_objects` from a per-instance blob
+- [object-store.md](object-store.md) — **BUILT (2026-08-24)**; only the config-only narrowing of `secret: true` remains proposal. Re-architects `process_objects` from a per-instance blob
   table into a global content-addressed store (`objects`) with explicit ownership
   (`object_refs`: instance / log / definition). Opens with a measurement rather than a design:
   a 221 KB script is copied verbatim into every instance's `external_data` (ten instances =

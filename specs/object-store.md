@@ -1,7 +1,8 @@
 # The object store: content, and who holds it
 
-Status: **Phase 1 (the store) BUILT 2026-08-24.** Definition objects, the wire and worker
-caching are proposal. Re-architecting `process_objects` from a
+Status: **BUILT 2026-08-24** — the store, the wire, definition objects and worker caching. What
+remains proposal is the config-only narrowing of `secret: true` (§Redaction), which is mostly
+deletion. Re-architecting `process_objects` from a
 per-instance blob table into a global content-addressed store with explicit ownership. The
 trigger is script tasks — a bundle that carries a library is copied into every instance and
 re-shipped on every claim — but the fix is the ownership model, not a special case for code.
@@ -50,7 +51,7 @@ Split content from the claims on it.
     object_refs(hash, owner_kind, owner_id, expires_at NULL,
                 PRIMARY KEY (hash, owner_kind, owner_id))
 
-`owner_kind` is `instance` (a live context value-slot), `log` (a pre-redacted log payload) or
+`owner_kind` is `instance` (a live context value-slot), `log` (a log payload) or
 `definition` (a value embedded in a definition version, `owner_id` = `name@version`).
 `expires_at` is the log's retention horizon; NULL means the ref lives until it is removed,
 which is what a context pin and a definition ref are.
@@ -387,10 +388,12 @@ only real values:
   plausible object it will treat as data — and a client that reads the section, which is the
   contract, sees no ambiguity at all.
 
-`resolve=true` disappears from the API — **on logs too**, along with `HydrateContext` and the
-truncated preview that existed only to make an unresolvable payload legible. A log entry lists
+`resolve=true` returns in a bounded form (§Resolution is automatic while it is small); what goes
+for good is `HydrateContext`'s unbounded materialization and the truncated preview that existed
+only to make an unresolvable payload legible. A log entry lists
 its own externalized payload, the same way an instance detail lists its context slots; §A section
-belongs to whatever object owns its values is where the paths are rooted and why.
+belongs to whatever object owns its values is where the paths are rooted and why, and §A log
+payload is a value is why there is nothing else to it.
 
 ### A section belongs to whatever object owns its values [decided 2026-08-24]
 
@@ -411,6 +414,72 @@ section travels with its owner, and paging, sorting and streaming are none of it
 instead. The second was defensible on ambiguity grounds and still wrong on shape: one concept
 should have one spelling, and `objects` is it. A recipient now implements the protocol once,
 against "this object lists its own values", and applies it wherever it finds the field.
+
+### A log payload is a value, cut like any other [decided 2026-08-24]
+
+A log entry's `data` is the **value** — not a rendering of it. The engine carries `any` from the
+event to storage, cuts it with the same `cutForSize` a context slot gets, and renders text once,
+for the console line, where a human is the reader.
+
+It was a pre-rendered string, externalized whole when it exceeded the cap. Two consequences, both
+observed: a string has no tree, so the cut had nothing to choose between and the whole payload
+moved as one blob; and because each instance's payload differed in its *small* fields, no two
+blobs ever hashed the same. Three runs of one 226 KB script cost **855,418 bytes** — one shared
+context object plus three near-identical copies of the script under `log` claims. The same three
+runs now cost **231,376 bytes**: one object, six claims (three `instance`, three `log`).
+
+That is not a log optimization. It follows from the log having no shape of its own: the same cut
+produces the same leaf, the same leaf hashes the same, and sharing is what content addressing
+already does. The log-specific spellings die with it — `WriteLogObject`, `Envelope.Preview`, and
+the entry-level "data absent, one ref listed" convention. An entry now reads like every other
+response: the shell inline, `objects` naming `["data", "code"]`, and `genctl` splicing the
+`{ref,size}` handle back into the place it was cut from.
+
+### A ref is never stored in the data either [decided 2026-08-24]
+
+The rule is not a wire rule. **Nowhere** — on the wire or on disk — does a reference sit inside
+the value it stands for; it goes in a sibling `objects` list, with a path saying where it
+belongs. The stored form is the same shape as the response:
+
+```jsonc
+// external_data, for a task whose code is a definition-owned object
+{ "task_id": "price",
+  "input":   { "input": { "amount": 250 } },              // the ref'd leaf is absent
+  "objects": [ { "path": ["input", "code"], "ref": "9f2a", "size": 221110 } ] }
+```
+
+Storing it inline instead does not merely look inconsistent — it does not survive. A Go
+`*ObjectRef` marshals to `{"ref":…,"size":…}` and comes back a plain map, so the type that says
+"this is a reference" is gone, and the only way to recover it is to guess from the shape — which
+misreads a task input that legitimately contains `ref` and `size` keys. Out of band, the list
+*says* which paths are references and nothing has to be inferred.
+
+It also removes work rather than adding it: the queue endpoint has the section already in the
+shape the response wants, rooted the same way, so it forwards rather than re-deriving. And the
+extract/place pair belongs in one shared place — it is currently written twice (`extractObjects`
+in the API, `spliceObjects`/`place` in genctl) and the storage layer needs the same pair, which
+is two copies too many.
+
+`ObjectRef` gains `Path` — the field migration 018 reserved for exactly this and never built.
+
+### Resolution is automatic while it is small [decided 2026-08-24]
+
+Two consumers cannot follow a reference, and both get the same rule: **materialize what fits, and
+make the consumer fetch the rest.**
+
+- **A fetch body always resolves.** Its reader is a remote server that cannot call genroc, so a
+  ref reaching it is a script that never arrives. The engine loads the object into the request
+  before sending, and refuses past a cap rather than materializing something enormous into a
+  request — a `pre.error`, since nothing left.
+- **`?resolve=true` returns**, per object rather than per response: an object under the cap is
+  spliced into the data, one over it stays listed for the caller to fetch. That answers the
+  objection it was removed for — an *unbounded* response behind one query parameter — without
+  costing the ergonomics. It degrades rather than failing: the answer is always usable, and a
+  caller that ignores the section still sees a missing value rather than a wrong one.
+
+The caps are safety limits, not tuning knobs, in the sense migration 018's 8 MiB response cap
+already established: past them the right fix is to change what the definition sends, not to
+raise the number.
 
 ### What the CLI does instead, and where it declines to help
 
@@ -442,18 +511,110 @@ on every run — and it is the same code a worker needs.
    the ref.
 4. **An answerable question**: who holds this object, and until when.
 
+## Choosing what to externalize: a size-driven cut
+
+Status: **BUILT 2026-08-24** (`internal/db/objectcut.go`), for the task-input slot. Context slots
+still use the whole-slot rule; moving them onto the same cut is the remaining half.
+
+### What is wrong with both current rules
+
+There are two, and neither is about the thing that matters — how big the row ends up:
+
+- **Whole-slot, over 2 KiB** (`encodeContextValue`, for context slots). All or nothing: a 2.1 KiB
+  slot goes out entirely, and a slot's small fields travel to the object store with its big one.
+- **Per-leaf, over 2 KiB** (`externalizeLeaves`, for a task input). Independent of the total, so a
+  value of a hundred 1 KiB leaves — 100 KB — stays fully inline because no single leaf crosses
+  the line, while a value of two 3 KiB leaves externalizes both even though removing one would
+  have been enough.
+
+Both ask "is this piece big" when the question is "is the row still too big".
+
+### The algorithm
+
+Externalize the **fewest, largest leaves** that bring the stored size under a target.
+
+1. Encode once and record every node's encoded size, bottom-up.
+2. `total = dataSize + objectsListSize`. If `total <= target`, externalize nothing.
+3. Otherwise take the largest remaining **leaf**, move it to the object store, and account for
+   it exactly: `data -= leafSize`, `objects += entrySize(path)` — the value is removed rather
+   than replaced, so the delta needs no re-encoding of anything else.
+4. Repeat until `total <= target`, or until no candidate is worth taking (below).
+
+Leaves first, and that is not an aesthetic preference: it is what preserves **sharing**. The
+motivating value is a task input holding a bundle beside per-instance data. Cutting the leaf
+isolates the bundle, so every instance of a definition version produces the same hash and stores
+it once. Cutting the parent folds the per-instance data in, giving every instance a different
+hash and no sharing at all — the whole win, lost to a coarser cut.
+
+### Going up a level
+
+If every leaf is taken and `total` is still over target, the skeleton itself is too big: a
+thousand refs is a thousand entries in the objects list. Then the cut **coarsens** — candidates
+become the parents, and choosing a parent **removes its descendants from the cut**.
+
+That removal is the load-bearing part. An object's content is opaque bytes; nothing walks inside
+it looking for references, so a ref nested in an object's content would never be resolved. The
+cut must therefore be an **antichain**: no chosen node is an ancestor or descendant of another.
+Coarsening means the parent is stored whole, with what would have been its children's objects
+**inlined back into it** — which at write time costs nothing, because the values are still in
+hand and were never separated.
+
+Coarsening terminates: the root as a single object leaves a slot holding one reference, which
+always fits.
+
+### Two rules that fall out
+
+- **A floor.** Removing a leaf costs an objects entry (path, hash, size — call it ~80 bytes). A
+  leaf smaller than its own entry makes the row *bigger*. So a candidate under the floor is not
+  taken, and when the largest remaining leaf is under it, that is the signal to coarsen rather
+  than to keep going.
+- **Determinism, which dedup depends on.** Two instances must choose the *same* cut, or they
+  produce different objects for identical content and share nothing. Ties therefore break on a
+  total order — size descending, then path ascending — and never on Go's map iteration, which is
+  randomized. This is the detail most likely to be dropped and least likely to be noticed: it
+  degrades sharing quietly rather than failing.
+
+  **[built]** There are two independent defences, not one: map children are built in sorted key
+  order, *and* equal candidates break their tie on path. Removing either alone leaves the result
+  deterministic — only removing both makes it vary, which is what the test had to be checked
+  against. Keep both: a single defence with no second is one edit away from silent unsharing.
+
+### Cost
+
+One encode to size the tree, then arithmetic — no re-encoding per round, because removing a
+value changes only its own bytes and leaves every key and separator around it untouched. The
+selection is a sort plus a walk.
+
 ## Phasing
 
 1. **The store.** ✅ **Built 2026-08-24.** Migration 029, `objects` + `object_refs`, the context
    and log paths on claims, `--object-grace`, `GetLogObject` gone, `ResolveObject` without its
    owner. Both stress tests ported — `gc_chaos` now reports `shared=25` of 32 objects under
    crash chaos, which is the cross-instance dedup this exists for, observed rather than argued.
-2. **The wire.** The `objects` section, `GET /objects/{hash}`, `resolve=true` and
-   `HydrateContext` deleted, log entries listed like any other value, genctl splicing
-   client-side plus `genctl object`.
-3. **Definition objects.** Externalize large Shape literals at apply time; pass `ObjectRef`
-   leaves through evaluation.
-4. **Worker caching.** The evaluator follows the `objects` section and caches by hash.
+2. **The wire.** ✅ **Built 2026-08-24.** The `objects` section, `GET /objects/{hash}`,
+   `HydrateContext` deleted, `resolve=true` bounded, genctl splicing client-side plus
+   `genctl object`. Log entries are listed like any other value -- literally: §A log payload is
+   a value, cut like any other.
+3. **Definition objects.** ✅ **Built 2026-08-24**, and not the way this doc proposed. It said
+   externalize large Shape *literals* at apply time; what shipped externalizes a task input
+   **leaf by leaf when the task is stored**, which needs no apply-time pass, no refs inside a
+   definition, and no version to own them. Content addressing does the work the apply-time step
+   was for: every instance of a version evaluates the same bundle to the same bytes, so the
+   second write finds the object already there. The cost is hashing it per instance (~1 ms),
+   against a design that would have had to make a `*ObjectRef` survive definition storage — the
+   same round-trip problem, one layer up.
+   Leaf by leaf and not whole: externalizing the entire input would fold the per-instance data
+   in with the bundle, giving every instance a different hash and no sharing at all.
+4. **Worker caching.** ✅ **Built 2026-08-24.** `evaluator/worker.ts` follows the entry's objects
+   section and caches by content hash, which cannot invalidate.
+
+**Measured, on the fixture §The measurement opened with** — a 221 KB script, ten instances:
+
+| | before | after |
+|---|---|---|
+| ten instances' `external_data` | 2,233,580 B | **1,360 B** |
+| objects stored | 0 | **1**, claimed ten times |
+| claiming three tasks | 670,686 B | **1,020 B** |
 
 **The wire comes before definition objects, which is not the order this doc first proposed.**
 Definition objects put a `{ref}` into an external task's `input`, so a worker claiming that task

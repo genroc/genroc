@@ -144,8 +144,8 @@ func TestObjects_LogReferencedSurvivesDeref(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			b.db.SetObjectRetention(time.Hour)
 
-			// A secret-free value: its context object and its (pre-redacted) log object
-			// are byte-identical, so they share one row.
+			// One value reached by two paths: the context slot's cut and the log payload's
+			// cut produce the same leaf, so both claims land on one row.
 			val := bigString("shared")
 			content, _ := json.Marshal(val) // exactly what the context encoder stores
 
@@ -160,11 +160,16 @@ func TestObjects_LogReferencedSurvivesDeref(t *testing.T) {
 			if err := b.db.SaveInstance(inst); err != nil {
 				t.Fatalf("SaveInstance: %v", err)
 			}
-			// ...and log-reference the identical content (shares the same row).
-			ref, err := b.db.WriteLogObject("inst-shared", string(content))
+			// ...and log a payload whose cut produces the identical leaf. Same bytes, same
+			// hash, one row -- which is the whole reason the log reuses the context's cut.
+			env, err := b.db.CutLogValue("inst-shared", map[string]any{"input": val}, 128)
 			if err != nil {
-				t.Fatalf("WriteLogObject: %v", err)
+				t.Fatalf("CutLogValue: %v", err)
 			}
+			if len(env.Refs) != 1 {
+				t.Fatalf("expected the log payload to externalize one leaf, got %d", len(env.Refs))
+			}
+			ref := env.Refs[0]
 
 			// Dereference the context slot (replace the output with a small value).
 			r, err := b.db.GetInstance("inst-shared")
@@ -430,5 +435,67 @@ func resolveAll(t *testing.T, db *dbpkg.DB, inst *model.ProcessInstance) {
 	}
 	for k, v := range inst.ContextData {
 		inst.ContextData[k] = walk(v)
+	}
+}
+
+// TestObjects_ExternalInputClaimIsReleased: a task input's externalized bundle is claimed while
+// the task is parked and released when it resolves. The release depends on the ref being in the
+// instance's LOADED set when the row is read -- the write path drops what it loaded and no
+// longer references, so a ref missing from that set is a claim nothing can ever drop, and the
+// object is held for the life of the database by an instance that finished with it.
+func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			b.db.SetObjectGrace(time.Hour)
+			bundle := bigString("bundle")
+			inst := &model.ProcessInstance{
+				ID: "inst-extobj", ProcessName: "test", Task: "run", Status: model.StatusRunning,
+				WaitState: model.WaitStateExternal,
+				ContextData: map[string]any{
+					model.CtxExternal: map[string]any{
+						"task_id": "run",
+						"input":   map[string]any{"code": bundle, "n": 1},
+					},
+				},
+			}
+			if err := b.db.SaveInstance(inst); err != nil {
+				t.Fatalf("SaveInstance: %v", err)
+			}
+
+			parked, err := b.db.GetInstance("inst-extobj")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			ext := parked.ContextData[model.CtxExternal].(map[string]any)
+			ref, ok := ext["input"].(map[string]any)["code"].(*model.ObjectRef)
+			if !ok {
+				t.Fatalf("the bundle was not externalized: %T", ext["input"].(map[string]any)["code"])
+			}
+			if n, err := b.db.CountObjectRefs(ref.Ref); err != nil || n != 1 {
+				t.Fatalf("claims while parked = %d (err=%v), want 1", n, err)
+			}
+
+			// The task resolves: _external goes, and the claim must go with it.
+			delete(parked.ContextData, model.CtxExternal)
+			parked.WaitState = model.WaitStateNone
+			if err := b.db.UpdateInstanceProgress(parked); err != nil {
+				t.Fatalf("UpdateInstanceProgress: %v", err)
+			}
+
+			n, err := b.db.CountObjectRefs(ref.Ref)
+			if err != nil {
+				t.Fatalf("CountObjectRefs: %v", err)
+			}
+			// One grace claim, not the instance's: released, and fetchable for its window.
+			if n != 1 {
+				t.Fatalf("claims after resolution = %d, want 1 (the grace claim)", n)
+			}
+			if _, err := b.db.ResolveObject(context.Background(), ref); err != nil {
+				t.Fatalf("released bundle vanished inside its grace window: %v", err)
+			}
+			if swept, err := b.db.CollectObjects(nowPlusHours(2)); err != nil || swept != 1 {
+				t.Fatalf("past the window: swept=%d err=%v, want 1 — the instance claim leaked", swept, err)
+			}
+		})
 	}
 }

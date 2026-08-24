@@ -77,6 +77,11 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	var body any
 	if task.Action.Body.Present() {
 		body, err = e.evalShape(inst, shape.Shape{Raw: task.Action.Body.Raw}, nil)
+		if err == nil {
+			// A fetch body always resolves: its reader is a remote server that cannot fetch an
+			// object from genroc, so a reference reaching it is a value that never arrives.
+			body, err = e.resolveRefsInPlace(inst, body)
+		}
 		if err != nil {
 			return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q body: %v", task.ID, err)))
 		}
@@ -150,7 +155,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	// action_succeeded (debug): the response body in data, the HTTP status in meta.
 	// Like action_started it carries an action payload, so it is gated behind
 	// --level debug rather than cluttering the default info trail.
-	e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionSucceeded, Task: task.ID, Data: e.snippetResult(task, resp.Status, resp.Body), Meta: statusMeta(resp.Status)})
+	e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionSucceeded, Task: task.ID, Data: e.snippet(resp.Body), Meta: statusMeta(resp.Status)})
 
 	return resp.Body, &fetchMeta{status: resp.Status, headers: resp.Headers}, nil
 }

@@ -350,7 +350,7 @@ type LogEntryResp struct {
 	Task     string         `json:"task,omitempty"`
 	Message  string         `json:"message,omitempty"`
 	Code     string         `json:"code,omitempty"`
-	Data     string         `json:"data,omitempty"` // inline payload (input/output/request/response body); absent when externalized, and then listed in Objects
+	Data     any            `json:"data,omitempty"` // payload (input/output/request/response body) as a value; parts the cut moved out are absent here and listed in Objects
 	Meta     map[string]any `json:"meta,omitempty"` // small, complete, parseable metadata (e.g. {"url":…}, {"status":200})
 	// Objects lists this ENTRY's externalized values, with paths rooted at the entry —
 	// ["data"], not ["items", 3, "data"]. A section belongs to whatever object owns the values

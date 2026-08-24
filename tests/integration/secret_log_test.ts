@@ -1,333 +1,143 @@
-import { expect, test } from "vitest";
-import { client, startMockService, waitForInstance, fetchObject, objectAt } from "../helpers/client.ts";
+import { spawn, type ChildProcess } from "child_process";
+import { createServer } from "http";
+import type { AddressInfo } from "net";
+import { afterAll, beforeAll, expect, test } from "vitest";
+import { buildGenrocBinary, tmpPath } from "../helpers/server.ts";
+import { createClientTyped } from "../helpers/client.ts";
 
-// A secret config value used to build the endpoint URL must be redacted to "***"
-// in the stored audit log — the raw secret must never reach the logs table.
-// GENROC_GLOBAL_SERVER_URL = http://localhost:14100 (fixture in helpers/server.ts).
-test("a secret config value in the endpoint URL is redacted in stored logs", async () => {
-  const mock = await startMockService(14100, { response: { slept: 1 } });
-  const name = `secret_url_log_${crypto.randomUUID()}`;
+// `secret: true` has exactly one job: keep a value out of the server's STDOUT, where an operator
+// reads it without having asked. Everything else — the durable trail, every API response —
+// carries what actually happened, because protecting a value at rest is encryption's job and
+// redacting on read was never that. specs/object-store.md §Redaction.
+//
+// This file needs its own server: the shared one runs at --log error with stdout discarded, and
+// the whole assertion is about what reaches stdout.
 
-  await client.PUT("/definitions/batch", {
-    body: {
-      definitions: [
-        {
-          name,
-          config_schema: {
-            type: "object",
-            required: ["server_url"],
-            properties: { server_url: { type: "string", secret: true } },
-          },
-          tasks: [
-            {
-              id: "call",
-              action: {
-                type: "fetch",
-                url: "${ config.server_url }/action",
-                responses: { 200: {
-                  type: "object",
-                  properties: { slept: { type: "number" } },
-                  required: ["slept"],
-                } },
-              },
-              output: "$: self.result",
-              switch: "end",
-            },
-          ],
-        },
-      ],
-      channel: "latest",
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
+const SECRET = "supersecret-api-key-value";
+const PORT = 14140;
 
-  const { data: startData } = await client.POST("/instances", { body: { process: name } });
-  const id = startData!.id;
-  expect(await waitForInstance(id)).toBe("completed");
+let server: ChildProcess;
+let stdout = ""; // the server's console stream
+let client: ReturnType<typeof createClientTyped>;
+let mock: { port: number; stop: () => void };
 
-  const { data: logs } = await client.GET("/instances/{id}/logs", { params: { path: { id } } });
-  const blob = JSON.stringify(logs);
-  // The raw secret host must not be stored anywhere in the trail...
-  expect(blob).not.toContain("localhost:14100");
-  // ...but the redacted URL is kept (action_started meta.url).
-  expect(blob).toContain("***/action");
+beforeAll(async () => {
+  const bin = await buildGenrocBinary();
+  mock = await new Promise((resolve) => {
+    const s = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+    });
+    s.listen(0, () => resolve({ port: (s.address() as AddressInfo).port, stop: () => s.close() }));
+  });
 
-  mock.stop();
+  // stderr, which is where the server's console handler writes (cmd/genroc/main.go). "stdout"
+  // here means the operator's console either way -- what matters is that it is not the trail.
+  server = spawn(bin, ["--db", tmpPath("secretlog", ".db"), "--http", `:${PORT}`, "--log", "debug"], {
+    stdio: ["ignore", "ignore", "pipe"],
+    env: { ...process.env, GENROC_GLOBAL_LOG_TOKEN: SECRET },
+  });
+  server.stderr!.on("data", (c: Buffer) => {
+    stdout += c.toString();
+  });
+  client = createClientTyped({ baseUrl: `http://localhost:${PORT}` });
+  for (let i = 0; i < 100; i++) {
+    try {
+      const { error } = await client.GET("/healthz", {});
+      if (!error) break;
+    } catch {
+      /* not up yet */
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}, 90_000);
+
+afterAll(() => {
+  server?.kill();
+  mock?.stop();
 });
 
-// The obscuring is not config-specific: an input_schema secret used to build the
-// URL is also redacted in the logs (via RedactContext over the eval context).
-test("a secret INPUT value in the endpoint URL is redacted in stored logs", async () => {
-  // A random port (not the pinned 14100) — the URL comes from input here, so this
-  // test needs no fixed fixture, and keeping 14100 to a single test in this file
-  // avoids racing its own not-yet-released listener when Vitest runs the cases.
-  const mock = await startMockService(0, { response: { slept: 1 } });
-  const name = `secret_input_url_${crypto.randomUUID()}`;
-
-  await client.PUT("/definitions/batch", {
+test("a secret config value is scrubbed from stdout and kept verbatim everywhere else", async () => {
+  const name = `secretlog_${crypto.randomUUID()}`;
+  const { error: putErr } = await client.PUT("/definitions", {
     body: {
-      definitions: [
+      name,
+      config_schema: {
+        type: "object",
+        properties: { log_token: { type: "string", secret: true, default: "" } },
+      },
+      tasks: [
         {
-          name,
-          input_schema: {
-            type: "object",
-            required: ["base"],
-            properties: { base: { type: "string", secret: true } },
+          id: "call",
+          action: {
+            type: "fetch" as const,
+            // In the URL, so the secret reaches the log line through meta rather than only
+            // through a payload snippet, which a deployment can turn off.
+            url: `http://localhost:${mock.port}/\${ config.log_token }`,
+            responses: { 200: {} },
           },
-          tasks: [
-            {
-              id: "call",
-              action: {
-                type: "fetch",
-                url: "${ input.base }/action",
-                responses: { 200: {
-                  type: "object",
-                  properties: { slept: { type: "number" } },
-                  required: ["slept"],
-                } },
-              },
-              output: "$: self.result",
-              switch: "end",
-            },
-          ],
+          timeout: 5000,
+          switch: [{ goto: "end" }],
         },
       ],
-      channel: "latest",
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
-
-  const base = `http://localhost:${mock.port}`;
-  const { data: startData } = await client.POST("/instances", {
-    body: { process: name, input: { base } },
+    } as never,
   });
-  const id = startData!.id;
-  expect(await waitForInstance(id)).toBe("completed");
+  expect(putErr, `put failed: ${JSON.stringify(putErr)}`).toBeUndefined();
 
-  const { data: logs } = await client.GET("/instances/{id}/logs", { params: { path: { id } } });
-  const blob = JSON.stringify(logs);
-  expect(blob).not.toContain(`localhost:${mock.port}`);
-  expect(blob).toContain("***/action");
+  const { data: started } = await client.POST("/instances", { body: { process: name } });
+  const id = started!.id;
+  for (let i = 0; i < 200; i++) {
+    const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+    if (data?.status !== "running") break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
 
-  mock.stop();
-});
+  // Stdout: scrubbed. This is the one place the marker acts.
+  expect(stdout, "the server printed a secret to its console").not.toContain(SECRET);
+  expect(stdout, "and it printed the placeholder in its place").toContain("***");
 
-// A secret in the URL must not leak via a failed request's transport error either:
-// net/http builds the error from the real URL, but the audit sink find/replaces
-// every collected secret value out of the message before the log is stored.
-test("a secret in a failed request's transport error is obscured in logs", async () => {
-  const name = `secret_err_${crypto.randomUUID()}`;
-  await client.PUT("/definitions/batch", {
-    body: {
-      definitions: [
-        {
-          name,
-          input_schema: {
-            type: "object",
-            required: ["host"],
-            properties: { host: { type: "string", secret: true } },
-          },
-          // No scheme → "unsupported protocol scheme" error built from the real URL.
-          tasks: [{ id: "t", action: { type: "fetch", url: "${ input.host }/x" }, switch: "end" }],
-        },
-      ],
-      channel: "latest",
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
-
-  const { data: startData } = await client.POST("/instances", {
-    body: { process: name, input: { host: "SECRET12345HOST" } },
-  });
-  const id = startData!.id;
-  expect(await waitForInstance(id)).toBe("failed");
-
-  const { data: logs } = await client.GET("/instances/{id}/logs", { params: { path: { id } } });
-  expect(JSON.stringify(logs)).not.toContain("SECRET12345HOST");
-});
-
-// Regression: when secret values are nested prefixes of one another (e.g. an
-// input array [5, 50, 500]), redaction must replace the longest value first.
-// Replacing a shorter prefix first consumes the shared lead and leaves the longer
-// secrets' tails exposed in the stored log ("***0", "***00"). The secret collector
-// returns values longest-first so each is redacted whole.
-test("nested-prefix secret values are fully redacted in stored logs", async () => {
-  const name = `secret_prefix_${crypto.randomUUID()}`;
-  await client.PUT("/definitions/batch", {
-    body: {
-      definitions: [
-        {
-          name,
-          input_schema: { type: "array", items: { type: "string", secret: true } },
-          tasks: [{ id: "route", switch: "end" }],
-        },
-      ],
-      channel: "latest",
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
-
-  // "AAAA" is a prefix of "AAAABBBB": redact the shorter first and the longer
-  // leaks its "BBBB" tail as "***BBBB" in the instance_created input snippet.
-  const { data: startData } = await client.POST("/instances", {
-    body: { process: name, input: ["AAAA", "AAAABBBB"] },
-  });
-  const id = startData!.id;
-  expect(await waitForInstance(id)).toBe("completed");
-
-  const { data: logs } = await client.GET("/instances/{id}/logs", { params: { path: { id } } });
-  const blob = JSON.stringify(logs);
-  expect(blob).not.toContain("BBBB"); // the longer secret's tail must not survive
-  expect(blob).not.toContain("AAAA");
-});
-
-// A secret inside a LARGE (externalized) value must still be scrubbed from logs.
-// The token is >8KiB so it lives in the object store, not inline; on the advance that
-// calls the action the input is a lazy marker, resolved into the request body. The
-// secret reaches a log line (the request snippet) only via that resolution, so it is
-// collected for scrubbing from the per-advance resolve cache — proving the lazy path
-// doesn't open a leak.
-test("a secret in a large (externalized) request body is redacted in stored logs", async () => {
-  const mock = await startMockService(0, { response: { ok: 1 } });
-  const name = `secret_big_body_${crypto.randomUUID()}`;
-  const secret = "Z".repeat(9000); // exceeds the 2 KiB externalization threshold
-
-  await client.PUT("/definitions/batch", {
-    body: {
-      definitions: [
-        {
-          name,
-          input_schema: {
-            type: "object",
-            required: ["token"],
-            properties: { token: { type: "string", secret: true } },
-          },
-          tasks: [
-            {
-              id: "call",
-              action: {
-                type: "fetch",
-                url: `http://localhost:${mock.port}/x`,
-                body: { auth: "$: input.token" },
-                responses: { 200: {
-                  type: "object",
-                  properties: { ok: { type: "number" } },
-                  required: ["ok"],
-                } },
-              },
-              output: "$: self.result",
-              switch: "end",
-            },
-          ],
-        },
-      ],
-      channel: "latest",
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
-
-  const { data: startData } = await client.POST("/instances", {
-    body: { process: name, input: { token: secret } },
-  });
-  const id = startData!.id;
-  expect(await waitForInstance(id)).toBe("completed");
-
+  // The durable trail: verbatim. A log is data the API returns, not a second redaction point —
+  // and there is no unredacted version being withheld, because none was ever made.
   const { data: logs } = await client.GET("/instances/{id}/logs", {
-    params: { path: { id }, query: { limit: 100 } },
+    params: { path: { id }, query: { limit: 200 } },
   });
-  // The raw secret must not survive anywhere in the trail — not inline, not in a
-  // preview, and not in any externalized log object.
-  expect(JSON.stringify(logs)).not.toContain("ZZZZZZZZZZ");
-  mock.stop();
+  const body = JSON.stringify(logs);
+  expect(body, "the stored trail must carry what actually happened").toContain(SECRET);
 });
 
-// Log payloads are redacted BEFORE the inline-vs-externalize decision: a payload
-// that only exceeds the cap because of its secrets shrinks to a few bytes once
-// scrubbed, so it must be stored inline — no log object is written for it.
-test("a large payload that shrinks below the threshold after redaction is stored inline", async () => {
-  const name = `secret_shrink_${crypto.randomUUID()}`;
-  const secret = "X".repeat(4000); // alone exceeds the 2 KiB payload cap
-
-  await client.PUT("/definitions/batch", {
-    body: {
-      definitions: [
-        {
-          name,
-          input_schema: {
-            type: "object",
-            required: ["token"],
-            properties: { token: { type: "string", secret: true } },
-          },
-          tasks: [{ id: "route", switch: "end" }],
-        },
-      ],
-      channel: "latest",
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
-
-  const { data: startData } = await client.POST("/instances", {
-    body: { process: name, input: { token: secret } },
-  });
-  const id = startData!.id;
-  expect(await waitForInstance(id)).toBe("completed");
-
-  const { data: logs } = await client.GET("/instances/{id}/logs", { params: { path: { id } } });
-  const created = (logs!.items ?? []).find((l) => l.event === "inst_created");
-  expect(created).toBeDefined();
-  // Redacted to {"token":"***"} — small enough to be carried inline, so nothing is listed.
-  expect(objectAt(created, ["data"])).toBeUndefined();
-  expect(created!.data).toContain("***");
-  expect(JSON.stringify(logs)).not.toContain("XXXXXXXXXX");
-});
-
-// A payload still over the cap AFTER redaction is externalized — but the stored
-// log object must hold the redacted content: resolving it inlines the scrubbed
-// payload, never the raw secret.
-test("an externalized log payload is stored pre-redacted", async () => {
-  const name = `secret_blob_${crypto.randomUUID()}`;
-  const secret = "SECRET_HIDDEN_VALUE_42";
-  const pad = "P".repeat(4000); // keeps the payload over the cap even after redaction
-
-  await client.PUT("/definitions/batch", {
-    body: {
-      definitions: [
-        {
-          name,
-          input_schema: {
-            type: "object",
-            required: ["token", "pad"],
-            properties: {
-              token: { type: "string", secret: true },
-              pad: { type: "string" },
+test("secret: true is refused outside config_schema", async () => {
+  // The scrubber finds secrets by knowing their values verbatim, which it can do for config and
+  // cannot for anything a process computes. Accepting the marker elsewhere would promise a
+  // protection nothing delivers, so registration refuses it rather than ignoring it.
+  for (const [where, def] of [
+    [
+      "input_schema",
+      {
+        input_schema: { type: "object", properties: { token: { type: "string", secret: true } } },
+        tasks: [{ id: "t", switch: [{ goto: "end" }] }],
+      },
+    ],
+    [
+      "a fetch response body",
+      {
+        tasks: [
+          {
+            id: "t",
+            action: {
+              type: "fetch",
+              url: "http://localhost:1/x",
+              responses: { 200: { type: "object", properties: { tok: { type: "string", secret: true } } } },
             },
+            switch: [{ goto: "end" }],
           },
-          tasks: [{ id: "route", switch: "end" }],
-        },
-      ],
-      channel: "latest",
-    },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any);
-
-  const { data: startData } = await client.POST("/instances", {
-    body: { process: name, input: { token: secret, pad } },
-  });
-  const id = startData!.id;
-  expect(await waitForInstance(id)).toBe("completed");
-
-  const { data: logs } = await client.GET("/instances/{id}/logs", { params: { path: { id } } });
-  const created = (logs!.items ?? []).find((l) => l.event === "inst_created");
-  expect(created).toBeDefined();
-  const listed = objectAt(created, ["data"]);
-  expect(listed, "over the cap even after redaction, so it is externalized").toBeDefined();
-  // Nothing in the listing itself leaks the secret.
-  expect(JSON.stringify(logs)).not.toContain(secret);
-
-  // Fetch the object: the stored payload is the SCRUBBED one. Redaction happens when the log is
-  // written, so there is no unredacted version of it to serve.
-  const full = await fetchObject(listed!.ref);
-  expect(full).toContain("PPPPPPPP");
-  expect(full).toContain("***");
-  expect(full).not.toContain(secret);
+        ],
+      },
+    ],
+  ] as const) {
+    const { error } = await client.PUT("/definitions", {
+      body: { name: `secret_scope_${crypto.randomUUID()}`, ...def } as never,
+    });
+    expect(error, `secret: true in ${where} must be refused`).toBeTruthy();
+    expect(JSON.stringify(error)).toContain("config_schema");
+  }
 });

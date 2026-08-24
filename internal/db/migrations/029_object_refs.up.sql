@@ -18,7 +18,7 @@ CREATE TABLE objects (
 -- owner_kind governs LIFETIME, not access: reads are addressed by content hash and consult no
 -- ref at all. Four kinds:
 --   instance   -- a live context value-slot; owner_id is the instance
---   log        -- a pre-redacted log payload; owner_id is the instance, expires at the horizon
+--   log        -- a log payload; owner_id is the instance, expires at the horizon
 --   definition -- a value embedded in a definition version; owner_id is 'name@version', and it
 --                 never expires, because nothing deletes a definition version
 --   grace      -- nobody holds this any more, but a reference was handed out recently; owner_id
