@@ -138,6 +138,22 @@ behavior while the spec stays put, answering a different question. See
   round-trips natively where `true` needed a custom marshaller in each direction. The `only_once` interaction needed no code at all: the existing
   guard already refuses a retry on a worker-reported code at `PUT /definitions` unless the
   rule carries `not_reached: true`.
+- [external-outcome-as-signal.md](external-outcome-as-signal.md) — **BUILT (2026-08-24).** An external
+  outcome stops being written onto the instance row and becomes a buffered signal like any other;
+  the resolve/deliver APIs enqueue and un-park, and `runExternal` phase 2 pops from the queue.
+  Both API paths carry two delivery mechanisms today, chosen by a subtle runtime condition
+  (`armed && !liveLeased`), and the row-write branch is the store's last non-uniform corner: an
+  outcome's references are rooted at `_external.result` while its context key is
+  `_external_result`, which is the only `objects` path that does not address the context and
+  forces `decodeContext` to place references before it lifts the outcomes. The reason that is
+  worth spending a change on is the third cost rather than the tidiness: `SetExternalOutcome`
+  holds only the row lock and has no reference set to reconcile, so it writes the outcome **uncut
+  and undeclared** whatever its size — through the buffer, the engine consumes it under lease and
+  writes it through the ordinary `encodeContext`. Names the one implementation trap (phase 2 must
+  READ in advance and POP in persist; consume-then-yield adds a poll interval to every external
+  task, which for the evaluator is every script task) and the behaviour change to state rather
+  than discover: FIFO order replaces phase 2a's read-the-failure-first arbitration.
+
 - [lazy-context.md](lazy-context.md) — **BUILT (2026-08-24)** except path-level laziness in
   expressions, which stays proposal. The read side of the object store: one
   `Slot` shape, a `Context` that answers a PATH (`outputs.x.y`) and loads only what that path

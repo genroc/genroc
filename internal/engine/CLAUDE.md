@@ -58,15 +58,26 @@ itself again:
    the verdict those paths reached themselves when they still wrote for themselves.
    `advanceOutcome.writeVerb` is what marks the two.
 3. **Every outcome releases the lease — no exceptions.** The external arm is still the one
-   read-modify-write: the database decides under the instance row lock whether to park or
-   to consume a signal that reached the task first, and that atomicity is why a signal
-   racing the arm cannot be lost. But a consume is an ordinary checkpoint: the result
-   lands durably on the row (`_external_result`, the same keys the resolve API leaves
-   behind) in the same fenced write that releases the lease, and the NEXT claim resumes
-   via `runExternal` phase 2. There used to be a keep-the-lease + second-pass special
-   case here; it was retired for uniformity — do not reintroduce it, and specifically do
-   not "optimize" by continuing to advance in memory after a consume, because the freed
-   row is instantly claimable and you would be racing your own successor.
+   read-modify-write: under the instance row lock the database decides whether to PARK,
+   and it declines to if an answer is already buffered for the task. That atomicity is the
+   whole point — a signal landing between "the buffer looked empty" and the park write
+   would find the row unparked, buffer without un-parking, and leave the instance asleep
+   until its timeout. The arm consumes nothing; `ArmExternalUnlessSignalled` only chooses
+   between parking and an ordinary checkpoint, and both release the lease.
+
+   **An outcome reaches an instance one way: the `process_signals` buffer.**
+   `runExternal` phase 2 PEEKS it before it arms, acts on it in the same advance, and
+   hands the id back on `inst.ConsumedSignalID` so `persist` deletes it in the same
+   transaction as the state it produced — popping first loses the answer to a refused
+   write, popping after applies it twice. Nothing writes an outcome onto the row.
+   specs/external-outcome-as-signal.md.
+
+   Do **not** turn phase 2 into consume-then-yield. A checkpoint there adds a full poll
+   interval to every external task (for the evaluator, every script task), and it passes
+   every correctness test — `tests/tick/external_test.ts` is what catches it, by asserting
+   that ONE tick after a resolve reaches `completed`. This is also why the retired
+   keep-the-lease special case must stay retired for the ARM, where the database
+   arbitrates park-or-not and the freed row is instantly claimable.
 
 Logs are deliberately outside this: `audit()` writes each line as the advance runs, in its
 own transaction, so a crash leaves a trail of what the worker was doing even when nothing
@@ -133,9 +144,9 @@ bound into every lease-holding write, checked via rows-affected (`requireFenced`
    `failInstance` — writing a failure is the clobber under another name. The only trace
    is the unfenced `lease_lost` audit entry.
 4. **The fence sits inside each write's transaction**, so a lost lease leaks no partial
-   effects: a stale spawn inserts no children, a stale arm-consume rolls its signal pop
-   back (FIFO position preserved), a stale `FinishChild`/`FailInstanceAndAncestors` wakes
-   and poisons nothing.
+   effects: a stale spawn inserts no children, a stale arm neither parks nor disturbs the
+   buffer (the answer keeps its FIFO position), a stale `FinishChild`/`FailInstanceAndAncestors`
+   wakes and poisons nothing.
 5. **Operator verbs are not grants.** Pause/resume/retry/resolve/deliver leave the epoch
    alone; `RetryProcess` binds the epoch it read under the tree lock (where it cannot
    move), so its writes never legitimately fence out.

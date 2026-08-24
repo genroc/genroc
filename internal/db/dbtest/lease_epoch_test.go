@@ -378,45 +378,46 @@ func TestFence_ArmExternal(t *testing.T) {
 			}
 
 			stale := takeOver(t, b.db, "arm-1")
-			if _, _, err := b.db.ArmExternalOrConsumeSignal(ctx, stale, "approval", map[string]any{}, nil); !errors.Is(err, dbpkg.ErrLeaseLost) {
-				t.Fatalf("stale consume arm: err=%v, want ErrLeaseLost", err)
+			if _, err := b.db.ArmExternalUnlessSignalled(ctx, stale, "approval", map[string]any{}, nil); !errors.Is(err, dbpkg.ErrLeaseLost) {
+				t.Fatalf("stale not-parking arm: err=%v, want ErrLeaseLost", err)
 			}
 			if c, _ := b.db.CountBufferedSignals("arm-1", "approval"); c != 2 {
-				t.Fatalf("a refused arm consumed a signal: %d buffered, want 2", c)
-			}
-			if got, _ := b.db.GetInstance("arm-1"); got.ContextData[model.CtxExternalResult] != nil {
-				t.Fatal("a refused arm still wrote _external_result")
+				t.Fatalf("a refused arm disturbed the buffer: %d buffered, want 2", c)
 			}
 
 			// Park branch, while arm-1 is still leased by its new owner: no buffered
 			// signal, stale epoch — the instance must not park.
 			insertExternalRunning(t, b.db, "arm-2")
 			stale2 := takeOver(t, b.db, "arm-2")
-			if _, _, err := b.db.ArmExternalOrConsumeSignal(ctx, stale2, "approval", map[string]any{}, nil); !errors.Is(err, dbpkg.ErrLeaseLost) {
+			if _, err := b.db.ArmExternalUnlessSignalled(ctx, stale2, "approval", map[string]any{}, nil); !errors.Is(err, dbpkg.ErrLeaseLost) {
 				t.Fatalf("stale park arm: err=%v, want ErrLeaseLost", err)
 			}
 			if got, _ := b.db.GetInstance("arm-2"); got.WaitState == model.WaitStateExternal || got.ContextData[model.CtxExternal] != nil || got.WakeAt != nil {
 				t.Fatalf("a refused arm still parked: wait=%q external=%v wake=%v", got.WaitState, got.ContextData[model.CtxExternal], got.WakeAt)
 			}
 
-			// The current grant consumes — and gets the OLDEST signal, proving the
-			// refused pop rolled back to its FIFO position rather than discarding it.
+			// The current grant is accepted, and its buffer is untouched: the refused arms above
+			// rolled back whole, so the answers are still there in FIFO order for phase 2.
 			fresh, err := b.db.GetInstance("arm-1")
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			consumed, result, err := b.db.ArmExternalOrConsumeSignal(ctx, fresh, "approval", map[string]any{}, nil)
-			if err != nil || !consumed || n(result) != 1 {
-				t.Fatalf("current-grant arm: consumed=%v result=%v err=%v, want the FIFO head n=1", consumed, result, err)
+			armed, err := b.db.ArmExternalUnlessSignalled(ctx, fresh, "approval", map[string]any{}, nil)
+			if err != nil || armed {
+				t.Fatalf("current-grant arm: armed=%v err=%v, want not parked -- answers are waiting", armed, err)
 			}
-			// A consume is an ordinary checkpoint: result durable on the row, lease
-			// released — no outcome keeps the lease.
+			if c, _ := b.db.CountBufferedSignals("arm-1", "approval"); c != 2 {
+				t.Fatalf("the arm consumed a signal: %d buffered, want 2", c)
+			}
+			id, outcome, ok, err := b.db.PeekSignal("arm-1", "approval")
+			if err != nil || !ok || n(outcome) != 1 {
+				t.Fatalf("FIFO head: ok=%v n=%v err=%v, want n=1", ok, n(outcome), err)
+			}
+			_ = id
+			// Every persist ends the work session, including the one that declines to park.
 			after, _ := b.db.GetInstance("arm-1")
-			if after.ContextData[model.CtxExternalResult] == nil {
-				t.Fatal("the consumed result is not on the row")
-			}
 			if after.WorkerID != nil {
-				t.Fatalf("the consume kept the lease held by %q; every persist ends the work session", *after.WorkerID)
+				t.Fatalf("the arm kept the lease held by %q", *after.WorkerID)
 			}
 		})
 	}

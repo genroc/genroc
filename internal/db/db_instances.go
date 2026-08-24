@@ -227,9 +227,11 @@ func encodeContext(inst *model.ProcessInstance) (cols contextCols, pending []*pe
 	return
 }
 
-// encodeExternalData serialises the parked external-task bookkeeping (task_id, token, input
-// snapshot, submitted outcome) into external_data, or "" when none is present. Its references are
-// rooted at _external, which is where the decode puts the map back.
+// encodeExternalData serialises the parked external-task bookkeeping (task_id, input snapshot)
+// into external_data, or "" when none is present. Its references are rooted at _external, which
+// is where the decode puts the map back -- an outcome never lands here, so the column holds one
+// context key and its paths address the context like every other slot's.
+// specs/external-outcome-as-signal.md.
 func encodeExternalData(cd map[string]any, cut func(any, ...any) (string, error)) (string, error) {
 	ext := map[string]any{}
 	if e, ok := cd[model.CtxExternal].(map[string]any); ok {
@@ -237,33 +239,10 @@ func encodeExternalData(cd map[string]any, cut func(any, ...any) (string, error)
 			ext[k] = v
 		}
 	}
-	if r, ok := cd[model.CtxExternalResult]; ok {
-		ext["result"] = r
-		ext["has_result"] = true
-	}
-	if f, ok := cd[model.CtxExternalError]; ok {
-		ext["error"] = f
-		ext["has_error"] = true
-	}
 	if len(ext) == 0 {
 		return "", nil
 	}
 	return cut(ext, model.CtxExternal)
-}
-
-// withExternalOutcome writes a submitted outcome into an external_data column value, under
-// the slot its kind owns, marking has_<slot> so the engine consumes it on the next claim.
-// Used by the resolve/deliver paths that operate on the column string rather than the
-// in-memory context map. The two slots are mutually exclusive by construction: every caller
-// holds the instance row lock and has already refused a row that is not parked, which is what
-// lets phase 2 read them in a fixed order rather than reconciling them.
-func withExternalOutcome(externalData string, o model.ExternalOutcome) (string, error) {
-	key, v := o.ContextValue()
-	slot := "result"
-	if key == model.CtxExternalError {
-		slot = "error"
-	}
-	return withExternalSlot(externalData, slot, v)
 }
 
 // withExternalLost sets only the lost marker, with no has_<slot> companion: unlike the two
@@ -348,7 +327,32 @@ func (db *DB) persistContext(ctx context.Context, qtx *dbgen.Queries, inst *mode
 	if err := db.applyContextObjectDiff(ctx, qtx, inst.ID, pending, inst.LoadedObjectHashes, referenced, now); err != nil {
 		return contextCols{}, err
 	}
+	// The consumed signal goes with the state it produced -- one transaction, so an answer is
+	// never lost by a refused write nor applied twice by a refused delete.
+	if inst.ConsumedSignalID != "" {
+		if err := qtx.DeleteSignal(ctx, inst.ConsumedSignalID); err != nil {
+			return contextCols{}, fmt.Errorf("consume signal %s: %w", inst.ConsumedSignalID, err)
+		}
+	}
 	return cols, nil
+}
+
+func progressParams(inst *model.ProcessInstance, cols contextCols, now int64) dbgen.UpdateInstanceProgressParams {
+	return dbgen.UpdateInstanceProgressParams{
+		ID:           inst.ID,
+		Task:         inst.Task,
+		OutputsData:  cols.OutputsData,
+		ErrorData:    cols.ErrorData,
+		ExternalData: cols.ExternalData,
+		EngineState:  cols.EngineState,
+		Objects:      cols.Objects,
+		RetryCount:   int64(inst.RetryCount),
+		WakeAt:       fromTimePtr(inst.WakeAt),
+		WaitState:    string(inst.WaitState),
+		UpdatedAt:    now,
+		LeaseEpoch:   inst.LeaseEpoch,
+		TaskEpoch:    inst.TaskEpoch,
+	}
 }
 
 func updateInstanceParams(inst *model.ProcessInstance, cols contextCols, now int64) dbgen.UpdateInstanceParams {
@@ -466,21 +470,7 @@ func (db *DB) UpdateInstanceProgress(inst *model.ProcessInstance) error {
 		if err != nil {
 			return err
 		}
-		return requireFenced(qtx.UpdateInstanceProgress(ctx, dbgen.UpdateInstanceProgressParams{
-			ID:           inst.ID,
-			Task:         inst.Task,
-			OutputsData:  cols.OutputsData,
-			ErrorData:    cols.ErrorData,
-			ExternalData: cols.ExternalData,
-			EngineState:  cols.EngineState,
-			Objects:      cols.Objects,
-			RetryCount:   int64(inst.RetryCount),
-			WakeAt:       fromTimePtr(inst.WakeAt),
-			WaitState:    string(inst.WaitState),
-			UpdatedAt:    now,
-			LeaseEpoch:   inst.LeaseEpoch,
-			TaskEpoch:    inst.TaskEpoch,
-		}))
+		return requireFenced(qtx.UpdateInstanceProgress(ctx, progressParams(inst, cols, now)))
 	})
 }
 
@@ -687,27 +677,6 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 		}
 	}
 
-	// _external is disassembled AFTER its references are placed: the outcomes move to their own
-	// context keys, and what remains is the parked bookkeeping.
-	if ext, ok := cd[model.CtxExternal].(map[string]any); ok {
-		hasResult, _ := ext["has_result"].(bool)
-		result := ext["result"]
-		hasError, _ := ext["has_error"].(bool)
-		failure, _ := ext["error"].(map[string]any)
-		delete(ext, "has_result")
-		delete(ext, "result")
-		delete(ext, "has_error")
-		delete(ext, "error")
-		if len(ext) == 0 {
-			delete(cd, model.CtxExternal)
-		}
-		if hasResult {
-			cd[model.CtxExternalResult] = result
-		}
-		if hasError {
-			cd[model.CtxExternalError] = failure
-		}
-	}
 	return cd, loaded, nil
 }
 

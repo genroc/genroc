@@ -8,111 +8,83 @@ import (
 	"time"
 
 	dbgen "genroc/internal/db/gen"
+	"genroc/internal/idgen"
 	"genroc/internal/model"
 )
 
-// ArmExternalOrConsumeSignal is the engine's atomic entry into an external task. Under
-// the instance row lock (shared with DeliverSignal, so the two never interleave) it
-// either consumes the oldest buffered signal — stored under the slot its kind owns, resumed
-// by the next claim via runExternal phase 2 — or parks the instance (wait_state='external',
-// input in _external). Both branches release the lease; pop-and-write is one
-// commit, so the signal survives a crash or a refused (stale-lease) write.
-func (db *DB) ArmExternalOrConsumeSignal(ctx context.Context, inst *model.ProcessInstance, taskID string, input any, wakeAt *time.Time) (consumed bool, outcome model.ExternalOutcome, err error) {
+// ArmExternalUnlessSignalled parks the instance on an external wait -- unless an answer is
+// already buffered for the task, in which case it leaves the row claimable so the next claim
+// consumes it through runExternal phase 2.
+//
+// It does NOT consume. The decision it makes is only park-or-not, and it must be atomic against a
+// concurrent delivery: a signal landing between "the buffer looked empty" and "we parked" would
+// find the row unparked, buffer without un-parking, and leave the instance asleep until its
+// timeout. Hence the row lock -- the same one DeliverSignal takes.
+// specs/external-outcome-as-signal.md.
+func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.ProcessInstance, taskID string, input any, wakeAt *time.Time) (armed bool, err error) {
 	tx, qtx, raw, err := db.beginTx(ctx, nil)
 	if err != nil {
-		return false, model.ExternalOutcome{}, err
+		return false, err
 	}
 	defer tx.Rollback()
 
-	// Take the instance row lock first — the same lock DeliverSignal takes — so a signal
-	// arriving during arming serializes either fully before (we pop it) or fully after
-	// (it finds us parked and resolves directly). No lost signal, no deadlock. The FOR
+	// Take the instance row lock first -- the same lock DeliverSignal takes -- so a signal
+	// arriving during arming serializes either fully before (we see it and do not park) or
+	// fully after (it finds us parked and un-parks us). No lost signal, no deadlock. The FOR
 	// UPDATE makes this read hand-written; everything else goes through sqlc.
 	var one int
 	switch err := raw.QueryRowContext(ctx, `SELECT 1 FROM process_instances WHERE id = ?`+db.forUpdate(), inst.ID).Scan(&one); {
 	case err == nil:
 	case errors.Is(err, sql.ErrNoRows):
-		return false, model.ExternalOutcome{}, fmt.Errorf("instance %q: %w", inst.ID, ErrNotFound)
+		return false, fmt.Errorf("instance %q: %w", inst.ID, ErrNotFound)
 	default:
-		return false, model.ExternalOutcome{}, fmt.Errorf("lock instance: %w", err)
+		return false, fmt.Errorf("lock instance: %w", err)
 	}
 
-	// An empty signal queue is the ordinary case, not a lookup failure: it is what
-	// sends this call down the park branch below. Hence sql.ErrNoRows here, never
-	// ErrNotFound.
-	outcomeStr, popErr := qtx.PopOldestSignal(ctx, dbgen.PopOldestSignalParams{InstanceID: inst.ID, TaskID: taskID})
-	if popErr != nil && !errors.Is(popErr, sql.ErrNoRows) {
-		return false, model.ExternalOutcome{}, fmt.Errorf("pop signal: %w", popErr)
+	// An empty queue is the ordinary case, not a lookup failure: it is what sends this call
+	// down the park branch. Hence sql.ErrNoRows here, never ErrNotFound.
+	_, peekErr := qtx.PeekOldestSignal(ctx, dbgen.PeekOldestSignalParams{InstanceID: inst.ID, TaskID: taskID})
+	if peekErr != nil && !errors.Is(peekErr, sql.ErrNoRows) {
+		return false, fmt.Errorf("peek signal: %w", peekErr)
 	}
-
 	now := nowMillis()
 
-	if popErr == nil {
-		// Consume as an ordinary checkpoint: the outcome into external_data, lease released,
-		// next claim resumes via runExternal phase 2. The fence shares the pop's
-		// transaction, so a stale arm rolls the signal back to its FIFO position.
-		outcome, err := model.UnmarshalOutcome(outcomeStr)
-		if err != nil {
-			return false, model.ExternalOutcome{}, err
-		}
-		key, value := outcome.ContextValue()
-		inst.ContextData[key] = value
-		delete(inst.ContextData, model.CtxExternal)
+	if peekErr == nil {
+		// An answer is already waiting. Write an ordinary checkpoint instead of parking: the
+		// lease is released, the row stays claimable, and the next claim reaches phase 2.
 		inst.WaitState = model.WaitStateNone
 		inst.WakeAt = nil
 		cols, err := db.persistContext(ctx, qtx, inst, now)
 		if err != nil {
-			return false, model.ExternalOutcome{}, err
+			return false, err
 		}
-		if err := requireFenced(qtx.UpdateInstanceProgress(ctx, dbgen.UpdateInstanceProgressParams{
-			ID:           inst.ID,
-			Task:         inst.Task,
-			OutputsData:  cols.OutputsData,
-			ErrorData:    cols.ErrorData,
-			ExternalData: cols.ExternalData,
-			EngineState:  cols.EngineState,
-			Objects:      cols.Objects,
-			RetryCount:   int64(inst.RetryCount),
-			WakeAt:       sql.NullInt64{},
-			WaitState:    string(model.WaitStateNone),
-			UpdatedAt:    now,
-			LeaseEpoch:   inst.LeaseEpoch,
-		})); err != nil {
+		if err := requireFenced(qtx.UpdateInstanceProgress(ctx, progressParams(inst, cols, now))); err != nil {
 			if errors.Is(err, ErrLeaseLost) {
-				return false, model.ExternalOutcome{}, err
+				return false, err
 			}
-			return false, model.ExternalOutcome{}, fmt.Errorf("consume buffered signal: %w", err)
+			return false, fmt.Errorf("skip park: %w", err)
 		}
-		if err := tx.Commit(); err != nil {
-			return false, model.ExternalOutcome{}, err
-		}
-		return true, outcome, nil
+		return false, tx.Commit()
 	}
 
-	// No buffered signal: park. Snapshot the input under _external;
-	// UpdateInstance writes the parked state and clears worker_id/lease (the parked instance
-	// is non-runnable, so the engine returns noop).
-	// No token here: the occurrence is task_epoch on this very row, and a copy in
-	// external_data would be a second thing to keep true.
+	// No buffered answer: park. Snapshot the input under _external; UpdateInstance writes the
+	// parked state and clears worker_id/lease (the parked instance is non-runnable, so the
+	// engine returns noop). No token here: the occurrence is task_epoch on this very row, and a
+	// copy in external_data would be a second thing to keep true.
 	inst.ContextData[model.CtxExternal] = map[string]any{"task_id": taskID, "input": input}
-	delete(inst.ContextData, model.CtxExternalResult)
 	inst.WaitState = model.WaitStateExternal
 	inst.WakeAt = wakeAt
 	cols, err := db.persistContext(ctx, qtx, inst, now)
 	if err != nil {
-		return false, model.ExternalOutcome{}, err
+		return false, err
 	}
-	params := updateInstanceParams(inst, cols, now)
-	if err := requireFenced(qtx.UpdateInstance(ctx, params)); err != nil {
+	if err := requireFenced(qtx.UpdateInstance(ctx, updateInstanceParams(inst, cols, now))); err != nil {
 		if errors.Is(err, ErrLeaseLost) {
-			return false, model.ExternalOutcome{}, err
+			return false, err
 		}
-		return false, model.ExternalOutcome{}, fmt.Errorf("park external: %w", err)
+		return false, fmt.Errorf("park external: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return false, model.ExternalOutcome{}, err
-	}
-	return false, model.ExternalOutcome{}, nil
+	return true, tx.Commit()
 }
 
 // DeliverSignal delivers an outcome -- a result or a failure -- to (instance, external task).
@@ -131,14 +103,14 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID, signalID st
 	}
 	defer tx.Rollback()
 
-	var status, waitState, currentTask, externalData string
+	var status, waitState, currentTask string
 	var workerID, extWorkerID sql.NullString
 	var leaseExpiresAt, extLeaseExpiresAt sql.NullInt64
 	switch err := raw.QueryRowContext(ctx,
-		`SELECT status, wait_state, task, external_data, worker_id, lease_expires_at,
+		`SELECT status, wait_state, task, worker_id, lease_expires_at,
 		        external_worker_id, external_lease_expires_at
 		   FROM process_instances WHERE id = ?`+db.forUpdate(), instanceID).
-		Scan(&status, &waitState, &currentTask, &externalData, &workerID, &leaseExpiresAt,
+		Scan(&status, &waitState, &currentTask, &workerID, &leaseExpiresAt,
 			&extWorkerID, &extLeaseExpiresAt); {
 	case err == nil:
 	case errors.Is(err, sql.ErrNoRows):
@@ -167,25 +139,8 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID, signalID st
 	liveLeased := (workerID.Valid && leaseExpiresAt.Valid && leaseExpiresAt.Int64 > nowMillis()) ||
 		(extWorkerID.Valid && extLeaseExpiresAt.Valid && extLeaseExpiresAt.Int64 > nowMillis())
 
-	if armed && !liveLeased {
-		newExt, err := withExternalOutcome(externalData, outcome)
-		if err != nil {
-			return false, err
-		}
-		// armed/lease checked above under the row lock, so the un-park is unconditional.
-		if err := qtx.SetExternalOutcome(ctx, dbgen.SetExternalOutcomeParams{
-			ExternalData: newExt,
-			UpdatedAt:    nowMillis(),
-			ID:           instanceID,
-		}); err != nil {
-			return false, fmt.Errorf("deliver signal: %w", err)
-		}
-		if err := tx.Commit(); err != nil {
-			return false, err
-		}
-		return true, nil
-	}
-
+	// One destination. `armed` no longer picks WHERE the outcome goes -- only whether this call
+	// also makes the row claimable, so the engine reaches it now rather than at the next arm.
 	if err := qtx.InsertSignal(ctx, dbgen.InsertSignalParams{
 		ID:         signalID,
 		InstanceID: instanceID,
@@ -195,10 +150,39 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID, signalID st
 	}); err != nil {
 		return false, fmt.Errorf("buffer signal: %w", err)
 	}
+	if armed && !liveLeased {
+		// armed/lease checked above under the row lock, so the un-park is unconditional.
+		if err := qtx.UnparkExternal(ctx, dbgen.UnparkExternalParams{
+			UpdatedAt: nowMillis(),
+			ID:        instanceID,
+		}); err != nil {
+			return false, fmt.Errorf("deliver signal: %w", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
-	return false, nil
+	return armed && !liveLeased, nil
+}
+
+// PeekSignal returns the oldest buffered outcome for (instance, task) and its id, without
+// removing it. The caller acts on the outcome and hands the id back on the instance
+// (ConsumedSignalID) so the delete lands in the same transaction as the state it produced.
+func (db *DB) PeekSignal(instanceID, taskID string) (id string, outcome model.ExternalOutcome, ok bool, err error) {
+	row, err := db.q.PeekOldestSignal(context.Background(), dbgen.PeekOldestSignalParams{
+		InstanceID: instanceID, TaskID: taskID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", model.ExternalOutcome{}, false, nil
+	}
+	if err != nil {
+		return "", model.ExternalOutcome{}, false, fmt.Errorf("peek signal: %w", err)
+	}
+	o, err := model.UnmarshalOutcome(row.Outcome)
+	if err != nil {
+		return "", model.ExternalOutcome{}, false, err
+	}
+	return row.ID, o, true, nil
 }
 
 func (db *DB) CountBufferedSignals(instanceID, taskID string) (int, error) {
@@ -207,4 +191,24 @@ func (db *DB) CountBufferedSignals(instanceID, taskID string) (int, error) {
 		TaskID:     taskID,
 	})
 	return int(n), err
+}
+
+// bufferOutcome appends an outcome to the FIFO for (instance, task). The ONE way an answer
+// reaches a parked instance: whether the task is armed decides only whether the caller also
+// un-parks it, never where the outcome goes. specs/external-outcome-as-signal.md.
+func bufferOutcome(ctx context.Context, qtx *dbgen.Queries, instanceID, taskID string, outcome model.ExternalOutcome) error {
+	outcomeJSON, err := model.MarshalOutcome(outcome)
+	if err != nil {
+		return err
+	}
+	if err := qtx.InsertSignal(ctx, dbgen.InsertSignalParams{
+		ID:         idgen.New(),
+		InstanceID: instanceID,
+		TaskID:     taskID,
+		Outcome:    outcomeJSON,
+		CreatedAt:  nowMillis(),
+	}); err != nil {
+		return fmt.Errorf("buffer outcome: %w", err)
+	}
+	return nil
 }

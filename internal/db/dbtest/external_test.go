@@ -53,7 +53,9 @@ func TestResolveExternalTask(t *testing.T) {
 				t.Fatalf("a prior-occurrence resolve should leave it parked, got wait_state %q", got.WaitState)
 			}
 
-			// The current occurrence resolves: result stored, instance un-parked.
+			// The current occurrence resolves: the outcome is BUFFERED and the instance un-parked.
+			// It never lands on the row -- the engine pops it under lease and writes it through
+			// the ordinary context encode. specs/external-outcome-as-signal.md.
 			if err := b.db.ResolveExternalTask(ctx, "inst-ext", epoch, dbpkg.Unclaimed, model.ExternalOutcome{Result: map[string]any{"approved": true}}); err != nil {
 				t.Fatalf("ResolveExternalTask: %v", err)
 			}
@@ -67,9 +69,16 @@ func TestResolveExternalTask(t *testing.T) {
 			if got.WakeAt != nil {
 				t.Fatalf("expected wake_at cleared, got %v", got.WakeAt)
 			}
-			res, ok := got.ContextData[model.CtxExternalResult].(map[string]any)
-			if !ok || res["approved"] != true {
-				t.Fatalf("expected _external_result {approved:true}, got %#v", got.ContextData[model.CtxExternalResult])
+			if c, _ := b.db.CountBufferedSignals("inst-ext", "approval"); c != 1 {
+				t.Fatalf("expected the outcome buffered, got %d", c)
+			}
+			_, outcome, ok, err := b.db.PeekSignal("inst-ext", "approval")
+			if err != nil || !ok {
+				t.Fatalf("peek: ok=%v err=%v", ok, err)
+			}
+			res, _ := outcome.Result.(map[string]any)
+			if res["approved"] != true {
+				t.Fatalf("expected the buffered result {approved:true}, got %#v", outcome.Result)
 			}
 
 			// A second submit is rejected: the task is no longer waiting.
@@ -127,6 +136,73 @@ func TestClaim_ExternalNoTimeoutNotClaimable(t *testing.T) {
 					ids[i] = c.ID
 				}
 				t.Fatalf("expected only the due-timeout external instance claimable, got %v", ids)
+			}
+		})
+	}
+}
+
+// A large submitted outcome arrives CUT: externalized, declared in the instance's objects and
+// claimed, exactly like a value the process produced itself.
+//
+// It could not be, before. The resolve API holds only the instance row lock and has no reference
+// set to reconcile, so it wrote the outcome onto the row inline whatever its size -- no cut, no
+// `objects` entry, no claim -- and it stayed that way until some later full write tidied it.
+// Routed through the buffer, the engine pops it under lease and writes it through the ordinary
+// context encode, which is the only path that can do any of that.
+// specs/external-outcome-as-signal.md.
+func TestResolveExternalTask_LargeOutcomeIsCutWhenConsumed(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			big := bigString("submitted")
+			insertExternalParked(t, b.db, "inst-big", 0, nil)
+
+			if err := b.db.ResolveExternalTask(ctx, "inst-big", 0, dbpkg.Unclaimed,
+				model.ExternalOutcome{Result: map[string]any{"payload": big}}); err != nil {
+				t.Fatalf("ResolveExternalTask: %v", err)
+			}
+
+			// Still only in the buffer: the row carries nothing yet, which is the point.
+			row, err := b.db.GetInstance("inst-big")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			for _, ref := range row.LoadedObjectHashes {
+				t.Fatalf("the resolve wrote an object onto the instance: %v", ref)
+			}
+
+			// The engine consumes it: peek, act, and let the write carry the delete.
+			id, outcome, ok, err := b.db.PeekSignal("inst-big", "approval")
+			if err != nil || !ok {
+				t.Fatalf("peek: ok=%v err=%v", ok, err)
+			}
+			res, _ := outcome.Result.(map[string]any)
+			row.ContextData["outputs"] = map[string]any{"wait": res}
+			row.ConsumedSignalID = id
+			row.WaitState = model.WaitStateNone
+			if err := b.db.UpdateInstanceProgress(row); err != nil {
+				t.Fatalf("consume write: %v", err)
+			}
+
+			// Cut, declared and claimed -- and still the value it was submitted as.
+			after, err := b.db.GetInstance("inst-big")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			out := after.ContextData["outputs"].(map[string]any)["wait"].(map[string]any)
+			ref, isRef := out["payload"].(*model.ObjectRef)
+			if !isRef {
+				t.Fatalf("the consumed outcome was stored inline (%T); a submitted result is cut like any other value", out["payload"])
+			}
+			if n, err := b.db.CountObjectRefs(ref.Ref); err != nil || n != 1 {
+				t.Fatalf("claims on the outcome's object = %d (err=%v), want 1", n, err)
+			}
+			v, err := b.db.ResolveObject(ctx, ref)
+			if err != nil || v != big {
+				t.Fatalf("the outcome's content did not survive the cut: err=%v", err)
+			}
+			if c, _ := b.db.CountBufferedSignals("inst-big", "approval"); c != 0 {
+				t.Fatalf("the consuming write did not delete the signal: %d buffered", c)
 			}
 		})
 	}

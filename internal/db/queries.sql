@@ -153,29 +153,27 @@ WHERE id = sqlc.arg(id);
 INSERT INTO process_signals (id, instance_id, task_id, outcome, created_at)
 VALUES (sqlc.arg(id), sqlc.arg(instance_id), sqlc.arg(task_id), sqlc.arg(outcome), sqlc.arg(created_at));
 
--- name: PopOldestSignal :one
--- Deletes and returns the oldest buffered signal for (instance, task), giving FIFO
--- delivery. Run inside the arm transaction, which already holds the instance row lock.
-DELETE FROM process_signals
-WHERE id = (
-    SELECT s.id FROM process_signals s
-    WHERE s.instance_id = sqlc.arg(instance_id) AND s.task_id = sqlc.arg(task_id)
-    ORDER BY s.created_at, s.id LIMIT 1
-)
-RETURNING outcome;
+-- name: PeekOldestSignal :one
+-- The oldest buffered outcome for (instance, task), FIFO. READ ONLY: the advance decides on it
+-- and persist deletes it (DeleteSignal) in the same transaction as the state it produced, so a
+-- crash between the two cannot lose an answer or apply it twice.
+SELECT id, outcome FROM process_signals
+WHERE instance_id = sqlc.arg(instance_id) AND task_id = sqlc.arg(task_id)
+ORDER BY created_at, id LIMIT 1;
 
--- name: SetExternalOutcome :exec
--- Un-parks an external task: stores the submitted/buffered outcome -- a result or a failure --
--- in external_data and clears the wait. Callers act on a PARKED row under the row lock, so
--- there is no grant to fence; worker_id stays -- clearing it destroys a crashed owner's
--- ReclaimedExpired evidence. (The engine's consume path writes via the fenced
--- UpdateInstanceProgress.) Clearing wake_at is load-bearing beyond tidiness: an answered wait
--- must not later fire external.timeout, which on an only_once task can never be retried.
+-- name: DeleteSignal :exec
+DELETE FROM process_signals WHERE id = sqlc.arg(id);
+
+-- name: UnparkExternal :exec
+-- Makes a parked external task claimable, after its answer has been buffered. Callers act on a
+-- PARKED row under the row lock, so there is no grant to fence; worker_id stays -- clearing it
+-- destroys a crashed owner's ReclaimedExpired evidence. Clearing wake_at is load-bearing beyond
+-- tidiness: an answered wait must not later fire external.timeout, which on an only_once task
+-- can never be retried.
 UPDATE process_instances
-SET external_data = sqlc.arg(external_data),
-    wait_state   = '',
-    wake_at      = NULL,
-    updated_at   = sqlc.arg(updated_at)
+SET wait_state = '',
+    wake_at    = NULL,
+    updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
 
 -- name: CountBufferedSignals :one

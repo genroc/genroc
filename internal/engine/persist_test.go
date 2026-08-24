@@ -207,10 +207,14 @@ func TestRunAdvance_SpawnFailureFailsTheInstance(t *testing.T) {
 	}
 }
 
-// A signal that beat the process to the task is consumed by the same transaction that would
-// have parked the instance — that atomicity is why a racing signal cannot be lost. The consume
-// is an ordinary checkpoint: result durable, lease released, next claim reads it.
-func TestPersistArm_ConsumeStoresResultAndReleases(t *testing.T) {
+// A signal that beat the process to the task is consumed on ARRIVAL at the task, in one advance:
+// runExternal checks the buffer before it arms, so the instance never parks and no second claim
+// is needed. The old shape consumed it in the arm and yielded, costing a claim cycle.
+//
+// The arm's own not-parking branch still exists and is not this: it is the race where a signal
+// lands between this check and the park write, and it is covered at the DB level
+// (TestSignals_BufferThenConsumeFIFO). specs/external-outcome-as-signal.md.
+func TestExternal_BufferedAnswerIsConsumedWithoutParking(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)
 	ctx := context.Background()
@@ -241,37 +245,16 @@ func TestPersistArm_ConsumeStoresResultAndReleases(t *testing.T) {
 		t.Fatal("the signal was delivered to an unarmed task; it should have buffered")
 	}
 
+	// ONE advance: the buffered answer is consumed and the process finishes. Assert the outcome
+	// kind, not just the end state — a consume-then-yield implementation reaches `completed` too,
+	// one claim cycle later, and that cost is the whole reason this is written this way.
 	inst := claimOne(t, database, eng, id)
 	outcome := eng.advanceGuarded(ctx, inst)
-	if outcome.kind != outcomeArm {
-		t.Fatalf("expected an arm outcome, got kind %d", outcome.kind)
+	if outcome.kind == outcomeArm {
+		t.Fatal("the instance parked with an answer already buffered; that costs a claim cycle on every external task")
 	}
-
 	if err := eng.persist(ctx, inst, outcome); err != nil {
 		t.Fatalf("persist: %v", err)
-	}
-	after, err := database.GetInstance(id)
-	if err != nil {
-		t.Fatalf("GetInstance: %v", err)
-	}
-	if _, ok := after.ContextData[model.CtxExternalResult]; !ok {
-		t.Fatal("the consumed result is not on the row; a crash here would lose the signal")
-	}
-	if after.WorkerID != nil {
-		t.Errorf("consuming kept the lease held by %q; every persist ends the work session", *after.WorkerID)
-	}
-	if after.WaitState != model.WaitStateNone {
-		t.Errorf("consuming parked the instance (wait_state %q); it must stay claimable", after.WaitState)
-	}
-
-	// The next claim — a fresh session, not a continuation — reads the stored result via
-	// runExternal phase 2 and finishes the process.
-	next := claimOne(t, database, eng, id)
-	if next.ReclaimedExpired {
-		t.Fatal("the post-consume claim read as a takeover; the consume must release the lease cleanly")
-	}
-	if err := eng.runAdvance(ctx, next); err != nil {
-		t.Fatalf("second session: %v", err)
 	}
 	got, err := database.GetInstance(id)
 	if err != nil {
@@ -279,5 +262,8 @@ func TestPersistArm_ConsumeStoresResultAndReleases(t *testing.T) {
 	}
 	if got.Status != model.StatusCompleted {
 		t.Fatalf("status = %q, want %q (%s: %s)", got.Status, model.StatusCompleted, got.ErrorCode, got.Error)
+	}
+	if n, err := database.CountBufferedSignals(id, "wait"); err != nil || n != 0 {
+		t.Fatalf("buffered = %d (err=%v), want 0 — the consuming write must delete it", n, err)
 	}
 }

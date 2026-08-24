@@ -41,10 +41,11 @@ Design: [specs/lease-fencing.md](../../specs/lease-fencing.md); the engine half 
   partial effects — that placement is what tests like "a refused arm leaves the popped
   signal at its FIFO position" pin down.
 - **`RetryProcess` binds the epoch it read under the tree lock** — a no-op predicate,
-  since no claim can move it under `SKIP LOCKED`. `SetExternalResult` is deliberately
+  since no claim can move it under `SKIP LOCKED`. `UnparkExternal` is deliberately
   unfenced: its only callers (`ResolveExternalTask`, `DeliverSignal`) act on a parked row
-  under the instance row lock, where no grant exists to check; the engine's own consume
-  path writes through the fenced `UpdateInstanceProgress` instead. A fenced write that
+  under the instance row lock, where no grant exists to check, and it writes no outcome —
+  only the buffer does. The engine's consume path writes through the fenced
+  `UpdateInstanceProgress` instead. A fenced write that
   matches no row for *any* reason (including a vanished row) reads as `ErrLeaseLost`:
   either way the row is not the caller's to write.
 - **`RenewWorkerLeases` takes an explicit id list** (the engine's held set) intersected
@@ -215,11 +216,11 @@ Four things break silently:
 3. **`error_data` has no special shape, and must not regain one.** It had one so reading
    `error.code` would not load the body; that is `model.Context`'s job now (it walks to a path and
    loads only what the walk passes through), and `TestLazyMatrix` pins it from the engine side.
-4. **`withExternalKeys` writes `external_data` alone and must not touch `objects`.** It is the
-   targeted outcome/marker path (`SetExternalOutcome` holds only the instance row lock, with no
-   reference set to reconcile). Since the references live in a column it does not write, a
-   targeted write cannot disturb what a parked task's input still points at — and it does not cut
-   either, so an oversized outcome waits for the next full context write.
+4. **`external_data` holds the parked bookkeeping and nothing else.** An outcome is never written
+   onto the instance row: it goes into `process_signals` and the engine pops it under lease,
+   through the ordinary context encode — which is the only path that can cut it, declare it in
+   `objects` and claim it. `withExternalKeys` survives for the `lost` marker alone and must not
+   touch `objects`. specs/external-outcome-as-signal.md.
 
 `outputs_data` keeps its `{order, items}` wrapper: each task output is cut against its own budget
 and the completion order rides along. `engine_state` is not a value slot — spawn/children

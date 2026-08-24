@@ -95,15 +95,15 @@ func (c ClaimBinding) check(current int64, worker sql.NullString, expires sql.Nu
 func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch int64, claim ClaimBinding, outcome model.ExternalOutcome) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
-		var status, waitState, externalData string
+		var status, waitState, taskID string
 		var workerID, extWorkerID sql.NullString
 		var leaseExpiresAt, extLeaseExpiresAt sql.NullInt64
 		var taskEpoch, claimEpoch int64
 		err := raw.QueryRowContext(ctx,
-			`SELECT status, wait_state, external_data, worker_id, lease_expires_at, task_epoch,
+			`SELECT status, wait_state, task, worker_id, lease_expires_at, task_epoch,
 			        external_worker_id, external_lease_expires_at, external_claim_epoch
 		   FROM process_instances WHERE id = ?`+db.forUpdate(), instanceID).
-			Scan(&status, &waitState, &externalData, &workerID, &leaseExpiresAt, &taskEpoch,
+			Scan(&status, &waitState, &taskID, &workerID, &leaseExpiresAt, &taskEpoch,
 				&extWorkerID, &extLeaseExpiresAt, &claimEpoch)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("external task: %w", ErrNotFound)
@@ -134,16 +134,19 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch 
 			return err
 		}
 
-		newExt, err := withExternalOutcome(externalData, outcome)
-		if err != nil {
-			return fmt.Errorf("marshal external_data: %w", err)
+		// Buffer it, then un-park. The outcome never touches the instance row: the engine pops
+		// it under lease and writes it through the ordinary context encode, which is what gets
+		// it CUT, declared in `objects` and claimed -- none of which this path could do, holding
+		// only the row lock with no reference set to reconcile.
+		// specs/external-outcome-as-signal.md.
+		if err := bufferOutcome(ctx, qtx, instanceID, taskID, outcome); err != nil {
+			return err
 		}
 		// The status/wait_state/token/lease checks above ran under the row lock, so the
 		// un-park is unconditional here.
-		if err := qtx.SetExternalOutcome(ctx, dbgen.SetExternalOutcomeParams{
-			ExternalData: newExt,
-			UpdatedAt:    nowMillis(),
-			ID:           instanceID,
+		if err := qtx.UnparkExternal(ctx, dbgen.UnparkExternalParams{
+			UpdatedAt: nowMillis(),
+			ID:        instanceID,
 		}); err != nil {
 			return fmt.Errorf("resolve external task: %w", err)
 		}

@@ -229,6 +229,12 @@ type ProcessInstance struct {
 	// longer points at. Transient, never persisted.
 	LoadedObjectHashes map[string]struct{} `json:"-"`
 
+	// ConsumedSignalID is the buffered signal this advance decided to act on. persist deletes
+	// it in the SAME transaction as the state it produced: popping first loses the answer if
+	// the write is refused, popping after applies it twice if the delete is. Transient, never
+	// persisted. specs/external-outcome-as-signal.md.
+	ConsumedSignalID string `json:"-"`
+
 	// ResolvedObjects memoises externalized-value lookups for the current advance,
 	// keyed by object hash, so a slot referenced by several expressions loads once.
 	// Transient, never persisted.

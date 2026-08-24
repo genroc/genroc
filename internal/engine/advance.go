@@ -30,7 +30,7 @@ const (
 	outcomeUpdate                      // running, status/error set → UpdateInstance
 	outcomeTerminal                    // completed/failed/paused   → saveAndNotify
 	outcomeSpawn                       // children + parent parked  → SpawnChildrenAndWait
-	outcomeArm                         // external wait             → ArmExternalOrConsumeSignal
+	outcomeArm                         // external wait             → ArmExternalUnlessSignalled
 )
 
 // writeVerb names an outcome whose write is the instance's own failure rather than the
@@ -86,19 +86,17 @@ func (e *Engine) persistSpawn(ctx context.Context, inst *model.ProcessInstance, 
 	return nil
 }
 
-// persistArm installs the external wait, or consumes a signal that beat the process to
-// the task. Both release the lease; a consume stores the result on the row and the next
-// claim resumes via runExternal phase 2.
+// persistArm installs the external wait -- unless an answer arrived first, in which case it
+// leaves the row claimable and the next claim consumes it through phase 2. Both release the
+// lease.
 func (e *Engine) persistArm(ctx context.Context, inst *model.ProcessInstance, a *externalArm) error {
-	consumed, _, err := e.db.ArmExternalOrConsumeSignal(ctx, inst, a.taskID, a.input, a.wakeAt)
+	armed, err := e.db.ArmExternalUnlessSignalled(ctx, inst, a.taskID, a.input, a.wakeAt)
 	if err != nil {
 		return err
 	}
-	if !consumed {
+	if armed {
 		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventExternalArmed, Task: a.taskID, Msg: a.armedMsg})
-		return nil
 	}
-	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventExternalResolved, Task: a.taskID, Msg: "buffered"})
 	return nil
 }
 

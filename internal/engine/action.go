@@ -343,35 +343,35 @@ func (e *Engine) delayNumber(inst *model.ProcessInstance, raw any) (int64, error
 // because wake_at passed ⇒ external.timeout.
 // Returns (result, nil) to continue or (nil, outcome) to stop and persist.
 func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *advanceOutcome) {
-	// Phase 2a: a failure was submitted. Routed HERE rather than where it was submitted
-	// because resolving a retry policy and moving retry_count/wake_at are writes on the
-	// leased row, which the fail API does not hold. The two outcome slots are mutually
-	// exclusive by construction -- both writes take the instance row lock and refuse a row
-	// that is not parked -- so reading the error first fixes a reading without arbitrating.
-	if f, ok := inst.ContextData[model.CtxExternalError].(map[string]any); ok {
-		delete(inst.ContextData, model.CtxExternalError)
-		delete(inst.ContextData, model.CtxExternal)
-		code, _ := f["code"].(string)
-		msg, _ := f["message"].(string)
-		var extra map[string]any
-		// Key PRESENCE is the signal, not the value: the fail API drops `data` for a code the
-		// task declared no shape for, which is how error.data stays absent rather than null --
-		// the same distinction a child's undeclared raise makes. A map holding a nil `data` is
-		// not the same thing as no map at all.
-		if data, declared := f["data"]; declared {
-			extra = map[string]any{"data": data}
-		}
-		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventExternalFailed, Task: task.ID, Msg: msg, Code: errcode.Code(code)})
-		return nil, stop(e.handleCallErrorWith(inst, task, msg, errcode.Code(code), extra))
+	// Phase 2: an answer is buffered for this task -- the ONE way an outcome arrives, whether it
+	// was submitted while the task was armed or before it ever reached here. The advance decides
+	// on it and persist deletes it in the same transaction as the state produced, so a refused
+	// write cannot lose the answer and a refused delete cannot apply it twice.
+	// specs/external-outcome-as-signal.md.
+	sigID, outcome, buffered, err := e.db.PeekSignal(inst.ID, task.ID)
+	if err != nil {
+		return nil, stop(e.failInstance(inst, errcode.EngineSpawn, fmt.Sprintf("task %q: reading the buffered answer: %v", task.ID, err)))
 	}
-
-	// Phase 2b: a result was submitted (the resolve API or a direct signal already un-parked
-	// us by storing _external_result).
-	if res, ok := inst.ContextData[model.CtxExternalResult]; ok {
-		delete(inst.ContextData, model.CtxExternalResult)
+	if buffered {
+		inst.ConsumedSignalID = sigID
 		delete(inst.ContextData, model.CtxExternal)
+		inst.WaitState = model.WaitStateNone
+		if f := outcome.Failure; f != nil {
+			// Routed HERE rather than where it was submitted because resolving a retry policy
+			// and moving retry_count/wake_at are writes on the leased row, which the fail API
+			// does not hold.
+			var extra map[string]any
+			// Key PRESENCE is the signal, not the value: the fail API drops `data` for a code
+			// the task declared no shape for, which is how error.data stays absent rather than
+			// null -- the same distinction a child's undeclared raise makes.
+			if f.HasData {
+				extra = map[string]any{"data": f.Data}
+			}
+			e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventExternalFailed, Task: task.ID, Msg: f.Message, Code: errcode.Code(f.Code)})
+			return nil, stop(e.handleCallErrorWith(inst, task, f.Message, errcode.Code(f.Code), extra))
+		}
 		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventExternalResolved, Task: task.ID})
-		return res, nil
+		return outcome.Result, nil
 	}
 
 	// Phase 3: still parked at 'external' — the claim only returns us because the wait ended

@@ -152,6 +152,15 @@ func (q *Queries) DeleteLogsBefore(ctx context.Context, before int64) (int64, er
 	return result.RowsAffected()
 }
 
+const deleteSignal = `-- name: DeleteSignal :exec
+DELETE FROM process_signals WHERE id = ?1
+`
+
+func (q *Queries) DeleteSignal(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteSignal, id)
+	return err
+}
+
 const dropObjectRef = `-- name: DropObjectRef :exec
 DELETE FROM object_refs
 WHERE hash = ?1 AND owner_kind = ?2 AND owner_id = ?3
@@ -830,28 +839,30 @@ func (q *Queries) OrphanedLogRefs(ctx context.Context) ([]OrphanedLogRefsRow, er
 	return items, nil
 }
 
-const popOldestSignal = `-- name: PopOldestSignal :one
-DELETE FROM process_signals
-WHERE id = (
-    SELECT s.id FROM process_signals s
-    WHERE s.instance_id = ?1 AND s.task_id = ?2
-    ORDER BY s.created_at, s.id LIMIT 1
-)
-RETURNING outcome
+const peekOldestSignal = `-- name: PeekOldestSignal :one
+SELECT id, outcome FROM process_signals
+WHERE instance_id = ?1 AND task_id = ?2
+ORDER BY created_at, id LIMIT 1
 `
 
-type PopOldestSignalParams struct {
+type PeekOldestSignalParams struct {
 	InstanceID string
 	TaskID     string
 }
 
-// Deletes and returns the oldest buffered signal for (instance, task), giving FIFO
-// delivery. Run inside the arm transaction, which already holds the instance row lock.
-func (q *Queries) PopOldestSignal(ctx context.Context, arg PopOldestSignalParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, popOldestSignal, arg.InstanceID, arg.TaskID)
-	var outcome string
-	err := row.Scan(&outcome)
-	return outcome, err
+type PeekOldestSignalRow struct {
+	ID      string
+	Outcome string
+}
+
+// The oldest buffered outcome for (instance, task), FIFO. READ ONLY: the advance decides on it
+// and persist deletes it (DeleteSignal) in the same transaction as the state it produced, so a
+// crash between the two cannot lose an answer or apply it twice.
+func (q *Queries) PeekOldestSignal(ctx context.Context, arg PeekOldestSignalParams) (PeekOldestSignalRow, error) {
+	row := q.db.QueryRowContext(ctx, peekOldestSignal, arg.InstanceID, arg.TaskID)
+	var i PeekOldestSignalRow
+	err := row.Scan(&i.ID, &i.Outcome)
+	return i, err
 }
 
 const putObject = `-- name: PutObject :exec
@@ -958,29 +969,26 @@ func (q *Queries) RenewWorkerLeasesChunk(ctx context.Context, arg RenewWorkerLea
 	return result.RowsAffected()
 }
 
-const setExternalOutcome = `-- name: SetExternalOutcome :exec
+const unparkExternal = `-- name: UnparkExternal :exec
 UPDATE process_instances
-SET external_data = ?1,
-    wait_state   = '',
-    wake_at      = NULL,
-    updated_at   = ?2
-WHERE id = ?3
+SET wait_state = '',
+    wake_at    = NULL,
+    updated_at = ?1
+WHERE id = ?2
 `
 
-type SetExternalOutcomeParams struct {
-	ExternalData string
-	UpdatedAt    int64
-	ID           string
+type UnparkExternalParams struct {
+	UpdatedAt int64
+	ID        string
 }
 
-// Un-parks an external task: stores the submitted/buffered outcome -- a result or a failure --
-// in external_data and clears the wait. Callers act on a PARKED row under the row lock, so
-// there is no grant to fence; worker_id stays -- clearing it destroys a crashed owner's
-// ReclaimedExpired evidence. (The engine's consume path writes via the fenced
-// UpdateInstanceProgress.) Clearing wake_at is load-bearing beyond tidiness: an answered wait
-// must not later fire external.timeout, which on an only_once task can never be retried.
-func (q *Queries) SetExternalOutcome(ctx context.Context, arg SetExternalOutcomeParams) error {
-	_, err := q.db.ExecContext(ctx, setExternalOutcome, arg.ExternalData, arg.UpdatedAt, arg.ID)
+// Makes a parked external task claimable, after its answer has been buffered. Callers act on a
+// PARKED row under the row lock, so there is no grant to fence; worker_id stays -- clearing it
+// destroys a crashed owner's ReclaimedExpired evidence. Clearing wake_at is load-bearing beyond
+// tidiness: an answered wait must not later fire external.timeout, which on an only_once task
+// can never be retried.
+func (q *Queries) UnparkExternal(ctx context.Context, arg UnparkExternalParams) error {
+	_, err := q.db.ExecContext(ctx, unparkExternal, arg.UpdatedAt, arg.ID)
 	return err
 }
 

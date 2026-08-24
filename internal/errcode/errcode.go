@@ -116,7 +116,7 @@ const (
 	EngineExpression Code = "engine.expression" // an expression could not be evaluated against this context
 	EngineConfig     Code = "engine.config"     // config could not be resolved from the environment
 	EngineInput      Code = "engine.input"      // a child's input did not satisfy its input_schema
-	EngineSpawn      Code = "engine.spawn"      // spawning a batch of children (or arming an external task) failed
+	EngineSpawn      Code = "engine.spawn"      // spawning children, or arming an external task / reading its answer, failed
 	EngineCollect    Code = "engine.collect"    // collecting a settled batch's outputs failed
 	EnginePanic      Code = "engine.panic"      // a Go panic escaped this instance's advance (see engine.dispatch)
 )

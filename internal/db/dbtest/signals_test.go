@@ -42,9 +42,9 @@ func n(o model.ExternalOutcome) float64 {
 	return f
 }
 
-// TestSignals_BufferThenConsumeFIFO covers the push/early case: signals delivered before
-// the task arms are buffered and consumed in FIFO order, one per arming, then the task
-// parks once the buffer drains. Runs on both engines.
+// TestSignals_BufferThenConsumeFIFO covers the push/early case: signals delivered before the task
+// arms are buffered, the arm declines to park while any is waiting, and they are consumed in FIFO
+// order -- one per advance, each delete riding the write that acted on it. Runs on both engines.
 func TestSignals_BufferThenConsumeFIFO(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -69,25 +69,51 @@ func TestSignals_BufferThenConsumeFIFO(t *testing.T) {
 				t.Fatalf("GetInstance: %v", err)
 			}
 
-			// First arming consumes the oldest (FIFO).
-			consumed, result, err := b.db.ArmExternalOrConsumeSignal(ctx, inst, "approval", map[string]any{}, nil)
-			if err != nil || !consumed {
-				t.Fatalf("arm 1: consumed=%v err=%v (want consumed)", consumed, err)
+			// The arm no longer consumes: with an answer already buffered it declines to park
+			// and leaves the row claimable, so the engine's phase 2 pops it.
+			// specs/external-outcome-as-signal.md.
+			armed, err := b.db.ArmExternalUnlessSignalled(ctx, inst, "approval", map[string]any{}, nil)
+			if err != nil || armed {
+				t.Fatalf("arm 1: armed=%v err=%v (want not parked -- an answer is waiting)", armed, err)
 			}
-			if n(result) != 1 {
-				t.Fatalf("FIFO: expected first signal n=1, got %v", result)
+			if c, _ := b.db.CountBufferedSignals("inst-sig", "approval"); c != 2 {
+				t.Fatalf("the arm consumed a signal: %d buffered, want 2", c)
+			}
+			if got, _ := b.db.GetInstance("inst-sig"); got.WaitState == model.WaitStateExternal {
+				t.Fatal("the arm parked despite a buffered answer -- nothing would wake it")
 			}
 
-			// Second arming consumes the next.
-			consumed, result, err = b.db.ArmExternalOrConsumeSignal(ctx, inst, "approval", map[string]any{}, nil)
-			if err != nil || !consumed || n(result) != 2 {
-				t.Fatalf("arm 2: consumed=%v result=%v err=%v (want consumed n=2)", consumed, result, err)
+			// Consuming is peek-then-write, and the delete rides the write: FIFO order, one per
+			// advance.
+			consume := func(want float64) {
+				t.Helper()
+				id, outcome, ok, err := b.db.PeekSignal("inst-sig", "approval")
+				if err != nil || !ok {
+					t.Fatalf("peek: ok=%v err=%v", ok, err)
+				}
+				if n(outcome) != want {
+					t.Fatalf("FIFO: peeked n=%v, want %v", n(outcome), want)
+				}
+				cur, err := b.db.GetInstance("inst-sig")
+				if err != nil {
+					t.Fatalf("GetInstance: %v", err)
+				}
+				cur.ConsumedSignalID = id
+				if err := b.db.UpdateInstanceProgress(cur); err != nil {
+					t.Fatalf("consume write: %v", err)
+				}
 			}
+			consume(1)
+			if c, _ := b.db.CountBufferedSignals("inst-sig", "approval"); c != 1 {
+				t.Fatalf("the consuming write did not delete the signal: %d buffered, want 1", c)
+			}
+			consume(2)
 
 			// Buffer drained -> the next arming parks.
-			consumed, _, err = b.db.ArmExternalOrConsumeSignal(ctx, inst, "approval", map[string]any{"in": "x"}, nil)
-			if err != nil || consumed {
-				t.Fatalf("arm 3: consumed=%v err=%v (want parked)", consumed, err)
+			inst, _ = b.db.GetInstance("inst-sig")
+			armed, err = b.db.ArmExternalUnlessSignalled(ctx, inst, "approval", map[string]any{"in": "x"}, nil)
+			if err != nil || !armed {
+				t.Fatalf("arm 3: armed=%v err=%v (want parked)", armed, err)
 			}
 			got, _ := b.db.GetInstance("inst-sig")
 			if got.WaitState != model.WaitStateExternal {
@@ -100,8 +126,9 @@ func TestSignals_BufferThenConsumeFIFO(t *testing.T) {
 	}
 }
 
-// TestSignals_ResolveWhenArmed covers the case where the task is already parked: the
-// signal resolves it directly instead of buffering.
+// TestSignals_ResolveWhenArmed covers the case where the task is already parked. The outcome is
+// buffered like every other -- `delivered` reports that the instance was also UN-PARKED, so the
+// engine reaches it now rather than at the next arm. specs/external-outcome-as-signal.md.
 func TestSignals_ResolveWhenArmed(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -112,16 +139,20 @@ func TestSignals_ResolveWhenArmed(t *testing.T) {
 			if err != nil || !delivered {
 				t.Fatalf("deliver to armed task: delivered=%v err=%v (want delivered)", delivered, err)
 			}
-			if c, _ := b.db.CountBufferedSignals("inst-armed", "approval"); c != 0 {
-				t.Fatalf("an armed delivery should not buffer, got %d buffered", c)
+			if c, _ := b.db.CountBufferedSignals("inst-armed", "approval"); c != 1 {
+				t.Fatalf("an armed delivery must still buffer, got %d buffered", c)
 			}
 			got, _ := b.db.GetInstance("inst-armed")
 			if got.WaitState != model.WaitStateNone {
 				t.Fatalf("expected un-parked, got wait_state %q", got.WaitState)
 			}
-			res, ok := got.ContextData[model.CtxExternalResult].(map[string]any)
-			if !ok || res["approved"] != true {
-				t.Fatalf("expected _external_result {approved:true}, got %#v", got.ContextData[model.CtxExternalResult])
+			_, outcome, ok, err := b.db.PeekSignal("inst-armed", "approval")
+			if err != nil || !ok {
+				t.Fatalf("peek: ok=%v err=%v", ok, err)
+			}
+			res, _ := outcome.Result.(map[string]any)
+			if res["approved"] != true {
+				t.Fatalf("expected the buffered result {approved:true}, got %#v", outcome.Result)
 			}
 		})
 	}
