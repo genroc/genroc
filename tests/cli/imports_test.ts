@@ -5,6 +5,7 @@ import { join, relative } from "path";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 import { waitForInstance } from "../helpers/client.ts";
+import { BASE_URL } from "../helpers/constants.ts";
 import { startedID, uid } from "../helpers/genctl.ts";
 
 // Source resolution: a `$<resolver>: <path>` leaf is replaced by a string a registered
@@ -19,29 +20,31 @@ beforeAll(() => {
   bin = buildGenctlBinary();
 }, 60_000);
 
-// The evaluator, for the one test that runs an imported script rather than only applying it.
-// Started lazily: every other test here stops at the apply and needs no runner.
+// The evaluator, for the two tests that RUN an imported script rather than only applying it.
+// Started lazily: every other test here stops at the apply and needs no worker. It claims the
+// script tasks off the shared test server's queue — nothing listens, so there is no port.
 let runner: ChildProcess | undefined;
-async function runnerPort(): Promise<number> {
+let runnerReady: Promise<void>;
+async function startRunner(): Promise<void> {
   if (runner) return runnerReady;
-  runner = spawn("node", [join(REPO, "evaluator/server.ts")], {
-    env: { ...process.env, PORT: "0" },
+  runner = spawn("node", [join(REPO, "evaluator/worker.ts")], {
+    // TASK scopes this worker to the script tasks below; an unfiltered one would claim every
+    // parked external task on the shared test server.
+    env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", TASK: "price", WORKER_ID: `imports-${process.pid}` },
     stdio: ["ignore", "pipe", "inherit"],
   });
-  runnerReady = new Promise<number>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("script runner did not report a port within 10s")), 10_000);
+  runnerReady = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("evaluator worker did not start within 10s")), 10_000);
     runner!.stdout!.on("data", (chunk: Buffer) => {
-      const m = chunk.toString().match(/listening on http:\/\/\S+:(\d+)/);
-      if (m) {
+      if (chunk.toString().includes("polling")) {
         clearTimeout(timer);
-        resolve(Number(m[1]));
+        resolve();
       }
     });
     runner!.on("error", reject);
   });
   return runnerReady;
 }
-let runnerReady: Promise<number>;
 afterAll(() => runner?.kill());
 
 const REPO = new URL("../../", import.meta.url).pathname;
@@ -383,13 +386,11 @@ function scriptDef(name: string, script: string): string {
     "tasks:",
     "  - id: price",
     "    action:",
-    "      type: fetch",
-    "      url: http://localhost:9999/eval",
-    "      body:",
+    "      type: external",
+    "      input:",
     `        code: "$import: ${script}"`,
     '        input: "$: input"',
-    "      responses:",
-    "        200: { type: object, properties: { fee: { type: number } }, required: [fee] }",
+    "      result_schema: { type: object, properties: { fee: { type: number } }, required: [fee] }",
     "    timeout: 5s",
     "    switch: [{ goto: end }]",
     "",
@@ -586,7 +587,7 @@ test("evaluator importer — the author's tsconfig cannot widen the sandbox or t
 }, 60_000);
 
 test("evaluator importer — a data file imported as JSON is inlined and reaches the realm", async () => {
-  const port = await runnerPort();
+  await startRunner();
   const p = tsProject();
   // A `.json` import is a build-time data file, not JavaScript: whichever bundler is
   // underneath has to be told to parse it, and one that is not hands JSON to the JS parser.
@@ -616,13 +617,11 @@ test("evaluator importer — a data file imported as JSON is inlined and reaches
       "tasks:",
       "  - id: price",
       "    action:",
-      "      type: fetch",
-      `      url: http://localhost:${port}/eval`,
-      "      body:",
+      "      type: external",
+      "      input:",
       '        code: "$import: ./fee.ts"',
       '        input: "$: input"',
-      "      responses:",
-      "        200: { type: object, properties: { fee: { type: number } }, required: [fee] }",
+      "      result_schema: { type: object, properties: { fee: { type: number } }, required: [fee] }",
       "    timeout: 10s",
       '    output: "$: self.result"',
       "    switch: [{ goto: end }]",
@@ -700,7 +699,7 @@ test("evaluator importer — a package dependency resolves and is bundled in", (
 }, 60_000);
 
 test("evaluator importer — a node builtin survives the bundle and runs in the realm", async () => {
-  const port = await runnerPort();
+  await startRunner();
   const p = tsProject();
   // The author declares which globals their scripts get; the generated config no longer
   // dictates `types`, so this is the opt-in. A stub package keeps the test off the repo's
@@ -738,17 +737,14 @@ test("evaluator importer — a node builtin survives the bundle and runs in the 
       "tasks:",
       "  - id: price",
       "    action:",
-      "      type: fetch",
-      `      url: http://localhost:${port}/eval`,
-      "      method: POST",
-      "      body:",
+      "      type: external",
+      "      input:",
       '        code: "$import: ./host.ts"',
       '        input: "$: input"',
-      "      responses:",
-      "        200:",
-      "          type: object",
-      "          properties: { fee: { type: number }, host: { type: string } }",
-      "          required: [fee, host]",
+      "      result_schema:",
+      "        type: object",
+      "        properties: { fee: { type: number }, host: { type: string } }",
+      "        required: [fee, host]",
       "    timeout: 10s",
       '    output: "$: self.result"',
       "    switch: [{ goto: end }]",

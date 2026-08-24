@@ -1,26 +1,43 @@
 # evaluator — the script-task runner
 
-An HTTP sidecar that evaluates a TypeScript/JavaScript function body and answers with its
-return value. A **script task is a plain `fetch`** at this server: no new action type, no
-engine change, no worker fleet. `timeout`, `on_error`, `retry` and `only_once` apply exactly
-as they do to any other fetch.
+A **worker** that claims `external` script tasks off genroc's queue, evaluates each
+TypeScript/JavaScript function body in its own realm, and answers with the return value. A
+**script task is a plain `external` task** whose input carries a code string: no new action
+type, no engine change. `timeout`, `on_error`, `retry` and `only_once` apply exactly as they do
+to any other external task.
 
-Design record: [specs/script-tasks.md](../specs/script-tasks.md). It proposes the `external`
-variant (engine parks, a worker fleet pulls from the queue); this is the `fetch` variant,
-which spends no engine capability at all. Moving between them is a definition-level change.
+Design record: [specs/external-task-queue.md](../specs/external-task-queue.md) for the queue,
+[specs/script-tasks.md](../specs/script-tasks.md) for the runtime.
 
-    PORT=3010 node evaluator/server.ts
+    GENROC_SERVER=http://localhost:8448 node evaluator/worker.ts
 
 It needs **Node 24 or newer**: the sources are TypeScript and are run as-is, by Node's own
 type stripping.
 
-It binds **loopback only**. `POST /eval` is unauthenticated arbitrary code execution with the
-runner's full authority (see §"What this is not"), so reaching it from another host means
-deciding to — `HOST=0.0.0.0`, and only where the network already is the trust boundary.
+| env | default | |
+|---|---|---|
+| `GENROC_SERVER` | `http://localhost:8448` | where to claim from |
+| `WORKER_ID` | `evaluator-<pid>` | the claim holder; renewals are scoped to it |
+| `CONCURRENCY` | `4` | how many scripts run at once — **this worker's** decision |
+| `LEASE_MS` | `30000` | visibility timeout; renewed at a third of it while working |
+| `POLL_MS` | `250` | idle poll interval; a non-empty claim polls again immediately |
+| `PROCESS` / `TASK` | unset | claim only this process / task id |
 
-## Request
+**The worker calls genroc, not the other way round.** That is the whole reason this is a
+queue worker rather than the HTTP sidecar it used to be:
 
-`POST /eval`
+- **Concurrency is the worker's to set.** Under the old `fetch` shape genroc decided how many
+  scripts ran at once (`--max-concurrent`, default 200) and the evaluator accepted every one.
+  A backlog is now a queue, not 200 threads fighting over a core.
+- **No engine worker is held.** A `fetch` occupies one of genroc's advance slots for its whole
+  duration, so a slow evaluator starved unrelated tasks. An `external` task parks.
+- **The connection direction inverts.** `/eval` was unauthenticated arbitrary code execution
+  that genroc had to be able to reach. A worker only needs outbound access, so it can live
+  anywhere — behind NAT, in another trust zone.
+
+## The task input
+
+The `input` of the external task IS the evaluation request:
 
 ```jsonc
 {
@@ -34,42 +51,39 @@ deciding to — `HOST=0.0.0.0`, and only where the network already is the trust 
 through `return`. It is compiled with `input` and `require` as parameters, under
 `"use strict"` — `require` is what a bundled `import` of a node builtin lands on.
 
-`GET /health` answers `{"ok": true}`.
+## The answer — the failure kind IS the error code
 
-## Response — the status is the retryability class
+genroc's `on_error` matches error codes, and an external task's `raises` declares the closed
+set a worker may send. So the classification lives in the **code**, where a rule can match it,
+rather than in a body a `switch` has to read.
 
-genroc's `on_error` matches error codes and nothing finer, and the only codes a wire can
-produce are `http.NNN`. So the status carries **exactly one bit of meaning: may a retry
-help?** Everything diagnostic goes in the body, where a `switch` can read it.
+| outcome | the worker submits | |
+|---|---|---|
+| the script returned | `result: <the return value>` | `return;` sends nothing, which genroc reads as `null` |
+| the script faulted | `error: {code, message, data}` | `code` is the kind, below |
+| the **evaluator** faulted | *nothing* — it releases the claim | the task returns to the queue for another worker |
 
-| status | meaning | body | retry |
-|---|---|---|---|
-| `200` | the script returned | **the return value itself** | — |
-| `400` | the request envelope was malformed | `{kind: "bad_request", …}` | no |
-| `422` | the script faulted | `{kind, name, message, stack?}` | **no** |
-| `500` | the evaluator faulted | `{kind: "internal", …}` | **yes** |
+The five kinds, every one of them **permanent** — a retry re-runs the same code on the same
+input and fails identically:
 
-`422` covers compile errors, throws, timeouts, unserialisable returns and a script that ends
-its own realm, told apart by `kind` (`compile_error` | `threw` | `timeout` |
-`nonserializable` | `exited`). They share a status
-because they share the only property the status encodes — a retry re-runs the same code on
-the same input and fails identically. Splitting them across statuses would invite an
-`on_error` rule that retries one of them, which is the failure the split exists to prevent.
+`compile_error` · `threw` · `timeout` · `nonserializable` · `exited`
 
-A `200` body is the return value **bare**, not wrapped: `responses: {200: T}` then types
-`self.result` as exactly `T`, and a script task reads like a typed function call. `return;`
-sends an empty body, which genroc reads as `null`.
+`data` carries `{name, stack?}`: `name` is what a script sets to tell one refusal from another
+(`e.name = 'LimitExceeded'`), and `stack` is renumbered to the lines the author wrote and
+trimmed to 2 KiB.
 
-`stack` is renumbered to the lines the author wrote and trimmed to 2 KiB.
+**The retryable class has no code on purpose.** A runner that faults releases its claim, which
+is how a queue spells "try this somewhere else" — it puts the task in front of a different
+worker instead of spending the definition's `on_error` budget on this one's bad day. There is
+no retry policy to write.
 
 ## The genroc side
 
 ```yaml
 - id: price
   action:
-    type: fetch
-    url: "${config.script_runner}/eval"
-    body:
+    type: external
+    input:
       code: |
         if (input.amount > 100) {
           const e = new Error('amount over the limit');
@@ -78,37 +92,45 @@ sends an empty body, which genroc reads as `null`.
         }
         return { fee: input.amount * 0.1 };
       input: "$: input"
-    responses:
-      200: { type: object, properties: { fee: { type: number } }, required: [fee] }
-      "422": { $ref: "#/$defs/script_error" }
-  timeout: 10000
+    result_schema: { type: object, properties: { fee: { type: number } }, required: [fee] }
+    raises:
+      threw:           { $ref: "#/$defs/script_error" }
+      timeout:         { $ref: "#/$defs/script_error" }
+      compile_error:   { $ref: "#/$defs/script_error" }
+      nonserializable: { $ref: "#/$defs/script_error" }
+      exited:          { $ref: "#/$defs/script_error" }
+  timeout: 30s
   on_error:
-    - code: [http.422]
+    - code: [threw]
       goto: $script_failed
+    - code: [compile_error, nonserializable, exited]
+      panic: { code: script_broken, message: "the script did not run: ${error.code}" }
   switch: [{ goto: end }]
 
 - id: script_failed
   switch:
     - case: 'error.data.name == "LimitExceeded"'
       raise: { code: limit_exceeded, message: "the script rejected the amount" }
-    - case: 'error.data.kind == "compile_error"'
-      panic: { code: script_broken, message: "the script did not compile" }
     - raise: { code: script_failed, message: "the script failed" }
 ```
 
 **A script cannot name a genroc error code.** `raise`/`panic` codes are literals, never
 expressions, so the mapping from a thrown error to an authored code is this `switch` — one
-task the definition owns, reading `error.data`. That is the whole error protocol: the
-runner classifies into a status, the definition names the outcome.
+task the definition owns, reading `error.data`. That is the whole error protocol: the worker
+classifies into a code, the definition names the outcome.
 
-Set the task `timeout` **above** the runner's `timeout_ms`. If the engine's deadline fires
-first the code is `http.timeout`, which is in `errcode.Unknowable()` — permanently
-unretryable on an `only_once` task, and indistinguishable from the runner being unreachable.
+Set the task `timeout` **above** `timeout_ms`. If the task's deadline fires first the code is
+`external.timeout`, which is in `errcode.Unknowable()` — permanently unretryable on an
+`only_once` task, and indistinguishable from no evaluator running at all.
+
+`only_once` is worth considering if your scripts have side effects: without it a worker that
+dies mid-script has its task re-claimed and the script runs again. With it the task is never
+handed out twice, and the instance gets a catchable `external.lost` instead.
 
 ## `${` must be escaped as `$${` — when the code is inline
 
-A fetch `body` is a Shape, so `${…}` is genroc's interpolation marker and a JS template
-literal inside `code` is read by genroc rather than passed through. Write `` `<$${x}>` ``.
+An external task's `input` is a Shape, so `${…}` is genroc's interpolation marker and a JS
+template literal inside `code` is read by genroc rather than passed through. Write `` `<$${x}>` ``.
 A leading `$:` on the code string needs `$$:` for the same reason. See
 [specs/typed-values.md](../specs/typed-values.md). Moving the code into a `.ts` file
 removes this entirely — see the next section.
@@ -116,7 +138,7 @@ removes this entirely — see the next section.
 ## `import.ts` — the author-time half
 
 `import.ts` is the **code-phase resolver** genctl runs before a definition is applied. It
-never serves HTTP and the server never runs it; the two halves share this package only
+never touches the queue and the worker never runs it; the two halves share this package only
 because they share a calling convention, which is exactly the coupling that breaks silently
 if they version apart.
 
@@ -181,7 +203,7 @@ never read by genroc, because genctl doubles every `$` on splice.
 
 ## The realm — one Worker per execution
 
-`evaluate()` starts a Worker, posts the code into it, and races the reply against the budget;
+`evaluate()` starts a Worker (`realm.ts`), posts the code into it, and races the reply against the budget;
 `terminate()` runs on every path. That thread is what the contract rests on, and it buys
 exactly three things the previous in-process evaluator could not:
 
@@ -214,18 +236,23 @@ thread no longer wins on price, and a subprocess contains the two things a threa
   it needed was surface with nothing behind it. A value that must survive a retry belongs in
   the definition, passed through `input`.
 - **Not a sandbox.** The realm isolates *execution*, not *authority*: a script gets the
-  runner's filesystem, network and environment, and `require` of any node builtin. That is
+  worker's filesystem, network and environment, and `require` of any node builtin. That is
   deliberate — a script task is meant to do real work — but the trust boundary stays the
-  same-trust-domain one (your genroc, your machine). It is not the multi-tenant story, and
-  nothing here should be mistaken for one.
+  same-trust-domain one (your genroc, your worker host). It is not the multi-tenant story, and
+  nothing here should be mistaken for one. Pulling does move the boundary in one useful way:
+  the worker needs no inbound reachability, so nothing but the worker can ask it to run code.
 - **A thread does not contain memory or a native crash.** A worker shares the process
   address space, so a script that exhausts memory takes the runner with it — and so does a
   fault in the runtime itself, which is not hypothetical: the previous one segfaulted on
   resume from laptop sleep, taking the in-flight evaluation with it. Containing that is what
   the subprocess strategy is for — `eval.ts` keeps HTTP out precisely so it can be swapped
   underneath.
-- **Nothing caps concurrency.** Each request is a thread, so N concurrent script tasks are N
-  threads; genroc's own concurrency limits are what bound this today.
+- **Concurrency is capped by this worker, not by genroc.** Each evaluation is a thread, and
+  `CONCURRENCY` is how many it will claim at once. Raising it past what the host can run turns
+  a queue back into threads fighting over a core.
 - **Not where imports and type checking happen.** The evaluator still takes one
   self-contained function body and knows nothing about TypeScript; `import.ts` is what turns
   a module into that body, at author time. See above.
+- **`eval.ts` and `realm.ts` know nothing about genroc.** `worker.ts` is the entire
+  queue-facing half, which is what keeps the containment strategy swappable — and what lets
+  the realm's own properties be tested by calling `evaluate()` directly.

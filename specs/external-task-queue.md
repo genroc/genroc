@@ -1,7 +1,7 @@
 # The external-task queue: claim, lease, and an error channel
 
-Status: **Phases 1-3 BUILT** (error channel 2026-08-23; claim/lease/renew/release and
-`external.lost` 2026-08-24). Phase 4 (long-poll, the evaluator switchover) is unbuilt. The
+Status: **BUILT** (error channel 2026-08-23; claim/lease/renew/release, `external.lost` and
+the evaluator switchover 2026-08-24). Only the claim long-poll remains unbuilt. The
 `external.timeout` split phase 3 proposed was dropped as unsound — see §`external.lost`. Turning `external` from a wait point
 into a queue a worker fleet pulls from, with the claim/lease machinery the engine already
 runs against `process_instances` — and the error channel `external` has never had. The
@@ -338,9 +338,17 @@ answers the latency note, but second — it changes connection lifetime, not the
 3. **`only_once` fidelity.** ✅ **Built 2026-08-24.** `external.lost` (unknowable, catchable),
    refusing to re-hand an `only_once` task whose holder lapsed, and the marker + `wake_at` that
    makes the engine report it. The `external.timeout` split was dropped as unsound.
-4. **Long-poll, `queue:` naming, evaluator switchover.** Its loop becomes claim(N) →
-   evaluate → resolve | fail, renewing while it runs; the existing failure `kind`s
-   (`compile_error`, `threw`, `timeout`, `nonserializable`, `exited`) become authored codes.
+4. **Evaluator switchover.** ✅ **Built 2026-08-24.** `evaluator/worker.ts` claims, renews,
+   evaluates and answers; `server.ts` is gone and the realm moved to `realm.ts`. The five
+   failure kinds became the authored codes directly. Two things fell out that the plan did not
+   anticipate: a **runner fault needs no error code** — releasing the claim is how a queue
+   spells retryable, which deleted the definition's whole retry-and-unavailable arm — and
+   **concurrency moved to the worker**, which is the original overload complaint (§0) actually
+   fixed rather than merely rerouted. Still unbuilt: the claim **long-poll**, which is the only
+   thing standing between a 250ms idle poll and immediate pickup. `queue:` naming stays
+   dropped — the `(process, version, task)` filters are the addressing, and the test suite
+   promptly demonstrated why they matter: an unfiltered worker claims every parked task on the
+   server, including other fleets'.
 
 ## Tests that must bite
 

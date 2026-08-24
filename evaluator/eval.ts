@@ -1,8 +1,8 @@
 // Evaluation core: run a code string in its OWN realm and classify every outcome into one of
-// the wire classes in README.md. No HTTP here — server.ts is the only thing that knows a
-// status code, so this stays testable and the containment strategy stays swappable.
+// the failure kinds in README.md. Nothing here knows about genroc — worker.ts is the only
+// thing that talks to the queue — so this stays testable and the containment stays swappable.
 //
-// The containment is a Worker per execution (worker.ts). It is what makes the budget real:
+// The containment is a Worker per execution (realm.ts). It is what makes the budget real:
 // a synchronous busy loop never yields, so no in-process timer can interrupt it, and only a
 // thread the host can kill bounds it.
 
@@ -14,7 +14,9 @@ export type EvalRequest = {
   timeout_ms?: number;
 };
 
-/** Permanent-vs-retryable is the STATUS's job; kind is the detail a switch branches on. */
+/** Every kind here is PERMANENT: a retry re-runs the same code on the same input and fails
+ *  identically. The retryable class has no kind because it is not an outcome — a runner that
+ *  faults releases its claim and lets another worker take the task. */
 export type FailureKind = "compile_error" | "threw" | "timeout" | "nonserializable" | "exited";
 
 export type EvalFailure = {
@@ -36,10 +38,11 @@ export type WorkerRequest = { code: string; input?: unknown };
 export type WorkerReply = EvalResult;
 
 const DEFAULT_TIMEOUT_MS = 5_000;
-const WORKER_URL = new URL("./worker.ts", import.meta.url);
+const REALM_URL = new URL("./realm.ts", import.meta.url);
 
-/** Thrown, not returned: a realm that fails to start is the RUNNER faulting, and server.ts
- *  turns a thrown error into the one retryable status. A script fault is a return value. */
+/** Thrown, not returned: a realm that fails to start is the RUNNER faulting, which worker.ts
+ *  answers by releasing the claim rather than by reporting an outcome. A script fault is a
+ *  return value. */
 class RealmFault extends Error {
   constructor(message: string) {
     super(message);
@@ -50,7 +53,7 @@ class RealmFault extends Error {
 export async function evaluate(req: EvalRequest): Promise<EvalResult> {
   const budget = typeof req.timeout_ms === "number" ? req.timeout_ms : DEFAULT_TIMEOUT_MS;
 
-  const worker = new Worker(WORKER_URL);
+  const worker = new Worker(REALM_URL);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await new Promise<EvalResult>((resolve, reject) => {

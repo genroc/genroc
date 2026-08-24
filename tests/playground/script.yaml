@@ -1,8 +1,8 @@
 # yaml-language-server: $schema=https://genroc.org/process-schema.json
 #
-# The script task as a CHILD PROCESS: one place that knows the evaluator's wire contract, so
-# a caller writes `type: child` plus a result_schema instead of a fetch plus its own 422
-# handling. This is custom-tasks.md's middle tier — the parent↔child relationship IS the
+# The script task as a CHILD PROCESS: one place that knows the evaluator's contract, so a
+# caller writes `type: child` plus a result_schema instead of an external task plus its own
+# error handling. This is custom-tasks.md's middle tier — the parent↔child relationship IS the
 # extension point — and the engine still has no idea scripts exist.
 #
 # The output is the TOP TYPE. A forwarding process must not declare a shape that is the
@@ -11,16 +11,7 @@
 name: script
 config_schema:
   type: object
-  properties:
-    runner_url: { type: string, default: "http://localhost:3010" }
-    # How long to keep trying an evaluator that is not answering yet. The defaults suit a
-    # local runner; a deployment where the evaluator is a pod wants minutes, because a cold
-    # start that pulls an image looks exactly like an evaluator that is gone.
-    # GENROC_SCRIPT_RETRY_ATTEMPTS=8 GENROC_SCRIPT_RETRY_MAX_DELAY_MS=60000
-    retry_attempts: { type: integer, default: 4 }
-    retry_delay_ms: { type: integer, default: 1000 }
-    retry_factor: { type: number, default: 3 }
-    retry_max_delay_ms: { type: integer, default: 30000 }
+  properties: {}
 input_schema:
   type: object
   properties:
@@ -32,49 +23,56 @@ input_schema:
 tasks:
   - id: eval
     action:
-      type: fetch
-      url: "${ config.runner_url }/eval"
-      body:
+      # An `external` task: the engine parks and holds no worker, and an evaluator claims it
+      # off the queue. Nothing here names a URL — the worker calls genroc, not the other way
+      # round, which is what lets it live anywhere with outbound access.
+      type: external
+      input:
         code: "$: input.code"
         input: "$: input.input"
         timeout_ms: "$: input.timeout_ms"
-      responses:
-        200: {}
-        "422": { $ref: "#/$defs/script_error" }
-    # Above the runner's own budget, so a script that overruns comes back as a classified
-    # 422 rather than http.timeout — which is unknowable, and so never retryable.
+      result_schema: {}
+      # The closed set of codes an evaluator may answer with: the failure kinds in
+      # evaluator/eval.ts, one arm each below. A code outside this is refused at submission,
+      # so a worker that invents one is caught rather than routed to a catch-all.
+      raises:
+        threw: { $ref: "#/$defs/script_error" }
+        timeout: { $ref: "#/$defs/script_error" }
+        compile_error: { $ref: "#/$defs/script_error" }
+        nonserializable: { $ref: "#/$defs/script_error" }
+        exited: { $ref: "#/$defs/script_error" }
+    # Above the evaluator's own budget, so a script that overruns comes back as a classified
+    # `timeout` rather than external.timeout — which is unknowable, and so never retryable.
     timeout: 30s
     output: "$: self.result"
     on_error:
-      - code: ["http.422"]
-        goto: $failed
-      # Nothing ran — the request never left, or a gateway refused on the backend's behalf.
-      # Only a spent budget makes "not available" true, which is what lets a caller fail on
-      # it rather than loop. The curve is config so it can outlast a cold start.
-      #
-      # Retrying a 5xx trades on the evaluator being idempotent: from here an ingress
-      # refusing for a dead backend and the app itself answering 503 look identical.
-      - code: [pre.error, pre.timeout, http.502, http.503, http.504]
-        retry:
-          attempts: "$: config.retry_attempts"
-          delay: "$: config.retry_delay_ms"
-          factor: "$: config.retry_factor"
-          max_delay: "$: config.retry_max_delay_ms"
-        raise:
-          code: engine_not_available
-          message: "no answer from the evaluator: ${error.message}"
-      # The request left and nothing came back. Whether the script ran is unknowable, so
-      # this is never retried here — only a caller knows whether a rerun is safe.
-      - code: [http.timeout, http.disconnected]
+      # Every arm below is a code the WORKER sent, so the script demonstrably ran. There is no
+      # retry arm and no "evaluator unavailable" arm any more: a runner that faults releases its
+      # claim instead of answering, and the task simply waits on the queue for another worker.
+      # That is the queue's own retry, and it costs the definition nothing.
+      - code: [threw]
+        goto: $threw
+      - code: [timeout]
+        goto: $timed_out
+      # A script that would not compile, returned what JSON cannot represent, or ended its own
+      # realm. One arm because they are fixed the same way — by editing the script — and none
+      # is a condition a caller could react to.
+      - code: [compile_error, nonserializable, exited]
+        panic:
+          code: script_broken
+          message: "the script is broken (${error.code}) - ${error.message}"
+          # Nobody can catch a panic, so this reaches an operator and no one else — which is
+          # the only place a stack trace was ever going to be read.
+          data:
+            name: "$: error.data.name"
+            message: "$: error.message"
+      # The deadline passed with nothing submitted: no evaluator is running, or one died
+      # holding the task. Which of those it was is not knowable from here, so this says so
+      # rather than picking the reassuring reading.
+      - code: [external.timeout]
         raise:
           code: script_unknown
-          message: "the evaluator stopped answering; the script may have run: ${error.message}"
-      # The runner answers 200 or 422 and nothing else (evaluator/server.ts). A 404, a 500
-      # or an unparseable body is our own deployment broken, not a condition to react to.
-      # The gateway statuses above are caught first, so this arm never sees them.
-      - panic:
-          code: engine_broken
-          message: "the evaluator broke its contract (${error.code}): ${error.message}"
+          message: "no evaluator answered within the budget; the script may or may not have run"
     switch:
       - goto: end
 
@@ -85,44 +83,41 @@ tasks:
   # The messages carry the evaluator's own words, for whoever reads the failure; nothing
   # should ever parse them back. A caller branches on the CODE, and reads the machine-readable
   # half through `data`, where it declares a shape for the code under `raises`.
-  - id: failed
+  - id: threw
     switch:
       # Spelled the way JavaScript prints an error, because that is what it is: `name` is
       # what a script sets to tell one refusal from another (evaluator/README.md).
-      - case: 'error.data.kind == "threw"'
-        raise:
+      - raise:
           code: script_threw
-          message: "${error.data.name}: ${error.data.message}"
-          # The whole refusal, forwarded: `name` is what a caller tells one throw from
-          # another by, and it cannot be a code here (R2) because this process is generic.
-          # A caller reads it only by declaring a shape under `raises`.
-          data: "$: error.data"
-      # The budget is the caller's, so name it — "too slow" without the number sends whoever
-      # reads this to the wrong file.
-      - case: 'error.data.kind == "timeout"'
-        raise:
+          message: "${error.data.name}: ${error.message}"
+          # The refusal, recomposed rather than forwarded whole: the evaluator puts the text
+          # on error.MESSAGE and only `name`/`stack` in data, so a caller declaring
+          # {name, message} would fail the conform against a verbatim `$: error.data`.
+          # `name` is what a caller tells one throw from another by, and it cannot be a code
+          # here (R2) because this process is generic. A caller reads either only by
+          # declaring a shape under `raises`.
+          data:
+            name: "$: error.data.name"
+            message: "$: error.message"
+
+  # The budget is the caller's, so name it — "too slow" without the number sends whoever
+  # reads this to the wrong file.
+  - id: timed_out
+    switch:
+      - raise:
           code: script_timeout
           message: "the script ran past its ${input.timeout_ms}ms budget"
           data:
             budget_ms: "$: input.timeout_ms"
-      # `kind` discriminates here rather than `name`: this arm covers a script that would not
-      # compile and one that returned what JSON cannot represent, which are fixed differently.
-      - panic:
-          code: script_broken
-          message: "the script is broken (${error.data.kind}) - ${error.data.message}"
-          # Nobody can catch a panic, so this reaches an operator and no one else — which is
-          # the only place a stack trace was ever going to be read.
-          data: "$: error.data"
 
 output: "$: outputs.eval"
 
 $defs:
-  # The 422 body from the evaluator. Only this process needs to know it.
+  # What a failure carries beside its code. `kind` is gone: it IS the code now, which is the
+  # whole gain of answering on the error channel rather than through a status.
   script_error:
     type: object
     properties:
-      kind: { type: string }
       name: { type: string }
-      message: { type: string }
       stack: { type: string }
-    required: [kind, name, message]
+    required: [name]

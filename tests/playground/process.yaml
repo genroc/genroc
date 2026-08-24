@@ -54,8 +54,9 @@ tasks:
       last: "$: self.result"
     on_error:
       # A reading that may or may not have happened is a reason to look again at the next
-      # window — reading.ts pins nothing, so a rerun is free. engine_not_available means the
-      # child already retried, so it travels on up.
+      # window — reading.ts pins nothing, so a rerun is free. There is no "evaluator down"
+      # code to handle any more: a runner that faults releases its claim and the task waits on
+      # the queue, so only a spent DEADLINE reaches here, as script_unknown.
       - code: ["script_timeout", "script_unknown"]
         goto: $wait
       # A throw splits on which refusal it was, which is a value and not a code.

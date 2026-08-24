@@ -1,132 +1,187 @@
-// The evaluation realm. One Worker per execution: a fresh global object per script, and a
-// thread the host can kill mid-loop — the only thing that bounds a synchronous busy loop.
-// eval.ts owns the budget and does the killing; nothing here knows about time.
+// The queue worker: claims parked `external` script tasks from genroc, evaluates each in its
+// own realm, and answers. This is the whole genroc-facing half — eval.ts and realm.ts know
+// nothing about the queue, which is what keeps the containment strategy swappable.
 //
-// Everything that touches the script's VALUE lives on this side of the boundary — compiling,
-// classifying, serialising — because this is the only realm the value exists in.
+// See README.md for the contract, and specs/external-task-queue.md for the queue itself.
 
-import { createRequire } from "node:module";
-import { parentPort } from "node:worker_threads";
+import { evaluate, type EvalRequest, type FailureKind } from "./eval.ts";
 
-import type { EvalFailure, FailureKind, WorkerReply, WorkerRequest } from "./eval.ts";
+const SERVER = (process.env.GENROC_SERVER ?? "http://localhost:8448").replace(/\/$/, "");
+const WORKER_ID = process.env.WORKER_ID ?? `evaluator-${process.pid}`;
+// Concurrency is the worker's to set, and that is the point of pulling: under the old fetch
+// shape genroc decided how many scripts ran at once (--max-concurrent, default 200) and the
+// evaluator accepted every one of them. Here it claims what it can run and no more, so a
+// backlog is a queue rather than 200 threads fighting over a core.
+const CONCURRENCY = Number(process.env.CONCURRENCY ?? 4);
+const POLL_MS = Number(process.env.POLL_MS ?? 250);
+// The visibility timeout. Short, and renewed while work is in flight: a worker that dies
+// should return its task quickly rather than holding it for the whole budget.
+const LEASE_MS = Number(process.env.LEASE_MS ?? 30_000);
+const RENEW_MS = Math.max(1_000, Math.floor(LEASE_MS / 3));
+const PROCESS_FILTER = process.env.PROCESS ?? "";
+const TASK_FILTER = process.env.TASK ?? "";
 
-const AsyncFunction = async function () {}.constructor as new (
-  ...args: string[]
-) => (...args: unknown[]) => Promise<unknown>;
+type QueueTask = {
+  token: string;
+  process: string;
+  task_id: string;
+  input: unknown;
+  raises?: Record<string, unknown>;
+};
 
-const STRICT = '"use strict";\n';
-
-// Bundled `node:*` imports survive as `require` calls — the importer externalises builtins and
-// inlines everything else — and a function built by the AsyncFunction constructor has no
-// `require` in scope. Passing one in is what makes an import of a builtin work at runtime rather than at
-// typecheck only. Resolution is anchored here, which is right: only builtins reach it.
-const scriptRequire = createRequire(import.meta.url);
-const STACK_BYTES = 2_048;
-
-/**
- * Line offset the AsyncFunction preamble adds, measured rather than assumed: the generated
- * wrapper's shape is engine-specific, and a hardcoded number silently misreports every
- * script's error location the day it changes.
- */
-const lineOffset: Promise<number> = (async () => {
-  // Same parameter list as a real compile: the preamble is what is being measured.
-  const probe = new AsyncFunction("input", "require", STRICT + "throw new Error('probe');");
+async function call(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: any }> {
+  const res = await fetch(SERVER + path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let data: any = null;
   try {
-    await probe();
-    return 0;
-  } catch (err) {
-    return reportedLine(err) - 1;
-  }
-})();
-
-// V8 marks a frame compiled by the AsyncFunction constructor with the site that CALLED the
-// constructor, then the script's OWN position:
-//   at inner (eval at run (file:///…/worker.ts:107:10), <anonymous>:6:9)
-// `eval at` is therefore what separates script frames from runner plumbing — matched without
-// the function name, which is whatever encloses the `new AsyncFunction` below. The LAST such
-// frame is the body's top level: frames interleave, since a script can throw inside a native
-// callback.
-const SCRIPT_FRAME = /\(eval at /;
-// The trailing `<anonymous>:LINE:COL` — the script's position, after the host file's own.
-const POSITION = /<anonymous>:(\d+):(\d+)\)?\s*$/;
-// `    at name (` — absent on the top-level frame, which V8 names `eval`.
-const FRAME_NAME = /^\s*at\s+(?:async\s+)?([^\s(]+)\s*\(/;
-
-/** Line number of the throw as the engine reported it, or 1 if the stack is unreadable. */
-function reportedLine(err: unknown): number {
-  const stack = err instanceof Error && typeof err.stack === "string" ? err.stack : "";
-  const frame = stack.split("\n").find((l) => SCRIPT_FRAME.test(l)) ?? "";
-  const m = frame.match(POSITION);
-  return m ? Number(m[1]) : 1;
-}
-
-/** Renumbers each script frame to the line the AUTHOR wrote and drops the runner's own.
- *  Rewriting the whole location is also what keeps the runner's path out of a script's
- *  stack — V8 puts it inside every compiled frame. */
-function scriptStack(err: unknown, offset: number): string | undefined {
-  if (!(err instanceof Error) || typeof err.stack !== "string") return undefined;
-  const lines = err.stack.split("\n");
-  let boundary = -1;
-  for (let i = 0; i < lines.length; i++) if (SCRIPT_FRAME.test(lines[i]!)) boundary = i;
-  const frames = (boundary >= 0 ? lines.slice(0, boundary + 1) : lines.slice(0, 1))
-    .map((line) => {
-      const pos = line.match(POSITION);
-      if (!pos) return line; // the `Error: message` header and native frames, kept as-is
-      const name = line.match(FRAME_NAME)?.[1];
-      const at = name && name !== "eval" && name !== "anonymous" ? `at ${name} ` : "at ";
-      const indent = line.match(/^\s*/)![0];
-      return `${indent}${at}(script:${Math.max(1, Number(pos[1]) - offset)}:${pos[2]})`;
-    })
-    .join("\n");
-  return frames.length > STACK_BYTES ? frames.slice(0, STACK_BYTES) : frames;
-}
-
-function describe(err: unknown, kind: FailureKind, offset: number): EvalFailure {
-  if (err instanceof Error) {
-    return { kind, name: err.name, message: err.message, stack: scriptStack(err, offset) };
-  }
-  // A script may throw a non-Error (`throw {code: "x"}`), so name/message must not assume one.
-  return { kind, name: "Thrown", message: safeText(err) };
-}
-
-function safeText(v: unknown): string {
-  try {
-    return typeof v === "string" ? v : JSON.stringify(v) ?? String(v);
+    data = text ? JSON.parse(text) : null;
   } catch {
-    return String(v);
+    data = { error: text };
+  }
+  return { ok: res.ok, status: res.status, data };
+}
+
+/** The task input IS an EvalRequest: `code` required, `input` and `timeout_ms` optional. A task
+ *  whose input is not that shape is the definition's fault, not the script's, and is reported
+ *  as a compile_error — the nearest permanent kind, since no retry can fix the definition. */
+function asEvalRequest(input: unknown): EvalRequest | string {
+  if (typeof input !== "object" || input === null) return "the task input is not an object";
+  const r = input as Record<string, unknown>;
+  if (typeof r.code !== "string") return "the task input has no `code` string";
+  return {
+    code: r.code,
+    input: r.input,
+    timeout_ms: typeof r.timeout_ms === "number" ? r.timeout_ms : undefined,
+  };
+}
+
+const inFlight = new Map<string, QueueTask>();
+let running = true;
+
+async function claim(n: number): Promise<QueueTask[]> {
+  const { ok, data } = await call("/external-tasks/claim", {
+    worker_id: WORKER_ID,
+    limit: n,
+    lease_ms: LEASE_MS,
+    ...(PROCESS_FILTER ? { process: PROCESS_FILTER } : {}),
+    ...(TASK_FILTER ? { task: TASK_FILTER } : {}),
+  });
+  if (!ok) {
+    console.error(`claim failed: ${JSON.stringify(data)}`);
+    return [];
+  }
+  return (data?.items ?? []) as QueueTask[];
+}
+
+async function release(token: string): Promise<void> {
+  const { ok, data } = await call("/external-tasks/release", { token });
+  if (!ok) console.error(`release failed: ${JSON.stringify(data)}`);
+}
+
+/** answer submits the outcome. A refusal is NOT retried with a different one: the definition
+ *  declared a contract this worker does not satisfy (an undeclared code, a payload that does
+ *  not fit `raises`), and guessing again would only pick a second wrong answer. Release it, so
+ *  the task returns to the queue and an operator sees it waiting rather than silently gone. */
+async function answer(token: string, outcome: Record<string, unknown>): Promise<void> {
+  const { ok, data } = await call("/external-tasks/resolve", { token, ...outcome });
+  if (ok) return;
+  console.error(`genroc refused the outcome for ${token}: ${JSON.stringify(data)}`);
+  await release(token);
+}
+
+async function run(job: QueueTask): Promise<void> {
+  const req = asEvalRequest(job.input);
+  if (typeof req === "string") {
+    await answer(job.token, {
+      error: { code: "compile_error", message: req, data: { name: "BadTaskInput" } },
+    });
+    return;
+  }
+
+  let result;
+  try {
+    result = await evaluate(req);
+  } catch (err) {
+    // The RUNNER faulted, not the script — the one class where a retry can help. There is no
+    // error code for it on purpose: releasing the claim is how a queue spells "retryable", and
+    // it puts the task in front of a different worker instead of burning the definition's
+    // on_error budget on this one's bad day.
+    console.error(`evaluator fault on ${job.token}: ${err instanceof Error ? err.message : String(err)}`);
+    await release(job.token);
+    return;
+  }
+
+  if (result.ok) {
+    // `body` is JSON text produced inside the realm; an empty body is a script that returned
+    // nothing, which genroc reads as null.
+    await answer(job.token, { result: result.body === "" ? null : JSON.parse(result.body) });
+    return;
+  }
+  const f = result.failure;
+  await answer(job.token, {
+    error: {
+      // The failure KIND is the code, so an on_error rule branches on what went wrong without
+      // reading a payload. Every kind is permanent; see eval.ts.
+      code: f.kind satisfies FailureKind,
+      message: f.message,
+      data: { name: f.name, ...(f.stack ? { stack: f.stack } : {}) },
+    },
+  });
+}
+
+async function renewLoop(): Promise<void> {
+  while (running) {
+    await new Promise((r) => setTimeout(r, RENEW_MS));
+    const tokens = [...inFlight.keys()];
+    if (!tokens.length) continue;
+    const { ok, data } = await call("/external-tasks/renew", {
+      worker_id: WORKER_ID,
+      tokens,
+      lease_ms: LEASE_MS,
+    });
+    // A short count means a claim lapsed and was taken over. Nothing to do about it — the work
+    // continues and its answer will be refused — but say so, because it is the signal that
+    // LEASE_MS is too short for what these scripts actually take.
+    if (ok && data?.renewed < tokens.length) {
+      console.error(`renewed ${data.renewed}/${tokens.length} claims; a lease lapsed under load`);
+    }
   }
 }
 
-async function run(req: WorkerRequest): Promise<WorkerReply> {
-  const offset = await lineOffset;
-
-  let fn: (...args: unknown[]) => Promise<unknown>;
-  try {
-    // No compile cache: the realm is discarded after this execution, so a cache in it could
-    // never be hit. Repeated compilation is the price of the fresh global object.
-    fn = new AsyncFunction("input", "require", STRICT + req.code);
-  } catch (err) {
-    return { ok: false, failure: describe(err, "compile_error", offset) };
-  }
-
-  let value: unknown;
-  try {
-    value = await fn(req.input, scriptRequire);
-  } catch (err) {
-    return { ok: false, failure: describe(err, "threw", offset) };
-  }
-
-  try {
-    // undefined stringifies to undefined, not "undefined"; an empty body is how genroc
-    // spells null, which is the right reading of a script that returned nothing.
-    return { ok: true, body: value === undefined ? "" : JSON.stringify(value) ?? "" };
-  } catch (err) {
-    return { ok: false, failure: describe(err, "nonserializable", offset) };
+async function pollLoop(): Promise<void> {
+  while (running) {
+    const free = CONCURRENCY - inFlight.size;
+    const jobs = free > 0 ? await claim(free) : [];
+    for (const job of jobs) {
+      inFlight.set(job.token, job);
+      void run(job).finally(() => inFlight.delete(job.token));
+    }
+    // Only idle when there was nothing to take: a full queue should be drained at the speed the
+    // realms allow, not at the poll interval.
+    if (jobs.length === 0) await new Promise((r) => setTimeout(r, POLL_MS));
   }
 }
 
-// Non-null because this module only ever runs as a worker entry point; a null port here
-// would mean eval.ts loaded it as a plain module, which nothing does.
-parentPort!.on("message", async (req: WorkerRequest) => {
-  parentPort!.postMessage(await run(req));
-});
+async function shutdown(signal: string): Promise<void> {
+  if (!running) return;
+  running = false;
+  const tokens = [...inFlight.keys()];
+  console.log(`${signal}: releasing ${tokens.length} claim(s)`);
+  // Hand work back rather than letting it sit out its lease. The evaluations still running are
+  // abandoned, which is exactly what the release says: nobody answered.
+  await Promise.all(tokens.map(release));
+  process.exit(0);
+}
+
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+console.log(
+  `evaluator worker ${WORKER_ID} polling ${SERVER} (concurrency=${CONCURRENCY}, lease=${LEASE_MS}ms)`,
+);
+void renewLoop();
+void pollLoop();

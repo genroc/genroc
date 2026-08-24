@@ -3,7 +3,7 @@ http    ?= :8448
 tcp     ?=
 uds     ?=
 poll    ?= 500
-script_port ?= 3010
+genroc_server ?= http://localhost:8448
 log     ?= info
 
 # BUILD_FLAGS = CGO_ENABLED=1
@@ -68,10 +68,10 @@ bench-drain-big: client
 sqlc:
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
 
-# The script-task evaluator (evaluator/). A script task is a plain fetch at this
-# sidecar, so nothing in the engine knows about it; see evaluator/README.md.
+# The script-task evaluator (evaluator/). A script task is an `external` task; this is the
+# worker that claims them off the queue. See evaluator/README.md.
 script-runner:
-	cd evaluator && npm install && PORT=$(script_port) node server.ts
+	cd evaluator && npm install && GENROC_SERVER=$(genroc_server) node worker.ts
 
 # The process-definition JSON Schema, as a static file the site serves at
 # genroc.org/process-schema.json — the same bytes GET /process-schema.json returns, so a

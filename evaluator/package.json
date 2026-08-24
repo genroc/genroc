@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "serve": "node server.ts",
+    "work": "node worker.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

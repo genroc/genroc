@@ -1,22 +1,21 @@
 # Script tasks: a scaffolded runtime, not an engine feature
 
-Status: **PROPOSAL, 2026-08-07. Partly built 2026-08-19. Superseded in part 2026-08-20.**
-`evaluator/` is a first evaluator, and the error tiering §"What the template owns" argues
-for is live — but as a plain **`fetch`** at a sidecar, not the `external`-plus-worker-fleet
-shape below, which spends even less engine capability than this doc claims to need. The
-import directive, the type generator and the bundler are unbuilt, so code is inlined in the
-definition (and therefore subject to `${` escaping) and nothing typechecks. What shipped is
-documented in [evaluator/README.md](../evaluator/README.md).
+Status: **PROPOSAL, 2026-08-07. BUILT 2026-08-19; moved onto `external` 2026-08-24.**
+The shape this doc argued for — a script task as an `external` task whose input carries a code
+string, pulled by a worker fleet — is what ships. It went the long way round: the first
+evaluator was a plain `fetch` at an HTTP sidecar (2026-08-19), which spent no engine capability
+either but held an advance slot per call and required genroc to be able to reach an
+unauthenticated code-execution endpoint. The queue that made the `external` route viable is
+[external-task-queue.md](external-task-queue.md); what ships is documented in
+[evaluator/README.md](../evaluator/README.md).
+
+Still unbuilt: the `create-genroc-app` scaffolder. The import directive, the type generator and
+the bundler ARE built — see [source-resolution.md](source-resolution.md).
 
 **§"What genroc adds" is superseded by
 [source-resolution.md](source-resolution.md)**, which owns the resolution model: this doc
 argued a single pass, and generating types from inferred schemas needs two. Everything else
 here stands.
-
-The sidecar tier of
-[custom-tasks.md](custom-tasks.md), made turnkey by a scaffolder rather than by the
-engine. "Plugin" here means an optional external component — the toolchain and the
-worker fleet — never dynamically loaded code, which that doc rules out and this keeps out.
 
 ## Thesis
 
@@ -24,6 +23,12 @@ Running user TypeScript needs **no new engine capability**. A script task is an
 `external` task whose input carries a code string; a worker pulls it off the queue,
 evaluates it, and resolves it with JSON. Lease, retry, `on_error` and timeout are the
 ones already there.
+
+**[built]** True as written, with one correction the build supplied: the *engine* needed
+nothing, but the **queue** did — `external` had no claim, no visibility timeout and no error
+channel, so "a worker pulls it off the queue" was a sentence describing machinery that did not
+exist. That is [external-task-queue.md](external-task-queue.md), and it is the larger half of
+the work. The engine itself gained only `external.lost`.
 
 So the feature is a **setup experience**, not a subsystem. `create-genroc-app` scaffolds
 a project and optionally installs the TypeScript runtime: the type generator, the
@@ -96,6 +101,13 @@ Recorded so it does not drift back into the engine:
   permanent; only an evaluator fault is worth retrying. The worker picks distinct codes and
   the scaffolded `on_error` rules act on them — folding all three into one failure makes the
   retry budget worse than useless. Engine-side this is just ordinary error routing.
+  **[built]** The retryable class turned out to need no code at all: a runner that faults
+  **releases its claim**, which is how a queue spells "try this somewhere else". It puts the
+  task in front of a different worker instead of spending the definition's `on_error` budget,
+  so the shipped definition has no retry policy and no "evaluator unavailable" arm. The five
+  permanent kinds became the authored codes an `on_error` rule matches directly — the
+  discriminator moved out of a response body into the code, which is what the error channel
+  bought.
 
 ## Deferred: `process_objects` ownership
 

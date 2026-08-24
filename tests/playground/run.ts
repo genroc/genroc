@@ -2,7 +2,8 @@
 //
 // Two terminals besides this one:
 //   go run ./cmd/genroc --http :8888   # the engine
-//   npm run playground:scripts         # the script evaluator (evaluator/)
+//   npm run playground:scripts         # the evaluator worker (evaluator/), which CLAIMS
+//                                      # script tasks off :8888 — it listens on nothing
 //
 // The reading task's code lives in reading.ts, pulled in by `$import` — genroc.yaml
 // registers the resolver, and the apply below typechecks it against generated Input/Output
