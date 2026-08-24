@@ -813,7 +813,7 @@ endpoints take either:</p>
 
 
 
-<table><thead><tr><th></th><th>addressed by</th><th>unarmed task</th></tr></thead><tbody><tr><td><code>POST /external-tasks/resolve</code></td><td>the queue <code>token</code></td><td>rejected — the token names a live arming</td></tr><tr><td><code>POST /instances/{id}/signal</code></td><td>instance id + <code>task_id</code></td><td>buffered FIFO until the task next arms</td></tr></tbody></table>
+<table><thead><tr><th></th><th>addressed by</th><th>unarmed task</th></tr></thead><tbody><tr><td><code>POST /external-tasks/resolve</code></td><td>a <code>token</code> (from the queue, or from a claim)</td><td>rejected — the token names a live arming</td></tr><tr><td><code>POST /instances/{id}/signal</code></td><td>instance id + <code>task_id</code></td><td>buffered FIFO until the task next arms</td></tr></tbody></table>
 <p>An <code>error</code> is routed through the task’s <code>on_error</code> rules exactly like a call error:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="jsonc"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">// POST /external-tasks/resolve</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">{</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">token</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">…</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">result</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">fee</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 25</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">          // the success channel</span></span>
@@ -874,6 +874,48 @@ stays parked, and the caller can answer again with a corrected one.</p>
 <p>The submitted <code>code</code> is an authored code — lower_snake_case, no dots — so a caller cannot
 spell an engine code such as <code>http.500</code> or <code>external.timeout</code> and be caught by a rule written
 for the wire.</p>
+<h4 id="pulling-work-claim-renew-release">Pulling work: claim, renew, release<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#pulling-work-claim-renew-release"><span></span></a></h4>
+<p><code>GET /external-tasks</code> lists the queue and <code>POST /external-tasks/resolve</code> answers it — enough
+for a person or a webhook. A <strong>worker fleet</strong> wants the pull half instead, so two of them do
+not run the same task:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>POST /external-tasks/claim</code></td><td>leases parked tasks to a <code>worker_id</code>, oldest park first. Filters by <code>process</code> / <code>version</code> / <code>task</code>, <code>limit</code> per batch, <code>lease_ms</code> for the visibility timeout (default 30s).</td></tr><tr><td><code>POST /external-tasks/renew</code></td><td>extends this worker’s claims. <code>renewed</code> reports how many it still held — a worker learns it lost one here rather than when its answer is refused.</td></tr><tr><td><code>POST /external-tasks/release</code></td><td>hands a claim back at once instead of waiting out the lease.</td></tr></tbody></table>
+<p>A claim returns a <strong>three-part token</strong> — <code>&lt;instance&gt;.&lt;arming&gt;.&lt;grant&gt;</code> — and that is the only
+handle accepted while the claim is live. The two-part token the queue publishes still answers
+an <em>unclaimed</em> task, so the approval-UI path is untouched, but it cannot answer over a worker
+mid-flight. A signal, which carries no handle at all, is buffered rather than delivered while a
+claim is live, for the same reason.</p>
+<p>Expiry and re-claim are deliberately asymmetric:</p>
+<ul>
+<li><strong>Expiry writes nothing.</strong> A lapsed claim just makes the row claimable again — so a worker
+that overran its lease and was <em>never taken over</em> can still answer. Discarding work already
+done is strictly worse.</li>
+<li><strong>A re-claim is a new grant</strong>, and voids the previous holder’s token. So does a release,
+which is a deliberate hand-back rather than a lapse.</li>
+</ul>
+<p>A claim never delays the task’s own <code>timeout</code>: the deadline is authoritative, and <code>external.timeout</code>
+fires on time however long a worker holds the task. Tasks already past their deadline are not
+offered, since answering them would no longer be accepted.</p>
 <p>Either outcome is accepted while the instance is <strong>paused</strong>: a pause suspends execution, not
 delivery, and it is consumed when the tree resumes. A failure signalled before the task arms
 buffers exactly as a result does. Rejecting it would discard
