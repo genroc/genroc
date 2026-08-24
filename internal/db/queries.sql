@@ -69,7 +69,7 @@ INSERT INTO process_instances
     (id, process_name, process_version, task,
      input_data, outputs_data, output_data, error_data, external_data, engine_state,
      parent_id, spawn_task_id, parent_task_epoch, task_epoch,
-     call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at)
+     call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at, objects)
 VALUES
     (sqlc.arg(id), sqlc.arg(process_name), sqlc.arg(process_version), sqlc.arg(task),
      sqlc.arg(input_data), sqlc.arg(outputs_data), sqlc.arg(output_data),
@@ -77,7 +77,7 @@ VALUES
      sqlc.arg(parent_id), sqlc.arg(spawn_task_id), sqlc.arg(parent_task_epoch), sqlc.arg(task_epoch),
      sqlc.arg(call_stack), sqlc.arg(retry_count), sqlc.arg(wake_at),
      sqlc.arg(status), sqlc.arg(wait_state), sqlc.arg(error), sqlc.arg(error_code),
-     sqlc.arg(created_at), sqlc.arg(updated_at));
+     sqlc.arg(created_at), sqlc.arg(updated_at), sqlc.arg(objects));
 
 -- name: UpdateInstance :execrows
 -- input_data is never written (immutable). The status CASE lands a pause that arrived
@@ -93,6 +93,7 @@ SET task             = sqlc.arg(task),
     error_data       = sqlc.arg(error_data),
     external_data    = sqlc.arg(external_data),
     engine_state     = sqlc.arg(engine_state),
+    objects          = sqlc.arg(objects),
     retry_count      = sqlc.arg(retry_count),
     wake_at    = sqlc.arg(wake_at),
     status           = CASE WHEN status = 'pausing'
@@ -118,6 +119,7 @@ SET task             = sqlc.arg(task),
     error_data       = sqlc.arg(error_data),
     external_data    = sqlc.arg(external_data),
     engine_state     = sqlc.arg(engine_state),
+    objects          = sqlc.arg(objects),
     retry_count      = sqlc.arg(retry_count),
     wake_at    = sqlc.arg(wake_at),
     status           = CASE WHEN status = 'pausing' THEN 'paused' ELSE status END,
@@ -139,7 +141,7 @@ SELECT id, process_name, process_version, parent_id,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
-       external_worker_id, external_lease_expires_at, external_claim_epoch
+       external_worker_id, external_lease_expires_at, external_claim_epoch, objects
 FROM process_instances
 WHERE id = sqlc.arg(id);
 
@@ -227,7 +229,7 @@ SELECT id, process_name, process_version, parent_id,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
-       external_worker_id, external_lease_expires_at, external_claim_epoch
+       external_worker_id, external_lease_expires_at, external_claim_epoch, objects
 FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id)
@@ -257,10 +259,10 @@ ORDER BY pd.parent_name, pd.child_name, pd.task_id;
 
 -- name: InsertLog :exec
 INSERT INTO process_logs
-    (id, instance_id, level, event, task_id, message, code, data, meta, created_at)
+    (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at)
 VALUES
     (sqlc.arg(id), sqlc.arg(instance_id), sqlc.arg(level), sqlc.arg(event),
-     sqlc.arg(task_id), sqlc.arg(message), sqlc.arg(code), sqlc.arg(data), sqlc.arg(meta), sqlc.arg(created_at));
+     sqlc.arg(task_id), sqlc.arg(message), sqlc.arg(code), sqlc.arg(data), sqlc.arg(objects), sqlc.arg(meta), sqlc.arg(created_at));
 
 -- ListLogs (per-instance) and ListTreeLogs (subtree) are hand-written in
 -- db_logs.go: both take a dynamic ORDER BY + keyset cursor (see paginate.go), and

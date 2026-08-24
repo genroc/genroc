@@ -59,16 +59,19 @@ const (
 // Message (prose) and Meta (structured) by design. Small facts with no payload
 // (attempt counts, goto target, child counts) live in Message.
 type LogEntry struct {
-	ID         string         `json:"id"`
-	InstanceID string         `json:"instance_id"`
-	Level      LogLevel       `json:"level"`
-	Event      string         `json:"event"`
-	TaskID     string         `json:"task_id,omitempty"`
-	Message    string         `json:"message,omitempty"`
-	Code       string         `json:"code,omitempty"`
-	Data       string         `json:"data,omitempty"`
-	Meta       map[string]any `json:"meta,omitempty"`
-	CreatedAt  time.Time      `json:"created_at"`
+	ID         string   `json:"id"`
+	InstanceID string   `json:"instance_id"`
+	Level      LogLevel `json:"level"`
+	Event      string   `json:"event"`
+	TaskID     string   `json:"task_id,omitempty"`
+	Message    string   `json:"message,omitempty"`
+	Code       string   `json:"code,omitempty"`
+	Data       string   `json:"data,omitempty"`
+	// Objects lists this entry's externalized pieces, with paths rooted at Data. Beside the
+	// payload rather than inside it, the same as every other owner. specs/object-store.md.
+	Objects   []*ObjectRef   `json:"objects,omitempty"`
+	Meta      map[string]any `json:"meta,omitempty"`
+	CreatedAt time.Time      `json:"created_at"`
 	// Depth is the instance's distance from the queried subtree root; only set by
 	// ListTreeLogs (0 for single-instance queries). Not persisted.
 	Depth int `json:"-"`

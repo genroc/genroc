@@ -191,29 +191,39 @@ on a grace claim rather than being deleted on the spot, so running with retentio
 ("keep logs forever") would otherwise collect nothing and grow without bound. The coupling was
 harmless while releases deleted eagerly and is not any more.
 
-## Context columns: one slot shape
+## Every owner declares what it references, in an `objects` column
 
-`inst.ContextData` splits across six columns, and every VALUE column stores the same thing — a
-`model.Envelope` `{data, refs}`, cut by `cutForSize`, with each ref carrying the path it was taken
-from. `input_data`, `output_data`, `error_data` and `external_data` are plain envelopes;
-`outputs_data` wraps one per task in `{order, items}` because each output is cut against its own
-budget and the completion order rides along. `engine_state` is not a value slot — spawn/children
+`process_instances.objects` and `process_logs.objects` hold `[{path, ref, size}]` — one list per
+OWNER, beside the data rather than inside it, with paths rooted at that owner's value
+(`["outputs","x","code"]` for an instance, the payload's own path for a log row). The value
+columns hold values. The claims in `object_refs` are written from the same set, so "is this owner
+in sync with the store" is a comparison of two reads rather than a parse of five column layouts —
+which is what `gc_chaos_test.ts` had to do before, carrying a second copy of the encoder's shape.
+
+Four things break silently:
+
+1. **Every write of an instance's context must set `Objects`.** The field defaults to `""`, so a
+   miss ERASES the declaration while the claims stand — the GC does not care (it reads claims), so
+   nothing looks wrong until something compares the two. It was missed at three call sites within
+   minutes of the column being added, which is why
+   `archtest.TestInstanceWritesCarryObjects` exists. This is the price of references living beside
+   values instead of inside them, paid once.
+2. **`decodeContext` places every ref from the ONE list, and `loaded` IS that list.** The next
+   write diffs against it to release what the context no longer points at, so a ref missing here
+   is a claim nothing can ever drop — the object is held for the life of the database by an
+   instance that finished with it.
+3. **`error_data` has no special shape, and must not regain one.** It had one so reading
+   `error.code` would not load the body; that is `model.Context`'s job now (it walks to a path and
+   loads only what the walk passes through), and `TestLazyMatrix` pins it from the engine side.
+4. **`withExternalKeys` writes `external_data` alone and must not touch `objects`.** It is the
+   targeted outcome/marker path (`SetExternalOutcome` holds only the instance row lock, with no
+   reference set to reconcile). Since the references live in a column it does not write, a
+   targeted write cannot disturb what a parked task's input still points at — and it does not cut
+   either, so an oversized outcome waits for the next full context write.
+
+`outputs_data` keeps its `{order, items}` wrapper: each task output is cut against its own budget
+and the completion order rides along. `engine_state` is not a value slot — spawn/children
 bookkeeping, never a reference.
-
-Three things break silently:
-
-1. **`decodeContext` collects `loaded` in ONE place**, and that set is what the next write diffs
-   against to release objects the value no longer points at. A slot decoded without adding its
-   refs to it is a claim nothing can ever drop — the object is held for the life of the database
-   by an instance that finished with it. It used to be five copies of those six lines.
-2. **`error_data` has no special shape any more, and must not regain one.** It had one so that
-   reading `error.code` would not load the body; that is `model.Context`'s job now (it walks to a
-   path and loads only what the walk passes through), and `TestLazyMatrix` pins it from the
-   engine side.
-3. **`withExternalSlot` / `withExternalMarker` write INSIDE the envelope's `data`.** They are the
-   targeted `external_data` writers (`SetExternalOutcome` holds only the instance row lock), so
-   they must leave `refs` alone: a rewrite that dropped them would release the objects the parked
-   task's input still needs. They also do not cut — the next full context write does that.
 
 ## Process lifecycle: pause/resume vs retry
 

@@ -77,6 +77,7 @@ type ProcessInstance struct {
 	ExternalWorkerID       sql.NullString
 	ExternalLeaseExpiresAt sql.NullInt64
 	ExternalClaimEpoch     int64
+	Objects                string
 }
 
 type ProcessLog struct {
@@ -90,6 +91,7 @@ type ProcessLog struct {
 	Data       string
 	CreatedAt  int64
 	Meta       string
+	Objects    string
 }
 
 type ProcessSignal struct {

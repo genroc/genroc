@@ -8,28 +8,34 @@ import (
 	"genroc/internal/model"
 )
 
-// decodeLogData unpacks the stored log-data envelope into the API view: the payload as a VALUE
-// (a string only when the payload itself was one) and the objects section for whatever the cut
-// moved out, with paths rooted at the entry. Same shape as every other response -- the log has
-// no convention of its own. specs/object-store.md.
-func decodeLogData(raw string) (any, []ObjectEntry) {
-	if raw == "" {
-		return nil, nil
+// logObjects roots an entry's stored references at the ENTRY, which is where a list's objects
+// section belongs -- ["data", …], never ["items", 3, "data"]. The stored paths are rooted at the
+// payload; this adds the one step to it. specs/object-store.md §The wire.
+func logObjects(refs []*model.ObjectRef) []ObjectEntry {
+	var out []ObjectEntry
+	for _, r := range refs {
+		out = append(out, ObjectEntry{Path: childPath([]any{"data"}, r.Path), Ref: r.Ref, Size: r.Size})
 	}
-	var env model.Envelope
-	if err := json.Unmarshal([]byte(raw), &env); err != nil {
-		return raw, nil
-	}
-	var objects []ObjectEntry
-	for _, r := range env.Refs {
-		objects = append(objects, ObjectEntry{Path: childPath([]any{"data"}, r.Path), Ref: r.Ref, Size: r.Size})
-	}
-	return env.Data, objects
+	return out
 }
 
 func childPath(root []any, rest []any) []any {
 	out := make([]any, 0, len(root)+len(rest))
 	return append(append(out, root...), rest...)
+}
+
+// logData is the stored payload as a value. A malformed column reads back as the raw string
+// rather than failing the listing: an audit row is best-effort, and a trail that will not render
+// is worse than one entry that reads oddly.
+func logData(raw string) any {
+	if raw == "" {
+		return nil
+	}
+	var v any
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		return raw
+	}
+	return v
 }
 
 func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
@@ -63,7 +69,7 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 	// that matters. The preview is gone with it -- a truncated excerpt of a value nobody asked
 	// for is the cost this whole change is about.
 	for i, l := range logs {
-		data, objects := decodeLogData(l.Data)
+		data, objects := logData(l.Data), logObjects(l.Objects)
 		resp[i] = LogEntryResp{
 			Time:     l.CreatedAt.Format(time.RFC3339Nano),
 			Instance: l.InstanceID,

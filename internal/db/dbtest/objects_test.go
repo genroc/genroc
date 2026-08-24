@@ -165,14 +165,10 @@ func TestObjects_LogReferencedSurvivesDeref(t *testing.T) {
 			if err := b.db.AppendLogValue(entry, map[string]any{"input": val}, 128); err != nil {
 				t.Fatalf("AppendLogValue: %v", err)
 			}
-			var env model.Envelope
-			if err := json.Unmarshal([]byte(entry.Data), &env); err != nil {
-				t.Fatalf("decode log envelope: %v", err)
+			if len(entry.Objects) != 1 {
+				t.Fatalf("expected the log payload to externalize one leaf, got %d", len(entry.Objects))
 			}
-			if len(env.Refs) != 1 {
-				t.Fatalf("expected the log payload to externalize one leaf, got %d", len(env.Refs))
-			}
-			ref := env.Refs[0]
+			ref := entry.Objects[0]
 
 			// Dereference the context slot (replace the output with a small value).
 			r, err := b.db.GetInstance("inst-shared")

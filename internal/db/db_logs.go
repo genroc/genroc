@@ -9,6 +9,7 @@ import (
 	dbgen "genroc/internal/db/gen"
 	"genroc/internal/idgen"
 	"genroc/internal/model"
+	"genroc/internal/numeric"
 )
 
 // LogQuery holds the optional filters shared by ListLogs and ListTreeLogs plus
@@ -41,7 +42,7 @@ func logCursorVals(_ string, e *model.LogEntry) []any {
 }
 
 // logFlushInterval is how often the background flusher drains buffered audit-log
-// rows. logBatchRows bounds a single multi-row INSERT: at 10 columns/row it stays
+// rows. logBatchRows bounds a single multi-row INSERT: at 11 columns/row it stays
 // under SQLite's default 999 bind-parameter limit, and is also the buffer size that
 // triggers an immediate inline flush so a burst never grows the buffer unbounded.
 const (
@@ -80,15 +81,16 @@ func (db *DB) AppendLogValue(entry *model.LogEntry, v any, target int64) error {
 	if v == nil {
 		return db.AppendLog(entry) // no payload, no envelope: the column stays empty
 	}
-	env, objs, referenced, err := cutLogPayload(v, target)
+	stripped, refs, objs, referenced, err := cutLogPayload(v, target)
 	if err != nil {
 		return err
 	}
-	b, err := json.Marshal(env)
+	b, err := json.Marshal(stripped)
 	if err != nil {
 		return err
 	}
 	entry.Data = string(b)
+	entry.Objects = refs
 	if len(referenced) == 0 {
 		return db.AppendLog(entry)
 	}
@@ -104,6 +106,31 @@ func (db *DB) AppendLogValue(entry *model.LogEntry, v any, target int64) error {
 		}
 		return qtx.InsertLog(context.Background(), params)
 	})
+}
+
+// marshalRefs / decodeRefs move an owner's objects list between its column and the value. A
+// malformed list decodes to nothing rather than failing the read: the payload is still there, and
+// an audit row is best-effort by contract.
+func marshalRefs(refs []*model.ObjectRef) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(refs)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func decodeRefs(s string) []*model.ObjectRef {
+	if s == "" {
+		return nil
+	}
+	var refs []*model.ObjectRef
+	if err := numeric.Decode([]byte(s), &refs); err != nil {
+		return nil
+	}
+	return refs
 }
 
 // buildLogParams stamps an entry's id/created_at/meta into the process_logs row params.
@@ -137,7 +164,8 @@ func buildLogParams(entry *model.LogEntry) (dbgen.InsertLogParams, error) {
 		TaskID:     entry.TaskID,
 		Message:    entry.Message,
 		Code:       entry.Code,
-		Data:       entry.Data, // raw payload snippet (input/output/request/response body), or ""
+		Data:       entry.Data, // the payload as a value, with its cut pieces removed
+		Objects:    marshalRefs(entry.Objects),
 		Meta:       meta,
 		CreatedAt:  createdAt,
 	}, nil
@@ -193,14 +221,14 @@ func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 		end := min(start+logBatchRows, len(rows))
 		chunk := rows[start:end]
 		var sb strings.Builder
-		sb.WriteString(`INSERT INTO process_logs (id, instance_id, level, event, task_id, message, code, data, meta, created_at) VALUES `)
-		args := make([]any, 0, len(chunk)*10)
+		sb.WriteString(`INSERT INTO process_logs (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at) VALUES `)
+		args := make([]any, 0, len(chunk)*11)
 		for i, r := range chunk {
 			if i > 0 {
 				sb.WriteByte(',')
 			}
-			sb.WriteString("(?,?,?,?,?,?,?,?,?,?)")
-			args = append(args, r.ID, r.InstanceID, r.Level, r.Event, r.TaskID, r.Message, r.Code, r.Data, r.Meta, r.CreatedAt)
+			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?)")
+			args = append(args, r.ID, r.InstanceID, r.Level, r.Event, r.TaskID, r.Message, r.Code, r.Data, r.Objects, r.Meta, r.CreatedAt)
 		}
 		if _, err := db.exec.ExecContext(context.Background(), sb.String(), args...); err != nil {
 			return err
@@ -211,7 +239,7 @@ func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 
 // logColumns is the pl.-qualified SELECT list shared by both log queries (the
 // flat query aliases process_logs pl; the subtree query joins it as pl).
-const logColumns = `pl.id, pl.instance_id, pl.level, pl.event, pl.task_id, pl.message, pl.code, pl.data, pl.meta, pl.created_at`
+const logColumns = `pl.id, pl.instance_id, pl.level, pl.event, pl.task_id, pl.message, pl.code, pl.data, pl.objects, pl.meta, pl.created_at`
 
 // logSubtreeCTE walks parent_id from a seed, tagging depth. Hand-written (sqlc's SQLite
 // grammar can't parse WITH RECURSIVE; both drivers support it). treeLogsPrefix is the
@@ -270,7 +298,7 @@ func (db *DB) ListTreeLogs(rootID string, opts LogQuery) ([]*model.LogEntry, Pag
 func scanLogRow(s rowScanner, withDepth bool) (*model.LogEntry, error) {
 	var r dbgen.ProcessLog
 	var depth int64
-	dest := []any{&r.ID, &r.InstanceID, &r.Level, &r.Event, &r.TaskID, &r.Message, &r.Code, &r.Data, &r.Meta, &r.CreatedAt}
+	dest := []any{&r.ID, &r.InstanceID, &r.Level, &r.Event, &r.TaskID, &r.Message, &r.Code, &r.Data, &r.Objects, &r.Meta, &r.CreatedAt}
 	if withDepth {
 		dest = append(dest, &depth)
 	}
@@ -302,6 +330,7 @@ func toLogEntry(r dbgen.ProcessLog) (*model.LogEntry, error) {
 		Message:    r.Message,
 		Code:       r.Code,
 		Data:       r.Data,
+		Objects:    decodeRefs(r.Objects),
 		CreatedAt:  toTime(r.CreatedAt),
 	}
 	if r.Meta != "" && r.Meta != "{}" {

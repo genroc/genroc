@@ -1,7 +1,6 @@
 package dbtest
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -96,14 +95,10 @@ func TestLogObjects_LiveAsLongAsTheirRowThenGetGrace(t *testing.T) {
 			if err != nil || len(logs) != 1 {
 				t.Fatalf("ListLogs: %d rows, err=%v", len(logs), err)
 			}
-			var env model.Envelope
-			if err := json.Unmarshal([]byte(logs[0].Data), &env); err != nil {
-				t.Fatalf("decode log envelope: %v", err)
+			if len(logs[0].Objects) != 1 {
+				t.Fatalf("expected the payload to externalize one leaf, got %d", len(logs[0].Objects))
 			}
-			if len(env.Refs) != 1 {
-				t.Fatalf("expected the payload to externalize one leaf, got %d", len(env.Refs))
-			}
-			ref := env.Refs[0]
+			ref := logs[0].Objects[0]
 
 			// While the row lives the object is untouchable, however long that is -- no horizon
 			// to run out, so "keep logs forever" needs no sentinel.

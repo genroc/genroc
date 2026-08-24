@@ -71,6 +71,7 @@ func (db *DB) ArmExternalOrConsumeSignal(ctx context.Context, inst *model.Proces
 			ErrorData:    cols.ErrorData,
 			ExternalData: cols.ExternalData,
 			EngineState:  cols.EngineState,
+			Objects:      cols.Objects,
 			RetryCount:   int64(inst.RetryCount),
 			WakeAt:       sql.NullInt64{},
 			WaitState:    string(model.WaitStateNone),

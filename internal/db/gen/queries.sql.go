@@ -291,7 +291,7 @@ SELECT id, process_name, process_version, parent_id,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
-       external_worker_id, external_lease_expires_at, external_claim_epoch
+       external_worker_id, external_lease_expires_at, external_claim_epoch, objects
 FROM process_instances
 WHERE parent_id = ?1
   AND spawn_task_id = ?2
@@ -343,6 +343,7 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.ExternalWorkerID,
 			&i.ExternalLeaseExpiresAt,
 			&i.ExternalClaimEpoch,
+			&i.Objects,
 		); err != nil {
 			return nil, err
 		}
@@ -414,7 +415,7 @@ SELECT id, process_name, process_version, parent_id,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
-       external_worker_id, external_lease_expires_at, external_claim_epoch
+       external_worker_id, external_lease_expires_at, external_claim_epoch, objects
 FROM process_instances
 WHERE id = ?1
 `
@@ -458,6 +459,7 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.ExternalWorkerID,
 		&i.ExternalLeaseExpiresAt,
 		&i.ExternalClaimEpoch,
+		&i.Objects,
 	)
 	return i, err
 }
@@ -547,7 +549,7 @@ INSERT INTO process_instances
     (id, process_name, process_version, task,
      input_data, outputs_data, output_data, error_data, external_data, engine_state,
      parent_id, spawn_task_id, parent_task_epoch, task_epoch,
-     call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at)
+     call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at, objects)
 VALUES
     (?1, ?2, ?3, ?4,
      ?5, ?6, ?7,
@@ -555,7 +557,7 @@ VALUES
      ?11, ?12, ?13, ?14,
      ?15, ?16, ?17,
      ?18, ?19, ?20, ?21,
-     ?22, ?23)
+     ?22, ?23, ?24)
 `
 
 type InsertInstanceParams struct {
@@ -582,6 +584,7 @@ type InsertInstanceParams struct {
 	ErrorCode       string
 	CreatedAt       int64
 	UpdatedAt       int64
+	Objects         string
 }
 
 func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) error {
@@ -609,16 +612,17 @@ func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) 
 		arg.ErrorCode,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.Objects,
 	)
 	return err
 }
 
 const insertLog = `-- name: InsertLog :exec
 INSERT INTO process_logs
-    (id, instance_id, level, event, task_id, message, code, data, meta, created_at)
+    (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at)
 VALUES
     (?1, ?2, ?3, ?4,
-     ?5, ?6, ?7, ?8, ?9, ?10)
+     ?5, ?6, ?7, ?8, ?9, ?10, ?11)
 `
 
 type InsertLogParams struct {
@@ -630,6 +634,7 @@ type InsertLogParams struct {
 	Message    string
 	Code       string
 	Data       string
+	Objects    string
 	Meta       string
 	CreatedAt  int64
 }
@@ -644,6 +649,7 @@ func (q *Queries) InsertLog(ctx context.Context, arg InsertLogParams) error {
 		arg.Message,
 		arg.Code,
 		arg.Data,
+		arg.Objects,
 		arg.Meta,
 		arg.CreatedAt,
 	)
@@ -987,18 +993,19 @@ SET task             = ?1,
     error_data       = ?5,
     external_data    = ?6,
     engine_state     = ?7,
-    retry_count      = ?8,
-    wake_at    = ?9,
+    objects          = ?8,
+    retry_count      = ?9,
+    wake_at    = ?10,
     status           = CASE WHEN status = 'pausing'
-                            AND CAST(?10 AS TEXT) = 'running'
-                            THEN 'paused' ELSE CAST(?10 AS TEXT) END,
-    wait_state       = ?11,
-    error            = ?12,
-    error_code       = ?13,
-    updated_at       = ?14,
+                            AND CAST(?11 AS TEXT) = 'running'
+                            THEN 'paused' ELSE CAST(?11 AS TEXT) END,
+    wait_state       = ?12,
+    error            = ?13,
+    error_code       = ?14,
+    updated_at       = ?15,
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = ?15 AND lease_epoch = ?16
+WHERE id = ?16 AND lease_epoch = ?17
 `
 
 type UpdateInstanceParams struct {
@@ -1009,6 +1016,7 @@ type UpdateInstanceParams struct {
 	ErrorData    string
 	ExternalData string
 	EngineState  string
+	Objects      string
 	RetryCount   int64
 	WakeAt       sql.NullInt64
 	Status       string
@@ -1034,6 +1042,7 @@ func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) 
 		arg.ErrorData,
 		arg.ExternalData,
 		arg.EngineState,
+		arg.Objects,
 		arg.RetryCount,
 		arg.WakeAt,
 		arg.Status,
@@ -1058,14 +1067,15 @@ SET task             = ?1,
     error_data       = ?4,
     external_data    = ?5,
     engine_state     = ?6,
-    retry_count      = ?7,
-    wake_at    = ?8,
+    objects          = ?7,
+    retry_count      = ?8,
+    wake_at    = ?9,
     status           = CASE WHEN status = 'pausing' THEN 'paused' ELSE status END,
-    wait_state       = ?9,
-    updated_at       = ?10,
+    wait_state       = ?10,
+    updated_at       = ?11,
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = ?11 AND lease_epoch = ?12
+WHERE id = ?12 AND lease_epoch = ?13
 `
 
 type UpdateInstanceProgressParams struct {
@@ -1075,6 +1085,7 @@ type UpdateInstanceProgressParams struct {
 	ErrorData    string
 	ExternalData string
 	EngineState  string
+	Objects      string
 	RetryCount   int64
 	WakeAt       sql.NullInt64
 	WaitState    string
@@ -1095,6 +1106,7 @@ func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstance
 		arg.ErrorData,
 		arg.ExternalData,
 		arg.EngineState,
+		arg.Objects,
 		arg.RetryCount,
 		arg.WakeAt,
 		arg.WaitState,

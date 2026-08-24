@@ -2,20 +2,6 @@ package model
 
 import "fmt"
 
-// Envelope is the on-disk representation of a value-slot (process input, a task
-// output, the process output, an external payload). A slot is ALWAYS stored as an
-// envelope, never as a raw value, so user data is always nested under Data and is
-// never confused with the envelope itself — there is no in-band sentinel to collide
-// with arbitrary user JSON.
-//
-// Data and Refs are populated TOGETHER: the cut moves out the fewest, largest leaves and Data
-// keeps everything else, so a value is usually part-inline and part-referenced. Each ref carries
-// the Path it was taken from, and Refs is empty when nothing had to move.
-type Envelope struct {
-	Data any          `json:"data,omitempty"`
-	Refs []*ObjectRef `json:"refs,omitempty"`
-}
-
 // ObjectRef points at one row in objects. Ref is the content address — the
 // first 16 bytes (128 bits) of the content's sha256, hex-encoded (32 chars); it
 // doubles as the object id and the change-detection key (a re-encoded value with the
@@ -35,8 +21,6 @@ type ObjectRef struct {
 	// legitimately has those keys. specs/object-store.md.
 	Path []any `json:"path,omitempty"`
 }
-
-func (e Envelope) IsRef() bool { return len(e.Refs) > 0 }
 
 // ExternalRef marks this as an unresolved reference for consumers that must not treat one as a
 // value. The expression evaluator matches on this method rather than the type: model imports

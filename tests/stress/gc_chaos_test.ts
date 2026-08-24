@@ -376,62 +376,36 @@ test(
     }>(
       "SELECT hash, owner_kind AS ownerKind, owner_id AS ownerId FROM object_refs",
     );
-    const insts = sqlJson<{
-      id: string;
-      input: string;
-      outputs: string;
-      output: string;
-    }>(
-      "SELECT id, input_data AS input, outputs_data AS outputs, output_data AS output FROM process_instances",
+    // Every owner lists what it references in its own `objects` column, so this reads the
+    // declaration instead of reconstructing it. It used to parse input_data, output_data,
+    // outputs_data.items and process_logs.data, which meant the check carried a second copy of
+    // the encoder's layout and could drift from it silently.
+    const insts = sqlJson<{ id: string; objects: string }>(
+      "SELECT id, objects FROM process_instances",
     );
-    const logs = sqlJson<{ id: string; instanceId: string; data: string }>(
-      "SELECT id, instance_id AS instanceId, data FROM process_logs",
+    const logs = sqlJson<{ id: string; instanceId: string; objects: string }>(
+      "SELECT id, instance_id AS instanceId, objects FROM process_logs",
     );
 
-    const key = (instanceId: string, ref: string) => `${instanceId}|${ref}`;
-
-    // An envelope is `{data}` (inline) xor `{refs:[{ref,size}]}` (externalized).
-    const refOf = (env: unknown): string | undefined => {
-      const refs = (env as { refs?: { ref?: string }[] } | null)?.refs;
-      return typeof refs?.[0]?.ref === "string" ? refs[0].ref : undefined;
-    };
-    const addRef = (set: Set<string>, instanceId: string, raw: string) => {
+    const key = (ownerId: string, ref: string) => `${ownerId}|${ref}`;
+    const declared = (ownerId: string, raw: string, into: Set<string>) => {
       if (!raw) return;
-      let env: unknown;
+      let list: { ref?: string }[];
       try {
-        env = JSON.parse(raw);
+        list = JSON.parse(raw) as { ref?: string }[];
       } catch {
-        return;
+        return; // a malformed column surfaces in another assertion
       }
-      const r = refOf(env);
-      if (r) set.add(key(instanceId, r));
+      for (const r of list) if (typeof r.ref === "string") into.add(key(ownerId, r.ref));
     };
 
-    // Context references: input/output slots, and each task output under outputs_data.items.
+    // Context references, by the instance that declares them.
     const contextRefs = new Set<string>();
-    for (const inst of insts) {
-      addRef(contextRefs, inst.id, inst.input);
-      addRef(contextRefs, inst.id, inst.output);
-      if (inst.outputs) {
-        try {
-          const oc = JSON.parse(inst.outputs) as {
-            items?: Record<string, unknown>;
-          };
-          for (const env of Object.values(oc.items ?? {})) {
-            const r = refOf(env);
-            if (r) contextRefs.add(key(inst.id, r));
-          }
-        } catch {
-          /* malformed column would surface in another assertion */
-        }
-      }
-    }
+    for (const i of insts) declared(i.id, i.objects, contextRefs);
 
-    // Log references: each process_logs.data envelope that externalized its payload, keyed by
-    // the ROW. A log claim's owner is the row that carries the payload, not the instance — which
-    // is what lets the claim be released when the row is pruned instead of expiring on a guess.
+    // Log references, by the ROW that declares them -- a log claim's owner is the row.
     const logRefs = new Set<string>();
-    for (const l of logs) addRef(logRefs, l.id, l.data);
+    for (const l of logs) declared(l.id, l.objects, logRefs);
 
     // A claim is (kind, owner, hash). The old shape could only say that SOMEONE pinned a row;
     // this can say who, so the checks below are stricter than the ones they replace.

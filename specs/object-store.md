@@ -551,6 +551,33 @@ the entry-level "data absent, one ref listed" convention. An entry now reads lik
 response: the shell inline, `objects` naming `["data", "code"]`, and `genctl` splicing the
 `{ref,size}` handle back into the place it was cut from.
 
+### Every owner declares its references in an `objects` field [built 2026-08-24]
+
+The rule below says a reference never sits inside the value it stands for. On disk it used to sit
+one step away instead — in a `model.Envelope {data, refs}` wrapper per column — which is beside
+the value but still *per slot*, so "what does this owner reference" was a question you answered by
+knowing the storage layout of every column.
+
+Something did need to ask it. `gc_chaos_test.ts` reconstructs an owner's references out of
+`input_data`, `output_data`, `outputs_data.items` and `process_logs.data` before it can compare
+them against `object_refs` — a second copy of the encoder's layout, free to drift from it. Now
+each owner carries one `objects` column and the comparison is a read.
+
+It also lines storage up with two things it already had to agree with: the **wire**, where the API
+lists one `objects` section per owner with `{path, ref, size}`, and the **claims**, which are
+keyed per owner rather than per slot. `model.Envelope` is deleted — the concept exists nowhere on
+disk any more.
+
+**The cost is real and landed immediately.** A slot's value and its references are no longer one
+value, so a write that carries the columns can drop the declaration without a compile error. Three
+call sites missed it within minutes (`RetryProcess` passing raw columns through, the parent park in
+`SpawnChildrenAndWait`, and one more the guard found), and the damage is invisible to the GC —
+claims are what it reads — until something compares the two. `archtest.TestInstanceWritesCarryObjects`
+is that price paid once.
+
+Definitions get no such column: `ObjectOwnerDefinition` is declared and nothing claims under it, so
+there is nothing to declare. Adding one would be building for a feature that does not exist.
+
 ### A ref is never stored in the data either [decided 2026-08-24]
 
 The rule is not a wire rule. **Nowhere** — on the wire or on disk — does a reference sit inside

@@ -610,7 +610,11 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 			ErrorData:    "",
 			ExternalData: raw.ExternalData,
 			EngineState:  raw.EngineState,
-			RetryCount:   int64(node.RetryCount),
+			// Passed through with the columns it describes: the context is unchanged, so what it
+			// references is unchanged. Writing "" here would erase the declaration while the
+			// claims stood, and the instance's own values would look like content nothing holds.
+			Objects:    raw.Objects,
+			RetryCount: int64(node.RetryCount),
 			// A revived task is entered afresh, so its batch must be too: without the bump a
 			// re-spawned child task collides with the children its failed attempt left behind.
 			TaskEpoch:  raw.TaskEpoch + 1,
@@ -693,6 +697,7 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			ErrorData:    parentCols.ErrorData,
 			ExternalData: parentCols.ExternalData,
 			EngineState:  parentCols.EngineState,
+			Objects:      parentCols.Objects,
 			RetryCount:   int64(parent.RetryCount),
 			// Carried, never bumped: the parent is parking on the task it just spawned from,
 			// and this is the epoch its collect will bind against the children.

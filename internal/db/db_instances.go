@@ -59,7 +59,7 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 	created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
 	input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
 	error_code, lease_epoch, task_epoch, parent_task_epoch,
-	external_worker_id, external_lease_expires_at, external_claim_epoch`
+	external_worker_id, external_lease_expires_at, external_claim_epoch, objects`
 
 // Lightweight ListInstances projection — no context/call-stack blobs; order matches
 // scanInstanceSummary. error_code stays despite the rule: short, and it is what a list
@@ -99,15 +99,17 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
 		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
 		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
-		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch,
+		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
 	)
 	return r, err
 }
 
-// contextCols holds the six decomposed context columns as serialized JSON, ready
-// to drop into an Insert/Update params struct.
+// contextCols holds the decomposed context columns as serialized JSON, ready to drop into an
+// Insert/Update params struct. The value columns hold values; Objects lists every externalized
+// piece with the path it was cut from, rooted at the CONTEXT -- one place to read what this
+// instance references, in the shape the API puts on the wire. specs/object-store.md.
 type contextCols struct {
-	InputData, OutputsData, OutputData, ErrorData, ExternalData, EngineState string
+	InputData, OutputsData, OutputData, ErrorData, ExternalData, EngineState, Objects string
 }
 
 // outputsColumn is the on-disk shape of outputs_data: the completion order plus the
@@ -136,58 +138,58 @@ func (db *DB) CurrentTask(inst *model.ProcessInstance) (*model.Task, error) {
 	return nil, fmt.Errorf("task %q not found in %s v%d", inst.Task, inst.ProcessName, inst.ProcessVersion)
 }
 
-// encodeValueSlot encodes a value-bearing slot: big values become an object reference
-// (appended to pending, recorded in referenced), small ones stay inline, and an
-// unchanged *model.ObjectRef is re-emitted with no new object.
-func encodeValueSlot(v any, pending *[]*pendingObject, referenced map[string]struct{}) (model.Envelope, error) {
-	env, objs, err := encodeContextValue(v)
-	if err != nil {
-		return model.Envelope{}, err
-	}
-	*pending = append(*pending, objs...)
-	// EVERY ref, not just the first: a slot can now be cut in several places, and a hash missing
-	// from referenced is a claim the write releases while the slot still points at it.
-	for _, r := range env.Refs {
-		referenced[r.Ref] = struct{}{}
-	}
-	return env, nil
+// joinPath roots a slot-relative path at the context. On a fresh slice: root is reused across
+// every ref of a slot, and append would alias it into the second one.
+func joinPath(root []any, rest []any) []any {
+	out := make([]any, 0, len(root)+len(rest))
+	out = append(out, root...)
+	return append(out, rest...)
 }
 
-// encodeContext splits inst.ContextData into the six column strings, collecting the
-// objects to write (pending) and the hashes the value-slots still reference
-// (referenced) so the write transaction can pin new objects and dereference dropped ones.
+// encodeContext splits inst.ContextData into the value columns plus ONE objects list, collecting
+// the content to write (pending) and the hashes the context still references (referenced) so the
+// write transaction can claim new objects and release dropped ones.
+//
+// Each context key is cut as its own slot against its own budget, and every reference the cut
+// produced goes into the same list with its path rooted at the CONTEXT -- ["outputs","x","code"],
+// not ["code"] beside a column. One place to read what this instance references, and the shape
+// the API already puts on the wire. specs/object-store.md.
 func encodeContext(inst *model.ProcessInstance) (cols contextCols, pending []*pendingObject, referenced map[string]struct{}, err error) {
 	referenced = map[string]struct{}{}
+	var refs []*model.ObjectRef
 	cd := inst.ContextData
 
-	encodeSlot := func(v any) (string, error) {
-		env, e := encodeValueSlot(v, &pending, referenced)
+	// cut returns the stripped value as JSON and files its references under root.
+	cut := func(v any, root ...any) (string, error) {
+		stripped, slotRefs, objs, e := cutSlot(v)
 		if e != nil {
 			return "", e
 		}
-		b, e := json.Marshal(env)
+		pending = append(pending, objs...)
+		for _, r := range slotRefs {
+			// EVERY ref: a hash missing from referenced is a claim the write releases while the
+			// context still points at it.
+			referenced[r.Ref] = struct{}{}
+			refs = append(refs, &model.ObjectRef{Ref: r.Ref, Size: r.Size, Path: joinPath(root, r.Path)})
+		}
+		b, e := json.Marshal(stripped)
 		return string(b), e
 	}
 
 	if v, ok := cd["input"]; ok {
-		if cols.InputData, err = encodeSlot(v); err != nil {
+		if cols.InputData, err = cut(v, "input"); err != nil {
 			return
 		}
 	}
 	if outs, ok := cd["outputs"].(map[string]any); ok {
 		oc := outputsColumn{Order: toStringSlice(cd["output_order"]), Items: map[string]json.RawMessage{}}
 		for k, v := range outs {
-			env, e := encodeValueSlot(v, &pending, referenced)
+			b, e := cut(v, "outputs", k)
 			if e != nil {
 				err = e
 				return
 			}
-			b, e := json.Marshal(env)
-			if e != nil {
-				err = e
-				return
-			}
-			oc.Items[k] = b
+			oc.Items[k] = json.RawMessage(b)
 		}
 		b, e := json.Marshal(oc)
 		if e != nil {
@@ -197,29 +199,38 @@ func encodeContext(inst *model.ProcessInstance) (cols contextCols, pending []*pe
 		cols.OutputsData = string(b)
 	}
 	if v, ok := cd["output"]; ok {
-		if cols.OutputData, err = encodeSlot(v); err != nil {
+		if cols.OutputData, err = cut(v, "output"); err != nil {
 			return
 		}
 	}
 	if v, ok := cd["error"]; ok {
 		// An ordinary slot. `error.code` staying cheap to read is the ACCESSOR's job now
-		// (model.Context walks to the path and loads nothing else), not the column's -- which is
-		// what let this stop being a shape of its own.
-		if cols.ErrorData, err = encodeSlot(v); err != nil {
+		// (model.Context walks to the path and loads nothing else), not the column's.
+		if cols.ErrorData, err = cut(v, "error"); err != nil {
 			return
 		}
 	}
-	if cols.ExternalData, err = encodeExternalData(cd, encodeSlot); err != nil {
+	if cols.ExternalData, err = encodeExternalData(cd, cut); err != nil {
 		return
 	}
-	cols.EngineState, err = encodeEngineState(cd)
+	if cols.EngineState, err = encodeEngineState(cd); err != nil {
+		return
+	}
+	if len(refs) > 0 {
+		b, e := json.Marshal(refs)
+		if e != nil {
+			err = e
+			return
+		}
+		cols.Objects = string(b)
+	}
 	return
 }
 
-// encodeExternalData serialises the parked external-task bookkeeping (task_id, token,
-// input snapshot, submitted outcome) into external_data, or "" when none is present.
-// External payloads stay inline (their own column keeps them off the runnable index).
-func encodeExternalData(cd map[string]any, encodeSlot func(any) (string, error)) (string, error) {
+// encodeExternalData serialises the parked external-task bookkeeping (task_id, token, input
+// snapshot, submitted outcome) into external_data, or "" when none is present. Its references are
+// rooted at _external, which is where the decode puts the map back.
+func encodeExternalData(cd map[string]any, cut func(any, ...any) (string, error)) (string, error) {
 	ext := map[string]any{}
 	if e, ok := cd[model.CtxExternal].(map[string]any); ok {
 		for k, v := range e {
@@ -237,10 +248,7 @@ func encodeExternalData(cd map[string]any, encodeSlot func(any) (string, error))
 	if len(ext) == 0 {
 		return "", nil
 	}
-	// One slot like every other, cut whole: the task input is the big part in practice, and a
-	// submitted result large enough to matter belongs off the instance row for the same reason
-	// everything else does.
-	return encodeSlot(ext)
+	return cut(ext, model.CtxExternal)
 }
 
 // withExternalOutcome writes a submitted outcome into an external_data column value, under
@@ -262,49 +270,30 @@ func withExternalOutcome(externalData string, o model.ExternalOutcome) (string, 
 // outcome slots it carries no value to distinguish from absence, so a second key would be
 // stored state that says nothing.
 func withExternalLost(externalData string) (string, error) {
-	return withExternalMarker(externalData, model.CtxExternalLost)
+	return withExternalKeys(externalData, map[string]any{model.CtxExternalLost: true})
 }
 
-// withExternalMarker sets one key inside the column's envelope, leaving data and refs otherwise
-// as they are. The envelope is why this cannot merge into a bare map: the input's references live
-// beside the data, and a rewrite that dropped them would release objects the task still needs.
-func withExternalMarker(externalData, key string) (string, error) {
-	var env model.Envelope
+// withExternalKeys sets keys in the external_data column without decoding the context around it.
+// The instance's references live in their own column, which this does not write -- so a targeted
+// outcome cannot disturb what the parked task's input still points at, and there is nothing to
+// remember to carry along. It does not CUT either: this path holds only the instance row lock and
+// has no reference set to reconcile, so an oversized outcome waits for the next full write.
+func withExternalKeys(externalData string, keys map[string]any) (string, error) {
+	ext := map[string]any{}
 	if externalData != "" {
-		if err := numeric.Decode([]byte(externalData), &env); err != nil {
+		if err := numeric.Decode([]byte(externalData), &ext); err != nil {
 			return "", fmt.Errorf("decode external_data: %w", err)
 		}
 	}
-	ext, _ := env.Data.(map[string]any)
-	if ext == nil {
-		ext = map[string]any{}
+	for k, v := range keys {
+		ext[k] = v
 	}
-	ext[key] = true
-	env.Data = ext
-	b, err := json.Marshal(env)
+	b, err := json.Marshal(ext)
 	return string(b), err
 }
 
 func withExternalSlot(externalData, slot string, v any) (string, error) {
-	// The column is an envelope like every value slot, so the write goes INSIDE data and leaves
-	// refs alone -- the input's references survive an outcome landing beside them. The value is
-	// stored uncut: this path holds only the instance row lock and has no reference set to
-	// reconcile, so the next full context write is what cuts an oversized outcome.
-	var env model.Envelope
-	if externalData != "" {
-		if err := numeric.Decode([]byte(externalData), &env); err != nil {
-			return "", fmt.Errorf("decode external_data: %w", err)
-		}
-	}
-	ext, _ := env.Data.(map[string]any)
-	if ext == nil {
-		ext = map[string]any{}
-	}
-	ext[slot] = v
-	ext["has_"+slot] = true
-	env.Data = ext
-	b, err := json.Marshal(env)
-	return string(b), err
+	return withExternalKeys(externalData, map[string]any{slot: v, "has_" + slot: true})
 }
 
 // encodeEngineState serialises the spawn/children bookkeeping into engine_state.
@@ -371,6 +360,7 @@ func updateInstanceParams(inst *model.ProcessInstance, cols contextCols, now int
 		ErrorData:    cols.ErrorData,
 		ExternalData: cols.ExternalData,
 		EngineState:  cols.EngineState,
+		Objects:      cols.Objects,
 		RetryCount:   int64(inst.RetryCount),
 		WakeAt:       fromTimePtr(inst.WakeAt),
 		Status:       string(inst.Status),
@@ -415,6 +405,7 @@ func insertInstanceParams(inst *model.ProcessInstance, cols contextCols, status 
 		ErrorData:       cols.ErrorData,
 		ExternalData:    cols.ExternalData,
 		EngineState:     cols.EngineState,
+		Objects:         cols.Objects,
 		ParentID:        inst.ParentID,
 		SpawnTaskID:     inst.SpawnTaskID,
 		ParentTaskEpoch: inst.ParentTaskEpoch,
@@ -482,6 +473,7 @@ func (db *DB) UpdateInstanceProgress(inst *model.ProcessInstance) error {
 			ErrorData:    cols.ErrorData,
 			ExternalData: cols.ExternalData,
 			EngineState:  cols.EngineState,
+			Objects:      cols.Objects,
 			RetryCount:   int64(inst.RetryCount),
 			WakeAt:       fromTimePtr(inst.WakeAt),
 			WaitState:    string(inst.WaitState),
@@ -601,39 +593,36 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 // diffs against to release the ones the value no longer points at.
 func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}, error) {
 	cd := map[string]any{}
-	loaded := map[string]struct{}{}
 
-	// The ONE place a stored slot becomes a value, and the one place `loaded` is collected. It
-	// used to be five copies of these six lines, one per column shape.
-	decodeSlot := func(s, what string) (any, error) {
-		if s == "" {
+	value := func(str, what string) (any, error) {
+		if str == "" {
 			return nil, nil
 		}
-		var env model.Envelope
-		if err := numeric.Decode([]byte(s), &env); err != nil {
-			return nil, fmt.Errorf("decode %s envelope: %w", what, err)
+		var v any
+		if err := numeric.Decode([]byte(str), &v); err != nil {
+			return nil, fmt.Errorf("decode %s: %w", what, err)
 		}
-		for _, ref := range env.Refs {
-			loaded[ref.Ref] = struct{}{}
-		}
-		return decodeEnvelope(env), nil
+		return v, nil
 	}
-	slotInto := func(s, key string) error {
-		v, err := decodeSlot(s, key)
-		if err != nil || s == "" {
+	into := func(str, key string) error {
+		if str == "" {
+			return nil
+		}
+		v, err := value(str, key)
+		if err != nil {
 			return err
 		}
 		cd[key] = v
 		return nil
 	}
 
-	if err := slotInto(r.InputData, "input"); err != nil {
+	if err := into(r.InputData, "input"); err != nil {
 		return nil, nil, err
 	}
-	if err := slotInto(r.OutputData, "output"); err != nil {
+	if err := into(r.OutputData, "output"); err != nil {
 		return nil, nil, err
 	}
-	if err := slotInto(r.ErrorData, "error"); err != nil {
+	if err := into(r.ErrorData, "error"); err != nil {
 		return nil, nil, err
 	}
 	if r.OutputsData != "" {
@@ -641,11 +630,11 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 		if err := numeric.Decode([]byte(r.OutputsData), &oc); err != nil {
 			return nil, nil, fmt.Errorf("decode outputs_data: %w", err)
 		}
-		// The one wrapper that stays: each task output is cut against its own budget and the
+		// The one wrapper that stays: each task output is cut against its own budget, and the
 		// completion order rides along.
 		items := make(map[string]any, len(oc.Items))
 		for k, raw := range oc.Items {
-			v, err := decodeSlot(string(raw), "output "+k)
+			v, err := value(string(raw), "output "+k)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -657,7 +646,7 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 		}
 	}
 	if r.ExternalData != "" {
-		v, err := decodeSlot(r.ExternalData, "external_data")
+		v, err := value(r.ExternalData, "external_data")
 		if err != nil {
 			return nil, nil, err
 		}
@@ -665,25 +654,7 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 		if ext == nil {
 			ext = map[string]any{}
 		}
-		hasResult, _ := ext["has_result"].(bool)
-		result := ext["result"]
-		hasError, _ := ext["has_error"].(bool)
-		failure, _ := ext["error"].(map[string]any)
-		delete(ext, "has_result")
-		delete(ext, "result")
-		delete(ext, "has_error")
-		delete(ext, "error")
-		// The remainder is the parked bookkeeping (task_id, input); what is left after both
-		// outcomes are lifted out is what _external holds.
-		if len(ext) > 0 {
-			cd[model.CtxExternal] = ext
-		}
-		if hasResult {
-			cd[model.CtxExternalResult] = result
-		}
-		if hasError {
-			cd[model.CtxExternalError] = failure
-		}
+		cd[model.CtxExternal] = ext
 	}
 	if r.EngineState != "" {
 		var es map[string]any
@@ -696,22 +667,48 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 			}
 		}
 	}
-	return cd, loaded, nil
-}
 
-func toInt64(v any) int64 {
-	switch n := v.(type) {
-	case int64:
-		return n
-	case float64:
-		return int64(n)
-	}
-	if j, ok := v.(interface{ Int64() (int64, error) }); ok {
-		if got, err := j.Int64(); err == nil {
-			return got
+	// Every reference back where it was cut from, from the ONE list, before anything reads the
+	// context. loaded is that list -- the next write diffs against it to release what the value
+	// no longer points at, so a ref missing here is a claim nothing can ever drop.
+	loaded := map[string]struct{}{}
+	if r.Objects != "" {
+		var refs []*model.ObjectRef
+		if err := numeric.Decode([]byte(r.Objects), &refs); err != nil {
+			return nil, nil, fmt.Errorf("decode objects: %w", err)
+		}
+		for _, ref := range refs {
+			loaded[ref.Ref] = struct{}{}
+			if len(ref.Path) == 1 {
+				cd[ref.Path[0].(string)] = ref // a whole slot moved out
+				continue
+			}
+			model.Place(cd, ref.Path, ref)
 		}
 	}
-	return 0
+
+	// _external is disassembled AFTER its references are placed: the outcomes move to their own
+	// context keys, and what remains is the parked bookkeeping.
+	if ext, ok := cd[model.CtxExternal].(map[string]any); ok {
+		hasResult, _ := ext["has_result"].(bool)
+		result := ext["result"]
+		hasError, _ := ext["has_error"].(bool)
+		failure, _ := ext["error"].(map[string]any)
+		delete(ext, "has_result")
+		delete(ext, "result")
+		delete(ext, "has_error")
+		delete(ext, "error")
+		if len(ext) == 0 {
+			delete(cd, model.CtxExternal)
+		}
+		if hasResult {
+			cd[model.CtxExternalResult] = result
+		}
+		if hasError {
+			cd[model.CtxExternalError] = failure
+		}
+	}
+	return cd, loaded, nil
 }
 
 func childPathOf(at []any, key any) []any {

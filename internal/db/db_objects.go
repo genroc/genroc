@@ -42,7 +42,7 @@ func hashContent(b []byte) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-// encodeContextValue cuts a slot to fit: the fewest, largest leaves move to the object store and
+// cutSlot cuts one context slot to fit: the fewest, largest leaves move to the object store and
 // the rest stays inline. specs/object-store.md §Choosing what to externalize.
 //
 // It used to be all-or-nothing over 2 KiB, and the playground showed what that costs. The
@@ -50,39 +50,21 @@ func hashContent(b []byte) string {
 // caller's own arguments; folding them into one object gives every call a different hash, so
 // three runs of one script stored three copies of it and shared nothing. Cutting the bundle
 // alone is what makes it one object with three claims.
-func encodeContextValue(v any) (model.Envelope, []*pendingObject, error) {
+//
+// A value that is ALREADY a reference (an untouched marker) comes back as one ref at the empty
+// path and no data: the caller stores nothing in the column and lists the ref.
+func cutSlot(v any) (stripped any, refs []*model.ObjectRef, pending []*pendingObject, err error) {
 	if ref, ok := v.(*model.ObjectRef); ok {
-		return model.Envelope{Refs: []*model.ObjectRef{ref}}, nil, nil
+		return nil, []*model.ObjectRef{{Ref: ref.Ref, Size: ref.Size}}, nil, nil
 	}
-	stripped, refs, objs, err := cutForSize(v, contextObjectThreshold)
+	stripped, refs, pending, err = cutForSize(v, contextObjectThreshold)
 	if err != nil {
-		return model.Envelope{}, nil, fmt.Errorf("marshal value for externalization: %w", err)
+		return nil, nil, nil, fmt.Errorf("marshal value for externalization: %w", err)
 	}
 	if len(refs) == 0 {
-		return model.Envelope{Data: v}, nil, nil
+		return v, nil, nil, nil
 	}
-	// A ref covering the whole slot keeps the shape the store has always had: no data, one ref.
-	if len(refs) == 1 && len(refs[0].Path) == 0 {
-		return model.Envelope{Refs: refs}, objs, nil
-	}
-	return model.Envelope{Data: stripped, Refs: refs}, objs, nil
-}
-
-// decodeEnvelope turns a stored envelope into an in-memory value: inline values as-is, and every
-// externalized part back into an *model.ObjectRef marker at the path it came from, which the
-// engine resolves when an expression reads it.
-func decodeEnvelope(env model.Envelope) any {
-	if !env.IsRef() {
-		return env.Data
-	}
-	if len(env.Refs) == 1 && len(env.Refs[0].Path) == 0 {
-		return env.Refs[0] // the whole slot
-	}
-	out := env.Data
-	for _, r := range env.Refs {
-		model.Place(out, r.Path, r)
-	}
-	return out
+	return stripped, refs, pending, nil
 }
 
 func (db *DB) loadObjectValue(ctx context.Context, hash string) (any, error) {
@@ -300,21 +282,22 @@ func (db *DB) CountObjectRefs(hash string) (int64, error) {
 
 // cutLogPayload cuts a log payload the same way a value-slot is cut, and WRITES NOTHING: the
 // claims belong to the log ROW and are written with it (AppendLogValue), so a claim can never
-// exist without the row that owns it.
+// exist without the row that owns it. The refs come back beside the value, for the row's own
+// `objects` column.
 //
 // Same machinery as a context slot deliberately: a payload that repeats something the instance
 // externalized produces the identical leaf, hashes the same, and shares that object.
-func cutLogPayload(v any, target int64) (model.Envelope, []*pendingObject, map[string]struct{}, error) {
+func cutLogPayload(v any, target int64) (any, []*model.ObjectRef, []*pendingObject, map[string]struct{}, error) {
 	stripped, refs, objs, err := cutForSize(v, target)
 	if err != nil {
-		return model.Envelope{}, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if len(refs) == 0 {
-		return model.Envelope{Data: v}, nil, nil, nil
+		return v, nil, nil, nil, nil
 	}
 	referenced := make(map[string]struct{}, len(refs))
 	for _, r := range refs {
 		referenced[r.Ref] = struct{}{}
 	}
-	return model.Envelope{Data: stripped, Refs: refs}, objs, referenced, nil
+	return stripped, refs, objs, referenced, nil
 }
