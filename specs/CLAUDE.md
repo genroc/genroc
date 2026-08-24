@@ -188,7 +188,11 @@ behavior while the spec stays put, answering a different question. See
   reintroduced one. Redaction narrows all the way to the server's **stdout**: the stored trail
   and every API response carry values verbatim, `secret: true` becomes a console-display hint,
   and logs stop being a special case — an externalized log payload is listed like any other
-  object and `resolve=true` goes there too. The CLI splits on what a human wants: `get --resolve`
+  object and `resolve=true` goes there too. A section belongs to whatever object **owns** its values, so paths are rooted there: the response
+  body for an instance detail, each *entry* for a list — `["data"]`, never `["items", 3, "data"]`,
+  because a path made of names survives anything a client does while one containing a position is
+  valid for a single unmodified page (genctl accumulates pages and reverses rows). The CLI splits
+  on what a human wants: `get --resolve`
   splices client-side, `logs` prints object ids and never resolves (a trail is scanned, not read,
   and those payloads are large by definition), and a new `genctl object <ref>` fetches the one
   line that matters. `secret: true` is narrowed to **config only** and refused at

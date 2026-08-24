@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { client, startMockService, waitForInstance } from "../helpers/client.ts";
+import { client, startMockService, waitForInstance, fetchObject, objectAt } from "../helpers/client.ts";
 
 // A secret config value used to build the endpoint URL must be redacted to "***"
 // in the stored audit log — the raw secret must never reach the logs table.
@@ -275,8 +275,8 @@ test("a large payload that shrinks below the threshold after redaction is stored
   const { data: logs } = await client.GET("/instances/{id}/logs", { params: { path: { id } } });
   const created = (logs!.items ?? []).find((l) => l.event === "inst_created");
   expect(created).toBeDefined();
-  // Redacted to {"token":"***"} — inline, not a reference to a log object.
-  expect(created!.data_ref).toBeUndefined();
+  // Redacted to {"token":"***"} — small enough to be carried inline, so nothing is listed.
+  expect(objectAt(created, ["data"])).toBeUndefined();
   expect(created!.data).toContain("***");
   expect(JSON.stringify(logs)).not.toContain("XXXXXXXXXX");
 });
@@ -319,18 +319,15 @@ test("an externalized log payload is stored pre-redacted", async () => {
   const { data: logs } = await client.GET("/instances/{id}/logs", { params: { path: { id } } });
   const created = (logs!.items ?? []).find((l) => l.event === "inst_created");
   expect(created).toBeDefined();
-  expect(created!.data_ref).toBeDefined();
-  // Neither the inline preview nor any listed field leaks the secret.
+  const listed = objectAt(created, ["data"]);
+  expect(listed, "over the cap even after redaction, so it is externalized").toBeDefined();
+  // Nothing in the listing itself leaks the secret.
   expect(JSON.stringify(logs)).not.toContain(secret);
 
-  // Resolve the log object: the full payload comes back scrubbed.
-  const { data: resolved } = await client.GET("/instances/{id}/logs", {
-    params: { path: { id }, query: { resolve: true } },
-  });
-  const full = (resolved!.items ?? []).find((l) => l.event === "inst_created");
-  expect(full).toBeDefined();
-  expect(full!.data_ref).toBeUndefined();
-  expect(full!.data).toContain("PPPPPPPP");
-  expect(full!.data).toContain("***");
-  expect(full!.data).not.toContain(secret);
+  // Fetch the object: the stored payload is the SCRUBBED one. Redaction happens when the log is
+  // written, so there is no unredacted version of it to serve.
+  const full = await fetchObject(listed!.ref);
+  expect(full).toContain("PPPPPPPP");
+  expect(full).toContain("***");
+  expect(full).not.toContain(secret);
 });

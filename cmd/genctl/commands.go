@@ -424,17 +424,17 @@ func runGetCmd(server string, args []string) {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
 	serverFlag := addServerFlag(fs, server)
 	jsonFlag := fs.Bool("json", false, "print the raw JSON response")
-	resolveFlag := fs.Bool("resolve", false, "resolve externalized context values inline instead of {ref, size} references")
+	resolveFlag := fs.Bool("resolve", false, "fetch the values listed under \"objects\" and put them back where they belong")
 	id := instanceIDAndFlags(fs, args)
 
 	u := *serverFlag + "/instances/" + url.PathEscape(id)
-	if *resolveFlag {
-		u += "?resolve=true"
-	}
 	if *jsonFlag {
 		var raw json.RawMessage
 		if err := callGet(u, &raw); err != nil {
 			fatal("%v", err)
+		}
+		if *resolveFlag {
+			raw = spliceObjects(*serverFlag, raw)
 		}
 		printIndented(raw)
 		return
@@ -785,7 +785,6 @@ func runLogsCmd(server string, args []string) {
 	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04); empty = the newest 200 entries")
 	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
 	recursiveFlag := fs.Bool("recursive", false, "include the whole process subtree (root instance id)")
-	resolveFlag := fs.Bool("resolve", false, "inline full externalized payloads instead of a preview + reference")
 	modeFlag := fs.String("mode", "detail", "output: basic (no data body), detail (+ data), or json (one JSON object per line, untruncated)")
 	timeFlag := fs.String("time", "clock", "time column: clock (15:04:05, with a day separator per date) or full (2006-01-02 15:04:05 +02:00); both render in the local zone ($TZ)")
 	id := instanceIDAndFlags(fs, args)
@@ -806,9 +805,6 @@ func runLogsCmd(server string, args []string) {
 	limit := applyWindow(q, *sinceFlag, *untilFlag, "created_at", logTailDefault)
 	if *recursiveFlag {
 		q.Set("recursive", "true")
-	}
-	if *resolveFlag {
-		q.Set("resolve", "true")
 	}
 	u := *serverFlag + "/instances/" + url.PathEscape(id) + "/logs"
 	if enc := q.Encode(); enc != "" {
@@ -845,7 +841,8 @@ func runLogsCmd(server string, args []string) {
 		return
 	}
 
-	type logDataRef struct {
+	type objectEntry struct {
+		Path []any  `json:"path"`
 		Ref  string `json:"ref"`
 		Size int64  `json:"size"`
 	}
@@ -858,8 +855,8 @@ func runLogsCmd(server string, args []string) {
 		Message  string         `json:"message"`
 		Code     string         `json:"code"`
 		Data     string         `json:"data"`
-		DataRef  *logDataRef    `json:"data_ref"`
 		Meta     map[string]any `json:"meta"`
+		Objects  []objectEntry  `json:"objects"`
 	}
 	// Shared logview layout, so a row reads identically here and on the server console. The
 	// header waits for the first row (an empty trail prints nothing); day carries the last
@@ -876,12 +873,13 @@ func runLogsCmd(server string, args []string) {
 				fmt.Fprintln(out, logview.DateBreak(t))
 				day = d
 			}
-			// An externalized payload comes back as a bare {ref, size} reference with no
-			// inline body — show the reference itself in the body's place (rendered raw via
-			// the leading "{"). Pass --resolve to fetch and inline the full value instead.
+			// An externalized payload is listed by the entry rather than carried — show the
+			// reference in the body's place (rendered raw via the leading "{"). logs never
+			// fetches: a trail is scanned, and these payloads are large by definition.
+			// `genctl object <ref>` gets the one that matters.
 			data := l.Data
-			if data == "" && l.DataRef != nil {
-				if b, err := json.Marshal(l.DataRef); err == nil {
+			if data == "" && len(l.Objects) > 0 {
+				if b, err := json.Marshal(map[string]any{"ref": l.Objects[0].Ref, "size": l.Objects[0].Size}); err == nil {
 					data = string(b)
 				}
 			}
@@ -1541,4 +1539,101 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// spliceObjects fetches every value a response listed under `objects` and puts it back at the
+// path it named, which is the whole of what a recipient owes the objects protocol.
+//
+// The paths are arrays of keys, so walking one needs no parser and no unescaping — that is why
+// they are arrays and not JSON Pointers. Client-side because the server materializing every
+// value behind a query parameter is an unbounded response nobody asked the size of.
+func spliceObjects(server string, raw json.RawMessage) json.RawMessage {
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return raw
+	}
+	entries, _ := body["objects"].([]any)
+	if len(entries) == 0 {
+		return raw
+	}
+	for _, e := range entries {
+		entry, _ := e.(map[string]any)
+		ref, _ := entry["ref"].(string)
+		path, _ := entry["path"].([]any)
+		if ref == "" || len(path) == 0 {
+			continue
+		}
+		var resp struct {
+			Data string `json:"data"`
+		}
+		if err := callGet(server+"/objects/"+url.PathEscape(ref), &resp); err != nil {
+			fatal("fetch object %s: %v", ref, err)
+		}
+		var value any
+		if err := json.Unmarshal([]byte(resp.Data), &value); err != nil {
+			value = resp.Data // not JSON (a raw log payload): put it back as the string it is
+		}
+		place(body, path, value)
+	}
+	delete(body, "objects")
+	out, err := json.Marshal(body)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+// place walks path and writes value at the end of it. A step that does not exist is skipped
+// rather than created: the path came from this same response, so a miss means the response and
+// its objects section disagree, and inventing structure would hide that.
+func place(root any, path []any, value any) {
+	cur := root
+	for i, seg := range path {
+		last := i == len(path)-1
+		switch node := cur.(type) {
+		case map[string]any:
+			key, ok := seg.(string)
+			if !ok {
+				return
+			}
+			if last {
+				node[key] = value
+				return
+			}
+			cur = node[key]
+		case []any:
+			idx, ok := seg.(float64) // JSON numbers decode as float64
+			if !ok || int(idx) < 0 || int(idx) >= len(node) {
+				return
+			}
+			if last {
+				node[int(idx)] = value
+				return
+			}
+			cur = node[int(idx)]
+		default:
+			return
+		}
+	}
+}
+
+// runObjectCmd fetches one externalized value by the ref a response listed for it. The escape
+// hatch that lets `logs` print an id instead of a payload: a trail is scanned, and the one entry
+// you care about is fetched on purpose.
+func runObjectCmd(server string, args []string) {
+	if len(args) == 0 {
+		fatal("usage: genctl object <ref>")
+	}
+	ref := args[0]
+	fs := flag.NewFlagSet("object", flag.ExitOnError)
+	serverFlag := addServerFlag(fs, server)
+	fs.Parse(args[1:])
+
+	var resp struct {
+		Data string `json:"data"`
+	}
+	if err := callGet(*serverFlag+"/objects/"+url.PathEscape(ref), &resp); err != nil {
+		fatal("%v", err)
+	}
+	fmt.Println(resp.Data)
 }

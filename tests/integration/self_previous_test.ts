@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { client, startMockService, waitForInstance } from "../helpers/client.ts";
+import { client, startMockService, waitForInstance, spliceObjects } from "../helpers/client.ts";
 
 // self.previous is a task's own prior output — the same value as outputs[<this task>]. A
 // task that gotos itself and appends to self.previous each iteration accumulates a string.
@@ -65,11 +65,10 @@ async function runAndReadOutput(name: string, n: number, timeoutMs: number) {
   if (error) throw new Error(`start failed: ${JSON.stringify(error)}`);
   const id = started!.id;
   expect(await waitForInstance(id, timeoutMs)).toBe("completed");
-  // The accumulated text is >8 KiB so the output externalizes — resolve to read the value.
-  const { data, error: getErr } = await client.GET("/instances/{id}", {
-    params: { path: { id }, query: { resolve: true } },
-  });
+  // The accumulated text is >8 KiB so the output externalizes — splice it back to read it.
+  const { data, error: getErr } = await client.GET("/instances/{id}", { params: { path: { id } } });
   if (getErr) throw new Error(`get failed: ${JSON.stringify(getErr)}`);
+  await spliceObjects(data);
   return (data!.context as Record<string, { text: string; count: number }>).output;
 }
 

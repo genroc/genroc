@@ -361,8 +361,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID      string `path:"id" format:"uuid"`
-				Resolve bool   `query:"resolve" description:"Resolve externalized context values inline; default false returns large values as {ref, size} references"`
+				ID string `path:"id" format:"uuid"`
 			}{},
 			Resp: InstanceStatusResp{
 				InstanceSummaryResp: InstanceSummaryResp{
@@ -371,20 +370,10 @@ var registry = func() []actionDef {
 					ErrorCode: "only_once.interrupted",
 				},
 				Context: map[string]any{"order_id": 42, "charged": true},
-			},
-			fromHTTP: func(r *http.Request) (Envelope, error) {
-				resolve, _ := strconv.ParseBool(r.URL.Query().Get("resolve"))
-				b, _ := json.Marshal(map[string]bool{"resolve": resolve})
-				return Envelope{Action: "get_instance", ID: r.PathValue("id"), Payload: b}, nil
+				Objects: []ObjectEntry{{Path: []any{"context", "outputs", "render"}, Ref: "9f2ac1b4e7d05f38", Size: 221110}},
 			},
 			handle: func(h *Handlers, env Envelope) Reply {
-				p, err := decodeOptionalBody[struct {
-					Resolve bool `json:"resolve"`
-				}](env.Payload)
-				if err != nil {
-					return errReply(err)
-				}
-				return h.getInstance(env.ID, p.Resolve)
+				return h.getInstance(env.ID)
 			},
 		},
 		{
@@ -400,20 +389,17 @@ var registry = func() []actionDef {
 				CreatedAfter  int64  `query:"created_after" description:"Only logs at/after this unix-millis timestamp"`
 				CreatedBefore int64  `query:"created_before" description:"Only logs strictly before this unix-millis timestamp"`
 				Recursive     bool   `query:"recursive" description:"Include the whole process subtree, keyed on the root instance"`
-				Resolve       bool   `query:"resolve" description:"Inline full externalized payloads; default false returns a preview + data_ref"`
 				pageQuery
 			}{},
 			Resp: PageResp[LogEntryResp]{},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
 				q := r.URL.Query()
 				recursive, _ := strconv.ParseBool(q.Get("recursive"))
-				resolve, _ := strconv.ParseBool(q.Get("resolve"))
 				b, _ := json.Marshal(ListLogsReq{
 					Level:         q.Get("level"),
 					CreatedAfter:  millisQuery(r, "created_after"),
 					CreatedBefore: millisQuery(r, "created_before"),
 					Recursive:     recursive,
-					Resolve:       resolve,
 					Pagination:    paginationFrom(r),
 				})
 				return Envelope{Action: "list_instance_logs", ID: r.PathValue("id"), Payload: b}, nil
@@ -423,20 +409,19 @@ var registry = func() []actionDef {
 			},
 		},
 		{
-			Name:    "get_log_object",
+			Name:    "get_object",
 			Method:  http.MethodGet,
-			Path:    "/instances/{id}/objects/{ref}",
-			Summary: "Fetch the full payload of an externalized log entry (referenced by a log's data_ref)",
-			Tags:    []string{"Instances"},
+			Path:    "/objects/{ref}",
+			Summary: "Fetch an externalized value by its content hash, as listed in a response's objects section",
+			Tags:    []string{"Objects"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID  string `path:"id" format:"uuid"`
 				Ref string `path:"ref"`
 			}{},
 			Resp: map[string]any{"data": ""},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
 				b, _ := json.Marshal(map[string]string{"ref": r.PathValue("ref")})
-				return Envelope{Action: "get_log_object", ID: r.PathValue("id"), Payload: b}, nil
+				return Envelope{Action: "get_object", Payload: b}, nil
 			},
 			handle: func(h *Handlers, env Envelope) Reply {
 				p, err := decodeOptionalBody[struct {
@@ -445,7 +430,7 @@ var registry = func() []actionDef {
 				if err != nil {
 					return errReply(err)
 				}
-				return h.getLogObject(env.ID, p.Ref)
+				return h.getObject(p.Ref)
 			},
 		},
 		{

@@ -113,7 +113,7 @@ func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 	return okReply(PageResp[InstanceSummaryResp]{Items: resp, Page: info})
 }
 
-func (h *Handlers) getInstance(id string, resolve bool) Reply {
+func (h *Handlers) getInstance(id string) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
 	}
@@ -121,23 +121,30 @@ func (h *Handlers) getInstance(id string, resolve bool) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	// By default, externalized value-slots are left as {ref, size} references — a
-	// detail read should stay light and not pull large blobs out of the object store.
-	// With resolve=true the caller opts into materializing every slot inline (and then
-	// redacting), the way the full context used to always be returned.
-	if resolve {
-		if err := h.db.HydrateContext(inst); err != nil {
-			return errReply(err)
-		}
-	}
-	resp := instanceToResp(inst)
 	// Redact secret-derived values from the returned context (the DB still holds
 	// them plainly; they are just not exposed over the API).
+	ctxData := inst.ContextData
 	if sf, ok := h.schemas.Get(inst.ProcessName, inst.ProcessVersion, func() (*model.ProcessDefinition, error) {
 		return h.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
 	}); ok {
-		resp.Context = orderedContext(validation.RedactContext(inst.ContextData, sf))
+		ctxData = validation.RedactContext(inst.ContextData, sf)
 	}
+	// Externalized slots leave the context entirely and are listed instead, with the path they
+	// belong at. There is no resolve=true: materializing every slot server-side put an unbounded
+	// response behind one query parameter, and the recipient is the side that knows which values
+	// it actually wants. specs/object-store.md §The wire.
+	//
+	// BEFORE orderedContext, which pre-marshals `outputs` to JSON text to fix its key order --
+	// after it, a marker under outputs.<task> is bytes the walk cannot see into, and the ref
+	// would ship inline exactly where this is meant to remove it. It mutates the map, which is
+	// safe here and only here: the redacted copy is ours, and an unredacted `inst` is discarded
+	// with this response.
+	objects := []ObjectEntry{}
+	ctxData, _ = extractObjects(ctxData, []any{"context"}, &objects).(map[string]any)
+
+	resp := instanceToResp(inst)
+	resp.Context = orderedContext(ctxData)
+	resp.Objects = objects
 	return okReply(resp)
 }
 

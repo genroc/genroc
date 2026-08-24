@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, fetchObject, objectAt, spliceObjects, waitForInstance } from "../helpers/client.ts";
 
 const proc = `big_values_${crypto.randomUUID()}`;
 
@@ -38,19 +38,19 @@ test("big values are returned as references by default", async () => {
     params: { path: { id } },
   });
   expect(error).toBeUndefined();
-  // The big input and the big computed output come back as references, not values.
-  const input = (data!.context as any).input;
-  const output = (data!.context as any).output;
-  expect(typeof input.ref).toBe("string");
-  expect(input.size).toBeGreaterThan(BLOB.length);
-  expect(input.blob).toBeUndefined();
-  expect(typeof output.ref).toBe("string");
-  expect(output.echo).toBeUndefined();
+  // The big input and the big computed output are LISTED, and absent from the data — nothing
+  // in the context can be mistaken for a reference, because no marker is left behind.
+  expect((data!.context as any).input).toBeUndefined();
+  expect((data!.context as any).output).toBeUndefined();
+  const input = objectAt(data, ["context", "input"]);
+  expect(input, "the big input is listed").toBeDefined();
+  expect(input!.size).toBeGreaterThan(BLOB.length);
+  expect(objectAt(data, ["context", "output"]), "the big output is listed").toBeDefined();
 });
 
-// With ?resolve=true the caller opts into fully materialized context: references are
-// replaced by their original values.
-test("big values are resolved inline with resolve=true", async () => {
+// The recipient fetches what it wants and puts it back. The server never materializes a whole
+// context on request: that put an unbounded response behind one query parameter.
+test("big values are spliced back by the recipient, not by the server", async () => {
   await defineProc();
   const { data: started } = await client.POST("/instances", {
     body: { process: proc, input: { blob: BLOB } },
@@ -58,16 +58,19 @@ test("big values are resolved inline with resolve=true", async () => {
   const id = started!.id;
   await waitForInstance(id);
 
-  const { data, error } = await client.GET("/instances/{id}", {
-    params: { path: { id }, query: { resolve: true } },
-  });
+  const { data, error } = await client.GET("/instances/{id}", { params: { path: { id } } });
   expect(error).toBeUndefined();
+  // The slots are ABSENT, not markers: nothing in the data can be mistaken for a reference.
+  expect((data!.context as any).input?.blob).toBeUndefined();
+  expect(objectAt(data, ["context", "input"]), "input is listed as an object").toBeDefined();
+
+  await spliceObjects(data);
   expect((data!.context as any).input.blob).toBe(BLOB);
   expect((data!.context as any).output.echo).toBe(BLOB);
 });
 
-// A large log payload is externalized: by default the log row carries only a data_ref
-// (no inline data), and the full value is fetchable from the log-object endpoint.
+// A large log payload is externalized: the entry carries no inline data, and the response's
+// objects section names where it belongs. A log entry is not a special kind of response.
 test("large log payloads are externalized and fetchable", async () => {
   await defineProc();
   const { data: started } = await client.POST("/instances", {
@@ -84,42 +87,14 @@ test("large log payloads are externalized and fetchable", async () => {
     (l) => l.event === "inst_completed",
   );
   expect(completed).toBeDefined();
-  // The full output is big, so it is not stored inline: by default the log carries only
-  // a bare reference, with no inline data/preview.
-  expect(completed!.data_ref).toBeDefined();
+  // Too big to carry inline: no data on the entry, and the entry lists it instead — at a path
+  // rooted at the ENTRY, so accumulating pages or reversing rows cannot invalidate it.
   expect(completed!.data).toBeFalsy();
+  const listed = objectAt(completed, ["data"]);
+  expect(listed, "the externalized log payload is listed by its entry").toBeDefined();
 
-  const ref = completed!.data_ref!.ref;
-  const { data: obj, error: objErr } = await client.GET(
-    "/instances/{id}/objects/{ref}",
-    { params: { path: { id, ref } } },
-  );
-  expect(objErr).toBeUndefined();
-  // The fetched payload is the full, untruncated output value.
-  expect((obj as any).data).toBe(JSON.stringify({ echo: BLOB }));
-});
-
-// With ?resolve=true the log listing inlines the full payload directly, dropping the
-// preview + data_ref indirection.
-test("log payloads are inlined with resolve=true", async () => {
-  await defineProc();
-  const { data: started } = await client.POST("/instances", {
-    body: { process: proc, input: { blob: BLOB } },
-  });
-  const id = started!.id;
-  await waitForInstance(id);
-
-  const { data, error } = await client.GET("/instances/{id}/logs", {
-    params: { path: { id }, query: { limit: 100, resolve: true } },
-  });
-  expect(error).toBeUndefined();
-  const completed = (data!.items ?? []).find(
-    (l) => l.event === "inst_completed",
-  );
-  expect(completed).toBeDefined();
-  // The full payload is inlined; no reference is left behind.
-  expect(completed!.data_ref).toBeUndefined();
-  expect(completed!.data).toBe(JSON.stringify({ echo: BLOB }));
+  // Fetched by content hash, from the one endpoint that serves objects.
+  expect(await fetchObject(listed!.ref)).toBe(JSON.stringify({ echo: BLOB }));
 });
 
 // Within one instance, only the slots that exceed the threshold are externalized: a
@@ -149,16 +124,17 @@ test("only oversized slots become references; small ones stay inline", async () 
     params: { path: { id } },
   });
   expect(error).toBeUndefined();
-  // Big input → reference; small output → its inline value, not a reference.
-  expect(typeof (data!.context as any).input.ref).toBe("string");
+  // Big input → listed and absent; small output → carried inline, and NOT listed.
+  expect((data!.context as any).input).toBeUndefined();
+  expect(objectAt(data, ["context", "input"])).toBeDefined();
   expect((data!.context as any).output).toEqual({ ok: "done" });
+  expect(objectAt(data, ["context", "output"])).toBeUndefined();
 });
 
-// SECURITY: a secret nested inside a LARGE (externalized) value must not leak when the
-// caller asks to resolve. resolve=true loads the raw stored object — which holds the
-// secret in the clear — so redaction has to run over the materialized value, not be
-// skipped because the slot arrived as a reference.
-test("a secret in an externalized value is still redacted under resolve=true", async () => {
+// A secret inside a LARGE (externalized) value. The slot is listed rather than carried, so a
+// detail read leaks nothing whatever it holds — and fetching the object returns it in full,
+// which is the documented consequence of redaction being a recording concern.
+test("an externalized value is listed, and comes back whole when fetched", async () => {
   const name = `secret_big_ctx_${crypto.randomUUID()}`;
   const secret = "S".repeat(20 * 1024); // > threshold → the input slot is externalized
   await client.PUT("/definitions", {
@@ -179,23 +155,23 @@ test("a secret in an externalized value is still redacted under resolve=true", a
   await waitForInstance(id);
 
   // Default: the value is never loaded — a bare reference, no secret anywhere.
-  const { data: lazy } = await client.GET("/instances/{id}", {
-    params: { path: { id } },
-  });
-  expect(typeof (lazy!.context as any).input.ref).toBe("string");
-  expect(JSON.stringify(lazy)).not.toContain("SSSSSSSSSS");
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  // The slot is listed, not carried — so the detail read stays small whatever it holds.
+  expect((data!.context as any).input).toBeUndefined();
+  expect(objectAt(data, ["context", "input"])).toBeDefined();
+  expect(JSON.stringify(data)).not.toContain("SSSSSSSSSS");
 
-  // Resolved: the object is materialized, but the secret field must come back "***".
-  const { data: full } = await client.GET("/instances/{id}", {
-    params: { path: { id }, query: { resolve: true } },
-  });
-  expect((full!.context as any).input.token).toBe("***");
-  expect(JSON.stringify(full)).not.toContain("SSSSSSSSSS");
+  // Fetched, it comes back IN FULL — secret included. Redaction is a recording concern, not a
+  // read concern: it protects the server's stdout, where a value is read by someone who did not
+  // ask for it, and an object endpoint addressed by content hash is not that.
+  // specs/object-store.md §Redaction.
+  await spliceObjects(data);
+  expect((data!.context as any).input.token).toBe(secret);
 });
 
-// A subtree log's externalized payload is owned by the instance that wrote it — a child,
-// not the queried root. resolve=true over a recursive listing must fetch each object
-// from its own instance, so the CHILD's big payload comes back fully inlined.
+// A subtree log's externalized payload was written by a child, not the queried root. That used
+// to matter — the fetch was scoped to the owning instance — and no longer does: an object is
+// addressed by its content hash, so a child's payload is listed and fetched like any other.
 test("recursive + resolve inlines a child instance's externalized payload", async () => {
   const child = `recos_child_${crypto.randomUUID()}`;
   const parent = `recos_parent_${crypto.randomUUID()}`;
@@ -240,29 +216,25 @@ test("recursive + resolve inlines a child instance's externalized payload", asyn
   const id = started!.id;
   expect(await waitForInstance(id, 10_000)).toBe("completed");
 
-  // The child's inst_created log carries the big (externalized) input it received.
-  const childCreated = (q: { resolve?: boolean }) =>
-    client
-      .GET("/instances/{id}/logs", {
-        params: { path: { id }, query: { limit: 200, recursive: true, ...q } },
-      })
-      .then(({ data }) =>
-        (data!.items ?? []).find(
-          (l) => l.event === "inst_created" && l.instance !== id,
-        ),
-      );
+  // The child's inst_created log carries the big (externalized) input it received. The whole
+  // response is kept, not just the entry: the objects section is a sibling of items, so finding
+  // an entry's payload means knowing its index in the page.
+  const childCreated = async () => {
+    const { data: body } = await client.GET("/instances/{id}/logs", {
+      params: { path: { id }, query: { limit: 200, recursive: true } },
+    });
+    const entry = (body!.items ?? []).find(
+      (l) => l.event === "inst_created" && l.instance !== id,
+    );
+    return { entry, body };
+  };
 
-  // Default: a bare reference on the child's row.
-  const lazy = await childCreated({});
-  expect(lazy).toBeDefined();
-  expect(lazy!.data_ref).toBeDefined();
-  expect(lazy!.data).toBeFalsy();
-
-  // Resolved: fetched from the child's own instance and inlined in full.
-  const full = await childCreated({ resolve: true });
-  expect(full).toBeDefined();
-  expect(full!.data_ref).toBeUndefined();
-  expect(full!.data).toBe(JSON.stringify({ blob: BLOB }));
+  const { entry: found } = await childCreated();
+  expect(found, "the child's inst_created entry is present").toBeDefined();
+  expect(found!.data, "its big payload is not carried inline").toBeFalsy();
+  const childListed = objectAt(found, ["data"]);
+  expect(childListed, "and the entry lists it instead").toBeDefined();
+  expect(await fetchObject(childListed!.ref)).toBe(JSON.stringify({ blob: BLOB }));
 });
 
 // A big value passed into a child's input and returned in the child's output flows all
@@ -332,13 +304,11 @@ test("a big value round-trips through a child's input and output back to the par
     params: { path: { id } },
   });
   expect(error).toBeUndefined();
-  expect(typeof (lazy!.context as any).outputs.spawn.ref).toBe("string");
-  expect(typeof (lazy!.context as any).output.ref).toBe("string");
+  expect(objectAt(lazy, ["context", "outputs", "spawn"])).toBeDefined();
+  expect(objectAt(lazy, ["context", "output"])).toBeDefined();
 
-  // Resolved: the big value is intact after the full parent → child → parent round-trip.
-  const { data: full } = await client.GET("/instances/{id}", {
-    params: { path: { id }, query: { resolve: true } },
-  });
-  expect((full!.context as any).outputs.spawn.echo).toBe(BLOB);
-  expect((full!.context as any).output.echo).toBe(BLOB);
+  // Spliced: the big value is intact after the full parent → child → parent round-trip.
+  await spliceObjects(lazy);
+  expect((lazy!.context as any).outputs.spawn.echo).toBe(BLOB);
+  expect((lazy!.context as any).output.echo).toBe(BLOB);
 });

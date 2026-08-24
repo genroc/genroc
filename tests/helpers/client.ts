@@ -137,3 +137,49 @@ export async function startMockService(port: number, options: MockServiceOptions
     stop: () => new Promise<void>((r) => server.close(() => r())),
   };
 }
+
+/** One entry of a response's `objects` section: a value too large to carry inline. */
+export type ObjectEntry = { path: (string | number)[]; ref: string; size: number };
+
+/** Fetch one externalized value by its content hash. */
+export async function fetchObject(ref: string, apiClient: PostClient | typeof client = client): Promise<string> {
+  const { data, error } = await (apiClient as typeof client).GET("/objects/{ref}", {
+    params: { path: { ref } },
+  });
+  if (error) throw new Error(`fetch object ${ref} failed: ${JSON.stringify(error)}`);
+  return (data as { data: string }).data;
+}
+
+/**
+ * spliceObjects is what every recipient of the objects protocol owes it: fetch each listed value
+ * and put it back at the path it named. The server no longer does this — `?resolve=true`
+ * materialized every slot behind one query parameter, which is an unbounded response nobody
+ * asked the size of. Paths are arrays of keys, so walking one needs no parser and no unescaping.
+ *
+ * A section belongs to whatever object owns its values, so this splices the body's OWN section
+ * and then each entry's, recursing into `items`. That is what makes a path stable in a list:
+ * it is rooted at the entry, so accumulating pages or reversing rows cannot invalidate it.
+ */
+export async function spliceObjects<T>(body: T, apiClient: typeof client = client): Promise<T> {
+  const owner = body as { objects?: ObjectEntry[]; items?: unknown[] };
+  for (const e of owner.objects ?? []) {
+    const raw = await fetchObject(e.ref, apiClient);
+    let value: unknown;
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      value = raw; // a raw (non-JSON) log payload goes back as the string it is
+    }
+    let cur: any = body;
+    for (let i = 0; i < e.path.length - 1; i++) cur = cur?.[e.path[i]];
+    if (cur) cur[e.path[e.path.length - 1]] = value;
+  }
+  for (const item of owner.items ?? []) await spliceObjects(item, apiClient);
+  return body;
+}
+
+/** The entry covering `path`, or undefined when that slot was carried inline. */
+export function objectAt(body: unknown, path: (string | number)[]): ObjectEntry | undefined {
+  const entries = ((body as { objects?: ObjectEntry[] }).objects ?? []) as ObjectEntry[];
+  return entries.find((e) => e.path.length === path.length && e.path.every((p, i) => p === path[i]));
+}

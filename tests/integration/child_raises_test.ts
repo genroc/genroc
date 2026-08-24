@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, waitForInstance, objectAt, spliceObjects } from "../helpers/client.ts";
 
 // `raises` on a child call declares what a raised fault's payload looks like, keyed by raise
 // code — the error channel's counterpart to result_schema, and declared by the CALLER so a
@@ -534,12 +534,13 @@ test("a payload past the inline cutoff externalizes and still crosses whole", as
   const { data: lazy } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
   const childId = (lazy?.context as any)?._children?.pay as string;
   const { data: kid } = await client.GET("/instances/{id}", { params: { path: { id: childId } } });
-  const marker = (kid?.context?.error as any)?.data;
-  expect(marker?.ref, "8 KiB is past the 2 KiB cutoff, so the payload must be externalized").toBeTruthy();
+  expect(
+    objectAt(kid, ["context", "error", "data"]),
+    "8 KiB is past the 2 KiB cutoff, so the payload must be externalized",
+  ).toBeTruthy();
 
-  const { data } = await client.GET("/instances/{id}", {
-    params: { path: { id: started!.id }, query: { resolve: true } },
-  });
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  await spliceObjects(data);
   expect((data?.context?.output as any)?.trace).toBe(blob);
 });
 

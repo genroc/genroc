@@ -8,10 +8,9 @@ import (
 	"genroc/internal/model"
 )
 
-// decodeLogData unpacks the stored log-data envelope into the API view: an inline payload
-// as its string value, an externalized one as a bare ref (fetched on demand or inlined
-// with ?resolve=true), a non-envelope value verbatim.
-func decodeLogData(raw string) (string, *LogDataRef) {
+// decodeLogData unpacks the stored log-data envelope into the API view: an inline payload as its
+// string value, an externalized one as the ref it is listed under, a non-envelope value verbatim.
+func decodeLogData(raw string) (string, *model.ObjectRef) {
 	if raw == "" {
 		return "", nil
 	}
@@ -20,7 +19,7 @@ func decodeLogData(raw string) (string, *LogDataRef) {
 		return raw, nil
 	}
 	if env.IsRef() {
-		return "", &LogDataRef{Ref: env.Refs[0].Ref, Size: env.Refs[0].Size}
+		return "", env.Refs[0]
 	}
 	s, _ := env.Data.(string)
 	return s, nil
@@ -52,15 +51,15 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 	resp := make([]LogEntryResp, len(logs))
+	// The payload is never inlined here: resolve=true is gone, and a trail is scanned rather
+	// than read, so the entry lists its handle and `genctl object <ref>` fetches the one line
+	// that matters. The preview is gone with it -- a truncated excerpt of a value nobody asked
+	// for is the cost this whole change is about.
 	for i, l := range logs {
 		data, ref := decodeLogData(l.Data)
-		// With resolve=true, replace the preview + data_ref with the full payload inline.
-		// Addressed by hash alone: the address IS the content, so no owner is consulted.
-		// specs/object-store.md.
-		if req.Resolve && ref != nil {
-			if content, _, oerr := h.db.GetObjectContent(ref.Ref); oerr == nil {
-				data, ref = content, nil
-			}
+		var objects []ObjectEntry
+		if ref != nil {
+			objects = []ObjectEntry{{Path: []any{"data"}, Ref: ref.Ref, Size: ref.Size}}
 		}
 		resp[i] = LogEntryResp{
 			Time:     l.CreatedAt.Format(time.RFC3339Nano),
@@ -72,24 +71,22 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 			Message:  l.Message,
 			Code:     l.Code,
 			Data:     data,
-			DataRef:  ref,
 			Meta:     l.Meta,
+			Objects:  objects,
 		}
 	}
 	return okReply(PageResp[LogEntryResp]{Items: resp, Page: info})
 }
 
-// getLogObject returns the full payload of an externalized log entry (via its data_ref).
-// Only log objects are served — they are stored pre-redacted, so this leaks no secrets.
-func (h *Handlers) getLogObject(id, hash string) Reply {
-	if id == "" || hash == "" {
-		return invalid("id and ref are required").reply()
+// getObject serves an object's content, addressed by its hash and nothing else. Knowing a hash
+// is knowing the bytes that produce it, so this discloses nothing a holder of the hash did not
+// already have -- what it does disclose is existence. specs/object-store.md.
+func (h *Handlers) getObject(hash string) Reply {
+	if hash == "" {
+		return invalid("ref is required").reply()
 	}
 	content, _, err := h.db.GetObjectContent(hash)
 	if err != nil {
-		// GetLogObject reports an absent object as db.ErrNotFound, so the classification
-		// comes through unaided; a read failure stays internal instead of being
-		// relabelled "not found" the way it was before.
 		return errReply(err)
 	}
 	return okReply(map[string]any{"data": content})

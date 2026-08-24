@@ -233,6 +233,7 @@ type ExternalTaskResp struct {
 	ResultSchema *schema.Schema `json:"result_schema,omitempty"` // JSON Schema the submitted result must satisfy
 	Raises       model.Raises   `json:"raises,omitempty"`        // the codes this task accepts on the error channel -> the payload each carries (null = none)
 	WaitingSince string         `json:"waiting_since"`           // RFC3339 park time
+	Objects      []ObjectEntry  `json:"objects,omitempty"`       // this entry's externalized values, rooted at the entry (e.g. ["input"])
 	Deadline     string         `json:"deadline,omitempty"`      // RFC3339 task timeout; absent = waits forever. Past it the engine raises external.timeout whatever a claim holds
 	ClaimedBy    string         `json:"claimed_by,omitempty"`    // worker holding a live claim; absent = claimable
 	ClaimExpires string         `json:"claim_expires,omitempty"` // RFC3339 visibility timeout of that claim
@@ -283,7 +284,6 @@ type ListLogsReq struct {
 	CreatedAfter  int64  `json:"created_after"`  // only logs at/after this timestamp
 	CreatedBefore int64  `json:"created_before"` // only logs strictly before it
 	Recursive     bool   `json:"recursive"`      // include the whole process subtree, keyed on the root instance
-	Resolve       bool   `json:"resolve"`        // inline full externalized payloads instead of preview + data_ref
 	Pagination
 }
 
@@ -332,6 +332,11 @@ type InstanceSummaryResp struct {
 type InstanceStatusResp struct {
 	InstanceSummaryResp
 	Context map[string]any `json:"context"`
+	// Objects lists the values too large to be carried inline, each with the path in this
+	// response where it belongs. Fetch one with GET /objects/{ref} and put it there; the slot is
+	// ABSENT from context rather than holding a marker, so nothing in the data can be mistaken
+	// for a reference. specs/object-store.md §The wire.
+	Objects []ObjectEntry `json:"objects"`
 }
 
 type LogEntryResp struct {
@@ -343,14 +348,13 @@ type LogEntryResp struct {
 	Task     string         `json:"task,omitempty"`
 	Message  string         `json:"message,omitempty"`
 	Code     string         `json:"code,omitempty"`
-	Data     string         `json:"data,omitempty"`     // inline payload (input/output/request/response body); empty when externalized — see DataRef — unless ?resolve=true inlines the full value
-	DataRef  *LogDataRef    `json:"data_ref,omitempty"` // set when the full payload was externalized to an object; fetch via /instances/{id}/objects/{ref} or pass ?resolve=true
-	Meta     map[string]any `json:"meta,omitempty"`     // small, complete, parseable metadata (e.g. {"url":…}, {"status":200})
-}
-
-// LogDataRef points at an externalized log payload; the full (pre-redacted) value is
-// retrievable from the log-object endpoint.
-type LogDataRef struct {
-	Ref  string `json:"ref"`
-	Size int64  `json:"size"`
+	Data     string         `json:"data,omitempty"` // inline payload (input/output/request/response body); absent when externalized, and then listed in Objects
+	Meta     map[string]any `json:"meta,omitempty"` // small, complete, parseable metadata (e.g. {"url":…}, {"status":200})
+	// Objects lists this ENTRY's externalized values, with paths rooted at the entry —
+	// ["data"], not ["items", 3, "data"]. A section belongs to whatever object owns the values
+	// it names, which is what keeps it correct in a list: a path containing a position is valid
+	// only for one unmodified page, and a client that accumulates pages or reverses rows (as
+	// genctl does) has already invalidated it. Rooted at the entry, the section travels with
+	// its owner. specs/object-store.md §The wire.
+	Objects []ObjectEntry `json:"objects,omitempty"`
 }

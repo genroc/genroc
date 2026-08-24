@@ -14,7 +14,8 @@
 //	genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
 //	genctl external-tasks [--process <name>] [--version <n>] [--task <id>] [--since <when>] [--until <when>] [--json]
 //	genctl get      <instance-id> [--resolve] [--json]
-//	genctl logs     [--level <level>] [--since <when>] [--until <when>] [--time clock|full] [--recursive] [--resolve] [--mode basic|detail|json] <instance-id>
+//	genctl object   <ref>
+//	genctl logs     [--level <level>] [--since <when>] [--until <when>] [--time clock|full] [--recursive] [--mode basic|detail|json] <instance-id>
 //
 // Every list endpoint sorts newest-first. No list command takes --limit: each is capped
 // instead — 20 rows, 200 for logs — and says on stderr when the cap dropped anything, so
@@ -117,6 +118,8 @@ func main() {
 		runRunCmd(server, args)
 	case "resolve":
 		runResolveCmd(server, args)
+	case "object":
+		runObjectCmd(server, args)
 	case "signal":
 		runSignalCmd(server, args)
 	case "get":
@@ -196,7 +199,8 @@ func usage() {
   genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
   genctl external-tasks [--process <name>] [--version <n>] [--task <id>] [--since <when>] [--until <when>] [--json]
   genctl get      <instance-id> [--resolve] [--json]
-  genctl logs     [--level <level>] [--since <when>] [--until <when>] [--time clock|full] [--recursive] [--resolve] [--mode basic|detail|json] <instance-id>
+  genctl object   <ref>
+  genctl logs     [--level <level>] [--since <when>] [--until <when>] [--time clock|full] [--recursive] [--mode basic|detail|json] <instance-id>
   genctl pause    <instance-id>
   genctl resume   <instance-id>
   genctl retry    [--force] <instance-id>
@@ -251,8 +255,10 @@ Time zones:
   so machine output never depends on who ran the command.
   --json    machine-readable output: a list (instances/external-tasks) prints its
             raw items as a JSON array; get prints the raw instance object
-  --resolve get/logs: inline externalized context values/payloads instead of
-            {ref, size} references
+  --resolve get: fetch the values listed under "objects" and put them back where
+            they belong. logs never resolves - a trail is scanned, not read, and
+            those payloads are large by definition; it prints the ref instead, and
+            "genctl object <ref>" fetches the one you want.
   -q        with run, print only the new instance id (id=$(genctl run NAME -q));
             with resolve/signal, suppress the confirmation line
 

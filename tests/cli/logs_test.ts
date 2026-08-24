@@ -242,10 +242,11 @@ test("logs — the cap is a fixed default, not a flag; --since is the way past i
 
 // ── payloads ────────────────────────────────────────────────────────────────────
 
-test("logs — an externalized payload shows its {ref, size} reference until --resolve", async () => {
-  // Past the inline threshold the payload lives in the object store, so the trail carries
-  // a reference rather than the bytes. Exercised through the compiled binary, so the
-  // data_ref → body rendering is covered and not just the HTTP layer.
+test("logs — an externalized payload shows its ref, and `object` fetches it", async () => {
+  // Past the inline threshold the payload lives in the object store, so the trail carries a
+  // handle rather than the bytes. `logs` never resolves: a trail is scanned, not read, and these
+  // payloads are large by definition — printing the ref and fetching the one that matters is
+  // the whole point of the split. specs/object-store.md.
   const name = uid("biglogs");
   runCli(bin, ["apply", "-f", writeDefs([blobInputDef(name)])]);
   const id = runCli(bin, ["run", name, "--input", JSON.stringify({ blob: BIG_BLOB }), "-q"])
@@ -257,11 +258,11 @@ test("logs — an externalized payload shows its {ref, size} reference until --r
   expect(plain.stdout).toMatch(/input=\{"ref":"[0-9a-f]{32}","size":\d+\}/);
   expect(plain.stdout).not.toContain("BBBBBBBBBB");
 
-  const resolved = runCli(bin, ["logs", id, "--resolve"]);
-  expect(resolved.ok).toBe(true);
-  expect(resolved.stdout).toContain("BBBBBBBBBB");
-  // The value replaces the reference rather than sitting beside it.
-  expect(resolved.stdout).not.toMatch(/"ref":"[0-9a-f]{32}"/);
+  // The escape hatch: fetch the one payload by the ref the trail printed.
+  const ref = plain.stdout.match(/"ref":"([0-9a-f]{32})"/)![1];
+  const fetched = runCli(bin, ["object", ref]);
+  expect(fetched.ok, fetched.stderr).toBe(true);
+  expect(fetched.stdout).toContain("BBBBBBBBBB");
 }, 15_000);
 
 // ── missing instance ────────────────────────────────────────────────────────────

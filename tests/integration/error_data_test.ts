@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { client, startMockService, waitForInstance } from "../helpers/client.ts";
+import { client, startMockService, waitForInstance, objectAt } from "../helpers/client.ts";
 
 // A 4xx declared in `responses` is typed and routed at once: it still raises http.404 and
 // still runs on_error, and the body it carried arrives at the handler as error.data. Without
@@ -200,9 +200,13 @@ test("error.data — a large error body externalizes and is still readable", asy
   const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
   const ctx = (data?.context ?? {}) as any;
   expect(ctx.outputs?.handler).toEqual({ readable: true });
-  // Served as a reference, which is what says the body went to the object store instead of
+  // Listed rather than carried, which is what says the body went to the object store instead of
   // swelling the instance row.
-  expect(ctx.error?.data?.ref, "a body past the cutoff must externalize").toBeDefined();
+  expect(ctx.error?.data, "the slot is absent, not a marker").toBeUndefined();
+  expect(
+    objectAt(data, ["context", "error", "data"]),
+    "a body past the cutoff must externalize",
+  ).toBeDefined();
   expect(ctx.error?.code).toBe("http.422");
 
   failing.stop();

@@ -387,10 +387,30 @@ only real values:
   plausible object it will treat as data — and a client that reads the section, which is the
   contract, sees no ambiguity at all.
 
-`resolve=true` disappears from the API — **on logs too**. A log entry is not a special kind of
-response: if its payload was externalized, it appears in the `objects` section like any other
-value and the recipient resolves it. `HydrateContext` goes with it, and so does the
-preview-plus-`data_ref` shape that existed only to make an unresolvable payload legible.
+`resolve=true` disappears from the API — **on logs too**, along with `HydrateContext` and the
+truncated preview that existed only to make an unresolvable payload legible. A log entry lists
+its own externalized payload, the same way an instance detail lists its context slots; §A section
+belongs to whatever object owns its values is where the paths are rooted and why.
+
+### A section belongs to whatever object owns its values [decided 2026-08-24]
+
+The paths are rooted at the object carrying the `objects` field — not at the response. On an
+instance detail those coincide: the body owns the context, so a path reads
+`["context", "outputs", "x"]`. On a **list they do not**, and each *entry* carries its own
+section with paths rooted at the entry: `["data"]`, never `["items", 3, "data"]`.
+
+The distinction is not "logs are special", it is that a path made of **names** is stable under
+anything a client does, while a path containing a **position** is valid for exactly one
+unmodified page. `genctl` accumulates pages into one slice and reverses rows before rendering
+([http.go](../cmd/genctl/http.go) `listHead` / `fetchOrdered`), so page two's `items[3]` is
+`all[53]` before anything reads it. Rooting the section at the entry removes the question: the
+section travels with its owner, and paging, sorting and streaming are none of its business.
+
+**[built] The first cut got this wrong twice** — once with response-rooted paths into a list
+(broken by the accumulate-and-reverse above), then by giving log entries a bare `data_ref`
+instead. The second was defensible on ambiguity grounds and still wrong on shape: one concept
+should have one spelling, and `objects` is it. A recipient now implements the protocol once,
+against "this object lists its own values", and applies it wherever it finds the field.
 
 ### What the CLI does instead, and where it declines to help
 
@@ -428,12 +448,18 @@ on every run — and it is the same code a worker needs.
    and log paths on claims, `--object-grace`, `GetLogObject` gone, `ResolveObject` without its
    owner. Both stress tests ported — `gc_chaos` now reports `shared=25` of 32 objects under
    crash chaos, which is the cross-instance dedup this exists for, observed rather than argued.
-2. **Definition objects.** Externalize large Shape literals at apply time; pass refs through
-   evaluation; a scoped read endpoint.
-3. **The wire.** The `objects` section, `GET /objects/{hash}`, `resolve=true` removed, genctl
-   splicing client-side.
-4. **Worker caching.** The evaluator follows the `url` in the objects section and caches by
-   hash — immutable by construction, so no invalidation.
+2. **The wire.** The `objects` section, `GET /objects/{hash}`, `resolve=true` and
+   `HydrateContext` deleted, log entries listed like any other value, genctl splicing
+   client-side plus `genctl object`.
+3. **Definition objects.** Externalize large Shape literals at apply time; pass `ObjectRef`
+   leaves through evaluation.
+4. **Worker caching.** The evaluator follows the `objects` section and caches by hash.
+
+**The wire comes before definition objects, which is not the order this doc first proposed.**
+Definition objects put a `{ref}` into an external task's `input`, so a worker claiming that task
+would receive an in-band `{ref, size}` marker — exactly the shape §The wire exists to delete, and
+its tests would encode it. Building the carrier before the thing it carries is the only order
+that does not ship a shape twice.
 
 ## Open
 

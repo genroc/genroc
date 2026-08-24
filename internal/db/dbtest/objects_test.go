@@ -21,7 +21,7 @@ func bigString(tag string) string {
 }
 
 // TestObjects_BigValueRoundTrip verifies that a large value-slot is externalized,
-// resolves back to the same value via HydrateContext, and that a small value stays
+// resolves back to the same value slot by slot, and that a small value stays
 // inline.
 func TestObjects_BigValueRoundTrip(t *testing.T) {
 	for _, b := range testBackends(t) {
@@ -57,9 +57,7 @@ func TestObjects_BigValueRoundTrip(t *testing.T) {
 				t.Fatalf("expected huge output to be a marker, got %T", outs["huge"])
 			}
 
-			if err := b.db.HydrateContext(got); err != nil {
-				t.Fatalf("HydrateContext: %v", err)
-			}
+			resolveAll(t, b.db, got)
 			if got.ContextData["input"] != big {
 				t.Errorf("hydrated input mismatch")
 			}
@@ -130,9 +128,7 @@ func TestObjects_DerefKeepsItForTheGraceWindow(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance after overwrite: %v", err)
 			}
-			if err := b.db.HydrateContext(r2); err != nil {
-				t.Fatalf("HydrateContext: %v", err)
-			}
+			resolveAll(t, b.db, r2)
 			if r2.ContextData["outputs"].(map[string]any)["loop"] != bigString("v2") {
 				t.Errorf("v2 output not preserved")
 			}
@@ -406,5 +402,33 @@ func TestObjects_ResurrectionAgainstALiveSweeper(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// resolveAll materializes every marker in a context, which is what a CLIENT now does with the
+// objects section a response lists. HydrateContext used to do it server-side behind
+// ?resolve=true; both are gone, and a test doing it by hand is closer to the real path than a
+// server-side convenience was.
+func resolveAll(t *testing.T, db *dbpkg.DB, inst *model.ProcessInstance) {
+	t.Helper()
+	var walk func(v any) any
+	walk = func(v any) any {
+		switch t2 := v.(type) {
+		case *model.ObjectRef:
+			got, err := db.ResolveObject(context.Background(), t2)
+			if err != nil {
+				t.Fatalf("ResolveObject %s: %v", t2.Ref, err)
+			}
+			return got
+		case map[string]any:
+			for k, val := range t2 {
+				t2[k] = walk(val)
+			}
+			return t2
+		}
+		return v
+	}
+	for k, v := range inst.ContextData {
+		inst.ContextData[k] = walk(v)
 	}
 }

@@ -164,53 +164,6 @@ func (db *DB) applyContextObjectDiff(ctx context.Context, qtx *dbgen.Queries, in
 	return nil
 }
 
-// HydrateContext resolves every externalized value-slot in inst.ContextData in place,
-// replacing *model.ObjectRef markers with their loaded values. Used by the API detail
-// view, which needs the full context materialized (then redacted) rather than lazily.
-func (db *DB) HydrateContext(inst *model.ProcessInstance) error {
-	resolve := func(v any) (any, error) {
-		ref, ok := v.(*model.ObjectRef)
-		if !ok {
-			return v, nil
-		}
-		val, err := db.loadObjectValue(context.Background(), ref.Ref)
-		if errors.Is(err, sql.ErrNoRows) {
-			// The value was superseded (and its object deleted) between reading the row
-			// and hydrating it — a benign race for the detail view; show it as absent.
-			return nil, nil
-		}
-		return val, err
-	}
-	for _, key := range []string{"input", "output"} {
-		if v, ok := inst.ContextData[key]; ok {
-			rv, err := resolve(v)
-			if err != nil {
-				return err
-			}
-			inst.ContextData[key] = rv
-		}
-	}
-	if ev, ok := inst.ContextData["error"].(map[string]any); ok {
-		if d, hasData := ev["data"]; hasData {
-			rv, err := resolve(d)
-			if err != nil {
-				return err
-			}
-			ev["data"] = rv
-		}
-	}
-	if outs, ok := inst.ContextData["outputs"].(map[string]any); ok {
-		for k, v := range outs {
-			rv, err := resolve(v)
-			if err != nil {
-				return err
-			}
-			outs[k] = rv
-		}
-	}
-	return nil
-}
-
 // WriteLogObject records a (pre-redacted) log payload too large to keep inline and returns a
 // reference. The log's claim carries the retention horizon so the object outlives its log row;
 // content that collides with an existing object shares it, and only the claim is added.

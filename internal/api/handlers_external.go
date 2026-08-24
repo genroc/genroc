@@ -61,12 +61,17 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 	if inst.WakeAt != nil {
 		deadline = inst.WakeAt.Format(time.RFC3339)
 	}
+	// The task input can hold externalized values (a bundle embedded in a definition, once
+	// those become objects), so a queue entry lists them the same way a log entry does.
+	var objects []ObjectEntry
+	input := extractObjects(ext["input"], []any{"input"}, &objects)
 	return ExternalTaskResp{
 		Token:        token,
 		Process:      inst.ProcessName,
 		Version:      inst.ProcessVersion,
 		TaskID:       task.ID,
-		Input:        ext["input"],
+		Input:        input,
+		Objects:      objects,
 		ResultSchema: resultSchema,
 		Raises:       raises,
 		WaitingSince: inst.UpdatedAt.Format(time.RFC3339),
