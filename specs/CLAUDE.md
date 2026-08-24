@@ -88,9 +88,16 @@ behavior while the spec stays put, answering a different question. See
   time, which is also the argument for not scheduling the engine-side one. Closes with why a
   resolver registry is **not the plugin door** [custom-tasks.md](custom-tasks.md) rules out:
   author time, author's machine, ordinary data on the wire.
-- [external-task-queue.md](external-task-queue.md) — **BUILT through phase 2** (error channel
-  2026-08-23; claim/lease/renew/release 2026-08-24). `external.lost` and the evaluator
-  switchover remain proposal. Turns `external` into a queue a worker fleet **pulls** from. Opens by discarding the usual reason for moving
+- [external-task-queue.md](external-task-queue.md) — **BUILT through phase 3** (error channel
+  2026-08-23; claim/lease/renew/release and `external.lost` 2026-08-24). Only the long-poll and
+  the evaluator switchover remain proposal. Turns `external` into a queue a worker fleet
+  **pulls** from. One thing it proposed was **dropped as unsound** on contact with the code:
+  splitting `external.timeout` so a never-claimed timeout counts as never-reached and stays
+  retryable under `only_once`. `GET /external-tasks` publishes `input` to any caller without
+  claiming — that is what the two-part token is for — so "never claimed" does not prove "never
+  reached", and the loosening would break at-most-once for exactly the callers not using the
+  claim API. Foreclosed rather than deferred: it needs the list endpoint to stop exposing
+  `input`, which is the approval path's whole purpose. Opens by discarding the usual reason for moving
   [`evaluator/`](../evaluator/README.md) off `fetch` — requests are not lost under overload,
   since a failed fetch is a routed code and the instance stays durable; what overload
   produces is a worse *code* (`http.timeout`, unknowable, never retried on `only_once`),

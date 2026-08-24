@@ -119,6 +119,11 @@ const (
 	// endpoint reads input from here and derives the token from the row's task_epoch;
 	// never exposed as process output.
 	CtxExternal = "_external"
+	// CtxExternalLost, inside _external, marks an arming whose holder's claim lapsed without an
+	// answer on an only_once task. It is written INSTEAD of handing the work out again, and the
+	// engine turns it into errcode.ExternalLost on its next claim. A marker rather than a
+	// derivation: external_worker_id alone cannot say whether the lapse was already reported.
+	CtxExternalLost = "lost"
 	// CtxExternalResult holds a submitted, validated result placed by the resolve API.
 	// Its presence is how the engine tells "result arrived" from "first arrival".
 	CtxExternalResult = "_external_result"
@@ -211,6 +216,12 @@ type ProcessInstance struct {
 	// was non-null) rather than picked up at a clean task boundary. It signals that
 	// the current task may have been interrupted mid-execution on the previous owner.
 	ReclaimedExpired bool
+
+	// ExternalReclaimed is ReclaimedExpired for the external-task claim: set by
+	// ClaimExternalTasks when this row already carried an external_worker_id, i.e. a previous
+	// holder's claim lapsed without an answer. Transient and never persisted. On an only_once
+	// task it is what stops the work being handed out a second time.
+	ExternalReclaimed bool
 
 	// LoadedObjectHashes is the set of process_objects hashes the value-slots
 	// (input/outputs/output) referenced when this instance was read. The write path

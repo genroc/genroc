@@ -309,3 +309,104 @@ func expire(t *testing.T) {
 	t.Helper()
 	dbpkg.AdvanceClock(2 * shortLease)
 }
+
+// TestExternalClaim_DoesNotDelayTheEngineTimeout is the payoff of separate columns, stated as
+// the thing a "simplification" back onto worker_id/lease_expires_at would break: a live claim
+// must not hold the engine off the row, so external.timeout still fires the moment the task's
+// own deadline passes. It needs no production code to pass — that is exactly why it needs a
+// test, since nothing else would notice the day the columns are shared.
+func TestExternalClaim_DoesNotDelayTheEngineTimeout(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			// Deadline already passed, so the engine owes this row external.timeout now.
+			past := dbpkg.Now().Add(-time.Minute)
+			insertExternalParked(t, b.db, "inst-clock", 0, &past)
+			// Claim it out of band. ClaimExternalTasks would refuse a task past its deadline,
+			// so write the claim directly: the point is a HOLDER on the row, however it got there.
+			claimDirect(t, b.db, "inst-clock", "w1", claimLease)
+
+			got, err := b.db.ClaimInstances("engine-1", time.Minute, 10, dbpkg.AllowTakeover())
+			if err != nil {
+				t.Fatalf("ClaimInstances: %v", err)
+			}
+			for _, inst := range got {
+				if inst.ID == "inst-clock" {
+					return // the engine took it despite the live claim, which is the property
+				}
+			}
+			t.Fatal("a live external claim held the engine off the row; the task deadline is authoritative and external.timeout must fire on time")
+		})
+	}
+}
+
+// TestClaimExternalTasks_ReportsAReclaim covers ExternalReclaimed on BOTH engines, which the
+// e2e cannot: the two claim paths derive it differently — Postgres from a prev_holder column
+// carried through the CTE, SQLite from the row scanned before the UPDATE — and the Postgres one
+// is a hand-written scan list that must stay in step with instanceColumns.
+func TestClaimExternalTasks_ReportsAReclaim(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertExternalParked(t, b.db, "inst-recl", 0, nil)
+
+			first, err := b.db.ClaimExternalTasks("w1", shortLease, 1, "", 0, "")
+			if err != nil || len(first) != 1 {
+				t.Fatalf("first claim: got %d err=%v", len(first), err)
+			}
+			if first[0].ExternalReclaimed {
+				t.Fatal("a first claim reported a re-claim; nothing held this row before")
+			}
+
+			expire(t)
+			second, err := b.db.ClaimExternalTasks("w2", shortLease, 1, "", 0, "")
+			if err != nil || len(second) != 1 {
+				t.Fatalf("re-claim: got %d err=%v", len(second), err)
+			}
+			if !second[0].ExternalReclaimed {
+				t.Fatal("a re-claim after a lapsed hold did not report it; on an only_once task this is what stops the work being run twice")
+			}
+		})
+	}
+}
+
+// TestDeliverSignal_DefersToALiveClaim: a signal carries no handle, so it has nothing to fence
+// with. DeliverSignal already refuses to race the engine's live lease by buffering; a claim is
+// the same situation with a different holder and gets the same treatment.
+func TestDeliverSignal_DefersToALiveClaim(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			insertExternalParked(t, b.db, "inst-sigclaim", 0, nil)
+
+			// Armed and unclaimed: delivered outright.
+			delivered, err := b.db.DeliverSignal(ctx, "inst-sigclaim", "approval", "s0",
+				model.ExternalOutcome{Result: map[string]any{"n": 1}})
+			if err != nil || !delivered {
+				t.Fatalf("armed+unclaimed: delivered=%v err=%v, want delivered", delivered, err)
+			}
+
+			// Now park it again and put a live claim on it.
+			insertExternalParked(t, b.db, "inst-sigclaim2", 0, nil)
+			if _, err := b.db.ClaimExternalTasks("w1", claimLease, 1, "", 0, ""); err != nil {
+				t.Fatalf("claim: %v", err)
+			}
+			delivered, err = b.db.DeliverSignal(ctx, "inst-sigclaim2", "approval", "s1",
+				model.ExternalOutcome{Result: map[string]any{"n": 2}})
+			if err != nil {
+				t.Fatalf("signal under a live claim: %v", err)
+			}
+			if delivered {
+				t.Fatal("a signal answered over a live claim; it must buffer instead, as it does for the engine's own lease")
+			}
+		})
+	}
+}
+
+// claimDirect writes a claim onto a row the claim API would not offer, so a test can put a
+// holder on an already-due task. It writes only the claim columns — the same three
+// ClaimExternalTasks writes — so it cannot accidentally prove a property by touching more.
+func claimDirect(t *testing.T, db *dbpkg.DB, instanceID, worker string, dur time.Duration) {
+	t.Helper()
+	if err := db.ClaimExternalTaskDirect(context.Background(), instanceID, worker, dur); err != nil {
+		t.Fatalf("claimDirect: %v", err)
+	}
+}

@@ -42,6 +42,7 @@ const (
 	EventExternalResolved = "extern_resolved"
 	EventExternalTimeout  = "extern_timeout"
 	EventExternalFailed   = "extern_failed"
+	EventExternalLost     = "extern_lost"
 	// EventLeaseLost marks an advance whose write the fence refused: the row was
 	// re-granted mid-flight and the outcome dropped. It explains a work_started with no
 	// completion, and a stream of them is what replaced the fatal overwhelm exit.

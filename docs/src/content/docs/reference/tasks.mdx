@@ -42,7 +42,7 @@ When `true`, the engine guarantees at-most-once execution:
   `on_error` rules carrying `not_reached: true`.
 - A rule that is not restricted to `pre.*` needs `not_reached: true` **and** must name exact
   codes — no wildcards.
-- `http.timeout`, `http.disconnected`, `external.timeout` and `only_once.interrupted` can
+- `http.timeout`, `http.disconnected`, `external.timeout`, `external.lost` and `only_once.interrupted` can
   never be retried at all: the request left and nothing came back, so nothing can be
   asserted about it.
 
@@ -110,7 +110,8 @@ Catchable engine codes, reported by an action task's call:
 | `output.parse` | The response body is not valid JSON. |
 | `output.too_large` | The response body exceeds the fetch response cap. |
 | `output.invalid` | The body does not validate against the schema declared for it. |
-| `external.timeout` | An `external` task's deadline passed with no submitted result. |
+| `external.timeout` | An `external` task's deadline passed with no submitted outcome. |
+| `external.lost` | A worker's claim on an `only_once` `external` task lapsed with no answer, so the task was not handed out again. |
 
 Internal `engine.*` failures — `engine.spawn`, `engine.collect`, `engine.expression` — are
 terminal and are **not** routed through `on_error`.
@@ -505,6 +506,12 @@ Expiry and re-claim are deliberately asymmetric:
 A claim never delays the task's own `timeout`: the deadline is authoritative, and `external.timeout`
 fires on time however long a worker holds the task. Tasks already past their deadline are not
 offered, since answering them would no longer be accepted.
+
+On an [`only_once`](#only_once) task a lapsed claim is handled differently, because the first
+worker may already have done the work: the task is **not** offered again, and the instance
+raises the catchable `external.lost` instead. Like `external.timeout` it is unknowable — nothing
+came back to interpret — so `not_reached` cannot buy a retry for it; catch it and ask the system
+of record what actually happened, exactly as with `only_once.interrupted`.
 
 Either outcome is accepted while the instance is **paused**: a pause suspends execution, not
 delivery, and it is consumed when the tree resumes. A failure signalled before the task arms

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -305,6 +306,24 @@ func (h *Handlers) claimExternalTasks(raw json.RawMessage) Reply {
 		task, err := h.db.CurrentTask(inst)
 		if err != nil || task == nil {
 			continue // a concurrent transition; the claim expires on its own
+		}
+		// An only_once task whose previous holder let its claim lapse must NOT be handed out
+		// again: the first worker may already have done the work, which is the whole guarantee.
+		// The decision lives here rather than in the claim's SQL because only_once is a
+		// property of the definition, and this loop already has it in hand. The grant is undone
+		// and the arming marked instead, so the engine reports external.lost rather than the
+		// instance sitting unclaimable with nothing saying why.
+		if inst.ExternalReclaimed && task.OnlyOnce != nil && *task.OnlyOnce {
+			// A conflict here means the row moved on between the grant and this write -- the
+			// lapsed holder came back late and answered, which is allowed and is the whole
+			// point of "expiry alone writes nothing". It is this ROW's news, not the request's:
+			// failing the call would strand every other task the same batch legitimately
+			// claimed, since those grants are already written and nothing would return them.
+			err := h.db.MarkExternalClaimLost(context.Background(), inst.ID, inst.TaskEpoch)
+			if err != nil && !errors.Is(err, db.ErrConflict) && !errors.Is(err, db.ErrNotFound) {
+				return errReply(err)
+			}
+			continue
 		}
 		entry := externalTaskToResp(inst, task)
 		entry.Token = model.ClaimToken(inst.ID, inst.TaskEpoch, inst.ExternalClaimEpoch)

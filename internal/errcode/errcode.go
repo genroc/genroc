@@ -29,6 +29,7 @@ const (
 	OutputTooLarge   Code = "output.too_large"  // the response body exceeded the size a fetch will read
 	OutputInvalid    Code = "output.invalid"    // the response did not satisfy its result_schema
 	ExternalTimeout  Code = "external.timeout"  // an external task's wait deadline elapsed
+	ExternalLost     Code = "external.lost"     // a worker's claim on an external task expired without an answer
 )
 
 // HTTP formats the code for a rejected HTTP status: HTTP(500) == "http.500". The status is
@@ -58,7 +59,7 @@ func (c Code) IsNotReached() bool { return strings.HasPrefix(string(c), NotReach
 // outcome is undeterminable — never retryable on only_once, not_reached does not override.
 // Enforced at registration AND runtime (pre-rule definitions never re-validate). A slice:
 // validation iterates it and order shows in messages.
-var unknowable = []Code{OnlyOnceInterrupted, HTTPTimeout, HTTPDisconnected, ExternalTimeout}
+var unknowable = []Code{OnlyOnceInterrupted, HTTPTimeout, HTTPDisconnected, ExternalTimeout, ExternalLost}
 
 // Unknowable returns the codes whose outcome cannot be determined either way. The
 // returned slice must not be modified.

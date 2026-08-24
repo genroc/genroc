@@ -275,6 +275,21 @@ func withExternalOutcome(externalData string, o model.ExternalOutcome) (string, 
 	return withExternalSlot(externalData, slot, v)
 }
 
+// withExternalLost sets only the lost marker, with no has_<slot> companion: unlike the two
+// outcome slots it carries no value to distinguish from absence, so a second key would be
+// stored state that says nothing.
+func withExternalLost(externalData string) (string, error) {
+	ext := map[string]any{}
+	if externalData != "" {
+		if err := numeric.Decode([]byte(externalData), &ext); err != nil {
+			return "", fmt.Errorf("decode external_data: %w", err)
+		}
+	}
+	ext[model.CtxExternalLost] = true
+	b, err := json.Marshal(ext)
+	return string(b), err
+}
+
 func withExternalSlot(externalData, slot string, v any) (string, error) {
 	ext := map[string]any{}
 	if externalData != "" {

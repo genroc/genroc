@@ -1,8 +1,8 @@
 # The external-task queue: claim, lease, and an error channel
 
-Status: **Phases 1 and 2 BUILT (error channel 2026-08-23; claim/lease/renew/release
-2026-08-24).** Phase 3 (`external.lost` and the `only_once` split) and phase 4 (long-poll, the
-evaluator switchover) are unbuilt. Turning `external` from a wait point
+Status: **Phases 1-3 BUILT** (error channel 2026-08-23; claim/lease/renew/release and
+`external.lost` 2026-08-24). Phase 4 (long-poll, the evaluator switchover) is unbuilt. The
+`external.timeout` split phase 3 proposed was dropped as unsound — see §`external.lost`. Turning `external` from a wait point
 into a queue a worker fleet pulls from, with the claim/lease machinery the engine already
 runs against `process_instances` — and the error channel `external` has never had. The
 motivating consumer is [`evaluator/`](../evaluator/README.md), which ships as a `fetch`
@@ -278,17 +278,41 @@ the engine's own lease columns — so a test has to pin it, because it is what a
 "simplification" back onto shared columns would break. Cap a granted lease at the remaining
 budget, or at least return the deadline.
 
-### `external.lost`
+### `external.lost` [built 2026-08-24]
 
 An expired claim returns the task to the queue: at-least-once, which is what a queue is for.
-On an `only_once` task that is wrong — the work may have happened — so it raises
-`external.lost`, added to `errcode.Unknowable()` and catchable, the analogue of
+On an `only_once` task that is wrong — the work may have happened — so the task is **not handed
+out again**, and the arming is marked instead. The engine turns the marker into
+`external.lost`: catchable, and in `errcode.Unknowable()`, the analogue of
 `only_once.interrupted` for a worker that is not the engine's.
 
-This is where the claim makes an existing guarantee stronger. `external.timeout` today
-conflates "nobody picked this up" (never reached, safe to retry under `only_once`) with "a
-worker died mid-execution" (unknowable); a claim record separates them for the first time.
-Split it on that axis as part of this work.
+Three mechanics that are not obvious from the outside:
+
+- **The decision is made at claim time, in the API handler, not in the claim's SQL.**
+  `only_once` is a property of the definition and the handler already resolves `CurrentTask`
+  for every claimed row, so that is where it can be known. The claim is granted and then undone
+  (`MarkExternalClaimLost`), which costs a microsecond-long grant nobody sees and keeps the
+  claim query free of a definition lookup it cannot do.
+- **The marker exists because the engine has to be woken.** A parked row is not runnable, so
+  unlike the engine's own `ReclaimedExpired` — derived at the next claim, which the poll loop
+  guarantees — nothing would ever look again. `MarkExternalClaimLost` sets `wake_at = now`
+  alongside the marker; without it a task with no timeout would sit unclaimable forever with
+  nothing saying why.
+- **Detection is best-effort-sooner, the guarantee is not.** The marker is only written when
+  some worker next tries to claim. If the fleet is idle nothing is reported until the task's own
+  deadline, which raises `external.timeout` — also unknowable, so the `only_once` guarantee
+  holds either way. What the claim-time path buys is a *sooner and more specific* answer, not
+  the safety property.
+
+**The timeout split this section used to propose is NOT built, because it is unsound.** The
+argument was that a timeout on a task nobody ever claimed means nothing was reached, so it
+could be retried even under `only_once`. It cannot: `GET /external-tasks` publishes `input` to
+any caller without claiming — that is what the two-part token is for — so an unclaimed task may
+still have been picked up and worked on through the list-then-resolve path. "Never claimed"
+therefore does not prove "never reached", and loosening it would break at-most-once for exactly
+the callers who do not use the claim API. It would become sound only if the list endpoint
+stopped exposing `input`, which is the approval-UI path's whole reason to exist — so this is a
+foreclosed direction, not a deferred one.
 
 ### API surface
 
@@ -311,7 +335,9 @@ answers the latency note, but second — it changes connection lifetime, not the
    `resolve` and `fail` cannot differ on which statuses accept an answer
    (`model.Status.AcceptsExternalOutcome`). Tests: `tests/integration/external_fail_test.ts`.
 2. **Claim, lease, renew, release.** Migration 027 and the mirror of `ClaimInstances`.
-3. **`only_once` fidelity.** `external.lost`, and splitting `external.timeout`.
+3. **`only_once` fidelity.** ✅ **Built 2026-08-24.** `external.lost` (unknowable, catchable),
+   refusing to re-hand an `only_once` task whose holder lapsed, and the marker + `wake_at` that
+   makes the engine report it. The `external.timeout` split was dropped as unsound.
 4. **Long-poll, `queue:` naming, evaluator switchover.** Its loop becomes claim(N) →
    evaluate → resolve | fail, renewing while it runs; the existing failure `kind`s
    (`compile_error`, `threw`, `timeout`, `nonserializable`, `exited`) become authored codes.

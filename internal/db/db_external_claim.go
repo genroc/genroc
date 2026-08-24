@@ -2,7 +2,9 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -56,7 +58,7 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 		// FOR UPDATE SKIP LOCKED so concurrent workers never block on each other.
 		query := `
 			WITH cand AS (
-				SELECT id AS cand_id
+				SELECT id AS cand_id, external_worker_id AS prev_holder
 				FROM process_instances
 				WHERE ` + where + `
 				ORDER BY updated_at ASC, id ASC
@@ -67,7 +69,7 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 			    external_claim_epoch = process_instances.external_claim_epoch + 1
 			FROM cand
 			WHERE process_instances.id = cand.cand_id
-			RETURNING ` + instanceColumns
+			RETURNING ` + instanceColumns + `, cand.prev_holder`
 
 		rows, err := db.exec.QueryContext(ctx, query, append(args, limit, workerID, leaseExpiry)...)
 		if err != nil {
@@ -77,7 +79,9 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 
 		var result []*model.ProcessInstance
 		for rows.Next() {
-			r, err := scanInstance(rows)
+			// scanInstance cannot serve this list: the trailing prev_holder is not part of
+			// instanceColumns, so a column added there has to be added here too.
+			r, prevHolder, err := scanInstanceWithPrevHolder(rows)
 			if err != nil {
 				return nil, err
 			}
@@ -85,6 +89,7 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 			if err != nil {
 				return nil, err
 			}
+			inst.ExternalReclaimed = prevHolder.Valid && prevHolder.String != ""
 			result = append(result, inst)
 		}
 		return result, rows.Err()
@@ -119,6 +124,7 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 			rows.Close()
 			return nil, err
 		}
+		inst.ExternalReclaimed = inst.ExternalWorkerID != nil // prior holder present => a lapsed claim
 		result = append(result, inst)
 		ids = append(ids, inst.ID)
 	}
@@ -218,4 +224,82 @@ func (db *DB) ReleaseExternalClaim(ctx context.Context, instanceID string, taskE
 		}
 		return nil
 	})
+}
+
+// scanInstanceWithPrevHolder scans instanceColumns plus the trailing prev_holder the Postgres
+// claim returns. Kept beside the claim rather than in db_instances.go because that trailing
+// column exists only here.
+func scanInstanceWithPrevHolder(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, sql.NullString, error) {
+	var r dbgen.ProcessInstance
+	var prev sql.NullString
+	err := s.Scan(
+		&r.ID, &r.ProcessName, &r.ProcessVersion, &r.ParentID,
+		&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.Error,
+		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
+		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
+		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
+		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch,
+		&prev,
+	)
+	return r, prev, err
+}
+
+// MarkExternalClaimLost records that an only_once task's holder let its claim lapse without
+// answering, and wakes the engine to report it. It is written INSTEAD of handing the work out
+// again: the whole point of only_once is that the second worker must not run what the first may
+// already have done.
+//
+// wake_at is moved to now (never later than a deadline already set) so the engine picks the row
+// up on its next poll and runExternal turns the marker into external.lost. Without it a task
+// with no timeout would sit unclaimable forever, with nothing reporting why.
+func (db *DB) MarkExternalClaimLost(ctx context.Context, instanceID string, taskEpoch int64) error {
+	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
+		var externalData string
+		err := raw.QueryRowContext(ctx,
+			`SELECT external_data FROM process_instances WHERE id = ?`+db.forUpdate(), instanceID).
+			Scan(&externalData)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("external task: %w", ErrNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("lock instance: %w", err)
+		}
+		marked, err := withExternalLost(externalData)
+		if err != nil {
+			return err
+		}
+		now := nowMillis()
+		res, err := raw.ExecContext(ctx,
+			`UPDATE process_instances
+			   SET external_data = ?, wake_at = ?, updated_at = ?,
+			       external_worker_id = NULL, external_lease_expires_at = NULL,
+			       external_claim_epoch = external_claim_epoch + 1
+			 WHERE id = ? AND task_epoch = ? AND wait_state = 'external'`,
+			marked, now, now, instanceID, taskEpoch)
+		if err != nil {
+			return fmt.Errorf("mark external claim lost: %w", err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("task is no longer parked on this arming: %w", ErrConflict)
+		}
+		return nil
+	})
+}
+
+// ClaimExternalTaskDirect puts a claim on one row by id, bypassing the queue predicate. It
+// exists for tests that need a holder on a task ClaimExternalTasks would not offer — an
+// already-due one, for instance, where the point is the holder rather than how it was granted.
+// It writes exactly the three claim columns, so it cannot prove a property by touching more.
+func (db *DB) ClaimExternalTaskDirect(ctx context.Context, instanceID, workerID string, leaseDur time.Duration) error {
+	_, err := db.exec.ExecContext(ctx,
+		`UPDATE process_instances
+		   SET external_worker_id = ?, external_lease_expires_at = ?,
+		       external_claim_epoch = external_claim_epoch + 1
+		 WHERE id = ?`,
+		workerID, nowMillis()+leaseDur.Milliseconds(), instanceID)
+	return err
 }

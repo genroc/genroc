@@ -369,13 +369,26 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 		return res, nil
 	}
 
-	// Phase 3: still parked at 'external' — the claim only returns us once the timeout
-	// deadline passed, so no result arrived in time.
+	// Phase 3: still parked at 'external' — the claim only returns us because the wait ended
+	// without an answer, either way round:
+	//   - a holder's claim lapsed on an only_once task, which the claim API marked rather than
+	//     hand the work out twice (external.lost), or
+	//   - the deadline passed (external.timeout).
+	// Both are in errcode.Unknowable(): the work may or may not have taken effect, and only the
+	// definition can find out. They are separate codes so an on_error rule can tell "a worker
+	// died holding this" from "nobody answered in time" — different questions to ask the system
+	// of record, and different people to page.
 	if inst.WaitState == model.WaitStateExternal {
+		ext, _ := inst.ContextData[model.CtxExternal].(map[string]any)
+		lost, _ := ext[model.CtxExternalLost].(bool)
+		code, msg, event := errcode.ExternalTimeout, "external task timed out", model.EventExternalTimeout
+		if lost {
+			code, msg, event = errcode.ExternalLost, "the worker holding this task did not answer before its claim expired", model.EventExternalLost
+		}
 		inst.WaitState = model.WaitStateNone
 		delete(inst.ContextData, model.CtxExternal)
-		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventExternalTimeout, Task: task.ID, Msg: "external task timed out", Code: errcode.ExternalTimeout})
-		return nil, stop(e.handleCallError(inst, task, "external task timed out", errcode.ExternalTimeout))
+		e.audit(inst, logEvent{Level: model.LogWarn, Event: event, Task: task.ID, Msg: msg, Code: code})
+		return nil, stop(e.handleCallError(inst, task, msg, code))
 	}
 
 	// Phase 1: first arrival. Atomically either consume a signal already buffered for this

@@ -204,3 +204,156 @@ test("claim rejects a missing worker_id, and renew rejects a non-claim token", a
   });
   expect(badToken, "renew must refuse a token that names no claim").toBeTruthy();
 });
+
+// Phase 3: a claim that lapses on an only_once task. The work may already have taken effect,
+// so it must never be handed out again — and the instance must learn why rather than sitting
+// unclaimable. specs/external-task-queue.md §external.lost.
+
+async function defineOnlyOnce(name: string, extra: Record<string, unknown> = {}) {
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: "work",
+          action: { type: "external" as const, input: { job: "charge" }, result_schema: {} },
+          only_once: true,
+          output: "$: self.result",
+          ...extra,
+          switch: [{ goto: "end" }],
+        },
+        { id: "checked", output: { route: "checked", code: "$: error.code" }, switch: [{ goto: "end" }] },
+      ] as never,
+    },
+  });
+  if (error) throw new Error(`put definition failed: ${JSON.stringify(error)}`);
+}
+
+test("a lapsed claim on an only_once task is never handed out again, and raises external.lost", async () => {
+  const name = `claim_lost_${crypto.randomUUID()}`;
+  await defineOnlyOnce(name, { on_error: [{ code: ["external.lost"], goto: "$checked" }] });
+  const id = await start(name);
+
+  // A short lease, then let it lapse without answering. Real time rather than /tick: this
+  // suite's server is poll-driven, and /tick is only served with --poll 0.
+  const [first] = await claimWhenReady("worker-1", name, { lease_ms: 300 });
+  expect(first.token.split(".").length).toBe(3);
+  await new Promise((r) => setTimeout(r, 500));
+
+  // The second worker must get NOTHING: worker-1 may already have charged the card.
+  const deadline = Date.now() + 20_000;
+  let handedOut = true;
+  while (Date.now() < deadline) {
+    const got = await claim("worker-2", name);
+    if (got.length === 0) {
+      handedOut = false;
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  expect(handedOut, "an only_once task whose holder lapsed was handed to a second worker").toBe(false);
+
+  // And it does not just sit there: the engine reports why, catchably.
+  expect(await waitForInstance(id, 20_000)).toBe("completed");
+  expect((await outputsOf(id)).checked).toEqual({ route: "checked", code: "external.lost" });
+});
+
+test("external.lost is unknowable — an only_once task cannot buy a retry with not_reached", async () => {
+  const name = `claim_lost_retry_${crypto.randomUUID()}`;
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: "work",
+          action: { type: "external" as const, input: {}, result_schema: {} },
+          only_once: true,
+          // Nothing came back, so nothing can be asserted about what happened: not_reached is
+          // a claim about an error that RETURNED, and this one did not.
+          on_error: [{ code: ["external.lost"], not_reached: true, retry: { attempts: 2 }, goto: "$checked" }],
+          switch: [{ goto: "end" }],
+        },
+        { id: "checked", switch: [{ goto: "end" }] },
+      ] as never,
+    },
+  });
+  expect(error, "not_reached must be refused for external.lost").toBeTruthy();
+  expect(JSON.stringify(error)).toContain("external.lost");
+});
+
+test("a lapsed claim on an ordinary task just returns to the queue", async () => {
+  const name = `claim_lapse_retryable_${crypto.randomUUID()}`;
+  await define(name); // not only_once
+  const id = await start(name);
+
+  const [first] = await claimWhenReady("worker-1", name, { lease_ms: 300 });
+  await new Promise((r) => setTimeout(r, 500));
+
+  // At-least-once is what a queue is for: without only_once, re-running is the right default.
+  const [second] = await claimWhenReady("worker-2", name);
+  expect(second.token).not.toBe(first.token);
+  const { error } = await client.POST("/external-tasks/resolve", {
+    body: { token: second.token, result: { priced: 7 } },
+  });
+  expect(error, `the second holder was refused: ${JSON.stringify(error)}`).toBeUndefined();
+  expect(await waitForInstance(id)).toBe("completed");
+  expect((await outputsOf(id)).work).toEqual({ priced: 7 });
+});
+
+test("a lost-claim row does not strand the rest of the batch, and filters isolate processes", async () => {
+  const lostName = `batch_lost_${crypto.randomUUID()}`;
+  const okName = `batch_ok_${crypto.randomUUID()}`;
+  await defineOnlyOnce(lostName, { on_error: [{ code: ["external.lost"], goto: "$checked" }] });
+  await define(okName);
+  const lostId = await start(lostName);
+  const okId = await start(okName);
+
+  // Let the only_once task's holder lapse, so the next claim has to mark it lost.
+  await claimWhenReady("worker-1", lostName, { lease_ms: 300 });
+  await new Promise((r) => setTimeout(r, 500));
+
+  // A claim naming no process spans both. The lapsed row is skipped, not fatal: failing the
+  // request would leave the other task's grant written and never handed to anyone.
+  const deadline = Date.now() + 20_000;
+  let got: any[] = [];
+  while (Date.now() < deadline) {
+    const { data, error } = await client.POST("/external-tasks/claim", {
+      body: { worker_id: "worker-2", limit: 10 } as never,
+    });
+    expect(error, `a batch containing a lapsed only_once row failed: ${JSON.stringify(error)}`).toBeUndefined();
+    got = ((data as any)?.items ?? []).filter((j: any) => j.process === okName);
+    if (got.length) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  expect(got.length, "the claimable task in the batch was never handed out").toBe(1);
+
+  const { error } = await client.POST("/external-tasks/resolve", {
+    body: { token: got[0].token, result: { priced: 11 } },
+  });
+  expect(error, `the batch's good row could not be answered: ${JSON.stringify(error)}`).toBeUndefined();
+  expect(await waitForInstance(okId)).toBe("completed");
+
+  // And the lapsed one still reported itself rather than going quiet.
+  expect(await waitForInstance(lostId, 20_000)).toBe("completed");
+  expect((await outputsOf(lostId)).checked?.code).toBe("external.lost");
+});
+
+test("claim filters by process — one worker fleet does not take another's work", async () => {
+  const mine = `filter_mine_${crypto.randomUUID()}`;
+  const theirs = `filter_theirs_${crypto.randomUUID()}`;
+  await define(mine);
+  await define(theirs);
+  await start(mine);
+  const theirsId = await start(theirs);
+
+  const got = await claimWhenReady("worker-1", mine, { limit: 10 });
+  for (const job of got) {
+    expect(job.process, "a process filter must not hand out another process's work").toBe(mine);
+  }
+
+  // Theirs is untouched and still claimable by its own fleet.
+  const other = await claimWhenReady("worker-2", theirs);
+  expect(other.length).toBe(1);
+  await client.POST("/external-tasks/resolve", { body: { token: other[0].token, result: { priced: 1 } } });
+  expect(await waitForInstance(theirsId)).toBe("completed");
+});
