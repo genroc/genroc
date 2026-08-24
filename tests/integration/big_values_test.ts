@@ -312,3 +312,30 @@ test("a big value round-trips through a child's input and output back to the par
   expect((lazy!.context as any).outputs.spawn.echo).toBe(BLOB);
   expect((lazy!.context as any).output.echo).toBe(BLOB);
 });
+
+// The section's own contract, rather than a value passing through it.
+test("objects — absent when nothing is externalized, and a 404 for a ref that is not there", async () => {
+  const name = `objects_shape_${crypto.randomUUID()}`;
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [{ id: "t", output: { small: "inline" }, switch: [{ goto: "end" }] }],
+      output: "$: outputs.t",
+    } as never,
+  });
+  const { data: started } = await client.POST("/instances", { body: { process: name } });
+  await waitForInstance(started!.id);
+
+  // Nothing crossed the threshold, so there is no section at all — a recipient checks for the
+  // field, and one shape everywhere beats a distinction between absent and empty.
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  expect(data!.objects).toBeUndefined();
+  expect((data!.context as any).output).toEqual({ small: "inline" });
+
+  // A hash nobody holds is a 404, not an empty body: the store either has the content or it
+  // does not, and a caller splicing a stale reference has to be able to tell.
+  const { error } = await client.GET("/objects/{ref}", {
+    params: { path: { ref: "00000000000000000000000000000000" } },
+  });
+  expect(error, "an unknown ref must be refused").toBeTruthy();
+});

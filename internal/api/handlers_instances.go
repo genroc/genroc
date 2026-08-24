@@ -139,7 +139,7 @@ func (h *Handlers) getInstance(id string) Reply {
 	// would ship inline exactly where this is meant to remove it. It mutates the map, which is
 	// safe here and only here: the redacted copy is ours, and an unredacted `inst` is discarded
 	// with this response.
-	objects := []ObjectEntry{}
+	var objects []ObjectEntry
 	ctxData, _ = extractObjects(ctxData, []any{"context"}, &objects).(map[string]any)
 
 	resp := instanceToResp(inst)

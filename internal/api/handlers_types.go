@@ -335,8 +335,10 @@ type InstanceStatusResp struct {
 	// Objects lists the values too large to be carried inline, each with the path in this
 	// response where it belongs. Fetch one with GET /objects/{ref} and put it there; the slot is
 	// ABSENT from context rather than holding a marker, so nothing in the data can be mistaken
-	// for a reference. specs/object-store.md §The wire.
-	Objects []ObjectEntry `json:"objects"`
+	// for a reference. Omitted when there are none, like every other section — a recipient
+	// checks for the field, so one shape everywhere beats a distinction between absent and
+	// empty. specs/object-store.md §The wire.
+	Objects []ObjectEntry `json:"objects,omitempty"`
 }
 
 type LogEntryResp struct {
