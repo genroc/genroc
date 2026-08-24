@@ -30,20 +30,29 @@ loads what that path needs and nothing else.
 
 1. Five on-disk shapes for one idea (`Envelope`, the `outputs` wrapper, `error.data`,
    `external_data`'s sibling `objects` key, `engine_state`), and `loaded` collected by hand at
-   five sites in `decodeContext`.
+   five sites in `decodeContext`. [fixed -- see §1]
 2. `Roots` is name-level (`Outputs []string`), and `buildEnv` resolves whole slots before eval.
 3. `resolveNested` **writes back through `inst.ContextData`**. First read destroys the markers,
    so the next write re-marshals and re-hashes the slot to arrive at the hash it already had.
 
 ## Design
 
-### 1. One slot type -- NOT built, and deliberately
+### 1. One slot type [built 2026-08-24, after the accessor rather than before it]
 
-The accessor was supposed to need it. It does not: hiding five shapes is what an accessor *is*,
-and `Context` hides them behind `At` without any of them changing on disk. Folding
-`external_data` and `error_data` onto one shape needs a JSON-restructuring migration across two
-engines, which buys tidiness and no behaviour. It stays open, and it is easier after this change
-rather than before it, because every reader now goes through one place.
+The accessor was supposed to need this. It did not — hiding five shapes is what an accessor *is*,
+and `Context` hid them behind `At` without any of them changing on disk. So it landed later, as
+tidiness rather than a prerequisite, once a wipe was acceptable (one user, no deployment) and the
+JSON-restructuring migration it would otherwise have needed evaporated.
+
+What the accessor changed is which differences were still earning anything. `error_data` had a
+shape of its own for one reason: reading `error.code` must not load the body. That is
+`model.Context`'s job now — it walks to a path and loads only what the walk passes through — so
+the column stopped needing to express it, and folded onto `Envelope` like the rest.
+
+Every value column is now `Envelope{data, refs}` with paths rooted at the slot, and `loaded` is
+collected in ONE place instead of five. Two things kept their shape and earn it: `outputs_data`
+keeps its `{order, items}` wrapper (per-task cut budgets, completion order), and `engine_state`
+is not a value slot at all — it never carries a reference.
 
 ### 2. The context owns the decoded data, a loader and a memo [built]
 
@@ -152,7 +161,18 @@ on the same object, and the result is one object with two claims -- verified, no
    copy-versus-read-through bit on `Roots`, and the marker-in-operation error. Wishes 1 and 3.
 2. **Path-level `Roots`** -- wish 2. Deferred with its fork undecided (static path analysis
    versus lazy values in eval); §3 records the recommendation.
-3. **The storage-shape unification** and its migration, now optional rather than a prerequisite.
+3. ✅ **The storage-shape unification** — landed 2026-08-24 with **no migration at all**.
+
+   The columns change MEANING, not structure, so an old row decodes to an empty envelope
+   *silently* — an instance would wake with no input and no error and simply carry on. There is
+   no conversion and no shim: the database is wiped by hand, which is what "one user, no
+   deployment" buys. A migration that deleted everyone's state was written first and dropped —
+   it encodes a one-off local action as permanent repo history, and a `DELETE FROM
+   process_instances` living in `migrations/` is a landmine for the first deployment that is not
+   this one.
+
+   If genroc ever has state worth keeping, this is the change that needs a real conversion
+   written for it.
 
 ## Tests, and the one that could not be written where it looked like it belonged
 
