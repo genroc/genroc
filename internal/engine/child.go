@@ -254,9 +254,14 @@ func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInsta
 	if arrVal == nil {
 		return nil, nil
 	}
-	items, ok := arrVal.([]any)
+	// Same boundary as a child input: each element is conformed and stored on a child row.
+	concreteArr, err := e.concrete(inst, arrVal)
+	if err != nil {
+		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q child_list over: %v", task.ID, err)))
+	}
+	items, ok := concreteArr.([]any)
 	if !ok {
-		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q child_list: over did not evaluate to an array (got %T)", task.ID, arrVal)))
+		return nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q child_list: over did not evaluate to an array (got %T)", task.ID, concreteArr)))
 	}
 
 	// One base id (sorts after the parent); siblings are base, base+1, … in element
@@ -285,5 +290,20 @@ func (e *Engine) evalChildInput(inst *model.ProcessInstance, taskID, label strin
 	if err != nil {
 		return nil, fmt.Errorf("task %q %s input: %v", taskID, label, err)
 	}
-	return val, nil
+	return e.concrete(inst, val)
+}
+
+// concrete materializes the references left in an evaluated value, for the two boundaries a
+// marker must not cross. specs/lazy-context.md.
+//
+//   - A CONFORM inspects and normalizes the value (strips undeclared keys, fills defaults), and
+//     cannot do either inside an object it would have to load to see.
+//   - The value lands on ANOTHER instance's row, and a claim is written only for an object this
+//     write produced -- a passed-through marker would leave the child referencing content it
+//     never claimed, which the sweep is entitled to delete.
+//
+// Cross-instance sharing does not need the marker anyway: the child re-cuts the value, the
+// content is identical, and content addressing lands it on the same object with a second claim.
+func (e *Engine) concrete(inst *model.ProcessInstance, v any) (any, error) {
+	return e.context(inst).Materialize(v)
 }

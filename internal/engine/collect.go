@@ -217,7 +217,9 @@ func (e *Engine) buildListChildOutput(task *model.Task, siblings []*model.Proces
 // never a spawn-time copy: the conform normalizes, and a stale schema silently strips
 // fields both sides already agreed on. specs/version-compatibility.md §3a; CLAUDE.md.
 func (e *Engine) resolveAndValidateChildOutput(resultSchema *schema.Schema, child *model.ProcessInstance) (any, error) {
-	output, err := e.resolveValue(child, child.ContextData["output"])
+	// The child's own context: an object is addressed by content, but the memo lives per
+	// instance. Materialized because a schema conform reads every field.
+	output, err := e.context(child).Materialize(child.ContextData["output"])
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +244,7 @@ func (e *Engine) raisedData(task *model.Task, child *model.ProcessInstance, code
 	if sc == nil {
 		return nil, false, nil
 	}
-	raw, err := e.resolveValue(child, childFaultData(child))
+	raw, err := e.context(child).Materialize(childFaultData(child))
 	if err != nil {
 		return nil, false, fmt.Errorf("resolving its data: %v", err)
 	}

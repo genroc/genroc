@@ -344,3 +344,42 @@ test("objects — absent when nothing is externalized, and a 404 for a ref that 
   });
   expect(error, "an unknown ref must be refused").toBeTruthy();
 });
+
+// A value the process only COPIES is never loaded: the marker travels through the expression
+// into the next slot, and the write re-emits the reference it already was. Before this, reading
+// a slot materialized every leaf under it, so a copy cost a load, a re-marshal and a re-hash to
+// arrive at the hash it came off disk with. specs/lazy-context.md.
+test("a copied slot keeps its reference rather than being loaded and rewritten", async () => {
+  const name = `bv_copy_${crypto.randomUUID()}`;
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: {
+        type: "object",
+        properties: { blob: { type: "string" } },
+        required: ["blob"],
+      },
+      // The process output COPIES task a's output whole -- it never reads into it.
+      output: { final: "$: outputs.a" },
+      tasks: [{ id: "a", output: { kept: "$: input.blob" }, switch: [{ goto: "end" }] }],
+    },
+  });
+  const { data: started } = await client.POST("/instances", {
+    body: { process: name, input: { blob: BLOB } },
+  });
+  const id = started!.id;
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const { data, error } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  expect(error).toBeUndefined();
+
+  const source = objectAt(data, ["context", "outputs", "a", "kept"]);
+  const copied = objectAt(data, ["context", "output", "final", "kept"]);
+  expect(source, "the task output's big leaf is externalized").toBeDefined();
+  expect(copied, "and the copy carries a reference at the same place, not an inlined value").toBeDefined();
+  expect(copied!.ref, "the copy must SHARE the object, not write a second one").toBe(source!.ref);
+
+  // And it is still the value it started as.
+  await spliceObjects(data);
+  expect((data!.context as any).output.final.kept).toBe(BLOB);
+});

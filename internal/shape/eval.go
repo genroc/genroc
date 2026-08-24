@@ -77,14 +77,7 @@ func Roots(node any) (expression.Roots, error) {
 			if err != nil {
 				return err
 			}
-			tr := t.RootRefs()
-			r.Input = r.Input || tr.Input
-			r.Error = r.Error || tr.Error
-			r.AllOutputs = r.AllOutputs || tr.AllOutputs
-			r.Outputs = append(r.Outputs, tr.Outputs...)
-			r.SelfPrevious = r.SelfPrevious || tr.SelfPrevious
-			r.SelfResult = r.SelfResult || tr.SelfResult
-			r.ErrorData = r.ErrorData || tr.ErrorData
+			r.Union(t.RootRefs())
 		case []any:
 			for _, vv := range v {
 				if err := walk(vv); err != nil {

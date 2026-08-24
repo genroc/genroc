@@ -271,20 +271,16 @@ func (t *Template) ReferencesSecret(sc schema.Schema) bool {
 
 // RootRefs reports which context roots the embedded expressions read, merged across
 // every block, so the engine lazily resolves only the value-slots a template needs.
+// RootRefs unions the root references of every block. A ${ } interpolation STRINGIFIES its
+// value, so its roots are read through; a `$:` expression hands the value on untouched, so its
+// roots may stay references. specs/lazy-context.md.
 func (t *Template) RootRefs() expression.Roots {
 	var out expression.Roots
 	for _, c := range t.chunks {
 		if c.node == nil {
 			continue
 		}
-		r := expression.RootRefsNode(c.node)
-		out.Input = out.Input || r.Input
-		out.Error = out.Error || r.Error
-		out.AllOutputs = out.AllOutputs || r.AllOutputs
-		out.Outputs = append(out.Outputs, r.Outputs...)
-		out.SelfPrevious = out.SelfPrevious || r.SelfPrevious
-		out.SelfResult = out.SelfResult || r.SelfResult
-		out.ErrorData = out.ErrorData || r.ErrorData
+		out.Union(expression.RootRefsNode(c.node, !t.expr))
 	}
 	return out
 }
@@ -339,6 +335,10 @@ func Get(s string) (*Template, error) {
 }
 
 func stringify(v any) (string, error) {
+	if ref, ok := v.(interface{ ExternalRef() (string, int64) }); ok {
+		hash, _ := ref.ExternalRef()
+		return "", fmt.Errorf("interpolates externalized object %s, which the reference analysis did not load (engine bug)", hash)
+	}
 	switch val := v.(type) {
 	case string:
 		return val, nil

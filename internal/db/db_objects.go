@@ -142,13 +142,20 @@ func (db *DB) applyContextObjectDiff(ctx context.Context, qtx *dbgen.Queries, in
 		}); err != nil {
 			return fmt.Errorf("write object %s: %w", obj.Hash, err)
 		}
+	}
+	// Claim what the slots REFERENCE, not what this write produced. A value can carry a
+	// reference the instance never wrote -- a marker copied through an expression, or one that
+	// crossed from another instance -- and claiming only new objects would leave the row
+	// pointing at content nothing here holds, which the sweep is entitled to delete. Idempotent:
+	// the claim is keyed (hash, kind, owner), so re-claiming what is already held is a no-op.
+	for h := range referenced {
 		if err := qtx.PutObjectRef(ctx, dbgen.PutObjectRefParams{
-			Hash:      obj.Hash,
+			Hash:      h,
 			OwnerKind: string(model.ObjectOwnerInstance),
 			OwnerID:   instanceID,
 			CreatedAt: now,
 		}); err != nil {
-			return fmt.Errorf("claim object %s: %w", obj.Hash, err)
+			return fmt.Errorf("claim object %s: %w", h, err)
 		}
 	}
 	for h := range loaded {

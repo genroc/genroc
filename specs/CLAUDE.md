@@ -138,6 +138,21 @@ behavior while the spec stays put, answering a different question. See
   round-trips natively where `true` needed a custom marshaller in each direction. The `only_once` interaction needed no code at all: the existing
   guard already refuses a retry on a worker-reported code at `PUT /definitions` unless the
   rule carries `not_reached: true`.
+- [lazy-context.md](lazy-context.md) — **BUILT (2026-08-24)** except path-level laziness in
+  expressions, which stays proposal. The read side of the object store: one
+  `Slot` shape, a `Context` that answers a PATH (`outputs.x.y`) and loads only what that path
+  needs, and `Roots` refined from slot names to static path prefixes. Its load-bearing change is
+  the smallest one: `resolveNested` stops writing resolved values back through `ContextData`, so
+  a value nothing read reaches the next write as the reference it already was -- no load, no
+  re-hash. Pass-through *storage* already works (`cutForSize` re-emits an `*ObjectRef` leaf), so
+  the blocker was only ever the read path. What shipped needed one thing the doc did not
+  anticipate — a **copy-versus-read-through** bit on `Roots`, so a reference the expression only
+  copies is never loaded while one it reads into still is (no regression, and none of wish 2's
+  machinery). The slot-shape unification it called a prerequisite turned out not to be one and
+  was dropped. Records why the end-to-end test could not live in e2e: content addressing makes a
+  copied reference and a re-hashed one identical on the wire, so only the in-memory load count
+  can see the difference.
+
 - [object-store.md](object-store.md) — **BUILT (2026-08-24)**; only the config-only narrowing of `secret: true` remains proposal. Re-architects `process_objects` from a per-instance blob
   table into a global content-addressed store (`objects`) with explicit ownership
   (`object_refs`: instance / log / definition). Opens with a measurement rather than a design:

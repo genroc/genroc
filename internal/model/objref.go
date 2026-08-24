@@ -38,6 +38,11 @@ type ObjectRef struct {
 
 func (e Envelope) IsRef() bool { return len(e.Refs) > 0 }
 
+// ExternalRef marks this as an unresolved reference for consumers that must not treat one as a
+// value. The expression evaluator matches on this method rather than the type: model imports
+// expression, so the dependency cannot run the other way. specs/lazy-context.md.
+func (r *ObjectRef) ExternalRef() (string, int64) { return r.Ref, r.Size }
+
 // ObjectOwner is who holds a claim on an object. It governs LIFETIME and nothing else: reads are
 // addressed by content hash and consult no claim, because the address IS the content.
 // specs/object-store.md.

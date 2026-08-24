@@ -122,9 +122,33 @@ func evalNode(node syntax.Node, e env) (any, error) {
 
 // evalMember reads a property. A null, missing, or non-object base yields null,
 // mirroring the optional-chaining semantics of type inference.
+// externalValue is an unresolved reference to a value stored outside the context
+// (model.ObjectRef). Declared as a local interface rather than imported: model imports
+// expression, not the reverse.
+type externalValue interface {
+	ExternalRef() (hash string, size int64)
+}
+
+// checkResolved refuses a reference where a VALUE is required. COPYING one is legal and is how
+// an untouched value reaches the next write without ever being loaded; comparing, indexing or
+// rendering one is not -- it would compute a plausible wrong answer instead of failing. A hit
+// means expression.Roots called a read a copy, and the fix is there, not here.
+// specs/lazy-context.md.
+func checkResolved(v any, what string) error {
+	ref, ok := v.(externalValue)
+	if !ok {
+		return nil
+	}
+	hash, _ := ref.ExternalRef()
+	return fmt.Errorf("%s reads externalized object %s, which the reference analysis did not load (engine bug)", what, hash)
+}
+
 func evalMember(n *syntax.MemberNode, e env) (any, error) {
 	base, err := evalNode(n.Base, e)
 	if err != nil || base == nil {
+		return nil, err
+	}
+	if err := checkResolved(base, "field access ."+n.Name); err != nil {
 		return nil, err
 	}
 	m, ok := base.(map[string]any)
@@ -145,6 +169,9 @@ func evalIndex(n *syntax.IndexNode, e env) (any, error) {
 	if err != nil || base == nil {
 		return nil, err
 	}
+	if err := checkResolved(base, "index access"); err != nil {
+		return nil, err
+	}
 	slice, ok := base.([]any)
 	if !ok {
 		return nil, nil
@@ -161,6 +188,9 @@ func evalIndex(n *syntax.IndexNode, e env) (any, error) {
 func evalKey(n *syntax.KeyNode, e env) (any, error) {
 	base, err := evalNode(n.Base, e)
 	if err != nil || base == nil {
+		return nil, err
+	}
+	if err := checkResolved(base, "key access"); err != nil {
 		return nil, err
 	}
 	key, err := evalNode(n.Key, e)
@@ -239,6 +269,9 @@ func evalCall(n *syntax.CallNode, e env) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkResolved(src, "function "+n.Name); err != nil {
+		return nil, err
+	}
 	// Inference rejects a nullable or non-array source, so a registered definition
 	// cannot reach these; they guard hand-built contexts and stale definitions.
 	if src == nil {
@@ -295,6 +328,12 @@ func evalBinary(n *syntax.BinaryNode, e env) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkResolved(left, "operator "+n.Op); err != nil {
+		return nil, err
+	}
+	if err := checkResolved(right, "operator "+n.Op); err != nil {
+		return nil, err
+	}
 	return op(left, right)
 }
 
@@ -329,6 +368,9 @@ func evalUnary(n *syntax.UnaryNode, e env) (any, error) {
 	}
 	operand, err := evalNode(n.Operand, e)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkResolved(operand, "unary "+n.Op); err != nil {
 		return nil, err
 	}
 	return op(operand)
