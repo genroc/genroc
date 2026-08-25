@@ -244,7 +244,7 @@ func (e *Engine) raisedData(task *model.Task, child *model.ProcessInstance, code
 	if sc == nil {
 		return nil, false, nil
 	}
-	raw, err := e.context(child).Materialize(childFaultData(child))
+	raw, err := e.context(child).Materialize(childRaisedData(child))
 	if err != nil {
 		return nil, false, fmt.Errorf("resolving its data: %v", err)
 	}
@@ -265,12 +265,12 @@ func declaredRaiseSchema(task *model.Task, child *model.ProcessInstance, code st
 	return task.Action.Raises[code]
 }
 
-// childFaultData reads what the raise clause attached, which applyFaultData left on the
-// child's own error.data. A raise that attached nothing reads as nil, and a declared shape
-// that does not admit null reports the mismatch — the caller declared what it did not get.
-func childFaultData(child *model.ProcessInstance) any {
-	errCtx, _ := child.ContextData["error"].(map[string]any)
-	return errCtx["data"]
+// childRaisedData reads what the raise clause attached, which setErrorData left in the
+// child's outbound slot. A raise that attached nothing reads as nil, and a declared shape that
+// does not admit null reports the mismatch — the caller declared what it did not get. Never the
+// child's `error`: that is the error it CAUGHT, which its raise did not choose to forward.
+func childRaisedData(child *model.ProcessInstance) any {
+	return child.ContextData[model.ErrorDataKey]
 }
 
 // spawnIndex reads a child's _spawn_index. It round-trips through JSON (engine_state),

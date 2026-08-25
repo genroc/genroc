@@ -66,7 +66,7 @@ test("child_map in a loop — each pass collects its own keyed batch", async () 
   });
 
   const { status, data } = await run(name, { n: 3 });
-  expect(status, JSON.stringify(data?.error)).toBe("completed");
+  expect(status, JSON.stringify(data?.error_message)).toBe("completed");
   expect(Object.keys((data?.context?.output as any)?.keys ?? {}).sort()).toEqual(["a", "b"]);
 });
 
@@ -92,7 +92,7 @@ test("loop re-entered through a raised child's on_error route", async () => {
   });
 
   const { status, data } = await run(name, { n: 3 });
-  expect(status, JSON.stringify(data?.error)).toBe("completed");
+  expect(status, JSON.stringify(data?.error_message)).toBe("completed");
   expect((data?.context?.output as any)?.rounds).toBe(3);
 });
 
@@ -125,6 +125,6 @@ test("loop re-entered through a call error's on_error route", async () => {
   });
 
   const { status, data } = await run(name, { n: 3 });
-  expect(status, JSON.stringify(data?.error)).toBe("completed");
+  expect(status, JSON.stringify(data?.error_message)).toBe("completed");
   expect((data?.context?.output as any)?.rounds).toBe(3);
 });

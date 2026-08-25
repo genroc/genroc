@@ -331,15 +331,37 @@ type InstanceSummaryResp struct {
 	// wait_state says what it is waiting for; this says where.
 	Task       string `json:"task,omitempty"`
 	RetryCount int    `json:"retry_count"`
-	Error      string `json:"error,omitempty"`
-	ErrorCode  string `json:"error_code,omitempty"` // machine-readable discriminator for every non-success outcome; see model.ProcessInstance.ErrorCode
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
+	// The error the instance REPORTS, flat and under the column names it is stored by, so the
+	// field a caller filters on (?error_code=) is the field it reads back. Its payload is
+	// error_data, on the single-instance shape only -- a list row stays light. The error the
+	// instance CAUGHT is neither of these; it lives in `context` under `error`.
+	ErrorCode    string `json:"error_code,omitempty"` // machine-readable discriminator for every non-success outcome; see model.ProcessInstance.ErrorCode
+	ErrorMessage string `json:"error_message,omitempty"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
+// InstanceStatusResp is the single-instance shape: the summary's fields plus the context and
+// the reported error's payload. It embeds nothing, so every field it puts on the wire is
+// declared here — the list and this one must agree on names and TYPES, and an embedded struct
+// whose fields one of them overrides is how they stopped agreeing before.
 type InstanceStatusResp struct {
-	InstanceSummaryResp
-	Context map[string]any `json:"context"`
+	ID         string          `json:"id"`
+	Process    string          `json:"process"`
+	Version    int             `json:"version"`
+	Status     model.Status    `json:"status"`
+	WaitState  model.WaitState `json:"wait_state,omitempty"`
+	Task       string          `json:"task,omitempty"`
+	RetryCount int             `json:"retry_count"`
+	ErrorCode  string          `json:"error_code,omitempty"`
+	// ErrorMessage and ErrorData are the rest of the same error. Data is what the clause
+	// attached, absent where it attached nothing — a parent reads it only where its call
+	// declares the code under `raises`; here it is for an operator.
+	ErrorMessage string         `json:"error_message,omitempty"`
+	ErrorData    any            `json:"error_data,omitempty"`
+	CreatedAt    string         `json:"created_at"`
+	UpdatedAt    string         `json:"updated_at"`
+	Context      map[string]any `json:"context"`
 	// Objects lists the values too large to be carried inline, each with the path in this
 	// response where it belongs. Fetch one with GET /objects/{ref} and put it there; the slot is
 	// ABSENT from context rather than holding a marker, so nothing in the data can be mistaken

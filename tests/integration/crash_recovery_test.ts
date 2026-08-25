@@ -208,7 +208,7 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
       const { data } = await genroc2.client.GET("/instances/{id}", {
         params: { path: { id: instanceId } },
       });
-      expect(data!.error).toContain("only_once");
+      expect(data!.error_message).toContain("only_once");
       // Only genroc1's abandoned attempt — genroc2 never sent the request.
       expect(mock.requestCount()).toBe(1);
     } finally {
@@ -431,7 +431,7 @@ test("a pausing only_once instance whose worker crashes fails instead of pausing
         params: { path: { id: instanceId } },
       });
       expect(after!.status).toBe("failed");
-      expect(after!.error).toContain("only_once");
+      expect(after!.error_message).toContain("only_once");
       expect(mock.requestCount()).toBe(1);
     } finally {
       genroc2.stop();

@@ -1,0 +1,85 @@
+# A child raises a declared code and the parent routes it to a handler task that reads
+# `error.data`. `classify` there is reachable ONLY through on_error, which is why the layer
+# calls the error slot guaranteed at that task — and the instance is upgraded while it is
+# still resting there, before the handler has run.
+#
+# The sibling case a-fault-that-carried-no-data covers the position one tick later, where the
+# handler concludes; this one pins that arriving at the handler is already a fitting state.
+#
+# The two versions differ only by an added optional input property, so nothing about the
+# stored state has any reason to move.
+apply:
+  - definitions:
+      - name: raiser
+        tasks:
+          - id: go
+            switch:
+              - raise: {code: boom, message: "kaboom", data: {name: '$: "UpstreamError"'}}
+      - name: catcher
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: call
+            action:
+              type: child
+              name: raiser
+              raises:
+                boom: {$ref: "#/$defs/payload"}
+            on_error:
+              - code: [boom]
+                goto: $classify
+            switch: end
+          - id: classify
+            output: {saw: '$: error.data.name'}
+            switch:
+              - goto: $wait
+          - id: wait
+            action: {type: delay, for: 1}
+            switch:
+              - goto: $call
+        $defs:
+          payload:
+            type: object
+            properties: {name: {type: string}}
+            required: [name]
+  - definitions:
+      - name: raiser
+        tasks:
+          - id: go
+            switch:
+              - raise: {code: boom, message: "kaboom", data: {name: '$: "UpstreamError"'}}
+      - name: catcher
+        input_schema:
+          type: object
+          properties: {n: {type: number}, note: {type: [string, "null"]}}
+          required: [n]
+        tasks:
+          - id: call
+            action:
+              type: child
+              name: raiser
+              raises:
+                boom: {$ref: "#/$defs/payload"}
+            on_error:
+              - code: [boom]
+                goto: $classify
+            switch: end
+          - id: classify
+            output: {saw: '$: error.data.name'}
+            switch:
+              - goto: $wait
+          - id: wait
+            action: {type: delay, for: 1}
+            switch:
+              - goto: $call
+        $defs:
+          payload:
+            type: object
+            properties: {name: {type: string}}
+            required: [name]
+resting: {task: classify, status: running}
+after: {task: classify, status: running}
+start: {process: catcher, input: {n: 1}, ticks: 3}
+run: [catcher, --from, "1", --to, "2"]

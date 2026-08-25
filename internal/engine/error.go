@@ -185,7 +185,7 @@ func (e *Engine) raiseInstance(inst *model.ProcessInstance, task *model.Task, f 
 	inst.ErrorCode = f.Code
 	inst.WakeAt = nil
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceRaised, Task: task.ID, Msg: msg, Code: errcode.Code(f.Code)})
-	setFaultData(inst, data)
+	setErrorData(inst, data)
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
@@ -198,14 +198,13 @@ func (e *Engine) panicInstance(inst *model.ProcessInstance, task *model.Task, f 
 	}
 	msg := e.faultMessage(inst, f, self)
 	out := e.failInstance(inst, errcode.Code(f.Code), msg)
-	setFaultData(inst, data)
+	setErrorData(inst, data)
 	return out
 }
 
-// evalFaultData evaluates a clause's `data` in the scope its message renders in. It only
-// READS: the write is setFaultData, and the two are split because the audit line in between
-// scrubs secrets by collecting them from the context — clearing the slot first would leave
-// the message's own interpolation unscrubbable.
+// evalFaultData evaluates a clause's `data` in the scope its message renders in. It must run
+// BEFORE the clause concludes: the scope includes the `error` this instance is handling, which
+// a fault reached through on_error reads to recompose its own payload.
 //
 // A failed evaluation is not degraded the way a message is: the payload is a contract, so
 // dropping it silently would report the loss at the caller's conform rather than here.
@@ -217,20 +216,19 @@ func (e *Engine) evalFaultData(inst *model.ProcessInstance, f *model.Fault, self
 	return e.evalShape(inst, *f.Data, self)
 }
 
-// setFaultData lands the evaluated payload on error.data, the slot an operator reads on this
-// instance's row. A nil value CLEARS it: what sits there otherwise is the error this instance
-// CAUGHT, which the fault never chose to carry.
-func setFaultData(inst *model.ProcessInstance, data any) {
-	errCtx, _ := inst.ContextData["error"].(map[string]any)
+// setErrorData lands the clause's payload in its own slot; the code and message it concluded
+// with are already on the row. The slot is ABSENT where the clause carried nothing, which is
+// what tells a parent's collect there is no payload to conform.
+//
+// It must not touch `error`: that slot is the error this instance CAUGHT and is part of its
+// state at this task, so a fault editing it leaves a concluded instance holding a context no
+// layer describes -- the shape an upgrade validates against.
+func setErrorData(inst *model.ProcessInstance, data any) {
 	if data == nil {
-		delete(errCtx, "data")
+		delete(inst.ContextData, model.ErrorDataKey)
 		return
 	}
-	if errCtx == nil {
-		errCtx = map[string]any{}
-		inst.ContextData["error"] = errCtx
-	}
-	errCtx["data"] = data
+	inst.ContextData[model.ErrorDataKey] = data
 }
 
 // failInstance moves the instance to failed and returns the terminal outcome. code is

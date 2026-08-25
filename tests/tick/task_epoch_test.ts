@@ -218,7 +218,7 @@ test("task_epoch — an operator retry re-spawns into a fresh batch", async () =
   expect(new Set(after.map((c) => c.batch)).size, "one batch per attempt").toBe(after.length);
   // The failure repeats, but as a clean failure — never a collect over two batches.
   const { data } = await env.client.GET("/instances/{id}", { params: { path: { id } } });
-  expect(String(data?.error ?? ""), "must not be the multi-batch collect error").not.toContain(
+  expect(String(data?.error_message ?? ""), "must not be the multi-batch collect error").not.toContain(
     "expected exactly one child",
   );
 });

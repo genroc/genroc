@@ -378,13 +378,11 @@ var registry = func() []actionDef {
 				Resolve bool   `query:"resolve" description:"Splice externalized values into the context where they fit; anything over the per-object limit stays listed under objects for the caller to fetch"`
 			}{},
 			Resp: InstanceStatusResp{
-				InstanceSummaryResp: InstanceSummaryResp{
-					ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
-					Version: 1, Status: model.StatusFailed, Task: "charge_card",
-					ErrorCode: "only_once.interrupted",
-				},
-				Context: map[string]any{"order_id": 42, "charged": true},
-				Objects: []ObjectEntry{{Path: []any{"context", "outputs", "render"}, Ref: "9f2ac1b4e7d05f38", Size: 221110}},
+				ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
+				Version: 1, Status: model.StatusFailed, Task: "charge_card",
+				ErrorCode: "only_once.interrupted",
+				Context:   map[string]any{"order_id": 42, "charged": true},
+				Objects:   []ObjectEntry{{Path: []any{"context", "outputs", "render"}, Ref: "9f2ac1b4e7d05f38", Size: 221110}},
 			},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
 				resolve, _ := strconv.ParseBool(r.URL.Query().Get("resolve"))

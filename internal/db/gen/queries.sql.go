@@ -193,17 +193,17 @@ func (q *Queries) DropObjectRef(ctx context.Context, arg DropObjectRefParams) er
 
 const failAncestors = `-- name: FailAncestors :exec
 UPDATE process_instances
-SET status = 'failing', error = ?1, error_code = ?2,
+SET status = 'failing', error_message = ?1, error_code = ?2,
     updated_at = ?3
 WHERE id IN (SELECT value FROM json_each(?4))
   AND status IN ('running', 'pausing', 'paused')
 `
 
 type FailAncestorsParams struct {
-	Error     string
-	ErrorCode string
-	UpdatedAt int64
-	Ids       interface{}
+	ErrorMessage string
+	ErrorCode    string
+	UpdatedAt    int64
+	Ids          interface{}
 }
 
 // Paused ancestors are included: pause suppresses advancement, not settlement, so a
@@ -212,7 +212,7 @@ type FailAncestorsParams struct {
 // poisonable). error_code travels along so a poisoned tree filters by its origin code.
 func (q *Queries) FailAncestors(ctx context.Context, arg FailAncestorsParams) error {
 	_, err := q.db.ExecContext(ctx, failAncestors,
-		arg.Error,
+		arg.ErrorMessage,
 		arg.ErrorCode,
 		arg.UpdatedAt,
 		arg.Ids,
@@ -307,12 +307,12 @@ func (q *Queries) GetChannel(ctx context.Context, arg GetChannelParams) (int64, 
 
 const getChildrenForTask = `-- name: GetChildrenForTask :many
 SELECT id, process_name, process_version, parent_id,
-       call_stack, retry_count, wake_at, status, error,
+       call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable
+       next_replayable, error_data
 FROM process_instances
 WHERE parent_id = ?1
   AND spawn_task_id = ?2
@@ -343,7 +343,7 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.RetryCount,
 			&i.WakeAt,
 			&i.Status,
-			&i.Error,
+			&i.ErrorMessage,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.WorkerID,
@@ -353,7 +353,7 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.InputData,
 			&i.OutputsData,
 			&i.OutputData,
-			&i.ErrorData,
+			&i.ErrorInternal,
 			&i.ExternalData,
 			&i.EngineState,
 			&i.Task,
@@ -366,6 +366,7 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.ExternalClaimEpoch,
 			&i.Objects,
 			&i.NextReplayable,
+			&i.ErrorData,
 		); err != nil {
 			return nil, err
 		}
@@ -433,12 +434,12 @@ func (q *Queries) GetDependencyVersion(ctx context.Context, arg GetDependencyVer
 
 const getInstance = `-- name: GetInstance :one
 SELECT id, process_name, process_version, parent_id,
-       call_stack, retry_count, wake_at, status, error,
+       call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable
+       next_replayable, error_data
 FROM process_instances
 WHERE id = ?1
 `
@@ -446,7 +447,7 @@ WHERE id = ?1
 // Column order matches the process_instances row struct (context columns then task then
 // error_code then lease_epoch then the external-claim trio, appended by migrations 019, 020,
 // 023, 025, 026 and 028) so sqlc returns dbgen.ProcessInstance directly. That is why
-// error_code trails the list instead of sitting beside `error`: the order is the table's, not
+// error_code trails the list instead of sitting beside `error_message`: the order is the table's, not
 // a reading order. A column added to the table must be appended HERE too, or sqlc emits a
 // subset row type and every toInstance caller stops compiling.
 func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, error) {
@@ -461,7 +462,7 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.RetryCount,
 		&i.WakeAt,
 		&i.Status,
-		&i.Error,
+		&i.ErrorMessage,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.WorkerID,
@@ -471,7 +472,7 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.InputData,
 		&i.OutputsData,
 		&i.OutputData,
-		&i.ErrorData,
+		&i.ErrorInternal,
 		&i.ExternalData,
 		&i.EngineState,
 		&i.Task,
@@ -484,6 +485,7 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.ExternalClaimEpoch,
 		&i.Objects,
 		&i.NextReplayable,
+		&i.ErrorData,
 	)
 	return i, err
 }
@@ -571,19 +573,19 @@ func (q *Queries) InsertDependency(ctx context.Context, arg InsertDependencyPara
 const insertInstance = `-- name: InsertInstance :exec
 INSERT INTO process_instances
     (id, process_name, process_version, task,
-     input_data, outputs_data, output_data, error_data, external_data, engine_state,
+     input_data, outputs_data, output_data, error_internal, error_data, external_data, engine_state,
      parent_id, spawn_task_id, parent_task_epoch, task_epoch,
-     call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at, objects,
+     call_stack, retry_count, wake_at, status, wait_state, error_message, error_code, created_at, updated_at, objects,
      next_replayable)
 VALUES
     (?1, ?2, ?3, ?4,
      ?5, ?6, ?7,
-     ?8, ?9, ?10,
-     ?11, ?12, ?13, ?14,
-     ?15, ?16, ?17,
-     ?18, ?19, ?20, ?21,
-     ?22, ?23, ?24,
-     ?25)
+     ?8, ?9, ?10, ?11,
+     ?12, ?13, ?14, ?15,
+     ?16, ?17, ?18,
+     ?19, ?20, ?21, ?22,
+     ?23, ?24, ?25,
+     ?26)
 `
 
 type InsertInstanceParams struct {
@@ -594,6 +596,7 @@ type InsertInstanceParams struct {
 	InputData       string
 	OutputsData     string
 	OutputData      string
+	ErrorInternal   string
 	ErrorData       string
 	ExternalData    string
 	EngineState     string
@@ -606,7 +609,7 @@ type InsertInstanceParams struct {
 	WakeAt          sql.NullInt64
 	Status          string
 	WaitState       string
-	Error           string
+	ErrorMessage    string
 	ErrorCode       string
 	CreatedAt       int64
 	UpdatedAt       int64
@@ -623,6 +626,7 @@ func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) 
 		arg.InputData,
 		arg.OutputsData,
 		arg.OutputData,
+		arg.ErrorInternal,
 		arg.ErrorData,
 		arg.ExternalData,
 		arg.EngineState,
@@ -635,7 +639,7 @@ func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) 
 		arg.WakeAt,
 		arg.Status,
 		arg.WaitState,
-		arg.Error,
+		arg.ErrorMessage,
 		arg.ErrorCode,
 		arg.CreatedAt,
 		arg.UpdatedAt,
@@ -829,12 +833,12 @@ WITH RECURSIVE subtree(id) AS (
     SELECT pi.id FROM process_instances pi JOIN subtree s ON pi.parent_id = s.id
 )
 SELECT id, process_name, process_version, parent_id,
-       call_stack, retry_count, wake_at, status, error,
+       call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable
+       next_replayable, error_data
 FROM process_instances
 WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
   AND (process_instances.id = ?1
@@ -869,7 +873,7 @@ func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]Proces
 			&i.RetryCount,
 			&i.WakeAt,
 			&i.Status,
-			&i.Error,
+			&i.ErrorMessage,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.WorkerID,
@@ -879,7 +883,7 @@ func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]Proces
 			&i.InputData,
 			&i.OutputsData,
 			&i.OutputData,
-			&i.ErrorData,
+			&i.ErrorInternal,
 			&i.ExternalData,
 			&i.EngineState,
 			&i.Task,
@@ -892,6 +896,7 @@ func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]Proces
 			&i.ExternalClaimEpoch,
 			&i.Objects,
 			&i.NextReplayable,
+			&i.ErrorData,
 		); err != nil {
 			return nil, err
 		}
@@ -1102,23 +1107,24 @@ SET task             = ?1,
     task_epoch       = ?3,
     outputs_data     = ?4,
     output_data      = ?5,
-    error_data       = ?6,
-    external_data    = ?7,
-    engine_state     = ?8,
-    objects          = ?9,
-    retry_count      = ?10,
-    wake_at    = ?11,
+    error_internal   = ?6,
+    error_data       = ?7,
+    external_data    = ?8,
+    engine_state     = ?9,
+    objects          = ?10,
+    retry_count      = ?11,
+    wake_at    = ?12,
     status           = CASE WHEN status = 'pausing'
-                            AND CAST(?12 AS TEXT) = 'running'
-                            THEN 'paused' ELSE CAST(?12 AS TEXT) END,
-    wait_state       = ?13,
-    error            = ?14,
-    error_code       = ?15,
-    updated_at       = ?16,
+                            AND CAST(?13 AS TEXT) = 'running'
+                            THEN 'paused' ELSE CAST(?13 AS TEXT) END,
+    wait_state       = ?14,
+    error_message    = ?15,
+    error_code       = ?16,
+    updated_at       = ?17,
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = ?17 AND lease_epoch = ?18
-  AND COALESCE(worker_id, '') = CAST(?19 AS TEXT)
+WHERE id = ?18 AND lease_epoch = ?19
+  AND COALESCE(worker_id, '') = CAST(?20 AS TEXT)
 `
 
 type UpdateInstanceParams struct {
@@ -1127,6 +1133,7 @@ type UpdateInstanceParams struct {
 	TaskEpoch      int64
 	OutputsData    string
 	OutputData     string
+	ErrorInternal  string
 	ErrorData      string
 	ExternalData   string
 	EngineState    string
@@ -1135,7 +1142,7 @@ type UpdateInstanceParams struct {
 	WakeAt         sql.NullInt64
 	Status         string
 	WaitState      string
-	Error          string
+	ErrorMessage   string
 	ErrorCode      string
 	UpdatedAt      int64
 	ID             string
@@ -1157,6 +1164,7 @@ func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) 
 		arg.TaskEpoch,
 		arg.OutputsData,
 		arg.OutputData,
+		arg.ErrorInternal,
 		arg.ErrorData,
 		arg.ExternalData,
 		arg.EngineState,
@@ -1165,7 +1173,7 @@ func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) 
 		arg.WakeAt,
 		arg.Status,
 		arg.WaitState,
-		arg.Error,
+		arg.ErrorMessage,
 		arg.ErrorCode,
 		arg.UpdatedAt,
 		arg.ID,
@@ -1184,7 +1192,7 @@ SET task             = ?1,
     next_replayable   = ?2,
     task_epoch       = ?3,
     outputs_data     = ?4,
-    error_data       = ?5,
+    error_internal   = ?5,
     external_data    = ?6,
     engine_state     = ?7,
     objects          = ?8,
@@ -1204,7 +1212,7 @@ type UpdateInstanceProgressParams struct {
 	NextReplayable int64
 	TaskEpoch      int64
 	OutputsData    string
-	ErrorData      string
+	ErrorInternal  string
 	ExternalData   string
 	EngineState    string
 	Objects        string
@@ -1227,7 +1235,7 @@ func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstance
 		arg.NextReplayable,
 		arg.TaskEpoch,
 		arg.OutputsData,
-		arg.ErrorData,
+		arg.ErrorInternal,
 		arg.ExternalData,
 		arg.EngineState,
 		arg.Objects,
@@ -1251,31 +1259,33 @@ SET process_version = ?1,
     input_data      = ?2,
     outputs_data    = ?3,
     output_data     = ?4,
-    error_data      = ?5,
-    external_data   = ?6,
-    engine_state    = ?7,
-    objects         = ?8,
-    updated_at      = ?9
-WHERE id = ?10
-  AND process_version = ?11
-  AND task = ?12
+    error_internal  = ?5,
+    error_data      = ?6,
+    external_data   = ?7,
+    engine_state    = ?8,
+    objects         = ?9,
+    updated_at      = ?10
+WHERE id = ?11
+  AND process_version = ?12
+  AND task = ?13
   AND status IN ('paused', 'failed')
   AND worker_id IS NULL
 `
 
 type UpgradeInstanceVersionParams struct {
-	ToVersion    int64
-	InputData    string
-	OutputsData  string
-	OutputData   string
-	ErrorData    string
-	ExternalData string
-	EngineState  string
-	Objects      string
-	UpdatedAt    int64
-	ID           string
-	FromVersion  int64
-	Task         string
+	ToVersion     int64
+	InputData     string
+	OutputsData   string
+	OutputData    string
+	ErrorInternal string
+	ErrorData     string
+	ExternalData  string
+	EngineState   string
+	Objects       string
+	UpdatedAt     int64
+	ID            string
+	FromVersion   int64
+	Task          string
 }
 
 // Moves an instance to another version of its definition, writing the migrated state with
@@ -1298,6 +1308,7 @@ func (q *Queries) UpgradeInstanceVersion(ctx context.Context, arg UpgradeInstanc
 		arg.InputData,
 		arg.OutputsData,
 		arg.OutputData,
+		arg.ErrorInternal,
 		arg.ErrorData,
 		arg.ExternalData,
 		arg.EngineState,

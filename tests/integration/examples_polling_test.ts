@@ -179,7 +179,7 @@ test("examples/polling-task: a payload that fails the parent's narrowing is caug
     // code its on_error catches, so a type violation is not swallowed.
     expect(await waitForInstance(id, 20_000)).toBe("failed");
     const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-    expect(data?.error ?? "").toMatch(/output validation/i);
+    expect(data?.error_message ?? "").toMatch(/output validation/i);
   } finally {
     await mock.stop();
   }

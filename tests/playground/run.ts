@@ -67,6 +67,6 @@ if (status === "completed") {
 } else {
   // The script's own error detail stays inside the child instance; what crosses the
   // boundary is a CODE, which is the whole point of the child's throws clause.
-  console.log(`${data?.error_code}: ${data?.error}`);
+  console.log(`${data?.error_code}: ${data?.error_message}`);
 }
 console.log(JSON.stringify(data?.context, null, 2));

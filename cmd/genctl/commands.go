@@ -447,18 +447,21 @@ func runGetCmd(server string, args []string) {
 	}
 
 	var inst struct {
-		ID         string         `json:"id"`
-		Process    string         `json:"process"`
-		Version    int            `json:"version"`
-		Status     string         `json:"status"`
-		WaitState  string         `json:"wait_state"`
-		Task       string         `json:"task"`
-		RetryCount int            `json:"retry_count"`
-		Error      string         `json:"error"`
-		ErrorCode  string         `json:"error_code"`
-		CreatedAt  string         `json:"created_at"`
-		UpdatedAt  string         `json:"updated_at"`
-		Context    map[string]any `json:"context"`
+		ID         string `json:"id"`
+		Process    string `json:"process"`
+		Version    int    `json:"version"`
+		Status     string `json:"status"`
+		WaitState  string `json:"wait_state"`
+		Task       string `json:"task"`
+		RetryCount int    `json:"retry_count"`
+		// The error this instance REPORTS. The one it CAUGHT is a context key, printed below
+		// with the rest of the state it stopped holding.
+		ErrorCode    string         `json:"error_code"`
+		ErrorMessage string         `json:"error_message"`
+		ErrorData    any            `json:"error_data"`
+		CreatedAt    string         `json:"created_at"`
+		UpdatedAt    string         `json:"updated_at"`
+		Context      map[string]any `json:"context"`
 	}
 	if err := callGet(u, &inst); err != nil {
 		fatal("%v", err)
@@ -481,11 +484,15 @@ func runGetCmd(server string, args []string) {
 	}
 	fmt.Fprintf(w, "Created:\t%s\n", longTime(inst.CreatedAt))
 	fmt.Fprintf(w, "Updated:\t%s\n", longTime(inst.UpdatedAt))
-	if inst.Error != "" {
-		fmt.Fprintf(w, "Error:\t%s\n", inst.Error)
+	if inst.ErrorMessage != "" {
+		fmt.Fprintf(w, "Error:\t%s\n", inst.ErrorMessage)
 	}
 	if inst.ErrorCode != "" {
 		fmt.Fprintf(w, "Code:\t%s\n", inst.ErrorCode)
+	}
+	if inst.ErrorData != nil {
+		b, _ := json.Marshal(inst.ErrorData)
+		fmt.Fprintf(w, "Data:\t%s\n", b)
 	}
 	w.Flush()
 
@@ -543,14 +550,14 @@ func runInstancesCmd(server string, args []string) {
 	}
 
 	type instanceRow struct {
-		ID        string `json:"id"`
-		Process   string `json:"process"`
-		Version   int    `json:"version"`
-		Status    string `json:"status"`
-		Error     string `json:"error"`
-		ErrorCode string `json:"error_code"`
-		CreatedAt string `json:"created_at"`
-		UpdatedAt string `json:"updated_at"`
+		ID           string `json:"id"`
+		Process      string `json:"process"`
+		Version      int    `json:"version"`
+		Status       string `json:"status"`
+		ErrorCode    string `json:"error_code"`
+		ErrorMessage string `json:"error_message"`
+		CreatedAt    string `json:"created_at"`
+		UpdatedAt    string `json:"updated_at"`
 	}
 
 	// A tabwriter sizes its columns from everything written before Flush, so this one
@@ -564,7 +571,7 @@ func runInstancesCmd(server string, args []string) {
 				fmt.Fprintln(w, "ID\tSTATUS\tPROCESS\tUPDATED\tCREATED\tCODE\tERROR")
 			}
 			rows++
-			errMsg := r.Error
+			errMsg := r.ErrorMessage
 			if len(errMsg) > 50 {
 				errMsg = errMsg[:47] + "..."
 			}

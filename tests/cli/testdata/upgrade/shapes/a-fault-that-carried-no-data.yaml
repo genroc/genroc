@@ -1,0 +1,82 @@
+# The playground bug, reduced. A child raises a declared code, the parent routes it to a
+# handler that READS `error.data`, and the handler concludes with a `panic` that declares no
+# `data` of its own. The instance is then failed at the handler — the state an operator
+# upgrades to ship a fix.
+#
+# The panic's message interpolates `error.data.name`, so the payload demonstrably WAS there
+# when the handler ran. What the upgrade then refused was a state the fault itself had
+# emptied: a clause carrying no data cleared the slot the handler had just read. The layer
+# says `error.data` is guaranteed at this task and the layer is right; nothing but a
+# terminal clause had any business editing the context it concluded from.
+#
+# The two versions differ only by an added optional input property, so nothing about the
+# stored state has any reason to move.
+apply:
+  - definitions:
+      - name: raiser
+        tasks:
+          - id: go
+            switch:
+              - raise: {code: boom, message: "kaboom", data: {name: '$: "UpstreamError"'}}
+      - name: catcher
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: call
+            action:
+              type: child
+              name: raiser
+              raises:
+                boom: {$ref: "#/$defs/payload"}
+            on_error:
+              - code: [boom]
+                goto: $classify
+            switch: end
+          - id: classify
+            switch:
+              - case: 'error.data.name == "Transient"'
+                goto: end
+              - panic: {code: upstream_broken, message: 'upstream said ${error.data.name}'}
+        $defs:
+          payload:
+            type: object
+            properties: {name: {type: string}}
+            required: [name]
+  - definitions:
+      - name: raiser
+        tasks:
+          - id: go
+            switch:
+              - raise: {code: boom, message: "kaboom", data: {name: '$: "UpstreamError"'}}
+      - name: catcher
+        input_schema:
+          type: object
+          properties: {n: {type: number}, note: {type: [string, "null"]}}
+          required: [n]
+        tasks:
+          - id: call
+            action:
+              type: child
+              name: raiser
+              raises:
+                boom: {$ref: "#/$defs/payload"}
+            on_error:
+              - code: [boom]
+                goto: $classify
+            switch: end
+          - id: classify
+            switch:
+              - case: 'error.data.name == "Transient"'
+                goto: end
+              - panic: {code: upstream_broken, message: 'upstream said ${error.data.name}'}
+        $defs:
+          payload:
+            type: object
+            properties: {name: {type: string}}
+            required: [name]
+resting: {task: classify, status: failed}
+after: {task: classify, status: failed}
+start: {process: catcher, input: {n: 1}, ticks: 4}
+run: [catcher, --from, "1", --to, "2"]

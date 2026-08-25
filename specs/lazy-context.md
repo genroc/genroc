@@ -44,7 +44,7 @@ and `Context` hid them behind `At` without any of them changing on disk. So it l
 tidiness rather than a prerequisite, once a wipe was acceptable (one user, no deployment) and the
 JSON-restructuring migration it would otherwise have needed evaporated.
 
-What the accessor changed is which differences were still earning anything. `error_data` had a
+What the accessor changed is which differences were still earning anything. `error_internal` had a
 shape of its own for one reason: reading `error.code` must not load the body. That is
 `model.Context`'s job now — it walks to a path and loads only what the walk passes through — so
 the column stopped needing to express it, and folded onto `Envelope` like the rest.

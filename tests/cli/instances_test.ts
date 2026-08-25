@@ -32,8 +32,8 @@ type InstanceRow = {
   process: string;
   version: number;
   status: string;
-  error: string;
   error_code: string;
+  error_message: string;
   created_at: string;
   updated_at: string;
 };
@@ -181,6 +181,46 @@ test("get — the detail block names the instance, its process and its context",
   expect(JSON.parse(j.stdout)).toMatchObject({ id, process: name, version: 1 });
 });
 
+// The error a failed instance REPORTS is an object on the wire — code, message, and whatever
+// the clause attached. `get` decodes it as one; while it decoded a bare string, `get` on ANY
+// failed instance died in the JSON decode instead of printing a thing.
+test("get — a failed instance prints the error it reports, payload and all", async () => {
+  const name = uid("panicky");
+  runCli(bin, [
+    "apply",
+    "-f",
+    writeDefs([
+      {
+        name,
+        tasks: [
+          {
+            id: "go",
+            switch: [
+              {
+                panic: {
+                  code: "went_wrong",
+                  message: "the upstream refused",
+                  data: { retry_after: 3600 },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ]),
+  ]);
+  const id = startedID(runCli(bin, ["run", name]).stdout);
+  expect(await waitForInstance(id)).toBe("failed");
+
+  const r = runCli(bin, ["get", id]);
+  expect(r.ok, r.stderr).toBe(true);
+  expect(r.stdout).toContain("the upstream refused");
+  expect(r.stdout).toContain("went_wrong");
+  expect(r.stdout, "the payload is the machine-readable half; printing only prose loses it").toContain(
+    "retry_after",
+  );
+}, 15_000);
+
 test("get --resolve — materializes context values held in the object store", async () => {
   const name = uid("bigctx");
   runCli(bin, ["apply", "-f", writeDefs([blobInputDef(name)])]);
@@ -227,11 +267,11 @@ test("instances — a long error message is truncated in the table but whole in 
     .split("\n")
     .find((l) => l.startsWith(id))!;
   const json = instances(["--since", "1h"]).find((i) => i.id === id)!;
-  expect(json.error.length).toBeGreaterThan(0);
+  expect(json.error_message.length).toBeGreaterThan(0);
   // The table bounds its last column at 50 chars + "..."; --json is the lossless form.
   const shown = row.slice(row.indexOf(json.error_code) + json.error_code.length).trim();
   expect(shown.length).toBeLessThanOrEqual(53);
-  if (json.error.length > 50) expect(shown.endsWith("...")).toBe(true);
+  if (json.error_message.length > 50) expect(shown.endsWith("...")).toBe(true);
 }, 15_000);
 
 // ── instances: filters, ordering and bounds ─────────────────────────────────────

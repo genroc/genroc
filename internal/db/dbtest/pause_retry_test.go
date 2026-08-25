@@ -1158,3 +1158,88 @@ func TestChildrenForStep_StepScoped(t *testing.T) {
 		})
 	}
 }
+
+// TestRetryProcess_ClearsBothErrors pins that reviving an instance clears the error it was
+// REPORTING (all three columns) and the error it was HANDLING, and that what those slots held
+// in the object store is not stranded by the clear.
+//
+// The claims outlive the write itself, and that is the design: `objects` is the LOADED list,
+// and the next persistContext releases every hash in it that the context no longer references.
+// What must not happen is the cleared slots coming BACK -- their entries still name paths in a
+// row that no longer has them, and a decode that recreated those paths would resurrect an
+// error the revival exists to drop.
+//
+// This pins what the code DOES, and one half of it is disputed: clearing `error` costs a task
+// reached through on_error the input its layer says it is guaranteed. Revisit this test with
+// that, not around it.
+func TestRetryProcess_ClearsBothErrors(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			inst := &model.ProcessInstance{
+				ID:             "root",
+				ProcessName:    "test",
+				ProcessVersion: 1,
+				Task:           "step1",
+				Status:         model.StatusFailed,
+				ErrorCode:      "went_wrong",
+				Error:          "the upstream refused",
+				ContextData: map[string]any{
+					// Both slots hold a value past the externalization threshold, so each one
+					// takes an object claim this retry has to drop.
+					"error":            map[string]any{"code": "http.500", "data": bigString("caught")},
+					model.ErrorDataKey: map[string]any{"trace": bigString("reported")},
+				},
+			}
+			if err := b.db.SaveInstance(inst); err != nil {
+				t.Fatalf("SaveInstance: %v", err)
+			}
+			stored, err := b.db.GetInstance("root")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			marker := func(slot, key string) string {
+				t.Helper()
+				m, ok := stored.ContextData[slot].(map[string]any)[key].(*model.ObjectRef)
+				if !ok {
+					t.Fatalf("setup: %s.%s is %T, want an externalized marker",
+						slot, key, stored.ContextData[slot].(map[string]any)[key])
+				}
+				return m.Ref
+			}
+			refs := []string{marker("error", "data"), marker(model.ErrorDataKey, "trace")}
+
+			if err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+				t.Fatalf("RetryProcess: %v", err)
+			}
+
+			revived, err := b.db.GetInstance("root")
+			if err != nil {
+				t.Fatalf("GetInstance after retry: %v", err)
+			}
+			if revived.ErrorCode != "" || revived.Error != "" {
+				t.Errorf("the reported error survived: code=%q message=%q", revived.ErrorCode, revived.Error)
+			}
+			if _, ok := revived.ContextData[model.ErrorDataKey]; ok {
+				t.Errorf("the reported error's payload survived: %v", revived.ContextData[model.ErrorDataKey])
+			}
+			if _, ok := revived.ContextData["error"]; ok {
+				t.Errorf("the caught error survived: %v", revived.ContextData["error"])
+			}
+			// The revived instance is running, so a write always follows -- and it is that write
+			// which drops the claims the cleared slots held.
+			if err := b.db.UpdateInstance(revived); err != nil {
+				t.Fatalf("UpdateInstance: %v", err)
+			}
+			for _, ref := range refs {
+				n, err := b.db.CountObjectRefs(ref)
+				if err != nil {
+					t.Fatalf("CountObjectRefs: %v", err)
+				}
+				if n != 0 {
+					t.Errorf("object %s is stranded: still claimed by %d owner(s) after the write "+
+						"following the clear, so the sweep can never collect it", ref, n)
+				}
+			}
+		})
+	}
+}

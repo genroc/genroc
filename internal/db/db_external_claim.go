@@ -234,12 +234,12 @@ func scanInstanceWithPrevHolder(s interface{ Scan(...any) error }) (dbgen.Proces
 	var prev sql.NullString
 	err := s.Scan(
 		&r.ID, &r.ProcessName, &r.ProcessVersion, &r.ParentID,
-		&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.Error,
+		&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.ErrorMessage,
 		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
-		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
+		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorInternal, &r.ExternalData, &r.EngineState, &r.Task,
 		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
 		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
-		&r.NextReplayable,
+		&r.NextReplayable, &r.ErrorData,
 		&prev,
 	)
 	return r, prev, err

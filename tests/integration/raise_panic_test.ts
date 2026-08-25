@@ -55,7 +55,7 @@ test("raise — switch case concludes the process as raised, with its code", asy
   });
   expect(data?.status).toBe("raised");
   expect(data?.error_code).toBe("insufficient_funds");
-  expect(data?.error).toBe("the account has insufficient funds");
+  expect(data?.error_message).toBe("the account has insufficient funds");
 
   // A raise is a declared outcome, not a fault: retry must refuse it, and say so in
   // terms an operator can act on instead of a bare "not retryable".
@@ -110,7 +110,7 @@ test("raise — on_error rule raises instead of routing", async () => {
     params: { path: { id } },
   });
   expect(data?.error_code).toBe("card_declined");
-  expect(data?.error).toBe("the issuer declined the charge");
+  expect(data?.error_message).toBe("the issuer declined the charge");
   // The engine's own code stays visible in `error`, so the underlying cause is not lost
   // when error_code becomes the authored one.
   expect((data?.context?.error as Record<string, unknown>)?.code).toBe(
@@ -159,7 +159,7 @@ test("panic — fails the process with the authored code, and stays retryable", 
   expect(data?.error_code).toBe("submit_contract_violation");
   // The authored message replaces the engine's generic reason — that is the only
   // observable difference from any other defect.
-  expect(data?.error).toBe("the service returned 200 with an error body");
+  expect(data?.error_message).toBe("the service returned 200 with an error body");
 
   // Retry accepts it: `panic` chose `failed` precisely because it means "this is a
   // fault", and faults are what retry is for.
@@ -213,7 +213,7 @@ test("panic — an on_error rule panics on an action task", async () => {
   });
   expect(data?.status).toBe("failed");
   expect(data?.error_code).toBe("upstream_contract_broken");
-  expect(data?.error).toBe("the upstream returned an unusable 5xx");
+  expect(data?.error_message).toBe("the upstream returned an unusable 5xx");
   // The engine's own code stays in `error` underneath the authored one.
   expect((data?.context?.error as Record<string, unknown>)?.code).toBe(
     "http.500",
@@ -426,7 +426,7 @@ test("raise message — interpolates the scope the clause fires in", async () =>
   expect(await waitForInstance(id)).toBe("raised");
 
   const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  expect(data!.error).toBe("sam asked for 250, over the limit");
+  expect(data!.error_message).toBe("sam asked for 250, over the limit");
   // The code is untouched by rendering — an operator still filters on the literal.
   expect(data!.error_code).toBe("limit_exceeded");
 });
@@ -452,7 +452,7 @@ test("raise message — $${ is an escape, so a literal ${ survives", async () =>
   expect(await waitForInstance(id)).toBe("raised");
 
   const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  expect(data!.error).toBe("write ${x} to escape");
+  expect(data!.error_message).toBe("write ${x} to escape");
 });
 
 test("raise message — a non-string message is refused at registration", async () => {
@@ -538,7 +538,7 @@ test("raise message — an on_error rule reads the error it caught", async () =>
     expect(await waitForInstance(id)).toBe("raised");
 
     const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-    expect(data!.error).toBe("upstream said overloaded");
+    expect(data!.error_message).toBe("upstream said overloaded");
   } finally {
     await svc.stop();
   }

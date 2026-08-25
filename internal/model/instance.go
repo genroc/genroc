@@ -56,6 +56,15 @@ func (s Status) AcceptsExternalOutcome() bool {
 	return s == StatusRunning || s == StatusPaused || s == StatusPausing
 }
 
+// ErrorDataKey is the slot holding the payload a `raise` or `panic` attached. Its code and
+// message are plain columns beside it (error_code, error_message) so a code can be filtered on;
+// only the payload needs a slot, because only the payload is arbitrarily large.
+//
+// It is never the `error` slot, which is the error the instance CAUGHT: that one belongs to the
+// instance's state at the task it stopped on, so a concluding fault editing it leaves a context
+// no layer describes. specs/error-extensions.md.
+const ErrorDataKey = "_error_data"
+
 // WaitState tracks where a parent instance is in the child-process lifecycle.
 type WaitState string
 

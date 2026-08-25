@@ -529,15 +529,16 @@ test("a payload past the inline cutoff externalizes and still crosses whole", as
   expect(await waitForInstance(started!.id)).toBe("completed");
 
   // The proof that the object store was involved is on the CHILD's row, where the payload was
-  // written: error.data is enveloped alone, so past the cutoff it reads as a {ref, size}
+  // written: the fault slot is enveloped alone, so past the cutoff it reads as a {ref, size}
   // marker until something asks for it.
   const { data: lazy } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
   const childId = (lazy?.context as any)?._children?.pay as string;
   const { data: kid } = await client.GET("/instances/{id}", { params: { path: { id: childId } } });
   // The cut takes the big leaf inside the raised payload, so the listing names a path THROUGH
-  // error.data rather than error.data itself.
+  // it — rooted where the RESPONSE carries it, which is `error_data`, not the context slot it
+  // was cut from.
   expect(
-    (kid!.objects ?? []).some((o: any) => o.path[0] === "context" && o.path[1] === "error" && o.path[2] === "data"),
+    (kid!.objects ?? []).some((o: any) => o.path[0] === "error_data"),
     "8 KiB is past the 2 KiB cutoff, so the payload must be externalized",
   ).toBe(true);
 

@@ -2,10 +2,15 @@ import { expect, test } from "vitest";
 import { client, startMockService, waitForInstance } from "../helpers/client.ts";
 import type { components } from "../generated/api.ts";
 
-// A raise or panic may carry `data`: a shape evaluated in the same scope as the message
-// and landed on the instance's own error.data, where an operator reads it. This is the half
-// that reaches nobody else — a parent reads a raise's data only where the calling task
-// declares its shape. specs/error-extensions.md §X2-c.
+// A raise or panic concludes with a whole error — code, message, and a `data` shape evaluated
+// in the same scope as the message — reported as the row's own `error`. The payload is
+// the half that reaches nobody else: a parent reads it only where the calling task declares its
+// shape. specs/error-extensions.md §X2-c.
+//
+// It is stored in a slot of its own, never in `error`. One slot per direction: the context's
+// `error` is what the instance CAUGHT and belongs to its state at the task it stopped on, so a
+// concluding fault must leave it alone — and the API shows the outbound one, the inbound one
+// staying inside `context`.
 
 test("a raise carries data onto its own row, evaluated in the clause's scope", async () => {
   const name = `raise_data_${crypto.randomUUID()}`;
@@ -46,11 +51,10 @@ test("a raise carries data onto its own row, evaluated in the clause's scope", a
   expect(await waitForInstance(id)).toBe("raised");
 
   const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  // All three fields of the one error, flat and under the names they are stored by.
   expect(data?.error_code).toBe("card_declined");
-  expect((data?.context?.error as any)?.data).toEqual({
-    decline_code: "51",
-    retry_after: 3600,
-  });
+  expect(data?.error_message).toBe("the card was declined");
+  expect(data?.error_data).toEqual({ decline_code: "51", retry_after: 3600 });
 });
 
 test("a panic's data stays on the instance that authored it — ancestors inherit code and message only", async () => {
@@ -105,22 +109,23 @@ test("a panic's data stays on the instance that authored it — ancestors inheri
   // payload does not travel: copying it onto every ancestor bloats each row to say the
   // same thing, and nothing up there can catch a panic to read it anyway.
   expect(parentInst?.error_code).toBe("script_broken");
-  expect((parentInst?.context?.error as any)?.data).toBeUndefined();
+  expect(parentInst?.error_data, "the payload does not travel").toBeUndefined();
 
   const childId = (parentInst?.context as any)?._children?.run as string;
   const { data: childInst } = await client.GET("/instances/{id}", {
     params: { path: { id: childId } },
   });
-  expect((childInst?.context?.error as any)?.data).toEqual({
+  expect(childInst?.error_data).toEqual({
     kind: "syntax",
     stack: "at foo (x.ts:1:1)\nat bar (x.ts:9:2)",
   });
 });
 
-// The reuse of the `error.data` slot has one sharp edge: whatever a rule CAUGHT is sitting
-// there when the raise fires. A raise says what it carries — forwarding the caught body is
-// one line, and a raise that says nothing carries nothing.
-test("a raise forwards the caught body only when it asks to; otherwise the slot is cleared", async () => {
+// A raise fires with whatever the rule CAUGHT still in scope, so forwarding that body is one
+// line — and a raise that says nothing carries nothing. The two slots are what keep those
+// apart: the context's `error` still holds the cause either way, and only the reported error
+// says what the raise chose to send on.
+test("a raise forwards the caught body only when it asks to; a silent one sends nothing", async () => {
   const failing = await startMockService(0, {
     statusCode: 404,
     response: { detail: "no such order", code: "ORDER_MISSING" },
@@ -177,7 +182,7 @@ test("a raise forwards the caught body only when it asks to; otherwise the slot 
   const { data: fwd } = await client.GET("/instances/{id}", {
     params: { path: { id: ids[forwards] } },
   });
-  expect((fwd?.context?.error as any)?.data).toEqual({
+  expect(fwd?.error_data).toEqual({
     detail: "no such order",
     code: "ORDER_MISSING",
   });
@@ -185,12 +190,21 @@ test("a raise forwards the caught body only when it asks to; otherwise the slot 
   const { data: quiet } = await client.GET("/instances/{id}", {
     params: { path: { id: ids[silent] } },
   });
-  const err = quiet?.context?.error as any;
-  // Cleared, not inherited: a parent that declares a shape for `lookup_failed` must never
-  // receive a body this raise did not choose to send. The cause itself is still on the row.
-  expect(err?.data, "a data-less raise carries nothing, not what it caught").toBeUndefined();
-  expect(err?.code).toBe("http.404");
-  expect(quiet?.error).toContain("no such order");
+  // Never inherited: a parent that declares a shape for `lookup_failed` must not receive a body
+  // this raise did not choose to send. Absence is the record — the key is MISSING rather than
+  // null, which is what tells a parent's collect there is nothing to conform.
+  expect(quiet?.error_code).toBe("lookup_failed");
+  expect(quiet?.error_message).toContain("no such order");
+  expect("error_data" in (quiet ?? {}), "a data-less raise carries nothing").toBe(false);
+
+  // And the cause is not lost with it: it stays in the context, untouched, because the raise's
+  // silence is about what it SENDS, not about what the instance caught.
+  const caught = quiet?.context?.error as any;
+  expect(caught?.code).toBe("http.404");
+  expect(caught?.data, "the caught body stays where it was caught").toEqual({
+    detail: "no such order",
+    code: "ORDER_MISSING",
+  });
 
   failing.stop();
 });

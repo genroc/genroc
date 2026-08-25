@@ -193,7 +193,7 @@ test("lifecycle — task fails when output violates result_schema", async () => 
   const { data } = await client.GET("/instances/{id}", {
     params: { path: { id } },
   });
-  expect(data!.error!).toContain("output");
+  expect(data!.error_message).toContain("output");
 
   mock.stop();
 });

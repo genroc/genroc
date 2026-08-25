@@ -173,8 +173,8 @@ func (h *Handlers) getInstance(id string, resolve bool) Reply {
 		objects = kept
 	}
 
-	resp := instanceToResp(inst)
-	resp.Context = orderedContext(ctxData)
+	liftErrorDataPaths(objects)
+	resp := instanceToResp(inst, ctxData)
 	resp.Objects = objects
 	return okReply(resp)
 }
@@ -239,38 +239,52 @@ func (h *Handlers) tick(raw json.RawMessage) Reply {
 	return okReply(map[string]any{"count": n})
 }
 
-func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
+func instanceToResp(inst *model.ProcessInstance, ctx map[string]any) InstanceStatusResp {
 	return InstanceStatusResp{
-		InstanceSummaryResp: InstanceSummaryResp{
-			ID:         inst.ID,
-			Process:    inst.ProcessName,
-			Version:    inst.ProcessVersion,
-			Status:     inst.Status,
-			WaitState:  inst.WaitState,
-			Task:       inst.Task,
-			RetryCount: inst.RetryCount,
-			Error:      inst.Error,
-			ErrorCode:  inst.ErrorCode,
-			CreatedAt:  inst.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:  inst.UpdatedAt.Format(time.RFC3339),
-		},
-		Context: orderedContext(inst.ContextData),
+		ID:           inst.ID,
+		Process:      inst.ProcessName,
+		Version:      inst.ProcessVersion,
+		Status:       inst.Status,
+		WaitState:    inst.WaitState,
+		Task:         inst.Task,
+		RetryCount:   inst.RetryCount,
+		ErrorCode:    inst.ErrorCode,
+		ErrorMessage: inst.Error,
+		// From ctx, not inst.ContextData: where the payload was externalized the latter still
+		// holds a {ref, size} marker, and shipping that would put a reference where the value
+		// belongs.
+		ErrorData: ctx[model.ErrorDataKey],
+		CreatedAt: inst.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: inst.UpdatedAt.Format(time.RFC3339),
+		Context:   orderedContext(ctx),
+	}
+}
+
+// liftErrorDataPaths re-roots the object entries cut from the payload slot, which the response
+// carries as `error_data` rather than as a context key. A path naming a place the response does
+// not have is a reference the caller cannot put back.
+func liftErrorDataPaths(objects []ObjectEntry) {
+	for i, e := range objects {
+		if len(e.Path) < 2 || e.Path[0] != "context" || e.Path[1] != model.ErrorDataKey {
+			continue
+		}
+		objects[i].Path = append([]any{"error_data"}, e.Path[2:]...)
 	}
 }
 
 func instanceSummaryToResp(s *model.InstanceSummary) InstanceSummaryResp {
 	return InstanceSummaryResp{
-		ID:         s.ID,
-		Process:    s.ProcessName,
-		Version:    s.ProcessVersion,
-		Status:     s.Status,
-		WaitState:  s.WaitState,
-		Task:       s.Task,
-		RetryCount: s.RetryCount,
-		Error:      s.Error,
-		ErrorCode:  s.ErrorCode,
-		CreatedAt:  s.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:  s.UpdatedAt.Format(time.RFC3339),
+		ID:           s.ID,
+		Process:      s.ProcessName,
+		Version:      s.ProcessVersion,
+		Status:       s.Status,
+		WaitState:    s.WaitState,
+		Task:         s.Task,
+		RetryCount:   s.RetryCount,
+		ErrorCode:    s.ErrorCode,
+		ErrorMessage: s.Error,
+		CreatedAt:    s.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    s.UpdatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -279,7 +293,9 @@ func instanceSummaryToResp(s *model.InstanceSummary) InstanceSummaryResp {
 func orderedContext(ctxData map[string]any) map[string]any {
 	result := make(map[string]any, len(ctxData))
 	for k, v := range ctxData {
-		if k != "output_order" {
+		// The outbound error is rendered as the response's own `error`, so it is not also a
+		// context key — leaving it here would show one error twice and the other not at all.
+		if k != "output_order" && k != model.ErrorDataKey {
 			result[k] = v
 		}
 	}

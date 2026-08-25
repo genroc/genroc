@@ -308,7 +308,7 @@ one type where one rule reaches one handler.
   `only_once.interrupted`, a child
   raise), which is most of the set — nullable is not a formality.
 - **`error.data` persists like a task output, which is a change: `error` is not a value-slot
-  today.** `encodeContext` marshals it straight into the `error_data` column
+  today.** `encodeContext` marshals it straight into the `error_internal` column
   ([db_instances.go:203](../internal/db/db_instances.go#L203)) — no envelope, nothing
   externalized, nothing resolved lazily. Outputs are enveloped **per task id**, which is what
   keeps one big output from dragging the rest through an object load, so the faithful
@@ -316,7 +316,7 @@ one type where one rule reaches one handler.
   otherwise every `error.code` read in an `on_error` handler pays for a body it never asked
   for. Pinning, dereference and GC then apply unchanged, and `buildEnv` resolves an
   `error.data` marker beside the `outputs.<id>` and `self.previous` ones it already handles.
-  The stored shape of `error_data` changes with it — in-flight instances in an existing
+  The stored shape of `error_internal` changes with it — in-flight instances in an existing
   database do not survive that, which a prototype can accept and a release could not.
 
 - Keys need a splitter in front of `ValidStatusPattern`, which validates one pattern: split on

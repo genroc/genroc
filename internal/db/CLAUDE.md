@@ -219,7 +219,7 @@ Four things break silently:
    write diffs against it to release what the context no longer points at, so a ref missing here
    is a claim nothing can ever drop — the object is held for the life of the database by an
    instance that finished with it.
-3. **`error_data` has no special shape, and must not regain one.** It had one so reading
+3. **`error_internal` has no special shape, and must not regain one.** It had one so reading
    `error.code` would not load the body; that is `model.Context`'s job now (it walks to a path and
    loads only what the walk passes through), and `TestLazyMatrix` pins it from the engine side.
 4. **`external_data` holds the parked bookkeeping and nothing else.** An outcome is never written

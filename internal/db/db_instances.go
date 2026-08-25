@@ -55,18 +55,18 @@ func instanceSummaryCursorVals(sort string, s *model.InstanceSummary) []any {
 // scanInstance reads them. Shared by the hand-written ClaimInstances and
 // RetryProcess queries so adding a column touches one place.
 const instanceColumns = `id, process_name, process_version, parent_id,
-	call_stack, retry_count, wake_at, status, error,
+	call_stack, retry_count, wake_at, status, error_message,
 	created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-	input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
+	input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
 	error_code, lease_epoch, task_epoch, parent_task_epoch,
 	external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-	next_replayable`
+	next_replayable, error_data`
 
 // Lightweight ListInstances projection — no context/call-stack blobs; order matches
 // scanInstanceSummary. error_code stays despite the rule: short, and it is what a list
 // is scanned for when something has gone wrong.
 const instanceSummaryColumns = `id, process_name, process_version, retry_count,
-	status, wait_state, task, error, error_code, created_at, updated_at`
+	status, wait_state, task, error_message, error_code, created_at, updated_at`
 
 // Column order must match instanceSummaryColumns.
 func scanInstanceSummary(s interface{ Scan(...any) error }) (*model.InstanceSummary, error) {
@@ -96,12 +96,12 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 	var r dbgen.ProcessInstance
 	err := s.Scan(
 		&r.ID, &r.ProcessName, &r.ProcessVersion, &r.ParentID,
-		&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.Error,
+		&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.ErrorMessage,
 		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
-		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
+		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorInternal, &r.ExternalData, &r.EngineState, &r.Task,
 		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
 		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
-		&r.NextReplayable,
+		&r.NextReplayable, &r.ErrorData,
 	)
 	return r, err
 }
@@ -111,7 +111,7 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 // piece with the path it was cut from, rooted at the CONTEXT -- one place to read what this
 // instance references, in the shape the API puts on the wire. specs/object-store.md.
 type contextCols struct {
-	InputData, OutputsData, OutputData, ErrorData, ExternalData, EngineState, Objects string
+	InputData, OutputsData, OutputData, ErrorInternal, ErrorData, ExternalData, EngineState, Objects string
 }
 
 // outputsColumn is the on-disk shape of outputs_data: the completion order plus the
@@ -208,7 +208,12 @@ func encodeContext(inst *model.ProcessInstance) (cols contextCols, pending []*pe
 	if v, ok := cd["error"]; ok {
 		// An ordinary slot. `error.code` staying cheap to read is the ACCESSOR's job now
 		// (model.Context walks to the path and loads nothing else), not the column's.
-		if cols.ErrorData, err = cut(v, "error"); err != nil {
+		if cols.ErrorInternal, err = cut(v, "error"); err != nil {
+			return
+		}
+	}
+	if v, ok := cd[model.ErrorDataKey]; ok {
+		if cols.ErrorData, err = cut(v, model.ErrorDataKey); err != nil {
 			return
 		}
 	}
@@ -344,7 +349,7 @@ func progressParams(inst *model.ProcessInstance, cols contextCols, now int64) db
 		ID:             inst.ID,
 		Task:           inst.Task,
 		OutputsData:    cols.OutputsData,
-		ErrorData:      cols.ErrorData,
+		ErrorInternal:  cols.ErrorInternal,
 		ExternalData:   cols.ExternalData,
 		EngineState:    cols.EngineState,
 		Objects:        cols.Objects,
@@ -365,6 +370,7 @@ func updateInstanceParams(inst *model.ProcessInstance, cols contextCols, now int
 		Task:           inst.Task,
 		OutputsData:    cols.OutputsData,
 		OutputData:     cols.OutputData,
+		ErrorInternal:  cols.ErrorInternal,
 		ErrorData:      cols.ErrorData,
 		ExternalData:   cols.ExternalData,
 		EngineState:    cols.EngineState,
@@ -373,7 +379,7 @@ func updateInstanceParams(inst *model.ProcessInstance, cols contextCols, now int
 		WakeAt:         fromTimePtr(inst.WakeAt),
 		Status:         string(inst.Status),
 		WaitState:      string(inst.WaitState),
-		Error:          inst.Error,
+		ErrorMessage:   inst.Error,
 		ErrorCode:      inst.ErrorCode,
 		UpdatedAt:      now,
 		LeaseEpoch:     inst.LeaseEpoch,
@@ -431,6 +437,7 @@ func insertInstanceParams(inst *model.ProcessInstance, cols contextCols, status 
 		InputData:       cols.InputData,
 		OutputsData:     cols.OutputsData,
 		OutputData:      cols.OutputData,
+		ErrorInternal:   cols.ErrorInternal,
 		ErrorData:       cols.ErrorData,
 		ExternalData:    cols.ExternalData,
 		EngineState:     cols.EngineState,
@@ -444,7 +451,7 @@ func insertInstanceParams(inst *model.ProcessInstance, cols contextCols, status 
 		WakeAt:          fromTimePtr(inst.WakeAt),
 		Status:          status,
 		WaitState:       string(inst.WaitState),
-		Error:           inst.Error,
+		ErrorMessage:    inst.Error,
 		ErrorCode:       inst.ErrorCode,
 		CreatedAt:       createdAt,
 		UpdatedAt:       updatedAt,
@@ -584,7 +591,7 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 		RetryCount:      int(r.RetryCount),
 		Status:          model.Status(r.Status),
 		WaitState:       model.WaitState(r.WaitState),
-		Error:           r.Error,
+		Error:           r.ErrorMessage,
 		ErrorCode:       r.ErrorCode,
 		CreatedAt:       toTime(r.CreatedAt),
 		UpdatedAt:       toTime(r.UpdatedAt),
@@ -646,7 +653,10 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 	if err := into(r.OutputData, "output"); err != nil {
 		return nil, nil, err
 	}
-	if err := into(r.ErrorData, "error"); err != nil {
+	if err := into(r.ErrorInternal, "error"); err != nil {
+		return nil, nil, err
+	}
+	if err := into(r.ErrorData, model.ErrorDataKey); err != nil {
 		return nil, nil, err
 	}
 	if r.OutputsData != "" {

@@ -1,0 +1,33 @@
+# The state every freshly-created instance is in, and the one an upgrade sweep meets most
+# often: nothing has run, so the context is an input and an empty outputs map. It is worth a
+# case of its own because it is the only state whose shape is not the engine's doing — the
+# create path builds it, and a create path that forgot a slot would surface here first.
+#
+# The two versions differ only in an added optional input property, so nothing about the
+# stored state has to change. What is being asserted is that a move which SHOULD be trivial
+# is in fact trivial.
+apply:
+  - definitions:
+      - name: entryproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: first
+            output: {v: '$: input.n'}
+            switch: end
+  - definitions:
+      - name: entryproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}, note: {type: [string, "null"]}}
+          required: [n]
+        tasks:
+          - id: first
+            output: {v: '$: input.n'}
+            switch: end
+start: {process: entryproc, input: {n: 1}, ticks: 0}
+resting: {task: first, status: running, wait_state: "", outputs: [], context_keys: [error, input, outputs]}
+after: {task: first, status: running, outputs: [], context_keys: [error, input, outputs]}
+run: [entryproc, --from, "1", --to, "2"]

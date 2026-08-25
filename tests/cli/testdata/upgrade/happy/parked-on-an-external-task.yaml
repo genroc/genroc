@@ -1,0 +1,29 @@
+# Parked waiting for an outside caller: the state an upgrade is most likely to meet in
+# production, because it is the one instances sit in for days. The context carries `_external`
+# — engine bookkeeping the definition never declares — so this case is what would catch a
+# migration that strips what it does not recognise and silently unparks the instance.
+apply:
+  - definitions:
+      - name: parkedproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: hold
+            action: {type: external}
+            switch: end
+  - definitions:
+      - name: parkedproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}, note: {type: [string, "null"]}}
+          required: [n]
+        tasks:
+          - id: hold
+            action: {type: external}
+            switch: end
+start: {process: parkedproc, input: {n: 3}, ticks: 1}
+resting: {task: hold, status: running, wait_state: external, context_keys: [_external, error, input, outputs]}
+after: {task: hold, status: running, wait_state: external, context_keys: [_external, error, input, outputs]}
+run: [parkedproc, --from, "1", --to, "2"]

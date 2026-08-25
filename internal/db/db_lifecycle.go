@@ -135,10 +135,10 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 			// then filters by the code of the failure that actually started it, not just
 			// at the single instance that observed it.
 			if err := qtx.FailAncestors(ctx, dbgen.FailAncestorsParams{
-				Error:     child.Error,
-				ErrorCode: child.ErrorCode,
-				UpdatedAt: now,
-				Ids:       string(idsJSON),
+				ErrorMessage: child.Error,
+				ErrorCode:    child.ErrorCode,
+				UpdatedAt:    now,
+				Ids:          string(idsJSON),
 			}); err != nil {
 				return err
 			}
@@ -608,9 +608,12 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 			Task:        raw.Task,
 			OutputsData: raw.OutputsData,
 			OutputData:  raw.OutputData,
-			// The three error slots clear together: a kept error_code corrupts the column it exists
-			// for; a kept error_data would survive into `error` reads. mustErr/mayErr admits an `error`
+			// The error slots clear together: a kept error_code corrupts the column it exists
+			// for; a kept error_internal would survive into `error` reads. mustErr/mayErr admits an `error`
 			// read only where an error exists on every path, so a cleared one is never readable.
+			ErrorInternal: "",
+			// A revived instance has concluded nothing, so the fault it was reporting goes with the
+			// status that carried it.
 			ErrorData:    "",
 			ExternalData: raw.ExternalData,
 			EngineState:  raw.EngineState,
@@ -621,14 +624,14 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 			RetryCount: int64(node.RetryCount),
 			// A revived task is entered afresh, so its batch must be too: without the bump a
 			// re-spawned child task collides with the children its failed attempt left behind.
-			TaskEpoch:  raw.TaskEpoch + 1,
-			WakeAt:     fromTimePtr(node.WakeAt),
-			Status:     string(node.Status),
-			WaitState:  string(node.WaitState),
-			Error:      "",
-			ErrorCode:  "",
-			UpdatedAt:  now,
-			LeaseEpoch: raw.LeaseEpoch,
+			TaskEpoch:    raw.TaskEpoch + 1,
+			WakeAt:       fromTimePtr(node.WakeAt),
+			Status:       string(node.Status),
+			WaitState:    string(node.WaitState),
+			ErrorMessage: "",
+			ErrorCode:    "",
+			UpdatedAt:    now,
+			LeaseEpoch:   raw.LeaseEpoch,
 			// No lease held: bind worker_id as read under the tree lock too, where it
 			// cannot move. NullString's zero is "", which is what an unheld row compares as.
 			WorkerID: raw.WorkerID.String,
@@ -704,26 +707,27 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			return err
 		}
 		if err := requireFenced(qtx.UpdateInstance(ctx, dbgen.UpdateInstanceParams{
-			ID:           parent.ID,
-			Task:         parent.Task,
-			OutputsData:  parentCols.OutputsData,
-			OutputData:   parentCols.OutputData,
-			ErrorData:    parentCols.ErrorData,
-			ExternalData: parentCols.ExternalData,
-			EngineState:  parentCols.EngineState,
-			Objects:      parentCols.Objects,
-			RetryCount:   int64(parent.RetryCount),
+			ID:            parent.ID,
+			Task:          parent.Task,
+			OutputsData:   parentCols.OutputsData,
+			OutputData:    parentCols.OutputData,
+			ErrorInternal: parentCols.ErrorInternal,
+			ErrorData:     parentCols.ErrorData,
+			ExternalData:  parentCols.ExternalData,
+			EngineState:   parentCols.EngineState,
+			Objects:       parentCols.Objects,
+			RetryCount:    int64(parent.RetryCount),
 			// Carried, never bumped: the parent is parking on the task it just spawned from,
 			// and this is the epoch its collect will bind against the children.
-			TaskEpoch:  parent.TaskEpoch,
-			WakeAt:     sql.NullInt64{},
-			Status:     currentStatus,
-			WaitState:  string(model.WaitStateWaiting),
-			Error:      parent.Error,
-			ErrorCode:  parent.ErrorCode,
-			UpdatedAt:  now,
-			LeaseEpoch: parent.LeaseEpoch,
-			WorkerID:   fenceWorker(parent),
+			TaskEpoch:    parent.TaskEpoch,
+			WakeAt:       sql.NullInt64{},
+			Status:       currentStatus,
+			WaitState:    string(model.WaitStateWaiting),
+			ErrorMessage: parent.Error,
+			ErrorCode:    parent.ErrorCode,
+			UpdatedAt:    now,
+			LeaseEpoch:   parent.LeaseEpoch,
+			WorkerID:     fenceWorker(parent),
 			// The parent parks here and is claimed again to collect. Left unset this zeroes
 			// to "needs flush", so every parent in a spawning tree would pay an fsync on its
 			// collect claim.

@@ -61,7 +61,7 @@ type ProcessInstance struct {
 	RetryCount             int64
 	WakeAt                 sql.NullInt64
 	Status                 string
-	Error                  string
+	ErrorMessage           string
 	CreatedAt              int64
 	UpdatedAt              int64
 	WorkerID               sql.NullString
@@ -71,7 +71,7 @@ type ProcessInstance struct {
 	InputData              string
 	OutputsData            string
 	OutputData             string
-	ErrorData              string
+	ErrorInternal          string
 	ExternalData           string
 	EngineState            string
 	Task                   string
@@ -84,6 +84,7 @@ type ProcessInstance struct {
 	ExternalClaimEpoch     int64
 	Objects                string
 	NextReplayable         int64
+	ErrorData              string
 }
 
 type ProcessLog struct {

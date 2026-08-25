@@ -109,7 +109,7 @@ test("child — output validation failure error includes process name", async ()
   const { data: inst } = await client.GET("/instances/{id}", {
     params: { path: { id: data!.id } },
   });
-  expect(inst?.error).toContain(childName);
+  expect(inst?.error_message).toContain(childName);
 });
 
 test("child — on_error against a child that raises nothing is rejected at registration", async () => {
@@ -239,7 +239,7 @@ test("child — failure propagates through the entire ancestor chain", async () 
   expect(await waitForInstance(data!.id, 15_000)).toBe("failed");
 
   const { data: inst } = await client.GET("/instances/{id}", { params: { path: { id: data!.id } } });
-  expect(inst?.error).toBeTruthy();
+  expect(inst?.error_message).toBeTruthy();
 
   failMock.stop();
 });
@@ -282,7 +282,7 @@ test("child — parent error contains child's error message when child fails", a
   expect(await waitForInstance(data!.id, 10_000)).toBe("failed");
 
   const { data: inst } = await client.GET("/instances/{id}", { params: { path: { id: data!.id } } });
-  expect(inst?.error).toBeTruthy();
+  expect(inst?.error_message).toBeTruthy();
 
   failMock.stop();
 });

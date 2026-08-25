@@ -179,7 +179,7 @@ test("catch — a rule panics, failing the parent with the authored code", async
   });
   expect(data?.status).toBe("failed");
   expect(data?.error_code).toBe("cannot_settle");
-  expect(data?.error).toBe("the batch cannot be settled");
+  expect(data?.error_message).toBe("the batch cannot be settled");
 });
 
 // A rule that raises: the parent re-raises with its own code, and `error` mirrors the
@@ -280,9 +280,9 @@ test("unhandled — the parent fails mirroring the child's raised code and messa
   // Mirrors the child: error_code is the raised code, not engine.collect; the message
   // carries the child's message and names the child.
   expect(data?.error_code).toBe("surprise");
-  expect(data?.error).toContain("surprise");
-  expect(data?.error).toContain("an unhandled surprise");
-  expect(data?.error).not.toContain("engine.collect");
+  expect(data?.error_message).toContain("surprise");
+  expect(data?.error_message).toContain("an unhandled surprise");
+  expect(data?.error_message).not.toContain("engine.collect");
 });
 
 // A fan-out where several children raise: the first (by child_index) routes

@@ -329,7 +329,7 @@ test("a fails while the tree is paused — failure propagates, and resume unbloc
     const { data: parentInst } = await ctx.env.client.GET("/instances/{id}", {
       params: { path: { id: parent } },
     });
-    expect(parentInst?.error).toBeTruthy();
+    expect(parentInst?.error_message).toBeTruthy();
   } finally {
     await ctx.env.tickUntilIdle();
     await holdMock.stop();

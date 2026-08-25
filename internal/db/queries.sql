@@ -67,17 +67,17 @@ ORDER BY pc.name;
 -- name: InsertInstance :exec
 INSERT INTO process_instances
     (id, process_name, process_version, task,
-     input_data, outputs_data, output_data, error_data, external_data, engine_state,
+     input_data, outputs_data, output_data, error_internal, error_data, external_data, engine_state,
      parent_id, spawn_task_id, parent_task_epoch, task_epoch,
-     call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at, objects,
+     call_stack, retry_count, wake_at, status, wait_state, error_message, error_code, created_at, updated_at, objects,
      next_replayable)
 VALUES
     (sqlc.arg(id), sqlc.arg(process_name), sqlc.arg(process_version), sqlc.arg(task),
      sqlc.arg(input_data), sqlc.arg(outputs_data), sqlc.arg(output_data),
-     sqlc.arg(error_data), sqlc.arg(external_data), sqlc.arg(engine_state),
+     sqlc.arg(error_internal), sqlc.arg(error_data), sqlc.arg(external_data), sqlc.arg(engine_state),
      sqlc.arg(parent_id), sqlc.arg(spawn_task_id), sqlc.arg(parent_task_epoch), sqlc.arg(task_epoch),
      sqlc.arg(call_stack), sqlc.arg(retry_count), sqlc.arg(wake_at),
-     sqlc.arg(status), sqlc.arg(wait_state), sqlc.arg(error), sqlc.arg(error_code),
+     sqlc.arg(status), sqlc.arg(wait_state), sqlc.arg(error_message), sqlc.arg(error_code),
      sqlc.arg(created_at), sqlc.arg(updated_at), sqlc.arg(objects),
      sqlc.arg(next_replayable));
 
@@ -95,6 +95,7 @@ SET task             = sqlc.arg(task),
     task_epoch       = sqlc.arg(task_epoch),
     outputs_data     = sqlc.arg(outputs_data),
     output_data      = sqlc.arg(output_data),
+    error_internal   = sqlc.arg(error_internal),
     error_data       = sqlc.arg(error_data),
     external_data    = sqlc.arg(external_data),
     engine_state     = sqlc.arg(engine_state),
@@ -105,7 +106,7 @@ SET task             = sqlc.arg(task),
                             AND CAST(sqlc.arg(status) AS TEXT) = 'running'
                             THEN 'paused' ELSE CAST(sqlc.arg(status) AS TEXT) END,
     wait_state       = sqlc.arg(wait_state),
-    error            = sqlc.arg(error),
+    error_message    = sqlc.arg(error_message),
     error_code       = sqlc.arg(error_code),
     updated_at       = sqlc.arg(updated_at),
     worker_id        = NULL,
@@ -123,7 +124,7 @@ SET task             = sqlc.arg(task),
     next_replayable   = sqlc.arg(next_replayable),
     task_epoch       = sqlc.arg(task_epoch),
     outputs_data     = sqlc.arg(outputs_data),
-    error_data       = sqlc.arg(error_data),
+    error_internal   = sqlc.arg(error_internal),
     external_data    = sqlc.arg(external_data),
     engine_state     = sqlc.arg(engine_state),
     objects          = sqlc.arg(objects),
@@ -141,16 +142,16 @@ WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch)
 -- Column order matches the process_instances row struct (context columns then task then
 -- error_code then lease_epoch then the external-claim trio, appended by migrations 019, 020,
 -- 023, 025, 026 and 028) so sqlc returns dbgen.ProcessInstance directly. That is why
--- error_code trails the list instead of sitting beside `error`: the order is the table's, not
+-- error_code trails the list instead of sitting beside `error_message`: the order is the table's, not
 -- a reading order. A column added to the table must be appended HERE too, or sqlc emits a
 -- subset row type and every toInstance caller stops compiling.
 SELECT id, process_name, process_version, parent_id,
-       call_stack, retry_count, wake_at, status, error,
+       call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable
+       next_replayable, error_data
 FROM process_instances
 WHERE id = sqlc.arg(id);
 
@@ -232,12 +233,12 @@ WHERE id = sqlc.arg(id);
 
 -- name: GetChildrenForTask :many
 SELECT id, process_name, process_version, parent_id,
-       call_stack, retry_count, wake_at, status, error,
+       call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable
+       next_replayable, error_data
 FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id)
@@ -249,7 +250,7 @@ WHERE parent_id = sqlc.arg(parent_id)
 -- never reopens into 'failing' -- terminal for "batch done", yet neither poisoning nor
 -- poisonable). error_code travels along so a poisoned tree filters by its origin code.
 UPDATE process_instances
-SET status = 'failing', error = sqlc.arg(error), error_code = sqlc.arg(error_code),
+SET status = 'failing', error_message = sqlc.arg(error_message), error_code = sqlc.arg(error_code),
     updated_at = sqlc.arg(updated_at)
 WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)))
   AND status IN ('running', 'pausing', 'paused');
@@ -389,6 +390,7 @@ SET process_version = sqlc.arg(to_version),
     input_data      = sqlc.arg(input_data),
     outputs_data    = sqlc.arg(outputs_data),
     output_data     = sqlc.arg(output_data),
+    error_internal  = sqlc.arg(error_internal),
     error_data      = sqlc.arg(error_data),
     external_data   = sqlc.arg(external_data),
     engine_state    = sqlc.arg(engine_state),
@@ -416,12 +418,12 @@ WITH RECURSIVE subtree(id) AS (
     SELECT pi.id FROM process_instances pi JOIN subtree s ON pi.parent_id = s.id
 )
 SELECT id, process_name, process_version, parent_id,
-       call_stack, retry_count, wake_at, status, error,
+       call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable
+       next_replayable, error_data
 FROM process_instances
 WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
   AND (process_instances.id = sqlc.arg(root)

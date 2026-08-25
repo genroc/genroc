@@ -99,7 +99,7 @@ test("script child — script_threw carries {name, message} for a caller that de
       },
     },
   );
-  expect(status, `expected the caller's script_threw rule to fire: ${data?.error}`).toBe("completed");
+  expect(status, `expected the caller's script_threw rule to fire: ${data?.error_message}`).toBe("completed");
   expect((data?.context?.outputs as any)?.caught).toEqual({
     name: "UpstreamError",
     message: "the sky is closed",

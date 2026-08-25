@@ -115,7 +115,7 @@ test("child — output validation failure fails the parent and names the child",
   const { data: inst } = await client.GET("/instances/{id}", {
     params: { path: { id: data!.id } },
   });
-  expect(inst?.error).toContain(leaf);
+  expect(inst?.error_message).toContain(leaf);
 });
 
 // A single child that raises is the parent's to resolve via on_error, exactly like a

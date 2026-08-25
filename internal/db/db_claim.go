@@ -145,21 +145,8 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 
 		var result []*model.ProcessInstance
 		for rows.Next() {
-			// Destinations must match instanceColumns, plus prev_worker. This list cannot use
-			// scanInstance because of that trailing column -- so a column added there has to
-			// be added here too.
-			var r dbgen.ProcessInstance
-			var prevWorker sql.NullString
-			if err := rows.Scan(
-				&r.ID, &r.ProcessName, &r.ProcessVersion, &r.ParentID,
-				&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.Error,
-				&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
-				&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
-				&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
-				&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
-				&r.NextReplayable,
-				&prevWorker,
-			); err != nil {
+			r, prevWorker, err := scanInstanceWithPrevHolder(rows)
+			if err != nil {
 				return nil, err
 			}
 			inst, err := toInstance(r)

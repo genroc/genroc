@@ -65,18 +65,19 @@ func (db *DB) UpgradeInstances(ctx context.Context, ups []InstanceUpgrade) error
 			}
 
 			n, err := qtx.UpgradeInstanceVersion(ctx, dbgen.UpgradeInstanceVersionParams{
-				ID:           up.Instance.ID,
-				ToVersion:    int64(up.ToVersion),
-				FromVersion:  int64(up.Instance.ProcessVersion),
-				Task:         up.Instance.Task,
-				InputData:    cols.InputData,
-				OutputsData:  cols.OutputsData,
-				OutputData:   cols.OutputData,
-				ErrorData:    cols.ErrorData,
-				ExternalData: cols.ExternalData,
-				EngineState:  cols.EngineState,
-				Objects:      cols.Objects,
-				UpdatedAt:    now,
+				ID:            up.Instance.ID,
+				ToVersion:     int64(up.ToVersion),
+				FromVersion:   int64(up.Instance.ProcessVersion),
+				Task:          up.Instance.Task,
+				InputData:     cols.InputData,
+				OutputsData:   cols.OutputsData,
+				OutputData:    cols.OutputData,
+				ErrorInternal: cols.ErrorInternal,
+				ErrorData:     cols.ErrorData,
+				ExternalData:  cols.ExternalData,
+				EngineState:   cols.EngineState,
+				Objects:       cols.Objects,
+				UpdatedAt:     now,
 			})
 			if err != nil {
 				return fmt.Errorf("upgrade %q: %w", up.Instance.ID, err)

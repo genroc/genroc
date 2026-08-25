@@ -91,7 +91,7 @@ test("with no rule the parent still fails terminally — as output.invalid, not 
 
   const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
   expect(data?.error_code, "the split renames only this failure").toBe("output.invalid");
-  expect(data?.error).not.toContain("engine.collect");
+  expect(data?.error_message).not.toContain("engine.collect");
 
   // The error being diagnosed survives it: the child kept its output, and only the
   // parent's row names the mismatch.

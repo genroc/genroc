@@ -1,0 +1,41 @@
+# One task has produced an output and the instance is sitting at the next. This is the first
+# state that is genuinely the ENGINE's: outputs.first exists because a task ran and projected
+# it, not because anything created it that way.
+#
+# A definition-level check cannot tell this state from "at entry" — both are the same two
+# versions — which is the whole reason these cases drive a real instance rather than
+# comparing documents.
+apply:
+  - definitions:
+      - name: midproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: first
+            action: {type: delay, for: 1}
+            output: {v: '$: input.n'}
+            switch: next
+          - id: second
+            output: {w: '$: outputs.first.v'}
+            switch: end
+  - definitions:
+      - name: midproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}, note: {type: [string, "null"]}}
+          required: [n]
+        tasks:
+          - id: first
+            action: {type: delay, for: 1}
+            output: {v: '$: input.n'}
+            switch: next
+          - id: second
+            output: {w: '$: outputs.first.v'}
+            switch: end
+# Two ticks with the clock moved: the first arms the delay, the second lets it fire.
+start: {process: midproc, input: {n: 2}, ticks: 2, advance_ms: 1000}
+resting: {task: second, status: running, outputs: [first], context_keys: [input, outputs]}
+after: {task: second, status: running, outputs: [first], context_keys: [input, outputs]}
+run: [midproc, --from, "1", --to, "2"]

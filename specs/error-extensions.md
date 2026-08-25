@@ -66,7 +66,7 @@ variants without the check that makes them sound.
 Payload on the raising child's row (instance detail, logs, API); `error` in the parent
 unchanged; not matchable, not readable by expressions.
 
-**For:** I6 survives literally; no schema machinery (`error_data` column already
+**For:** I6 survives literally; no schema machinery (`error_internal` column already
 exists); sharpens §0 — diagnostics for humans, data for branching is `output`.
 **Against:** does not solve its own motivating case (`retry_after` still cannot reach a
 scheduling parent); two places to look for "what went wrong"; makes "let the parent
@@ -208,8 +208,55 @@ clause already means, rather than being stipulated:
 A panic code is excluded from `raises(D)` by construction (§2.3), so no declaration could
 ever apply to one and there is nothing to type. That makes the panic half **exactly X2-a**,
 and it needs none of the machinery below it: no schema table, no `ruleErrorData` branch, no
-typing — write the evaluated shape to `error_data` and stop. It is the cheaper half and
-could land first.
+typing — write the evaluated shape and stop. It is the cheaper half and could land first.
+
+### Two errors, one per direction
+
+An instance holds at most two errors and they are stored apart:
+
+| | storage | is | read by |
+|---|---|---|---|
+| **inbound** | `error_internal` (context slot `error`) | the error it CAUGHT | its own expressions, on tasks where the layer admits it |
+| **outbound** | `error_code`, `error_message`, `error_data` | the error it CONCLUDED with | its parent, where the call declares the code in `raises`; an operator |
+
+Both are whole errors: a clause authors `code`, `message` and `data`, so the outbound one is
+not a payload hung off the inbound slot.
+
+**The outbound one is three plain columns, not a JSON object.** `error_code` is filtered on —
+`GET /instances?error_code=...`, and the index behind it — and a code buried in a blob can be
+neither indexed nor matched in SQL. Only the payload gets a value column with an object-store
+cut, because only the payload is arbitrarily large; the other two are short scalars that want
+to be columns anyway. `error_data` is ABSENT rather than null where the clause carried none,
+and that absence is what tells a parent's collect there is nothing to conform.
+
+The resemblance between the two is the trap. On a task reached through `on_error`, `error` is
+that task's INPUT — part of the state a layer describes and an upgrade validates against — so
+a concluding fault editing it leaves an instance holding a context no layer admits.
+
+That is not hypothetical. A `panic` carrying no `data` used to CLEAR `error.data`, so a
+handler that had just interpolated `${error.data.name}` into the panic's own message left
+behind a state whose handler task requires the very key the panic had deleted — and
+`genctl upgrade` refused it with `required property "data" is missing`. Keeping "the error I
+am handling" apart from "the error I am reporting" is what fixes it; nothing else has to know
+the difference, because a parent reads the reported one through `raises` either way.
+
+`error_data` is completion-only for the same reason `output_data` is, so the mid-process
+checkpoint does not write it, and `RetryProcess` clears it — a revived instance reports no
+error. Its context key keeps an underscore: nothing an author writes reads it, since the
+instance has concluded by the time it exists, and `error` is the name authors already use for
+the inbound one in `on_error` and `${error.data.name}`. Reusing that name for the outbound
+direction would invert an existing meaning silently.
+
+**The wire keeps the columns apart too.** Both endpoints return `error_code` and
+`error_message` under those names, and the single-instance one adds `error_data`; a list row
+omits only the payload, which is the one field that can be large. Nothing is reassembled into
+an object on read: the field a caller filters on (`?error_code=`) is the field it reads back,
+and one name means one type at every endpoint. An earlier shape returned an `error` OBJECT
+from the single-instance endpoint while the list returned an `error` STRING, which is two
+types for one name and the reason this is written down.
+
+The caught error is not a field at either endpoint — it stays inside `context` under `error`,
+where the definition reads it.
 
 Its motivating case is the one X2-a always had. `script.yaml` panics `script_broken` with
 `message: "the script is broken (${error.data.kind}) - ${error.data.message}"` and drops

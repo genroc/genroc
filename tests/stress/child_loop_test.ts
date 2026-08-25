@@ -136,7 +136,7 @@ describe.runIf(!!DSN)("child task in a loop — worker fleet, postgres", () => {
       // No root may FAIL: pause/resume is non-destructive, and the collect error this whole
       // mechanism exists to prevent surfaces exactly here.
       const failed = instances.filter((i) => i.status === "failed");
-      expect(failed.map((i) => `${i.id}:${i.error}`), "no tree failed").toEqual([]);
+      expect(failed.map((i) => `${i.id}:${i.error_message}`), "no tree failed").toEqual([]);
 
       for (const id of rootIds) {
         const { data } = await api.GET("/instances/{id}", { params: { path: { id } } });
