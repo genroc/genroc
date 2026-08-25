@@ -59,7 +59,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 
 			// Default: created desc -> newest created first: c, b, a.
-			got, info, err := b.db.ListInstances("", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			got, info, err := b.db.ListInstances("", "", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances: %v", err)
 			}
@@ -80,7 +80,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 
 			// updated desc -> most recently active first: a (just updated), c, b.
-			byUpdated, info, err := b.db.ListInstances("", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{Sort: "updated"})
+			byUpdated, info, err := b.db.ListInstances("", "", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{Sort: "updated"})
 			if err != nil {
 				t.Fatalf("ListInstances updated: %v", err)
 			}
@@ -92,7 +92,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 
 			// Status filter narrows the page.
-			completed, _, err := b.db.ListInstances("completed", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			completed, _, err := b.db.ListInstances("completed", "", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances completed: %v", err)
 			}
@@ -104,7 +104,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			// that tells them apart. Read the bound off a DB row, not saveInstance's argument — that
 			// struct never carries the stamped timestamps, so a zero would skip the filter entirely.
 			at := got[1].CreatedAt.UnixMilli() // b's created_at (got is c, b, a)
-			byCreated, _, err := b.db.ListInstances("", "", dbpkg.Window{After: at}, dbpkg.Window{}, dbpkg.PageReq{})
+			byCreated, _, err := b.db.ListInstances("", "", "", dbpkg.Window{After: at}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances created_after: %v", err)
 			}
@@ -112,7 +112,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			if want := []string{c.ID, bb.ID}; !equalStrs(summaryIDs(byCreated), want) {
 				t.Errorf("created_after = %v, want %v", summaryIDs(byCreated), want)
 			}
-			byUpdatedAfter, _, err := b.db.ListInstances("", "", dbpkg.Window{}, dbpkg.Window{After: at}, dbpkg.PageReq{Sort: "updated"})
+			byUpdatedAfter, _, err := b.db.ListInstances("", "", "", dbpkg.Window{}, dbpkg.Window{After: at}, dbpkg.PageReq{Sort: "updated"})
 			if err != nil {
 				t.Fatalf("ListInstances updated_after: %v", err)
 			}
@@ -122,7 +122,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 			// Both at once intersect rather than one winning — they are plain filters, and
 			// only the one matching the sort is the point a forward walk starts from.
-			both, _, err := b.db.ListInstances("", "", dbpkg.Window{After: at}, dbpkg.Window{After: at}, dbpkg.PageReq{Sort: "updated"})
+			both, _, err := b.db.ListInstances("", "", "", dbpkg.Window{After: at}, dbpkg.Window{After: at}, dbpkg.PageReq{Sort: "updated"})
 			if err != nil {
 				t.Fatalf("ListInstances both bounds: %v", err)
 			}
@@ -133,7 +133,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			// A window is half-open: Before excludes a row sitting exactly on it, so
 			// [a.created, b.created) is 'a' alone and adjacent windows never double-count
 			// the boundary row.
-			half, _, err := b.db.ListInstances("", "",
+			half, _, err := b.db.ListInstances("", "", "",
 				dbpkg.Window{After: got[2].CreatedAt.UnixMilli(), Before: at}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances half-open: %v", err)
@@ -189,4 +189,50 @@ func equalStrs(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestListInstances_ProcessFilter covers the process-name filter and, with it, that the
+// filters intersect rather than the last one winning. The empty-string case is the one
+// that matters most: it must mean "every process", not "a process named empty".
+func TestListInstances_ProcessFilter(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			a1 := saveInstance(t, b.db, "alpha")
+			dbpkg.AdvanceClock(time.Second)
+			a2 := saveInstance(t, b.db, "alpha")
+			dbpkg.AdvanceClock(time.Second)
+			beta := saveInstance(t, b.db, "beta")
+
+			all, _, err := b.db.ListInstances("", "", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			if err != nil {
+				t.Fatalf("ListInstances unfiltered: %v", err)
+			}
+			if want := []string{beta.ID, a2.ID, a1.ID}; !equalStrs(summaryIDs(all), want) {
+				t.Errorf("empty process = %v, want %v — an empty filter must not narrow the page", summaryIDs(all), want)
+			}
+
+			alphas, _, err := b.db.ListInstances("", "", "alpha", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			if err != nil {
+				t.Fatalf("ListInstances process=alpha: %v", err)
+			}
+			if want := []string{a2.ID, a1.ID}; !equalStrs(summaryIDs(alphas), want) {
+				t.Errorf("process=alpha = %v, want %v — the filter spans every row of the name, and only that name", summaryIDs(alphas), want)
+			}
+
+			dbpkg.AdvanceClock(time.Second)
+			a2.Status = model.StatusCompleted
+			if err := b.db.UpdateInstance(a2); err != nil {
+				t.Fatalf("UpdateInstance: %v", err)
+			}
+			// beta stays running and a1 is the other alpha, so a filter that dropped either
+			// half of the pair returns a different row than a2.
+			both, _, err := b.db.ListInstances("running", "", "alpha", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			if err != nil {
+				t.Fatalf("ListInstances status+process: %v", err)
+			}
+			if want := []string{a1.ID}; !equalStrs(summaryIDs(both), want) {
+				t.Errorf("status=running,process=alpha = %v, want %v — status and process must intersect", summaryIDs(both), want)
+			}
+		})
+	}
 }

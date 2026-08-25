@@ -513,3 +513,73 @@ func TestRenewal_UnlistedRowHandsBackWithEvidence(t *testing.T) {
 		})
 	}
 }
+
+// The epoch alone is not the grant. A rewind (a DB losing committed transactions to an
+// unclean shutdown, or a failover to a lagging replica) un-issues a claim while the
+// worker that won it is still running, and the next claim re-issues the SAME number to
+// someone else. Both then carry a matching lease_epoch, so worker_id is what separates
+// them. specs/durability-levels.md §7.
+func TestFence_ReusedEpochBelongsToOneWorker(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInst(t, b.db, "fence-reuse", model.StatusRunning, "", nil, "")
+			stale := takeOver(t, b.db, "fence-reuse") // stale holds the victim's grant
+			current := mustEpoch(t, b.db, "fence-reuse")
+			if stale.LeaseEpoch == current {
+				t.Fatalf("setup: victim already holds the current epoch %d", current)
+			}
+
+			// What a rewind produces: the victim's own grant, renumbered to the epoch the
+			// thief now holds. Every other fence test relies on the numbers differing; this
+			// is the one where they do not.
+			stale.LeaseEpoch = current
+			stale.Status = model.StatusCompleted
+			stale.Task = ""
+			stale.Error = "stale outcome"
+			if err := b.db.UpdateInstance(stale); !errors.Is(err, dbpkg.ErrLeaseLost) {
+				t.Fatalf("write at a reused epoch: err=%v, want ErrLeaseLost — an epoch is a grant to one worker, not a number", err)
+			}
+
+			got, err := b.db.GetInstance("fence-reuse")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			if got.Status != model.StatusRunning || got.Error != "" {
+				t.Fatalf("stale write clobbered the thief: status=%q error=%q", got.Status, got.Error)
+			}
+			if got.WorkerID == nil || *got.WorkerID != "thief" {
+				t.Fatalf("refused write disturbed the lease: worker=%v", got.WorkerID)
+			}
+
+			// The holder of that same epoch still writes normally — the predicate narrows
+			// the grant to one worker, it does not invalidate the epoch.
+			got.Status = model.StatusCompleted
+			if err := b.db.UpdateInstance(got); err != nil {
+				t.Fatalf("thief's own write at the same epoch: %v", err)
+			}
+		})
+	}
+}
+
+// The same reuse against the checkpoint path, which is the one a long-running advance
+// actually takes: a stale progress write must not resurrect an instance the new owner
+// has moved on from.
+func TestFence_ReusedEpochProgress(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInst(t, b.db, "fence-reuse-prog", model.StatusRunning, "", nil, "")
+			stale := takeOver(t, b.db, "fence-reuse-prog")
+
+			stale.LeaseEpoch = mustEpoch(t, b.db, "fence-reuse-prog")
+			stale.RetryCount = 9
+			stale.Task = "stale-step"
+			if err := b.db.UpdateInstanceProgress(stale); !errors.Is(err, dbpkg.ErrLeaseLost) {
+				t.Fatalf("progress write at a reused epoch: err=%v, want ErrLeaseLost", err)
+			}
+			got, _ := b.db.GetInstance("fence-reuse-prog")
+			if got.RetryCount == 9 || got.Task == "stale-step" {
+				t.Fatalf("stale progress leaked: retry=%d task=%q", got.RetryCount, got.Task)
+			}
+		})
+	}
+}

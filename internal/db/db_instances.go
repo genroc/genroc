@@ -22,7 +22,7 @@ var instancePaginator = paginator{
 		"created": {{"created_at", kindInt}, {"id", kindText}},
 		"updated": {{"updated_at", kindInt}, {"id", kindText}},
 	},
-	filterCols: []string{"status", "error_code", "created_at", "updated_at"},
+	filterCols: []string{"status", "error_code", "process_name", "created_at", "updated_at"},
 	defSort:    "created",
 	defDesc:    true, // newest first
 	defLimit:   20,
@@ -351,6 +351,7 @@ func progressParams(inst *model.ProcessInstance, cols contextCols, now int64) db
 		WaitState:    string(inst.WaitState),
 		UpdatedAt:    now,
 		LeaseEpoch:   inst.LeaseEpoch,
+		WorkerID:     fenceWorker(inst),
 		TaskEpoch:    inst.TaskEpoch,
 	}
 }
@@ -373,8 +374,19 @@ func updateInstanceParams(inst *model.ProcessInstance, cols contextCols, now int
 		ErrorCode:    inst.ErrorCode,
 		UpdatedAt:    now,
 		LeaseEpoch:   inst.LeaseEpoch,
+		WorkerID:     fenceWorker(inst),
 		TaskEpoch:    inst.TaskEpoch,
 	}
+}
+
+// fenceWorker is the worker half of the lease fence. The empty string stands for an
+// unheld row, matching the COALESCE in the fenced UPDATEs, so a lease-less caller binding
+// what it read under its row lock compares equal. specs/lease-fencing.md.
+func fenceWorker(inst *model.ProcessInstance) string {
+	if inst.WorkerID == nil {
+		return ""
+	}
+	return *inst.WorkerID
 }
 
 // requireFenced converts a fenced write's rows-affected into the fence verdict: zero
@@ -486,15 +498,16 @@ func (db *DB) GetInstance(id string) (*model.ProcessInstance, error) {
 }
 
 // ListInstances returns a page of instance summaries, optionally filtered by status
-// (empty = all), error code, and a Window on either timestamp (zero = unbounded). The two
-// windows are separate rather than one resolved against the active sort: a caller walking
-// forward pairs its bound with the sort it ordered by, and naming the column keeps that
-// pairing the caller's to state instead of this function's to guess.
+// (empty = all), error code, process name, and a Window on either timestamp (zero =
+// unbounded). The two windows are separate rather than one resolved against the active
+// sort: a caller walking forward pairs its bound with the sort it ordered by, and naming
+// the column keeps that pairing the caller's to state instead of this function's to guess.
 // Summaries omit the context blob — use GetInstance for full detail.
-func (db *DB) ListInstances(status, errorCode string, created, updated Window, req PageReq) ([]*model.InstanceSummary, PageInfo, error) {
+func (db *DB) ListInstances(status, errorCode, process string, created, updated Window, req PageReq) ([]*model.InstanceSummary, PageInfo, error) {
 	q := instancePaginator.query(req).
 		EqIf("status", status, status != "").
-		EqIf("error_code", errorCode, errorCode != "")
+		EqIf("error_code", errorCode, errorCode != "").
+		EqIf("process_name", process, process != "")
 	b, err := updated.apply(created.apply(q, "created_at"), "updated_at").build()
 	if err != nil {
 		return nil, PageInfo{}, err

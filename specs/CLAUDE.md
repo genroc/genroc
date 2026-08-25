@@ -297,11 +297,28 @@ behavior while the spec stays put, answering a different question. See
   instead of reporting `interrupted`. Also records the engine asymmetry that reorders the
   work: group commit is Postgres-only and costs no durability at all, capped by
   `--pg-max-open-conns` rather than `--max-concurrent`, so the ladder is mostly a SQLite
-  feature and should land *after* the two changes that spend no guarantee. Two open
-  questions block it: whether the level is an operator flag or a per-definition field, and
-  a `lease_epoch` reuse hazard a rewind widens. Names a live bench-harness bug it is not
-  about: the failed-instance check in `tests/bench/run.ts` is unscoped, so the Postgres
-  path aborts on any database that has run the test suite.
+  feature and should land *after* the two changes that spend no guarantee. **That ordering
+  is what was taken (2026-08-25) and the ladder is unbuilt**: the decision is to keep every
+  commit synchronous and cut the number of flushes instead, so `--pg-commit-delay` shipped
+  (§6b) and SQLite is left at its ~180 inst/s full-durability ceiling as the single-node
+  engine. §6a is the honest-storage measurement §8 asked for, and carries two corrections
+  worth reading before trusting any fsync number: throughput peaks at a *small* delay and
+  falls while the fsync count keeps improving — so "count fsyncs, not time them" is wrong
+  for tuning one — and the size of the gain did not reproduce between a loaded and a quiet
+  machine (1.33× vs 1.03×), because the knob removes a downside rather than raising a
+  ceiling. **Re-measured
+  2026-08-25** on the current tree — every figure reproduces (177 / 3,909 / 5,429 inst/s,
+  plus a new Postgres row at 2,138 confirming §6's group-commit ratio from `wal_sync`).
+  The level is **decided: flag plus a per-definition field**, `max(flag, definition)`, and
+  the sub-questions that blocked it are answered in §8 — notably that **child inheritance
+  is not a question at all**, since prefix durability means a later sync hardens an earlier
+  child's writes whoever wrote them. The §7 `lease_epoch` reuse hazard — the one item that
+  had to land before any level below `strict` ships — is **closed**: `worker_id` joined the
+  fence predicate, so one epoch is a grant to one worker
+  ([lease-fencing.md](lease-fencing.md) records why that is not the `worker_id`-as-token
+  option it rejects, and what stays open by choice). The bench-harness bug it named is fixed, and the fix is
+  worth knowing — a time window does not scope a shared database, because `dbtest` fixtures
+  call `AdvanceClock` and leave rows stamped in the future.
 - [deterministic-simulation.md](deterministic-simulation.md) — run the engine against a
   simulated world (virtual clock, modelled fetch service, injected faults) so crashes and
   worker races become enumerable instead of rare. Argues **two tiers and recommends

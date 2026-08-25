@@ -201,13 +201,18 @@ async function preload(
   return ids;
 }
 
-// anyWithStatus reports whether at least one instance currently has the given status.
+// anyWithStatus reports whether at least one instance of THIS workload, created at/after
+// `since`, currently has the given status. Both bounds are load-bearing against a reused
+// Postgres DSN: the name excludes dbtest fixtures, whose AdvanceClock timestamps land in
+// the future and so survive any time window; `since` excludes an earlier failed bench of
+// this same workload, which would otherwise poison every run after it.
 async function anyWithStatus(
   client: Client,
   status: "running" | "failed",
+  since: number,
 ): Promise<boolean> {
   const { data, error } = await client.GET("/instances", {
-    params: { query: { status, limit: 1 } },
+    params: { query: { status, process: DEFS_NAME, created_after: since, limit: 1 } },
   });
   if (error) throw new Error(`list instances failed: ${JSON.stringify(error)}`);
   return (data?.items ?? []).length > 0;
@@ -219,11 +224,11 @@ async function anyWithStatus(
 // childless root is done — for both the trees and the drain backlog. The failed-check
 // stops a broken workload from masquerading as a fast drain (a failed instance is also
 // "not running").
-async function waitDrained(client: Client) {
+async function waitDrained(client: Client, since: number) {
   const deadline = Date.now() + TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (!(await anyWithStatus(client, "running"))) {
-      if (await anyWithStatus(client, "failed")) {
+    if (!(await anyWithStatus(client, "running", since))) {
+      if (await anyWithStatus(client, "failed", since)) {
         throw new Error("backlog drained but some instances failed");
       }
       return;
@@ -249,6 +254,9 @@ async function benchEngine(
   const durations: number[] = [];
   let instances = 0;
   for (let run = 0; run < RUNS; run++) {
+    // Taken before the first insert, so the drain verdict covers exactly this run's
+    // instances and no earlier one's (see anyWithStatus).
+    const since = Date.now();
     // Phase 1 — load. poll=0 ⇒ manual-tick mode: the engine never auto-advances.
     const loader = await startGenroc(bin, BENCH_PORT, dbPath, dsn, 0, concurrency);
     let rootIds: string[];
@@ -271,7 +279,7 @@ async function benchEngine(
     const drainer = await startGenroc(bin, BENCH_PORT, dbPath, dsn, POLL_MS, concurrency);
     try {
       const start = Date.now();
-      await waitDrained(drainer.client);
+      await waitDrained(drainer.client, since);
       durations.push(Date.now() - start);
       instances = await countInstances(drainer.client, rootIds);
     } finally {
@@ -311,9 +319,14 @@ function report(results: EngineResult[]) {
   // Both engines run fully durable by default (matched comparison): SQLite fsyncs the
   // WAL on every commit, Postgres commits synchronously. GENROC_SQLITE_SYNCHRONOUS
   // overrides SQLite's level (e.g. NORMAL for the faster, process-crash-only setting).
+  // fullfsync is printed because on macOS it is the difference between a real fsync and a
+  // 185x-faster no-op — a number without it says nothing (specs/durability-levels.md §1).
   const sqliteSync = process.env.GENROC_SQLITE_SYNCHRONOUS ?? "FULL";
+  const fullFsync = process.env.GENROC_SQLITE_FULLFSYNC ? "on" : "off";
+  const commitDelay = process.env.GENROC_PG_COMMIT_DELAY ?? "0";
   console.log(
-    `durability: sqlite synchronous=${sqliteSync}, postgres synchronous_commit=on`,
+    `durability: sqlite synchronous=${sqliteSync} fullfsync=${fullFsync}, ` +
+      `postgres synchronous_commit=on commit_delay=${commitDelay}us`,
   );
   console.log(`host:   ${HOST}\n`);
 

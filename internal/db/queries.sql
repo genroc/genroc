@@ -83,8 +83,10 @@ VALUES
 -- input_data is never written (immutable). The status CASE lands a pause that arrived
 -- while this instance was leased, decided in SQL against the row's current value; only
 -- a still-running instance settles into 'paused' (pause invariants: CLAUDE.md).
--- lease_epoch is the fence: zero rows = grant gone = ErrLeaseLost; lease-less callers
--- bind the epoch read under their row lock. specs/lease-fencing.md.
+-- lease_epoch + worker_id are the fence: zero rows = grant gone = ErrLeaseLost; lease-less
+-- callers bind both as read under their row lock. worker_id is there because a rewind can
+-- re-issue an epoch to a second worker; it does not replace the epoch, which is what fences
+-- a self-reclaim. COALESCE so an unheld row compares. specs/lease-fencing.md.
 UPDATE process_instances
 SET task             = sqlc.arg(task),
     task_epoch       = sqlc.arg(task_epoch),
@@ -105,7 +107,8 @@ SET task             = sqlc.arg(task),
     updated_at       = sqlc.arg(updated_at),
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch);
+WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch)
+  AND COALESCE(worker_id, '') = CAST(sqlc.arg(worker_id) AS TEXT);
 
 -- name: UpdateInstanceProgress :execrows
 -- Mid-process write: input_data (immutable) and output_data (completion-only) are not
@@ -127,7 +130,8 @@ SET task             = sqlc.arg(task),
     updated_at       = sqlc.arg(updated_at),
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch);
+WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch)
+  AND COALESCE(worker_id, '') = CAST(sqlc.arg(worker_id) AS TEXT);
 
 -- name: GetInstance :one
 -- Column order matches the process_instances row struct (context columns then task then

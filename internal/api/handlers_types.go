@@ -200,6 +200,7 @@ type ListDefinitionsReq struct {
 type ListInstancesReq struct {
 	Status        string `json:"status"`         // optional filter: running, completed, failing, failed, raised, pausing, paused
 	ErrorCode     string `json:"error_code"`     // optional filter: exact error code (authored or engine)
+	Process       string `json:"process"`        // optional filter: exact process name (all versions)
 	CreatedAfter  int64  `json:"created_after"`  // only instances created at/after this timestamp
 	CreatedBefore int64  `json:"created_before"` // only instances created strictly before it
 	UpdatedAfter  int64  `json:"updated_after"`  // only instances updated at/after this timestamp

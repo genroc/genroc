@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"genroc/internal/db"
+	"genroc/internal/idgen"
 	"genroc/internal/model"
 )
 
@@ -34,7 +35,9 @@ func spawnFixture(t *testing.T, database *db.DB, name string) string {
 		t.Fatalf("SaveDefinition (parent): %v", err)
 	}
 
-	id := fmt.Sprintf("%s-i-%d", name, time.Now().UnixNano())
+	// A real UUID, not a readable string: idgen.ChildBase falls back to a random v7 for
+	// anything unparseable, and one test needs the child id to be derivable in advance.
+	id := idgen.New()
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: parent, ProcessVersion: 1,
 		Task: "fan", ContextData: map[string]any{}, Status: model.StatusRunning,
@@ -174,22 +177,31 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 }
 
 // The verdict that moved out of advance with the write: spawning is part of the step, so a
-// refused spawn is the instance's failure, not the worker's. Re-advancing an already-parked
-// parent is exactly what SpawnChildrenAndWait refuses — what a double advance looks like.
+// refused spawn is the instance's failure, not the worker's. SpawnChildrenAndWait reads
+// wait_state from the ROW inside its transaction, so parking the row on 'external' (with an
+// expired deadline, which keeps it claimable) and clearing the in-memory copy makes the
+// spawn refuse. The refusal rolls its transaction back, which is what leaves the lease
+// held — and holding it is now what lets the failure write land at all.
 func TestRunAdvance_SpawnFailureFailsTheInstance(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)
 	id := spawnFixture(t, database, "spawn-conflict")
-	inst := claimOne(t, database, eng, id)
 
-	if err := eng.runAdvance(context.Background(), inst); err != nil {
-		t.Fatalf("first advance: %v", err)
+	parked, err := database.GetInstance(id)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	past := db.Now().Add(-time.Minute)
+	parked.WaitState = model.WaitStateExternal
+	parked.WakeAt = &past
+	if err := database.UpdateInstance(parked); err != nil {
+		t.Fatalf("park the row: %v", err)
 	}
 
-	// The same in-memory instance still reads as unparked, so advancing it again reaches
-	// the spawn a second time — and the parent row is now 'waiting'.
+	inst := claimOne(t, database, eng, id)
+	inst.WaitState = model.WaitStateNone // the row is parked; this worker's copy is not
 	if err := eng.runAdvance(context.Background(), inst); err != nil {
-		t.Fatalf("second advance returned the write error to the worker instead of failing the instance: %v", err)
+		t.Fatalf("advance returned the write error to the worker instead of failing the instance: %v", err)
 	}
 
 	got, err := database.GetInstance(id)
@@ -204,6 +216,39 @@ func TestRunAdvance_SpawnFailureFailsTheInstance(t *testing.T) {
 	}
 	if got.WorkerID != nil {
 		t.Errorf("the failure write left the lease held by %q", *got.WorkerID)
+	}
+}
+
+// The other half of the same branch: once the advance has persisted, the lease is
+// released, and a second advance off the same in-memory instance holds no grant. Its
+// spawn is refused, and the failure write that would follow is refused too — so the
+// instance stays running for its next claim rather than being failed by a doubled
+// advance. Before worker_id joined the fence this wrote through, because releasing a
+// lease does not move the epoch. specs/durability-levels.md §7.
+func TestRunAdvance_DoubledAdvanceCannotFailTheInstance(t *testing.T) {
+	database := openTestDB(t)
+	eng := tickEngine(t, database)
+	id := spawnFixture(t, database, "spawn-doubled")
+	inst := claimOne(t, database, eng, id)
+
+	if err := eng.runAdvance(context.Background(), inst); err != nil {
+		t.Fatalf("first advance: %v", err)
+	}
+	// The same in-memory instance still reads as unparked, so advancing it again reaches
+	// the spawn a second time — and the parent row is now 'waiting' and unleased.
+	if err := eng.runAdvance(context.Background(), inst); err != nil {
+		t.Fatalf("second advance returned an error to the worker: %v", err)
+	}
+
+	got, err := database.GetInstance(id)
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if got.Status != model.StatusRunning {
+		t.Fatalf("status = %q, want %q — a doubled advance holds no grant and must not fail the row", got.Status, model.StatusRunning)
+	}
+	if got.ErrorCode != "" {
+		t.Errorf("error_code = %q, want empty", got.ErrorCode)
 	}
 }
 

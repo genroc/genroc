@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"fmt"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 
 	dbgen "genroc/internal/db/gen"
@@ -126,19 +127,90 @@ func sqliteSynchronous(mode string) (string, error) {
 }
 
 // OpenPostgres opens a PostgreSQL connection and runs migrations. maxOpenConns caps
-// the pool (idle = half; <= 0 defaults to 50); size a worker fleet so
-// workers*maxOpenConns stays under the server's max_connections.
-func OpenPostgres(dsn string, maxOpenConns int) (*DB, error) {
-	sqldb, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("open postgres: %w", err)
+// the pool (idle = half; <= 0 defaults to 50). It is also the group-commit batch-width
+// ceiling: only transactions in flight together can coalesce into one flush, so the pool
+// bounds how many ever do. Size a worker fleet so workers*maxOpenConns stays under the
+// server's max_connections.
+func OpenPostgres(dsn string, maxOpenConns int, opts ...PostgresOption) (*DB, error) {
+	var cfg pgConfig
+	for _, o := range opts {
+		o(&cfg)
 	}
+
+	var sqldb *sql.DB
+	if settings := cfg.sessionSettings(); len(settings) > 0 {
+		// Per-session rather than postgresql.conf: the setting then applies to genroc's
+		// own connections and taxes no other database on the server.
+		c, err := pq.NewConnector(dsn)
+		if err != nil {
+			return nil, fmt.Errorf("open postgres: %w", err)
+		}
+		sqldb = sql.OpenDB(sessionConnector{Connector: c, settings: settings})
+	} else {
+		var err error
+		if sqldb, err = sql.Open("postgres", dsn); err != nil {
+			return nil, fmt.Errorf("open postgres: %w", err)
+		}
+	}
+
 	if maxOpenConns <= 0 {
 		maxOpenConns = 50
 	}
 	sqldb.SetMaxOpenConns(maxOpenConns)
 	sqldb.SetMaxIdleConns(max(maxOpenConns/2, 1))
 	return open(sqldb, "postgres")
+}
+
+// PostgresOption configures OpenPostgres beyond the pool size.
+type PostgresOption func(*pgConfig)
+
+type pgConfig struct{ commitDelayUs int }
+
+func (c pgConfig) sessionSettings() []string {
+	if c.commitDelayUs <= 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf("SET commit_delay = %d", c.commitDelayUs)}
+}
+
+// WithCommitDelay holds each WAL flush back by us microseconds so more commits coalesce
+// into it — throughput bought with latency, and no durability: every commit is still
+// flushed before it is acknowledged. Postgres applies it only while at least
+// commit_siblings (default 5) transactions are open, so it disables itself on the narrow,
+// causally-sequential workloads it would otherwise slow down. Zero leaves it off.
+// specs/durability-levels.md §6.
+func WithCommitDelay(us int) PostgresOption {
+	return func(c *pgConfig) { c.commitDelayUs = us }
+}
+
+// sessionConnector applies settings to each pooled connection as it opens. A failure here
+// fails the connection rather than being swallowed: a performance setting the operator
+// asked for and did not get is worth a startup error, not a silent no-op.
+type sessionConnector struct {
+	driver.Connector
+	settings []string
+}
+
+func (c sessionConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.Connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	exec, ok := conn.(driver.ExecerContext)
+	if !ok {
+		conn.Close()
+		return nil, fmt.Errorf("postgres driver cannot apply session settings")
+	}
+	for _, s := range c.settings {
+		if _, err := exec.ExecContext(ctx, s, nil); err != nil {
+			conn.Close()
+			// commit_delay is a superuser-context setting, which is the failure that
+			// actually happens here.
+			return nil, fmt.Errorf("%s: %w (a superuser-context setting: connect as a "+
+				"superuser, or set it in postgresql.conf and drop the flag)", s, err)
+		}
+	}
+	return conn, nil
 }
 
 func open(sqldb *sql.DB, dialect string) (*DB, error) {

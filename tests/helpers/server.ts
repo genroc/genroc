@@ -46,9 +46,16 @@ function spawnProc(
     ...(process.env.GENROC_LEASE_RENEW_INTERVAL ? ["--lease-renew-interval", process.env.GENROC_LEASE_RENEW_INTERVAL] : []),
   ];
   // Optional pool sizing via env (used by the stress test to keep a fleet within max_connections).
-  const poolArgs = process.env.GENROC_PG_MAX_OPEN_CONNS
-    ? ["--pg-max-open-conns", process.env.GENROC_PG_MAX_OPEN_CONNS]
-    : [];
+  const poolArgs = [
+    ...(process.env.GENROC_PG_MAX_OPEN_CONNS
+      ? ["--pg-max-open-conns", process.env.GENROC_PG_MAX_OPEN_CONNS]
+      : []),
+    // Group-commit width, the Postgres counterpart of the SQLite durability knobs below:
+    // it trades latency for batch width and spends no durability. Ignored for SQLite.
+    ...(process.env.GENROC_PG_COMMIT_DELAY
+      ? ["--pg-commit-delay", process.env.GENROC_PG_COMMIT_DELAY]
+      : []),
+  ];
   // Optional SQLite durability via env (used by the benchmark to compare engines at
   // matched durability, e.g. GENROC_SQLITE_SYNCHRONOUS=FULL). Ignored for Postgres.
   const syncArgs = [
@@ -204,6 +211,9 @@ function workerArgs(port: number, o: WorkerOpts): string[] {
       : process.env.GENROC_PG_MAX_OPEN_CONNS
         ? ["--pg-max-open-conns", process.env.GENROC_PG_MAX_OPEN_CONNS]
         : []),
+    ...(process.env.GENROC_PG_COMMIT_DELAY
+      ? ["--pg-commit-delay", process.env.GENROC_PG_COMMIT_DELAY]
+      : []),
   ];
 }
 

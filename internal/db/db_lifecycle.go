@@ -625,6 +625,9 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 			ErrorCode:  "",
 			UpdatedAt:  now,
 			LeaseEpoch: raw.LeaseEpoch,
+			// No lease held: bind worker_id as read under the tree lock too, where it
+			// cannot move. NullString's zero is "", which is what an unheld row compares as.
+			WorkerID: raw.WorkerID.String,
 		}); err != nil {
 			return fmt.Errorf("revive instance %q: %w", node.ID, err)
 		}
@@ -709,6 +712,7 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			ErrorCode:  parent.ErrorCode,
 			UpdatedAt:  now,
 			LeaseEpoch: parent.LeaseEpoch,
+			WorkerID:   fenceWorker(parent),
 		})); err != nil {
 			if errors.Is(err, ErrLeaseLost) {
 				return err

@@ -154,15 +154,19 @@ moment. `lastRenewMs` is stamped from the instant the renewal *derived* its expi
 `ClaimInstances` the *instant* it decided at, not a flag the query resolves against its
 own clock. Either one read late credits the worker with lease life it never wrote.
 
-**The fence** is `lease_epoch`: bumped ONLY by `ClaimInstances` (a claim is a grant),
-bound into every lease-holding write, checked via rows-affected (`requireFenced`,
-`db.ErrLeaseLost`). Five things that break silently:
+**The fence** is `lease_epoch` **and** `worker_id`: the epoch is bumped ONLY by
+`ClaimInstances` (a claim is a grant), both are bound into every lease-holding write, and
+the pair is checked via rows-affected (`requireFenced`, `db.ErrLeaseLost`). Six things that
+break silently:
 
 1. **Renewal must never bump the epoch.** A renewal extends a grant; bumping would fence
    a worker out of its own writes every few seconds — and the gate's repair pass would
    destroy the very advance it rescues.
-2. **`worker_id` cannot serve as the token** — the reclaiming worker is usually the same
-   worker — and nothing may hand a row back by clearing it: that column is the evidence
+2. **`worker_id` is a second conjunct, never the token** — the reclaiming worker is usually
+   the same worker, so on its own it fences nothing; the epoch is what decides a
+   self-reclaim. It is there for the case the epoch cannot see: a rewind re-issuing one
+   epoch to two workers (specs/durability-levels.md §7). Nothing may hand a row back by
+   clearing it: that column is the evidence
    `ReclaimedExpired` derives from, and erasing it re-runs `only_once` tasks. The
    hand-back is the *renewer scoping* instead: `renewLeases` renews only `Engine.held`
    (inserted on claim, removed when `runAdvance` returns — after the final persist, so a
@@ -176,8 +180,13 @@ bound into every lease-holding write, checked via rows-affected (`requireFenced`
    buffer (the answer keeps its FIFO position), a stale `FinishChild`/`FailInstanceAndAncestors`
    wakes and poisons nothing.
 5. **Operator verbs are not grants.** Pause/resume/retry/resolve/deliver leave the epoch
-   alone; `RetryProcess` binds the epoch it read under the tree lock (where it cannot
-   move), so its writes never legitimately fence out.
+   alone; `RetryProcess` binds the epoch and `worker_id` it read under the tree lock (where
+   they cannot move), so its writes never legitimately fence out.
+6. **A released lease is not a grant either.** Every fenced write clears `worker_id` on
+   success and releasing does not move the epoch, so a *second* write after a successful
+   one now fences out. That is why `runAdvance`'s failure branch works only where its
+   first write failed and rolled back, leaving the lease held — and why a doubled advance
+   can no longer fail an instance it does not own.
 
 ## A collected child is conformed against the parent's CURRENT task
 

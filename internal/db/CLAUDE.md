@@ -35,12 +35,18 @@ Design: [specs/lease-fencing.md](../../specs/lease-fencing.md); the engine half 
   Renewal must never bump it (a worker would fence itself out of its own writes, and the
   gate's repair would destroy the advance it rescues); operator verbs
   (pause/resume/retry/resolve/deliver) must not either.
-- **Every lease-holding write carries `AND lease_epoch = ?` and goes through
-  `requireFenced`** (0 rows → `ErrLeaseLost`, whole transaction rolls back). The fence
-  sits *inside* each transaction on the leased row's own UPDATE, so a lost lease leaks no
-  partial effects — that placement is what tests like "a refused arm leaves the popped
-  signal at its FIFO position" pin down.
-- **`RetryProcess` binds the epoch it read under the tree lock** — a no-op predicate,
+- **Every lease-holding write carries `AND lease_epoch = ? AND COALESCE(worker_id,'') = ?`
+  and goes through `requireFenced`** (0 rows → `ErrLeaseLost`, whole transaction rolls
+  back). The fence sits *inside* each transaction on the leased row's own UPDATE, so a lost
+  lease leaks no partial effects — that placement is what tests like "a refused arm leaves
+  the popped signal at its FIFO position" pin down.
+- **`worker_id` joins the epoch; it does not replace it.** The epoch alone assumes epochs
+  are monotonic, which a rewind breaks — it un-issues a claim and the next one re-issues
+  the same number to a different worker. The epoch is still what fences a *self*-reclaim,
+  where `worker_id` is unchanged by construction. Consequence worth knowing: releasing a
+  lease does not move the epoch, so a second write after a released one is now refused
+  where it used to pass. specs/durability-levels.md §7.
+- **`RetryProcess` binds the epoch and `worker_id` it read under the tree lock** — a no-op predicate,
   since no claim can move it under `SKIP LOCKED`. `UnparkExternal` is deliberately
   unfenced: its only callers (`ResolveExternalTask`, `DeliverSignal`) act on a parked row
   under the instance row lock, where no grant exists to check, and it writes no outcome —

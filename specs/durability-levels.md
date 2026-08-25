@@ -13,6 +13,13 @@ sufficient, which boundaries, and why the answer differs per engine.
 implements none of the design below. §1 and §2 are measurements, not proposals: they are
 reproducible today (§9).
 
+**2026-08-25.** Every measurement below was re-run on the current tree and reproduces
+(§2). §9's blocker is fixed, and its stated cause was wrong — see there. §8's first
+question is decided: **flag + per-definition field**, and the two sub-questions it called
+blocking are answered (child inheritance turns out not to be a question at all). §7's
+`lease_epoch` hazard is **closed** — it was the one item that had to land before any level
+below `strict` ships, so it did. The ladder itself is still unbuilt.
+
 ## 1. Every benchmark to date measured a no-op
 
 macOS `fsync(2)` returns before the drive flushes its write cache; `F_FULLFSYNC` is the
@@ -52,6 +59,21 @@ workloads are entirely fsync-bound; the CPU never enters into it.
 
 **The prize is 21×** — 183 → 3,858 — and `NORMAL`'s 3,858 is the hard ceiling. No
 durability scheme beats never syncing, and WAL checkpointing is the floor beneath it.
+
+Re-run 2026-08-25 on the current tree, same M1, same workload — every figure holds, and
+Postgres is added as the matched fourth row:
+
+| config | inst/s | 2026-08-06 |
+|---|---|---|
+| SQLite `FULL` + F_FULLFSYNC — **honest** | **177** | 183 |
+| SQLite `NORMAL` + F_FULLFSYNC | **3,909** | 3,858 |
+| SQLite `FULL`, plain fsync (shipped default, fake) | 5,429 | 5,133 |
+| Postgres 16 (Docker, 0.23 ms fake fsync) | 2,138 | — |
+
+Postgres drained 5,000 instances on 2,149 `wal_sync`s across ~10,000 commit-units — 4.65
+commits per fsync, against §6's independently measured 4.9. The bench now prints
+`fullfsync=on|off` on its durability line: a throughput number that does not say which
+fsync produced it is exactly the number §1 is about.
 
 ## 3. Why a boundary is enough: prefix durability
 
@@ -158,6 +180,55 @@ an honest disk collects a queue ~18× deeper. In the limit where flush time domi
 width tends to the pool size and throughput to `pool / T` — order 12,000 commits/s at
 pool=50 — against SQLite's strictly serial `1 / T` = 246/s.
 
+### 6a. Measured on honest storage (2026-08-25) — and the shape is not what §1 predicts
+
+Native PG 18 on the M1 with `wal_sync_method = fsync_writethrough` (`pg_test_fsync`: 4,063
+µs/op against `fdatasync`'s 21 µs — the same 185× lie §1 found for SQLite). This is the
+matched comparison §8 asked for. `synchronous_commit=on` throughout, pool 200,
+`bench-drain`, median of 3:
+
+| `commit_delay` | inst/s | fsyncs | commits/fsync | vs 0 |
+|---|---|---|---|---|
+| 0 (today's default) | 1,663 | 1,163 | 8.6 | 1.00× |
+| 200 µs | 1,883 | 982 | 10.2 | 1.13× |
+| **500 µs** | **2,206** | 833 | 12.0 | **1.33×** |
+| 1000 µs | 2,100 | 774 | 12.9 | 1.26× |
+| 2000 µs | 1,928 | 749 | 13.4 | 1.16× |
+| 5000 µs | 1,682 | 598 | 16.7 | 1.01× |
+| 10000 µs | 1,228 | 644 | 15.5 | 0.74× |
+
+**Throughput peaks at 500 µs and then falls while the fsync count keeps dropping.** At 5,000
+µs the run made the second-fewest fsyncs of any row and was no faster than doing nothing; at
+10,000 µs it was 26% slower. So §1's "count fsyncs, not time them" is **right for comparing
+durability schemes and wrong for tuning a delay**: the delay is not free, it lands on the
+critical path, and fsyncs-per-commit is not the objective function. Optimising the count
+here makes the system slower. Anything tuning `commit_delay` must be timed.
+
+**The size of the gain did not reproduce, and that is the more useful result.** The table
+above was taken with other load on the machine (a second Postgres in Docker). Re-measured
+through the shipped flag on a quiet machine, 3 interleaved reps: 0 µs → 2,164 inst/s
+(2,164/1,990/2,235), 500 µs → 2,231 (2,287/2,217/2,231) — **1.03×, not 1.33×**. Note which
+number moved: the 500 µs result is the same in both sessions (2,206 then 2,231) while the
+baseline went 1,663 → 2,164. So `commit_delay` is not raising a ceiling, it is **removing a
+downside** — it makes throughput under contention look like throughput without it. Quote it
+that way; a single A/B on an idle laptop will show almost nothing and a single A/B on a busy
+one will show a third, and both are the same effect.
+
+**Concurrent flushes overlap.** 1,163 fsyncs in 2.9 s is ~400/s on a device that does 246/s
+serially, so `F_FULLFSYNC` calls from different backends coalesce at the drive. Postgres
+therefore beats what `count × latency` says is possible — and SQLite, one connection and
+strictly serial, cannot: its wall time matched `count × latency` to 1% in §2. That is a
+second, independent reason the two engines diverge here, on top of group commit.
+
+**`commit_siblings` is the safety valve, and it is why the latency warning below overstates
+the risk.** Postgres skips the delay entirely unless at least `commit_siblings` (default 5)
+transactions are open. On `bench-deep` — deliberately "mostly 1-2 instances wide" — the
+delay is unobservable: **501 / 499 / 526** inst/s at 0 / 500 / 2000 µs. The knob disables
+itself on exactly the causally-sequential shapes it would otherwise slow down, so it is safe
+to enable without knowing the workload. It still must not be defaulted on: the optimum is a
+fraction of the storage's flush latency (~12% of 4.06 ms here) and would be wrong on an NVMe
+that flushes in 50 µs.
+
 Three consequences:
 
 - **`strict` is affordable on Postgres and ruinous on SQLite.** The ladder is mostly a
@@ -175,16 +246,50 @@ So the cheapest wins spend no guarantee at all, and the ladder should land after
 expose `commit_delay` and document the pool as batch width; batch advances on SQLite; then
 the ladder.
 
+### 6b. What was built (2026-08-25), and what it means for the rest of this doc
+
+The decision taken was to **keep every commit synchronous and attack the number of flushes
+instead**, which is the first of those three and none of the ladder. Built:
+`--pg-commit-delay` (µs, default 0), applied with `SET` on each pooled connection rather
+than in `postgresql.conf` so it scopes to genroc's own connections and taxes no other
+database on the server; `--pg-max-open-conns` help now states it is the group-commit
+batch-width ceiling; `--sqlite-synchronous` help now states SQLite's ceiling. `commit_delay`
+is superuser-context, so a connection that cannot set it fails rather than silently not
+applying a flag the operator asked for.
+
+**SQLite is left at its ceiling, deliberately.** Under "synchronous always" it has one
+writer, no group commit and no knob: 246 serial fsyncs/s ÷ 1.34 per instance ≈ 180 inst/s,
+which is what §2 measures. The app-level batching above is the only lever that would move it
+without spending durability, and it was **not** built — SQLite is positioned as the
+single-node and development engine, Postgres as the throughput one, and §6a is the evidence
+for that split (1,663 against 177 at identical durability, ~9.4×).
+
+This leaves §5's ladder unbuilt and, for now, unscheduled rather than rejected: nothing in
+§1–§4 is contradicted, and the reason to reopen it is unchanged — a deployment that needs
+more than full-durability Postgres can give, or a SQLite deployment that needs more than
+~180 inst/s.
+
 ## 7. Hazards
 
-**Lease epoch reuse across a rewind.** [internal/db/CLAUDE.md](../internal/db/CLAUDE.md)
-has `lease_epoch` moving only in `ClaimInstances`, with every leased write carrying `AND
-lease_epoch = ?`. That fence assumes epochs are monotonic. A rewind can un-issue a claim
+**Lease epoch reuse across a rewind — CLOSED 2026-08-25, before the rest of this design.**
+`lease_epoch` moves only in `ClaimInstances`, and every leased write carried `AND
+lease_epoch = ?`. That fence assumed epochs are monotonic. A rewind can un-issue a claim
 while the worker that won it is still running and still writing at that epoch; the next
-claim re-issues the same number to a different worker, and both pass the fence. Fewer
-fsyncs mean a wider rewind window, so this design sharpens an existing exposure rather
-than creating one. Candidate fixes: add `worker_id` to the fence predicate, or bump all
-epochs by a large constant after an unclean shutdown. Unresolved.
+claim re-issues the same number to a different worker, and both passed. The fence now also
+carries `AND COALESCE(worker_id,'') = ?`, so one epoch is a grant to one worker
+([lease-fencing.md](lease-fencing.md) records why this is not the `worker_id`-as-token
+option that doc rejects, and the default `worker_id` gained a random suffix so two live
+workers cannot share one).
+
+Reachability, which is why it was worth closing first rather than only widening: a rewind
+needs the DB to lose a commit **while a worker survives it**. SQLite's is in-process, so a
+rewind takes the worker with it — unreachable there at any level. On Postgres it is
+reachable today only through failover to a lagging replica; what this design adds is that
+an ordinary unclean shutdown of the DB host does it too. One narrow case stays open by
+choice: `runAdvance` drops its in-flight marker before persisting, so a rewind inside that
+gap can let one worker's two advances both match. Closing it needs rewind *detection*
+(`pg_postmaster_start_time()` moves iff commits were lost), rejected for now as a second
+mechanism to keep true for a window this small.
 
 **Reader-visible rewind.** Below `terminal`, a client polling an instance can see
 `completed` and later `running` again. Consistent with at-least-once, but it means a read
@@ -193,12 +298,32 @@ documented as such.
 
 ## 8. Open questions
 
-- **Who sets the level** — an operator flag on `genroc`, a `durability:` field on the
-  process definition, or both (flag sets default and minimum, definition raises its own
-  floor). Per-definition is far more useful — a payment flow at `strict` beside a
-  log-shipper at `none` — but touches `internal/model` validation, the JSON schema, the
-  editor schema, and needs rules for child inheritance and for one transaction committing
-  work for two instances at different levels. Undecided; blocks implementation of §5.
+- ~~**Who sets the level**~~ — **decided 2026-08-25: both.** The flag sets the default and
+  the minimum; a `durability:` field on the definition may only raise its own floor, never
+  lower it, so `effective = max(flag, definition)` and an operator's guarantee cannot be
+  weakened by something they did not write. The two sub-questions it was blocked on:
+
+  **Child inheritance is not a question.** §3 already answers it: an fsync at commit N
+  hardens 1..N-1, so a later sync covers every earlier commit whoever wrote it. A `strict`
+  parent spawning a `none` child does not need to lift the child, because the parent's own
+  next sync hardens the child's writes anyway; and if the crash lands before that sync, the
+  parent is still parked on the child and the child replays — at-least-once, the contract.
+  The parent's guarantee is about the parent's tasks, and it survives intact. So a child
+  takes its own definition's level against the flag, exactly as a root does, and there is
+  no inheritance rule to write. `only_once` inside a child is likewise the child
+  definition's business, and the default level already covers it.
+
+  **A transaction spanning two instances takes the max of their levels.** It is the
+  conservative direction (more durable, never less) and needs no reasoning about which
+  instance "owns" the commit. The paths that span instances are `SpawnChildrenAndWait`,
+  `FinishChild`, `FailInstanceAndAncestors`, and the subtree verbs
+  (`PauseProcess`/`ResumeProcess`/`RetryProcess`) — the last three are operator-driven and
+  rare, so the max costs them nothing.
+
+  What remains is mechanical, not a design question: `internal/model` validation, the JSON
+  schema, the editor schema, and where the level is read from in the delivery path
+  ([internal/db/db_signals.go](../internal/db/db_signals.go) holds an instance id, not a
+  definition — either look the definition up or denormalize the level onto the row).
 - **The Postgres projection is unverified on honest storage.** Every number in §6 came off
   a 0.23 ms disk. Native Homebrew Postgres on macOS *can* do
   `wal_sync_method = fsync_writethrough`, which would give the matched comparison against
@@ -220,8 +345,34 @@ documented as such.
     POSTGRES_DSN=… make bench-drain
     psql … -c "select wal_sync from pg_stat_wal"
 
-**Blocker for the Postgres path:** `anyWithStatus(client, "failed")` in
-[tests/bench/run.ts](../tests/bench/run.ts) is unscoped, so `make bench-*` against any
-database that has ever run the test suite aborts on leftover failed rows before measuring.
-SQLite gets a fresh temp file per run and never trips it. Bench against a fresh database,
-or scope the check to the workload's own definition name.
+    # Postgres, honest — Docker cannot do this (§1), so use a native cluster. This is what
+    # §6a was measured on and what makes any Postgres durability number meaningful.
+    initdb -D "$PGDATA" -U genroc --auth=trust
+    cat >> "$PGDATA/postgresql.conf" <<'CONF'
+    port = 5433
+    wal_sync_method = fsync_writethrough   # macOS F_FULLFSYNC; the whole point
+    max_connections = 400                  # must exceed --pg-max-open-conns
+    CONF
+    pg_ctl -D "$PGDATA" -l pg.log start
+    pg_test_fsync -s 2                     # expect ~4ms for fsync_writethrough, ~21us for fdatasync
+
+    # PG 18 moved the counter: pg_stat_wal.wal_sync -> pg_stat_io.fsyncs
+    psql -p 5433 … -c "select pg_stat_reset_shared('io')"
+    POSTGRES_DSN=… GENROC_PG_COMMIT_DELAY=500 GENROC_PG_MAX_OPEN_CONNS=200 make bench-drain
+    psql -p 5433 … -c "select sum(fsyncs) from pg_stat_io where object='wal'"
+
+**Interleave the A/B and take a median.** Single runs are worthless here: the same 500 µs
+config measured 1.33× and 1.03× in two sessions on one machine, and the variance is in the
+baseline, not the treatment (§6a). `bench-deep` is the control — a workload narrow enough
+that `commit_siblings` gates the delay off entirely, so it must show no change.
+
+**The Postgres blocker is fixed (2026-08-25), and its diagnosis above was wrong.** The
+symptom was right — `anyWithStatus` in [tests/bench/run.ts](../tests/bench/run.ts) was
+unscoped, so `make bench-*` against a database the test suite had touched aborted on
+leftover `failed` rows before measuring. But scoping it to a time window does **not** fix
+it: `dbtest` fixtures call `db.AdvanceClock`, so their rows carry timestamps in the
+*future* and outlive any `created_after`. The check now carries both bounds — the
+workload's own definition name (`process=`, new on `GET /instances`) excludes foreign
+fixtures whatever their clock says, and `created_after` excludes an earlier failed bench of
+the same workload, which would otherwise poison every run after it. Neither bound alone is
+enough, which is why both are there.

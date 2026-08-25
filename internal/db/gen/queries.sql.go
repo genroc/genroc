@@ -1014,6 +1014,7 @@ SET task             = ?1,
     worker_id        = NULL,
     lease_expires_at = NULL
 WHERE id = ?16 AND lease_epoch = ?17
+  AND COALESCE(worker_id, '') = CAST(?18 AS TEXT)
 `
 
 type UpdateInstanceParams struct {
@@ -1034,13 +1035,16 @@ type UpdateInstanceParams struct {
 	UpdatedAt    int64
 	ID           string
 	LeaseEpoch   int64
+	WorkerID     string
 }
 
 // input_data is never written (immutable). The status CASE lands a pause that arrived
 // while this instance was leased, decided in SQL against the row's current value; only
 // a still-running instance settles into 'paused' (pause invariants: CLAUDE.md).
-// lease_epoch is the fence: zero rows = grant gone = ErrLeaseLost; lease-less callers
-// bind the epoch read under their row lock. specs/lease-fencing.md.
+// lease_epoch + worker_id are the fence: zero rows = grant gone = ErrLeaseLost; lease-less
+// callers bind both as read under their row lock. worker_id is there because a rewind can
+// re-issue an epoch to a second worker; it does not replace the epoch, which is what fences
+// a self-reclaim. COALESCE so an unheld row compares. specs/lease-fencing.md.
 func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstance,
 		arg.Task,
@@ -1060,6 +1064,7 @@ func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) 
 		arg.UpdatedAt,
 		arg.ID,
 		arg.LeaseEpoch,
+		arg.WorkerID,
 	)
 	if err != nil {
 		return 0, err
@@ -1084,6 +1089,7 @@ SET task             = ?1,
     worker_id        = NULL,
     lease_expires_at = NULL
 WHERE id = ?12 AND lease_epoch = ?13
+  AND COALESCE(worker_id, '') = CAST(?14 AS TEXT)
 `
 
 type UpdateInstanceProgressParams struct {
@@ -1100,6 +1106,7 @@ type UpdateInstanceProgressParams struct {
 	UpdatedAt    int64
 	ID           string
 	LeaseEpoch   int64
+	WorkerID     string
 }
 
 // Mid-process write: input_data (immutable) and output_data (completion-only) are not
@@ -1121,6 +1128,7 @@ func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstance
 		arg.UpdatedAt,
 		arg.ID,
 		arg.LeaseEpoch,
+		arg.WorkerID,
 	)
 	if err != nil {
 		return 0, err

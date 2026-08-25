@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
@@ -86,7 +88,7 @@ func (e *Engine) schemaFile(inst *model.ProcessInstance) (validation.SchemaFile,
 // so the renewer can re-stamp leases before they expire.
 func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateRetries bool, leaseDuration, leaseRenewInterval time.Duration, logCfg LogConfig, log *slog.Logger, opts ...Option) *Engine {
 	hostname, _ := os.Hostname()
-	workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
+	workerID := fmt.Sprintf("%s-%d-%s", hostname, os.Getpid(), randomSuffix())
 	if leaseDuration <= 0 {
 		leaseDuration = defaultLeaseDuration
 	}
@@ -121,12 +123,21 @@ func New(database *db.DB, pollEvery time.Duration, maxConcurrent int, immediateR
 // Option configures an Engine beyond New's positional arguments.
 type Option func(*Engine)
 
+// randomSuffix makes the default worker id unique among LIVE workers even when hostname
+// and pid collide — two engines in one process, a reused pid, identical container
+// hostnames. The fence compares worker_id, so a collision would let a stale write pass.
+func randomSuffix() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
+}
+
 // WithWorkerID overrides the identity this worker stamps on the rows it leases. The
-// default is hostname-pid: unique per process, NOT per Engine. Two engines sharing one
-// process must therefore be given distinct ids, or every lease predicate reads them as
-// the same worker — and `lease_epoch` cannot restore a distinction `worker_id` already
-// lost, since it is precisely the self-reclaim-vs-takeover question the epoch defers to
-// `worker_id` to answer (specs/lease-fencing.md).
+// default is hostname-pid-random, unique per Engine; override it only with something at
+// least as unique, because the lease fence compares `worker_id` and two live workers
+// sharing one would each pass the other's fence (specs/lease-fencing.md).
 func WithWorkerID(id string) Option {
 	return func(e *Engine) {
 		if id != "" {

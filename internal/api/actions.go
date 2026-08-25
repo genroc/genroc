@@ -190,6 +190,7 @@ var registry = func() []actionDef {
 			PathQuery: struct {
 				Status        string `query:"status" enum:"running,completed,failing,failed,raised,pausing,paused" description:"Filter by status"`
 				ErrorCode     string `query:"error_code" description:"Filter by exact error code. Authored codes (from a raise or panic clause) are lower_snake_case; engine-produced codes contain a dot, e.g. http.500, pre.timeout, engine.spawn."`
+				Process       string `query:"process" description:"Filter by exact process name, across every version"`
 				CreatedAfter  int64  `query:"created_after" description:"Only instances created at/after this unix-millis timestamp"`
 				CreatedBefore int64  `query:"created_before" description:"Only instances created strictly before this unix-millis timestamp"`
 				UpdatedAfter  int64  `query:"updated_after" description:"Only instances updated at/after this unix-millis timestamp"`
@@ -201,6 +202,7 @@ var registry = func() []actionDef {
 				b, _ := json.Marshal(ListInstancesReq{
 					Status:        r.URL.Query().Get("status"),
 					ErrorCode:     r.URL.Query().Get("error_code"),
+					Process:       r.URL.Query().Get("process"),
 					CreatedAfter:  millisQuery(r, "created_after"),
 					CreatedBefore: millisQuery(r, "created_before"),
 					UpdatedAfter:  millisQuery(r, "updated_after"),
