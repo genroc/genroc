@@ -189,6 +189,17 @@ type ProcessInstance struct {
 	WorkerID       *string
 	LeaseExpiresAt *time.Time
 
+	// NextReplayable is whether the task Task names may simply be re-run after a crash --
+	// i.e. it is NOT only_once. Denormalised from the definition so the claim path can
+	// decide whether to harden the claim without resolving one: that path runs per claimed
+	// instance and outside the panic barrier. Derived from Task on every write, so it
+	// cannot drift from it.
+	//
+	// Stated in the replayable direction on purpose: false is the SAFE value, so an
+	// instance built by a caller that never set it gets the flush rather than silently
+	// losing at-most-once. specs/durability-levels.md s4.
+	NextReplayable bool
+
 	// LeaseEpoch is the fencing token this instance was granted under: bound into every
 	// lease-holding write, so a superseded grant's write is refused (db.ErrLeaseLost)
 	// instead of clobbering. specs/lease-fencing.md.

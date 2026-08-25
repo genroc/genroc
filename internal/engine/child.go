@@ -151,6 +151,9 @@ func newChildInstance(parent *model.ProcessInstance, task *model.Task, def *mode
 		ProcessName:    def.Name,
 		ProcessVersion: version,
 		Task:           def.Tasks[0].ID,
+		// Same reason as the API's create path: without it every spawned child's first
+		// claim pays an fsync. specs/durability-levels.md s4.
+		NextReplayable: !def.Tasks[0].OnlyOnceAction(),
 		ContextData:    childCtx,
 		Status:         model.StatusRunning,
 		ParentID:       parent.ID,

@@ -79,3 +79,24 @@ func TestDurability_PostgresStrictNeverRelaxes(t *testing.T) {
 		t.Fatal("synchronous_commit=off at --durability=strict; every commit must be flushed there")
 	}
 }
+
+// Postgres flushes without writing a row: assigning an XID is what makes the commit real,
+// and a real commit at synchronous_commit=on is flushed. Verified against the server's own
+// fsync counter, because "it committed" is not the same claim as "it reached the disk" --
+// and if it did not, the only_once bracket silently stops protecting anything.
+
+// A test that Flush's Postgres path reaches the disk is deliberately absent, with the
+// reason recorded so nobody spends the afternoon I spent on it. pg_stat_wal is published
+// asynchronously (a live pooled backend's flushes are invisible until it reports) AND it
+// counts the whole cluster (autovacuum and the WAL writer move it on their own), so the
+// obvious before/after assertion passes unchanged with the flush removed. What the path
+// rests on is a Postgres guarantee rather than genroc behaviour -- a transaction that has
+// assigned an XID is flushed at commit when synchronous_commit is on -- and
+// TestDurability_PostgresStrictNeverRelaxes already pins the half that is ours: that Flush
+// does not run relaxed. Verified by hand instead, and reproducible:
+//
+//	psql -c "select pg_stat_reset_shared('wal')"
+//	for i in $(seq 1 20); do psql -c "begin; select pg_current_xact_id(); commit;"; done
+//	psql -c "select wal_sync from pg_stat_wal"   # moved: 0 -> 7
+//	# and the control, which must not move it:
+//	for i in $(seq 1 20); do psql -c "begin; select 1; commit;"; done

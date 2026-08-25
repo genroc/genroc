@@ -59,7 +59,8 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 	created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
 	input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
 	error_code, lease_epoch, task_epoch, parent_task_epoch,
-	external_worker_id, external_lease_expires_at, external_claim_epoch, objects`
+	external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
+	next_replayable`
 
 // Lightweight ListInstances projection — no context/call-stack blobs; order matches
 // scanInstanceSummary. error_code stays despite the rule: short, and it is what a list
@@ -100,6 +101,7 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
 		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
 		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
+		&r.NextReplayable,
 	)
 	return r, err
 }
@@ -339,44 +341,54 @@ func (db *DB) persistContext(ctx context.Context, qtx *dbgen.Queries, inst *mode
 
 func progressParams(inst *model.ProcessInstance, cols contextCols, now int64) dbgen.UpdateInstanceProgressParams {
 	return dbgen.UpdateInstanceProgressParams{
-		ID:           inst.ID,
-		Task:         inst.Task,
-		OutputsData:  cols.OutputsData,
-		ErrorData:    cols.ErrorData,
-		ExternalData: cols.ExternalData,
-		EngineState:  cols.EngineState,
-		Objects:      cols.Objects,
-		RetryCount:   int64(inst.RetryCount),
-		WakeAt:       fromTimePtr(inst.WakeAt),
-		WaitState:    string(inst.WaitState),
-		UpdatedAt:    now,
-		LeaseEpoch:   inst.LeaseEpoch,
-		WorkerID:     fenceWorker(inst),
-		TaskEpoch:    inst.TaskEpoch,
+		ID:             inst.ID,
+		Task:           inst.Task,
+		OutputsData:    cols.OutputsData,
+		ErrorData:      cols.ErrorData,
+		ExternalData:   cols.ExternalData,
+		EngineState:    cols.EngineState,
+		Objects:        cols.Objects,
+		RetryCount:     int64(inst.RetryCount),
+		WakeAt:         fromTimePtr(inst.WakeAt),
+		WaitState:      string(inst.WaitState),
+		UpdatedAt:      now,
+		LeaseEpoch:     inst.LeaseEpoch,
+		WorkerID:       fenceWorker(inst),
+		NextReplayable: boolToInt(inst.NextReplayable),
+		TaskEpoch:      inst.TaskEpoch,
 	}
 }
 
 func updateInstanceParams(inst *model.ProcessInstance, cols contextCols, now int64) dbgen.UpdateInstanceParams {
 	return dbgen.UpdateInstanceParams{
-		ID:           inst.ID,
-		Task:         inst.Task,
-		OutputsData:  cols.OutputsData,
-		OutputData:   cols.OutputData,
-		ErrorData:    cols.ErrorData,
-		ExternalData: cols.ExternalData,
-		EngineState:  cols.EngineState,
-		Objects:      cols.Objects,
-		RetryCount:   int64(inst.RetryCount),
-		WakeAt:       fromTimePtr(inst.WakeAt),
-		Status:       string(inst.Status),
-		WaitState:    string(inst.WaitState),
-		Error:        inst.Error,
-		ErrorCode:    inst.ErrorCode,
-		UpdatedAt:    now,
-		LeaseEpoch:   inst.LeaseEpoch,
-		WorkerID:     fenceWorker(inst),
-		TaskEpoch:    inst.TaskEpoch,
+		ID:             inst.ID,
+		Task:           inst.Task,
+		OutputsData:    cols.OutputsData,
+		OutputData:     cols.OutputData,
+		ErrorData:      cols.ErrorData,
+		ExternalData:   cols.ExternalData,
+		EngineState:    cols.EngineState,
+		Objects:        cols.Objects,
+		RetryCount:     int64(inst.RetryCount),
+		WakeAt:         fromTimePtr(inst.WakeAt),
+		Status:         string(inst.Status),
+		WaitState:      string(inst.WaitState),
+		Error:          inst.Error,
+		ErrorCode:      inst.ErrorCode,
+		UpdatedAt:      now,
+		LeaseEpoch:     inst.LeaseEpoch,
+		WorkerID:       fenceWorker(inst),
+		NextReplayable: boolToInt(inst.NextReplayable),
+		TaskEpoch:      inst.TaskEpoch,
 	}
+}
+
+// boolToInt stores a flag in the INTEGER column both engines share.
+func boolToInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // fenceWorker is the worker half of the lease fence. The empty string stands for an
@@ -412,6 +424,7 @@ func insertInstanceParams(inst *model.ProcessInstance, cols contextCols, status 
 	}
 	return dbgen.InsertInstanceParams{
 		ID:              inst.ID,
+		NextReplayable:  boolToInt(inst.NextReplayable),
 		ProcessName:     inst.ProcessName,
 		ProcessVersion:  int64(inst.ProcessVersion),
 		Task:            inst.Task,
@@ -560,6 +573,7 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 		ProcessName:     r.ProcessName,
 		ProcessVersion:  int(r.ProcessVersion),
 		Task:            r.Task,
+		NextReplayable:  r.NextReplayable != 0,
 		ParentID:        r.ParentID,
 		SpawnTaskID:     r.SpawnTaskID,
 		RetryCount:      int(r.RetryCount),

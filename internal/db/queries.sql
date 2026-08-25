@@ -69,7 +69,8 @@ INSERT INTO process_instances
     (id, process_name, process_version, task,
      input_data, outputs_data, output_data, error_data, external_data, engine_state,
      parent_id, spawn_task_id, parent_task_epoch, task_epoch,
-     call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at, objects)
+     call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at, objects,
+     next_replayable)
 VALUES
     (sqlc.arg(id), sqlc.arg(process_name), sqlc.arg(process_version), sqlc.arg(task),
      sqlc.arg(input_data), sqlc.arg(outputs_data), sqlc.arg(output_data),
@@ -77,7 +78,8 @@ VALUES
      sqlc.arg(parent_id), sqlc.arg(spawn_task_id), sqlc.arg(parent_task_epoch), sqlc.arg(task_epoch),
      sqlc.arg(call_stack), sqlc.arg(retry_count), sqlc.arg(wake_at),
      sqlc.arg(status), sqlc.arg(wait_state), sqlc.arg(error), sqlc.arg(error_code),
-     sqlc.arg(created_at), sqlc.arg(updated_at), sqlc.arg(objects));
+     sqlc.arg(created_at), sqlc.arg(updated_at), sqlc.arg(objects),
+     sqlc.arg(next_replayable));
 
 -- name: UpdateInstance :execrows
 -- input_data is never written (immutable). The status CASE lands a pause that arrived
@@ -89,6 +91,7 @@ VALUES
 -- a self-reclaim. COALESCE so an unheld row compares. specs/lease-fencing.md.
 UPDATE process_instances
 SET task             = sqlc.arg(task),
+    next_replayable   = sqlc.arg(next_replayable),
     task_epoch       = sqlc.arg(task_epoch),
     outputs_data     = sqlc.arg(outputs_data),
     output_data      = sqlc.arg(output_data),
@@ -117,6 +120,7 @@ WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch)
 -- its last chance to settle. lease_epoch: see UpdateInstance.
 UPDATE process_instances
 SET task             = sqlc.arg(task),
+    next_replayable   = sqlc.arg(next_replayable),
     task_epoch       = sqlc.arg(task_epoch),
     outputs_data     = sqlc.arg(outputs_data),
     error_data       = sqlc.arg(error_data),
@@ -145,7 +149,8 @@ SELECT id, process_name, process_version, parent_id,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
-       external_worker_id, external_lease_expires_at, external_claim_epoch, objects
+       external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
+       next_replayable
 FROM process_instances
 WHERE id = sqlc.arg(id);
 
@@ -231,7 +236,8 @@ SELECT id, process_name, process_version, parent_id,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
-       external_worker_id, external_lease_expires_at, external_claim_epoch, objects
+       external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
+       next_replayable
 FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id)
@@ -357,3 +363,8 @@ SELECT COUNT(*) FROM object_refs WHERE hash = sqlc.arg(hash);
 SELECT hash, owner_id FROM object_refs
 WHERE owner_kind = 'log'
   AND NOT EXISTS (SELECT 1 FROM process_logs l WHERE l.id = object_refs.owner_id);
+
+-- name: BumpDurabilityMarker :exec
+-- Written only to be a commit that flushes; the value is never read.
+-- specs/durability-levels.md s4.
+UPDATE durability_marker SET n = n + 1 WHERE id = 1;

@@ -10,6 +10,17 @@ import (
 	"database/sql"
 )
 
+const bumpDurabilityMarker = `-- name: BumpDurabilityMarker :exec
+UPDATE durability_marker SET n = n + 1 WHERE id = 1
+`
+
+// Written only to be a commit that flushes; the value is never read.
+// specs/durability-levels.md s4.
+func (q *Queries) BumpDurabilityMarker(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, bumpDurabilityMarker)
+	return err
+}
+
 const clearObjectRelease = `-- name: ClearObjectRelease :execrows
 UPDATE objects SET released_at = NULL
 WHERE released_at IS NOT NULL
@@ -300,7 +311,8 @@ SELECT id, process_name, process_version, parent_id,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
-       external_worker_id, external_lease_expires_at, external_claim_epoch, objects
+       external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
+       next_replayable
 FROM process_instances
 WHERE parent_id = ?1
   AND spawn_task_id = ?2
@@ -353,6 +365,7 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.ExternalLeaseExpiresAt,
 			&i.ExternalClaimEpoch,
 			&i.Objects,
+			&i.NextReplayable,
 		); err != nil {
 			return nil, err
 		}
@@ -424,7 +437,8 @@ SELECT id, process_name, process_version, parent_id,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
        input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
-       external_worker_id, external_lease_expires_at, external_claim_epoch, objects
+       external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
+       next_replayable
 FROM process_instances
 WHERE id = ?1
 `
@@ -469,6 +483,7 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.ExternalLeaseExpiresAt,
 		&i.ExternalClaimEpoch,
 		&i.Objects,
+		&i.NextReplayable,
 	)
 	return i, err
 }
@@ -558,7 +573,8 @@ INSERT INTO process_instances
     (id, process_name, process_version, task,
      input_data, outputs_data, output_data, error_data, external_data, engine_state,
      parent_id, spawn_task_id, parent_task_epoch, task_epoch,
-     call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at, objects)
+     call_stack, retry_count, wake_at, status, wait_state, error, error_code, created_at, updated_at, objects,
+     next_replayable)
 VALUES
     (?1, ?2, ?3, ?4,
      ?5, ?6, ?7,
@@ -566,7 +582,8 @@ VALUES
      ?11, ?12, ?13, ?14,
      ?15, ?16, ?17,
      ?18, ?19, ?20, ?21,
-     ?22, ?23, ?24)
+     ?22, ?23, ?24,
+     ?25)
 `
 
 type InsertInstanceParams struct {
@@ -594,6 +611,7 @@ type InsertInstanceParams struct {
 	CreatedAt       int64
 	UpdatedAt       int64
 	Objects         string
+	NextReplayable  int64
 }
 
 func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) error {
@@ -622,6 +640,7 @@ func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) 
 		arg.CreatedAt,
 		arg.UpdatedAt,
 		arg.Objects,
+		arg.NextReplayable,
 	)
 	return err
 }
@@ -995,47 +1014,49 @@ func (q *Queries) UnparkExternal(ctx context.Context, arg UnparkExternalParams) 
 const updateInstance = `-- name: UpdateInstance :execrows
 UPDATE process_instances
 SET task             = ?1,
-    task_epoch       = ?2,
-    outputs_data     = ?3,
-    output_data      = ?4,
-    error_data       = ?5,
-    external_data    = ?6,
-    engine_state     = ?7,
-    objects          = ?8,
-    retry_count      = ?9,
-    wake_at    = ?10,
+    next_replayable   = ?2,
+    task_epoch       = ?3,
+    outputs_data     = ?4,
+    output_data      = ?5,
+    error_data       = ?6,
+    external_data    = ?7,
+    engine_state     = ?8,
+    objects          = ?9,
+    retry_count      = ?10,
+    wake_at    = ?11,
     status           = CASE WHEN status = 'pausing'
-                            AND CAST(?11 AS TEXT) = 'running'
-                            THEN 'paused' ELSE CAST(?11 AS TEXT) END,
-    wait_state       = ?12,
-    error            = ?13,
-    error_code       = ?14,
-    updated_at       = ?15,
+                            AND CAST(?12 AS TEXT) = 'running'
+                            THEN 'paused' ELSE CAST(?12 AS TEXT) END,
+    wait_state       = ?13,
+    error            = ?14,
+    error_code       = ?15,
+    updated_at       = ?16,
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = ?16 AND lease_epoch = ?17
-  AND COALESCE(worker_id, '') = CAST(?18 AS TEXT)
+WHERE id = ?17 AND lease_epoch = ?18
+  AND COALESCE(worker_id, '') = CAST(?19 AS TEXT)
 `
 
 type UpdateInstanceParams struct {
-	Task         string
-	TaskEpoch    int64
-	OutputsData  string
-	OutputData   string
-	ErrorData    string
-	ExternalData string
-	EngineState  string
-	Objects      string
-	RetryCount   int64
-	WakeAt       sql.NullInt64
-	Status       string
-	WaitState    string
-	Error        string
-	ErrorCode    string
-	UpdatedAt    int64
-	ID           string
-	LeaseEpoch   int64
-	WorkerID     string
+	Task           string
+	NextReplayable int64
+	TaskEpoch      int64
+	OutputsData    string
+	OutputData     string
+	ErrorData      string
+	ExternalData   string
+	EngineState    string
+	Objects        string
+	RetryCount     int64
+	WakeAt         sql.NullInt64
+	Status         string
+	WaitState      string
+	Error          string
+	ErrorCode      string
+	UpdatedAt      int64
+	ID             string
+	LeaseEpoch     int64
+	WorkerID       string
 }
 
 // input_data is never written (immutable). The status CASE lands a pause that arrived
@@ -1048,6 +1069,7 @@ type UpdateInstanceParams struct {
 func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstance,
 		arg.Task,
+		arg.NextReplayable,
 		arg.TaskEpoch,
 		arg.OutputsData,
 		arg.OutputData,
@@ -1075,38 +1097,40 @@ func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) 
 const updateInstanceProgress = `-- name: UpdateInstanceProgress :execrows
 UPDATE process_instances
 SET task             = ?1,
-    task_epoch       = ?2,
-    outputs_data     = ?3,
-    error_data       = ?4,
-    external_data    = ?5,
-    engine_state     = ?6,
-    objects          = ?7,
-    retry_count      = ?8,
-    wake_at    = ?9,
+    next_replayable   = ?2,
+    task_epoch       = ?3,
+    outputs_data     = ?4,
+    error_data       = ?5,
+    external_data    = ?6,
+    engine_state     = ?7,
+    objects          = ?8,
+    retry_count      = ?9,
+    wake_at    = ?10,
     status           = CASE WHEN status = 'pausing' THEN 'paused' ELSE status END,
-    wait_state       = ?10,
-    updated_at       = ?11,
+    wait_state       = ?11,
+    updated_at       = ?12,
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = ?12 AND lease_epoch = ?13
-  AND COALESCE(worker_id, '') = CAST(?14 AS TEXT)
+WHERE id = ?13 AND lease_epoch = ?14
+  AND COALESCE(worker_id, '') = CAST(?15 AS TEXT)
 `
 
 type UpdateInstanceProgressParams struct {
-	Task         string
-	TaskEpoch    int64
-	OutputsData  string
-	ErrorData    string
-	ExternalData string
-	EngineState  string
-	Objects      string
-	RetryCount   int64
-	WakeAt       sql.NullInt64
-	WaitState    string
-	UpdatedAt    int64
-	ID           string
-	LeaseEpoch   int64
-	WorkerID     string
+	Task           string
+	NextReplayable int64
+	TaskEpoch      int64
+	OutputsData    string
+	ErrorData      string
+	ExternalData   string
+	EngineState    string
+	Objects        string
+	RetryCount     int64
+	WakeAt         sql.NullInt64
+	WaitState      string
+	UpdatedAt      int64
+	ID             string
+	LeaseEpoch     int64
+	WorkerID       string
 }
 
 // Mid-process write: input_data (immutable) and output_data (completion-only) are not
@@ -1116,6 +1140,7 @@ type UpdateInstanceProgressParams struct {
 func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstanceProgressParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, updateInstanceProgress,
 		arg.Task,
+		arg.NextReplayable,
 		arg.TaskEpoch,
 		arg.OutputsData,
 		arg.ErrorData,

@@ -54,6 +54,10 @@ func stop(o advanceOutcome) *advanceOutcome { return &o }
 // persist applies an advance outcome in one transaction — the only place an advance
 // writes, and every outcome releases the lease in it: the work session ends here.
 func (e *Engine) persist(ctx context.Context, inst *model.ProcessInstance, o advanceOutcome) error {
+	// Derived here rather than wherever Task is assigned: every engine write goes through
+	// this function, so the flag is recomputed from whatever task the row ends up naming
+	// and cannot drift from it. specs/durability-levels.md s4.
+	inst.NextReplayable = !e.taskIsOnlyOnce(inst)
 	switch o.kind {
 	case outcomeTerminal:
 		return e.saveAndNotify(inst)
@@ -106,6 +110,9 @@ func (e *Engine) persistArm(ctx context.Context, inst *model.ProcessInstance, a 
 // marker; the delete is a no-op there.
 func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) error {
 	defer e.dropLease(inst.ID)
+	// Read off the row, before the advance moves on: no definition is resolved here, and
+	// the flag is exactly what the claim path saw. See hardenClaims for the opening half.
+	onlyOnce := !inst.NextReplayable
 	outcome := e.advanceGuarded(ctx, inst)
 	e.inflight.Delete(inst.ID)
 	if err := e.persist(ctx, inst, outcome); err != nil {
@@ -130,6 +137,16 @@ func (e *Engine) runAdvance(ctx context.Context, inst *model.ProcessInstance) er
 				return nil
 			}
 			return err
+		}
+	}
+	// The closing half of the only_once bracket: the write recording the result must
+	// outlive a power cut too. Losing it does not break at-most-once — recovery reads the
+	// durable claim and reports only_once.interrupted, which is a true answer — it loses
+	// the work the task already did. specs/durability-levels.md s4.
+	if onlyOnce {
+		if err := e.db.Flush(ctx); err != nil {
+			e.logOnly(logEvent{Level: model.LogError, ID: inst.ID,
+				Msg: "could not make an only_once result durable: " + err.Error()})
 		}
 	}
 	// A persisted advance may have made work runnable now (this instance again, spawned
@@ -311,6 +328,22 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 			if outs, ok := inst.ContextData["outputs"].(map[string]any); ok {
 				priorOutput = outs[task.ID]
 			}
+		}
+
+		// An only_once action is never executed in the same advance that MOVED to it. The
+		// row still names the task this advance was claimed at, and that name is all
+		// recovery has: reaching this one inline and running it would leave a crash
+		// indistinguishable from "never started", so prepareAdvance would re-run a request
+		// that already left. Checkpointing here makes the row name this task, which is the
+		// case the bracket already protects -- the next claim sees only_once, hardens, and
+		// runs it. Costs one claim round trip, and only for definitions that put an
+		// only_once action behind a call-less chain.
+		//
+		// The checkpoint itself need not be durable: losing it rewinds to before the action
+		// ran, and re-running the chain that led here is free.
+		// specs/durability-levels.md s4.
+		if hasCall && i > 0 && interruptedOnlyOnce(task) {
+			return advanceOutcome{kind: outcomeProgress}
 		}
 
 		if hasCall {
@@ -524,6 +557,24 @@ func (e *Engine) evalSwitch(inst *model.ProcessInstance, task *model.Task, selfO
 // Returns nil when there is no current task or the definition cannot be read. Callers
 // that must fail on a missing definition use prepareAdvance instead; this is for the
 // settle paths, which must not turn a transient read error into a failed process.
+// taskIsOnlyOnce resolves the flag from the definition, for the write that stores it. This
+// is the ONE place a definition is resolved for durability -- the claim path reads the
+// stored flag instead, which is the point of storing it.
+//
+// It recovers, and recovers to TRUE: persist runs after advanceGuarded, so a definition
+// malformed enough to panic (a null in `tasks`) reaches it having already failed the
+// instance, and must not take the worker down on the way out. True is the safe answer for
+// the same reason an unclassified write path syncs -- not knowing costs an fsync, never a
+// guarantee.
+func (e *Engine) taskIsOnlyOnce(inst *model.ProcessInstance) (onlyOnce bool) {
+	defer func() {
+		if recover() != nil {
+			onlyOnce = true
+		}
+	}()
+	return interruptedOnlyOnce(e.lookupTask(inst))
+}
+
 func (e *Engine) lookupTask(inst *model.ProcessInstance) *model.Task {
 	if inst.Task == "" {
 		return nil

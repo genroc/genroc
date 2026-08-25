@@ -30,6 +30,10 @@ type DB struct {
 	exec    dbgen.DBTX // rewrites ?→$N on Postgres; use for hand-written SQL
 	dialect string     // "sqlite" | "postgres"
 
+	// flushes counts successful Flush calls, for tests and diagnostics. In process, not
+	// read back from durability_marker: that row only moves on SQLite, so a test built on
+	// it would quietly assert nothing on Postgres.
+	flushes atomic.Int64
 	// durability is the ladder level every write is measured against
 	// (specs/durability-levels.md §5). Set once at startup via SetDurability; atomic
 	// because it is read on every write path from every worker goroutine.

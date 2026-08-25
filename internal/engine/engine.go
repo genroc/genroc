@@ -354,6 +354,12 @@ func (e *Engine) runPump(ctx context.Context) {
 			continue
 		}
 
+		// Before any of them runs: a claim is an only_once task's only evidence that it
+		// ran, and below `strict` the claim's own commit is not flushed. One flush covers
+		// the whole batch, and a batch with no only_once task in it costs nothing.
+		// specs/durability-levels.md s4.
+		e.hardenClaims(ctx, insts)
+
 		// Each dispatch consumes one pre-acquired slot (released when the advance
 		// finishes).
 		for _, inst := range insts {
@@ -361,6 +367,31 @@ func (e *Engine) runPump(ctx context.Context) {
 				<-e.sem // slot reserved for this instance, left to the advance already running it
 			}
 		}
+	}
+}
+
+// hardenClaims makes this batch's claims durable if any of them is about to run an
+// only_once task. Prefix durability means one flush covers every claim behind it, so this
+// is one fsync per batch rather than per instance -- and none at all for the ordinary case
+// where nothing in the batch carries the flag.
+//
+// The flag is read off the row (next_replayable), never resolved from the definition: this
+// runs per claimed instance on the hottest path, and outside the panic barrier that exists
+// because definitions are user data and can be malformed.
+//
+// A failure here is not fatal: the flush is what would let recovery report
+// only_once.interrupted rather than re-run, so losing it costs that distinction, and the
+// batch is still correct work to do.
+func (e *Engine) hardenClaims(ctx context.Context, insts []*model.ProcessInstance) {
+	for _, inst := range insts {
+		if inst.NextReplayable {
+			continue
+		}
+		if err := e.db.Flush(ctx); err != nil {
+			e.logOnly(logEvent{Level: model.LogError, ID: inst.ID,
+				Msg: "could not make an only_once claim durable before running it: " + err.Error()})
+		}
+		return
 	}
 }
 
@@ -470,6 +501,8 @@ func (e *Engine) Tick(ctx context.Context) (int, error) {
 	for _, inst := range instances {
 		e.holdLease(inst.ID)
 	}
+	// Same reason as runPump: a tick claims and runs, so it owes the same guarantee.
+	e.hardenClaims(ctx, instances)
 	var wg sync.WaitGroup
 	for i, inst := range instances {
 		select {

@@ -152,10 +152,12 @@ because one of them cannot see the difference the other is entirely about:
 |---|---|---|
 | `strict` | 178 | 11,666 |
 | `terminal` | 190 (1.07×) | 2,368 (**4.9×**) |
-| `only-once` | 970 (5.5×) | 2,134 (5.5×) |
+| `only-once`, claims synced (superseded, §5b) | 970 (5.5×) | 2,134 (5.5×) |
+| `only-once`, as shipped | **3,551 (19.8×)** | **419 (27×)** |
 
-**`only-once` is ~5.5× on both. `terminal` is worth nothing on one and nearly everything on
-the other.** The variable is **yields per process**, not tasks and not iterations:
+**`terminal` is worth nothing on one shape and nearly everything on the other**, while
+`only-once` wins on both (its two rows differ only by §5b's claim bracket, which is a
+mechanism change, not a shape one). The variable is **yields per process**, not tasks and not iterations:
 `advance()` collapses a call-less chain into one write
 ([advance.go](../internal/engine/advance.go), `maxInlineTasks`), so a switch loop of any
 length still costs one flush. Only a task that PARKS, SPAWNS or CALLS forces its own. Drain
@@ -172,7 +174,87 @@ about the benchmark until a workload of the opposite shape agrees.
 It is also the strongest argument for the per-definition field: with one global level, a
 deployment running both shapes has no setting that is right for both.
 
-**What still floors all three levels: the claim.** `ClaimInstances` syncs at every level —
+### 5b. The claim floor, and the bracket that removed it (2026-08-25)
+
+The first cut of the ladder synced **every** claim, because `only_once` is a per-task flag on
+the definition and `ClaimInstances` does not resolve definitions. That conservatism turned
+out to be most of what was left: relaxing claims unconditionally (a scratch measurement, not
+shippable) took `bench-drain` from 970 to 3,584 inst/s and `bench-iterate` from 2,134 ms to
+379 ms. **The 21x this doc opens with is on the far side of the claim, not the instance
+writes** — with claims synced, `only-once` was only worth 5.5x of it.
+
+As shipped, `only-once` is **3,551 inst/s on drain (19.8× over strict, ~91% of the 3,900
+NORMAL ceiling §2 calls the hard limit) and 419 ms on iterate (27×)** — and 419 ms is within
+noise of the 379 ms the unshippable scratch run reached, so the bracket itself costs
+essentially nothing on a definition that does not use `only_once`. This is the 21× this doc
+opens with, finally on the board.
+
+So the bracket moved to where the knowledge is. `ClaimInstances` is now an ordinary relaxed
+write on both engines (on Postgres it had to stop being autocommit first, or the level could
+never reach it), and the engine flushes around it:
+
+- **`hardenClaims`**, after a claim and before anything in the batch dispatches, if any
+  claimed instance is at an `only_once` task — one flush for the whole batch;
+- **`runAdvance`**, after the write that records the result, under the same condition.
+
+**Keyed on the CLAIMED task, and that is the whole subtlety.** An earlier cut flushed at the
+*action* instead, reasoning that `advance()` runs a call-less chain inline so the `only_once`
+task is often not the one claimed at. True, and irrelevant: recovery reads `inst.Task` **as
+stored**, so hardening a claim that names the earlier switch task says nothing about the
+action reached after it. That flush fired and protected nothing. Both placements protect the
+identical set of cases; the claim-time one does it with one flush per batch instead of per
+instance, and without threading a flag out of `advance()`.
+
+The condition is read from a column, `next_replayable`, not resolved from the definition:
+the claim path runs per claimed instance on the hottest path, and outside the panic barrier
+that exists because definitions are user data. It is stored in the **replayable** direction
+so that false — the Go zero value AND the column default — is the safe answer, and a create
+path that forgets costs an fsync rather than at-most-once. `persist` re-derives it on every
+write, so it always describes the task the row names. Both create paths (the API and
+`newChildInstance`) must set it explicitly, or every new instance flushes on its first claim
+and the whole gain is gone.
+
+The primitive is `db.Flush`. It needs no argument and hardens nothing in particular: prefix
+durability (S3) means a flushed commit hardens every commit behind it, so *being a commit* is
+the entire job. At `strict` it is a no-op. It is **not** the same write on both engines:
+Postgres runs `SELECT pg_current_xact_id()`, which makes the commit real without writing a
+row -- a shared marker row would serialise every worker's flush behind one row lock held
+across the fsync, which is exactly the workload `only_once` exists for. SQLite has no
+equivalent (a page must change for there to be anything to flush) and its single writer
+serialises commits anyway, so it bumps one row in `durability_marker`. Tests assert on an
+in-process counter (`FlushCount`), never on that row, which only moves on one engine.
+
+Losing the **after** half does not break at-most-once: recovery reads the durable claim and
+reports `only_once.interrupted`, which is a true answer. It loses the work the task already
+did, which is why S4 asks for both halves and why both are built.
+
+**A pre-existing at-most-once bug this surfaced, now fixed.** An `only_once` action reached
+INLINE from the claimed task was unprotected at every level, including the old always-sync
+claim -- what was wrong was the claim's *content*, not its durability. `advance()` collapses
+a call-less chain into one write, so the row still named the switch the advance started
+from; a crash mid-request was then indistinguishable from "never started", and
+`prepareAdvance` re-ran a request that had already left, raising nothing. Demonstrated on one
+definition by varying only which task the row named when the previous owner vanished:
+
+    claimed AT the only_once task:      executions=0  error_code="only_once.interrupted"
+    claimed at a switch that gotos it:  executions=1  error_code=""
+
+The fix does not add a second protection mechanism; it removes the case. `advance()` now
+**bails out before an only_once action it moved to in this advance** (`i > 0`), checkpointing
+so the row NAMES that task. The next claim is then the case the bracket already protects.
+An `only_once` action can therefore only ever execute when the row already names it, so a
+crash during one always leaves evidence recovery can read.
+
+Two things make it cheap. The checkpoint need not be durable -- losing it rewinds to before
+the action ran, and re-running a call-less chain is free -- and it costs one claim round trip
+only for definitions that put an `only_once` action behind such a chain. The collapse
+optimisation is untouched everywhere else.
+
+The `i > 0` form also covers a case the "is this the claimed task" form would miss: an
+`only_once` task re-entered by a loop within a single advance, where the ids match but the
+row's copy is already stale.
+
+**Superseded — what used to floor all three levels: the claim.** `ClaimInstances` syncs at every level —
 conservatively, since §4 only requires it for tasks that actually carry `only_once` and the
 engine, not the DB, is what knows which those are. A parking workload re-claims after every
 resume, so `iterate`'s `only-once` sits at 2,134 ms rather than near zero. Relaxing it

@@ -41,6 +41,10 @@ func spawnFixture(t *testing.T, database *db.DB, name string) string {
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: parent, ProcessVersion: 1,
 		Task: "fan", ContextData: map[string]any{}, Status: model.StatusRunning,
+		// What the API's create path sets; "fan" is a spawn, so it is replayable. Left
+		// unset it would default to needing a flush, which is safe but not what this
+		// fixture is for.
+		NextReplayable: true,
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
 	}

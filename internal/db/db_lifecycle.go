@@ -632,6 +632,11 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 			// No lease held: bind worker_id as read under the tree lock too, where it
 			// cannot move. NullString's zero is "", which is what an unheld row compares as.
 			WorkerID: raw.WorkerID.String,
+			// Carried, not recomputed: revival does not move Task, so the stored flag still
+			// describes it -- and this layer cannot resolve a definition to recompute it.
+			// Left unset it would zero to "needs flush" and every revived instance would pay
+			// an fsync it does not owe.
+			NextReplayable: raw.NextReplayable,
 		}); err != nil {
 			return fmt.Errorf("revive instance %q: %w", node.ID, err)
 		}
@@ -719,6 +724,10 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			UpdatedAt:  now,
 			LeaseEpoch: parent.LeaseEpoch,
 			WorkerID:   fenceWorker(parent),
+			// The parent parks here and is claimed again to collect. Left unset this zeroes
+			// to "needs flush", so every parent in a spawning tree would pay an fsync on its
+			// collect claim.
+			NextReplayable: boolToInt(parent.NextReplayable),
 		})); err != nil {
 			if errors.Is(err, ErrLeaseLost) {
 				return err

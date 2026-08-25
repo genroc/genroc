@@ -8,6 +8,11 @@ import (
 	"database/sql"
 )
 
+type DurabilityMarker struct {
+	ID int64
+	N  int64
+}
+
 type Object struct {
 	Hash       string
 	Content    string
@@ -78,6 +83,7 @@ type ProcessInstance struct {
 	ExternalLeaseExpiresAt sql.NullInt64
 	ExternalClaimEpoch     int64
 	Objects                string
+	NextReplayable         int64
 }
 
 type ProcessLog struct {

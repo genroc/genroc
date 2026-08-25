@@ -402,6 +402,12 @@ type ProcessDefinition struct {
 	Output       *Shape         `json:"output,omitempty"                description:"Templated value (a string expression or nested object of expressions) evaluated at completion to produce the process output."`
 }
 
+// OnlyOnceAction reports whether this task is an action the engine must never run twice.
+// Both halves matter: only_once on a task with no action has nothing to protect.
+func (t *Task) OnlyOnceAction() bool {
+	return t != nil && t.Action != nil && t.OnlyOnce != nil && *t.OnlyOnce
+}
+
 // Raises returns the set of error codes this definition can raise, sorted. It is a
 // purely syntactic scan over every raise clause on every switch case and on_error rule
 // — Fault.Code is a literal (R2), so there is no dataflow and no fixpoint, and a

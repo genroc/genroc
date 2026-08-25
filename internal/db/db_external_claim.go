@@ -239,6 +239,7 @@ func scanInstanceWithPrevHolder(s interface{ Scan(...any) error }) (dbgen.Proces
 		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
 		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
 		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
+		&r.NextReplayable,
 		&prev,
 	)
 	return r, prev, err

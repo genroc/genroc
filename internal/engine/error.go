@@ -28,7 +28,7 @@ func isRetryAllowed(task *model.Task, errCode errcode.Code, matched *model.Error
 // interruptedOnlyOnce is the question both reclaim paths ask, and the only situation that
 // produces errcode.OnlyOnceInterrupted.
 func interruptedOnlyOnce(task *model.Task) bool {
-	return task != nil && task.Action != nil && task.OnlyOnce != nil && *task.OnlyOnce
+	return task.OnlyOnceAction()
 }
 
 // interruptedMessage says what happened to the task, not to the worker: a definition has

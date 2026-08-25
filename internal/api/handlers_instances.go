@@ -71,6 +71,9 @@ func (h *Handlers) startInstance(raw json.RawMessage) Reply {
 		ProcessName:    def.Name,
 		ProcessVersion: version,
 		Task:           def.Tasks[0].ID,
+		// Set here or the first claim of every new instance pays an fsync: the flag's
+		// zero value is the safe one, not the common one. specs/durability-levels.md s4.
+		NextReplayable: !def.Tasks[0].OnlyOnceAction(),
 		ContextData:    map[string]any{"input": input, "outputs": map[string]any{}, "error": nil},
 		Status:         model.StatusRunning,
 		// Cosmetic (SaveInstance re-stamps from the DB clock); same clock, so it

@@ -127,7 +127,17 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 			WHERE process_instances.id = cand.cand_id
 			RETURNING ` + instanceColumns + `, cand.prev_worker`
 
-		rows, err := db.exec.QueryContext(ctx, query, now, leaseCutoff, limit, workerID, leaseExpiry)
+		// In a transaction rather than autocommit: autocommit would take the session's
+		// synchronous_commit and the durability level could never reach this write. A claim
+		// is ordinary progress -- what makes it evidence is the only_once bracket, which
+		// flushes around the execute (specs/durability-levels.md s4).
+		tx, _, raw, err := db.beginTxAt(ctx, syncStrict, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback()
+
+		rows, err := raw.QueryContext(ctx, query, now, leaseCutoff, limit, workerID, leaseExpiry)
 		if err != nil {
 			return nil, err
 		}
@@ -147,6 +157,7 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 				&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorData, &r.ExternalData, &r.EngineState, &r.Task,
 				&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
 				&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
+				&r.NextReplayable,
 				&prevWorker,
 			); err != nil {
 				return nil, err
@@ -158,13 +169,17 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 			inst.ReclaimedExpired = prevWorker.Valid && prevWorker.String != ""
 			result = append(result, inst)
 		}
-		return result, rows.Err()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		rows.Close()
+		return result, tx.Commit()
 	}
 
 	// SQLite can't reference a FROM table in RETURNING, so it selects-then-updates
 	// in one transaction. Its single-writer model makes that atomic (no FOR UPDATE);
 	// the selected worker_id is the prior owner, before we overwrite it.
-	tx, _, raw, err := db.beginTx(ctx, nil)
+	tx, _, raw, err := db.beginTxAt(ctx, syncStrict, nil)
 	if err != nil {
 		return nil, err
 	}

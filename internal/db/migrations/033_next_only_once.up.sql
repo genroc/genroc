@@ -1,0 +1,15 @@
+-- Denormalises "the task this row points at can be replayed" onto the instance, so the
+-- claim path can decide whether to harden the claim without resolving a definition.
+-- specs/durability-levels.md s4.
+--
+-- The claim loop is the wrong place to parse user data: it runs outside the panic barrier
+-- that exists because a definition can be malformed, and it would pay a definition lookup
+-- per claimed instance on the hottest path there is. The row already records WHICH task the
+-- instance resumes at; this records the one property of it the claim needs.
+--
+-- Stored as "replayable" rather than "only_once" so that ZERO IS THE SAFE VALUE, in the
+-- column default and in the Go zero value alike: a row nobody set this on, and an instance
+-- built by a caller that forgot, are both treated as needing the flush. Wrong in that
+-- direction costs an fsync; wrong in the other costs at-most-once. Rows predating this
+-- column are exactly that case.
+ALTER TABLE process_instances ADD COLUMN next_replayable INTEGER NOT NULL DEFAULT 0;

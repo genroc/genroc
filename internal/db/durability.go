@@ -1,6 +1,11 @@
 package db
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+
+	dbgen "genroc/internal/db/gen"
+)
 
 // Durability is the ladder from specs/durability-levels.md §5, ordered weakest to
 // strongest. It is read two ways, and the inversion is deliberate: an operator picks a
@@ -81,3 +86,40 @@ func instanceWriteFloor(status interface{ Terminal() bool }) Durability {
 	}
 	return syncStrict
 }
+
+// Flush makes every commit made so far durable, whatever level the write paths ran at.
+// Both engines append to one WAL, so one flushed commit hardens the commits behind it
+// (specs/durability-levels.md s3) -- which is why writing an otherwise meaningless row is
+// enough, and why the caller does not have to name what it wants hardened.
+//
+// The only_once bracket is the caller: the claim is a task's at-most-once evidence and has
+// to outlive a power cut before the request leaves, and the result has to outlive one after
+// it comes back. At `strict` every commit is already flushed and this is a no-op.
+func (db *DB) Flush(ctx context.Context) error {
+	if db.level() == DurabilityStrict {
+		return nil
+	}
+	err := db.withTxAt(ctx, syncAlways, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
+		if db.dialect == "postgres" {
+			// Assigning an XID is what makes the commit real, and a real commit at
+			// synchronous_commit=on flushes. No row is written, so concurrent workers do not
+			// queue behind one another on a shared row held across the fsync -- which is
+			// exactly what a marker row would cost here, plus a dead tuple per flush.
+			_, err := exec.ExecContext(ctx, "SELECT pg_current_xact_id()")
+			return err
+		}
+		// SQLite has no equivalent: a page has to change for there to be anything to flush.
+		// Its single writer already serialises every commit, so a shared row costs nothing.
+		return qtx.BumpDurabilityMarker(ctx)
+	})
+	if err == nil {
+		db.flushes.Add(1)
+	}
+	return err
+}
+
+// FlushCount is how many times Flush has committed on this process's DB handle. It is the
+// observable for the only_once bracket, and it is kept in memory rather than read from
+// durability_marker so it means the same thing on both engines -- the marker row only moves
+// on SQLite. Resets with the process; it answers "did this run flush", not "how many ever".
+func (db *DB) FlushCount() int64 { return db.flushes.Load() }
