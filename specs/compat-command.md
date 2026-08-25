@@ -11,7 +11,15 @@ may accept what the check calls different.
 
 ## 0. Status
 
-**Proposal.** One piece is built: the token lexer, `internal/selector`
+**BUILT.** `genctl compat` and `GET /definitions/compat` ship the two-verdict design this
+doc argues for: `internal/validation/compat.go` carries `MemberUpgrade`/`MemberContract` and
+a `Verdict` per half, and the CLI has `--ignore contract` and `--json`. §2f's pruning is
+rejected here and correspondingly absent from the code. Its other half — **moving** an
+instance once this says it may — is [version-compatibility.md](version-compatibility.md) and
+remains unbuilt.
+
+Historical note, since the paragraph below is what this section used to say: one piece was
+built first, the token lexer, `internal/selector`
 ([compat-selection.md](compat-selection.md)). An implementation of the rest was written and
 rolled back; findings marked **[run]** came from running it, and three of them contradicted
 this document as it then stood.

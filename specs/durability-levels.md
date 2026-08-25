@@ -8,10 +8,16 @@ sufficient, which boundaries, and why the answer differs per engine.
 
 ## 0. Status
 
-**Proposal.** One piece is built: `--sqlite-fullfsync` / `db.WithFullFsync()`
-(2026-08-06), which exists only so the benchmarks stop lying — it changes no default and
-implements none of the design below. §1 and §2 are measurements, not proposals: they are
-reproducible today (§9).
+Status: **BUILT 2026-08-25** — the ladder (`only-once` / `terminal` / `strict`, defaulting
+to `only-once`), its per-transaction mechanism on both engines, the write-path
+classification, and the `only_once` bracket. Also built: `--pg-commit-delay` (§6b) and
+`--sqlite-fullfsync` (2026-08-06, which exists only so the benchmarks stop lying).
+**Unbuilt and deferred:** the per-definition `durability:` field — §8 records the trigger,
+the sizing and the traps. §1 and §2 are measurements, not proposals (§9 reproduces them).
+
+Read §5a and §5b before trusting any number here: the headline 21× is real but sits
+entirely on the far side of the claim fsync, and a rung's value depends on the workload's
+shape, not on the ladder.
 
 **2026-08-25.** Every measurement below was re-run on the current tree and reproduces
 (§2). §9's blocker is fixed, and its stated cause was wrong — see there. §8's first

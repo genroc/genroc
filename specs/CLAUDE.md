@@ -13,6 +13,14 @@ behavior while the spec stays put, answering a different question. See
 
 ## Design drafts (proposed, not implemented)
 
+**This heading is approximate and several entries below contradict it** — a doc is listed
+here once and then gets built, and the entry says so in its own text rather than moving.
+Trust the entry, and the spec's own §0, over this heading. As of 2026-08-25 the ones listed
+here that are actually BUILT are `error-extensions` (X2 only), `script-tasks`,
+`source-resolution` (code phase), `external-task-queue`, `external-outcome-as-signal`,
+`lazy-context`, `object-store`, `compat-command` and `durability-levels` (all but the
+per-definition field).
+
 - [error-extensions.md](error-extensions.md) — three considered extensions to the child
   error model, of which **X2 (a payload on `raise`) is BUILT (2026-08-22)** — read its §X2-c
   for the decisions and `docs/reference/tasks.mdx` for the behaviour. X1 (batch-shape routing)
@@ -269,11 +277,10 @@ behavior while the spec stays put, answering a different question. See
   know. `config_schema` is deliberately outside the whole check — validation type-checks
   expressions against it, which catches more than compat could — but still gets a
   `(not judged)` row, because a slot missing from the report entirely is how a dropped
-  `secret: true` came to be reported nowhere. **Demand pruning is required,
-  not deferred** (§2f) and lands last: without it the report calls a dead output a break, and
-  over-pruning it would promise an upgrade whose instance then reads a value that is not
-  there — the same failure shape as a relation tolerating a gap the fill cannot close, so it
-  gets the same test rigour.
+  `secret: true` came to be reported nowhere. On §2f — demand pruning — **this entry used to
+  say "required, not deferred"; the doc now rejects it outright** and the shipped code has
+  none, so read §2f rather than this line: pruning `mustNew(T)` to what is actually read
+  would promise an upgrade whose instance then reads a value that is not there.
 - [compat-selection.md](compat-selection.md) — **deferred**, and the one piece of it that is
   built (`internal/selector`, the token lexer). The general form of `--ignore contract`: a
   token grammar where **colons scope and dots navigate**, so a build can gate on one member,
