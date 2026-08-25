@@ -19,7 +19,11 @@ func (e *Engine) context(inst *model.ProcessInstance) *model.Context {
 		inst.ResolvedObjects = map[string]any{}
 	}
 	return model.NewContext(inst.ContextData, func(hash string) (any, error) {
-		return e.db.ResolveObject(context.Background(), &model.ObjectRef{Ref: hash})
+		// One closure, every object load in the engine: a dropped connection is ridden out here
+		// rather than becoming a terminal failure for an instance that could have retried.
+		return retryRead(func() (any, error) {
+			return e.db.ResolveObject(context.Background(), &model.ObjectRef{Ref: hash})
+		})
 	}, inst.ResolvedObjects)
 }
 

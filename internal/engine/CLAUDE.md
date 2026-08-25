@@ -84,6 +84,34 @@ own transaction, so a crash leaves a trail of what the worker was doing even whe
 committed. The audits for spawn and arm are the exception — they run *after* their commit so
 they can never name children that do not exist.
 
+## A read inside an advance is retried, not believed
+
+`retryRead` (`readretry.go`) wraps every database read an advance depends on — the object loader
+in `Engine.context`, `Engine.definition`, `PeekSignal`. Three attempts, 50 ms apart.
+
+The reason is that a read failure has two causes needing opposite handling, and they cannot be
+told apart by inspecting the error: a dropped connection (retrying works) or a real fault — a
+dangling object reference, a malformed column, a definition that is gone (retrying fails
+identically). So the code asks rather than guesses. What survives every attempt is treated as
+real and fails the instance loudly, with the object or definition named.
+
+Three things break silently if you touch this:
+
+1. **Do not widen the budget.** Retries hold the lease and a concurrency slot while they run, and
+   a generous budget turns a permanent fault into a slow livelock. `readretry_test.go` bounds it
+   at 5 attempts and fails if a single attempt is all there is — deliberately in ABSOLUTE
+   numbers, because assertions written in terms of `readAttempts` agree with whatever the constant
+   says and stop testing anything.
+2. **Do not turn a read failure into an abandoned advance**, and do not exit the worker on one.
+   Abandoning livelocks on a real fault; exiting needs the same classification this avoids and
+   takes every other in-flight advance down with it (see the no-exit rule below). Both were
+   considered and rejected.
+3. **A longer outage already takes care of itself** and needs nothing here: the terminal outcome a
+   failed read produces cannot be WRITTEN either, so `persist` fails, `runAdvance` returns the
+   error, nothing is recorded, the lease expires and another worker retries the whole advance with
+   a fresh connection. The retries exist only for the window where the read fails and the write
+   would have succeeded.
+
 ## The backoff curve (`backoff.go`)
 
 An `on_error` rule's `retry` policy supplies the base delay, the growth factor and the

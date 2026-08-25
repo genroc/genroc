@@ -54,20 +54,6 @@ function startCountingMock(rounds: number) {
   };
 }
 
-async function waitDown(timeoutMs = 5000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch(`http://localhost:${PORT}/openapi.json`);
-      await r.body?.cancel();
-    } catch {
-      return; // connection refused → the process is gone
-    }
-    await sleep(50);
-  }
-  throw new Error("server did not shut down in time");
-}
-
 beforeAll(async () => {
   bin = await buildGenrocBinary();
 });
@@ -134,17 +120,22 @@ test("a released context object is carried by its release mark, and every claim 
     expect(status).toBe("completed");
     expect(mock.calls()).toBe(ROUNDS); // one action call per round
 
-    // Quiesce, then stop the server so the DB file has no concurrent writer.
+    // Quiesce, then wait for the server process to EXIT before touching the file. AWAITING
+    // stop() is the load-bearing part -- it resolves on real process exit. Polling the HTTP port
+    // until it refuses connections is not the same thing and was the bug here: genroc closes the
+    // listener first, then drains the engine, flushes buffered logs and closes the DB, so a read
+    // in that window finds the file still locked. The sqlite3 CLI has no busy timeout by
+    // default, so it fails on the spot rather than waiting the way the engine's connection does.
     await sleep(300);
-    server.stop();
+    await server.stop();
     server = undefined;
-    await waitDown();
 
     // Read the store directly through the sqlite3 CLI (-json): there is no SQLite driver among
     // the test dependencies. Every object, and every claim on it — content is global now, so
     // this cannot be scoped to one instance the way the old per-instance table was.
     const sql = <T>(q: string): T[] => {
-      const r = spawnSync("sqlite3", ["-json", dbPath, q], {
+      // .timeout mirrors the engine's own _busy_timeout=5000: wait for a lock, never fail on one.
+      const r = spawnSync("sqlite3", ["-cmd", ".timeout 5000", "-json", dbPath, q], {
         encoding: "utf8",
         maxBuffer: 64 * 1024 * 1024,
       });

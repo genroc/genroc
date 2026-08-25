@@ -76,7 +76,7 @@ func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 // nothing unredacted to store. With no `secret: true` outside config there is nothing for it to
 // blank. specs/object-store.md §secret: true is CONFIG-ONLY.
 func (e *Engine) contextSecrets(inst *model.ProcessInstance) []string {
-	def, err := e.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
+	def, err := e.definition(inst.ProcessName, inst.ProcessVersion)
 	if err != nil {
 		return nil
 	}

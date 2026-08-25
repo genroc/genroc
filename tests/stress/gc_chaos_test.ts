@@ -113,19 +113,6 @@ async function spawn(): Promise<GenrocProcess> {
   }
 }
 
-async function waitDown(timeoutMs = 5_000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const r = await fetch(`${BASE_URL}/openapi.json`);
-      await r.body?.cancel();
-    } catch {
-      return; // connection refused → the process is gone
-    }
-    await sleep(100);
-  }
-}
-
 beforeAll(async () => {
   bin = await buildGenrocBinary();
   mock = startGenMock();
@@ -344,18 +331,21 @@ test(
     }
     expect(settled, "all instances reached completed after settling").toBe(true);
 
-    // Quiesce, then stop the server so the DB file is read without a concurrent writer.
+    // Quiesce, then wait for the server process to EXIT before touching the file. AWAITING
+    // stop() is what makes that true -- it resolves on real process exit. Polling the HTTP port
+    // until it refuses connections is weaker and was the bug here: the listener closes before
+    // the DB does.
     await sleep(500);
-    server!.stop();
+    await server!.stop();
     server = undefined;
-    await waitDown();
 
     // ── Verify the GC invariant against the raw tables ──────────────────────────
     // Read the DB via the sqlite3 CLI (-json): there is no SQLite driver among the test
     // dependencies. The selected columns are all small — an externalized
     // slot stores only its {refs} envelope, never the content — so the JSON stays tiny.
     const sqlJson = <T,>(query: string): T[] => {
-      const r = spawnSync("sqlite3", ["-json", dbPath, query], {
+      // .timeout mirrors the engine's own _busy_timeout=5000: wait for a lock, never fail on one.
+      const r = spawnSync("sqlite3", ["-cmd", ".timeout 5000", "-json", dbPath, query], {
         encoding: "utf8",
         maxBuffer: 256 * 1024 * 1024,
       });

@@ -348,7 +348,11 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	// on it and persist deletes it in the same transaction as the state produced, so a refused
 	// write cannot lose the answer and a refused delete cannot apply it twice.
 	// specs/external-outcome-as-signal.md.
-	sigID, outcome, buffered, err := e.db.PeekSignal(inst.ID, task.ID)
+	sig, err := retryRead(func() (bufferedSignal, error) {
+		id, o, ok, err := e.db.PeekSignal(inst.ID, task.ID)
+		return bufferedSignal{id: id, outcome: o, ok: ok}, err
+	})
+	sigID, outcome, buffered := sig.id, sig.outcome, sig.ok
 	if err != nil {
 		return nil, stop(e.failInstance(inst, errcode.EngineSpawn, fmt.Sprintf("task %q: reading the buffered answer: %v", task.ID, err)))
 	}

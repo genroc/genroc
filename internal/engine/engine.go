@@ -63,11 +63,20 @@ type Engine struct {
 	schemaCache validation.SchemaCache
 }
 
+// definition loads a process definition for an advance, riding out a dropped connection. Every
+// engine read of a definition goes through here: a blip must not terminally fail an instance that
+// a retry would have carried through. See retryRead.
+func (e *Engine) definition(name string, version int) (*model.ProcessDefinition, error) {
+	return retryRead(func() (*model.ProcessDefinition, error) {
+		return e.db.GetDefinition(name, version)
+	})
+}
+
 // schemaFile returns the inferred schemas for the instance's process (cached),
 // used to redact secret-derived fields from logged payloads.
 func (e *Engine) schemaFile(inst *model.ProcessInstance) (validation.SchemaFile, bool) {
 	return e.schemaCache.Get(inst.ProcessName, inst.ProcessVersion, func() (*model.ProcessDefinition, error) {
-		return e.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
+		return e.definition(inst.ProcessName, inst.ProcessVersion)
 	})
 }
 

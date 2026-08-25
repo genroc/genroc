@@ -194,7 +194,7 @@ func (e *Engine) prepareAdvance(inst *model.ProcessInstance) (*model.ProcessDefi
 	// is the source of truth for the task list (the instance stores only its current
 	// task id; successors are implied by definition order). An instance whose
 	// definition cannot be loaded cannot run, so fail it with a clear reason.
-	def, err := e.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
+	def, err := e.definition(inst.ProcessName, inst.ProcessVersion)
 	if err != nil {
 		return nil, 0, stop(e.failInstance(inst, errcode.EngineDefinition, fmt.Sprintf("load definition: %v", err)))
 	}
@@ -528,7 +528,7 @@ func (e *Engine) lookupTask(inst *model.ProcessInstance) *model.Task {
 	if inst.Task == "" {
 		return nil
 	}
-	def, err := e.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
+	def, err := e.definition(inst.ProcessName, inst.ProcessVersion)
 	if err != nil {
 		return nil
 	}
@@ -566,7 +566,7 @@ func taskIDAt(tasks []*model.Task, idx int) string {
 // point the instance at it (no queue is built — successors are implied by definition
 // order). Used by the on-error route, which has no definition in scope.
 func (e *Engine) resolveGoto(inst *model.ProcessInstance, taskID string) error {
-	def, err := e.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
+	def, err := e.definition(inst.ProcessName, inst.ProcessVersion)
 	if err != nil {
 		return fmt.Errorf("resolve goto: %w", err)
 	}
@@ -592,7 +592,7 @@ func (e *Engine) saveAndNotify(inst *model.ProcessInstance) error {
 // computeOutput evaluates the definition's Output map against the final context and
 // stores it in context_data["output"]. No-op when the definition has no Output map.
 func (e *Engine) computeOutput(inst *model.ProcessInstance) error {
-	def, err := e.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
+	def, err := e.definition(inst.ProcessName, inst.ProcessVersion)
 	if err != nil {
 		return fmt.Errorf("load definition for output: %w", err)
 	}

@@ -170,7 +170,7 @@ func (e *Engine) buildSingleChild(inst *model.ProcessInstance, task *model.Task,
 	if err != nil {
 		return nil, stop(e.failInstance(inst, errcode.EngineDefinition, fmt.Sprintf("task %q child: %v", task.ID, err)))
 	}
-	def, err := e.db.GetDefinition(task.Action.Name, version)
+	def, err := e.definition(task.Action.Name, version)
 	if err != nil {
 		return nil, stop(e.failInstance(inst, errcode.EngineDefinition, fmt.Sprintf("task %q child: %v", task.ID, err)))
 	}
@@ -211,7 +211,7 @@ func (e *Engine) buildMapChildren(ctx context.Context, inst *model.ProcessInstan
 		if err != nil {
 			return nil, stop(e.failInstance(inst, errcode.EngineDefinition, fmt.Sprintf("task %q child_map[%q]: %v", task.ID, key, err)))
 		}
-		def, err := e.db.GetDefinition(entry.Name, version)
+		def, err := e.definition(entry.Name, version)
 		if err != nil {
 			return nil, stop(e.failInstance(inst, errcode.EngineDefinition, fmt.Sprintf("task %q child_map[%q]: %v", task.ID, key, err)))
 		}
@@ -240,7 +240,7 @@ func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInsta
 	if err != nil {
 		return nil, stop(e.failInstance(inst, errcode.EngineDefinition, fmt.Sprintf("task %q child_list: %v", task.ID, err)))
 	}
-	def, err := e.db.GetDefinition(task.Action.Name, version)
+	def, err := e.definition(task.Action.Name, version)
 	if err != nil {
 		return nil, stop(e.failInstance(inst, errcode.EngineDefinition, fmt.Sprintf("task %q child_list: %v", task.ID, err)))
 	}
