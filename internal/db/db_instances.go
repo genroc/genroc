@@ -457,7 +457,7 @@ func (db *DB) SaveInstance(inst *model.ProcessInstance) error {
 func (db *DB) UpdateInstance(inst *model.ProcessInstance) error {
 	ctx := context.Background()
 	now := nowMillis()
-	return db.withTx(ctx, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
+	return db.withTxAt(ctx, instanceWriteFloor(inst.Status), func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
 		cols, err := db.persistContext(ctx, qtx, inst, now)
 		if err != nil {
 			return err
@@ -477,7 +477,9 @@ func (db *DB) UpdateInstance(inst *model.ProcessInstance) error {
 func (db *DB) UpdateInstanceProgress(inst *model.ProcessInstance) error {
 	ctx := context.Background()
 	now := nowMillis()
-	return db.withTx(ctx, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
+	// A checkpoint means "still running", so this write is never the terminal one: it is
+	// the ordinary mid-process write the ladder exists to stop flushing.
+	return db.withTxAt(ctx, syncStrict, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
 		cols, err := db.persistContext(ctx, qtx, inst, now)
 		if err != nil {
 			return err

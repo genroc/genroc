@@ -17,13 +17,15 @@ import (
 // locked first (FOR UPDATE on PostgreSQL; SQLite single-writer) to serialize concurrent
 // sibling completions — the same lock order as PauseProcess/FailInstanceAndAncestors.
 // Root instances (no parent) only save the child; failed children use FailAncestors instead.
+// The child is terminal here, so the write carries the "a finished process stays
+// finished" floor — and the parent wake that rides the same transaction inherits it.
 func (db *DB) FinishChild(child *model.ProcessInstance) error {
 	if child.ParentID == "" {
 		return db.UpdateInstance(child)
 	}
 
 	ctx := context.Background()
-	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
+	return db.withTxAt(ctx, instanceWriteFloor(child.Status), func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
 		// Acquire row locks (oldest-first) and read the parent's wait_state in one shot.
 		// The locking CTE keeps the same lock order as PauseProcess and
@@ -90,7 +92,9 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 // next tick. One transaction; the safe replacement for UpdateInstance + FailAncestors.
 func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 	ctx := context.Background()
-	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
+	// The child is terminal; the ancestors this poisons are not, and the max of the two is
+	// the child's — one transaction takes the strongest floor it writes for (§8).
+	return db.withTxAt(ctx, instanceWriteFloor(child.Status), func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 		now := nowMillis()
 
 		// Lock child and all ancestors oldest-first — consistent with FinishChild and
@@ -646,7 +650,9 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 		return nil
 	}
 
-	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
+	// The parent parks and the children start: nothing here is terminal, and a lost spawn
+	// replays from a parent that never advanced past it (§3).
+	return db.withTxAt(ctx, syncStrict, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
 		// Lock parent and read its current status to propagate to children. FOR UPDATE
 		// is appended only on PostgreSQL; SQLite serialises via its single writer.

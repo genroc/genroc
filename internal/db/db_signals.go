@@ -22,7 +22,9 @@ import (
 // timeout. Hence the row lock -- the same one DeliverSignal takes.
 // specs/external-outcome-as-signal.md.
 func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.ProcessInstance, taskID string, input any, wakeAt *time.Time) (armed bool, err error) {
-	tx, qtx, raw, err := db.beginTx(ctx, nil)
+	// Parking is an ordinary mid-process write. What must survive is the DELIVERY into
+	// this park, which is inbound and syncs on its own path (DeliverSignal, §4).
+	tx, qtx, raw, err := db.beginTxAt(ctx, syncStrict, nil)
 	if err != nil {
 		return false, err
 	}

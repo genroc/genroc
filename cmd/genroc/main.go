@@ -22,9 +22,10 @@ func main() {
 	dbPath := flag.String("db", "genroc.db", "SQLite database file path")
 	pgDSN := flag.String("pg", "", "PostgreSQL DSN (e.g. postgres://user:pass@host/db). When set, --db is ignored.")
 	pgMaxOpenConns := flag.Int("pg-max-open-conns", 50, "PostgreSQL connection pool size, and with it the group-commit batch-width ceiling: only transactions in flight together coalesce into one WAL flush, so the pool bounds how many ever do. Size a worker fleet so workers*pg-max-open-conns stays under the server's max_connections. Ignored for SQLite.")
-	pgCommitDelay := flag.Int("pg-commit-delay", 0, "Hold each PostgreSQL WAL flush back by this many microseconds so more commits coalesce into it (PostgreSQL commit_delay, set per session). Costs no durability - every commit is still flushed before it is acknowledged - and Postgres skips the delay unless commit_siblings (default 5) transactions are open, so narrow workloads are unaffected. Throughput peaks well below the flush latency and drops past it: on a 4ms F_FULLFSYNC disk 500us was the best value measured and 10000us was 26% worse than doing nothing. The gain itself is workload- and load-dependent (measured between +3% and +33% for the same 500us on the same machine), and shows up mainly as steadier throughput under contention rather than a higher ceiling. Measure on your own storage; 0 disables. Requires a superuser connection. Ignored for SQLite.")
+	pgCommitDelay := flag.Int("pg-commit-delay", 0, "Hold each PostgreSQL WAL flush back by this many microseconds so more commits coalesce into it (PostgreSQL commit_delay, set per session). Costs no durability - every commit is still flushed before it is acknowledged - and Postgres skips the delay unless commit_siblings (default 5) transactions are open, so narrow workloads are unaffected. Throughput peaks well below the flush latency and drops past it: on a 4ms F_FULLFSYNC disk 500us was the best value measured and 10000us was 26% worse than doing nothing. The gain itself is workload- and load-dependent (measured between +3% and +33% for the same 500us on the same machine), and shows up mainly as steadier throughput under contention rather than a higher ceiling. Measure on your own storage; 0 (the default) disables. Requires a superuser connection. Ignored for SQLite.")
 	sqliteSync := flag.String("sqlite-synchronous", "FULL", "SQLite durability (PRAGMA synchronous): FULL (default; fsync every commit for full power-loss durability, matching Postgres synchronous_commit=on) or NORMAL (faster; durable across a process crash but may lose the last commits on power loss). Note FULL is bounded by your disk's serial fsync rate - SQLite has one writer and no group commit, so unlike PostgreSQL it cannot trade latency for batch width. Ignored for PostgreSQL.")
 	sqliteFullFsync := flag.Bool("sqlite-fullfsync", false, "Use F_FULLFSYNC on macOS, where plain fsync(2) returns before the drive flushes its write cache — without this, --sqlite-synchronous=FULL is not actually power-loss durable on Apple hardware. Costs ~4ms/commit on an M1. No effect on other platforms or for PostgreSQL.")
+	durability := flag.String("durability", "only-once", "How much of the write path is flushed to disk before it is acknowledged. only-once (default) flushes what cannot be replayed - work handed in from outside, and only_once tasks - and lets ordinary task progress replay after a power cut, which the at-least-once contract already allows. terminal additionally flushes process ends, so a finished process cannot rewind to running. strict flushes every commit, so no completed task ever repeats. Below strict, a client polling an instance can see a state it already passed after an unclean shutdown. See specs/durability-levels.md.")
 	httpAddr := flag.String("http", ":8448", "HTTP listen address (empty to disable)")
 	tcpAddr := flag.String("tcp", "", "TCP listen address, e.g. 127.0.0.1:9090 (empty to disable)")
 	udsPath := flag.String("uds", "", "Unix socket path, e.g. /tmp/genroc.sock (empty to disable)")
@@ -55,6 +56,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Validated before the database is opened: a bad flag should not reach the disk.
+	durLevel, err := db.ParseDurability(*durability)
+	if err != nil {
+		log.Error("invalid --durability", "error", err)
+		os.Exit(1)
+	}
+
 	var database *db.DB
 	var dbErr error
 	if *pgDSN != "" {
@@ -75,10 +83,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer database.Close()
+	database.SetDurability(durLevel)
 	if *pgDSN != "" {
-		log.Info("database opened", "driver", "postgres")
+		log.Info("database opened", "driver", "postgres", "durability", durLevel.String(),
+			"commit_delay_us", *pgCommitDelay)
 	} else {
-		log.Info("database opened", "driver", "sqlite", "path", *dbPath, "synchronous", *sqliteSync)
+		log.Info("database opened", "driver", "sqlite", "path", *dbPath,
+			"synchronous", *sqliteSync, "durability", durLevel.String())
 	}
 
 	logCfg := engine.LogConfig{

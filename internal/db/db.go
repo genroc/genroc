@@ -30,6 +30,15 @@ type DB struct {
 	exec    dbgen.DBTX // rewrites ?→$N on Postgres; use for hand-written SQL
 	dialect string     // "sqlite" | "postgres"
 
+	// durability is the ladder level every write is measured against
+	// (specs/durability-levels.md §5). Set once at startup via SetDurability; atomic
+	// because it is read on every write path from every worker goroutine.
+	durability atomic.Int64
+	// sqliteBaseSync is the PRAGMA synchronous level an unrelaxed write runs at, and the
+	// value a relaxed transaction restores when it hands the connection back. It is the
+	// operator's --sqlite-synchronous: durability lowers writes beneath this, never above.
+	sqliteBaseSync string
+
 	// defCache memoises GetDefinition (the hottest read; contends with SQLite's single
 	// connection). Raw JSON keyed by (name, version), re-unmarshalled per call so callers
 	// never share Task pointers; SaveDefinition invalidates for the ON CONFLICT overwrite.
@@ -93,7 +102,14 @@ func OpenSQLite(path, synchronous string, opts ...SQLiteOption) (*DB, error) {
 			}
 		}
 	}
-	return open(sqldb, "sqlite")
+	db, err := open(sqldb, "sqlite")
+	if err != nil {
+		return nil, err
+	}
+	// The level a relaxed transaction restores to. Durability only ever lowers a write
+	// beneath this, so an operator who asked for NORMAL keeps NORMAL everywhere.
+	db.sqliteBaseSync = sync
+	return db, nil
 }
 
 type sqliteConfig struct{ fullFsync bool }
@@ -137,6 +153,13 @@ func OpenPostgres(dsn string, maxOpenConns int, opts ...PostgresOption) (*DB, er
 		o(&cfg)
 	}
 
+	// Probed on a throwaway connection before the pool is built, so a setting this role
+	// cannot apply is one clear failure at startup rather than one per pooled connection
+	// later. It only ever gets here because someone passed the flag: the default is off.
+	if err := probeSessionSettings(dsn, cfg.sessionSettings()); err != nil {
+		return nil, err
+	}
+
 	var sqldb *sql.DB
 	if settings := cfg.sessionSettings(); len(settings) > 0 {
 		// Per-session rather than postgresql.conf: the setting then applies to genroc's
@@ -159,6 +182,22 @@ func OpenPostgres(dsn string, maxOpenConns int, opts ...PostgresOption) (*DB, er
 	sqldb.SetMaxOpenConns(maxOpenConns)
 	sqldb.SetMaxIdleConns(max(maxOpenConns/2, 1))
 	return open(sqldb, "postgres")
+}
+
+// probeSessionSettings reports whether this DSN's role may apply them.
+func probeSessionSettings(dsn string, settings []string) error {
+	probe, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return fmt.Errorf("open postgres: %w", err)
+	}
+	defer probe.Close()
+	for _, s := range settings {
+		if _, err := probe.Exec(s); err != nil {
+			return fmt.Errorf("%s: %w (a superuser-context setting: connect as a "+
+				"superuser, or set it in postgresql.conf and drop the flag)", s, err)
+		}
+	}
+	return nil
 }
 
 // PostgresOption configures OpenPostgres beyond the pool size.
@@ -236,6 +275,11 @@ func open(sqldb *sql.DB, dialect string) (*DB, error) {
 		logStop:    make(chan struct{}),
 		logStopped: make(chan struct{}),
 	}
+	// Not the zero value. Durability reads two ways and they disagree at zero: for a
+	// write's FLOOR it means "sync at every level" (safe), for the configured LEVEL it
+	// means the weakest one (not). A DB nobody called SetDurability on must be strict.
+	db.SetDurability(DurabilityStrict)
+	db.sqliteBaseSync = "FULL"
 	go db.logFlusher()
 	return db, nil
 }

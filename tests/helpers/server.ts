@@ -65,6 +65,9 @@ function spawnProc(
     // On macOS a plain fsync(2) does not flush the drive cache, so an unset flag here
     // makes synchronous=FULL benchmark ~20x faster than it would on real storage.
     ...(process.env.GENROC_SQLITE_FULLFSYNC ? ["--sqlite-fullfsync"] : []),
+    // The durability ladder (specs/durability-levels.md): unset means strict, which is
+    // what every test other than the benchmark wants.
+    ...(process.env.GENROC_DURABILITY ? ["--durability", process.env.GENROC_DURABILITY] : []),
   ];
   return spawn(bin, [...dbArgs, "--http", `:${port}`, "--log", "error", ...pollArgs, ...concArgs, ...retryArgs, ...leaseArgs, ...poolArgs, ...syncArgs], {
     stdio: "ignore",

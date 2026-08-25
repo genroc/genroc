@@ -143,6 +143,42 @@ Levels are strictly increasing; each adds fsync points to the one above.
 ¹ creates sit in drain's untimed load phase; steady state costs 1 fsync per accepted item,
 batched across concurrent callers. ² free unless the definition uses `only_once`.
 
+### 5a. Measured (2026-08-25) — and a rung's value is a property of the WORKLOAD
+
+Honest SQLite (`FULL` + F_FULLFSYNC, 4.06 ms/fsync), levels as built. Two workloads,
+because one of them cannot see the difference the other is entirely about:
+
+| level | `bench-drain` (inst/s) | `bench-iterate` (wall ms) |
+|---|---|---|
+| `strict` | 178 | 11,666 |
+| `terminal` | 190 (1.07×) | 2,368 (**4.9×**) |
+| `only-once` | 970 (5.5×) | 2,134 (5.5×) |
+
+**`only-once` is ~5.5× on both. `terminal` is worth nothing on one and nearly everything on
+the other.** The variable is **yields per process**, not tasks and not iterations:
+`advance()` collapses a call-less chain into one write
+([advance.go](../internal/engine/advance.go), `maxInlineTasks`), so a switch loop of any
+length still costs one flush. Only a task that PARKS, SPAWNS or CALLS forces its own. Drain
+is two tasks and one terminal write, so at `terminal` every instance still flushes once and
+nothing improves; `iterate` parks 20 times per process, so `terminal` replaces 40 flushes
+with one.
+
+This answers §8's "is `terminal` worth shipping?" — **yes**, and the earlier reading that it
+was speculative came from measuring only the shape that cannot show it. Every workload in
+the suite before `bench-iterate` was that shape: `drain` is two tasks, `deep` and
+`recursive` are trees whose instances each run once. A rung looking useless is evidence
+about the benchmark until a workload of the opposite shape agrees.
+
+It is also the strongest argument for the per-definition field: with one global level, a
+deployment running both shapes has no setting that is right for both.
+
+**What still floors all three levels: the claim.** `ClaimInstances` syncs at every level —
+conservatively, since §4 only requires it for tasks that actually carry `only_once` and the
+engine, not the DB, is what knows which those are. A parking workload re-claims after every
+resume, so `iterate`'s `only-once` sits at 2,134 ms rather than near zero. Relaxing it
+means moving the `only_once` bracket into the engine, and is the next real win if `only-once`
+is not fast enough.
+
 **Default: `only-once`.** It is the strongest guarantee that costs nothing over `accepted`,
 and 21× faster than what ships today.
 
@@ -329,7 +365,11 @@ documented as such.
   `wal_sync_method = fsync_writethrough`, which would give the matched comparison against
   SQLite's F_FULLFSYNC run. Note PG 18 moved `wal_sync` out of `pg_stat_wal` into
   `pg_stat_io`.
-- **Is `terminal` worth shipping**, or does `only-once` → `strict` cover the real demand?
+- ~~**Is `terminal` worth shipping**~~ — **answered yes, 2026-08-25 (§5a).** It is worth
+  4.9× on a process that parks 20 times and 1.07× on a two-task one, so the rung is not
+  redundant with `only-once` → `strict`; it is the one that pays for exactly the shape
+  `only-once` would otherwise be needed for. The question read as open for as long as it
+  did because every workload in the suite was the shape that cannot distinguish it.
 
 ## 9. Reproducing
 
@@ -360,6 +400,10 @@ documented as such.
     psql -p 5433 … -c "select pg_stat_reset_shared('io')"
     POSTGRES_DSN=… GENROC_PG_COMMIT_DELAY=500 GENROC_PG_MAX_OPEN_CONNS=200 make bench-drain
     psql -p 5433 … -c "select sum(fsyncs) from pg_stat_io where object='wal'"
+
+    # The ladder, on both shapes — one of them cannot show `terminal` at all (§5a)
+    GENROC_SQLITE_SYNCHRONOUS=FULL GENROC_SQLITE_FULLFSYNC=1 GENROC_DURABILITY=terminal make bench-drain
+    GENROC_SQLITE_SYNCHRONOUS=FULL GENROC_SQLITE_FULLFSYNC=1 GENROC_DURABILITY=terminal make bench-iterate
 
 **Interleave the A/B and take a median.** Single runs are worthless here: the same 500 µs
 config measured 1.33× and 1.03× in two sessions on one machine, and the variance is in the

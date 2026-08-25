@@ -1,0 +1,155 @@
+# Many-yield workload: ONE process that parks 20 times before it ends. Every other
+# workload here is the opposite shape — a two-task process, or a tree whose instances each
+# run once — and that shape cannot tell `terminal` from `strict`, because an instance with
+# one task write and one terminal write pays a flush either way.
+#
+# A call-less task chain collapses into a single write (advance.go: maxInlineTasks), so
+# iterations alone do not multiply writes — only tasks that YIELD do. A delay is the
+# cheapest yield there is: it parks and resumes with no HTTP server, no child instances and
+# no wall-clock cost worth measuring.
+#
+#   make bench-iterate
+#
+# At `strict` this costs a flush per park and per resume; at `terminal`, one for the whole
+# process. That ratio is the point, and it grows with the number of yields.
+
+bench:
+  roots: 50              # each root parks 20 times, so this is ~2000 writes, not 50
+  load_concurrency: 32
+  input: { n: 1 }
+  poll_ms: 10
+  runs: 1
+  sqlite:
+    concurrency: 20
+  postgres:
+    concurrency: 200
+
+process:
+  name: iterate
+  input_schema:
+    type: object
+    properties:
+      n: { type: integer }
+  tasks:
+    - id: step0
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step1
+    - id: step1
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step2
+    - id: step2
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step3
+    - id: step3
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step4
+    - id: step4
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step5
+    - id: step5
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step6
+    - id: step6
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step7
+    - id: step7
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step8
+    - id: step8
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step9
+    - id: step9
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step10
+    - id: step10
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step11
+    - id: step11
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step12
+    - id: step12
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step13
+    - id: step13
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step14
+    - id: step14
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step15
+    - id: step15
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step16
+    - id: step16
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step17
+    - id: step17
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step18
+    - id: step18
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: $step19
+    - id: step19
+      action:
+        type: delay
+        for: 1
+      switch:
+        - goto: end
+  output:
+    n: "$: input.n ?? 0"

@@ -58,6 +58,7 @@ const WORKLOADS: Record<string, Workload> = {
   deep: readWorkload("deep"),
   drain: readWorkload("drain"),
   drain_big: readWorkload("drain_big"),
+  iterate: readWorkload("iterate"),
 };
 
 // Per-engine knobs (under bench.sqlite / bench.postgres).
@@ -324,8 +325,9 @@ function report(results: EngineResult[]) {
   const sqliteSync = process.env.GENROC_SQLITE_SYNCHRONOUS ?? "FULL";
   const fullFsync = process.env.GENROC_SQLITE_FULLFSYNC ? "on" : "off";
   const commitDelay = process.env.GENROC_PG_COMMIT_DELAY ?? "0";
+  const level = process.env.GENROC_DURABILITY ?? "strict";
   console.log(
-    `durability: sqlite synchronous=${sqliteSync} fullfsync=${fullFsync}, ` +
+    `durability: level=${level}, sqlite synchronous=${sqliteSync} fullfsync=${fullFsync}, ` +
       `postgres synchronous_commit=on commit_delay=${commitDelay}us`,
   );
   console.log(`host:   ${HOST}\n`);

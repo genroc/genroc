@@ -8,7 +8,7 @@ log     ?= info
 
 # BUILD_FLAGS = CGO_ENABLED=1
 
-.PHONY: run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big swagger client clean generate docs docs-schema docs-build script-runner
+.PHONY: run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big bench-iterate swagger client clean generate docs docs-schema docs-build script-runner
 
 run:
 	$(BUILD_FLAGS) go run ./cmd/genroc \
@@ -64,6 +64,11 @@ bench-drain: client
 
 bench-drain-big: client
 	cd tests && npm run bench-drain-big
+
+# bench-iterate — one process that parks many times; the shape that separates
+# --durability=terminal from strict (a per-process flush vs a per-yield one).
+bench-iterate: client
+	cd tests && npm run bench-iterate
 
 sqlc:
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate

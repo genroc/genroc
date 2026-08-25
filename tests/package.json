@@ -11,7 +11,8 @@
     "bench-recursive": "node bench/run.ts recursive",
     "bench-deep": "node bench/run.ts deep",
     "bench-drain": "node bench/run.ts drain",
-    "bench-drain-big": "node bench/run.ts drain_big"
+    "bench-drain-big": "node bench/run.ts drain_big",
+    "bench-iterate": "node bench/run.ts iterate"
   },
   "dependencies": {
     "ajv": "^8.20.0",

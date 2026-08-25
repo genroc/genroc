@@ -214,27 +214,36 @@ func (db *DB) detachLogs() []dbgen.InsertLogParams {
 }
 
 // writeLogBatch inserts rows in chunks of logBatchRows, one multi-row INSERT per chunk
-// (one round-trip per chunk instead of per event). Runs through db.exec, so ? is
-// rewritten to $N on Postgres.
+// (one round-trip per chunk instead of per event).
+//
+// syncStrict, not the always-sync default: the trail is best-effort by contract already —
+// a crash drops whatever was still buffered — so flushing each 5ms batch below `strict`
+// would buy a durability the rest of the audit path does not offer. It was also the single
+// largest remaining fsync source once instance writes were classified, because the flusher
+// commits far more often than instances complete.
 func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
-	for start := 0; start < len(rows); start += logBatchRows {
-		end := min(start+logBatchRows, len(rows))
-		chunk := rows[start:end]
-		var sb strings.Builder
-		sb.WriteString(`INSERT INTO process_logs (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at) VALUES `)
-		args := make([]any, 0, len(chunk)*11)
-		for i, r := range chunk {
-			if i > 0 {
-				sb.WriteByte(',')
+	ctx := context.Background()
+	// One transaction rather than one per chunk, so a batch is also all-or-nothing.
+	return db.withTxAt(ctx, syncStrict, func(_ *dbgen.Queries, exec dbgen.DBTX) error {
+		for start := 0; start < len(rows); start += logBatchRows {
+			end := min(start+logBatchRows, len(rows))
+			chunk := rows[start:end]
+			var sb strings.Builder
+			sb.WriteString(`INSERT INTO process_logs (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at) VALUES `)
+			args := make([]any, 0, len(chunk)*11)
+			for i, r := range chunk {
+				if i > 0 {
+					sb.WriteByte(',')
+				}
+				sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?)")
+				args = append(args, r.ID, r.InstanceID, r.Level, r.Event, r.TaskID, r.Message, r.Code, r.Data, r.Objects, r.Meta, r.CreatedAt)
 			}
-			sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?)")
-			args = append(args, r.ID, r.InstanceID, r.Level, r.Event, r.TaskID, r.Message, r.Code, r.Data, r.Objects, r.Meta, r.CreatedAt)
+			if _, err := exec.ExecContext(ctx, sb.String(), args...); err != nil {
+				return err
+			}
 		}
-		if _, err := db.exec.ExecContext(context.Background(), sb.String(), args...); err != nil {
-			return err
-		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // logColumns is the pl.-qualified SELECT list shared by both log queries (the
