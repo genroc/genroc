@@ -416,10 +416,33 @@ documented as such.
 
 ## 8. Open questions
 
-- ~~**Who sets the level**~~ — **decided 2026-08-25: both.** The flag sets the default and
-  the minimum; a `durability:` field on the definition may only raise its own floor, never
+- ~~**Who sets the level**~~ — **decided 2026-08-25: both. The flag SHIPPED; the
+  per-definition field is deferred, not queued.** The flag sets the default and the
+  minimum; a `durability:` field on the definition may only raise its own floor, never
   lower it, so `effective = max(flag, definition)` and an operator's guarantee cannot be
-  weakened by something they did not write. The two sub-questions it was blocked on:
+  weakened by something they did not write.
+
+  Deferred because it adds a per-instance column and a rule operators must understand, for
+  a benefit no deployment needs yet. **The trigger to build it** is one deployment running
+  both process shapes at once: §5a shows `terminal` is worth 4.9x on a parking-heavy
+  process and nothing on a two-task one, so a single global level serves such a deployment
+  badly. Sizing, from having built the rest: the mechanism is done, so the work is the
+  level reaching ~6 instance-scoped writes (the `next_replayable` denormalisation pattern,
+  including its 3 scan sites and 2 inline param builders), the model/validation surface,
+  and one widened condition in `hardenClaims` for a `strict` definition's claim.
+
+  Two traps worth knowing before starting. The **zero value must be `strict`**, which is
+  the EXPENSIVE level -- so every create path must set it explicitly or throughput
+  collapses; that is the bug shape hit on 2026-08-25 with `next_replayable`, except the
+  fail-safe default costs 18x rather than one fsync. And `max(flag, definition)` means
+  **lowering the flag cannot speed up a `strict` definition**, which is correct and
+  surprising, so it is a documentation problem as much as an implementation one.
+
+  A cheaper variant that covers the motivating case: since the flag is already a floor, the
+  only useful thing a definition can do is raise itself, so `durability: strict` as a single
+  opt-in needs no ordering rules at all.
+
+  The two sub-questions it was blocked on:
 
   **Child inheritance is not a question.** §3 already answers it: an fsync at commit N
   hardens 1..N-1, so a later sync covers every earlier commit whoever wrote it. A `strict`
