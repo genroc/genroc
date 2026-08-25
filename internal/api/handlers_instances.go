@@ -102,7 +102,7 @@ func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	instances, info, err := h.db.ListInstances(req.Status, req.ErrorCode, req.Process,
+	instances, info, err := h.db.ListInstances(req.Status, req.ErrorCode, req.Process, req.Version, req.Root,
 		db.Window{After: req.CreatedAfter, Before: req.CreatedBefore},
 		db.Window{After: req.UpdatedAfter, Before: req.UpdatedBefore},
 		req.page())

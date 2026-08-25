@@ -13,6 +13,7 @@
 //	genctl instances [--status <status>] [--error-code <code>] [--sort updated|created] [--since <when>] [--until <when>] [--json]
 //	genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
 //	genctl external-tasks [--process <name>] [--version <n>] [--task <id>] [--since <when>] [--until <when>] [--json]
+//	genctl upgrade  <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]
 //	genctl get      <instance-id> [--resolve] [--json]
 //	genctl object   <ref>
 //	genctl logs     [--level <level>] [--since <when>] [--until <when>] [--time clock|full] [--recursive] [--mode basic|detail|json] <instance-id>
@@ -132,6 +133,8 @@ func main() {
 		runStatusCmd(server, args)
 	case "compat":
 		runCompatCmd(server, args)
+	case "upgrade":
+		runUpgradeCmd(server, args)
 	case "instances":
 		runInstancesCmd(server, args)
 	case "definitions":

@@ -253,3 +253,52 @@ func TestUpgradeComposition_IsIdempotent(t *testing.T) {
 		})
 	}
 }
+
+func TestPlanUpgrade_AFailedRootIsStillATreeToMove(t *testing.T) {
+	// `failed` is a state an upgrade is FOR: move it, then retry it on the new version. The
+	// subtree filter drops terminal DESCENDANTS, and a root filtered out of its own subtree
+	// reads as "no tree to move" -- which refused exactly the case the operation exists for.
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			saveKidDef(t, b.db, 1)
+			parentPinning(t, b.db, 1, 1)
+			parentPinning(t, b.db, 2, 1)
+
+			if err := b.db.SaveInstance(&model.ProcessInstance{
+				ID: "fp", ProcessName: "par", ProcessVersion: 1, Task: "fan",
+				ContextData: map[string]any{"outputs": map[string]any{}},
+				Status:      model.StatusFailed, Error: "boom",
+			}); err != nil {
+				t.Fatalf("SaveInstance: %v", err)
+			}
+			// A finished child, which is what a failed tree leaves behind: a parent poisoned
+			// by a child cannot settle to `failed` until its descendants are terminal.
+			if err := b.db.SaveInstance(&model.ProcessInstance{
+				ID: "fk", ProcessName: "kid", ProcessVersion: 1, Task: "run",
+				ContextData: map[string]any{"outputs": map[string]any{}},
+				Status:      model.StatusFailed, ParentID: "fp", SpawnTaskID: "fan",
+			}); err != nil {
+				t.Fatalf("SaveInstance: %v", err)
+			}
+
+			plan, err := b.db.PlanUpgrade(context.Background(), "fp", 2)
+			if err != nil {
+				t.Fatalf("PlanUpgrade on a failed root: %v", err)
+			}
+			if len(plan) != 1 || plan[0].Instance.ID != "fp" {
+				t.Fatalf("plan = %v, want just the failed root — its terminal child stays put", plan)
+			}
+
+			if err := upgradeTree(t, b.db, "fp", 1, 2); err != nil {
+				t.Fatalf("upgradeTree on a failed root: %v", err)
+			}
+			got, _ := b.db.GetInstance("fp")
+			if got.ProcessVersion != 2 {
+				t.Errorf("failed root on version %d, want 2", got.ProcessVersion)
+			}
+			if got.Status != model.StatusFailed {
+				t.Errorf("status %q, want failed — an upgrade moves the version, not the state machine", got.Status)
+			}
+		})
+	}
+}

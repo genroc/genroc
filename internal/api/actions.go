@@ -55,6 +55,13 @@ type pageQuery struct {
 
 // millisQuery reads a unix-millis time bound. An absent or unparseable value is 0, which
 // every list reads as "unbounded on that side" — the same as omitting the parameter.
+// intQuery reads an optional integer query parameter; absent or unparseable is 0, which
+// every caller treats as "no filter".
+func intQuery(r *http.Request, key string) int {
+	n, _ := strconv.Atoi(r.URL.Query().Get(key))
+	return n
+}
+
 func millisQuery(r *http.Request, key string) int64 {
 	ms, _ := strconv.ParseInt(r.URL.Query().Get(key), 10, 64)
 	return ms
@@ -191,6 +198,8 @@ var registry = func() []actionDef {
 				Status        string `query:"status" enum:"running,completed,failing,failed,raised,pausing,paused" description:"Filter by status"`
 				ErrorCode     string `query:"error_code" description:"Filter by exact error code. Authored codes (from a raise or panic clause) are lower_snake_case; engine-produced codes contain a dot, e.g. http.500, pre.timeout, engine.spawn."`
 				Process       string `query:"process" description:"Filter by exact process name, across every version"`
+				Version       int    `query:"version" description:"Filter by exact process version (0 = any)"`
+				Root          bool   `query:"root" description:"Only root instances - those with no parent. A child is not a unit of upgrade, so this is what an upgrade sweep iterates"`
 				CreatedAfter  int64  `query:"created_after" description:"Only instances created at/after this unix-millis timestamp"`
 				CreatedBefore int64  `query:"created_before" description:"Only instances created strictly before this unix-millis timestamp"`
 				UpdatedAfter  int64  `query:"updated_after" description:"Only instances updated at/after this unix-millis timestamp"`
@@ -203,6 +212,8 @@ var registry = func() []actionDef {
 					Status:        r.URL.Query().Get("status"),
 					ErrorCode:     r.URL.Query().Get("error_code"),
 					Process:       r.URL.Query().Get("process"),
+					Version:       intQuery(r, "version"),
+					Root:          r.URL.Query().Get("root") == "true",
 					CreatedAfter:  millisQuery(r, "created_after"),
 					CreatedBefore: millisQuery(r, "created_before"),
 					UpdatedAfter:  millisQuery(r, "updated_after"),

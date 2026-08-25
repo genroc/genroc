@@ -837,13 +837,20 @@ SELECT id, process_name, process_version, parent_id,
        next_replayable
 FROM process_instances
 WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
-  AND status NOT IN ('completed', 'failed', 'raised')
+  AND (process_instances.id = ?1
+       OR status NOT IN ('completed', 'failed', 'raised'))
 ORDER BY created_at ASC, id ASC
 `
 
-// The instance and every descendant that is still live, oldest first. Terminal descendants
+// The instance and every DESCENDANT that is still live, oldest first. Terminal descendants
 // are excluded on purpose: their outputs are frozen and nothing re-runs them, so they are
 // not part of the unit that moves. specs/version-compatibility.md s3c.
+//
+// The root is returned whatever its status, because `failed` is a state an upgrade is FOR
+// (move it, then retry it on the new version) and a root filtered out of its own subtree
+// reads as "no tree to move". A failed root has no live descendants anyway: a parent
+// poisoned by a child goes to `failing`, and the claim predicate refuses a waiting row, so
+// it cannot settle to `failed` until its children are terminal.
 func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]ProcessInstance, error) {
 	rows, err := q.db.QueryContext(ctx, nonTerminalSubtree, root)
 	if err != nil {

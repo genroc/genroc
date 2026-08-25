@@ -21,7 +21,6 @@ import (
 // cannot move" is not actionable when a caller has to find out which one blocked it.
 type UpgradeResp struct {
 	Upgraded bool          `json:"upgraded"`
-	DryRun   bool          `json:"dry_run,omitempty"`
 	Moves    []UpgradeMove `json:"moves"`
 }
 
@@ -31,6 +30,7 @@ type UpgradeMove struct {
 	Task        string `json:"task"`
 	FromVersion int    `json:"from_version"`
 	ToVersion   int    `json:"to_version"`
+	Status      string `json:"status"`
 	Skipped     bool   `json:"skipped,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 }
@@ -52,6 +52,14 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
+	// The unit of upgrade is a tree, and a child is not one. Moving it alone would leave its
+	// parent collecting a version its own definition does not name -- the drift s3c exists to
+	// prevent -- and the parent is not in this plan to be moved with it. Refused here rather
+	// than in the CLI because it is an invariant of the operation, not a convenience.
+	if root.ParentID != "" {
+		return conflict("instance %q has a parent (%s); upgrade its root instead, which moves the whole tree",
+			id, root.ParentID).reply()
+	}
 	// Asserted rather than read: a tree that moved since the caller looked at it is refused,
 	// not migrated against a plan made for a version it has left.
 	if req.FromVersion != 0 && root.ProcessVersion != req.FromVersion {
@@ -63,23 +71,23 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage) Reply {
 		return errReply(err)
 	}
 
-	resp := UpgradeResp{DryRun: req.DryRun, Moves: make([]UpgradeMove, 0, len(plan))}
+	resp := UpgradeResp{Moves: make([]UpgradeMove, 0, len(plan))}
 	ups := make([]db.InstanceUpgrade, 0, len(plan))
 	for _, m := range plan {
 		move := UpgradeMove{
 			ID: m.Instance.ID, Process: m.Instance.ProcessName, Task: m.Instance.Task,
 			FromVersion: m.Instance.ProcessVersion, ToVersion: m.ToVersion,
+			Status: string(m.Instance.Status),
 		}
 		if m.ToVersion == m.Instance.ProcessVersion {
 			move.Skipped = true
 			resp.Moves = append(resp.Moves, move)
 			continue
 		}
-		// Checked here and not only by the write's predicate, so a dry run is honest: the
-		// write would refuse this anyway, but a plan that reported "fine" and then failed for
-		// real is worse than no plan at all. paused and failed are the settled states -- a
-		// running instance can be claimed and advanced between this plan and the write, and
-		// failing/pausing are draining, with descendants still moving.
+		// Checked here as well as in the write's SQL predicate, so the refusal names the
+		// instance and the reason rather than surfacing as a row count that did not match.
+		// paused and failed are the settled states: a running instance can be claimed and
+		// advanced between this plan and the write, and failing/pausing are draining.
 		if !movableStatus(m.Instance.Status) {
 			move.Reason = fmt.Sprintf("status is %s; only paused or failed instances can be moved", m.Instance.Status)
 			resp.Moves = append(resp.Moves, move)
@@ -103,10 +111,6 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage) Reply {
 		ups = append(ups, db.InstanceUpgrade{Instance: m.Instance, ToVersion: m.ToVersion, NewContext: state})
 	}
 
-	if req.DryRun {
-		resp.Upgraded = false
-		return okReply(resp)
-	}
 	if err := h.db.UpgradeInstances(ctx, ups); err != nil {
 		return errReply(err)
 	}

@@ -73,15 +73,6 @@ test("a paused instance moves to a new version and its state is migrated", async
     tasks: [{ id: "hold", action: { type: "external" }, switch: "end" }],
   });
 
-  const dry = await upgrade(id, { from_version: 1, to_version: 2, dry_run: true });
-  expect(dry.error).toBeUndefined();
-  expect(dry.data!.upgraded).toBe(false);
-  expect(dry.data!.moves).toHaveLength(1);
-
-  // Nothing was written: a dry run plans and migrates but must not touch the row.
-  const stillOld = await client.GET("/instances/{id}", { params: { path: { id } } });
-  expect(stillOld.data!.version).toBe(1);
-
   const done = await upgrade(id, { from_version: 1, to_version: 2 });
   expect(done.error).toBeUndefined();
   expect(done.data!.upgraded).toBe(true);

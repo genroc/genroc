@@ -59,7 +59,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 
 			// Default: created desc -> newest created first: c, b, a.
-			got, info, err := b.db.ListInstances("", "", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			got, info, err := b.db.ListInstances("", "", "", 0, false, dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances: %v", err)
 			}
@@ -80,7 +80,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 
 			// updated desc -> most recently active first: a (just updated), c, b.
-			byUpdated, info, err := b.db.ListInstances("", "", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{Sort: "updated"})
+			byUpdated, info, err := b.db.ListInstances("", "", "", 0, false, dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{Sort: "updated"})
 			if err != nil {
 				t.Fatalf("ListInstances updated: %v", err)
 			}
@@ -92,7 +92,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 
 			// Status filter narrows the page.
-			completed, _, err := b.db.ListInstances("completed", "", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			completed, _, err := b.db.ListInstances("completed", "", "", 0, false, dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances completed: %v", err)
 			}
@@ -104,7 +104,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			// that tells them apart. Read the bound off a DB row, not saveInstance's argument — that
 			// struct never carries the stamped timestamps, so a zero would skip the filter entirely.
 			at := got[1].CreatedAt.UnixMilli() // b's created_at (got is c, b, a)
-			byCreated, _, err := b.db.ListInstances("", "", "", dbpkg.Window{After: at}, dbpkg.Window{}, dbpkg.PageReq{})
+			byCreated, _, err := b.db.ListInstances("", "", "", 0, false, dbpkg.Window{After: at}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances created_after: %v", err)
 			}
@@ -112,7 +112,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			if want := []string{c.ID, bb.ID}; !equalStrs(summaryIDs(byCreated), want) {
 				t.Errorf("created_after = %v, want %v", summaryIDs(byCreated), want)
 			}
-			byUpdatedAfter, _, err := b.db.ListInstances("", "", "", dbpkg.Window{}, dbpkg.Window{After: at}, dbpkg.PageReq{Sort: "updated"})
+			byUpdatedAfter, _, err := b.db.ListInstances("", "", "", 0, false, dbpkg.Window{}, dbpkg.Window{After: at}, dbpkg.PageReq{Sort: "updated"})
 			if err != nil {
 				t.Fatalf("ListInstances updated_after: %v", err)
 			}
@@ -122,7 +122,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 			// Both at once intersect rather than one winning — they are plain filters, and
 			// only the one matching the sort is the point a forward walk starts from.
-			both, _, err := b.db.ListInstances("", "", "", dbpkg.Window{After: at}, dbpkg.Window{After: at}, dbpkg.PageReq{Sort: "updated"})
+			both, _, err := b.db.ListInstances("", "", "", 0, false, dbpkg.Window{After: at}, dbpkg.Window{After: at}, dbpkg.PageReq{Sort: "updated"})
 			if err != nil {
 				t.Fatalf("ListInstances both bounds: %v", err)
 			}
@@ -134,7 +134,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			// [a.created, b.created) is 'a' alone and adjacent windows never double-count
 			// the boundary row.
 			half, _, err := b.db.ListInstances("", "", "",
-				dbpkg.Window{After: got[2].CreatedAt.UnixMilli(), Before: at}, dbpkg.Window{}, dbpkg.PageReq{})
+				0, false, dbpkg.Window{After: got[2].CreatedAt.UnixMilli(), Before: at}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances half-open: %v", err)
 			}
@@ -203,7 +203,7 @@ func TestListInstances_ProcessFilter(t *testing.T) {
 			dbpkg.AdvanceClock(time.Second)
 			beta := saveInstance(t, b.db, "beta")
 
-			all, _, err := b.db.ListInstances("", "", "", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			all, _, err := b.db.ListInstances("", "", "", 0, false, dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances unfiltered: %v", err)
 			}
@@ -211,7 +211,7 @@ func TestListInstances_ProcessFilter(t *testing.T) {
 				t.Errorf("empty process = %v, want %v — an empty filter must not narrow the page", summaryIDs(all), want)
 			}
 
-			alphas, _, err := b.db.ListInstances("", "", "alpha", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			alphas, _, err := b.db.ListInstances("", "", "alpha", 0, false, dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances process=alpha: %v", err)
 			}
@@ -226,12 +226,59 @@ func TestListInstances_ProcessFilter(t *testing.T) {
 			}
 			// beta stays running and a1 is the other alpha, so a filter that dropped either
 			// half of the pair returns a different row than a2.
-			both, _, err := b.db.ListInstances("running", "", "alpha", dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			both, _, err := b.db.ListInstances("running", "", "alpha", 0, false, dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
 			if err != nil {
 				t.Fatalf("ListInstances status+process: %v", err)
 			}
 			if want := []string{a1.ID}; !equalStrs(summaryIDs(both), want) {
 				t.Errorf("status=running,process=alpha = %v, want %v — status and process must intersect", summaryIDs(both), want)
+			}
+		})
+	}
+}
+
+// TestListInstances_VersionAndRootFilters covers the two filters an upgrade sweep iterates
+// on: instances of one process still on the version being moved from, and only the roots --
+// a child is not a unit of upgrade, so a sweep that returned them would collect refusals.
+func TestListInstances_VersionAndRootFilters(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			mk := func(id string, version int, parent string) {
+				t.Helper()
+				if err := b.db.SaveInstance(&model.ProcessInstance{
+					ID: id, ProcessName: "sweep", ProcessVersion: version, Task: "t",
+					ContextData: map[string]any{}, Status: model.StatusRunning, ParentID: parent,
+				}); err != nil {
+					t.Fatalf("SaveInstance %s: %v", id, err)
+				}
+				dbpkg.AdvanceClock(time.Second)
+			}
+			mk("r1", 1, "")   // root on v1
+			mk("c1", 1, "r1") // its child, also v1
+			mk("r2", 2, "")   // root already on v2
+
+			onV1, _, err := b.db.ListInstances("", "", "sweep", 1, false, dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			if err != nil {
+				t.Fatalf("ListInstances by version: %v", err)
+			}
+			if want := []string{"c1", "r1"}; !equalStrs(summaryIDs(onV1), want) {
+				t.Errorf("version filter = %v, want %v — it must select every instance on that version, children included", summaryIDs(onV1), want)
+			}
+
+			roots, _, err := b.db.ListInstances("", "", "sweep", 1, true, dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			if err != nil {
+				t.Fatalf("ListInstances roots: %v", err)
+			}
+			if want := []string{"r1"}; !equalStrs(summaryIDs(roots), want) {
+				t.Errorf("root+version filter = %v, want %v — the child shares the version but is not a unit of upgrade", summaryIDs(roots), want)
+			}
+
+			all, _, err := b.db.ListInstances("", "", "sweep", 0, true, dbpkg.Window{}, dbpkg.Window{}, dbpkg.PageReq{})
+			if err != nil {
+				t.Fatalf("ListInstances all roots: %v", err)
+			}
+			if want := []string{"r2", "r1"}; !equalStrs(summaryIDs(all), want) {
+				t.Errorf("roots across versions = %v, want %v — version 0 must mean no filter, not version zero", summaryIDs(all), want)
 			}
 		})
 	}

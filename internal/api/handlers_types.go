@@ -201,6 +201,8 @@ type ListInstancesReq struct {
 	Status        string `json:"status"`         // optional filter: running, completed, failing, failed, raised, pausing, paused
 	ErrorCode     string `json:"error_code"`     // optional filter: exact error code (authored or engine)
 	Process       string `json:"process"`        // optional filter: exact process name (all versions)
+	Version       int    `json:"version"`        // optional filter: exact process version (0 = any)
+	Root          bool   `json:"root"`           // optional filter: only instances with no parent
 	CreatedAfter  int64  `json:"created_after"`  // only instances created at/after this timestamp
 	CreatedBefore int64  `json:"created_before"` // only instances created strictly before it
 	UpdatedAfter  int64  `json:"updated_after"`  // only instances updated at/after this timestamp
@@ -209,9 +211,8 @@ type ListInstancesReq struct {
 }
 
 type UpgradeInstanceReq struct {
-	FromVersion int  `json:"from_version"` // asserted, not read: 0 skips the assertion
-	ToVersion   int  `json:"to_version"`   // the version the ROOT moves to; children are derived
-	DryRun      bool `json:"dry_run"`      // plan and migrate, write nothing
+	FromVersion int `json:"from_version"` // asserted, not read: 0 skips the assertion
+	ToVersion   int `json:"to_version"`   // the version the ROOT moves to; children are derived
 }
 
 type RetryInstanceReq struct {
