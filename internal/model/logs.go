@@ -28,6 +28,10 @@ const (
 	EventInstanceRaised  = "inst_raised" // concluded by a `raise` clause; the parent may react to the code
 	EventInstanceFailed  = "inst_failed"
 	EventInstanceSettled = "inst_settled"
+	// EventInstanceUpgraded records a move to another definition version. The whole story is
+	// in one entry: an upgrade writes no other trace, and the row it changed no longer says
+	// which version it came from. specs/version-compatibility.md s4.
+	EventInstanceUpgraded = "inst_upgraded"
 	// Pause/resume fan out over a subtree, so per-instance entries are debug. Only pause gets
 	// an info root entry, because only its outcome is deferred (meta.pausing counts the
 	// drainers). The deferred pausing → paused landing is unlogged — see specs/pause-resume.md.

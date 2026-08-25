@@ -822,6 +822,83 @@ func (q *Queries) MarkObjectReleased(ctx context.Context, now sql.NullInt64) (in
 	return result.RowsAffected()
 }
 
+const nonTerminalSubtree = `-- name: NonTerminalSubtree :many
+WITH RECURSIVE subtree(id) AS (
+    SELECT process_instances.id FROM process_instances WHERE process_instances.id = ?1
+    UNION ALL
+    SELECT pi.id FROM process_instances pi JOIN subtree s ON pi.parent_id = s.id
+)
+SELECT id, process_name, process_version, parent_id,
+       call_stack, retry_count, wake_at, status, error,
+       created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
+       input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
+       error_code, lease_epoch, task_epoch, parent_task_epoch,
+       external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
+       next_replayable
+FROM process_instances
+WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
+  AND status NOT IN ('completed', 'failed', 'raised')
+ORDER BY created_at ASC, id ASC
+`
+
+// The instance and every descendant that is still live, oldest first. Terminal descendants
+// are excluded on purpose: their outputs are frozen and nothing re-runs them, so they are
+// not part of the unit that moves. specs/version-compatibility.md s3c.
+func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]ProcessInstance, error) {
+	rows, err := q.db.QueryContext(ctx, nonTerminalSubtree, root)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProcessInstance
+	for rows.Next() {
+		var i ProcessInstance
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProcessName,
+			&i.ProcessVersion,
+			&i.ParentID,
+			&i.CallStack,
+			&i.RetryCount,
+			&i.WakeAt,
+			&i.Status,
+			&i.Error,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.WorkerID,
+			&i.LeaseExpiresAt,
+			&i.WaitState,
+			&i.SpawnTaskID,
+			&i.InputData,
+			&i.OutputsData,
+			&i.OutputData,
+			&i.ErrorData,
+			&i.ExternalData,
+			&i.EngineState,
+			&i.Task,
+			&i.ErrorCode,
+			&i.LeaseEpoch,
+			&i.TaskEpoch,
+			&i.ParentTaskEpoch,
+			&i.ExternalWorkerID,
+			&i.ExternalLeaseExpiresAt,
+			&i.ExternalClaimEpoch,
+			&i.Objects,
+			&i.NextReplayable,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const orphanedLogRefs = `-- name: OrphanedLogRefs :many
 SELECT hash, owner_id FROM object_refs
 WHERE owner_kind = 'log'
@@ -1154,6 +1231,74 @@ func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstance
 		arg.ID,
 		arg.LeaseEpoch,
 		arg.WorkerID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const upgradeInstanceVersion = `-- name: UpgradeInstanceVersion :execrows
+UPDATE process_instances
+SET process_version = ?1,
+    input_data      = ?2,
+    outputs_data    = ?3,
+    output_data     = ?4,
+    error_data      = ?5,
+    external_data   = ?6,
+    engine_state    = ?7,
+    objects         = ?8,
+    updated_at      = ?9
+WHERE id = ?10
+  AND process_version = ?11
+  AND task = ?12
+  AND status IN ('paused', 'failed')
+  AND worker_id IS NULL
+`
+
+type UpgradeInstanceVersionParams struct {
+	ToVersion    int64
+	InputData    string
+	OutputsData  string
+	OutputData   string
+	ErrorData    string
+	ExternalData string
+	EngineState  string
+	Objects      string
+	UpdatedAt    int64
+	ID           string
+	FromVersion  int64
+	Task         string
+}
+
+// Moves an instance to another version of its definition, writing the migrated state with
+// it: the version is the lens through which the row is read, so the two cannot be written
+// apart. specs/version-compatibility.md s4.
+//
+// Conditional on everything that would make the migration stale. process_version and task
+// pin what the state was conformed against. status keeps it to the settled states -- a
+// running instance can be claimed and advanced between the read and this write, and the
+// task predicate is what turns that into a lost race a re-run picks up rather than a
+// clobber.
+//
+// worker_id IS NULL is defence, not a live case: a claim only takes running/failing/pausing
+// rows, so a paused or failed one is never leased. It is here because the status filter and
+// the claim predicate are separate statements that could drift apart, and this write must
+// not be the place that discovers it.
+func (q *Queries) UpgradeInstanceVersion(ctx context.Context, arg UpgradeInstanceVersionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, upgradeInstanceVersion,
+		arg.ToVersion,
+		arg.InputData,
+		arg.OutputsData,
+		arg.OutputData,
+		arg.ErrorData,
+		arg.ExternalData,
+		arg.EngineState,
+		arg.Objects,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.FromVersion,
+		arg.Task,
 	)
 	if err != nil {
 		return 0, err

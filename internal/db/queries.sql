@@ -368,3 +368,55 @@ WHERE owner_kind = 'log'
 -- Written only to be a commit that flushes; the value is never read.
 -- specs/durability-levels.md s4.
 UPDATE durability_marker SET n = n + 1 WHERE id = 1;
+
+-- name: UpgradeInstanceVersion :execrows
+-- Moves an instance to another version of its definition, writing the migrated state with
+-- it: the version is the lens through which the row is read, so the two cannot be written
+-- apart. specs/version-compatibility.md s4.
+--
+-- Conditional on everything that would make the migration stale. process_version and task
+-- pin what the state was conformed against. status keeps it to the settled states -- a
+-- running instance can be claimed and advanced between the read and this write, and the
+-- task predicate is what turns that into a lost race a re-run picks up rather than a
+-- clobber.
+--
+-- worker_id IS NULL is defence, not a live case: a claim only takes running/failing/pausing
+-- rows, so a paused or failed one is never leased. It is here because the status filter and
+-- the claim predicate are separate statements that could drift apart, and this write must
+-- not be the place that discovers it.
+UPDATE process_instances
+SET process_version = sqlc.arg(to_version),
+    input_data      = sqlc.arg(input_data),
+    outputs_data    = sqlc.arg(outputs_data),
+    output_data     = sqlc.arg(output_data),
+    error_data      = sqlc.arg(error_data),
+    external_data   = sqlc.arg(external_data),
+    engine_state    = sqlc.arg(engine_state),
+    objects         = sqlc.arg(objects),
+    updated_at      = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id)
+  AND process_version = sqlc.arg(from_version)
+  AND task = sqlc.arg(task)
+  AND status IN ('paused', 'failed')
+  AND worker_id IS NULL;
+
+-- name: NonTerminalSubtree :many
+-- The instance and every descendant that is still live, oldest first. Terminal descendants
+-- are excluded on purpose: their outputs are frozen and nothing re-runs them, so they are
+-- not part of the unit that moves. specs/version-compatibility.md s3c.
+WITH RECURSIVE subtree(id) AS (
+    SELECT process_instances.id FROM process_instances WHERE process_instances.id = sqlc.arg(root)
+    UNION ALL
+    SELECT pi.id FROM process_instances pi JOIN subtree s ON pi.parent_id = s.id
+)
+SELECT id, process_name, process_version, parent_id,
+       call_stack, retry_count, wake_at, status, error,
+       created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
+       input_data, outputs_data, output_data, error_data, external_data, engine_state, task,
+       error_code, lease_epoch, task_epoch, parent_task_epoch,
+       external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
+       next_replayable
+FROM process_instances
+WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
+  AND status NOT IN ('completed', 'failed', 'raised')
+ORDER BY created_at ASC, id ASC;

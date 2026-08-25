@@ -117,20 +117,11 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 	return nil, stop(advanceOutcome{kind: outcomeSpawn, children: children})
 }
 
-// resolveChildVersion: a non-zero declared version wins; else a self-reference inherits
-// the parent's version; else the version pinned at registration, falling back to the
-// child's latest. depKey is the child_map key ("" for child_list).
+// resolveChildVersion asks the shared rule (db.ResolveChildVersion) about THIS instance's
+// version. An upgrade asks the same rule about the version a parent is moving to, which is
+// why the rule does not live here.
 func (e *Engine) resolveChildVersion(inst *model.ProcessInstance, taskID, name string, declared int, depKey string) (int, error) {
-	if declared != 0 {
-		return declared, nil
-	}
-	if name == inst.ProcessName {
-		return inst.ProcessVersion, nil
-	}
-	if v, err := e.db.GetDependencyVersion(inst.ProcessName, inst.ProcessVersion, taskID, depKey); err == nil {
-		return v, nil
-	}
-	return e.db.LatestVersion(name)
+	return e.db.ResolveChildVersion(inst.ProcessName, inst.ProcessVersion, taskID, name, declared, depKey)
 }
 
 // newChildInstance builds a running child. id is base+i so siblings sort after the parent

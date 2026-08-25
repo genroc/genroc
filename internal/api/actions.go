@@ -499,6 +499,24 @@ var registry = func() []actionDef {
 			},
 		},
 		{
+			Name:    "upgrade_instance",
+			Method:  http.MethodPost,
+			Path:    "/instances/{id}/upgrade",
+			Summary: "Move a process instance and every live descendant to another version of their definitions",
+			Tags:    []string{"Instances"},
+			Errors:  []Code{CodeNotFound, CodeConflict, CodeInvalid},
+			PathQuery: struct {
+				ID string `path:"id" format:"uuid"`
+			}{},
+			Req:  UpgradeInstanceReq{},
+			Resp: UpgradeResp{},
+			// No fromHTTP: the default envelope already reads the body and takes {id} from
+			// the path, which is exactly this endpoint's shape.
+			handle: func(h *Handlers, env Envelope) Reply {
+				return h.upgradeInstance(env.ID, env.Payload)
+			},
+		},
+		{
 			Name:    "list_external_tasks",
 			Method:  http.MethodGet,
 			Path:    "/external-tasks",

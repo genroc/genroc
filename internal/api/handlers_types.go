@@ -208,6 +208,12 @@ type ListInstancesReq struct {
 	Pagination
 }
 
+type UpgradeInstanceReq struct {
+	FromVersion int  `json:"from_version"` // asserted, not read: 0 skips the assertion
+	ToVersion   int  `json:"to_version"`   // the version the ROOT moves to; children are derived
+	DryRun      bool `json:"dry_run"`      // plan and migrate, write nothing
+}
+
 type RetryInstanceReq struct {
 	Force bool `json:"force"` // override only_once retry protection
 }

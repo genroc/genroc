@@ -307,6 +307,29 @@ func (db *DB) FindVersionByHash(name, hash string) (int, error) {
 	return int(v.(int64)), nil
 }
 
+// ResolveChildVersion answers which version of `childName` a parent at
+// (parentName, parentVersion) spawns from taskID: a non-zero declared version wins; else a
+// self-reference inherits the parent's own version; else the version pinned at
+// registration, falling back to the child's latest. depKey is the child_map key ("" for
+// child and child_list).
+//
+// One rule, two callers. The engine resolves it at spawn; an upgrade resolves it against
+// the version a parent is moving TO, so the children it moves are the ones its new
+// definition names. Two copies would drift, and the drift is silent -- a parent running a
+// child version its definition never mentions. specs/version-compatibility.md s3c.
+func (db *DB) ResolveChildVersion(parentName string, parentVersion int, taskID, childName string, declared int, depKey string) (int, error) {
+	if declared != 0 {
+		return declared, nil
+	}
+	if childName == parentName {
+		return parentVersion, nil
+	}
+	if v, err := db.GetDependencyVersion(parentName, parentVersion, taskID, depKey); err == nil {
+		return v, nil
+	}
+	return db.LatestVersion(childName)
+}
+
 func (db *DB) GetDependencyVersion(parentName string, parentVersion int, taskID string, childKey string) (int, error) {
 	v, err := db.q.GetDependencyVersion(context.Background(), dbgen.GetDependencyVersionParams{
 		ParentName:    parentName,
