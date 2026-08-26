@@ -31,7 +31,7 @@ func TestCollectObjects_RunsWithLogRetentionDisabled(t *testing.T) {
 	big := strings.Repeat("x", 10*1024) // over the externalization threshold
 	inst := &model.ProcessInstance{
 		ID: "sweep-1", ProcessName: "test", Status: model.StatusRunning,
-		ContextData: map[string]any{"outputs": map[string]any{"out": big}},
+		State: map[string]any{"outputs": map[string]any{"out": big}},
 	}
 	if err := database.SaveInstance(inst); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
@@ -40,13 +40,13 @@ func TestCollectObjects_RunsWithLogRetentionDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInstance: %v", err)
 	}
-	ref, ok := reloaded.ContextData["outputs"].(map[string]any)["out"].(*model.ObjectRef)
+	ref, ok := reloaded.State["outputs"].(map[string]any)["out"].(*model.ObjectRef)
 	if !ok {
 		t.Fatalf("the big output was not externalized")
 	}
 
 	// Release it, then sweep.
-	reloaded.ContextData["outputs"].(map[string]any)["out"] = "small"
+	reloaded.State["outputs"].(map[string]any)["out"] = "small"
 	if err := database.UpdateInstanceProgress(reloaded); err != nil {
 		t.Fatalf("UpdateInstanceProgress: %v", err)
 	}

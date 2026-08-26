@@ -53,7 +53,7 @@ func interruptedFixture(t *testing.T, database *db.DB, name string, status model
 	id := fmt.Sprintf("%s-i-%d", name, time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,
-		Task: "charge", ContextData: map[string]any{}, Status: status,
+		Task: "charge", State: map[string]any{}, Status: status,
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
 	}
@@ -112,9 +112,9 @@ func TestInterrupted_RoutesToHandler(t *testing.T) {
 	}
 
 	// `error` is what the handler reads to know what it is recovering from.
-	errCtx, _ := inst.ContextData["error"].(map[string]any)
+	errCtx, _ := inst.State["error"].(map[string]any)
 	if errCtx == nil {
-		t.Fatalf("no `error` in context, got %#v", inst.ContextData)
+		t.Fatalf("no `error` in context, got %#v", inst.State)
 	}
 	if errCtx["code"] != string(errcode.OnlyOnceInterrupted) {
 		t.Errorf("`error.code` = %v, want %s", errCtx["code"], errcode.OnlyOnceInterrupted)
@@ -211,7 +211,7 @@ func TestInterrupted_PlainTaskStillReRuns(t *testing.T) {
 	id := fmt.Sprintf("plain-i-%d", time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,
-		Task: "charge", ContextData: map[string]any{}, Status: model.StatusRunning,
+		Task: "charge", State: map[string]any{}, Status: model.StatusRunning,
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestInterrupted_WhilePausing_PlainTaskJustPauses(t *testing.T) {
 	id := fmt.Sprintf("pausingplain-i-%d", time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,
-		Task: "charge", ContextData: map[string]any{}, Status: model.StatusPausing,
+		Task: "charge", State: map[string]any{}, Status: model.StatusPausing,
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestInterrupted_FailingTreeKeepsItsOriginalCause(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInstance: %v", err)
 	}
-	inst.Error = "sibling exploded"
+	inst.ErrorMessage = "sibling exploded"
 	inst.ErrorCode = "child_failed"
 	if err := database.UpdateInstance(inst); err != nil {
 		t.Fatalf("UpdateInstance: %v", err)

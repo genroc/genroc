@@ -38,7 +38,7 @@ func (h *Handlers) listExternalTasks(raw json.RawMessage) Reply {
 }
 
 func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalTaskResp {
-	ext, _ := inst.ContextData[model.CtxExternal].(map[string]any)
+	ext, _ := inst.State[model.StateExternal].(map[string]any)
 	// Derived from the row, not read back from external_data — the epoch IS the occurrence.
 	token := model.ExternalToken(inst.ID, inst.TaskEpoch)
 	var resultSchema *schema.Schema

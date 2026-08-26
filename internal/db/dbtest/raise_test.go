@@ -21,12 +21,12 @@ func insertRaised(t *testing.T, db *dbpkg.DB, id, parentID, spawnTaskID, code st
 		ProcessName:    "test",
 		ProcessVersion: 1,
 		Task:           "step1",
-		ContextData:    map[string]any{},
+		State:          map[string]any{},
 		Status:         model.StatusRaised,
 		ParentID:       parentID,
 		SpawnTaskID:    spawnTaskID,
 		CallStack:      callStack,
-		Error:          "an anticipated condition",
+		ErrorMessage:   "an anticipated condition",
 		ErrorCode:      code,
 	}
 	if err := db.SaveInstance(inst); err != nil {
@@ -132,12 +132,12 @@ func TestRetryProcess_ClearsErrorCodeAndErrorData(t *testing.T) {
 				ProcessName:    "test",
 				ProcessVersion: 1,
 				Task:           "step1",
-				ContextData: map[string]any{
+				State: map[string]any{
 					"error": map[string]any{"task": "step1", "code": "http.500", "message": "boom"},
 				},
-				Status:    model.StatusFailed,
-				Error:     "task \"step1\": http.500: boom",
-				ErrorCode: "http.500",
+				Status:       model.StatusFailed,
+				ErrorMessage: "task \"step1\": http.500: boom",
+				ErrorCode:    "http.500",
 			}
 			if err := b.db.SaveInstance(inst); err != nil {
 				t.Fatalf("SaveInstance: %v", err)
@@ -154,10 +154,10 @@ func TestRetryProcess_ClearsErrorCodeAndErrorData(t *testing.T) {
 			if revived.ErrorCode != "" {
 				t.Errorf("error_code should be cleared, got %q", revived.ErrorCode)
 			}
-			if revived.Error != "" {
-				t.Errorf("error should be cleared, got %q", revived.Error)
+			if revived.ErrorMessage != "" {
+				t.Errorf("error should be cleared, got %q", revived.ErrorMessage)
 			}
-			if got := revived.ContextData["error"]; got != nil {
+			if got := revived.State["error"]; got != nil {
 				t.Errorf("`error` should be cleared, got %v", got)
 			}
 		})
@@ -177,7 +177,7 @@ func TestFinishChild_RaisedSiblingWakesParent(t *testing.T) {
 			// completion that empties the batch and wakes the parent.
 			kidB := &model.ProcessInstance{
 				ID: "kid-b", ProcessName: "test", ProcessVersion: 1, Task: "step1",
-				ContextData: map[string]any{}, Status: model.StatusRunning,
+				State: map[string]any{}, Status: model.StatusRunning,
 				ParentID: "parent", SpawnTaskID: "step1", CallStack: []string{"parent"},
 			}
 			if err := b.db.SaveInstance(kidB); err != nil {
@@ -211,7 +211,7 @@ func TestFailInstanceAndAncestors_DoesNotReopenRaised(t *testing.T) {
 				t.Fatalf("GetInstance: %v", err)
 			}
 			kid.Status = model.StatusFailed
-			kid.Error = "boom"
+			kid.ErrorMessage = "boom"
 			kid.ErrorCode = "http.500"
 			if err := b.db.FailInstanceAndAncestors(kid); err != nil {
 				t.Fatalf("FailInstanceAndAncestors: %v", err)
@@ -240,7 +240,7 @@ func TestFailInstanceAndAncestors_PropagatesErrorCode(t *testing.T) {
 				t.Fatalf("GetInstance: %v", err)
 			}
 			kid.Status = model.StatusFailed
-			kid.Error = "the service rejected it"
+			kid.ErrorMessage = "the service rejected it"
 			kid.ErrorCode = "submit_contract_violation"
 			if err := b.db.FailInstanceAndAncestors(kid); err != nil {
 				t.Fatalf("FailInstanceAndAncestors: %v", err)

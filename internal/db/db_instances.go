@@ -106,11 +106,11 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 	return r, err
 }
 
-// contextCols holds the decomposed context columns as serialized JSON, ready to drop into an
+// stateCols holds the decomposed state columns as serialized JSON, ready to drop into an
 // Insert/Update params struct. The value columns hold values; Objects lists every externalized
 // piece with the path it was cut from, rooted at the CONTEXT -- one place to read what this
 // instance references, in the shape the API puts on the wire. specs/object-store.md.
-type contextCols struct {
+type stateCols struct {
 	InputData, OutputsData, OutputData, ErrorInternal, ErrorData, ExternalData, EngineState, Objects string
 }
 
@@ -148,7 +148,7 @@ func joinPath(root []any, rest []any) []any {
 	return append(out, rest...)
 }
 
-// encodeContext splits inst.ContextData into the value columns plus ONE objects list, collecting
+// encodeState splits inst.State into the value columns plus ONE objects list, collecting
 // the content to write (pending) and the hashes the context still references (referenced) so the
 // write transaction can claim new objects and release dropped ones.
 //
@@ -156,10 +156,10 @@ func joinPath(root []any, rest []any) []any {
 // produced goes into the same list with its path rooted at the CONTEXT -- ["outputs","x","code"],
 // not ["code"] beside a column. One place to read what this instance references, and the shape
 // the API already puts on the wire. specs/object-store.md.
-func encodeContext(inst *model.ProcessInstance) (cols contextCols, pending []*pendingObject, referenced map[string]struct{}, err error) {
+func encodeState(inst *model.ProcessInstance) (cols stateCols, pending []*pendingObject, referenced map[string]struct{}, err error) {
 	referenced = map[string]struct{}{}
 	var refs []*model.ObjectRef
-	cd := inst.ContextData
+	cd := inst.State
 
 	// cut returns the stripped value as JSON and files its references under root.
 	cut := func(v any, root ...any) (string, error) {
@@ -212,8 +212,8 @@ func encodeContext(inst *model.ProcessInstance) (cols contextCols, pending []*pe
 			return
 		}
 	}
-	if v, ok := cd[model.ErrorDataKey]; ok {
-		if cols.ErrorData, err = cut(v, model.ErrorDataKey); err != nil {
+	if v, ok := cd[model.StateErrorData]; ok {
+		if cols.ErrorData, err = cut(v, model.StateErrorData); err != nil {
 			return
 		}
 	}
@@ -241,7 +241,7 @@ func encodeContext(inst *model.ProcessInstance) (cols contextCols, pending []*pe
 // specs/external-outcome-as-signal.md.
 func encodeExternalData(cd map[string]any, cut func(any, ...any) (string, error)) (string, error) {
 	ext := map[string]any{}
-	if e, ok := cd[model.CtxExternal].(map[string]any); ok {
+	if e, ok := cd[model.StateExternal].(map[string]any); ok {
 		for k, v := range e {
 			ext[k] = v
 		}
@@ -249,14 +249,14 @@ func encodeExternalData(cd map[string]any, cut func(any, ...any) (string, error)
 	if len(ext) == 0 {
 		return "", nil
 	}
-	return cut(ext, model.CtxExternal)
+	return cut(ext, model.StateExternal)
 }
 
 // withExternalLost sets only the lost marker, with no has_<slot> companion: unlike the two
 // outcome slots it carries no value to distinguish from absence, so a second key would be
 // stored state that says nothing.
 func withExternalLost(externalData string) (string, error) {
-	return withExternalKeys(externalData, map[string]any{model.CtxExternalLost: true})
+	return withExternalKeys(externalData, map[string]any{model.StateExternalLost: true})
 }
 
 // withExternalKeys sets keys in the external_data column without decoding the context around it.
@@ -299,7 +299,7 @@ func encodeEngineState(cd map[string]any) (string, error) {
 }
 
 // engineStateKeys maps the engine-internal context keys to their engine_state field
-// names (and back, in decodeContext).
+// names (and back, in decodeState).
 var engineStateKeys = map[string]string{
 	"_children":          "children",
 	"_spawn_action_type": "spawn_action_type",
@@ -323,28 +323,28 @@ func toStringSlice(v any) []string {
 	return nil
 }
 
-// persistContext encodes inst's context, writes/dereferences the implied objects via
+// persistState encodes inst's state, writes/dereferences the implied objects via
 // qtx (inside the caller's transaction), and returns the column strings for the
 // caller's Insert/Update params.
-func (db *DB) persistContext(ctx context.Context, qtx *dbgen.Queries, inst *model.ProcessInstance, now int64) (contextCols, error) {
-	cols, pending, referenced, err := encodeContext(inst)
+func (db *DB) persistState(ctx context.Context, qtx *dbgen.Queries, inst *model.ProcessInstance, now int64) (stateCols, error) {
+	cols, pending, referenced, err := encodeState(inst)
 	if err != nil {
-		return contextCols{}, err
+		return stateCols{}, err
 	}
 	if err := db.applyContextObjectDiff(ctx, qtx, inst.ID, pending, inst.LoadedObjectHashes, referenced, now); err != nil {
-		return contextCols{}, err
+		return stateCols{}, err
 	}
 	// The consumed signal goes with the state it produced -- one transaction, so an answer is
 	// never lost by a refused write nor applied twice by a refused delete.
 	if inst.ConsumedSignalID != "" {
 		if err := qtx.DeleteSignal(ctx, inst.ConsumedSignalID); err != nil {
-			return contextCols{}, fmt.Errorf("consume signal %s: %w", inst.ConsumedSignalID, err)
+			return stateCols{}, fmt.Errorf("consume signal %s: %w", inst.ConsumedSignalID, err)
 		}
 	}
 	return cols, nil
 }
 
-func progressParams(inst *model.ProcessInstance, cols contextCols, now int64) dbgen.UpdateInstanceProgressParams {
+func progressParams(inst *model.ProcessInstance, cols stateCols, now int64) dbgen.UpdateInstanceProgressParams {
 	return dbgen.UpdateInstanceProgressParams{
 		ID:             inst.ID,
 		Task:           inst.Task,
@@ -364,7 +364,7 @@ func progressParams(inst *model.ProcessInstance, cols contextCols, now int64) db
 	}
 }
 
-func updateInstanceParams(inst *model.ProcessInstance, cols contextCols, now int64) dbgen.UpdateInstanceParams {
+func updateInstanceParams(inst *model.ProcessInstance, cols stateCols, now int64) dbgen.UpdateInstanceParams {
 	return dbgen.UpdateInstanceParams{
 		ID:             inst.ID,
 		Task:           inst.Task,
@@ -379,7 +379,7 @@ func updateInstanceParams(inst *model.ProcessInstance, cols contextCols, now int
 		WakeAt:         fromTimePtr(inst.WakeAt),
 		Status:         string(inst.Status),
 		WaitState:      string(inst.WaitState),
-		ErrorMessage:   inst.Error,
+		ErrorMessage:   inst.ErrorMessage,
 		ErrorCode:      inst.ErrorCode,
 		UpdatedAt:      now,
 		LeaseEpoch:     inst.LeaseEpoch,
@@ -423,7 +423,7 @@ func requireFenced(n int64, err error) error {
 // insertInstanceParams builds InsertInstance params from inst + already-encoded
 // columns. status and the created/updated timestamps are passed explicitly so callers
 // can override them (e.g. spawned children inherit the parent's status).
-func insertInstanceParams(inst *model.ProcessInstance, cols contextCols, status string, createdAt, updatedAt int64) (dbgen.InsertInstanceParams, error) {
+func insertInstanceParams(inst *model.ProcessInstance, cols stateCols, status string, createdAt, updatedAt int64) (dbgen.InsertInstanceParams, error) {
 	callStack, err := json.Marshal(inst.CallStack)
 	if err != nil {
 		return dbgen.InsertInstanceParams{}, err
@@ -451,7 +451,7 @@ func insertInstanceParams(inst *model.ProcessInstance, cols contextCols, status 
 		WakeAt:          fromTimePtr(inst.WakeAt),
 		Status:          status,
 		WaitState:       string(inst.WaitState),
-		ErrorMessage:    inst.Error,
+		ErrorMessage:    inst.ErrorMessage,
 		ErrorCode:       inst.ErrorCode,
 		CreatedAt:       createdAt,
 		UpdatedAt:       updatedAt,
@@ -462,7 +462,7 @@ func (db *DB) SaveInstance(inst *model.ProcessInstance) error {
 	ctx := context.Background()
 	now := nowMillis()
 	return db.withTx(ctx, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
-		cols, err := db.persistContext(ctx, qtx, inst, now)
+		cols, err := db.persistState(ctx, qtx, inst, now)
 		if err != nil {
 			return err
 		}
@@ -478,7 +478,7 @@ func (db *DB) UpdateInstance(inst *model.ProcessInstance) error {
 	ctx := context.Background()
 	now := nowMillis()
 	return db.withTxAt(ctx, instanceWriteFloor(inst.Status), func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
-		cols, err := db.persistContext(ctx, qtx, inst, now)
+		cols, err := db.persistState(ctx, qtx, inst, now)
 		if err != nil {
 			return err
 		}
@@ -500,7 +500,7 @@ func (db *DB) UpdateInstanceProgress(inst *model.ProcessInstance) error {
 	// A checkpoint means "still running", so this write is never the terminal one: it is
 	// the ordinary mid-process write the ladder exists to stop flushing.
 	return db.withTxAt(ctx, syncStrict, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
-		cols, err := db.persistContext(ctx, qtx, inst, now)
+		cols, err := db.persistState(ctx, qtx, inst, now)
 		if err != nil {
 			return err
 		}
@@ -591,7 +591,7 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 		RetryCount:      int(r.RetryCount),
 		Status:          model.Status(r.Status),
 		WaitState:       model.WaitState(r.WaitState),
-		Error:           r.ErrorMessage,
+		ErrorMessage:    r.ErrorMessage,
 		ErrorCode:       r.ErrorCode,
 		CreatedAt:       toTime(r.CreatedAt),
 		UpdatedAt:       toTime(r.UpdatedAt),
@@ -606,11 +606,11 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 		ExternalLeaseExpiresAt: toTimePtr(r.ExternalLeaseExpiresAt),
 		ExternalClaimEpoch:     r.ExternalClaimEpoch,
 	}
-	cd, loaded, err := decodeContext(r)
+	cd, loaded, err := decodeState(r)
 	if err != nil {
 		return nil, err
 	}
-	inst.ContextData = cd
+	inst.State = cd
 	inst.LoadedObjectHashes = loaded
 	if err := json.Unmarshal([]byte(r.CallStack), &inst.CallStack); err != nil {
 		return nil, fmt.Errorf("unmarshal call_stack: %w", err)
@@ -618,11 +618,11 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 	return inst, nil
 }
 
-// decodeContext reassembles the six context columns into the in-memory ContextData map.
+// decodeState reassembles the six context columns into the in-memory State map.
 // Externalized parts become *model.ObjectRef markers at the path they were cut from (resolved
 // lazily through model.Context); loaded is the set of referenced hashes, which the next write
 // diffs against to release the ones the value no longer points at.
-func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}, error) {
+func decodeState(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}, error) {
 	cd := map[string]any{}
 
 	value := func(str, what string) (any, error) {
@@ -656,7 +656,7 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 	if err := into(r.ErrorInternal, "error"); err != nil {
 		return nil, nil, err
 	}
-	if err := into(r.ErrorData, model.ErrorDataKey); err != nil {
+	if err := into(r.ErrorData, model.StateErrorData); err != nil {
 		return nil, nil, err
 	}
 	if r.OutputsData != "" {
@@ -688,7 +688,7 @@ func decodeContext(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}
 		if ext == nil {
 			ext = map[string]any{}
 		}
-		cd[model.CtxExternal] = ext
+		cd[model.StateExternal] = ext
 	}
 	if r.EngineState != "" {
 		var es map[string]any

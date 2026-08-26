@@ -41,7 +41,7 @@ func upgradeTree(t *testing.T, db *dbpkg.DB, rootID string, from, to int) error 
 		if err != nil {
 			return err
 		}
-		state, err := validation.MigrateState(def, m.Instance.Task, m.Instance.ContextData)
+		state, err := validation.MigrateState(def, m.Instance.Task, m.Instance.State)
 		if err != nil {
 			return fmt.Errorf("%q: %w", m.Instance.ID, err)
 		}
@@ -84,7 +84,7 @@ func TestPlanUpgrade_ChildVersionComesFromTheParentsTargetDefinition(t *testing.
 
 			parent := &model.ProcessInstance{
 				ID: "p", ProcessName: "par", ProcessVersion: 1, Task: "fan",
-				ContextData: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
+				State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
 				WaitState: model.WaitStateWaiting,
 			}
 			if err := b.db.SaveInstance(parent); err != nil {
@@ -92,7 +92,7 @@ func TestPlanUpgrade_ChildVersionComesFromTheParentsTargetDefinition(t *testing.
 			}
 			kid := &model.ProcessInstance{
 				ID: "k", ProcessName: "kid", ProcessVersion: 1, Task: "run",
-				ContextData: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
+				State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
 				ParentID: "p", SpawnTaskID: "fan",
 			}
 			if err := b.db.SaveInstance(kid); err != nil {
@@ -128,7 +128,7 @@ func TestPlanUpgrade_TerminalDescendantsStayPut(t *testing.T) {
 
 			if err := b.db.SaveInstance(&model.ProcessInstance{
 				ID: "p2", ProcessName: "par", ProcessVersion: 1, Task: "fan",
-				ContextData: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
+				State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
 			}); err != nil {
 				t.Fatalf("SaveInstance: %v", err)
 			}
@@ -136,7 +136,7 @@ func TestPlanUpgrade_TerminalDescendantsStayPut(t *testing.T) {
 			// part of the unit that moves.
 			if err := b.db.SaveInstance(&model.ProcessInstance{
 				ID: "k2", ProcessName: "kid", ProcessVersion: 1, Task: "run",
-				ContextData: map[string]any{"outputs": map[string]any{}}, Status: model.StatusCompleted,
+				State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusCompleted,
 				ParentID: "p2", SpawnTaskID: "fan",
 			}); err != nil {
 				t.Fatalf("SaveInstance: %v", err)
@@ -170,9 +170,9 @@ func TestUpgradeComposition_MovesParentAndChildTogether(t *testing.T) {
 
 			for _, inst := range []*model.ProcessInstance{
 				{ID: "tp", ProcessName: "par", ProcessVersion: 1, Task: "fan",
-					ContextData: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused, WaitState: model.WaitStateWaiting},
+					State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused, WaitState: model.WaitStateWaiting},
 				{ID: "tk", ProcessName: "kid", ProcessVersion: 1, Task: "run",
-					ContextData: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused, ParentID: "tp", SpawnTaskID: "fan"},
+					State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused, ParentID: "tp", SpawnTaskID: "fan"},
 			} {
 				if err := b.db.SaveInstance(inst); err != nil {
 					t.Fatalf("SaveInstance %s: %v", inst.ID, err)
@@ -204,7 +204,7 @@ func TestUpgradeComposition_RefusesAStaleFromVersion(t *testing.T) {
 			parentPinning(t, b.db, 2, 1)
 			if err := b.db.SaveInstance(&model.ProcessInstance{
 				ID: "sp", ProcessName: "par", ProcessVersion: 1, Task: "fan",
-				ContextData: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
+				State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
 			}); err != nil {
 				t.Fatalf("SaveInstance: %v", err)
 			}
@@ -225,7 +225,7 @@ func TestUpgradeComposition_IsIdempotent(t *testing.T) {
 			parentPinning(t, b.db, 2, 1)
 			if err := b.db.SaveInstance(&model.ProcessInstance{
 				ID: "ip", ProcessName: "par", ProcessVersion: 1, Task: "fan",
-				ContextData: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
+				State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
 			}); err != nil {
 				t.Fatalf("SaveInstance: %v", err)
 			}
@@ -266,8 +266,8 @@ func TestPlanUpgrade_AFailedRootIsStillATreeToMove(t *testing.T) {
 
 			if err := b.db.SaveInstance(&model.ProcessInstance{
 				ID: "fp", ProcessName: "par", ProcessVersion: 1, Task: "fan",
-				ContextData: map[string]any{"outputs": map[string]any{}},
-				Status:      model.StatusFailed, Error: "boom",
+				State:  map[string]any{"outputs": map[string]any{}},
+				Status: model.StatusFailed, ErrorMessage: "boom",
 			}); err != nil {
 				t.Fatalf("SaveInstance: %v", err)
 			}
@@ -275,8 +275,8 @@ func TestPlanUpgrade_AFailedRootIsStillATreeToMove(t *testing.T) {
 			// by a child cannot settle to `failed` until its descendants are terminal.
 			if err := b.db.SaveInstance(&model.ProcessInstance{
 				ID: "fk", ProcessName: "kid", ProcessVersion: 1, Task: "run",
-				ContextData: map[string]any{"outputs": map[string]any{}},
-				Status:      model.StatusFailed, ParentID: "fp", SpawnTaskID: "fan",
+				State:  map[string]any{"outputs": map[string]any{}},
+				Status: model.StatusFailed, ParentID: "fp", SpawnTaskID: "fan",
 			}); err != nil {
 				t.Fatalf("SaveInstance: %v", err)
 			}

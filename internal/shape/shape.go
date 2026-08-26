@@ -21,7 +21,7 @@ import (
 
 // Shape is a templated value together with the optional structure it must produce and a
 // name locating it in errors. It has two phases: Check validates it statically against a
-// ContextSchema (roots' types), and Eval computes its value against a ContextData (roots'
+// ContextSchema (roots' types), and Eval computes its value against a State (roots'
 // data). The two contexts are provided independently — static validation at registration,
 // evaluation per run.
 //

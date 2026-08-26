@@ -20,8 +20,8 @@ func insertExternalParked(t *testing.T, db *dbpkg.DB, id string, epoch int64, wa
 		ProcessName:    "test",
 		ProcessVersion: 1,
 		Task:           "approval",
-		ContextData: map[string]any{
-			model.CtxExternal: map[string]any{
+		State: map[string]any{
+			model.StateExternal: map[string]any{
 				"task_id": "approval",
 				"input":   map[string]any{"order_id": float64(42)},
 			},
@@ -177,7 +177,7 @@ func TestResolveExternalTask_LargeOutcomeIsCutWhenConsumed(t *testing.T) {
 				t.Fatalf("peek: ok=%v err=%v", ok, err)
 			}
 			res, _ := outcome.Result.(map[string]any)
-			row.ContextData["outputs"] = map[string]any{"wait": res}
+			row.State["outputs"] = map[string]any{"wait": res}
 			row.ConsumedSignalID = id
 			row.WaitState = model.WaitStateNone
 			if err := b.db.UpdateInstanceProgress(row); err != nil {
@@ -189,7 +189,7 @@ func TestResolveExternalTask_LargeOutcomeIsCutWhenConsumed(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			out := after.ContextData["outputs"].(map[string]any)["wait"].(map[string]any)
+			out := after.State["outputs"].(map[string]any)["wait"].(map[string]any)
 			ref, isRef := out["payload"].(*model.ObjectRef)
 			if !isRef {
 				t.Fatalf("the consumed outcome was stored inline (%T); a submitted result is cut like any other value", out["payload"])

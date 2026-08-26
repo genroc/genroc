@@ -174,7 +174,7 @@ func TestOnlyOnce_FlagIsRederivedOnEveryWrite(t *testing.T) {
 	id := fmt.Sprintf("%s-i", process)
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,
-		Task: "charge", ContextData: map[string]any{}, Status: model.StatusRunning,
+		Task: "charge", State: map[string]any{}, Status: model.StatusRunning,
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestOnlyOnce_FlagSurvivesSpawnAndRetry(t *testing.T) {
 		t.Fatalf("GetInstance: %v", err)
 	}
 	failed.Status = model.StatusFailed
-	failed.Error = "boom"
+	failed.ErrorMessage = "boom"
 	failed.NextReplayable = true
 	if err := database.UpdateInstance(failed); err != nil {
 		t.Fatalf("UpdateInstance: %v", err)
@@ -276,7 +276,7 @@ func onlyOnceBehindSwitch(t *testing.T, database *db.DB, name string) (string, *
 	id := process + "-i"
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,
-		Task: "gate", ContextData: map[string]any{}, Status: model.StatusRunning,
+		Task: "gate", State: map[string]any{}, Status: model.StatusRunning,
 		NextReplayable: true, // "gate" is a switch
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
@@ -347,6 +347,6 @@ func TestOnlyOnce_InterruptedBehindASwitchDoesNotRerun(t *testing.T) {
 		t.Fatalf("GetInstance: %v", err)
 	}
 	if got.Status != model.StatusCompleted {
-		t.Errorf("status %q, want completed (error %q / %q)", got.Status, got.ErrorCode, got.Error)
+		t.Errorf("status %q, want completed (error %q / %q)", got.Status, got.ErrorCode, got.ErrorMessage)
 	}
 }

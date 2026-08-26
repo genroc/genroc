@@ -30,20 +30,6 @@ type ExternalFailure struct {
 	HasData bool
 }
 
-// ContextValue renders the outcome as the (key, value) the engine reads off the instance:
-// CtxExternalError for a failure, CtxExternalResult for a result. One place, so the engine's
-// two consume paths — the resolve/signal write and the buffered pop — cannot spell it apart.
-func (o ExternalOutcome) ContextValue() (key string, value any) {
-	if o.Failure == nil {
-		return CtxExternalResult, o.Result
-	}
-	m := map[string]any{"code": o.Failure.Code, "message": o.Failure.Message}
-	if o.Failure.HasData {
-		m["data"] = o.Failure.Data
-	}
-	return CtxExternalError, m
-}
-
 // signalEnvelope is the stored form of a buffered signal (process_signals.outcome) and mirrors
 // the request body, so the column and the wire never drift. Result is held raw so a large
 // integer survives the round trip; see numeric.

@@ -114,7 +114,7 @@ func insertRunning(t *testing.T, db *dbpkg.DB, id string) {
 		ProcessName:    "test",
 		ProcessVersion: 1,
 		Task:           "",
-		ContextData:    map[string]any{},
+		State:          map[string]any{},
 		Status:         model.StatusRunning,
 	}
 	if err := db.SaveInstance(inst); err != nil {

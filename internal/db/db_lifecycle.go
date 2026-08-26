@@ -50,7 +50,7 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 		// Save child as terminal. The fence sits here; the parent wake below rolls
 		// back with a refused child write.
 		now := nowMillis()
-		cols, err := db.persistContext(ctx, qtx, child, now)
+		cols, err := db.persistState(ctx, qtx, child, now)
 		if err != nil {
 			return err
 		}
@@ -114,7 +114,7 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 			lockRows.Close()
 		}
 
-		cols, err := db.persistContext(ctx, qtx, child, now)
+		cols, err := db.persistState(ctx, qtx, child, now)
 		if err != nil {
 			return err
 		}
@@ -135,7 +135,7 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 			// then filters by the code of the failure that actually started it, not just
 			// at the single instance that observed it.
 			if err := qtx.FailAncestors(ctx, dbgen.FailAncestorsParams{
-				ErrorMessage: child.Error,
+				ErrorMessage: child.ErrorMessage,
 				ErrorCode:    child.ErrorCode,
 				UpdatedAt:    now,
 				Ids:          string(idsJSON),
@@ -580,7 +580,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 		// write — advance() completes it on the next claim.
 		node.Status = model.StatusRunning
 		node.WaitState = newWaitState
-		node.Error = ""
+		node.ErrorMessage = ""
 		// RetryCount tells the two timer kinds apart: a retry-backoff parks with
 		// RetryCount > 0 (clear it so the retry runs now), a delay with RetryCount == 0
 		// (keep wake_at so it resumes toward its deadline). It is otherwise kept, so the
@@ -687,7 +687,7 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 		now := nowMillis()
 		for i, child := range children {
 			ts := now + int64(i)
-			cols, err := db.persistContext(ctx, qtx, child, ts)
+			cols, err := db.persistState(ctx, qtx, child, ts)
 			if err != nil {
 				return err
 			}
@@ -702,7 +702,7 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 
 		// Suspend parent: keep status, set wait_state='waiting'. The fence sits here;
 		// the child inserts above roll back with it — no children without the park.
-		parentCols, err := db.persistContext(ctx, qtx, parent, now)
+		parentCols, err := db.persistState(ctx, qtx, parent, now)
 		if err != nil {
 			return err
 		}
@@ -723,7 +723,7 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			WakeAt:       sql.NullInt64{},
 			Status:       currentStatus,
 			WaitState:    string(model.WaitStateWaiting),
-			ErrorMessage: parent.Error,
+			ErrorMessage: parent.ErrorMessage,
 			ErrorCode:    parent.ErrorCode,
 			UpdatedAt:    now,
 			LeaseEpoch:   parent.LeaseEpoch,

@@ -17,8 +17,8 @@ func upgradable(t *testing.T, db *dbpkg.DB, id string, status model.Status) *mod
 	t.Helper()
 	inst := &model.ProcessInstance{
 		ID: id, ProcessName: "test", ProcessVersion: 1, Task: "step1",
-		ContextData: map[string]any{"input": map[string]any{"a": float64(1)}},
-		Status:      status,
+		State:  map[string]any{"input": map[string]any{"a": float64(1)}},
+		Status: status,
 	}
 	if err := db.SaveInstance(inst); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
@@ -46,7 +46,7 @@ func TestUpgradeInstances_WritesVersionAndStateTogether(t *testing.T) {
 			if got.ProcessVersion != 2 {
 				t.Errorf("process_version = %d, want 2", got.ProcessVersion)
 			}
-			in, _ := got.ContextData["input"].(map[string]any)
+			in, _ := got.State["input"].(map[string]any)
 			v, present := in["b"]
 			if !present || v != nil {
 				t.Errorf("migrated state was not written: input = %#v; the version is the lens the row is read through, so the two cannot land apart", in)

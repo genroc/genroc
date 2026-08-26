@@ -89,7 +89,7 @@ func TestRetryRead_DanglingReferenceFailsTheInstanceLoudly(t *testing.T) {
 	id := "dangling-inst"
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1, Task: "read", Status: model.StatusRunning,
-		ContextData: map[string]any{"input": map[string]any{
+		State: map[string]any{"input": map[string]any{
 			"blob": &model.ObjectRef{Ref: "0000000000000000000000000000dead", Size: 99},
 		}},
 	}); err != nil {
@@ -110,8 +110,8 @@ func TestRetryRead_DanglingReferenceFailsTheInstanceLoudly(t *testing.T) {
 	if got.Status != model.StatusFailed {
 		t.Fatalf("status = %q, want failed — a permanently unreadable value must not be retried forever", got.Status)
 	}
-	if !strings.Contains(got.Error, "0000000000000000000000000000dead") {
-		t.Errorf("the failure does not name the object it could not read: %q", got.Error)
+	if !strings.Contains(got.ErrorMessage, "0000000000000000000000000000dead") {
+		t.Errorf("the failure does not name the object it could not read: %q", got.ErrorMessage)
 	}
 	// Bounded: readAttempts reads with readRetryDelay between them, not an open-ended wait.
 	if max := time.Duration(readAttempts) * readRetryDelay * 4; elapsed > max {

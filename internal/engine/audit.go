@@ -212,14 +212,14 @@ func statusMeta(status int) map[string]any {
 // input (subject to payload-logging config). Called by the API for a root instance and by
 // the engine for each spawned child; it bookends the trail with instance_completed.
 func (e *Engine) AuditCreated(inst *model.ProcessInstance) {
-	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceCreated, Data: e.snippet(inst.ContextData["input"])})
+	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceCreated, Data: e.snippet(inst.State["input"])})
 }
 
 // outputData is the snippet of the process's final output (context_data["output"], set by
 // computeOutput) for the instance_completed event; nil when there is no output or payload
 // logging is off.
 func (e *Engine) outputData(inst *model.ProcessInstance) any {
-	return e.snippet(inst.ContextData["output"])
+	return e.snippet(inst.State["output"])
 }
 
 // snippet passes v through as an audit detail, keeping the FULL payload (no truncation --

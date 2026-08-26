@@ -47,13 +47,13 @@ func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Tas
 		// error_code stays the raised code an operator would filter on.
 		return e.failInstance(inst, raisedCode, fmt.Sprintf(
 			"task %q: child %q (%s) raised %q: %s; no on_error rule matches",
-			task.ID, first.ProcessName, childSlotLabel(first), first.ErrorCode, first.Error))
+			task.ID, first.ProcessName, childSlotLabel(first), first.ErrorCode, first.ErrorMessage))
 	case rule.Raise != nil:
 		return e.raiseInstance(inst, task, rule.Raise, nil)
 	case rule.Panic != nil:
 		return e.panicInstance(inst, task, rule.Panic, nil)
 	case rule.Goto == model.GotoEnd:
-		return e.completeViaErrorHandler(inst, task, first.Error, raisedCode)
+		return e.completeViaErrorHandler(inst, task, first.ErrorMessage, raisedCode)
 	default: // goto $id
 		if err := e.resolveGoto(inst, rule.Goto); err != nil {
 			return e.failInstance(inst, errcode.EngineDefinition, err.Error())
@@ -101,13 +101,13 @@ func (e *Engine) setBatchError(inst *model.ProcessInstance, task *model.Task, fi
 	errCtx := map[string]any{
 		"task":    task.ID,
 		"code":    first.ErrorCode,
-		"message": first.Error,
+		"message": first.ErrorMessage,
 	}
 	if declared {
 		errCtx["data"] = data
 	}
 	addChildSlot(errCtx, first)
-	inst.ContextData["error"] = errCtx
+	inst.State["error"] = errCtx
 }
 
 // addChildSlot sets the one identity field a child carries: "child_key" (string) for a
@@ -131,7 +131,7 @@ func childSlotLabel(child *model.ProcessInstance) string {
 	if idx, ok := spawnIndex(child); ok {
 		return fmt.Sprintf("child_index %d", idx)
 	}
-	if at, _ := child.ContextData["_spawn_action_type"].(string); at == string(model.ActionTypeChild) {
+	if at, _ := child.State["_spawn_action_type"].(string); at == string(model.ActionTypeChild) {
 		return "single child"
 	}
 	return "child ?"
@@ -139,7 +139,7 @@ func childSlotLabel(child *model.ProcessInstance) string {
 
 // spawnKey reads a child_map child's _spawn_child_key ("" for a child_list child).
 func spawnKey(child *model.ProcessInstance) string {
-	key, _ := child.ContextData["_spawn_child_key"].(string)
+	key, _ := child.State["_spawn_child_key"].(string)
 	return key
 }
 
@@ -184,7 +184,7 @@ func (e *Engine) buildSingleChildOutput(task *model.Task, siblings []*model.Proc
 func (e *Engine) buildMapChildOutput(task *model.Task, siblings []*model.ProcessInstance) (any, error) {
 	result := make(map[string]any, len(siblings))
 	for _, child := range siblings {
-		key, _ := child.ContextData["_spawn_child_key"].(string)
+		key, _ := child.State["_spawn_child_key"].(string)
 		output, err := e.resolveAndValidateChildOutput(task.Action.Children[key].ResultSchema, child)
 		if err != nil {
 			return nil, err
@@ -219,7 +219,7 @@ func (e *Engine) buildListChildOutput(task *model.Task, siblings []*model.Proces
 func (e *Engine) resolveAndValidateChildOutput(resultSchema *schema.Schema, child *model.ProcessInstance) (any, error) {
 	// The child's own context: an object is addressed by content, but the memo lives per
 	// instance. Materialized because a schema conform reads every field.
-	output, err := e.context(child).Materialize(child.ContextData["output"])
+	output, err := e.context(child).Materialize(child.State["output"])
 	if err != nil {
 		return nil, err
 	}
@@ -270,13 +270,13 @@ func declaredRaiseSchema(task *model.Task, child *model.ProcessInstance, code st
 // does not admit null reports the mismatch — the caller declared what it did not get. Never the
 // child's `error`: that is the error it CAUGHT, which its raise did not choose to forward.
 func childRaisedData(child *model.ProcessInstance) any {
-	return child.ContextData[model.ErrorDataKey]
+	return child.State[model.StateErrorData]
 }
 
 // spawnIndex reads a child's _spawn_index. It round-trips through JSON (engine_state),
 // so it may come back as any numeric kind; a missing/foreign value reports !ok.
 func spawnIndex(child *model.ProcessInstance) (int, bool) {
-	switch v := child.ContextData["_spawn_index"].(type) {
+	switch v := child.State["_spawn_index"].(type) {
 	case int:
 		return v, true
 	case int64:

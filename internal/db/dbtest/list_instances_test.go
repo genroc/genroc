@@ -18,7 +18,7 @@ func saveInstance(t *testing.T, db *dbpkg.DB, process string) *model.ProcessInst
 		ProcessName:    process,
 		ProcessVersion: 1,
 		Task:           "",
-		ContextData: map[string]any{
+		State: map[string]any{
 			"input":   map[string]any{"secret": "do-not-leak-in-list"},
 			"outputs": map[string]any{},
 		},
@@ -247,7 +247,7 @@ func TestListInstances_VersionAndRootFilters(t *testing.T) {
 				t.Helper()
 				if err := b.db.SaveInstance(&model.ProcessInstance{
 					ID: id, ProcessName: "sweep", ProcessVersion: version, Task: "t",
-					ContextData: map[string]any{}, Status: model.StatusRunning, ParentID: parent,
+					State: map[string]any{}, Status: model.StatusRunning, ParentID: parent,
 				}); err != nil {
 					t.Fatalf("SaveInstance %s: %v", id, err)
 				}

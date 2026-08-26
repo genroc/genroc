@@ -210,7 +210,7 @@ func TestFence_UpdateInstance(t *testing.T) {
 
 			stale.Status = model.StatusCompleted
 			stale.Task = ""
-			stale.Error = "stale outcome"
+			stale.ErrorMessage = "stale outcome"
 			if err := b.db.UpdateInstance(stale); !errors.Is(err, dbpkg.ErrLeaseLost) {
 				t.Fatalf("stale UpdateInstance: err=%v, want ErrLeaseLost", err)
 			}
@@ -219,8 +219,8 @@ func TestFence_UpdateInstance(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			if got.Status != model.StatusRunning || got.Task != "step1" || got.Error != "" {
-				t.Fatalf("refused write leaked: status=%q task=%q error=%q", got.Status, got.Task, got.Error)
+			if got.Status != model.StatusRunning || got.Task != "step1" || got.ErrorMessage != "" {
+				t.Fatalf("refused write leaked: status=%q task=%q error=%q", got.Status, got.Task, got.ErrorMessage)
 			}
 			if got.WorkerID == nil || *got.WorkerID != "thief" {
 				t.Fatalf("refused write disturbed the lease: worker=%v", got.WorkerID)
@@ -273,7 +273,7 @@ func TestFence_FinishChild(t *testing.T) {
 			insertInstW(t, b.db, "fc-parent", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
 			child := &model.ProcessInstance{
 				ID: "fc-child", ProcessName: "test", ProcessVersion: 1, Task: "step1",
-				ContextData: map[string]any{}, Status: model.StatusRunning,
+				State: map[string]any{}, Status: model.StatusRunning,
 				ParentID: "fc-parent", SpawnTaskID: "spawn", CallStack: []string{"fc-parent"},
 			}
 			if err := b.db.SaveInstance(child); err != nil {
@@ -306,7 +306,7 @@ func TestFence_FailInstanceAndAncestors(t *testing.T) {
 			insertInstW(t, b.db, "fa-root", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
 			child := &model.ProcessInstance{
 				ID: "fa-child", ProcessName: "test", ProcessVersion: 1, Task: "step1",
-				ContextData: map[string]any{}, Status: model.StatusRunning,
+				State: map[string]any{}, Status: model.StatusRunning,
 				ParentID: "fa-root", SpawnTaskID: "spawn", CallStack: []string{"fa-root"},
 			}
 			if err := b.db.SaveInstance(child); err != nil {
@@ -315,7 +315,7 @@ func TestFence_FailInstanceAndAncestors(t *testing.T) {
 
 			stale := takeOver(t, b.db, "fa-child")
 			stale.Status = model.StatusFailed
-			stale.Error = "stale failure"
+			stale.ErrorMessage = "stale failure"
 			stale.ErrorCode = "http.500"
 			if err := b.db.FailInstanceAndAncestors(stale); !errors.Is(err, dbpkg.ErrLeaseLost) {
 				t.Fatalf("stale FailInstanceAndAncestors: err=%v, want ErrLeaseLost", err)
@@ -325,8 +325,8 @@ func TestFence_FailInstanceAndAncestors(t *testing.T) {
 				t.Fatal("refused write still failed the child")
 			}
 			root, _ := b.db.GetInstance("fa-root")
-			if root.Status != model.StatusRunning || root.Error != "" {
-				t.Fatalf("no ancestor may flip on a refused child write: status=%q error=%q", root.Status, root.Error)
+			if root.Status != model.StatusRunning || root.ErrorMessage != "" {
+				t.Fatalf("no ancestor may flip on a refused child write: status=%q error=%q", root.Status, root.ErrorMessage)
 			}
 			if root.WaitState != model.WaitStateWaiting {
 				t.Fatalf("refused write still woke the parent: wait_state=%q", root.WaitState)
@@ -345,7 +345,7 @@ func TestFence_SpawnChildrenAndWait(t *testing.T) {
 
 			child := &model.ProcessInstance{
 				ID: "sp-child", ProcessName: "test", ProcessVersion: 1, Task: "step1",
-				ContextData: map[string]any{}, Status: model.StatusRunning,
+				State: map[string]any{}, Status: model.StatusRunning,
 				ParentID: "sp-parent", SpawnTaskID: "step1", CallStack: []string{"sp-parent"},
 			}
 			err := b.db.SpawnChildrenAndWait(context.Background(), stale, []*model.ProcessInstance{child})
@@ -392,8 +392,8 @@ func TestFence_ArmExternal(t *testing.T) {
 			if _, err := b.db.ArmExternalUnlessSignalled(ctx, stale2, "approval", map[string]any{}, nil); !errors.Is(err, dbpkg.ErrLeaseLost) {
 				t.Fatalf("stale park arm: err=%v, want ErrLeaseLost", err)
 			}
-			if got, _ := b.db.GetInstance("arm-2"); got.WaitState == model.WaitStateExternal || got.ContextData[model.CtxExternal] != nil || got.WakeAt != nil {
-				t.Fatalf("a refused arm still parked: wait=%q external=%v wake=%v", got.WaitState, got.ContextData[model.CtxExternal], got.WakeAt)
+			if got, _ := b.db.GetInstance("arm-2"); got.WaitState == model.WaitStateExternal || got.State[model.StateExternal] != nil || got.WakeAt != nil {
+				t.Fatalf("a refused arm still parked: wait=%q external=%v wake=%v", got.WaitState, got.State[model.StateExternal], got.WakeAt)
 			}
 
 			// The current grant is accepted, and its buffer is untouched: the refused arms above
@@ -535,7 +535,7 @@ func TestFence_ReusedEpochBelongsToOneWorker(t *testing.T) {
 			stale.LeaseEpoch = current
 			stale.Status = model.StatusCompleted
 			stale.Task = ""
-			stale.Error = "stale outcome"
+			stale.ErrorMessage = "stale outcome"
 			if err := b.db.UpdateInstance(stale); !errors.Is(err, dbpkg.ErrLeaseLost) {
 				t.Fatalf("write at a reused epoch: err=%v, want ErrLeaseLost — an epoch is a grant to one worker, not a number", err)
 			}
@@ -544,8 +544,8 @@ func TestFence_ReusedEpochBelongsToOneWorker(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			if got.Status != model.StatusRunning || got.Error != "" {
-				t.Fatalf("stale write clobbered the thief: status=%q error=%q", got.Status, got.Error)
+			if got.Status != model.StatusRunning || got.ErrorMessage != "" {
+				t.Fatalf("stale write clobbered the thief: status=%q error=%q", got.Status, got.ErrorMessage)
 			}
 			if got.WorkerID == nil || *got.WorkerID != "thief" {
 				t.Fatalf("refused write disturbed the lease: worker=%v", got.WorkerID)

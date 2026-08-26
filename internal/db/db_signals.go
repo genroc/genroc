@@ -56,7 +56,7 @@ func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.Proces
 		// lease is released, the row stays claimable, and the next claim reaches phase 2.
 		inst.WaitState = model.WaitStateNone
 		inst.WakeAt = nil
-		cols, err := db.persistContext(ctx, qtx, inst, now)
+		cols, err := db.persistState(ctx, qtx, inst, now)
 		if err != nil {
 			return false, err
 		}
@@ -73,10 +73,10 @@ func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.Proces
 	// parked state and clears worker_id/lease (the parked instance is non-runnable, so the
 	// engine returns noop). No token here: the occurrence is task_epoch on this very row, and a
 	// copy in external_data would be a second thing to keep true.
-	inst.ContextData[model.CtxExternal] = map[string]any{"task_id": taskID, "input": input}
+	inst.State[model.StateExternal] = map[string]any{"task_id": taskID, "input": input}
 	inst.WaitState = model.WaitStateExternal
 	inst.WakeAt = wakeAt
-	cols, err := db.persistContext(ctx, qtx, inst, now)
+	cols, err := db.persistState(ctx, qtx, inst, now)
 	if err != nil {
 		return false, err
 	}

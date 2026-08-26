@@ -54,12 +54,12 @@ func (db *DB) UpgradeInstances(ctx context.Context, ups []InstanceUpgrade) error
 	return db.withTx(ctx, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
 		now := nowMillis()
 		for _, up := range ups {
-			// A copy carrying the migrated state, so persistContext externalizes and
+			// A copy carrying the migrated state, so persistState externalizes and
 			// reference-counts it exactly as any other write would -- the migrated value can
 			// cross the inline/object boundary in either direction.
 			staged := *up.Instance
-			staged.ContextData = up.NewContext
-			cols, err := db.persistContext(ctx, qtx, &staged, now)
+			staged.State = up.NewContext
+			cols, err := db.persistState(ctx, qtx, &staged, now)
 			if err != nil {
 				return fmt.Errorf("stage state for %q: %w", up.Instance.ID, err)
 			}

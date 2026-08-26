@@ -66,10 +66,10 @@ func newFixture(t *testing.T) *fixture {
 		"item":   {"outputs", "list", 0},
 		"detail": {"error", "data", "detail"},
 	} {
-		ref, ok := valueAt(seed.ContextData, path).(*model.ObjectRef)
+		ref, ok := valueAt(seed.State, path).(*model.ObjectRef)
 		if !ok {
 			t.Fatalf("setup: %v is %T, want an externalized marker -- the cut chose differently, so the table's load names no longer mean what they say",
-				path, valueAt(seed.ContextData, path))
+				path, valueAt(seed.State, path))
 		}
 		f.refs[name] = ref
 	}
@@ -90,7 +90,7 @@ func (f *fixture) instance() *model.ProcessInstance {
 	r := f.refs
 	return &model.ProcessInstance{
 		ID: "matrix", ProcessName: "lazy", Status: model.StatusRunning,
-		ContextData: map[string]any{
+		State: map[string]any{
 			"input": map[string]any{"blob": r["blob"], "name": "sam"},
 			"outputs": map[string]any{
 				"a":     map[string]any{"code": r["code"], "n": float64(1)},

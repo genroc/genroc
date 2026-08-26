@@ -38,7 +38,7 @@ func saveInstance(t *testing.T, database *db.DB, process string, ctxData map[str
 		ProcessName:    process,
 		ProcessVersion: 1,
 		Task:           "a",
-		ContextData:    ctxData,
+		State:          ctxData,
 		Status:         model.StatusRunning,
 		CreatedAt:      time.Now(),
 	}
@@ -82,8 +82,8 @@ func TestAdvancePanicFailsInstanceInsteadOfWorker(t *testing.T) {
 	if got.ErrorCode != string(errcode.EnginePanic) {
 		t.Errorf("error_code = %q, want %q", got.ErrorCode, errcode.EnginePanic)
 	}
-	if !strings.Contains(got.Error, "panic while advancing") {
-		t.Errorf("error = %q, want it to mention the panic", got.Error)
+	if !strings.Contains(got.ErrorMessage, "panic while advancing") {
+		t.Errorf("error = %q, want it to mention the panic", got.ErrorMessage)
 	}
 
 	// The stack lands in the instance's own trail, so a panicked instance is

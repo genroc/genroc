@@ -18,11 +18,11 @@ func insertInst(t *testing.T, db *dbpkg.DB, id string, status model.Status, pare
 		ProcessName:    "test",
 		ProcessVersion: 1,
 		Task:           "step1",
-		ContextData:    map[string]any{},
+		State:          map[string]any{},
 		Status:         status,
 		ParentID:       parentID,
 		CallStack:      callStack,
-		Error:          errMsg,
+		ErrorMessage:   errMsg,
 	}
 	if err := db.SaveInstance(inst); err != nil {
 		t.Fatalf("insertInst %q: %v", id, err)
@@ -44,7 +44,7 @@ func mustError(t *testing.T, db *dbpkg.DB, id string) string {
 	if err != nil {
 		t.Fatalf("GetInstance %q: %v", id, err)
 	}
-	return inst.Error
+	return inst.ErrorMessage
 }
 
 func mustWaitState(t *testing.T, db *dbpkg.DB, id string) model.WaitState {
@@ -64,12 +64,12 @@ func insertInstW(t *testing.T, db *dbpkg.DB, id string, status model.Status, wai
 		ProcessName:    "test",
 		ProcessVersion: 1,
 		Task:           "step1",
-		ContextData:    map[string]any{},
+		State:          map[string]any{},
 		Status:         status,
 		WaitState:      waitState,
 		ParentID:       parentID,
 		CallStack:      callStack,
-		Error:          errMsg,
+		ErrorMessage:   errMsg,
 	}
 	if err := db.SaveInstance(inst); err != nil {
 		t.Fatalf("insertInstW %q: %v", id, err)
@@ -241,7 +241,7 @@ func TestResumeProcess_RestoresSubtree(t *testing.T) {
 				ProcessName:    "test",
 				ProcessVersion: 1,
 				Task:           "step1",
-				ContextData:    map[string]any{},
+				State:          map[string]any{},
 				Status:         model.StatusRunning,
 				ParentID:       "root",
 				CallStack:      []string{"root"},
@@ -476,11 +476,11 @@ func TestFailInstanceAndAncestors_OverridesPaused(t *testing.T) {
 			// row is equally not this worker's to write).
 			insertInst(t, b.db, "leaf", model.StatusRunning, "parent", []string{"grand", "parent"}, "")
 			leaf := &model.ProcessInstance{
-				ID:          "leaf",
-				ContextData: map[string]any{},
-				Status:      model.StatusFailed,
-				CallStack:   []string{"grand", "parent"},
-				Error:       "boom",
+				ID:           "leaf",
+				State:        map[string]any{},
+				Status:       model.StatusFailed,
+				CallStack:    []string{"grand", "parent"},
+				ErrorMessage: "boom",
 			}
 
 			if err := b.db.FailInstanceAndAncestors(leaf); err != nil {
@@ -509,11 +509,11 @@ func TestFailInstanceAndAncestors_AlreadyFailed(t *testing.T) {
 			insertInst(t, b.db, "parent", model.StatusFailed, "", nil, "original error")
 			insertInst(t, b.db, "leaf", model.StatusRunning, "parent", []string{"parent"}, "")
 			leaf := &model.ProcessInstance{
-				ID:          "leaf",
-				ContextData: map[string]any{},
-				Status:      model.StatusFailed,
-				CallStack:   []string{"parent"},
-				Error:       "new error",
+				ID:           "leaf",
+				State:        map[string]any{},
+				Status:       model.StatusFailed,
+				CallStack:    []string{"parent"},
+				ErrorMessage: "new error",
 			}
 
 			if err := b.db.FailInstanceAndAncestors(leaf); err != nil {
@@ -542,7 +542,7 @@ func TestSpawnChildrenAndWait_RunningParent(t *testing.T) {
 				ID:          "child",
 				ProcessName: "test",
 				Task:        "step1",
-				ContextData: map[string]any{},
+				State:       map[string]any{},
 				ParentID:    "parent",
 				CallStack:   []string{"parent"},
 				Status:      model.StatusRunning,
@@ -581,7 +581,7 @@ func TestSpawnChildrenAndWait_PausingParent(t *testing.T) {
 				ID:          "child",
 				ProcessName: "test",
 				Task:        "step1",
-				ContextData: map[string]any{},
+				State:       map[string]any{},
 				ParentID:    "parent",
 				CallStack:   []string{"parent"},
 				Status:      model.StatusRunning,
@@ -614,12 +614,12 @@ func insertChild(t *testing.T, db *dbpkg.DB, id string, status model.Status, par
 		ProcessName:    "test",
 		ProcessVersion: 1,
 		Task:           "step1",
-		ContextData:    map[string]any{},
+		State:          map[string]any{},
 		Status:         status,
 		ParentID:       parentID,
 		SpawnTaskID:    spawnTaskID,
 		CallStack:      callStack,
-		Error:          errMsg,
+		ErrorMessage:   errMsg,
 	}
 	if err := db.SaveInstance(inst); err != nil {
 		t.Fatalf("insertChild %q: %v", id, err)
@@ -838,7 +838,7 @@ func TestRetryProcess_EmptyQueue(t *testing.T) {
 				ID:          "root",
 				ProcessName: "test",
 				Task:        "",
-				ContextData: map[string]any{},
+				State:       map[string]any{},
 				Status:      model.StatusFailed,
 			}
 			if err := b.db.SaveInstance(inst); err != nil {
@@ -875,7 +875,7 @@ func TestFailInstanceAndAncestors_LastActiveChild_WakesParent(t *testing.T) {
 				t.Fatalf("GetInstance: %v", err)
 			}
 			child.Status = model.StatusFailed
-			child.Error = "boom"
+			child.ErrorMessage = "boom"
 			if err := b.db.FailInstanceAndAncestors(child); err != nil {
 				t.Fatalf("FailInstanceAndAncestors: %v", err)
 			}
@@ -914,7 +914,7 @@ func TestFailInstanceAndAncestors_SiblingStillRunning(t *testing.T) {
 				t.Fatalf("GetInstance: %v", err)
 			}
 			child.Status = model.StatusFailed
-			child.Error = "boom"
+			child.ErrorMessage = "boom"
 			if err := b.db.FailInstanceAndAncestors(child); err != nil {
 				t.Fatalf("FailInstanceAndAncestors: %v", err)
 			}
@@ -948,7 +948,7 @@ func TestFailInstanceAndAncestors_PausedSiblingKeepsParentWaiting(t *testing.T) 
 				t.Fatalf("GetInstance: %v", err)
 			}
 			child.Status = model.StatusFailed
-			child.Error = "boom"
+			child.ErrorMessage = "boom"
 			if err := b.db.FailInstanceAndAncestors(child); err != nil {
 				t.Fatalf("FailInstanceAndAncestors: %v", err)
 			}
@@ -1009,9 +1009,9 @@ func TestRetryProcess_OnlyOnce_RejectedUnlessForced(t *testing.T) {
 				ProcessName:    "oo",
 				ProcessVersion: 1,
 				Task:           "step1",
-				ContextData:    map[string]any{},
+				State:          map[string]any{},
 				Status:         model.StatusFailed,
-				Error:          "failed on only_once task",
+				ErrorMessage:   "failed on only_once task",
 			}
 			if err := b.db.SaveInstance(inst); err != nil {
 				t.Fatalf("SaveInstance: %v", err)
@@ -1050,12 +1050,12 @@ func TestRetryProcess_OnlyOnceDeep_RollsBack(t *testing.T) {
 				ProcessName:    "oo",
 				ProcessVersion: 1,
 				Task:           "step1",
-				ContextData:    map[string]any{},
+				State:          map[string]any{},
 				Status:         model.StatusFailed,
 				ParentID:       "root",
 				SpawnTaskID:    "step1",
 				CallStack:      []string{"root"},
-				Error:          "boom",
+				ErrorMessage:   "boom",
 			}
 			if err := b.db.SaveInstance(leaf); err != nil {
 				t.Fatalf("SaveInstance: %v", err)
@@ -1126,15 +1126,15 @@ func TestChildrenForStep_StepScoped(t *testing.T) {
 			insertInst(t, b.db, "parent", model.StatusRunning, "", nil, "")
 			oldChild := &model.ProcessInstance{
 				ID: "old", ProcessName: "test", Task: "",
-				ContextData: map[string]any{"output": "stale"},
-				Status:      model.StatusCompleted,
-				ParentID:    "parent", SpawnTaskID: "taskA", CallStack: []string{"parent"},
+				State:    map[string]any{"output": "stale"},
+				Status:   model.StatusCompleted,
+				ParentID: "parent", SpawnTaskID: "taskA", CallStack: []string{"parent"},
 			}
 			newChild := &model.ProcessInstance{
 				ID: "new", ProcessName: "test", Task: "",
-				ContextData: map[string]any{"output": "fresh"},
-				Status:      model.StatusCompleted,
-				ParentID:    "parent", SpawnTaskID: "taskB", CallStack: []string{"parent"},
+				State:    map[string]any{"output": "fresh"},
+				Status:   model.StatusCompleted,
+				ParentID: "parent", SpawnTaskID: "taskB", CallStack: []string{"parent"},
 			}
 			for _, c := range []*model.ProcessInstance{oldChild, newChild} {
 				if err := b.db.SaveInstance(c); err != nil {
@@ -1152,7 +1152,7 @@ func TestChildrenForStep_StepScoped(t *testing.T) {
 			if kids[0].ID != "new" {
 				t.Errorf("expected child %q, got %q", "new", kids[0].ID)
 			}
-			if got := kids[0].ContextData["output"]; got != "fresh" {
+			if got := kids[0].State["output"]; got != "fresh" {
 				t.Errorf("child output: expected %q, got %v", "fresh", got)
 			}
 		})
@@ -1164,7 +1164,7 @@ func TestChildrenForStep_StepScoped(t *testing.T) {
 // in the object store is not stranded by the clear.
 //
 // The claims outlive the write itself, and that is the design: `objects` is the LOADED list,
-// and the next persistContext releases every hash in it that the context no longer references.
+// and the next persistState releases every hash in it that the context no longer references.
 // What must not happen is the cleared slots coming BACK -- their entries still name paths in a
 // row that no longer has them, and a decode that recreated those paths would resurrect an
 // error the revival exists to drop.
@@ -1182,12 +1182,12 @@ func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 				Task:           "step1",
 				Status:         model.StatusFailed,
 				ErrorCode:      "went_wrong",
-				Error:          "the upstream refused",
-				ContextData: map[string]any{
+				ErrorMessage:   "the upstream refused",
+				State: map[string]any{
 					// Both slots hold a value past the externalization threshold, so each one
 					// takes an object claim this retry has to drop.
-					"error":            map[string]any{"code": "http.500", "data": bigString("caught")},
-					model.ErrorDataKey: map[string]any{"trace": bigString("reported")},
+					"error":              map[string]any{"code": "http.500", "data": bigString("caught")},
+					model.StateErrorData: map[string]any{"trace": bigString("reported")},
 				},
 			}
 			if err := b.db.SaveInstance(inst); err != nil {
@@ -1199,14 +1199,14 @@ func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 			}
 			marker := func(slot, key string) string {
 				t.Helper()
-				m, ok := stored.ContextData[slot].(map[string]any)[key].(*model.ObjectRef)
+				m, ok := stored.State[slot].(map[string]any)[key].(*model.ObjectRef)
 				if !ok {
 					t.Fatalf("setup: %s.%s is %T, want an externalized marker",
-						slot, key, stored.ContextData[slot].(map[string]any)[key])
+						slot, key, stored.State[slot].(map[string]any)[key])
 				}
 				return m.Ref
 			}
-			refs := []string{marker("error", "data"), marker(model.ErrorDataKey, "trace")}
+			refs := []string{marker("error", "data"), marker(model.StateErrorData, "trace")}
 
 			if err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
@@ -1216,14 +1216,14 @@ func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance after retry: %v", err)
 			}
-			if revived.ErrorCode != "" || revived.Error != "" {
-				t.Errorf("the reported error survived: code=%q message=%q", revived.ErrorCode, revived.Error)
+			if revived.ErrorCode != "" || revived.ErrorMessage != "" {
+				t.Errorf("the reported error survived: code=%q message=%q", revived.ErrorCode, revived.ErrorMessage)
 			}
-			if _, ok := revived.ContextData[model.ErrorDataKey]; ok {
-				t.Errorf("the reported error's payload survived: %v", revived.ContextData[model.ErrorDataKey])
+			if _, ok := revived.State[model.StateErrorData]; ok {
+				t.Errorf("the reported error's payload survived: %v", revived.State[model.StateErrorData])
 			}
-			if _, ok := revived.ContextData["error"]; ok {
-				t.Errorf("the caught error survived: %v", revived.ContextData["error"])
+			if _, ok := revived.State["error"]; ok {
+				t.Errorf("the caught error survived: %v", revived.State["error"])
 			}
 			// The revived instance is running, so a write always follows -- and it is that write
 			// which drops the claims the cleared slots held.

@@ -106,7 +106,7 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 	for k, v := range extra {
 		errCtx[k] = v
 	}
-	inst.ContextData["error"] = errCtx
+	inst.State["error"] = errCtx
 
 	// An authored terminal clause outranks routing. Both keep the engine's own code in
 	// `error` (above) so the underlying cause stays visible on the instance detail, while
@@ -181,7 +181,7 @@ func (e *Engine) raiseInstance(inst *model.ProcessInstance, task *model.Task, f 
 	msg := e.faultMessage(inst, f, self)
 	inst.Status = model.StatusRaised
 	inst.WaitState = model.WaitStateNone
-	inst.Error = msg
+	inst.ErrorMessage = msg
 	inst.ErrorCode = f.Code
 	inst.WakeAt = nil
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceRaised, Task: task.ID, Msg: msg, Code: errcode.Code(f.Code)})
@@ -225,10 +225,10 @@ func (e *Engine) evalFaultData(inst *model.ProcessInstance, f *model.Fault, self
 // layer describes -- the shape an upgrade validates against.
 func setErrorData(inst *model.ProcessInstance, data any) {
 	if data == nil {
-		delete(inst.ContextData, model.ErrorDataKey)
+		delete(inst.State, model.StateErrorData)
 		return
 	}
-	inst.ContextData[model.ErrorDataKey] = data
+	inst.State[model.StateErrorData] = data
 }
 
 // failInstance moves the instance to failed and returns the terminal outcome. code is
@@ -236,7 +236,7 @@ func setErrorData(inst *model.ProcessInstance, data any) {
 func (e *Engine) failInstance(inst *model.ProcessInstance, code errcode.Code, reason string) advanceOutcome {
 	inst.Status = model.StatusFailed
 	inst.WaitState = model.WaitStateNone
-	inst.Error = reason
+	inst.ErrorMessage = reason
 	inst.ErrorCode = string(code)
 	inst.WakeAt = nil
 	e.audit(inst, logEvent{Level: model.LogError, Event: model.EventInstanceFailed, Msg: reason, Code: code})
@@ -261,6 +261,6 @@ func (e *Engine) settleFailing(inst *model.ProcessInstance) advanceOutcome {
 	inst.Status = model.StatusFailed
 	inst.WaitState = model.WaitStateNone
 	inst.WakeAt = nil
-	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceSettled, Msg: inst.Error})
+	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceSettled, Msg: inst.ErrorMessage})
 	return advanceOutcome{kind: outcomeTerminal}
 }

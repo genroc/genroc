@@ -12,6 +12,7 @@ import (
 
 	dbpkg "genroc/internal/db"
 	"genroc/internal/model"
+	"genroc/internal/numeric"
 )
 
 // bigString returns a value larger than the externalization threshold (2 KiB) so it
@@ -31,7 +32,7 @@ func TestObjects_BigValueRoundTrip(t *testing.T) {
 				ID:          "inst-big",
 				ProcessName: "test",
 				Task:        "",
-				ContextData: map[string]any{
+				State: map[string]any{
 					"input":   big,
 					"outputs": map[string]any{"small": "tiny", "huge": bigString("out")},
 				},
@@ -46,10 +47,10 @@ func TestObjects_BigValueRoundTrip(t *testing.T) {
 				t.Fatalf("GetInstance: %v", err)
 			}
 			// Big slots come back as lazy markers, small ones inline.
-			if _, isRef := got.ContextData["input"].(*model.ObjectRef); !isRef {
-				t.Fatalf("expected input to be an *ObjectRef marker, got %T", got.ContextData["input"])
+			if _, isRef := got.State["input"].(*model.ObjectRef); !isRef {
+				t.Fatalf("expected input to be an *ObjectRef marker, got %T", got.State["input"])
 			}
-			outs := got.ContextData["outputs"].(map[string]any)
+			outs := got.State["outputs"].(map[string]any)
 			if outs["small"] != "tiny" {
 				t.Errorf("small output: got %v, want tiny", outs["small"])
 			}
@@ -58,10 +59,10 @@ func TestObjects_BigValueRoundTrip(t *testing.T) {
 			}
 
 			resolveAll(t, b.db, got)
-			if got.ContextData["input"] != big {
+			if got.State["input"] != big {
 				t.Errorf("hydrated input mismatch")
 			}
-			if got.ContextData["outputs"].(map[string]any)["huge"] != bigString("out") {
+			if got.State["outputs"].(map[string]any)["huge"] != bigString("out") {
 				t.Errorf("hydrated huge output mismatch")
 			}
 		})
@@ -83,7 +84,7 @@ func TestObjects_DerefKeepsItForTheGraceWindow(t *testing.T) {
 			inst := &model.ProcessInstance{
 				ID:          "inst-deref",
 				ProcessName: "test",
-				ContextData: map[string]any{"outputs": map[string]any{"loop": bigString("v1")}},
+				State:       map[string]any{"outputs": map[string]any{"loop": bigString("v1")}},
 				Status:      model.StatusRunning,
 			}
 			if err := b.db.SaveInstance(inst); err != nil {
@@ -96,11 +97,11 @@ func TestObjects_DerefKeepsItForTheGraceWindow(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			oldRef, ok := r1.ContextData["outputs"].(map[string]any)["loop"].(*model.ObjectRef)
+			oldRef, ok := r1.State["outputs"].(map[string]any)["loop"].(*model.ObjectRef)
 			if !ok {
 				t.Fatalf("expected loop output to be a marker")
 			}
-			r1.ContextData["outputs"].(map[string]any)["loop"] = bigString("v2")
+			r1.State["outputs"].(map[string]any)["loop"] = bigString("v2")
 			if err := b.db.UpdateInstanceProgress(r1); err != nil {
 				t.Fatalf("UpdateInstanceProgress: %v", err)
 			}
@@ -128,7 +129,7 @@ func TestObjects_DerefKeepsItForTheGraceWindow(t *testing.T) {
 				t.Fatalf("GetInstance after overwrite: %v", err)
 			}
 			resolveAll(t, b.db, r2)
-			if r2.ContextData["outputs"].(map[string]any)["loop"] != bigString("v2") {
+			if r2.State["outputs"].(map[string]any)["loop"] != bigString("v2") {
 				t.Errorf("v2 output not preserved")
 			}
 		})
@@ -153,7 +154,7 @@ func TestObjects_LogReferencedSurvivesDeref(t *testing.T) {
 				ID:          "inst-shared",
 				ProcessName: "test",
 				Task:        "",
-				ContextData: map[string]any{"outputs": map[string]any{"out": val}},
+				State:       map[string]any{"outputs": map[string]any{"out": val}},
 				Status:      model.StatusRunning,
 			}
 			if err := b.db.SaveInstance(inst); err != nil {
@@ -175,7 +176,7 @@ func TestObjects_LogReferencedSurvivesDeref(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			r.ContextData["outputs"].(map[string]any)["out"] = "small"
+			r.State["outputs"].(map[string]any)["out"] = "small"
 			if err := b.db.UpdateInstanceProgress(r); err != nil {
 				t.Fatalf("UpdateInstanceProgress: %v", err)
 			}
@@ -222,7 +223,7 @@ func saveWithOutput(t *testing.T, db *dbpkg.DB, id string, v any) {
 	t.Helper()
 	inst := &model.ProcessInstance{
 		ID: id, ProcessName: "test", Status: model.StatusRunning,
-		ContextData: map[string]any{"outputs": map[string]any{"out": v}},
+		State: map[string]any{"outputs": map[string]any{"out": v}},
 	}
 	if err := db.SaveInstance(inst); err != nil {
 		t.Fatalf("SaveInstance %s: %v", id, err)
@@ -236,7 +237,7 @@ func replaceOutput(t *testing.T, db *dbpkg.DB, id string, v any) {
 	if err != nil {
 		t.Fatalf("GetInstance %s: %v", id, err)
 	}
-	inst.ContextData["outputs"].(map[string]any)["out"] = v
+	inst.State["outputs"].(map[string]any)["out"] = v
 	if err := db.UpdateInstanceProgress(inst); err != nil {
 		t.Fatalf("UpdateInstanceProgress %s: %v", id, err)
 	}
@@ -248,9 +249,9 @@ func outputRef(t *testing.T, db *dbpkg.DB, id string) *model.ObjectRef {
 	if err != nil {
 		t.Fatalf("GetInstance %s: %v", id, err)
 	}
-	ref, ok := inst.ContextData["outputs"].(map[string]any)["out"].(*model.ObjectRef)
+	ref, ok := inst.State["outputs"].(map[string]any)["out"].(*model.ObjectRef)
 	if !ok {
-		t.Fatalf("%s: output was not externalized (%T)", id, inst.ContextData["outputs"].(map[string]any)["out"])
+		t.Fatalf("%s: output was not externalized (%T)", id, inst.State["outputs"].(map[string]any)["out"])
 	}
 	return ref
 }
@@ -453,8 +454,8 @@ func resolveAll(t *testing.T, db *dbpkg.DB, inst *model.ProcessInstance) {
 		}
 		return v
 	}
-	for k, v := range inst.ContextData {
-		inst.ContextData[k] = walk(v)
+	for k, v := range inst.State {
+		inst.State[k] = walk(v)
 	}
 }
 
@@ -471,8 +472,8 @@ func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
 			inst := &model.ProcessInstance{
 				ID: "inst-extobj", ProcessName: "test", Task: "run", Status: model.StatusRunning,
 				WaitState: model.WaitStateExternal,
-				ContextData: map[string]any{
-					model.CtxExternal: map[string]any{
+				State: map[string]any{
+					model.StateExternal: map[string]any{
 						"task_id": "run",
 						"input":   map[string]any{"code": bundle, "n": 1},
 					},
@@ -486,7 +487,7 @@ func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			ext := parked.ContextData[model.CtxExternal].(map[string]any)
+			ext := parked.State[model.StateExternal].(map[string]any)
 			ref, ok := ext["input"].(map[string]any)["code"].(*model.ObjectRef)
 			if !ok {
 				t.Fatalf("the bundle was not externalized: %T", ext["input"].(map[string]any)["code"])
@@ -496,7 +497,7 @@ func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
 			}
 
 			// The task resolves: _external goes, and the claim must go with it.
-			delete(parked.ContextData, model.CtxExternal)
+			delete(parked.State, model.StateExternal)
 			parked.WaitState = model.WaitStateNone
 			if err := b.db.UpdateInstanceProgress(parked); err != nil {
 				t.Fatalf("UpdateInstanceProgress: %v", err)
@@ -614,6 +615,82 @@ func TestObjects_AClaimBetweenTwoSweepsStillEarnsAWindow(t *testing.T) {
 			}
 			if _, err := b.db.ResolveObject(context.Background(), ref); err != nil {
 				t.Fatalf("a claim the sweeper never saw left the object on a stale mark, and it was collected with no window: %v", err)
+			}
+		})
+	}
+}
+
+// TestState_RoundTripsWhole pins that state is RECONSTRUCTIBLE: everything an instance holds
+// comes back from a write and a read unchanged -- the slots a definition declares, the slots
+// only the engine writes, and the values too large to sit inline.
+//
+// The set is CLOSED: encodeState handles these keys and no others, so a slot added to storage
+// without being added here has nothing asserting it survives, and a key outside the set is
+// dropped rather than stored. Both halves are checked, because the second is what makes the
+// first exhaustive rather than merely long.
+//
+// Values go in through the SAME decoder storage uses, so the comparison is of what was stored
+// against what came back, not of Go literals against decoded JSON.
+func TestState_RoundTripsWhole(t *testing.T) {
+	// Past the 2 KiB cutoff, so at least one slot is reconstructed FROM THE OBJECT STORE rather
+	// than from the row -- a round trip that never externalizes anything proves the easy half.
+	blob := strings.Repeat("b", 4*1024)
+	raw := fmt.Sprintf(`{
+	  "input":   {"n": 9007199254740993, "amount": 123456789.123456789, "nested": {"deep": [1, null, "x"]}},
+	  "outputs": {"first": {"v": 1}, "huge": {"blob": %q}, "nothing": null},
+	  "output_order": ["first", "huge", "nothing"],
+	  "output":  {"done": true},
+	  "error":   {"task": "t", "code": "boom", "message": "m", "data": {"why": "x"}, "child_index": 2},
+	  "_error_data": {"retry_after": 3600},
+	  "_external": {"task_id": "t", "input": {"k": 1}},
+	  "_children": {"spawn": {"out": "01a03d00-0000-7000-8000-000000000000"}},
+	  "_spawn_action_type": "child_map",
+	  "_spawn_child_key": "out",
+	  "_spawn_index": 0
+	}`, blob)
+
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			var stored map[string]any
+			if err := numeric.Decode([]byte(raw), &stored); err != nil {
+				t.Fatalf("decode fixture: %v", err)
+			}
+			var written map[string]any
+			if err := numeric.Decode([]byte(raw), &written); err != nil {
+				t.Fatalf("decode fixture: %v", err)
+			}
+			// Dropped rather than stored: the closed set has an outside, and this is it.
+			written["invented"] = "not part of state"
+
+			inst := &model.ProcessInstance{
+				ID: "roundtrip", ProcessName: "test", ProcessVersion: 1, Task: "step1",
+				Status: model.StatusPaused, State: written,
+			}
+			if err := b.db.SaveInstance(inst); err != nil {
+				t.Fatalf("SaveInstance: %v", err)
+			}
+			got, err := b.db.GetInstance("roundtrip")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			// The object-store half is only exercised if something actually left the row. Without
+			// this the fixture could shrink under the cutoff and the test would still pass, having
+			// quietly stopped reconstructing anything from the store.
+			outs := got.State["outputs"].(map[string]any)["huge"].(map[string]any)
+			if _, isRef := outs["blob"].(*model.ObjectRef); !isRef {
+				t.Fatalf("fixture no longer externalizes: blob came back as %T, so the store is untested", outs["blob"])
+			}
+			resolveAll(t, b.db, got)
+
+			if _, ok := got.State["invented"]; ok {
+				t.Errorf("a key outside the closed set was stored; encodeState must drop what it does not name")
+			}
+			delete(got.State, "invented")
+
+			want, _ := json.Marshal(stored)
+			have, _ := json.Marshal(got.State)
+			if string(want) != string(have) {
+				t.Errorf("state did not survive the round trip\n  stored: %s\n  read:   %s", want, have)
 			}
 		})
 	}

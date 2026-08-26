@@ -358,7 +358,7 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	}
 	if buffered {
 		inst.ConsumedSignalID = sigID
-		delete(inst.ContextData, model.CtxExternal)
+		delete(inst.State, model.StateExternal)
 		inst.WaitState = model.WaitStateNone
 		if f := outcome.Failure; f != nil {
 			// Routed HERE rather than where it was submitted because resolving a retry policy
@@ -388,14 +388,14 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	// died holding this" from "nobody answered in time" — different questions to ask the system
 	// of record, and different people to page.
 	if inst.WaitState == model.WaitStateExternal {
-		ext, _ := inst.ContextData[model.CtxExternal].(map[string]any)
-		lost, _ := ext[model.CtxExternalLost].(bool)
+		ext, _ := inst.State[model.StateExternal].(map[string]any)
+		lost, _ := ext[model.StateExternalLost].(bool)
 		code, msg, event := errcode.ExternalTimeout, "external task timed out", model.EventExternalTimeout
 		if lost {
 			code, msg, event = errcode.ExternalLost, "the worker holding this task did not answer before its claim expired", model.EventExternalLost
 		}
 		inst.WaitState = model.WaitStateNone
-		delete(inst.ContextData, model.CtxExternal)
+		delete(inst.State, model.StateExternal)
 		e.audit(inst, logEvent{Level: model.LogWarn, Event: event, Task: task.ID, Msg: msg, Code: code})
 		return nil, stop(e.handleCallError(inst, task, msg, code))
 	}

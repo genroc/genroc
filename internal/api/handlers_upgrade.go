@@ -99,7 +99,7 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage) Reply {
 			resp.Moves = append(resp.Moves, move)
 			return okReply(resp)
 		}
-		state, migErr := validation.MigrateState(def, m.Instance.Task, m.Instance.ContextData)
+		state, migErr := validation.MigrateState(def, m.Instance.Task, m.Instance.State)
 		if migErr != nil {
 			// Reported, not returned as an error: a refusal names which member blocked the
 			// tree and why, and that is the answer rather than a failure to produce one.

@@ -45,7 +45,7 @@ func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 			t.Fatalf("iteration %d: GetInstance child: %v", i, err)
 		}
 		child.Status = model.StatusFailed
-		child.Error = "stress error"
+		child.ErrorMessage = "stress error"
 
 		var wg sync.WaitGroup
 		errs := make(chan error, 2)

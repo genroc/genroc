@@ -75,8 +75,8 @@ func TestRunAdvance_LeaseLostDropsOutcome(t *testing.T) {
 	if got.Status.Terminal() {
 		t.Fatalf("the dropped outcome landed anyway: status %q", got.Status)
 	}
-	if got.ErrorCode != "" || got.Error != "" {
-		t.Fatalf("a lost lease must not be converted into an instance failure: code=%q error=%q", got.ErrorCode, got.Error)
+	if got.ErrorCode != "" || got.ErrorMessage != "" {
+		t.Fatalf("a lost lease must not be converted into an instance failure: code=%q error=%q", got.ErrorCode, got.ErrorMessage)
 	}
 	if !hasLogEvent(t, database, id, model.EventLeaseLost) {
 		t.Fatal("no lease_lost entry; the abandoned attempt left no trace at all")
@@ -146,7 +146,7 @@ func TestSelfReclaim_RowHandsBackAndCompletes(t *testing.T) {
 		t.Fatalf("final advance: %v", err)
 	}
 	if got, _ := database.GetInstance(id); got.Status != model.StatusCompleted {
-		t.Fatalf("the handed-back row never completed: %q (%s: %s) — a stuck row", got.Status, got.ErrorCode, got.Error)
+		t.Fatalf("the handed-back row never completed: %q (%s: %s) — a stuck row", got.Status, got.ErrorCode, got.ErrorMessage)
 	}
 }
 
@@ -167,7 +167,7 @@ func seedOnlyOnceInstance(t *testing.T, database *db.DB, prefix, url string) str
 	id := fmt.Sprintf("%s-i-%d", prefix, time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: name, ProcessVersion: 1,
-		Task: tasks[0].ID, ContextData: map[string]any{}, Status: model.StatusRunning,
+		Task: tasks[0].ID, State: map[string]any{}, Status: model.StatusRunning,
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestLeaseGate_RepairSavesOnlyOnceThroughFreeze(t *testing.T) {
 
 	waitTerminal(t, database, id, 10*time.Second)
 	if got, _ := database.GetInstance(id); got.Status != model.StatusCompleted {
-		t.Fatalf("with the repair the lease was never lost, so the instance must complete: %q (%s: %s)", got.Status, got.ErrorCode, got.Error)
+		t.Fatalf("with the repair the lease was never lost, so the instance must complete: %q (%s: %s)", got.Status, got.ErrorCode, got.ErrorMessage)
 	}
 	if hits.Load() != 1 {
 		t.Fatalf("only_once endpoint hit %d times across the freeze, want exactly 1", hits.Load())

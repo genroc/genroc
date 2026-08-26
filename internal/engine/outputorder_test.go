@@ -14,15 +14,15 @@ import (
 
 func orderOf(t *testing.T, inst *model.ProcessInstance) []string {
 	t.Helper()
-	order, ok := inst.ContextData["output_order"].([]string)
+	order, ok := inst.State["output_order"].([]string)
 	if !ok {
-		t.Fatalf("output_order is %T, want []string", inst.ContextData["output_order"])
+		t.Fatalf("output_order is %T, want []string", inst.State["output_order"])
 	}
 	return order
 }
 
 func TestAppendOutputOrder_RepeatedAppendsKeepOnePosition(t *testing.T) {
-	inst := &model.ProcessInstance{ContextData: map[string]any{}}
+	inst := &model.ProcessInstance{State: map[string]any{}}
 	for i := 0; i < 5; i++ {
 		appendOutputOrder(inst, "call")
 	}
@@ -32,7 +32,7 @@ func TestAppendOutputOrder_RepeatedAppendsKeepOnePosition(t *testing.T) {
 }
 
 func TestAppendOutputOrder_KeepsFirstCompletionOrder(t *testing.T) {
-	inst := &model.ProcessInstance{ContextData: map[string]any{}}
+	inst := &model.ProcessInstance{State: map[string]any{}}
 	for _, id := range []string{"a", "b", "a", "c", "b"} {
 		appendOutputOrder(inst, id)
 	}
@@ -51,7 +51,7 @@ func TestAppendOutputOrder_KeepsFirstCompletionOrder(t *testing.T) {
 func TestAppendOutputOrder_RepairsARowThatAlreadyHasDuplicates(t *testing.T) {
 	// Rows written before uniqueness held keep their repeats forever unless the rebuild
 	// drops them — so the next append is what heals them, rather than a migration.
-	inst := &model.ProcessInstance{ContextData: map[string]any{
+	inst := &model.ProcessInstance{State: map[string]any{
 		"output_order": []any{"a", "call", "call", "call"},
 	}}
 	appendOutputOrder(inst, "b")

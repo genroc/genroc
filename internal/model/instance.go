@@ -63,7 +63,7 @@ func (s Status) AcceptsExternalOutcome() bool {
 // It is never the `error` slot, which is the error the instance CAUGHT: that one belongs to the
 // instance's state at the task it stopped on, so a concluding fault editing it leaves a context
 // no layer describes. specs/error-extensions.md.
-const ErrorDataKey = "_error_data"
+const StateErrorData = "_error_data"
 
 // WaitState tracks where a parent instance is in the child-process lifecycle.
 type WaitState string
@@ -121,27 +121,18 @@ func ParseExternalToken(token string) (instanceID string, taskEpoch, claimEpoch 
 	return id, n, c, true, true
 }
 
-// Private context_data keys used by the external-task lifecycle. Underscore-prefixed
-// like _children / _spawn_* so they are clearly engine-internal bookkeeping.
+// Engine-owned STATE keys for the external-task lifecycle. Underscore-prefixed like
+// _children / _spawn_* so they are clearly bookkeeping and not a definition's to read.
 const (
-	// CtxExternal holds the parked external task's metadata: {task_id, input}. The queue
+	// StateExternal holds the parked external task's metadata: {task_id, input}. The queue
 	// endpoint reads input from here and derives the token from the row's task_epoch;
 	// never exposed as process output.
-	CtxExternal = "_external"
-	// CtxExternalLost, inside _external, marks an arming whose holder's claim lapsed without an
+	StateExternal = "_external"
+	// StateExternalLost, inside _external, marks an arming whose holder's claim lapsed without an
 	// answer on an only_once task. It is written INSTEAD of handing the work out again, and the
 	// engine turns it into errcode.ExternalLost on its next claim. A marker rather than a
 	// derivation: external_worker_id alone cannot say whether the lapse was already reported.
-	CtxExternalLost = "lost"
-	// CtxExternalResult holds a submitted, validated result placed by the resolve API.
-	// Its presence is how the engine tells "result arrived" from "first arrival".
-	CtxExternalResult = "_external_result"
-	// CtxExternalError holds a submitted failure placed by the fail API: {code, message,
-	// data?}, where `data` is present only if the task declared a shape for the code. The
-	// engine routes it through on_error on the next claim -- it cannot be routed where it
-	// is submitted, because retry budgeting is a write on the leased row. Checked BEFORE
-	// CtxExternalResult, so the two can never both apply to one arming.
-	CtxExternalError = "_external_error"
+	StateExternalLost = "lost"
 )
 
 // ProcessInstance is a single running execution of a ProcessDefinition.
@@ -166,8 +157,13 @@ type ProcessInstance struct {
 	ExternalLeaseExpiresAt *time.Time
 	ExternalClaimEpoch     int64
 
-	// ContextData is the accumulated key/value state passed between tasks.
-	ContextData map[string]any
+	// State is everything this instance holds: the slots a definition reads (input, outputs,
+	// error) and the engine's own bookkeeping (_error_data, _external, _children, _spawn_*,
+	// output_order). The set is CLOSED -- storage names these keys and drops the rest.
+	//
+	// Not "context": context is the EXPRESSION scope, which is state's readable slots plus
+	// config (never stored) and self (per-task). specs/version-compatibility.md.
+	State map[string]any
 
 	// ParentID is set when this instance was started by a child_process task.
 	// Empty string means this is a root instance.
@@ -186,7 +182,11 @@ type ProcessInstance struct {
 	WakeAt     *time.Time
 	Status     Status
 	WaitState  WaitState
-	Error      string
+
+	// ErrorMessage is the human half of the error this instance REPORTS; ErrorCode is the
+	// machine half and _error_data in State is the payload. Named for its column, like the
+	// other two, so one concept does not answer to three spellings.
+	ErrorMessage string
 
 	// ErrorCode is the machine-readable discriminator for every non-success outcome: an
 	// authored raise/panic code, or the engine's own. Empty when completed. Authored codes

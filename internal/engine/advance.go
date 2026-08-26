@@ -325,7 +325,7 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		var meta *fetchMeta
 		var priorOutput any
 		if task.Output.Present() {
-			if outs, ok := inst.ContextData["outputs"].(map[string]any); ok {
+			if outs, ok := inst.State["outputs"].(map[string]any); ok {
 				priorOutput = outs[task.ID]
 			}
 		}
@@ -443,7 +443,7 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		// it to travel projects it into its own output, which is how every other value
 		// moves. Inference types `error` on exactly the tasks an error edge enters, so
 		// leaving it in the context would make it readable where nothing declares it.
-		delete(inst.ContextData, "error")
+		delete(inst.State, "error")
 
 		inst.RetryCount = 0
 		inst.WakeAt = nil
@@ -488,10 +488,10 @@ func taskSelf(result, previous any, meta *fetchMeta) map[string]any {
 // setTaskOutput stores value as the task's exported output (outputs.taskID). A loop
 // re-execution overwrites the value; appendOutputOrder owns keeping the position unique.
 func (e *Engine) setTaskOutput(inst *model.ProcessInstance, taskID string, value any) {
-	if inst.ContextData["outputs"] == nil {
-		inst.ContextData["outputs"] = map[string]any{}
+	if inst.State["outputs"] == nil {
+		inst.State["outputs"] = map[string]any{}
 	}
-	inst.ContextData["outputs"].(map[string]any)[taskID] = value
+	inst.State["outputs"].(map[string]any)[taskID] = value
 	appendOutputOrder(inst, taskID)
 }
 
@@ -514,7 +514,7 @@ func appendOutputOrder(inst *model.ProcessInstance, id string) {
 		seen[s] = true
 		order = append(order, s)
 	}
-	switch v := inst.ContextData["output_order"].(type) {
+	switch v := inst.State["output_order"].(type) {
 	case []string:
 		for _, s := range v {
 			add(s)
@@ -527,7 +527,7 @@ func appendOutputOrder(inst *model.ProcessInstance, id string) {
 		}
 	}
 	add(id)
-	inst.ContextData["output_order"] = order
+	inst.State["output_order"] = order
 }
 
 // evalSwitch returns the first matching case (empty Case = catch-all; nil never happens on
@@ -654,6 +654,6 @@ func (e *Engine) computeOutput(inst *model.ProcessInstance) error {
 	if err != nil {
 		return fmt.Errorf("output: %w", err)
 	}
-	inst.ContextData["output"] = out
+	inst.State["output"] = out
 	return nil
 }

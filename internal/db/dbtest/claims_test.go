@@ -22,7 +22,7 @@ func TestClaims_FollowReferencesNotWrites(t *testing.T) {
 			// The first instance writes the object and claims it.
 			first := &model.ProcessInstance{
 				ID: "claim-writer", ProcessName: "test", Status: model.StatusRunning,
-				ContextData: map[string]any{"input": map[string]any{"blob": big}},
+				State: map[string]any{"input": map[string]any{"blob": big}},
 			}
 			if err := b.db.SaveInstance(first); err != nil {
 				t.Fatalf("SaveInstance(first): %v", err)
@@ -31,9 +31,9 @@ func TestClaims_FollowReferencesNotWrites(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			ref, ok := loaded.ContextData["input"].(map[string]any)["blob"].(*model.ObjectRef)
+			ref, ok := loaded.State["input"].(map[string]any)["blob"].(*model.ObjectRef)
 			if !ok {
-				t.Fatalf("setup: blob is %T, want a marker", loaded.ContextData["input"].(map[string]any)["blob"])
+				t.Fatalf("setup: blob is %T, want a marker", loaded.State["input"].(map[string]any)["blob"])
 			}
 			if n, err := b.db.CountObjectRefs(ref.Ref); err != nil || n != 1 {
 				t.Fatalf("after the writing instance: %d claims (err=%v), want 1", n, err)
@@ -43,7 +43,7 @@ func TestClaims_FollowReferencesNotWrites(t *testing.T) {
 			// this write created would never appear.
 			second := &model.ProcessInstance{
 				ID: "claim-copier", ProcessName: "test", Status: model.StatusRunning,
-				ContextData: map[string]any{"input": map[string]any{"blob": ref}},
+				State: map[string]any{"input": map[string]any{"blob": ref}},
 			}
 			if err := b.db.SaveInstance(second); err != nil {
 				t.Fatalf("SaveInstance(second): %v", err)
@@ -58,7 +58,7 @@ func TestClaims_FollowReferencesNotWrites(t *testing.T) {
 
 			// And the proof that the claim is load-bearing: the writer lets go, the copier does
 			// not, and the sweep must leave the content alone.
-			loaded.ContextData["input"] = map[string]any{"blob": "small"}
+			loaded.State["input"] = map[string]any{"blob": "small"}
 			if err := b.db.UpdateInstanceProgress(loaded); err != nil {
 				t.Fatalf("UpdateInstanceProgress: %v", err)
 			}

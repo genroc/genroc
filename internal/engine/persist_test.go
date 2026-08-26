@@ -40,7 +40,7 @@ func spawnFixture(t *testing.T, database *db.DB, name string) string {
 	id := idgen.New()
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: parent, ProcessVersion: 1,
-		Task: "fan", ContextData: map[string]any{}, Status: model.StatusRunning,
+		Task: "fan", State: map[string]any{}, Status: model.StatusRunning,
 		// What the API's create path sets; "fan" is a spawn, so it is replayable. Left
 		// unset it would default to needing a flush, which is safe but not what this
 		// fixture is for.
@@ -140,7 +140,7 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 	id := fmt.Sprintf("arm-pure-i-%d", time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,
-		Task: "wait", ContextData: map[string]any{}, Status: model.StatusRunning,
+		Task: "wait", State: map[string]any{}, Status: model.StatusRunning,
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestExternal_BufferedAnswerIsConsumedWithoutParking(t *testing.T) {
 	id := fmt.Sprintf("arm-buffered-i-%d", time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: process, ProcessVersion: 1,
-		Task: "wait", ContextData: map[string]any{}, Status: model.StatusRunning,
+		Task: "wait", State: map[string]any{}, Status: model.StatusRunning,
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestExternal_BufferedAnswerIsConsumedWithoutParking(t *testing.T) {
 		t.Fatalf("GetInstance: %v", err)
 	}
 	if got.Status != model.StatusCompleted {
-		t.Fatalf("status = %q, want %q (%s: %s)", got.Status, model.StatusCompleted, got.ErrorCode, got.Error)
+		t.Fatalf("status = %q, want %q (%s: %s)", got.Status, model.StatusCompleted, got.ErrorCode, got.ErrorMessage)
 	}
 	if n, err := database.CountBufferedSignals(id, "wait"); err != nil || n != 0 {
 		t.Fatalf("buffered = %d (err=%v), want 0 — the consuming write must delete it", n, err)

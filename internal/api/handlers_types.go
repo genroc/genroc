@@ -361,6 +361,12 @@ type InstanceStatusResp struct {
 	ErrorData    any    `json:"error_data,omitempty"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
+	// Objects is error_data's, and only error_data's: a payload past the inline cutoff is ABSENT
+	// above and listed here at the path it belongs to, so nothing in the data can be mistaken for
+	// a reference. Fetch one with GET /objects/{ref} and put it back. It is not resolved for you
+	// -- a payload has no size limit, and inlining it here would put an unbounded response behind
+	// no control at all. specs/object-store.md §The wire.
+	Objects []ObjectEntry `json:"objects,omitempty"`
 }
 
 // InstanceDetailResp is the whole row: the instance's STATE exactly as stored -- bookkeeping
@@ -388,6 +394,10 @@ type InstanceDetailResp struct {
 
 	ErrorCode    string `json:"error_code,omitempty"`
 	ErrorMessage string `json:"error_message,omitempty"`
+	// ErrorData is the same value as State["_error_data"], surfaced flat so that this response is
+	// a strict SUPERSET of the status one: a caller can move to this endpoint without losing a
+	// field. Its externalized pieces are listed once, under the state path they were cut from.
+	ErrorData any `json:"error_data,omitempty"`
 
 	// State is the stored context verbatim: input, outputs, output_order, output, error, and the
 	// engine's own slots (_error_data, _external, _children, _spawn_*). The set is CLOSED -- a key

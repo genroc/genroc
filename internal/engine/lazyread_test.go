@@ -42,7 +42,7 @@ func storedContext(t *testing.T, database *db.DB, ctxData map[string]any) *model
 		ProcessName:    "lazy",
 		ProcessVersion: 1,
 		Task:           "b",
-		ContextData:    ctxData,
+		State:          ctxData,
 		Status:         model.StatusRunning,
 		CreatedAt:      time.Now(),
 	}
@@ -62,7 +62,7 @@ func storedWithBigOutput(t *testing.T, database *db.DB, big string) *model.Proce
 	inst := storedContext(t, database, map[string]any{
 		"outputs": map[string]any{"a": map[string]any{"kept": big, "n": float64(1)}},
 	})
-	outs := inst.ContextData["outputs"].(map[string]any)["a"].(map[string]any)
+	outs := inst.State["outputs"].(map[string]any)["a"].(map[string]any)
 	if _, isRef := outs["kept"].(*model.ObjectRef); !isRef {
 		t.Fatalf("setup: kept = %T, want an externalized marker (raise the fixture size)", outs["kept"])
 	}

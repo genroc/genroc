@@ -40,7 +40,7 @@ func runningInstance(t *testing.T, db *DB, id string) *model.ProcessInstance {
 	t.Helper()
 	inst := &model.ProcessInstance{
 		ID: id, ProcessName: "test", ProcessVersion: 1, Task: "step1",
-		ContextData: map[string]any{}, Status: model.StatusRunning,
+		State: map[string]any{}, Status: model.StatusRunning,
 	}
 	if err := db.SaveInstance(inst); err != nil {
 		t.Fatalf("SaveInstance: %v", err)

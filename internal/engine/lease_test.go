@@ -56,7 +56,7 @@ func TestGracefulShutdown_ReleasesLeases(t *testing.T) {
 		ProcessName:    processName,
 		ProcessVersion: 1,
 		Task:           tasks[0].ID,
-		ContextData:    map[string]any{},
+		State:          map[string]any{},
 		Status:         model.StatusRunning,
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
@@ -140,7 +140,7 @@ func TestLeaseGate_RepairsInsteadOfExiting(t *testing.T) {
 	if inst, err := database.GetInstance(id); err != nil {
 		t.Fatalf("GetInstance: %v", err)
 	} else if inst.Status != model.StatusCompleted {
-		t.Fatalf("expected the in-flight instance to complete, got %q (%s: %s)", inst.Status, inst.ErrorCode, inst.Error)
+		t.Fatalf("expected the in-flight instance to complete, got %q (%s: %s)", inst.Status, inst.ErrorCode, inst.ErrorMessage)
 	}
 	if got := hits.Load(); got != 1 {
 		t.Errorf("expected the task to run exactly once, got %d executions (the advance was re-claimed)", got)
@@ -225,7 +225,7 @@ func TestLeaseGate_SurvivesFrozenHost(t *testing.T) {
 	if inst, err := database.GetInstance(id); err != nil {
 		t.Fatalf("GetInstance: %v", err)
 	} else if inst.Status != model.StatusCompleted {
-		t.Fatalf("expected the instance to complete, got %q (%s: %s)", inst.Status, inst.ErrorCode, inst.Error)
+		t.Fatalf("expected the instance to complete, got %q (%s: %s)", inst.Status, inst.ErrorCode, inst.ErrorMessage)
 	}
 	if got := hits.Load(); got != 1 {
 		t.Errorf("expected the task to run exactly once across the freeze, got %d executions", got)
@@ -375,7 +375,7 @@ func seedInstance(t *testing.T, database *db.DB, prefix, url string) string {
 	id := fmt.Sprintf("%s-i-%d", prefix, time.Now().UnixNano())
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: name, ProcessVersion: 1,
-		Task: tasks[0].ID, ContextData: map[string]any{}, Status: model.StatusRunning,
+		Task: tasks[0].ID, State: map[string]any{}, Status: model.StatusRunning,
 	}); err != nil {
 		t.Fatalf("SaveInstance: %v", err)
 	}

@@ -97,7 +97,7 @@ func (db *DB) childTargetVersion(parent *model.ProcessInstance, parentDef *model
 
 	// The slot a child occupies: a child_map key, empty for child and child_list. It is the
 	// discriminant the child carries from its own spawn, so it survives the version change.
-	key, _ := kid.ContextData["_spawn_child_key"].(string)
+	key, _ := kid.State["_spawn_child_key"].(string)
 	declared, name := task.Action.Version, task.Action.Name
 	if key != "" {
 		entry, ok := task.Action.Children[key]

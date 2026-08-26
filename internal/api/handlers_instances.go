@@ -73,7 +73,7 @@ func (h *Handlers) startInstance(raw json.RawMessage) Reply {
 		// Set here or the first claim of every new instance pays an fsync: the flag's
 		// zero value is the safe one, not the common one. specs/durability-levels.md s4.
 		NextReplayable: !def.Tasks[0].OnlyOnceAction(),
-		ContextData:    map[string]any{"input": input, "outputs": map[string]any{}, "error": nil},
+		State:          map[string]any{"input": input, "outputs": map[string]any{}, "error": nil},
 		Status:         model.StatusRunning,
 		// Cosmetic (SaveInstance re-stamps from the DB clock); same clock, so it
 		// cannot drift from the row under a shifted test clock.
@@ -132,6 +132,18 @@ func (h *Handlers) getInstance(id string) Reply {
 	return okReply(instanceToResp(inst))
 }
 
+// reportedPayload is error_data as the wire carries it: externalized pieces lifted out into the
+// listing, rooted at the field they belong to on THIS response. Without this the raw marker
+// ships inline, naming a state slot the response does not have.
+func reportedPayload(inst *model.ProcessInstance) (any, []ObjectEntry) {
+	raw, ok := inst.State[model.StateErrorData]
+	if !ok {
+		return nil, nil
+	}
+	var objects []ObjectEntry
+	return extractObjects(raw, []any{"error_data"}, &objects), objects
+}
+
 // getInstanceDetail returns the row as stored. Unlike getInstance it hides nothing: the state
 // it returns is the object an upgrade validates and a migration rewrites, so an operator
 // diagnosing a refusal is looking at what was actually checked.
@@ -150,7 +162,7 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 	// Rooted at "state", the field these paths point into on THIS response. Externalized slots
 	// leave it entirely and are listed instead, at the path they belong to.
 	var objects []ObjectEntry
-	state, _ := extractObjects(inst.ContextData, []any{"state"}, &objects).(map[string]any)
+	state, _ := extractObjects(inst.State, []any{"state"}, &objects).(map[string]any)
 	if state == nil {
 		state = map[string]any{}
 	}
@@ -196,8 +208,11 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 		UpdatedAt:  inst.UpdatedAt.Format(time.RFC3339),
 
 		ErrorCode:    inst.ErrorCode,
-		ErrorMessage: inst.Error,
-		State:        state,
+		ErrorMessage: inst.ErrorMessage,
+		// From the EXTRACTED state, so an externalized payload is the same marker-free value the
+		// status endpoint shows rather than a reference the caller cannot place.
+		ErrorData: state[model.StateErrorData],
+		State:     state,
 
 		WorkerID:        derefString(inst.WorkerID),
 		LeaseExpiresAt:  formatTimePtr(inst.LeaseExpiresAt),
@@ -289,6 +304,7 @@ func (h *Handlers) tick(raw json.RawMessage) Reply {
 }
 
 func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
+	payload, objects := reportedPayload(inst)
 	return InstanceStatusResp{
 		ID:           inst.ID,
 		Process:      inst.ProcessName,
@@ -298,13 +314,11 @@ func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
 		Task:         inst.Task,
 		RetryCount:   inst.RetryCount,
 		ErrorCode:    inst.ErrorCode,
-		ErrorMessage: inst.Error,
-		// From ctx, not inst.ContextData: where the payload was externalized the latter still
-		// holds a {ref, size} marker, and shipping that would put a reference where the value
-		// belongs.
-		ErrorData: inst.ContextData[model.ErrorDataKey],
-		CreatedAt: inst.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: inst.UpdatedAt.Format(time.RFC3339),
+		ErrorMessage: inst.ErrorMessage,
+		ErrorData:    payload,
+		CreatedAt:    inst.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:    inst.UpdatedAt.Format(time.RFC3339),
+		Objects:      objects,
 	}
 }
 

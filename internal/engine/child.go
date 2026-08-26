@@ -56,10 +56,10 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 	// can correlate a parent task with its children. This is metadata only — child
 	// results flow to self.result at collection, not into outputs.
 	childCallStack := append(inst.CallStack, inst.ID)
-	if inst.ContextData["_children"] == nil {
-		inst.ContextData["_children"] = map[string]any{}
+	if inst.State["_children"] == nil {
+		inst.State["_children"] = map[string]any{}
 	}
-	spawned := inst.ContextData["_children"].(map[string]any)
+	spawned := inst.State["_children"].(map[string]any)
 
 	var children []*model.ProcessInstance
 	switch task.Action.Type {
@@ -79,7 +79,7 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 		}
 		ids := make(map[string]any, len(mapped))
 		for _, c := range mapped {
-			key, _ := c.ContextData["_spawn_child_key"].(string)
+			key, _ := c.State["_spawn_child_key"].(string)
 			ids[key] = c.ID
 		}
 		spawned[task.ID] = ids
@@ -145,7 +145,7 @@ func newChildInstance(parent *model.ProcessInstance, task *model.Task, def *mode
 		// Same reason as the API's create path: without it every spawned child's first
 		// claim pays an fsync. specs/durability-levels.md s4.
 		NextReplayable: !def.Tasks[0].OnlyOnceAction(),
-		ContextData:    childCtx,
+		State:          childCtx,
 		Status:         model.StatusRunning,
 		ParentID:       parent.ID,
 		SpawnTaskID:    task.ID,
