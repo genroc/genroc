@@ -121,14 +121,30 @@ Bulk upgrade plans the whole closure first, then writes one row per transaction
    has no rule for (coverage was never guaranteed — D3).
 3. **Tasks already run** never re-execute.
 4. **Side effects already performed.**
-5. **Stale keys** — outputs of dropped tasks linger unread.
+5. **~~Stale keys~~ — fixed.** The output of a task the target no longer declares is now
+   PRUNED: the migration conform strips what the layer does not name, and the layer is
+   complete inside `outputs`. Nothing on the new version could read it (an expression naming
+   it is refused at registration), so carrying it forward only grew the row and pinned
+   whatever it referenced. The engine's own slots survive because the layer is deliberately
+   partial at the top and `MigrateState` puts that half back.
 6. **A renamed task** reads as removed + added → refused (§8 has the deferred `--at`).
 7. **Redaction changes with the version — accepted.** A field secret-in-old, plain-in-new
    becomes visible for data stored earlier. In `input_schema` the change at least surfaces
    as a changed slot; in `config_schema` it is reported nowhere at all, since compat does
    not judge config (compat-command.md §6b). Redaction is a display concern; the DB always
    held the value.
-8. **`only_once` may flip — accepted.** The new definition is the stated policy. The
+8. **An in-flight result is judged by SCHEMA, which over-refuses on children — accepted for
+   now.** An instance parked on a task that holds an outstanding result is gated on
+   `old.result_schema ⊆ new`, strictly (contract optics, not storage optics: a worker's
+   submission arrives from outside and no migration repairs it). That comparison is *forced*
+   only for `external`, where the result is with a worker and there is no data to look at.
+   A child batch is different — a running child moves with its parent, and registration
+   already guarantees the version it moves TO fits; a completed child has its output on its
+   row, where conforming the actual value would answer precisely. Judging both by the coarse
+   relation can refuse a move that was in fact safe. Kept because the failure it prevents is
+   worse than the one it causes: refusing leaves a tree paused and an operator informed,
+   while allowing it wedges the parent at collect with a result nothing accepts.
+9. **`only_once` may flip — accepted.** The new definition is the stated policy. The
    direction that bites: removing `only_once` from an interrupted task re-runs the side
    effect; §2 admits expired leases precisely for crashed workers, the same state this
    flag decides — read the slot report before moving such instances.

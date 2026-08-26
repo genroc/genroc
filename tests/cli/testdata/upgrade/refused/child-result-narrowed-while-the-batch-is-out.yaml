@@ -1,0 +1,77 @@
+# The same in-flight question, asked of a child task instead of an external one — and it is the
+# same question, because the parent conforms whatever its children produce against ITS OWN
+# result_schema at collect time, using the version it is on THEN.
+#
+# The parent is parked with its batch out. Its stored state migrates cleanly; what does not is
+# the promise it made about the result. A child that already completed stays on the version it
+# ran (terminal descendants do not move), so its output was produced under the old contract and
+# would be conformed under the new one.
+#
+# Safety here is transitive rather than direct: registration guarantees a child's output fits
+# the parent's result_schema, so `old ⊆ new` on that schema carries the guarantee across the
+# move. Refusing when it does not is what keeps the chain intact.
+apply:
+  - definitions:
+      - name: kid
+        input_schema:
+          type: object
+          properties: {k: {type: number}}
+          required: [k]
+        tasks:
+          - id: work
+            action: {type: delay, for: 1}
+            output: {v: '$: input.k'}
+            switch: end
+        output: {v: '$: outputs.work.v'}
+      - name: boss
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: call
+            action:
+              type: child
+              name: kid
+              input: {k: '$: input.n'}
+              result_schema:
+                type: object
+                properties: {v: {type: number}}
+            output: {r: '$: self.result'}
+            switch: end
+  - definitions:
+      - name: kid
+        input_schema:
+          type: object
+          properties: {k: {type: number}}
+          required: [k]
+        tasks:
+          - id: work
+            action: {type: delay, for: 1}
+            output: {v: '$: input.k'}
+            switch: end
+        output: {v: '$: outputs.work.v'}
+      - name: boss
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: call
+            action:
+              type: child
+              name: kid
+              input: {k: '$: input.n'}
+              # `v` becomes required: a result the old promise allowed without it is refused.
+              result_schema:
+                type: object
+                properties: {v: {type: number}}
+                required: [v]
+            output: {r: '$: self.result'}
+            switch: end
+# One tick: the parent spawns and parks, so the batch is out and nothing has collected.
+start: {process: boss, input: {n: 1}, ticks: 1}
+resting: {task: call, status: running, wait_state: waiting, version: 1}
+after: {task: call, status: running, wait_state: waiting, version: 1}
+run: [boss, --from, "1", --to, "2"]
+refused: {says: 'waiting on a result promised by v1'}

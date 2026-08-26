@@ -157,6 +157,20 @@ func movableStatus(s model.Status) bool {
 // cannot move, or "" when it can. Scoped to a parked instance on purpose: a task that merely
 // COULD park is registration's concern, while this asks whether this row has work outstanding
 // right now.
+//
+// It compares SCHEMAS, and deliberately OVER-REFUSES on a child task. Schema-versus-schema is
+// forced only for `external`, where the result is with a worker and there is no data to look
+// at. A child batch is different: a running child moves with its parent and registration
+// already guarantees the version it moves TO fits, and a child that has completed has its
+// output sitting on its row, where conforming the actual value would answer precisely. Both are
+// judged by the coarse relation instead, so a move that would in fact have been safe can be
+// refused.
+//
+// Kept for now because the failure it prevents is worse than the one it causes: refusing leaves
+// a tree paused and an operator informed, while allowing it wedges the parent at collect with a
+// result nothing can accept. Refining it means conforming the DATA where data exists, which
+// needs materialisation for an externalized output -- so it belongs here, where h.db is, and
+// not in validation.
 func (h *Handlers) inFlightBreak(inst *model.ProcessInstance, to *model.ProcessDefinition, toVersion int) string {
 	if inst.WaitState == model.WaitStateNone {
 		return ""
