@@ -141,6 +141,39 @@ func (q *Queries) CountBufferedSignals(ctx context.Context, arg CountBufferedSig
 	return count, err
 }
 
+const countDrainingInTree = `-- name: CountDrainingInTree :one
+
+
+WITH RECURSIVE subtree(id) AS (
+    SELECT process_instances.id FROM process_instances WHERE process_instances.id = ?1
+    UNION ALL
+    SELECT pi.id FROM process_instances pi JOIN subtree s ON pi.parent_id = s.id
+)
+SELECT COUNT(*) FROM process_instances
+WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
+  AND process_instances.status = 'pausing'
+`
+
+// ListLogs (per-instance) and ListTreeLogs (subtree) are hand-written in
+// db_logs.go: both take a dynamic ORDER BY + keyset cursor (see paginate.go), and
+// the subtree view additionally needs a WITH RECURSIVE walk over
+// process_instances.parent_id that sqlc's SQLite grammar can't parse. Both runtime
+// drivers support it.
+// CountDrainingInTree counts the rows a previous pause left mid-task ('pausing'). It is
+// what tells a tree that has STOPPED from one still draining: PauseProcess selects
+// 'running' only, so a second pause on a draining tree writes nothing and would otherwise
+// report it as stopped while a worker is still inside a task.
+// specs/id-list-commands.md.
+//
+// Unlike its neighbours in db_lifecycle.go this one is expressible here: it takes no row
+// locks (no dialect-dependent FOR UPDATE) and binds no dynamic id list.
+func (q *Queries) CountDrainingInTree(ctx context.Context, root string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countDrainingInTree, root)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countObjectRefs = `-- name: CountObjectRefs :one
 SELECT COUNT(*) FROM object_refs WHERE hash = ?1
 `
@@ -187,15 +220,9 @@ func (q *Queries) DeleteDependencies(ctx context.Context, arg DeleteDependencies
 }
 
 const deleteLogsBefore = `-- name: DeleteLogsBefore :execrows
-
 DELETE FROM process_logs WHERE created_at < ?1
 `
 
-// ListLogs (per-instance) and ListTreeLogs (subtree) are hand-written in
-// db_logs.go: both take a dynamic ORDER BY + keyset cursor (see paginate.go), and
-// the subtree view additionally needs a WITH RECURSIVE walk over
-// process_instances.parent_id that sqlc's SQLite grammar can't parse. Both runtime
-// drivers support it.
 func (q *Queries) DeleteLogsBefore(ctx context.Context, before int64) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteLogsBefore, before)
 	if err != nil {
@@ -529,6 +556,21 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.ErrorData,
 	)
 	return i, err
+}
+
+const getInstanceStatus = `-- name: GetInstanceStatus :one
+
+SELECT status FROM process_instances WHERE id = ?1
+`
+
+// GetInstanceStatus reads one root's status inside the transaction that already holds the
+// tree, which is what lets ResumeProcess decide "already advancing" from "settled and
+// never will" on the same snapshot as the outcome itself.
+func (q *Queries) GetInstanceStatus(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getInstanceStatus, id)
+	var status string
+	err := row.Scan(&status)
+	return status, err
 }
 
 const getObject = `-- name: GetObject :one

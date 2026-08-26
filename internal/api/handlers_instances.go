@@ -102,7 +102,9 @@ func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	instances, info, err := h.db.ListInstances(req.Status, req.ErrorCode, req.Process, req.Version, req.Root,
+	// Roots only unless children were asked for: the flag is an opt-IN, so the default
+	// listing is one row per tree. specs/id-list-commands.md.
+	instances, info, err := h.db.ListInstances(req.Status, req.ErrorCode, req.Process, req.Version, !req.Children,
 		db.Window{After: req.CreatedAfter, Before: req.CreatedBefore},
 		db.Window{After: req.UpdatedAfter, Before: req.UpdatedBefore},
 		req.page())
@@ -345,6 +347,7 @@ func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
 func instanceSummaryToResp(s *model.InstanceSummary) InstanceSummaryResp {
 	return InstanceSummaryResp{
 		ID:           s.ID,
+		ParentID:     s.ParentID,
 		Process:      s.ProcessName,
 		Version:      s.ProcessVersion,
 		Status:       s.Status,

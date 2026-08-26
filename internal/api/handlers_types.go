@@ -202,7 +202,7 @@ type ListInstancesReq struct {
 	ErrorCode     string `json:"error_code"`     // optional filter: exact error code (authored or engine)
 	Process       string `json:"process"`        // optional filter: exact process name (all versions)
 	Version       int    `json:"version"`        // optional filter: exact process version (0 = any)
-	Root          bool   `json:"root"`           // optional filter: only instances with no parent
+	Children      bool   `json:"children"`       // include child instances; roots only when false (the default)
 	CreatedAfter  int64  `json:"created_after"`  // only instances created at/after this timestamp
 	CreatedBefore int64  `json:"created_before"` // only instances created strictly before it
 	UpdatedAfter  int64  `json:"updated_after"`  // only instances updated at/after this timestamp
@@ -320,7 +320,10 @@ type BatchApplyResult struct {
 // many instances should stay light, so it omits the (potentially large) context; it
 // is embedded in InstanceStatusResp, which adds the context for a single-instance fetch.
 type InstanceSummaryResp struct {
-	ID        string          `json:"id"`
+	ID string `json:"id"`
+	// ParentID is "" for a root. Present on every row, not only when children were asked
+	// for: a caller that filtered them in has nothing else to tell the two apart.
+	ParentID  string          `json:"parent_id,omitempty"`
 	Process   string          `json:"process"`
 	Version   int             `json:"version"`
 	Status    model.Status    `json:"status"`

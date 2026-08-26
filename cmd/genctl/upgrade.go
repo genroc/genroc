@@ -93,10 +93,10 @@ func runUpgradeCmd(server string, args []string) {
 
 	// Roots only, and only those still on the old version. A child is not a unit of upgrade
 	// -- its root moves the whole tree -- so a sweep that included them would collect
-	// refusals it could do nothing about.
+	// refusals it could do nothing about. Roots-only is the endpoint's default now, which
+	// is why nothing here asks for it.
 	base := appendQuery(*serverFlag+"/instances", "process", process)
 	base = appendQuery(base, "version", strconv.Itoa(from))
-	base = appendQuery(base, "root", "true")
 
 	var tally upgradeTally
 	err := streamPages(base, func(rows []instanceRow) error {
@@ -150,9 +150,11 @@ func (t upgradeTally) done(target string, jsonOut bool) {
 	}
 }
 
-// isInstanceRef reports whether the positional names an instance rather than a process.
-// Told apart by shape: an instance id is a UUID (idgen mints v7) and @last is the sigil the
-// rest of the CLI already reads as one, neither of which a process name is ever written as.
+// isInstanceRef reports whether the positional is shaped like an instance reference: a
+// UUID (idgen mints v7), or the @last sigil the rest of the CLI already reads as one.
+// Serves two callers. `upgrade` and `compat` use it to tell an id from a PROCESS NAME,
+// which is never written either way; the lifecycle commands use it to reject an argument
+// that cannot name a row at all, before anything is sent (instanceIDsAndFlags).
 func isInstanceRef(arg string) bool {
 	if arg == "@last" {
 		return true

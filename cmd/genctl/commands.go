@@ -508,18 +508,38 @@ func runInstancesCmd(server string, args []string) {
 	serverFlag := addServerFlag(fs, server)
 	statusFlag := fs.String("status", "", "filter by status (running, completed, failing, failed, raised, pausing, paused)")
 	codeFlag := fs.String("error-code", "", "filter by exact error code (e.g. card_declined, http.500)")
+	processFlag := fs.String("process", "", "filter by exact process name, across every version")
+	versionFlag := fs.Int("version", 0, "filter by exact process version; with --process, that process at that version")
 	sortFlag := fs.String("sort", "created", "sort key: created or updated (most recently active)")
 	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04); bounds whichever column --sort selects")
 	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
 	jsonFlag := fs.Bool("json", false, "print the raw items as a JSON array")
+	childrenFlag := fs.Bool("children", false, "include child instances; by default the listing is roots only, one row per tree")
+	quietFlag := fs.Bool("quiet", false, "print only instance ids, one per line — the form to nest in another command")
+	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")
 	fs.Parse(args)
 
+	if *quietFlag && *jsonFlag {
+		// Both are machine forms and they disagree about the shape; picking one silently
+		// would give a script the other one's output.
+		fatal("--json and -q are two machine-readable forms of this list; pass one")
+	}
+
 	q := url.Values{}
+	if *childrenFlag {
+		q.Set("children", "true")
+	}
 	if *codeFlag != "" {
 		q.Set("error_code", *codeFlag)
 	}
 	if *statusFlag != "" {
 		q.Set("status", *statusFlag)
+	}
+	if *processFlag != "" {
+		q.Set("process", *processFlag)
+	}
+	if *versionFlag != 0 {
+		q.Set("version", strconv.Itoa(*versionFlag))
 	}
 	q.Set("sort", *sortFlag)
 	// The only list with a choice of sort, so the only one where --since has a column to
@@ -548,8 +568,31 @@ func runInstancesCmd(server string, args []string) {
 		return
 	}
 
+	// -q: ids only, so `genctl pause $(genctl instances -q --status running)` passes the
+	// list straight to a lifecycle command. Nothing else may reach stdout on this path —
+	// an empty list must print NOTHING, because "no instances" would arrive at the outer
+	// command as two arguments. The cap notice stays on stderr, where it already was: a
+	// truncated list here silently pauses 20 of 50.
+	if *quietFlag {
+		type idRow struct {
+			ID string `json:"id"`
+		}
+		capped, err := fetchOrdered(u, limit, newestFirst, func(page []idRow) error {
+			for _, r := range page {
+				fmt.Println(r.ID)
+			}
+			return nil
+		})
+		if err != nil {
+			fatal("%v", err)
+		}
+		note(capped)
+		return
+	}
+
 	type instanceRow struct {
 		ID           string `json:"id"`
+		ParentID     string `json:"parent_id"`
 		Process      string `json:"process"`
 		Version      int    `json:"version"`
 		Status       string `json:"status"`
@@ -567,15 +610,19 @@ func runInstancesCmd(server string, args []string) {
 	capped, err := fetchOrdered(u, limit, newestFirst, func(page []instanceRow) error {
 		for _, r := range page {
 			if rows == 0 {
-				fmt.Fprintln(w, "ID\tSTATUS\tPROCESS\tUPDATED\tCREATED\tCODE\tERROR")
+				fmt.Fprintln(w, "ID\tSTATUS\tPROCESS"+parentCol("\tPARENT", *childrenFlag)+"\tUPDATED\tCREATED\tCODE\tERROR")
 			}
 			rows++
 			errMsg := r.ErrorMessage
 			if len(errMsg) > 50 {
 				errMsg = errMsg[:47] + "..."
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s@v%d\t%s\t%s\t%s\t%s\n",
+			// The PARENT column appears only with --children: without it every row is a root
+			// and the column would be a wasted width, but WITH it nothing else on the row says
+			// which of the two a line is.
+			fmt.Fprintf(w, "%s\t%s\t%s@v%d%s\t%s\t%s\t%s\t%s\n",
 				r.ID, r.Status, r.Process, r.Version,
+				parentCol("\t"+dashIfEmpty(r.ParentID), *childrenFlag),
 				shortTime(r.UpdatedAt), shortTime(r.CreatedAt), r.ErrorCode, errMsg)
 		}
 		return nil
@@ -762,6 +809,22 @@ const (
 // noteCapped tells the reader on stderr that the cap dropped rows, naming the flag that
 // reaches past it. stderr so it never lands in a pipe beside the rows; silent when nothing
 // was dropped, so it can never send anyone chasing rows that do not exist.
+// parentCol returns the cell only when children are in the listing, so the default table
+// keeps exactly the columns it had.
+func parentCol(cell string, children bool) string {
+	if children {
+		return cell
+	}
+	return ""
+}
+
+func dashIfEmpty(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
 func noteCapped(capped bool, shown, lift string) {
 	if capped {
 		fmt.Fprintf(os.Stderr, "genctl: showing %s — pass %s to read further\n", shown, lift)

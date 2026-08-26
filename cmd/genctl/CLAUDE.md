@@ -20,6 +20,17 @@ Keep new list/get commands consistent so the surface stays predictable.
   report the capped result through `noteCapped` — **a cap nobody can raise must never
   truncate silently.**
 - **Single-item output.** A `Key:\tvalue` tabwriter block with `longTime()` timestamps.
+- **`instances` lists roots only.** A tree is one unit of work — and the unit
+  `pause`/`resume`/`retry`/`upgrade` act on — so the default listing is one row per tree
+  and `-q` yields only ids those verbs can accept. `--children` (query `children=true`)
+  adds them back and turns on a PARENT column, which exists because nothing else on a row
+  tells a child from a root. Enumerating a tree from outside must ask for them.
+- **`-q` on a list is the nesting form.** `instances -q` prints bare ids, one per line, for
+  `genctl pause $(genctl instances -q --status running)`. The rule that makes it safe:
+  **nothing but ids may reach stdout** — an empty list prints nothing at all, because
+  "no instances" would arrive at the outer command as two arguments, and the cap notice
+  stays on stderr (`noteCapped`) where it always was. It is refused alongside `--json`:
+  two machine forms, and silently picking one hands a script the other's shape.
 - **The assertion commands take an id list; the reads take exactly one.**
   `pause`/`resume`/`retry` act on every id named through `eachInstance` — one call each,
   each answer under its own id, and only a *refusal* fails the command. An id already in

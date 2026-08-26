@@ -290,6 +290,32 @@ VALUES
 -- process_instances.parent_id that sqlc's SQLite grammar can't parse. Both runtime
 -- drivers support it.
 
+-- CountDrainingInTree counts the rows a previous pause left mid-task ('pausing'). It is
+-- what tells a tree that has STOPPED from one still draining: PauseProcess selects
+-- 'running' only, so a second pause on a draining tree writes nothing and would otherwise
+-- report it as stopped while a worker is still inside a task.
+-- specs/id-list-commands.md.
+--
+-- Unlike its neighbours in db_lifecycle.go this one is expressible here: it takes no row
+-- locks (no dialect-dependent FOR UPDATE) and binds no dynamic id list.
+
+-- name: CountDrainingInTree :one
+WITH RECURSIVE subtree(id) AS (
+    SELECT process_instances.id FROM process_instances WHERE process_instances.id = sqlc.arg(root)
+    UNION ALL
+    SELECT pi.id FROM process_instances pi JOIN subtree s ON pi.parent_id = s.id
+)
+SELECT COUNT(*) FROM process_instances
+WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
+  AND process_instances.status = 'pausing';
+
+-- GetInstanceStatus reads one root's status inside the transaction that already holds the
+-- tree, which is what lets ResumeProcess decide "already advancing" from "settled and
+-- never will" on the same snapshot as the outcome itself.
+
+-- name: GetInstanceStatus :one
+SELECT status FROM process_instances WHERE id = sqlc.arg(id);
+
 -- name: DeleteLogsBefore :execrows
 DELETE FROM process_logs WHERE created_at < sqlc.arg(before);
 

@@ -213,14 +213,14 @@ var registry = func() []actionDef {
 			Name:    "list_instances",
 			Method:  http.MethodGet,
 			Path:    "/instances",
-			Summary: "List process instances",
+			Summary: "List process instances - roots only unless children=true, so one row per tree",
 			Tags:    []string{"Instances"},
 			PathQuery: struct {
 				Status        string `query:"status" enum:"running,completed,failing,failed,raised,pausing,paused" description:"Filter by status"`
 				ErrorCode     string `query:"error_code" description:"Filter by exact error code. Authored codes (from a raise or panic clause) are lower_snake_case; engine-produced codes contain a dot, e.g. http.500, pre.timeout, engine.spawn."`
 				Process       string `query:"process" description:"Filter by exact process name, across every version"`
 				Version       int    `query:"version" description:"Filter by exact process version (0 = any)"`
-				Root          bool   `query:"root" description:"Only root instances - those with no parent. A child is not a unit of upgrade, so this is what an upgrade sweep iterates"`
+				Children      bool   `query:"children" description:"Include child instances. Omitted, the listing is ROOTS ONLY - one row per tree, which is the unit an upgrade or a pause acts on; a child_list fan-out would otherwise bury the roots it belongs to. Every row carries parent_id, so the two are still told apart when children are included"`
 				CreatedAfter  int64  `query:"created_after" description:"Only instances created at/after this unix-millis timestamp"`
 				CreatedBefore int64  `query:"created_before" description:"Only instances created strictly before this unix-millis timestamp"`
 				UpdatedAfter  int64  `query:"updated_after" description:"Only instances updated at/after this unix-millis timestamp"`
@@ -234,7 +234,7 @@ var registry = func() []actionDef {
 					ErrorCode:     r.URL.Query().Get("error_code"),
 					Process:       r.URL.Query().Get("process"),
 					Version:       intQuery(r, "version"),
-					Root:          r.URL.Query().Get("root") == "true",
+					Children:      r.URL.Query().Get("children") == "true",
 					CreatedAfter:  millisQuery(r, "created_after"),
 					CreatedBefore: millisQuery(r, "created_before"),
 					UpdatedAfter:  millisQuery(r, "updated_after"),

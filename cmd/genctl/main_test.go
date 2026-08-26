@@ -9,6 +9,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"genroc/internal/idgen"
+
+	"github.com/google/uuid"
 )
 
 func toJSON(t *testing.T, v any) string {
@@ -229,5 +233,43 @@ func TestTimeFormatting(t *testing.T) {
 	// Unparseable input is returned unchanged.
 	if got := shortTime("not-a-time"); got != "not-a-time" {
 		t.Errorf("shortTime(garbage) = %q", got)
+	}
+}
+
+// The shape check in instanceIDsAndFlags rejects an argument that cannot name a row, so
+// it has to accept every id the server can actually mint — including the DERIVED ones.
+// A child id is not a fresh v7: idgen builds siblings by 128-bit arithmetic on the
+// parent's id (Add/After/ChildBase, kept sortable so the DB can lock a tree by id alone),
+// and that arithmetic can carry into the variant nibble. uuid.Parse validates the textual
+// form only, which is what makes this safe — tightening isInstanceRef to check Version()
+// or Variant() would start refusing real children deep in a sibling run, and only there.
+func TestIsInstanceRefAcceptsDerivedChildIDs(t *testing.T) {
+	root := idgen.NewV7()
+	base := idgen.ChildBase(root.String())
+	ids := map[string]uuid.UUID{
+		"root":                 root,
+		"child base":           base,
+		"sibling +1":           idgen.Add(base, 1),
+		"sibling +1000":        idgen.Add(base, 1000),
+		"carry into variant":   idgen.Add(base, 1<<62),
+		"carry into high word": idgen.Add(base, ^uint64(0)),
+		"after":                idgen.After(base),
+		"grandchild":           idgen.ChildBase(idgen.Add(base, 3).String()),
+	}
+	for name, id := range ids {
+		if !isInstanceRef(id.String()) {
+			t.Errorf("%s: %q is a real instance id and was refused as malformed", name, id)
+		}
+	}
+
+	for _, arg := range []string{"@last", strings.ToUpper(root.String())} {
+		if !isInstanceRef(arg) {
+			t.Errorf("%q must be accepted", arg)
+		}
+	}
+	for _, arg := range []string{"", "ID", "STATUS", "weather-logger@v7", "9m", "not-a-uuid"} {
+		if isInstanceRef(arg) {
+			t.Errorf("%q is not an id and must be refused before anything is sent", arg)
+		}
 	}
 }

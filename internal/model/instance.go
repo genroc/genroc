@@ -288,7 +288,11 @@ type ProcessInstance struct {
 // so listing many instances never fetches or unmarshals a potentially huge context —
 // those are only loaded for single-instance detail (GetInstance).
 type InstanceSummary struct {
-	ID             string
+	ID string
+	// ParentID is "" for a root. Carried in the light projection because a listing that
+	// includes children is otherwise uninterpretable -- nothing else on the row says
+	// whether it is one.
+	ParentID       string
 	ProcessName    string
 	ProcessVersion int
 	RetryCount     int

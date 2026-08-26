@@ -305,7 +305,12 @@ per-definition field).
   distinguishes asked-and-stopped from asked-and-draining, and a second pause on a draining
   tree must not report `unchanged`. Records why no batch endpoint: five
   pauses are five logical changes, unlike `applyBatch`, which earns its endpoint by being
-  one. Its **Prior art** section is load-bearing rather than decorative: the taxonomy is the
+  one. Two decisions arrived during the build and are recorded as 10 and 11: a malformed
+  argument aborts the whole command where a refusal does not (shape-checked up front, so a
+  pasted table cannot pause whichever cell parses as a UUID), and `instances` lists **roots
+  only** with `-q` for bare ids -- the list a group is fed from must name only what the
+  group can act on, since every one of these verbs is root-only. Its **Prior art** section
+  is load-bearing rather than decorative: the taxonomy is the
   standard split — an object that does not exist is an error by default (`rm` without `-f`),
   an object already holding the target state is success by default (`systemctl stop` a
   stopped unit) — and `pause`/`resume` are the `systemctl stop`/`start` analogue, which is

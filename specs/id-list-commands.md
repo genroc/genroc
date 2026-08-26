@@ -101,6 +101,27 @@ because the ids that landed the first time now report `already`.
 9. **`--force` applies to every id in a `retry` group**, like `rm -f a b c`. There is no
    per-id form.
 
+10. **A malformed argument aborts the whole command; a refusal does not.** Every positional
+    is shape-checked against `isInstanceRef` before the first call goes out, so a list that
+    is not id-shaped touches nothing. This is the conflict-vs-mistake split of decision 5
+    moved one step earlier: what can be known *without asking the server* must not be
+    discovered halfway through mutating. The case it exists for is a table substituted in
+    where ids were meant, which otherwise pauses whichever cell parses as a UUID while
+    printing a "not found" for every other word on screen. The shape test must keep
+    accepting DERIVED ids — a child is `idgen.Add`/`After` arithmetic on its parent, which
+    can carry into the variant nibble; `uuid.Parse` checks the textual form only, and
+    tightening it to `Version()`/`Variant()` would refuse real children deep in a sibling
+    run and nowhere else (pinned by `TestIsInstanceRefAcceptsDerivedChildIDs`).
+
+11. **The list a group is fed from must name only what the group can act on.** `instances`
+    lists **roots only** (`children=true` opts them back in), because a tree is the unit
+    every one of these verbs moves — an id list carrying children would collect refusals
+    the caller can do nothing about. `-q` prints bare ids for exactly this substitution, so
+    nothing but ids may reach its stdout: an empty list prints **nothing** (or "no
+    instances" arrives as two arguments) and the cap notice stays on stderr, where a
+    silently truncated list would otherwise pause 20 of 50. Every row carries `parent_id`,
+    since with children included nothing else tells the two apart.
+
 ## Surface
 
 ```
@@ -287,8 +308,9 @@ models the call as an assertion, not because `systemctl` post-processes a failur
   are `already`, because the promise is "not advancing" and both keep it. They are still
   distinguishable when it matters: the response's `status` says which, and the `already`
   line prints it. What is deliberately *not* offered is a way to make settled fatal.
-- **No selector sweep.** `pause --status running --process foo` is a different feature with
-  `upgrade`'s sweep shape (list, then loop) and is out of scope here.
+- **No selector sweep.** `pause --status running --process foo` stays unbuilt: `instances`
+  grew `--process`/`--version` instead, so the sweep is spelled as a substitution the shell
+  already understands rather than as a second selector on every verb.
 - The summary line is more explicit than `upgrade`'s existing tally ("moved 2 tree(s), 1
   already there"). `upgrade` may adopt this form later; nothing here requires it.
 
@@ -310,3 +332,8 @@ What the tests must pin, none of which today's suite would catch:
   exists for, and the one a `status = 'running'` selector gets wrong.
 - **`N=1` identity**: the success line and the stderr failure path unchanged from today.
 - **`get a b` and `logs a b` are refused**, not silently truncated to `a`.
+- **A malformed list mutates nothing** — the id that happens to parse must be untouched,
+  and the report must be one line rather than one per argument.
+- **`-q` prints nothing for an empty list**, and its cap notice lands on stderr only.
+- **The default listing excludes children**, so a `-q` substitution never hands a root-only
+  verb something it must refuse.

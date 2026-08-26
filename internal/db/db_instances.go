@@ -65,7 +65,7 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 // Lightweight ListInstances projection — no context/call-stack blobs; order matches
 // scanInstanceSummary. error_code stays despite the rule: short, and it is what a list
 // is scanned for when something has gone wrong.
-const instanceSummaryColumns = `id, process_name, process_version, retry_count,
+const instanceSummaryColumns = `id, parent_id, process_name, process_version, retry_count,
 	status, wait_state, task, error_message, error_code, created_at, updated_at`
 
 // Column order must match instanceSummaryColumns.
@@ -77,7 +77,7 @@ func scanInstanceSummary(s interface{ Scan(...any) error }) (*model.InstanceSumm
 		createdAt, updatedAt       int64
 	)
 	if err := s.Scan(
-		&r.ID, &r.ProcessName, &processVersion, &retryCount,
+		&r.ID, &r.ParentID, &r.ProcessName, &processVersion, &retryCount,
 		&status, &waitState, &r.Task, &r.Error, &r.ErrorCode, &createdAt, &updatedAt,
 	); err != nil {
 		return nil, err
@@ -523,6 +523,8 @@ func (db *DB) GetInstance(id string) (*model.ProcessInstance, error) {
 // sort: a caller walking forward pairs its bound with the sort it ordered by, and naming
 // the column keeps that pairing the caller's to state instead of this function's to guess.
 // Summaries omit the context blob — use GetInstance for full detail.
+// rootsOnly is the DEFAULT at every layer above this one: a tree is one unit of work, and
+// a child_list fan-out otherwise buries the roots it belongs to. specs/id-list-commands.md.
 func (db *DB) ListInstances(status, errorCode, process string, version int, rootsOnly bool, created, updated Window, req PageReq) ([]*model.InstanceSummary, PageInfo, error) {
 	q := instancePaginator.query(req).
 		EqIf("status", status, status != "").

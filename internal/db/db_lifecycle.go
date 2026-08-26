@@ -224,8 +224,8 @@ func (db *DB) PauseProcess(ctx context.Context, id string) (LifecycleResult, err
 	var settled, leased []string
 	// Rows a previous pause left mid-task. Nothing to write for them, but they are the
 	// difference between a tree that has stopped and one still draining.
-	var draining int
-	if err := db.withTx(ctx, func(_ *dbgen.Queries, exec dbgen.DBTX) error {
+	var draining int64
+	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
 		now := nowMillis()
 
 		// Lock the rows this call mutates, in id order — the shared global order that prevents
@@ -267,11 +267,11 @@ func (db *DB) PauseProcess(ctx context.Context, id string) (LifecycleResult, err
 			// 'pausing' is excluded from the selector above (it matches 'running' only), so
 			// without this a second pause on a draining tree would report it as stopped while
 			// a worker was still inside a task.
-			if err := exec.QueryRowContext(ctx, subtreeCTE+`
-			SELECT COUNT(*) FROM process_instances
-			WHERE id IN (SELECT id FROM subtree) AND status = 'pausing'`, id).Scan(&draining); err != nil {
+			n, err := qtx.CountDrainingInTree(ctx, id)
+			if err != nil {
 				return fmt.Errorf("count draining instances: %w", err)
 			}
+			draining = n
 			return nil
 		}
 
@@ -399,7 +399,7 @@ func (db *DB) ResumeProcess(ctx context.Context, id string) (LifecycleResult, er
 	// Collected under the same lock as PauseProcess, and for the same reason: the ids
 	// are what the per-instance audit entries are keyed on.
 	var resumed []string
-	if err := db.withTx(ctx, func(_ *dbgen.Queries, exec dbgen.DBTX) error {
+	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
 		now := nowMillis()
 
 		rows, err := exec.QueryContext(ctx, subtreeCTE+`
@@ -428,9 +428,8 @@ func (db *DB) ResumeProcess(ctx context.Context, id string) (LifecycleResult, er
 			// or it has settled and never will. Split here rather than letting the caller
 			// re-read: this transaction holds the tree, and an answer derived afterwards
 			// describes one that may have moved. specs/id-list-commands.md.
-			var status string
-			if err := exec.QueryRowContext(ctx,
-				`SELECT status FROM process_instances WHERE id = ?`, id).Scan(&status); err != nil {
+			status, err := qtx.GetInstanceStatus(ctx, id)
+			if err != nil {
 				return fmt.Errorf("read root status: %w", err)
 			}
 			if model.Status(status).Terminal() {

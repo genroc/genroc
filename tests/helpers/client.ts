@@ -17,6 +17,10 @@ type InstanceQuery = NonNullable<paths["/instances"]["get"]["parameters"]["query
 // until it is absent, and returns every matching instance. List endpoints now cap
 // a page (default/cap 1000), so callers that need the whole set must page rather
 // than read a single response.
+/**
+ * Every instance, CHILDREN INCLUDED — the endpoint lists roots only by default (one row
+ * per tree), so enumerating a tree from the outside has to ask for them.
+ */
 export async function listAllInstances(
   apiClient: ApiClient = client,
   query: Pick<InstanceQuery, "status"> = {},
@@ -25,7 +29,7 @@ export async function listAllInstances(
   let after: string | undefined;
   for (;;) {
     const { data, error } = await apiClient.GET("/instances", {
-      params: { query: { ...query, after, limit: 1000 } },
+      params: { query: { ...query, children: true, after, limit: 1000 } },
     });
     if (error) throw new Error(`list instances failed: ${JSON.stringify(error)}`);
     all.push(...(data?.items ?? []));

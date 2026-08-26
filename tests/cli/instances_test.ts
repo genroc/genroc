@@ -374,6 +374,165 @@ test("instances — an empty result says so, and --json prints []", () => {
   expect(runCli(bin, ["instances", "--error-code", nothing, "--json"]).stdout.trim()).toBe("[]");
 });
 
+// ── roots-only default, and the filters ─────────────────────────────────────────
+
+test("instances — lists roots only, and --children adds them back with a PARENT column", async () => {
+  const kid = uid("rk");
+  const parent = uid("rp");
+  runCli(bin, [
+    "apply",
+    "-f",
+    writeDefs([
+      { name: kid, tasks: [{ id: "t", switch: [{ goto: "end" }] }], output: { ok: true } },
+      {
+        name: parent,
+        tasks: [
+          {
+            id: "call",
+            action: {
+              type: "child",
+              name: kid,
+              input: {},
+              result_schema: { type: "object", properties: { ok: { type: "boolean" } } },
+            },
+            switch: [{ goto: "end" }],
+          },
+        ],
+      },
+    ]),
+  ]);
+  const rootID = runCli(bin, ["run", parent, "-q"]).stdout.trim();
+  expect(await waitForInstance(rootID)).toBe("completed");
+
+  // A tree is one unit of work, so the default listing is one row for it.
+  const roots = runCli(bin, ["instances", "--process", kid, "--since", "1h", "--json"]);
+  expect(JSON.parse(roots.stdout), `${kid} only ever exists as a child`).toEqual([]);
+
+  const withKids = JSON.parse(
+    runCli(bin, ["instances", "--process", kid, "--children", "--since", "1h", "--json"])
+      .stdout,
+  ) as (InstanceRow & { parent_id: string })[];
+  expect(withKids.length).toBe(1);
+  expect(withKids[0].parent_id, "a child row must name its parent").toBe(rootID);
+
+  // The PARENT column earns its width only when children are in the listing.
+  const table = runCli(bin, ["instances", "--children", "--since", "1h"]).stdout;
+  expect(table).toContain("PARENT");
+  expect(runCli(bin, ["instances", "--since", "1h"]).stdout).not.toContain("PARENT");
+
+  // The point of the default: -q yields only ids the root-only verbs can act on.
+  const ids = runCli(bin, ["instances", "-q", "--since", "1h"]).stdout.trim().split("\n");
+  expect(ids).toContain(rootID);
+  expect(ids, "a child id here would be refused by pause/resume/retry").not.toContain(
+    withKids[0].id,
+  );
+}, 30_000);
+
+test("instances --process / --version — narrow to one process, and to one of its versions", () => {
+  const name = apply(switchDef(uid("filt")));
+  const mine = runCli(bin, ["run", name, "-q"]).stdout.trim();
+  const other = apply(switchDef(uid("filt_other")));
+  const theirs = runCli(bin, ["run", other, "-q"]).stdout.trim();
+
+  const byProcess = runCli(bin, ["instances", "--process", name, "-q", "--since", "1h"])
+    .stdout.trim()
+    .split("\n");
+  expect(byProcess).toContain(mine);
+  expect(byProcess, "--process must exclude every other process").not.toContain(theirs);
+
+  expect(
+    runCli(bin, ["instances", "--process", name, "--version", "1", "-q", "--since", "1h"])
+      .stdout.trim()
+      .split("\n"),
+  ).toContain(mine);
+  // No instance is on version 99, so the pair narrows to nothing rather than ignoring one.
+  expect(
+    runCli(bin, ["instances", "--process", name, "--version", "99", "-q", "--since", "1h"])
+      .stdout.trim(),
+  ).toBe("");
+}, 30_000);
+
+// ── instances -q ────────────────────────────────────────────────────────────────
+
+test("instances -q — ids only, one per line, and they match what the table lists", () => {
+  const name = apply(switchDef(uid("quiet")));
+  const ids = [
+    runCli(bin, ["run", name, "-q"]).stdout.trim(),
+    runCli(bin, ["run", name, "-q"]).stdout.trim(),
+  ];
+
+  // Scoped to this test's own process: the suite shares one server, so comparing two
+  // whole-database listings races against every other file's instances.
+  const scope = ["--process", name, "--since", "1h"];
+  const q = runCli(bin, ["instances", "-q", ...scope]);
+  expect(q.ok).toBe(true);
+  const lines = q.stdout.trim().split("\n");
+  expect(lines.every((l) => /^[0-9a-f-]{36}$/.test(l)), `not bare ids: ${q.stdout}`).toBe(true);
+  expect(lines.sort()).toEqual([...ids].sort());
+
+  // Same rows in the same order, so -q is a projection of the list and not its own query.
+  const table = runCli(bin, ["instances", "--json", ...scope]);
+  expect(runCli(bin, ["instances", "-q", ...scope]).stdout.trim().split("\n")).toEqual(
+    (JSON.parse(table.stdout) as InstanceRow[]).map((r) => r.id),
+  );
+});
+
+test("instances -q — an empty list prints NOTHING, not 'no instances'", () => {
+  const r = runCli(bin, ["instances", "-q", "--error-code", uid("no_such_code")]);
+  expect(r.ok).toBe(true);
+  // The whole point: `genctl pause $(genctl instances -q ...)` would otherwise receive
+  // the words "no" and "instances" as two instance ids.
+  expect(r.stdout, "-q must put nothing on stdout when there is nothing to list").toBe("");
+  expect(r.stderr).toBe("");
+});
+
+test("instances -q — feeding the ids straight into a lifecycle command", async () => {
+  const name = apply(externalDef(uid("nested")));
+  const ids = [
+    startedID(runCli(bin, ["run", name]).stdout),
+    startedID(runCli(bin, ["run", name]).stdout),
+  ];
+  for (const id of ids) await waitForExternalToken(id);
+
+  // What `genctl pause $(genctl instances -q --status running)` does, with the shell's
+  // word-splitting spelled out. Narrowed to this test's own ids before pausing: the suite
+  // shares one server, so pausing every running instance suspends other tests mid-flight.
+  const listed = runCli(bin, ["instances", "-q", "--status", "running", "--since", "1h"]);
+  const args = listed.stdout.trim().split("\n").filter((id) => ids.includes(id));
+  expect(args.sort(), "-q must list the running instances this test started").toEqual(
+    [...ids].sort(),
+  );
+
+  const paused = runCli(bin, ["pause", ...args]);
+  expect(paused.ok, paused.stderr).toBe(true);
+  for (const id of ids) {
+    expect((JSON.parse(runCli(bin, ["get", id, "--json"]).stdout) as InstanceRow).status).toBe(
+      "paused",
+    );
+  }
+}, 30_000);
+
+test("instances -q — the cap still reports, and only on stderr", async () => {
+  const name = apply(switchDef(uid("cap_quiet")));
+  const ids = Array.from({ length: listCap + 1 }, () =>
+    startedID(runCli(bin, ["run", name]).stdout),
+  );
+  expect(await waitForInstance(ids[ids.length - 1])).toBe("completed");
+
+  const r = runCli(bin, ["instances", "-q"]);
+  expect(r.stdout.trim().split("\n").length).toBe(listCap);
+  // A truncated list nested into `pause` acts on 20 of 21 — so the notice matters more
+  // here than anywhere, and must not land on stdout where it would become an argument.
+  expect(r.stderr).toContain(`showing the newest ${listCap} instances`);
+  expect(r.stdout).not.toContain("showing the newest");
+}, 30_000);
+
+test("instances — -q and --json are two machine formats, so naming both is refused", () => {
+  const r = runCli(bin, ["instances", "-q", "--json"]);
+  expect(r.ok).toBe(false);
+  expect(r.stderr).toContain("two machine-readable forms");
+});
+
 // ── pause / resume / retry ──────────────────────────────────────────────────────
 
 test("pause then resume — parks a running instance and revives it", async () => {
@@ -499,6 +658,42 @@ test("retry — several ids re-arm in one command", async () => {
     `retried: ${second}`,
   );
   expect(r.stderr).toContain("3 named: 2 retried, 0 already, 1 refused");
+}, 30_000);
+
+test("a malformed id list is refused whole — nothing is sent, nothing is mutated", async () => {
+  const name = apply(externalDef(uid("badids")));
+  const id = startedID(runCli(bin, ["run", name]).stdout);
+  await waitForExternalToken(id);
+  const status = () =>
+    (JSON.parse(runCli(bin, ["get", id, "--json"]).stdout) as InstanceRow).status;
+
+  // The mistake this exists for: `genctl pause $(genctl instances --status running)`
+  // without -q, so the TABLE arrives as arguments. A real id sits among the words, and
+  // acting on it while reporting "not found" for the rest is a typo that mutates.
+  const table = runCli(bin, ["instances", "--status", "running", "--since", "1h"]);
+  const words = table.stdout.split(/\s+/).filter(Boolean);
+  expect(words, "the table must carry both headers and a real id").toContain("STATUS");
+  expect(words).toContain(id);
+
+  const r = runCli(bin, ["pause", ...words]);
+  expect(r.ok).toBe(false);
+  expect(r.stderr).toContain("are not instance ids");
+  expect(r.stderr).toContain("nothing was sent");
+  // One line, not one per cell: the noise was half the bug.
+  expect(r.stderr.split("\n").filter((l) => l.startsWith("genctl:")).length).toBe(1);
+  expect(r.stderr).toContain("-q");
+  expect(status(), "a malformed command must not pause the id it happened to contain").toBe(
+    "running",
+  );
+
+  // A single bad argument is a typo, so it gets no list hint to guess at.
+  const one = runCli(bin, ["resume", "not-a-uuid"]);
+  expect(one.ok).toBe(false);
+  expect(one.stderr).toContain("is not an instance id");
+  expect(one.stderr).not.toContain("-q");
+
+  // The shape check must not cost @last, which is an id reference and not a UUID.
+  expect(runCli(bin, ["pause", "@last"]).ok).toBe(true);
 }, 30_000);
 
 test("get and logs read one instance — a second id is refused, not dropped", () => {

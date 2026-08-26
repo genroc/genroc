@@ -10,7 +10,7 @@
 //	genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
 //	genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
 //	genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [-q]
-//	genctl instances [--status <status>] [--error-code <code>] [--sort updated|created] [--since <when>] [--until <when>] [--json]
+//	genctl instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>] [--children] [--sort updated|created] [--since <when>] [--until <when>] [--json | -q]
 //	genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
 //	genctl external-tasks [--process <name>] [--version <n>] [--task <id>] [--since <when>] [--until <when>] [--json]
 //	genctl upgrade  <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]
@@ -98,6 +98,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"genroc/internal/model"
@@ -210,11 +211,60 @@ func instanceIDsAndFlags(fs *flag.FlagSet, args []string) []string {
 	if len(pos) == 0 {
 		pos = []string{""} // resolveInstanceID carries the message naming what is missing
 	}
+	// EVERY positional is shape-checked before the first call goes out. A list that is not
+	// id-shaped is a malformed command, not a job that half applies — the distinction is
+	// the same conflict-vs-mistake one the outcomes draw, moved one step earlier: what can
+	// be known without asking the server must not be discovered halfway through mutating.
+	// The case this exists for is a table pasted in where ids were meant (`instances`
+	// without -q), which otherwise pauses whichever cell happens to parse as a UUID while
+	// reporting a "not found" for every other word on the screen.
+	var bad []string
+	for _, ref := range pos {
+		if ref != "" && !isInstanceRef(ref) {
+			bad = append(bad, ref)
+		}
+	}
+	if len(bad) > 0 {
+		not := "is not an instance id"
+		if len(bad) > 1 {
+			not = "are not instance ids"
+		}
+		fatal("%s %s — nothing was sent.\n"+
+			"  an instance id is a UUID, or @last%s", quoteSome(bad, 3), not, listHint(len(bad)))
+	}
 	ids := make([]string, len(pos))
 	for i, ref := range pos {
 		ids[i] = resolveInstanceID(ref)
 	}
 	return ids
+}
+
+// quoteSome renders at most n of the arguments, so a whole mistyped table reports as one
+// line rather than one line per cell.
+func quoteSome(args []string, n int) string {
+	shown := args
+	if len(shown) > n {
+		shown = shown[:n]
+	}
+	quoted := make([]string, len(shown))
+	for i, a := range shown {
+		quoted[i] = strconv.Quote(a)
+	}
+	out := strings.Join(quoted, ", ")
+	if len(args) > len(shown) {
+		out += fmt.Sprintf(" and %d more", len(args)-len(shown))
+	}
+	return out
+}
+
+// listHint points at the one mistake that produces a screenful of non-ids: a list command
+// substituted in without -q, so the table's headers and cells arrive as arguments. Offered
+// only for several bad arguments — one is a typo, and guessing at a typo is noise.
+func listHint(bad int) string {
+	if bad < 2 {
+		return ""
+	}
+	return "\n  if you substituted a list in, `genctl instances -q` prints ids and nothing else"
 }
 
 // eachInstance runs one lifecycle assertion per id and reports each answer under its own
@@ -259,7 +309,7 @@ func usage() {
   genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
   genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
   genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
-  genctl instances [--status <status>] [--error-code <code>] [--sort updated|created] [--since <when>] [--until <when>] [--json]
+  genctl instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>] [--children] [--sort updated|created] [--since <when>] [--until <when>] [--json | -q]
   genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
   genctl external-tasks [--process <name>] [--version <n>] [--task <id>] [--since <when>] [--until <when>] [--json]
   genctl upgrade  <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]
@@ -303,6 +353,14 @@ Flags:
             newest N before that instant.
   --sort    instances: created (default) or updated; definitions: created or name.
             --since bounds whichever column the sort keys on.
+  --children
+            instances: include child instances. By default the listing is ROOTS ONLY —
+            one row per tree, which is the unit pause/resume/retry and upgrade act on, so
+            a list substituted into one of them names only what it can move. A child_list
+            fan-out would otherwise bury the roots it belongs to. With it, a PARENT column
+            appears, since nothing else on a row tells the two apart.
+  --process instances: exact process name, across every version. --version narrows to one
+            version (and stands alone to mean "any process at that version")
   --to      compat: the channel to compare against. --from is its other end and is
             never defaulted: naming one side hides which two documents were compared.
   --ignore  compat: excuse a check from the exit code. Only "contract" is accepted —
@@ -327,7 +385,12 @@ Time zones:
             those payloads are large by definition; it prints the ref instead, and
             "genctl object <ref>" fetches the one you want.
   -q        with run, print only the new instance id (id=$(genctl run NAME -q));
-            with resolve/signal, suppress the confirmation line
+            with instances, print only ids, one per line, and nothing at all when the
+            list is empty — the form to nest in a lifecycle command:
+              genctl pause $(genctl instances -q --status running)
+              genctl instances -q --status failed | xargs genctl retry
+            The cap still applies and still reports on stderr, so a fleet wider than 20
+            needs --since; with resolve/signal, suppress the confirmation line
 
 Instance id:
   get/logs/pause/resume/retry/signal require an instance id; pass @last for the most

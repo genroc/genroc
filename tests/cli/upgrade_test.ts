@@ -293,7 +293,11 @@ test("a child id is refused, and is not paused on the way", async () => {
 
   let childId = "";
   for (let i = 0; i < 100 && !childId; i++) {
-    const list = await client.GET("/instances", { params: { query: { process: kid } } });
+    // children: true — the listing is roots only by default, and this process only ever
+    // exists as a child.
+    const list = await client.GET("/instances", {
+      params: { query: { process: kid, children: true } },
+    });
     const row = list.data?.items?.[0];
     if (row) childId = row.id;
     else await new Promise((res) => setTimeout(res, 50));
