@@ -45,14 +45,19 @@
 // the command. A *duration* resolves against this machine's clock rather than the
 // server's; see parseWhen for when that distinction bites.
 //
-//	genctl pause    <instance-id>
-//	genctl resume   <instance-id>
-//	genctl retry    [--force] <instance-id>
+//	genctl pause    <instance-id> [<instance-id> ...]
+//	genctl resume   <instance-id> [<instance-id> ...]
+//	genctl retry    [--force] <instance-id> [<instance-id> ...]
 //	genctl last
 //
 // get/logs/pause/resume/retry/signal require an instance id; pass @last for the most
 // recently started instance (recorded by run). `genctl last` prints that id. upgrade takes
-// either form: a process name sweeps its fleet, an id moves that one tree.
+// either form: a process name sweeps its fleet, ids move those trees.
+//
+// pause/resume/retry act on every id named, one call each. They are assertions, so an id
+// already in the state asserted prints "already" and does NOT fail the command — which is
+// what lets a line that was only half applied be run again as-is. Only a refusal exits 1,
+// and it stops neither the ids after it nor the exit code. specs/id-list-commands.md.
 //
 //	genctl compat   <process> <from> <to>
 //	genctl compat   -f file.yaml [-f ...] --from <channel>
@@ -94,6 +99,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"genroc/internal/model"
 )
 
 // Command conventions (naming, --server, table/--json output, the no---limit list
@@ -183,19 +190,65 @@ func addServerFlag(fs *flag.FlagSet, def string) *string {
 	return fs.String("server", def, "genroc server base URL ($GENROC_SERVER)")
 }
 
-// instanceIDAndFlags parses an instance subcommand where the id may sit before or after
-// the flags (`get <id> --json` and `pause --server X <id>` both work). The id must be
-// explicit — a concrete id or "@last" (see resolveInstanceID).
+// instanceIDAndFlags parses an instance subcommand that reads ONE instance (`get <id>
+// --json`, `logs --server X <id>`). A second positional is refused rather than dropped:
+// the assertion commands next door take id lists, so `get a b` is a thing people type,
+// and an id silently discarded reads as if it had been shown.
 func instanceIDAndFlags(fs *flag.FlagSet, args []string) string {
-	var id string
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		id, args = args[0], args[1:]
+	ids := instanceIDsAndFlags(fs, args)
+	if len(ids) > 1 {
+		fatal("%s reads one instance, and %d ids were named", fs.Name(), len(ids))
 	}
-	fs.Parse(args)
-	if id == "" {
-		id = fs.Arg(0)
+	return ids[0]
+}
+
+// instanceIDsAndFlags is the same parse for pause/resume/retry, which act on every id
+// named. Ids may sit before or after the flags and each resolves on its own, so `@last`
+// may appear among them (see resolveInstanceID).
+func instanceIDsAndFlags(fs *flag.FlagSet, args []string) []string {
+	pos := leadingArgs(fs, args)
+	if len(pos) == 0 {
+		pos = []string{""} // resolveInstanceID carries the message naming what is missing
 	}
-	return resolveInstanceID(id)
+	ids := make([]string, len(pos))
+	for i, ref := range pos {
+		ids[i] = resolveInstanceID(ref)
+	}
+	return ids
+}
+
+// eachInstance runs one lifecycle assertion per id and reports each answer under its own
+// id. Only a refusal fails the command: an id already in the asserted state is reported
+// and forgiven, which is what lets a partially applied line converge when it is run again.
+// specs/id-list-commands.md.
+func eachInstance(ids []string, done string, do func(id string) (model.Outcome, error)) {
+	var applied, already, refused int
+	for _, id := range ids {
+		outcome, err := do(id)
+		switch {
+		case err != nil:
+			refused++
+			fmt.Fprintf(os.Stderr, "genctl: %s: %v\n", id, err)
+		case outcome == model.OutcomeUnchanged:
+			already++
+			fmt.Printf("already: %s\n", id)
+		case outcome == model.OutcomeAccepted:
+			applied++
+			// Asked, not stopped: a task already in flight runs to its next boundary, so
+			// saying "paused" here would claim the tree had come to rest.
+			fmt.Printf("%s: %s  (draining a task already in flight)\n", done, id)
+		default:
+			applied++
+			fmt.Printf("%s: %s\n", done, id)
+		}
+	}
+	if len(ids) > 1 {
+		fmt.Fprintf(os.Stderr, "\n%d named: %d %s, %d already, %d refused\n",
+			len(ids), applied, done, already, refused)
+	}
+	if refused > 0 {
+		os.Exit(1)
+	}
 }
 
 func usage() {
@@ -214,9 +267,9 @@ func usage() {
   genctl get      <instance-id> [--resolve] [--json]
   genctl object   <ref>
   genctl logs     [--level <level>] [--since <when>] [--until <when>] [--time clock|full] [--recursive] [--mode basic|detail|json] <instance-id>
-  genctl pause    <instance-id>
-  genctl resume   <instance-id>
-  genctl retry    [--force] <instance-id>
+  genctl pause    <instance-id> [<instance-id> ...]
+  genctl resume   <instance-id> [<instance-id> ...]
+  genctl retry    [--force] <instance-id> [<instance-id> ...]
   genctl last
   genctl compat   <process> <from> <to>
   genctl compat   -f file.yaml [-f ...] --from <channel>
@@ -279,6 +332,10 @@ Time zones:
 Instance id:
   get/logs/pause/resume/retry/signal require an instance id; pass @last for the most
   recently started instance (recorded by run), or run "genctl last" to print it.
+  pause/resume/retry take several, one call each. They assert a state, so an id already
+  in it prints "already" and does not fail the command; run the same line again to
+  finish one that was only half applied. A refusal stops neither the ids after it nor
+  the exit code, which is 1 if any id was refused.
   upgrade takes either a process name (sweeps the fleet, needs --from) or instance ids
   (moves those trees, one call each; --from is the sweep's selector, so it is not
   needed). compat takes one id too, and reads the from side off the row: compat <id>

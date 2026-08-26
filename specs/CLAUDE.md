@@ -281,6 +281,35 @@ per-definition field).
   say "required, not deferred"; the doc now rejects it outright** and the shipped code has
   none, so read §2f rather than this line: pruning `mustNew(T)` to what is actually read
   would promise an upgrade whose instance then reads a value that is not there.
+- [id-list-commands.md](id-list-commands.md) — **BUILT (2026-08-26).** `genctl pause`,
+  `resume` and `retry` take several instance ids, iterating client-side like `upgrade`'s id
+  form and adding no endpoint. Its premise is that these three verbs **refuse a no-op** by
+  design (`db_lifecycle.go:255`, "Report it rather than silently succeeding"), so unlike an
+  upgrade sweep a partially applied group does NOT converge on a re-run — which is what
+  forces a third outcome, `already`, beside done and refused. What generates the taxonomy is
+  a per-verb promise carried by exit 0 (pause: nothing you named is advancing; resume:
+  everything is; retry: everything got a fresh attempt), so `completed` counts as `already`
+  for pause and as `refused` for resume — the asymmetry is the point, not a wart. Two rules
+  keep it honest: classify on the wire error's `code` and never on its prose (genctl
+  currently discards the code). It also proposes **the API change that follows from taking
+  the assertion model seriously**: `already` is not an error, so `pause`/`resume` return
+  a derived status code — `Outcome` on `Reply` beside `Code`, for the same reason `Code`
+  lives there (TCP and UDS have no status line), mapping to **200 applied / 202 accepted /
+  204 unchanged** — and keep a 409 only where the assertion genuinely cannot hold
+  (`resume` on a settled tree), while `retry` — not an assertion — keeps all of its. An
+  earlier draft had the CLI re-read the row to classify `resume`'s 409; that the client
+  needed a workaround was the signal the API was wrong, and the server decides it under the
+  lock that read the tree, which no client can reproduce. Writing it up found a **factual
+  error in the spec's own model**: `pause` cannot promise the tree has stopped, because a
+  leased row lands in `pausing` and settles only on the worker's next write — 202 is what
+  distinguishes asked-and-stopped from asked-and-draining, and a second pause on a draining
+  tree must not report `unchanged`. Records why no batch endpoint: five
+  pauses are five logical changes, unlike `applyBatch`, which earns its endpoint by being
+  one. Its **Prior art** section is load-bearing rather than decorative: the taxonomy is the
+  standard split — an object that does not exist is an error by default (`rm` without `-f`),
+  an object already holding the target state is success by default (`systemctl stop` a
+  stopped unit) — and `pause`/`resume` are the `systemctl stop`/`start` analogue, which is
+  also why `retry` has no counterpart there.
 - [durability-levels.md](durability-levels.md) — **one piece built** (`--sqlite-fullfsync`,
   which changes no default); the rest is proposal. Move the fsync off every persist onto a
   few boundaries, exposed as a tunable ladder (`none` → `accepted` → `only-once` →

@@ -189,6 +189,15 @@ func addOperation(r *openapi31.Reflector, a actionDef) {
 	// Response data — reflect zero value of the type.
 	if a.Resp != nil {
 		op.AddRespStructure(zeroOf(a.Resp))
+		for _, alt := range a.AltSuccess {
+			body := alt.Body
+			if body != nil {
+				body = zeroOf(body)
+			}
+			op.AddRespStructure(body, func(cu *openapi.ContentUnit) {
+				cu.HTTPStatus = alt.Status
+			})
+		}
 		// Error responses use errorBody, the shape actually written over HTTP, and are
 		// documented per status. CodeInvalid and CodeInternal apply to every action:
 		// any body can be rejected, and any action can hit an unclassified failure.

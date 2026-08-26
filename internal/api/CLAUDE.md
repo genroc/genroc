@@ -8,6 +8,20 @@ spec routes only.
 Connection limits and readiness: [specs/resource-limits.md](../../specs/resource-limits.md).
 The rest of this file is the part that breaks silently.
 
+## A successful assertion carries its status too
+
+`Reply.Code` maps to a failure status through `statusOf`; `Reply.Outcome` is its
+success-side twin and maps through `statusOfOutcome` (200 applied / 202 accepted / 204
+unchanged). Both live on `Reply` rather than on the HTTP response for the same reason —
+**TCP and UDS clients encode `Reply` directly and have no status line to read**, so an
+outcome expressed only as a status code would be invisible to two of the three transports.
+
+204 must not carry a body, which is why `outcomeReply` leaves `Data` empty for exactly
+that outcome and `writeReply` returns before encoding. A body added there is silently
+dropped by well-behaved clients and rejected by strict ones. `actionDef.AltSuccess` is what
+puts the extra statuses in the spec — `Resp` alone documents 200, so without it a client
+generated from `openapi.json` sees one of the three answers. specs/id-list-commands.md.
+
 ## `ListenHTTP` must wait for the drain, and must not wait after a bind failure
 
 `ListenAndServe` returns `http.ErrServerClosed` the moment `Shutdown` closes the listener —

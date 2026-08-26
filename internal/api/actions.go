@@ -11,6 +11,21 @@ import (
 	"genroc/internal/validation"
 )
 
+// LifecycleResp is what pause/resume/retry return on a 200 or 202. There is no body on
+// the 204 (unchanged) — HTTP forbids one — so a client that needs to know WHICH
+// already-state it hit reads the instance. specs/id-list-commands.md.
+type LifecycleResp struct {
+	Outcome   model.Outcome `json:"outcome" description:"What this call did: applied (the assertion holds and this call made it hold), or accepted (recorded, not yet in effect — a pause left rows draining a task already in flight). A 204 with no body means unchanged: the assertion already held."`
+	Status    model.Status  `json:"status"    description:"The root instance's status once the write committed"`
+	Instances int           `json:"instances" description:"How many instances in the tree this call wrote"`
+}
+
+// altResp is one extra success status for an action; see actionDef.AltSuccess.
+type altResp struct {
+	Status int
+	Body   any
+}
+
 // actionDef is the single source of truth for one API action.
 // It drives HTTP routing (Method + Path) and OpenAPI documentation
 // (schemas reflected from Go types).
@@ -27,8 +42,14 @@ type actionDef struct {
 	// PathQuery is a struct with path/query tagged fields for OpenAPI parameter generation.
 	PathQuery any
 
-	// Resp is a zero-value of the response data type.
+	// Resp is a zero-value of the response data type, documented at 200.
 	Resp any
+
+	// AltSuccess documents the success statuses an action can return besides 200. Only
+	// the lifecycle assertions need it: their status IS the answer (statusOfOutcome), so
+	// a spec listing 200 alone would hide two of the three outcomes. A nil Body documents
+	// a response with no content, which is what 204 requires.
+	AltSuccess []altResp
 
 	// Errors are the failure codes this action can produce, documented in the spec as
 	// the corresponding statuses. CodeInvalid and CodeInternal are implicit — every
@@ -486,13 +507,19 @@ var registry = func() []actionDef {
 			Name:    "pause_instance",
 			Method:  http.MethodPost,
 			Path:    "/instances/{id}/pause",
-			Summary: "Pause a running root process instance and its entire descendant tree; takes effect at the next task boundary, so a task already executing runs to completion",
+			Summary: "Pause a running root process instance and its entire descendant tree; takes effect at the next task boundary, so a task already executing runs to completion. An assertion: 200 if the tree stopped, 202 if a task already in flight is still draining, 204 if it was not running anyway",
 			Tags:    []string{"Instances"},
-			Errors:  []Code{CodeNotFound, CodeConflict},
+			// No CodeConflict: a tree that is already stopped satisfies the assertion and
+			// comes back 204, not 409. specs/id-list-commands.md.
+			Errors: []Code{CodeNotFound},
 			PathQuery: struct {
 				ID string `path:"id" format:"uuid"`
 			}{},
-			Resp: map[string]any{"paused": true},
+			Resp: LifecycleResp{},
+			AltSuccess: []altResp{
+				{Status: http.StatusAccepted, Body: LifecycleResp{}},
+				{Status: http.StatusNoContent},
+			},
 			handle: func(h *Handlers, env Envelope) Reply {
 				return h.pauseInstance(env.ID)
 			},
@@ -501,13 +528,15 @@ var registry = func() []actionDef {
 			Name:    "resume_instance",
 			Method:  http.MethodPost,
 			Path:    "/instances/{id}/resume",
-			Summary: "Resume a paused root process instance and its tree, continuing exactly where it stopped (timers kept running while paused)",
+			Summary: "Resume a paused root process instance and its tree, continuing exactly where it stopped (timers kept running while paused). An assertion: 200 if it was resumed, 204 if the tree was already advancing; 409 only if it has settled and cannot advance again",
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound, CodeConflict},
 			PathQuery: struct {
 				ID string `path:"id" format:"uuid"`
 			}{},
-			Resp: map[string]any{"resumed": true},
+			Resp: LifecycleResp{},
+			// No 202: a resume is atomic, nothing is left draining (pause-resume.md §7).
+			AltSuccess: []altResp{{Status: http.StatusNoContent}},
 			handle: func(h *Handlers, env Envelope) Reply {
 				return h.resumeInstance(env.ID)
 			},
@@ -523,7 +552,7 @@ var registry = func() []actionDef {
 				ID    string `path:"id" format:"uuid"`
 				Force bool   `query:"force" description:"Override only_once retry protection"`
 			}{},
-			Resp: map[string]any{"retried": true},
+			Resp: LifecycleResp{},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
 				force, _ := strconv.ParseBool(r.URL.Query().Get("force"))
 				b, _ := json.Marshal(RetryInstanceReq{Force: force})

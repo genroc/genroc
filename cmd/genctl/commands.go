@@ -20,6 +20,8 @@ import (
 	"genroc/internal/logview"
 
 	"gopkg.in/yaml.v3"
+
+	"genroc/internal/model"
 )
 
 func runApplyCmd(server string, args []string) {
@@ -914,39 +916,36 @@ func serverErrorDetail(err error, marker string) (string, bool) {
 func runPauseCmd(server string, args []string) {
 	fs := flag.NewFlagSet("pause", flag.ExitOnError)
 	serverFlag := addServerFlag(fs, server)
-	id := instanceIDAndFlags(fs, args)
+	ids := instanceIDsAndFlags(fs, args)
 
-	if err := call(*serverFlag+"/instances/"+url.PathEscape(id)+"/pause", http.MethodPost, nil, nil); err != nil {
-		fatal("%v", err)
-	}
-	fmt.Printf("paused: %s\n", id)
+	eachInstance(ids, "paused", func(id string) (model.Outcome, error) {
+		return assert(*serverFlag + "/instances/" + url.PathEscape(id) + "/pause")
+	})
 }
 
 func runResumeCmd(server string, args []string) {
 	fs := flag.NewFlagSet("resume", flag.ExitOnError)
 	serverFlag := addServerFlag(fs, server)
-	id := instanceIDAndFlags(fs, args)
+	ids := instanceIDsAndFlags(fs, args)
 
-	if err := call(*serverFlag+"/instances/"+url.PathEscape(id)+"/resume", http.MethodPost, nil, nil); err != nil {
-		fatal("%v", err)
-	}
-	fmt.Printf("resumed: %s\n", id)
+	eachInstance(ids, "resumed", func(id string) (model.Outcome, error) {
+		return assert(*serverFlag + "/instances/" + url.PathEscape(id) + "/resume")
+	})
 }
 
 func runRetryCmd(server string, args []string) {
 	fs := flag.NewFlagSet("retry", flag.ExitOnError)
 	serverFlag := addServerFlag(fs, server)
 	forceFlag := fs.Bool("force", false, "override only_once retry protection")
-	id := instanceIDAndFlags(fs, args)
+	ids := instanceIDsAndFlags(fs, args)
 
-	u := *serverFlag + "/instances/" + url.PathEscape(id) + "/retry"
-	if *forceFlag {
-		u += "?force=true"
-	}
-	if err := call(u, http.MethodPost, nil, nil); err != nil {
-		fatal("%v", err)
-	}
-	fmt.Printf("retried: %s\n", id)
+	eachInstance(ids, "retried", func(id string) (model.Outcome, error) {
+		u := *serverFlag + "/instances/" + url.PathEscape(id) + "/retry"
+		if *forceFlag {
+			u += "?force=true"
+		}
+		return assert(u)
+	})
 }
 
 func runLastCmd(args []string) {
@@ -1192,7 +1191,7 @@ func runCompatCmd(server string, args []string) {
 		if isInstanceRef(p) && len(pos) > 1 {
 			// A side carries one version per process (parseSelector's rule), and a second row is
 			// a second version -- of the same process, or of one this report is not scoped to.
-			fatal("compat takes one instance id: two rows are two comparisons, and a side carries "+
+			fatal("compat takes one instance id: two rows are two comparisons, and a side carries " +
 				"one version per process")
 		}
 	}

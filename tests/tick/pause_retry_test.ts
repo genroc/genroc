@@ -15,7 +15,7 @@
  *
  *   2. All retries exhausted before any pause
  *      → the final failed attempt calls failInstance(); status is 'failed', and
- *        pausing a settled process is rejected.
+ *        pausing a settled process reports `unchanged` and touches nothing.
  *
  *   3. retry on a paused process is rejected
  *      → the two verbs are not interchangeable; the error points at resume.
@@ -110,7 +110,7 @@ test("pause while a retry is pending — the retry waits, and resume runs it", a
   }
 });
 
-test("retries exhausted — process fails; pausing a settled process is rejected", async () => {
+test("retries exhausted — process fails; pausing a settled process changes nothing", async () => {
   const id = await ctx.env.start(exhaustedName);
   try {
     // tick: attempt 1 fails → retry 1 scheduled (retry: 1, so one more attempt allowed)
@@ -122,9 +122,9 @@ test("retries exhausted — process fails; pausing a settled process is rejected
     await ctx.env.tick();
     expect(await ctx.env.status(id)).toBe("failed");
 
-    // There is nothing running left to suspend, so the pause is refused rather
-    // than silently doing nothing.
-    await expect(ctx.env.pause(id)).rejects.toThrow(/no running instances/);
+    // Nothing running left to suspend — which is what pause asserts, so it reports
+    // `unchanged` rather than failing, and touches nothing. specs/id-list-commands.md.
+    expect(await ctx.env.pause(id)).toBe("unchanged");
     expect(await ctx.env.status(id)).toBe("failed");
   } finally {
     await ctx.env.tickUntilIdle();

@@ -83,7 +83,7 @@ test("api errors — /tick on a polling server is 501 unsupported, not 400", asy
   expect(body.error).toContain("manual mode");
 });
 
-test("api errors — resuming a process that is not paused is 409 conflict", async () => {
+test("api errors — resuming a SETTLED process is 409 conflict (a live one is 204)", async () => {
   const mock = await startMockService(0, { response: { ok: true } });
   const name = `err_resume_${crypto.randomUUID()}`;
   await client.PUT("/definitions", {
@@ -106,7 +106,7 @@ test("api errors — resuming a process that is not paused is 409 conflict", asy
   const { status, body } = await errorOf(`/instances/${id}/resume`, { method: "POST" });
   expect(status).toBe(409);
   expect(body.code).toBe("conflict");
-  expect(body.error).toContain("not paused");
+  expect(body.error).toContain("settled");
 
   mock.stop();
 });

@@ -200,23 +200,31 @@ func (db *DB) forUpdate() string {
 // leaving wait_state, wake_at, retry_count and context untouched. Root-only: a descendant
 // id is rejected in favour of the root's. See specs/pause-resume.md.
 //
+// An assertion, so a tree that is already stopped is OutcomeUnchanged rather than an error
+// -- the no-op is still REPORTED, which is what the conflict it replaced was for, and a
+// no-op that fails cannot converge when a group of ids is re-run.
+// specs/id-list-commands.md.
+//
 // Only a *leased* row may be marked 'pausing' — it lands in 'paused' when that task's
 // write releases the lease. Anything parked (on children, a delay, an external task) must
 // go straight to 'paused', because a parked row is excluded from ClaimInstances and would
 // otherwise hang in the draining state forever.
-func (db *DB) PauseProcess(ctx context.Context, id string) error {
+func (db *DB) PauseProcess(ctx context.Context, id string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
-		return err
+		return LifecycleResult{}, err
 	}
 	if err := requireRoot(row, "pause"); err != nil {
-		return err
+		return LifecycleResult{}, err
 	}
 
 	// settled is the ids that reached 'paused' in this call; leased is those left draining
 	// in 'pausing'. They are logged as different events because they are different facts:
 	// a leased row is not paused yet, it has only been asked to stop.
 	var settled, leased []string
+	// Rows a previous pause left mid-task. Nothing to write for them, but they are the
+	// difference between a tree that has stopped and one still draining.
+	var draining int
 	if err := db.withTx(ctx, func(_ *dbgen.Queries, exec dbgen.DBTX) error {
 		now := nowMillis()
 
@@ -251,10 +259,20 @@ func (db *DB) PauseProcess(ctx context.Context, id string) error {
 		}
 		rows.Close() // release the cursor before the UPDATE (SQLite single connection)
 
-		// Nothing running anywhere in the tree: the process has already settled (or is
-		// already paused). Report it rather than silently succeeding.
+		// Nothing running anywhere in the tree: it has already settled, is already paused,
+		// or a previous pause is still draining it. Reported as an outcome rather than an
+		// error -- the report is the point, and a no-op that fails cannot converge on a
+		// re-run. specs/id-list-commands.md.
 		if len(settled)+len(leased) == 0 {
-			return fmt.Errorf("process has no running instances to pause (status: %s): %w", row.Status, ErrConflict)
+			// 'pausing' is excluded from the selector above (it matches 'running' only), so
+			// without this a second pause on a draining tree would report it as stopped while
+			// a worker was still inside a task.
+			if err := exec.QueryRowContext(ctx, subtreeCTE+`
+			SELECT COUNT(*) FROM process_instances
+			WHERE id IN (SELECT id FROM subtree) AND status = 'pausing'`, id).Scan(&draining); err != nil {
+				return fmt.Errorf("count draining instances: %w", err)
+			}
+			return nil
 		}
 
 		// A worker mid-task cannot be stopped, so a leased row only records the request
@@ -268,14 +286,49 @@ func (db *DB) PauseProcess(ctx context.Context, id string) error {
 
 		return nil
 	}); err != nil {
-		return err
+		return LifecycleResult{}, err
 	}
 
+	written := len(settled) + len(leased)
+	if written == 0 {
+		if draining > 0 {
+			return db.lifecycleResult(ctx, id, model.OutcomeAccepted, 0)
+		}
+		return db.lifecycleResult(ctx, id, model.OutcomeUnchanged, 0)
+	}
 	db.logTreeAction(id, model.EventPauseRequested, "pause requested",
-		int64(len(settled)+len(leased)), map[string]any{"pausing": len(leased)})
+		int64(written), map[string]any{"pausing": len(leased)})
 	db.logInstances(settled, model.EventPaused, "paused")
 	db.logInstances(leased, model.EventPausing, "pause requested while a task was in flight")
-	return nil
+
+	// A leased row is not paused, only asked to stop: the tree still has a task running
+	// until that worker's write lands. Reporting it as applied would claim the tree had
+	// stopped -- see specs/id-list-commands.md §202.
+	outcome := model.OutcomeApplied
+	if len(leased) > 0 {
+		outcome = model.OutcomeAccepted
+	}
+	return db.lifecycleResult(ctx, id, outcome, written)
+}
+
+// LifecycleResult is what a pause or resume did, in the terms the API reports: the
+// outcome, the root's status once the transaction committed, and how many rows were
+// written. specs/id-list-commands.md.
+type LifecycleResult struct {
+	Outcome   model.Outcome
+	Status    model.Status
+	Instances int
+}
+
+// lifecycleResult re-reads the root for its post-commit status. Deliberately outside the
+// transaction: the value reported is what the row says once the write is visible, and a
+// status captured inside would describe a tree no other reader can see yet.
+func (db *DB) lifecycleResult(ctx context.Context, id string, outcome model.Outcome, written int) (LifecycleResult, error) {
+	row, err := db.loadInstanceRow(ctx, id)
+	if err != nil {
+		return LifecycleResult{}, err
+	}
+	return LifecycleResult{Outcome: outcome, Status: model.Status(row.Status), Instances: written}, nil
 }
 
 // updateStatusIn sets status on an explicit id list (already locked by the caller),
@@ -334,13 +387,13 @@ func (db *DB) logInstances(ids []string, event, msg string) {
 // The precondition is on the subtree, not the root's own status: a branch that dies while
 // the tree is paused leaves a failing root over paused descendants, and resuming is how
 // the operator unblocks it. See specs/pause-resume.md.
-func (db *DB) ResumeProcess(ctx context.Context, id string) error {
+func (db *DB) ResumeProcess(ctx context.Context, id string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
-		return err
+		return LifecycleResult{}, err
 	}
 	if err := requireRoot(row, "resume"); err != nil {
-		return err
+		return LifecycleResult{}, err
 	}
 
 	// Collected under the same lock as PauseProcess, and for the same reason: the ids
@@ -371,7 +424,20 @@ func (db *DB) ResumeProcess(ctx context.Context, id string) error {
 		rows.Close() // release the cursor before the UPDATE (SQLite single connection)
 
 		if len(resumed) == 0 {
-			return fmt.Errorf("process is not paused (status: %s): %w", row.Status, ErrConflict)
+			// Nothing paused, so either the tree is already advancing (the assertion holds)
+			// or it has settled and never will. Split here rather than letting the caller
+			// re-read: this transaction holds the tree, and an answer derived afterwards
+			// describes one that may have moved. specs/id-list-commands.md.
+			var status string
+			if err := exec.QueryRowContext(ctx,
+				`SELECT status FROM process_instances WHERE id = ?`, id).Scan(&status); err != nil {
+				return fmt.Errorf("read root status: %w", err)
+			}
+			if model.Status(status).Terminal() {
+				return fmt.Errorf("process is not paused and has settled (status: %s); "+
+					"retry it or start a new instance: %w", status, ErrConflict)
+			}
+			return nil
 		}
 		if err := updateStatusIn(ctx, exec, resumed, string(model.StatusRunning), now); err != nil {
 			return fmt.Errorf("resume process: %w", err)
@@ -379,13 +445,17 @@ func (db *DB) ResumeProcess(ctx context.Context, id string) error {
 
 		return nil
 	}); err != nil {
-		return err
+		return LifecycleResult{}, err
 	}
 
+	if len(resumed) == 0 {
+		return db.lifecycleResult(ctx, id, model.OutcomeUnchanged, 0)
+	}
 	// No root-level entry to match PauseProcess's: a resume is atomic, so the
 	// per-instance events already say everything a tree-level one would.
 	db.logInstances(resumed, model.EventResumed, "resumed")
-	return nil
+	// Never OutcomeAccepted: a resume is a plain status flip with nothing left in flight.
+	return db.lifecycleResult(ctx, id, model.OutcomeApplied, len(resumed))
 }
 
 // loadInstanceRow reads the row a tree-wide operation (pause/resume/retry) was asked
@@ -421,32 +491,32 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 // waiting or collecting), and completed work is never redone. force overrides only_once
 // protection. Root-only, failed-only — it is an override of the definition's on_error
 // budget, which is why it must not merge with ResumeProcess. See specs/pause-resume.md.
-func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
+func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (LifecycleResult, error) {
 	rootRow, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
-		return err
+		return LifecycleResult{}, err
 	}
 	if err := requireRoot(rootRow, "retry"); err != nil {
-		return err
+		return LifecycleResult{}, err
 	}
 	if status := model.Status(rootRow.Status); status != model.StatusFailed {
 		if status == model.StatusPaused || status == model.StatusPausing {
-			return fmt.Errorf("process is paused, not failed (status: %s); resume it instead: %w", status, ErrConflict)
+			return LifecycleResult{}, fmt.Errorf("process is paused, not failed (status: %s); resume it instead: %w", status, ErrConflict)
 		}
 		// A raised root is settled, not interrupted: retry could only re-run the very task whose
 		// switch DECIDED to raise, against state a retry cannot change — re-raising identically
 		// after possibly repeating a side effect. Special-cased so the error can say that.
 		if status == model.StatusRaised {
-			return fmt.Errorf("process concluded with error %q (status: raised); a raised error is "+
+			return LifecycleResult{}, fmt.Errorf("process concluded with error %q (status: raised); a raised error is "+
 				"a declared outcome, not a fault -- start a new instance, or publish a new version "+
 				"if the outcome should be handled differently: %w", rootRow.ErrorCode, ErrConflict)
 		}
-		return fmt.Errorf("process is not retryable (status: %s): %w", status, ErrConflict)
+		return LifecycleResult{}, fmt.Errorf("process is not retryable (status: %s): %w", status, ErrConflict)
 	}
 
 	tx, qtx, exec, err := db.beginTx(ctx, nil)
 	if err != nil {
-		return err
+		return LifecycleResult{}, err
 	}
 	defer tx.Rollback()
 
@@ -458,7 +528,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 		WHERE id IN (SELECT id FROM subtree)
 		ORDER BY id`+db.forUpdate(), id)
 	if err != nil {
-		return fmt.Errorf("lock tree: %w", err)
+		return LifecycleResult{}, fmt.Errorf("lock tree: %w", err)
 	}
 	defer rows.Close()
 
@@ -468,11 +538,11 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 	for rows.Next() {
 		r, err := scanInstance(rows)
 		if err != nil {
-			return fmt.Errorf("scan tree row: %w", err)
+			return LifecycleResult{}, fmt.Errorf("scan tree row: %w", err)
 		}
 		inst, err := toInstance(r)
 		if err != nil {
-			return err
+			return LifecycleResult{}, err
 		}
 		nodes[inst.ID] = inst
 		rawRows[inst.ID] = r
@@ -484,12 +554,12 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return LifecycleResult{}, err
 	}
 	rows.Close() // release the connection for the updates below (SQLite single-conn)
 	root, ok := nodes[id]
 	if !ok {
-		return fmt.Errorf("instance not found")
+		return LifecycleResult{}, fmt.Errorf("instance not found")
 	}
 
 	// loadTask resolves via the transaction's own connection: the pooled db.GetDefinition
@@ -592,7 +662,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 		return nil
 	}
 	if err := revive(root); err != nil {
-		return err
+		return LifecycleResult{}, err
 	}
 
 	now := nowMillis()
@@ -641,11 +711,16 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) error {
 			// an fsync it does not owe.
 			NextReplayable: raw.NextReplayable,
 		}); err != nil {
-			return fmt.Errorf("revive instance %q: %w", node.ID, err)
+			return LifecycleResult{}, fmt.Errorf("revive instance %q: %w", node.ID, err)
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return LifecycleResult{}, err
+	}
+	// Always applied: retry is an act, not an assertion -- no prior state satisfies "was
+	// given a fresh attempt", so it never reports unchanged. specs/id-list-commands.md.
+	return db.lifecycleResult(ctx, id, model.OutcomeApplied, len(dirty))
 }
 
 // SpawnChildrenAndWait atomically inserts child instances and transitions the parent to

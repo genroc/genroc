@@ -231,5 +231,14 @@ func writeReply(w http.ResponseWriter, r Reply) {
 		json.NewEncoder(w).Encode(errorBody{Error: r.Error, Code: r.Code, Fields: r.Fields})
 		return
 	}
+	// A successful assertion carries its own status (statusOfOutcome); every other
+	// success is the implicit 200. 204 must not be given a body, and outcomeReply
+	// leaves Data empty for exactly that outcome.
+	if r.Outcome != "" {
+		w.WriteHeader(statusOfOutcome(r.Outcome))
+		if len(r.Data) == 0 {
+			return
+		}
+	}
 	json.NewEncoder(w).Encode(r.Data)
 }

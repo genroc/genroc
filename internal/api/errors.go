@@ -55,6 +55,22 @@ var statusByCode = map[Code]int{
 	CodeInternal:    http.StatusInternalServerError,
 }
 
+// statusOfOutcome maps a successful assertion to its HTTP status, the success-side twin
+// of statusOf. 204 is the one overload here: HTTP has no code meaning "already in the
+// desired state", and No Content is the convention for it — which is why an unchanged
+// reply carries no body and clients that need the detail read the instance.
+// specs/id-list-commands.md.
+func statusOfOutcome(o model.Outcome) int {
+	switch o {
+	case model.OutcomeAccepted:
+		return http.StatusAccepted
+	case model.OutcomeUnchanged:
+		return http.StatusNoContent
+	default:
+		return http.StatusOK
+	}
+}
+
 func statusOf(c Code) int {
 	if s, ok := statusByCode[c]; ok {
 		return s

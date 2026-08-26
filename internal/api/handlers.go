@@ -56,6 +56,11 @@ type Reply struct {
 	// Reply, not on the HTTP response alone, because TCP and UDS clients encode
 	// Reply directly and have no status line to read.
 	Code Code `json:"code,omitempty"`
+	// Outcome is Code's success-side twin, and lives here for the same reason: what a
+	// lifecycle assertion did (applied / accepted / unchanged) has to reach the
+	// transports that have no status line. Empty on every action that is not an
+	// assertion. specs/id-list-commands.md.
+	Outcome model.Outcome `json:"outcome,omitempty"`
 	// Fields carries per-field detail when a submitted definition failed validation,
 	// so a client can point at the offending field instead of parsing the message.
 	Fields []model.FieldError `json:"fields,omitempty"`
@@ -81,6 +86,23 @@ func okReply(v interface{}) Reply {
 		return errReply(fmt.Errorf("encode response: %w", err))
 	}
 	return Reply{OK: true, Data: data}
+}
+
+// outcomeReply is okReply for a lifecycle assertion: same body, plus the outcome the
+// HTTP status is derived from (statusOfOutcome). An OutcomeUnchanged reply carries no
+// body — 204 forbids one — so the fields describing what changed are omitted where
+// nothing did.
+func outcomeReply(res db.LifecycleResult) Reply {
+	if res.Outcome == model.OutcomeUnchanged {
+		return Reply{OK: true, Outcome: res.Outcome}
+	}
+	r := okReply(map[string]any{
+		"outcome":   res.Outcome,
+		"status":    res.Status,
+		"instances": res.Instances,
+	})
+	r.Outcome = res.Outcome
+	return r
 }
 
 // errReply renders any error as a failed Reply, classifying it through codeOf — so a

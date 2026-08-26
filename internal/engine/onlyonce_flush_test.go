@@ -234,7 +234,7 @@ func TestOnlyOnce_FlagSurvivesSpawnAndRetry(t *testing.T) {
 	if err := database.UpdateInstance(failed); err != nil {
 		t.Fatalf("UpdateInstance: %v", err)
 	}
-	if err := database.RetryProcess(context.Background(), failed.ID, false); err != nil {
+	if _, err := database.RetryProcess(context.Background(), failed.ID, false); err != nil {
 		t.Fatalf("RetryProcess: %v", err)
 	}
 	revived, err := database.GetInstance(failed.ID)

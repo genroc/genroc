@@ -264,20 +264,22 @@ func (h *Handlers) pauseInstance(id string) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
 	}
-	if err := h.db.PauseProcess(context.Background(), id); err != nil {
+	res, err := h.db.PauseProcess(context.Background(), id)
+	if err != nil {
 		return errReply(err)
 	}
-	return okReply(map[string]any{"paused": true})
+	return outcomeReply(res)
 }
 
 func (h *Handlers) resumeInstance(id string) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
 	}
-	if err := h.db.ResumeProcess(context.Background(), id); err != nil {
+	res, err := h.db.ResumeProcess(context.Background(), id)
+	if err != nil {
 		return errReply(err)
 	}
-	return okReply(map[string]any{"resumed": true})
+	return outcomeReply(res)
 }
 
 func (h *Handlers) retryInstance(id string, raw json.RawMessage) Reply {
@@ -288,10 +290,11 @@ func (h *Handlers) retryInstance(id string, raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	if err := h.db.RetryProcess(context.Background(), id, req.Force); err != nil {
+	res, err := h.db.RetryProcess(context.Background(), id, req.Force)
+	if err != nil {
 		return errReply(err)
 	}
-	return okReply(map[string]any{"retried": true})
+	return outcomeReply(res)
 }
 
 func (h *Handlers) tick(raw json.RawMessage) Reply {

@@ -47,6 +47,24 @@ func (s Status) Terminal() bool {
 	return s == StatusCompleted || s == StatusFailed || s == StatusRaised
 }
 
+// Outcome is what a lifecycle assertion (pause, resume) did. It sits beside Status
+// because it is a domain fact the db layer decides under the lock that read the tree —
+// a caller re-reading afterwards would be answering from a tree that may have moved.
+// specs/id-list-commands.md.
+type Outcome string
+
+const (
+	// OutcomeApplied — the assertion holds, and this call is what made it hold.
+	OutcomeApplied Outcome = "applied"
+	// OutcomeAccepted — recorded, not yet in effect: a pause left rows 'pausing',
+	// because a worker holds a task that runs to its next boundary.
+	OutcomeAccepted Outcome = "accepted"
+	// OutcomeUnchanged — the assertion already held; nothing was written. Not an error:
+	// re-asserting a state a tree is already in is what makes a partially applied sweep
+	// converge when it is run again.
+	OutcomeUnchanged Outcome = "unchanged"
+)
+
 // AcceptsExternalOutcome reports whether a submitted result or failure may be delivered to
 // an instance in this status. A pause suspends execution, not delivery: refusing here would
 // discard work an outside caller has already performed, and on an only_once task the

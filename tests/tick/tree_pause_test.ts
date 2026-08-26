@@ -341,13 +341,13 @@ test("pause/resume non-root — rejected naming the root; tree unaffected", asyn
   }
 });
 
-test("resume is rejected when nothing in the tree is paused", async () => {
+test("resume changes nothing when the tree is already advancing", async () => {
   const { gp, parent, a, b } = await buildTree();
   try {
-    const { error } = await ctx.env.client.POST("/instances/{id}/resume", {
-      params: { path: { id: gp } },
-    });
-    expect(JSON.stringify(error)).toContain("not paused");
+    // Live and unpaused: "make this tree advance" already holds, so the assertion is
+    // satisfied rather than refused — and writes nothing. A settled tree is the other
+    // side of that split and stays a conflict. specs/id-list-commands.md.
+    expect(await ctx.env.resume(gp)).toBe("unchanged");
 
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
       gp: "running waiting",

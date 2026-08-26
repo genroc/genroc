@@ -11,6 +11,7 @@ import {
   failingDef,
   inputDef,
   listCap,
+  missingID,
   raisingDef,
   startedID,
   switchDef,
@@ -409,6 +410,106 @@ test("retry — refuses an instance that has not failed", async () => {
   const r = runCli(bin, ["retry", id]);
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain("genctl: ");
+});
+
+// ── id lists ────────────────────────────────────────────────────────────────────
+//
+// pause/resume/retry act on every id named. They are assertions, so an id already in the
+// asserted state is reported and forgiven — which is the property that lets a line that
+// was only half applied be re-run as-is. specs/id-list-commands.md.
+
+test("pause/resume — several ids at once, and re-running the same line converges", async () => {
+  const name = apply(externalDef(uid("multipause")));
+  const first = startedID(runCli(bin, ["run", name]).stdout);
+  const second = startedID(runCli(bin, ["run", name]).stdout);
+  const unnamed = startedID(runCli(bin, ["run", name]).stdout);
+  for (const id of [first, second, unnamed]) await waitForExternalToken(id);
+  const status = (id: string) =>
+    (JSON.parse(runCli(bin, ["get", id, "--json"]).stdout) as InstanceRow).status;
+
+  const r = runCli(bin, ["pause", first, second]);
+  expect(r.ok).toBe(true);
+  expect(r.stdout).toContain(`paused: ${first}`);
+  expect(r.stdout).toContain(`paused: ${second}`);
+  expect(r.stderr).toContain("2 named: 2 paused, 0 already, 0 refused");
+  expect(status(first)).toBe("paused");
+  expect(status(second)).toBe("paused");
+  expect(status(unnamed), "a list of ids must move only what it names").toBe("running");
+
+  // The whole point of `already`: the same line, run again, is a no-op that SUCCEEDS.
+  // Were an already-paused tree an error, a group that half applied could never be
+  // repaired by repeating it.
+  const again = runCli(bin, ["pause", first, second]);
+  expect(again.ok, `re-running a satisfied assertion must exit 0: ${again.stderr}`).toBe(true);
+  expect(again.stdout).toContain(`already: ${first}`);
+  expect(again.stderr).toContain("0 paused, 2 already");
+}, 30_000);
+
+test("a refusal among the ids stops neither the rest nor the exit code", async () => {
+  const name = apply(externalDef(uid("multirefuse")));
+  const first = startedID(runCli(bin, ["run", name]).stdout);
+  const second = startedID(runCli(bin, ["run", name]).stdout);
+  for (const id of [first, second]) await waitForExternalToken(id);
+  runCli(bin, ["pause", first, second]);
+
+  // Named BETWEEN the two that can move: an abort would leave `second` paused, and a
+  // swallowed refusal would exit 0.
+  const r = runCli(bin, ["resume", first, missingID, second]);
+  expect(r.ok, "a refusal among the ids must carry the exit code").toBe(false);
+  expect(r.stderr).toContain(`genctl: ${missingID}:`);
+  expect(r.stderr).toContain("3 named: 2 resumed, 0 already, 1 refused");
+
+  const status = (id: string) =>
+    (JSON.parse(runCli(bin, ["get", id, "--json"]).stdout) as InstanceRow).status;
+  expect(status(first), "the id before the refusal must still have moved").toBe("running");
+  expect(status(second), "the id after the refusal must still have moved").toBe("running");
+}, 30_000);
+
+test("resume — a settled tree is refused, not forgiven as 'already'", async () => {
+  const name = apply(switchDef(uid("resume_settled")));
+  const id = runCli(bin, ["run", name, "-q"]).stdout.trim();
+  expect(await waitForInstance(id)).toBe("completed");
+
+  // The split the server makes under its own lock: nothing is paused either way, but a
+  // live tree satisfies "is advancing" and a settled one never will.
+  const r = runCli(bin, ["resume", id]);
+  expect(r.ok).toBe(false);
+  expect(r.stderr).toContain("settled");
+
+  // Same tree, opposite verb: it is not advancing, which is exactly what pause asserts.
+  const p = runCli(bin, ["pause", id]);
+  expect(p.ok, "pausing a settled tree asserts something already true").toBe(true);
+  expect(p.stdout).toContain(`already: ${id}`);
+}, 30_000);
+
+test("retry — several ids re-arm in one command", async () => {
+  const failing = apply(failingDef(uid("multiretry")));
+  const first = runCli(bin, ["run", failing, "-q"]).stdout.trim();
+  const second = runCli(bin, ["run", failing, "-q"]).stdout.trim();
+  const ok = runCli(bin, ["run", apply(switchDef(uid("multiretry_ok"))), "-q"]).stdout.trim();
+  expect(await waitForInstance(first)).toBe("failed");
+  expect(await waitForInstance(second)).toBe("failed");
+  expect(await waitForInstance(ok)).toBe("completed");
+
+  // retry is an act, not an assertion: the completed one is refused rather than forgiven.
+  const r = runCli(bin, ["retry", first, ok, second, "--force"]);
+  expect(r.ok, "a refusal among the ids must carry the exit code").toBe(false);
+  expect(r.stdout).toContain(`retried: ${first}`);
+  expect(r.stdout, "the id after the refusal must still be retried").toContain(
+    `retried: ${second}`,
+  );
+  expect(r.stderr).toContain("3 named: 2 retried, 0 already, 1 refused");
+}, 30_000);
+
+test("get and logs read one instance — a second id is refused, not dropped", () => {
+  const name = apply(switchDef(uid("oneid")));
+  const first = runCli(bin, ["run", name, "-q"]).stdout.trim();
+  const second = runCli(bin, ["run", name, "-q"]).stdout.trim();
+
+  const r = runCli(bin, ["get", first, second]);
+  expect(r.ok, "an id that is silently dropped reads as if it had been shown").toBe(false);
+  expect(r.stderr).toContain("get reads one instance");
+  expect(runCli(bin, ["logs", first, second]).ok).toBe(false);
 });
 
 // ── last / @last ────────────────────────────────────────────────────────────────

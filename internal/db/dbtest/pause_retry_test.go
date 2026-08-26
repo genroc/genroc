@@ -2,6 +2,7 @@ package dbtest
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -104,7 +105,7 @@ func TestPauseProcess_SingleInstance(t *testing.T) {
 			insertInst(t, b.db, "held", model.StatusRunning, "", nil, "")
 			lease(t, b.db, "held")
 
-			if err := b.db.PauseProcess(context.Background(), "held"); err != nil {
+			if _, err := b.db.PauseProcess(context.Background(), "held"); err != nil {
 				t.Fatalf("PauseProcess(held): %v", err)
 			}
 			if got := mustStatus(t, b.db, "held"); got != model.StatusPausing {
@@ -116,7 +117,7 @@ func TestPauseProcess_SingleInstance(t *testing.T) {
 			// instance may never be claimed again.
 			insertInst(t, b.db, "idle", model.StatusRunning, "", nil, "")
 
-			if err := b.db.PauseProcess(context.Background(), "idle"); err != nil {
+			if _, err := b.db.PauseProcess(context.Background(), "idle"); err != nil {
 				t.Fatalf("PauseProcess(idle): %v", err)
 			}
 			if got := mustStatus(t, b.db, "idle"); got != model.StatusPaused {
@@ -138,7 +139,7 @@ func TestPauseProcess_Descendants(t *testing.T) {
 			// grandchild of root via child1
 			insertInst(t, b.db, "gc1", model.StatusRunning, "child1", []string{"root", "child1"}, "")
 
-			if err := b.db.PauseProcess(context.Background(), "root"); err != nil {
+			if _, err := b.db.PauseProcess(context.Background(), "root"); err != nil {
 				t.Fatalf("PauseProcess: %v", err)
 			}
 
@@ -164,7 +165,7 @@ func TestPauseProcess_SkipsTerminalDescendants(t *testing.T) {
 			insertInst(t, b.db, "c-completed", model.StatusCompleted, "root", []string{"root"}, "")
 			insertInst(t, b.db, "c-failed", model.StatusFailed, "root", []string{"root"}, "err")
 
-			if err := b.db.PauseProcess(context.Background(), "root"); err != nil {
+			if _, err := b.db.PauseProcess(context.Background(), "root"); err != nil {
 				t.Fatalf("PauseProcess: %v", err)
 			}
 
@@ -181,21 +182,69 @@ func TestPauseProcess_SkipsTerminalDescendants(t *testing.T) {
 	}
 }
 
-// TestPauseProcess_NothingRunning verifies that pausing a tree with nothing running
-// is reported rather than silently succeeding — an already-settled (or already-paused)
-// process has nothing to suspend.
+// TestPauseProcess_NothingRunning verifies that pausing a tree with nothing running is
+// reported as OutcomeUnchanged rather than as a failure: the assertion "this tree is not
+// advancing" already holds, and a no-op that errors cannot converge when a group of ids
+// is re-run. specs/id-list-commands.md.
 func TestPauseProcess_NothingRunning(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "root", model.StatusCompleted, "", nil, "")
 			insertInst(t, b.db, "child", model.StatusCompleted, "root", []string{"root"}, "")
 
-			err := b.db.PauseProcess(context.Background(), "root")
-			if err == nil {
-				t.Fatal("expected error pausing a settled tree, got nil")
+			res, err := b.db.PauseProcess(context.Background(), "root")
+			if err != nil {
+				t.Fatalf("pausing a settled tree must not fail: %v", err)
 			}
-			if !strings.Contains(err.Error(), "no running instances to pause") {
-				t.Errorf("expected 'no running instances to pause' error, got %q", err)
+			if res.Outcome != model.OutcomeUnchanged {
+				t.Errorf("expected outcome unchanged, got %q", res.Outcome)
+			}
+			if res.Instances != 0 {
+				t.Errorf("unchanged wrote %d instances; it must write none", res.Instances)
+			}
+			if res.Status != model.StatusCompleted {
+				t.Errorf("expected the root's own status back, got %q", res.Status)
+			}
+		})
+	}
+}
+
+// TestPauseProcess_OutcomeAcceptedWhileDraining verifies the distinction 202 exists for:
+// a leased row is only ASKED to stop, so the tree still has a task running, and a second
+// pause on it must not claim the tree has stopped. specs/id-list-commands.md §202.
+func TestPauseProcess_OutcomeAcceptedWhileDraining(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInst(t, b.db, "held", model.StatusRunning, "", nil, "")
+			lease(t, b.db, "held")
+
+			res, err := b.db.PauseProcess(context.Background(), "held")
+			if err != nil {
+				t.Fatalf("PauseProcess(held): %v", err)
+			}
+			if res.Outcome != model.OutcomeAccepted {
+				t.Errorf("a leased row is draining, not stopped: expected accepted, got %q", res.Outcome)
+			}
+
+			// The second pause selects nothing (status is 'pausing', not 'running'). It must
+			// still report the drain: reporting unchanged here would say the tree had stopped
+			// while a worker was inside a task.
+			again, err := b.db.PauseProcess(context.Background(), "held")
+			if err != nil {
+				t.Fatalf("PauseProcess(held) again: %v", err)
+			}
+			if again.Outcome != model.OutcomeAccepted {
+				t.Errorf("re-pausing a draining tree: expected accepted, got %q", again.Outcome)
+			}
+
+			// An unleased tree has nothing in flight, so it really has stopped.
+			insertInst(t, b.db, "idle", model.StatusRunning, "", nil, "")
+			done, err := b.db.PauseProcess(context.Background(), "idle")
+			if err != nil {
+				t.Fatalf("PauseProcess(idle): %v", err)
+			}
+			if done.Outcome != model.OutcomeApplied {
+				t.Errorf("nothing in flight: expected applied, got %q", done.Outcome)
 			}
 		})
 	}
@@ -210,7 +259,7 @@ func TestPauseProcess_NonRootRejected(t *testing.T) {
 			insertInst(t, b.db, "mid", model.StatusRunning, "root", []string{"root"}, "")
 			insertInst(t, b.db, "leaf", model.StatusRunning, "mid", []string{"root", "mid"}, "")
 
-			err := b.db.PauseProcess(context.Background(), "leaf")
+			_, err := b.db.PauseProcess(context.Background(), "leaf")
 			if err == nil {
 				t.Fatal("expected error for non-root pause, got nil")
 			}
@@ -252,10 +301,10 @@ func TestResumeProcess_RestoresSubtree(t *testing.T) {
 				t.Fatalf("SaveInstance child: %v", err)
 			}
 
-			if err := b.db.PauseProcess(context.Background(), "root"); err != nil {
+			if _, err := b.db.PauseProcess(context.Background(), "root"); err != nil {
 				t.Fatalf("PauseProcess: %v", err)
 			}
-			if err := b.db.ResumeProcess(context.Background(), "root"); err != nil {
+			if _, err := b.db.ResumeProcess(context.Background(), "root"); err != nil {
 				t.Fatalf("ResumeProcess: %v", err)
 			}
 
@@ -289,14 +338,14 @@ func TestResumeProcess_FlipsPausing(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "root", model.StatusRunning, "", nil, "")
 			lease(t, b.db, "root")
-			if err := b.db.PauseProcess(context.Background(), "root"); err != nil {
+			if _, err := b.db.PauseProcess(context.Background(), "root"); err != nil {
 				t.Fatalf("PauseProcess: %v", err)
 			}
 			if got := mustStatus(t, b.db, "root"); got != model.StatusPausing {
 				t.Fatalf("root: expected pausing before resume, got %q", got)
 			}
 
-			if err := b.db.ResumeProcess(context.Background(), "root"); err != nil {
+			if _, err := b.db.ResumeProcess(context.Background(), "root"); err != nil {
 				t.Fatalf("ResumeProcess: %v", err)
 			}
 			if got := mustStatus(t, b.db, "root"); got != model.StatusRunning {
@@ -317,7 +366,7 @@ func TestResumeProcess_FailingRootOverPausedDescendant(t *testing.T) {
 			insertChild(t, b.db, "c-dead", model.StatusFailed, "root", "step1", []string{"root"}, "boom")
 			insertChild(t, b.db, "c-paused", model.StatusPaused, "root", "step1", []string{"root"}, "")
 
-			if err := b.db.ResumeProcess(context.Background(), "root"); err != nil {
+			if _, err := b.db.ResumeProcess(context.Background(), "root"); err != nil {
 				t.Fatalf("ResumeProcess: %v", err)
 			}
 
@@ -336,25 +385,39 @@ func TestResumeProcess_FailingRootOverPausedDescendant(t *testing.T) {
 	}
 }
 
-// TestResumeProcess_NothingPaused verifies that resuming a tree with no suspended
-// instance is reported rather than silently succeeding.
+// TestResumeProcess_NothingPaused verifies the split that only this layer can make: with
+// nothing paused, a LIVE tree already satisfies "is advancing" (unchanged), while a
+// SETTLED one never will and is refused. Decided under the tree lock, because a caller
+// re-reading after the fact answers from a tree that may have moved.
+// specs/id-list-commands.md.
 func TestResumeProcess_NothingPaused(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "root", model.StatusRunning, "", nil, "")
 			insertInst(t, b.db, "child", model.StatusRunning, "root", []string{"root"}, "")
 
-			err := b.db.ResumeProcess(context.Background(), "root")
-			if err == nil {
-				t.Fatal("expected error resuming a running tree, got nil")
+			res, err := b.db.ResumeProcess(context.Background(), "root")
+			if err != nil {
+				t.Fatalf("resuming a live tree must not fail: %v", err)
 			}
-			if !strings.Contains(err.Error(), "not paused") {
-				t.Errorf("expected 'not paused' error, got %q", err)
+			if res.Outcome != model.OutcomeUnchanged {
+				t.Errorf("expected outcome unchanged, got %q", res.Outcome)
 			}
 			for _, id := range []string{"root", "child"} {
 				if got := mustStatus(t, b.db, id); got != model.StatusRunning {
 					t.Errorf("%q: expected running (untouched), got %q", id, got)
 				}
+			}
+
+			// Settled is the other side of the split: the promise cannot be kept, so it stays
+			// a conflict the operator has to answer with retry or a new instance.
+			insertInst(t, b.db, "done", model.StatusCompleted, "", nil, "")
+			if _, err := b.db.ResumeProcess(context.Background(), "done"); err == nil {
+				t.Fatal("expected a conflict resuming a settled tree, got nil")
+			} else if !errors.Is(err, dbpkg.ErrConflict) {
+				t.Errorf("expected ErrConflict, got %q", err)
+			} else if !strings.Contains(err.Error(), "settled") {
+				t.Errorf("the message must say why it cannot advance, got %q", err)
 			}
 		})
 	}
@@ -369,7 +432,7 @@ func TestResumeProcess_NonRootRejected(t *testing.T) {
 			insertInst(t, b.db, "mid", model.StatusPaused, "root", []string{"root"}, "")
 			insertInst(t, b.db, "leaf", model.StatusPaused, "mid", []string{"root", "mid"}, "")
 
-			err := b.db.ResumeProcess(context.Background(), "leaf")
+			_, err := b.db.ResumeProcess(context.Background(), "leaf")
 			if err == nil {
 				t.Fatal("expected error for non-root resume, got nil")
 			}
@@ -394,7 +457,7 @@ func TestUpdateInstance_LandsPendingPause(t *testing.T) {
 			// still-running write → the pause lands
 			insertInst(t, b.db, "held", model.StatusRunning, "", nil, "")
 			lease(t, b.db, "held")
-			if err := b.db.PauseProcess(context.Background(), "held"); err != nil {
+			if _, err := b.db.PauseProcess(context.Background(), "held"); err != nil {
 				t.Fatalf("PauseProcess(held): %v", err)
 			}
 			held, err := b.db.GetInstance("held")
@@ -412,7 +475,7 @@ func TestUpdateInstance_LandsPendingPause(t *testing.T) {
 			// A finished task writes a real outcome, which is never hidden by a pause.
 			insertInst(t, b.db, "done", model.StatusRunning, "", nil, "")
 			lease(t, b.db, "done")
-			if err := b.db.PauseProcess(context.Background(), "done"); err != nil {
+			if _, err := b.db.PauseProcess(context.Background(), "done"); err != nil {
 				t.Fatalf("PauseProcess(done): %v", err)
 			}
 			done, err := b.db.GetInstance("done")
@@ -439,7 +502,7 @@ func TestUpdateInstanceProgress_LandsPendingPause(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "held", model.StatusRunning, "", nil, "")
 			lease(t, b.db, "held")
-			if err := b.db.PauseProcess(context.Background(), "held"); err != nil {
+			if _, err := b.db.PauseProcess(context.Background(), "held"); err != nil {
 				t.Fatalf("PauseProcess: %v", err)
 			}
 
@@ -643,7 +706,7 @@ func TestRetryProcess_NonRetryableStatuses(t *testing.T) {
 				id := "inst-" + string(status)
 				insertInst(t, b.db, id, status, "", nil, "")
 
-				err := b.db.RetryProcess(context.Background(), id, false)
+				_, err := b.db.RetryProcess(context.Background(), id, false)
 				if err == nil {
 					t.Fatalf("%s: expected error, got nil", status)
 				}
@@ -666,7 +729,7 @@ func TestRetryProcess_NonRootRejected(t *testing.T) {
 			insertInst(t, b.db, "root", model.StatusFailed, "", nil, "child failed")
 			insertChild(t, b.db, "child-bad", model.StatusFailed, "root", "step1", []string{"root"}, "boom")
 
-			err := b.db.RetryProcess(context.Background(), "child-bad", false)
+			_, err := b.db.RetryProcess(context.Background(), "child-bad", false)
 			if err == nil {
 				t.Fatal("expected error for non-root retry, got nil")
 			}
@@ -693,7 +756,7 @@ func TestRetryProcess_FailedTree_RevivesOnlyFailedLeaf(t *testing.T) {
 			insertChild(t, b.db, "child-ok", model.StatusCompleted, "parent", "step1", []string{"parent"}, "")
 			insertChild(t, b.db, "child-bad", model.StatusFailed, "parent", "step1", []string{"parent"}, "something broke")
 
-			if err := b.db.RetryProcess(context.Background(), "parent", false); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "parent", false); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 
@@ -725,7 +788,7 @@ func TestRetryProcess_FailedTree_RevivesAllFailedChildren(t *testing.T) {
 			insertChild(t, b.db, "child-bad-1", model.StatusFailed, "parent", "step1", []string{"parent"}, "first child error")
 			insertChild(t, b.db, "child-bad-2", model.StatusFailed, "parent", "step1", []string{"parent"}, "second child error")
 
-			if err := b.db.RetryProcess(context.Background(), "parent", false); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "parent", false); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 
@@ -754,7 +817,7 @@ func TestRetryProcess_FailedTree_DeepChain(t *testing.T) {
 			insertChild(t, b.db, "mid", model.StatusFailed, "root", "step1", []string{"root"}, "boom")
 			insertChild(t, b.db, "leaf", model.StatusFailed, "mid", "step1", []string{"root", "mid"}, "boom")
 
-			if err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 
@@ -789,7 +852,7 @@ func TestRetryProcess_FailedTree_ReconstructsCollecting(t *testing.T) {
 			insertChild(t, b.db, "c1", model.StatusCompleted, "root", "step1", []string{"root"}, "")
 			insertChild(t, b.db, "c2", model.StatusCompleted, "root", "step1", []string{"root"}, "")
 
-			if err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 
@@ -815,7 +878,7 @@ func TestRetryProcess_Failed_RerunsPendingStep(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "root", model.StatusFailed, "", nil, "boom")
 
-			if err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 
@@ -845,7 +908,7 @@ func TestRetryProcess_EmptyQueue(t *testing.T) {
 				t.Fatalf("SaveInstance: %v", err)
 			}
 
-			if err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 
@@ -1017,7 +1080,7 @@ func TestRetryProcess_OnlyOnce_RejectedUnlessForced(t *testing.T) {
 				t.Fatalf("SaveInstance: %v", err)
 			}
 
-			err := b.db.RetryProcess(context.Background(), "locked", false)
+			_, err := b.db.RetryProcess(context.Background(), "locked", false)
 			if err == nil {
 				t.Fatal("expected error for only_once task, got nil")
 			}
@@ -1026,7 +1089,7 @@ func TestRetryProcess_OnlyOnce_RejectedUnlessForced(t *testing.T) {
 			}
 
 			// force overrides the protection
-			if err := b.db.RetryProcess(context.Background(), "locked", true); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "locked", true); err != nil {
 				t.Fatalf("RetryProcess force: %v", err)
 			}
 			if got := mustStatus(t, b.db, "locked"); got != model.StatusRunning {
@@ -1061,7 +1124,7 @@ func TestRetryProcess_OnlyOnceDeep_RollsBack(t *testing.T) {
 				t.Fatalf("SaveInstance: %v", err)
 			}
 
-			err := b.db.RetryProcess(context.Background(), "root", false)
+			_, err := b.db.RetryProcess(context.Background(), "root", false)
 			if err == nil {
 				t.Fatal("expected error for only_once leaf, got nil")
 			}
@@ -1076,7 +1139,7 @@ func TestRetryProcess_OnlyOnceDeep_RollsBack(t *testing.T) {
 			}
 
 			// force revives the whole path
-			if err := b.db.RetryProcess(context.Background(), "root", true); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "root", true); err != nil {
 				t.Fatalf("RetryProcess force: %v", err)
 			}
 			if got := mustStatus(t, b.db, "leaf"); got != model.StatusRunning {
@@ -1208,7 +1271,7 @@ func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 			}
 			refs := []string{marker("error", "data"), marker(model.StateErrorData, "trace")}
 
-			if err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 

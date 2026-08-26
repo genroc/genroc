@@ -20,6 +20,12 @@ Keep new list/get commands consistent so the surface stays predictable.
   report the capped result through `noteCapped` — **a cap nobody can raise must never
   truncate silently.**
 - **Single-item output.** A `Key:\tvalue` tabwriter block with `longTime()` timestamps.
+- **The assertion commands take an id list; the reads take exactly one.**
+  `pause`/`resume`/`retry` act on every id named through `eachInstance` — one call each,
+  each answer under its own id, and only a *refusal* fails the command. An id already in
+  the asserted state prints `already` and exits 0, so a line that half applied is repaired
+  by running it again; `get`/`logs` refuse a second positional rather than dropping it.
+  specs/id-list-commands.md.
 - **An instance id may stand in for a process name.** `upgrade` and `compat` take either in
   the same positional, told apart by shape (`isInstanceRef`: a UUID, or `@last`). An id names
   one row, so the flags that SELECT rows — `--from`, `--status` — are refused there rather

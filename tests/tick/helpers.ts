@@ -122,18 +122,23 @@ export class TickEnv {
     return data!.id;
   }
 
-  async pause(id: string): Promise<void> {
-    const { error } = await this.genroc.client.POST("/instances/{id}/pause", {
+  // pause and resume are assertions, so they return WHAT THEY DID rather than throwing on
+  // a no-op: an already-satisfied assertion answers 204, which openapi-fetch surfaces as
+  // an absent body. specs/id-list-commands.md.
+  async pause(id: string): Promise<string> {
+    const { data, error } = await this.genroc.client.POST("/instances/{id}/pause", {
       params: { path: { id } },
     });
     if (error) throw new Error(`pause(${id}) failed: ${JSON.stringify(error)}`);
+    return data?.outcome ?? "unchanged";
   }
 
-  async resume(id: string): Promise<void> {
-    const { error } = await this.genroc.client.POST("/instances/{id}/resume", {
+  async resume(id: string): Promise<string> {
+    const { data, error } = await this.genroc.client.POST("/instances/{id}/resume", {
       params: { path: { id } },
     });
     if (error) throw new Error(`resume(${id}) failed: ${JSON.stringify(error)}`);
+    return data?.outcome ?? "unchanged";
   }
 
   async retry(id: string): Promise<void> {

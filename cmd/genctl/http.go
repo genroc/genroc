@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"genroc/internal/model"
 	"genroc/internal/numeric"
 	"io"
 	"net/http"
@@ -196,26 +197,52 @@ func printJSONItems(items []json.RawMessage) {
 	os.Stdout.Write([]byte("\n"))
 }
 
+// assert performs a lifecycle assertion (pause/resume/retry) and reports what it did.
+// The outcome is read from the status line, which is where the server puts it — never
+// from the message, so a reworded server string cannot reclassify an outcome.
+// specs/id-list-commands.md.
+func assert(url string) (model.Outcome, error) {
+	var body struct {
+		Outcome model.Outcome `json:"outcome"`
+	}
+	code, err := callStatus(url, http.MethodPost, nil, &body)
+	if err != nil {
+		return "", err
+	}
+	if code == http.StatusNoContent {
+		// 204 carries no body by definition, so the status line is the whole answer.
+		return model.OutcomeUnchanged, nil
+	}
+	return body.Outcome, nil
+}
+
 func call(url, method string, body any, out any) error {
+	_, err := callStatus(url, method, body, out)
+	return err
+}
+
+// callStatus is call plus the HTTP status of a success, for the callers that read their
+// answer off the status line.
+func callStatus(url, method string, body any, out any) (int, error) {
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
+		return 0, fmt.Errorf("marshal: %w", err)
 	}
 	req, err := http.NewRequest(method, url, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("request: %w", err)
+		return 0, fmt.Errorf("request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("connect to server: %w", err)
+		return 0, fmt.Errorf("connect to server: %w", err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("read response: %w", err)
+		return 0, fmt.Errorf("read response: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
@@ -223,15 +250,15 @@ func call(url, method string, body any, out any) error {
 			Error string `json:"error"`
 		}
 		if err := json.Unmarshal(raw, &errResp); err != nil {
-			return fmt.Errorf("server error (status %d)", resp.StatusCode)
+			return resp.StatusCode, fmt.Errorf("server error (status %d)", resp.StatusCode)
 		}
-		return fmt.Errorf("server: %s", errResp.Error)
+		return resp.StatusCode, fmt.Errorf("server: %s", errResp.Error)
 	}
-	if out != nil {
+	if out != nil && len(raw) > 0 {
 		// Exact literals: a plain Unmarshal would round a large id back through
 		// float64 purely for display, making the CLI disagree with the value the
 		// server actually holds.
-		return numeric.Decode(raw, out)
+		return resp.StatusCode, numeric.Decode(raw, out)
 	}
-	return nil
+	return resp.StatusCode, nil
 }
