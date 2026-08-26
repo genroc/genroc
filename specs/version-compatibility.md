@@ -164,11 +164,24 @@ collecting a version its own definition does not name.
 
     genctl upgrade <process> --from <version|channel> --to <version|channel>
                              [--status running,paused,failed] [--json]
+    genctl upgrade <instance-id> [<instance-id> ...] --to <version|channel> [--json]
 
 The CLI is the bulk form: it sweeps every instance of a process on `--from` with a cursor,
 pausing a running one, moving it, and putting it back. `--status` narrows what it takes;
 the default is every state that can move. Both sides are always named — there is no implicit
 "latest". Never implicit in an apply or a channel move.
+
+**Instance ids stand in for the process, and then only the target is named.** `--from` is the
+SELECTOR — which rows the sweep takes — so ids, which select already, do not need it: each
+version is read off its own row, goes out as that write's assertion, and its process resolves
+a `--to` channel. `--status` is refused outright for the same reason, and a child is refused
+before it is paused rather than after. Several ids are several calls, still one transaction per
+tree: a refusal reports and the rest continue, and a tree already on the target counts as
+"already there" rather than as a failure, so re-naming the same ids repairs a partial run and
+exits 0. `genctl compat <instance-id> --to <version|channel>` (or `-f <file>`) asks that pair
+as a question instead of making the move, scoped to the row's process — **one** id there, since
+a side of a comparison carries one version per process. An id is told from a process name by
+shape: a UUID, or `@last`.
 
 **There is no `dry_run`.** It was in this doc and did not survive contact: on a RUNNING
 instance the answer it gives is about a state the instance has already left, and what an

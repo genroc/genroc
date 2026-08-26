@@ -14,6 +14,7 @@
 //	genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
 //	genctl external-tasks [--process <name>] [--version <n>] [--task <id>] [--since <when>] [--until <when>] [--json]
 //	genctl upgrade  <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]
+//	genctl upgrade  <instance-id> [<instance-id> ...] --to <version|channel> [--json]
 //	genctl get      <instance-id> [--resolve] [--json]
 //	genctl object   <ref>
 //	genctl logs     [--level <level>] [--since <when>] [--until <when>] [--time clock|full] [--recursive] [--mode basic|detail|json] <instance-id>
@@ -50,11 +51,13 @@
 //	genctl last
 //
 // get/logs/pause/resume/retry/signal require an instance id; pass @last for the most
-// recently started instance (recorded by run). `genctl last` prints that id.
+// recently started instance (recorded by run). `genctl last` prints that id. upgrade takes
+// either form: a process name sweeps its fleet, an id moves that one tree.
 //
 //	genctl compat   <process> <from> <to>
 //	genctl compat   -f file.yaml [-f ...] --from <channel>
 //	genctl compat   --from <channel> --to <channel> [<process>]
+//	genctl compat   <instance-id> --to <version|channel> | <instance-id> -f file.yaml
 //
 // compat answers two questions about a pair of versions and gives each its own column:
 // UPGRADE, could an instance running the older one continue under the newer; CONTRACT,
@@ -62,6 +65,10 @@
 // --ignore contract excuses the second from the exit code, and nothing excuses the first.
 // It is a shape check: a change of meaning (dollars to cents) compares equal, so the
 // per-slot detail under the table is the deliverable.
+//
+// An instance id in place of the process reads both sides off the row — its process at the
+// version it is on — so `compat <id> --to N` is the question `upgrade <id> --to N` answers
+// by moving.
 //
 //	genctl channel list   <process>
 //	genctl channel set    <process> <channel> <version>
@@ -201,6 +208,8 @@ func usage() {
   genctl instances [--status <status>] [--error-code <code>] [--sort updated|created] [--since <when>] [--until <when>] [--json]
   genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
   genctl external-tasks [--process <name>] [--version <n>] [--task <id>] [--since <when>] [--until <when>] [--json]
+  genctl upgrade  <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]
+  genctl upgrade  <instance-id> [<instance-id> ...] --to <version|channel> [--json]
   genctl get      <instance-id> [--resolve] [--json]
   genctl object   <ref>
   genctl logs     [--level <level>] [--since <when>] [--until <when>] [--time clock|full] [--recursive] [--mode basic|detail|json] <instance-id>
@@ -211,6 +220,7 @@ func usage() {
   genctl compat   <process> <from> <to>
   genctl compat   -f file.yaml [-f ...] --from <channel>
   genctl compat   --from <channel> --to <channel> [<process>]
+  genctl compat   <instance-id> --to <version|channel> | <instance-id> -f file.yaml
   genctl channel list   <process>
   genctl channel set    <process> <channel> <version>
   genctl channel delete <process> <channel>
@@ -268,6 +278,11 @@ Time zones:
 Instance id:
   get/logs/pause/resume/retry/signal require an instance id; pass @last for the most
   recently started instance (recorded by run), or run "genctl last" to print it.
+  upgrade takes either a process name (sweeps the fleet, needs --from) or instance ids
+  (moves those trees, one call each; --from is the sweep's selector, so it is not
+  needed). compat takes one id too, and reads the from side off the row: compat <id>
+  --to N is the question upgrade <id> --to N answers by moving. It takes only one,
+  because a comparison carries one version per process.
 
 External tasks:
   external-tasks lists the queue of instances waiting on an external result, and who

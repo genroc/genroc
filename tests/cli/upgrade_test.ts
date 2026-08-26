@@ -4,11 +4,14 @@ import { uid } from "../helpers/genctl.ts";
 import { client } from "../helpers/client.ts";
 
 /**
- * `genctl upgrade <process> --from --to`: the sweep across a fleet.
+ * `genctl upgrade`: the sweep across a fleet (`<process> --from --to`), and the single tree
+ * an id names (`<instance-id> --to`).
  *
  * The server moves one tree per call and only settles rows, so finding the roots, pausing
  * the running ones and putting them back is the client's job. What this covers is the
- * sweep's own behaviour — which instances it selects, and that it leaves nothing paused.
+ * sweep's own behaviour — which instances it selects, and that it leaves nothing paused —
+ * and, for the id form, that it selects nothing at all: no --from, and the process the
+ * channel resolves against comes off the row.
  */
 
 let bin: string;
@@ -33,19 +36,22 @@ function parkedDef(name: string, requireNote: boolean) {
   };
 }
 
-async function startParked(name: string): Promise<string> {
-  const { data, error } = await client.POST("/instances", {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: { process: name, input: {} } as any,
-  });
-  expect(error).toBeUndefined();
-  const id = data!.id;
+async function waitParked(id: string): Promise<string> {
   for (let i = 0; i < 100; i++) {
     const r = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
     if (r.data?.wait_state === "external") return id;
     await new Promise((res) => setTimeout(res, 50));
   }
   throw new Error(`instance ${id} never parked`);
+}
+
+async function startParked(name: string): Promise<string> {
+  const { data, error } = await client.POST("/instances", {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    body: { process: name, input: {} } as any,
+  });
+  expect(error).toBeUndefined();
+  return waitParked(data!.id);
 }
 
 test("sweeps every live root of a process and leaves none paused", async () => {
@@ -144,4 +150,163 @@ test("--status rejects a state that cannot move", () => {
   const r = runCli(bin, ["upgrade", uid("s"), "--from", "1", "--to", "2", "--status", "completed"]);
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain("move no work");
+});
+
+test("an id moves that one tree, with no --from and no process name", async () => {
+  const name = uid("byid");
+  runCli(bin, ["apply", "-f", writeDefs([parkedDef(name, false)])]);
+  const target = await startParked(name);
+  const bystander = await startParked(name);
+
+  runCli(bin, ["apply", "-f", writeDefs([parkedDef(name, true)])]);
+
+  const r = runCli(bin, ["upgrade", target, "--to", "2"]);
+  expect(r.ok, `upgrade by id failed: ${r.stderr}`).toBe(true);
+  expect(r.stdout).toContain(target);
+
+  const moved = await client.GET("/instances/{id}/detail", { params: { path: { id: target } } });
+  expect(moved.data!.version).toBe(2);
+  expect(moved.data!.status, "paused to be moved, and not put back").toBe("running");
+  expect(moved.data!.state?.input).toHaveProperty("note", null);
+
+  // The id selects one tree and nothing else: a sibling on the same version is not a
+  // candidate the way it would be under --from.
+  const left = await client.GET("/instances/{id}/detail", { params: { path: { id: bystander } } });
+  expect(left.data!.version, "the id form swept a sibling it was not given").toBe(1);
+});
+
+test("@last names the instance, and its process resolves the --to channel", async () => {
+  const name = uid("byidlast");
+  runCli(bin, ["apply", "-f", writeDefs([parkedDef(name, false)])]);
+  const started = runCli(bin, ["run", name, "--input", "{}", "-q"]);
+  expect(started.ok, started.stderr).toBe(true);
+  const id = await waitParked(started.stdout.trim());
+
+  runCli(bin, ["apply", "-f", writeDefs([parkedDef(name, true)]), "--channel", "stable"]);
+
+  const r = runCli(bin, ["upgrade", "@last", "--to", "stable"]);
+  expect(r.ok, `upgrade @last --to stable failed: ${r.stderr}`).toBe(true);
+
+  const row = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  expect(row.data!.version, "a channel must resolve against the process on the row").toBe(2);
+});
+
+test("an id takes no --status, is already-there rather than failed, and checks a stale --from", async () => {
+  const name = uid("byidargs");
+  runCli(bin, ["apply", "-f", writeDefs([parkedDef(name, false)])]);
+  const id = await startParked(name);
+
+  const withStatus = runCli(bin, ["upgrade", id, "--to", "2", "--status", "running"]);
+  expect(withStatus.ok).toBe(false);
+  expect(withStatus.stderr).toContain("already name the trees that move");
+
+  // Idempotent: naming ids again after a partial run has to repair it, so a tree already on
+  // the target is reported and not counted against the exit code.
+  const same = runCli(bin, ["upgrade", id, "--to", "1"]);
+  expect(same.ok, `already-there was treated as a failure: ${same.stdout}`).toBe(true);
+  expect(same.stdout).toContain("already on 1");
+  expect(same.stderr).toContain("1 already there");
+
+  // --from is optional here, but a wrong one is a stale view of the row, not a redundant
+  // argument to drop: silently moving it anyway is the race the assertion exists to catch.
+  const stale = runCli(bin, ["upgrade", id, "--from", "7", "--to", "2"]);
+  expect(stale.ok).toBe(false);
+  expect(stale.stdout).toContain("--from resolves to version 7");
+});
+
+test("several ids move several trees, and one refused does not stop the rest", async () => {
+  const name = uid("byidmany");
+  runCli(bin, ["apply", "-f", writeDefs([parkedDef(name, false)])]);
+  const first = await startParked(name);
+  const stuck = await startParked(name);
+  const second = await startParked(name);
+  const unnamed = await startParked(name);
+
+  // Completed moves no work, so it is the refusal — named BETWEEN the two that can move, so
+  // an abort would leave `second` behind and the count would say so.
+  const done = await client.POST("/instances/{id}/signal", {
+    params: { path: { id: stuck } },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    body: { task_id: "hold", result: {} } as any,
+  });
+  expect(done.error).toBeUndefined();
+  for (let i = 0; i < 100; i++) {
+    const r = await client.GET("/instances/{id}/detail", { params: { path: { id: stuck } } });
+    if (r.data?.status === "completed") break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+
+  runCli(bin, ["apply", "-f", writeDefs([parkedDef(name, true)])]);
+
+  const r = runCli(bin, ["upgrade", first, stuck, second, "--to", "2"]);
+  expect(r.ok, "a refusal among the ids must carry the exit code").toBe(false);
+  expect(r.stdout).toContain("status is completed");
+  expect(r.stderr).toContain("moved 2 tree(s) to 2");
+  expect(r.stderr).toContain("1 refused");
+
+  for (const id of [first, second]) {
+    const row = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+    expect(row.data!.version, `${id} was named and did not move`).toBe(2);
+    expect(row.data!.status).toBe("running");
+  }
+  const left = await client.GET("/instances/{id}/detail", { params: { path: { id: unnamed } } });
+  expect(left.data!.version, "an id list must move only what it names").toBe(1);
+});
+
+test("a process name and an id cannot be mixed", () => {
+  const r = runCli(bin, [
+    "upgrade",
+    uid("mixed"),
+    "550e8400-e29b-41d4-a716-446655440000",
+    "--to",
+    "2",
+  ]);
+  expect(r.ok).toBe(false);
+  expect(r.stderr).toContain("usage: genctl upgrade");
+});
+
+test("a child id is refused, and is not paused on the way", async () => {
+  const kid = uid("kid");
+  const boss = uid("boss");
+  runCli(bin, [
+    "apply",
+    "-f",
+    writeDefs([
+      parkedDef(kid, false),
+      {
+        name: boss,
+        tasks: [
+          {
+            id: "call",
+            action: { type: "child", name: kid, input: {} },
+            switch: "end",
+          },
+        ],
+      },
+    ]),
+  ]);
+  const { data, error } = await client.POST("/instances", {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    body: { process: boss, input: {} } as any,
+  });
+  expect(error).toBeUndefined();
+
+  let childId = "";
+  for (let i = 0; i < 100 && !childId; i++) {
+    const list = await client.GET("/instances", { params: { query: { process: kid } } });
+    const row = list.data?.items?.[0];
+    if (row) childId = row.id;
+    else await new Promise((res) => setTimeout(res, 50));
+  }
+  expect(childId, `no child instance of ${kid} appeared under ${data!.id}`).not.toBe("");
+  await waitParked(childId);
+
+  const r = runCli(bin, ["upgrade", childId, "--to", "2"]);
+  expect(r.ok).toBe(false);
+  expect(r.stdout).toContain("upgrade its root instead");
+
+  const child = await client.GET("/instances/{id}/detail", { params: { path: { id: childId } } });
+  expect(child.data!.status, "a refused child must not be left paused by the attempt").toBe(
+    "running",
+  );
 });

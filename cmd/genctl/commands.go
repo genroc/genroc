@@ -1137,12 +1137,49 @@ func parseSelector(side string, values []string) map[string]any {
 	return nil
 }
 
+// compatSidesForInstance reads both sides off a row: the side it RUNS is its own process at
+// its own version, so only the target is named. The row's process also scopes the report --
+// a --to channel carries every process on it. specs/version-compatibility.md s6.
+func compatSidesForInstance(server, id string, fromFlag, toFlag, files multiFlag) (map[string]any, map[string]any, string) {
+	if len(fromFlag) > 0 {
+		fatal("an instance id already names the side it is running; drop --from")
+	}
+	if len(files) > 0 && len(toFlag) > 0 {
+		fatal("-f already names the target side; drop --to")
+	}
+	var row instanceRow
+	if err := callGet(server+"/instances/"+id, &row); err != nil {
+		fatal("%v", err)
+	}
+	from := map[string]any{"versions": map[string]any{row.Process: row.Version}}
+	switch {
+	case len(files) > 0:
+		defs, err := loadDefs(files)
+		if err != nil {
+			fatal("%v", err)
+		}
+		return from, map[string]any{"definitions": defs}, row.Process
+	case len(toFlag) > 1:
+		fatal("--to names %d targets; after an instance id it names one version or channel for %s",
+			len(toFlag), row.Process)
+	case len(toFlag) == 1:
+		if n, err := strconv.Atoi(toFlag[0]); err == nil {
+			return from, map[string]any{"versions": map[string]any{row.Process: n}}, row.Process
+		}
+		return from, map[string]any{"channel": toFlag[0]}, row.Process
+	}
+	fatal("usage: genctl compat <instance-id> --to <version|channel> | genctl compat <instance-id> -f <file>")
+	return nil, nil, ""
+}
+
 func runCompatCmd(server string, args []string) {
 	fs := flag.NewFlagSet("compat", flag.ExitOnError)
 	var files, fromFlag, toFlag multiFlag
 	fs.Var(&files, "f", "definition file to compare against --from (YAML or JSON); repeat for multiple files")
-	fs.Var(&fromFlag, "from", "the side instances are running now: a channel, or name@version (repeatable)")
-	fs.Var(&toFlag, "to", "the side to compare against: a channel, or name@version (repeatable)")
+	fs.Var(&fromFlag, "from", "the side instances are running now: a channel, or name@version (repeatable). "+
+		"An instance id names this side by itself")
+	fs.Var(&toFlag, "to", "the side to compare against: a channel, or name@version (repeatable); "+
+		"after an instance id, a bare version or channel")
 	serverFlag := addServerFlag(fs, server)
 	jsonFlag := fs.Bool("json", false, "print the raw report")
 	var ignore multiFlag
@@ -1151,9 +1188,20 @@ func runCompatCmd(server string, args []string) {
 		"compared nor what is printed")
 	pos := leadingArgs(fs, args)
 
+	for _, p := range pos {
+		if isInstanceRef(p) && len(pos) > 1 {
+			// A side carries one version per process (parseSelector's rule), and a second row is
+			// a second version -- of the same process, or of one this report is not scoped to.
+			fatal("compat takes one instance id: two rows are two comparisons, and a side carries "+
+				"one version per process")
+		}
+	}
+
 	var from, to map[string]any
 	process := ""
 	switch {
+	case len(pos) == 1 && isInstanceRef(pos[0]):
+		from, to, process = compatSidesForInstance(*serverFlag, resolveInstanceID(pos[0]), fromFlag, toFlag, files)
 	case len(files) > 0:
 		if len(toFlag) > 0 {
 			fatal("-f already names the target side; drop --to")
@@ -1182,7 +1230,10 @@ func runCompatCmd(server string, args []string) {
 		to = map[string]any{"versions": map[string]any{process: toV}}
 	default:
 		if len(fromFlag) == 0 || len(toFlag) == 0 {
-			fatal("usage: genctl compat <process> <from> <to> | compat -f <file> --from <sel> | compat --from <sel> --to <sel> [<process>]")
+			fatal("usage: genctl compat <process> <from> <to>\n" +
+				"       genctl compat -f <file> --from <sel>\n" +
+				"       genctl compat --from <sel> --to <sel> [<process>]\n" +
+				"       genctl compat <instance-id> --to <version|channel>")
 		}
 		from, to = parseSelector("from", fromFlag), parseSelector("to", toFlag)
 		if len(pos) == 1 {

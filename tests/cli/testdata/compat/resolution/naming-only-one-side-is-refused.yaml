@@ -13,6 +13,9 @@ run: [--from, oneside_a]
 
 expect: |
   --- stderr ---
-  genctl: usage: genctl compat <process> <from> <to> | compat -f <file> --from <sel> | compat --from <sel> --to <sel> [<process>]
+  genctl: usage: genctl compat <process> <from> <to>
+         genctl compat -f <file> --from <sel>
+         genctl compat --from <sel> --to <sel> [<process>]
+         genctl compat <instance-id> --to <version|channel>
 
   exit 1

@@ -20,6 +20,10 @@ Keep new list/get commands consistent so the surface stays predictable.
   report the capped result through `noteCapped` — **a cap nobody can raise must never
   truncate silently.**
 - **Single-item output.** A `Key:\tvalue` tabwriter block with `longTime()` timestamps.
+- **An instance id may stand in for a process name.** `upgrade` and `compat` take either in
+  the same positional, told apart by shape (`isInstanceRef`: a UUID, or `@last`). An id names
+  one row, so the flags that SELECT rows — `--from`, `--status` — are refused there rather
+  than ignored: a selector that is silently overridden reads as if it applied.
 - **`--json` is the one machine-readable form.** A list prints raw items as a JSON array
   via `printJSONItems` (lossless, same order as the table); a single item prints the raw
   server object (`callGet` into `json.RawMessage`, then indent). Never invent a
