@@ -29,7 +29,13 @@ apply:
           - id: hold
             action: {type: external}
             switch: end
-start: {process: parkedproc, input: {n: 3}, ticks: 1}
-resting: {task: hold, status: running, wait_state: external, state_keys: [_external, error, input, outputs]}
-after: {task: hold, status: running, wait_state: external, state_keys: [_external, error, input, outputs]}
+# Two live positions, and they are the two an external task has: sitting ON the task with
+# nothing asked yet, and ARMED with the question out. Only the second has anything in flight, so
+# only the second is the state the result-contract gate is about — and the state slots differ,
+# which is what `_external` appearing between them says.
+start: {process: parkedproc, input: {n: 3}}
+at:
+  - {ticks: 0, resting: {task: hold, wait_state: ""},         after: {wait_state: "", state_keys: [error, input, outputs]}}
+  - {ticks: 1, resting: {task: hold, wait_state: external},   after: {wait_state: external, state_keys: [_external, error, input, outputs]}}
+after: {task: hold, status: running, version: 2}
 run: [parkedproc, --from, "1", --to, "2"]

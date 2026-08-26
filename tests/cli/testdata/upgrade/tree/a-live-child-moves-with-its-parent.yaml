@@ -13,9 +13,6 @@ apply:
           properties: {k: {type: number}}
           required: [k]
         tasks:
-          - id: hold
-            action: {type: delay, for: 1}
-            switch: next
           - id: go
             output: {v: '$: input.k * 2'}
             switch: end
@@ -42,9 +39,6 @@ apply:
           properties: {k: {type: number}}
           required: [k]
         tasks:
-          - id: hold
-            action: {type: delay, for: 1}
-            switch: next
           - id: go
             output: {v: '$: input.k * 10'}
             switch: end
@@ -64,10 +58,22 @@ apply:
             output: {v: '$: self.result'}
             switch: end
         output: {got: '$: outputs.call.v'}
-# The clock stands still here so the child stays parked on its delay: a child that had already
-# finished is not a live tree, and the case would be asserting nothing.
-start: {process: root, input: {n: 2}, ticks: 3, advance_ms: 0}
-resting: {task: call, status: running, wait_state: waiting, version: 1}
-after: {task: call, status: running, wait_state: waiting, version: 2}
+# Three live positions, and they are the three states the in-flight reasoning distinguishes:
+# nothing spawned yet, a child RUNNING, and a child that has COMPLETED but not been collected.
+# The finished output says which leaf version actually ran, so each position asserts its own —
+# and the third differs, which is the whole point of sweeping this case:
+#
+#   tick 0  nothing spawned   the parent spawns leaf v2 after the move       -> 20
+#   tick 1  child running     it moves with its parent and finishes on v2    -> 20
+#   tick 2  child completed   terminal descendants STAY PUT, so its v1 output
+#                             is what the parent collects                    -> 4
+#
+# That last line is the behaviour worth pinning end to end: an upgrade does not rewrite history,
+# and a result already produced belongs to the version that produced it.
+start: {process: root, input: {n: 2}, advance_ms: 0}
+at:
+  - {ticks: 0, resting: {task: call, wait_state: ""},           finish: {status: completed, output: {got: 20}}}
+  - {ticks: 1, resting: {task: call, wait_state: waiting},      finish: {status: completed, output: {got: 20}}}
+  - {ticks: 2, resting: {task: call, wait_state: collecting},   finish: {status: completed, output: {got: 4}}}
+after: {version: 2}
 run: [root, --from, "1", --to, "2"]
-finish: {status: completed, output: {got: 20}, advance_ms: 1000}

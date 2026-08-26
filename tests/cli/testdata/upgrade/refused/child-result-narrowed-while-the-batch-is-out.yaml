@@ -19,7 +19,6 @@ apply:
           required: [k]
         tasks:
           - id: work
-            action: {type: delay, for: 1}
             output: {v: '$: input.k'}
             switch: end
         output: {v: '$: outputs.work.v'}
@@ -47,7 +46,6 @@ apply:
           required: [k]
         tasks:
           - id: work
-            action: {type: delay, for: 1}
             output: {v: '$: input.k'}
             switch: end
         output: {v: '$: outputs.work.v'}
@@ -69,9 +67,28 @@ apply:
                 required: [v]
             output: {r: '$: self.result'}
             switch: end
-# One tick: the parent spawns and parks, so the batch is out and nothing has collected.
-start: {process: boss, input: {n: 1}, ticks: 1}
-resting: {task: call, status: running, wait_state: waiting, version: 1}
-after: {task: call, status: running, wait_state: waiting, version: 1}
+# All three positions, and they say where the gate's boundary falls for a child batch:
+#
+#   tick 0  nothing spawned    no promise made, so the narrowing is free
+#   tick 1  child RUNNING      refused — and knowingly over-refused: this child moves to the
+#                              version the parent's target names, which registration already
+#                              checked, so nothing it can produce would break. §5.8 of
+#                              specs/version-compatibility.md keeps the coarse relation anyway.
+#   tick 2  child COMPLETED    refused, and here it is earned: a terminal descendant stays on
+#                              the version that ran it, so its stored output would be conformed
+#                              under a schema that never promised to accept it.
+start: {process: boss, input: {n: 1}}
+at:
+  - ticks: 0
+    resting: {task: call, wait_state: "", version: 1}
+    after: {task: call, wait_state: "", version: 2}
+    refused: false
+  - ticks: 1
+    resting: {task: call, wait_state: waiting, version: 1}
+    after: {task: call, wait_state: waiting, version: 1}
+    refused: {says: 'waiting on a result promised by v1'}
+  - ticks: 2
+    resting: {task: call, wait_state: collecting, version: 1}
+    after: {task: call, wait_state: collecting, version: 1}
+    refused: {says: 'waiting on a result promised by v1'}
 run: [boss, --from, "1", --to, "2"]
-refused: {says: 'waiting on a result promised by v1'}

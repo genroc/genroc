@@ -58,20 +58,26 @@ interface UpgradeCase {
    */
   refused?: { /** A fragment the refusal must name, so it points at the real reason. */ says?: string };
   /**
-   * Run the whole case once per tick position, 0 through `through`. One case per position is
-   * what a sweep buys: an upgrade is correct only if it is correct from EVERY state the process
-   * passes through, and a single hand-picked tick proves it for one of them. A failure names the
-   * position, so the state that broke is the state in the title.
+   * Run the whole case once per POSITION: upgrade after this many ticks, and say what the
+   * instance must hold there. An upgrade is correct only if it is correct from every state the
+   * process passes through, and a single hand-picked tick proves it for one of them.
+   *
+   * Each entry states its own `resting` / `after` / `finish`; anything it leaves out falls back
+   * to the case-level one, so a position only spells out what differs. A failure names the
+   * position, so the state that broke is the state in the test title.
    */
-  sweep?: {
-    through: number;
+  at?: Array<{
+    ticks: number;
+    resting?: RestingState;
+    after?: RestingState;
+    finish?: UpgradeCase["finish"];
     /**
-     * The task the instance must be sitting on at each position, indexed by tick. Without it a
-     * sweep whose ticks all land in the same place passes for saying nothing — the same way a
-     * case with no `resting` does, and the reason every case here has one.
+     * Whether THIS position is refused. A rule about in-flight work has a boundary — the same
+     * definitions move from one state and not from another — and a case that states both sides
+     * says where the boundary is, which two cases in different groups cannot.
      */
-    positions?: string[];
-  };
+    refused?: UpgradeCase["refused"] | false;
+  }>;
   /**
    * Drive the upgraded instance on and say where it must land. Everything above proves only
    * that the migrated state LOOKS right; a migration that breaks the very next tick — a slot
@@ -132,13 +138,21 @@ afterEach(async () => {
   server = undefined;
 });
 
-async function runCase(c: UpgradeCase, ticksOverride?: number): Promise<void> {
-  const ticks = ticksOverride ?? c.start.ticks ?? 0;
+async function runCase(c: UpgradeCase, at?: NonNullable<UpgradeCase["at"]>[number]): Promise<void> {
+  const ticks = at ? at.ticks : c.start.ticks ?? 0;
+  // A position states what differs and inherits the rest, so a sweep does not repeat the
+  // invariant half at every tick.
+  const resting = at?.resting ?? c.resting;
+  const after = { ...c.after, ...at?.after };
+  const finish = at?.finish ?? c.finish;
+  // `false` is how a position opts OUT of a case-level refusal, which is what the allowed side
+  // of a boundary looks like.
+  const refused = at && "refused" in at ? at.refused || undefined : c.refused;
   // Its own server, in manual-tick mode: the case names how many steps the instance has
   // taken, and only a server that takes no step on its own can honour that.
-  const at = port++;
-  server = await startGenroc(genrocBin, at, tmpPath("upgrade_case", ".db"), undefined, 0, 4);
-  const env = { GENROC_SERVER: `http://localhost:${at}` };
+  const onPort = port++;
+  server = await startGenroc(genrocBin, onPort, tmpPath("upgrade_case", ".db"), undefined, 0, 4);
+  const env = { GENROC_SERVER: `http://localhost:${onPort}` };
 
   const applied = runCli(genctlBin, ["apply", "-f", writeDefs(c.apply[0].definitions)], env);
   if (!applied.ok) throw new Error(`apply v1 failed for ${c.id}: ${applied.stderr}`);
@@ -199,10 +213,7 @@ async function runCase(c: UpgradeCase, ticksOverride?: number): Promise<void> {
     }
   }
 
-  if (c.resting) await assertState(`after ${ticks} tick(s)`, c.resting);
-  if (c.sweep?.positions) {
-    await assertState(`after ${ticks} tick(s)`, { task: c.sweep.positions[ticks] });
-  }
+  if (resting) await assertState(`after ${ticks} tick(s)`, resting);
 
   for (const step of c.apply.slice(1)) {
     const next = runCli(genctlBin, ["apply", "-f", writeDefs(step.definitions)], env);
@@ -210,23 +221,23 @@ async function runCase(c: UpgradeCase, ticksOverride?: number): Promise<void> {
   }
 
   const res = runCli(genctlBin, ["upgrade", ...c.run], env);
-  if (c.refused) {
+  if (refused) {
     if (res.ok) {
       throw new Error(`${c.id}: the move was expected to be refused, but exited 0\n${res.stdout}`);
     }
     const said = res.stdout + res.stderr;
-    if (c.refused.says && !said.includes(c.refused.says)) {
-      throw new Error(`${c.id}: refused, but not for the stated reason — wanted ${JSON.stringify(c.refused.says)} in:\n${said}`);
+    if (refused.says && !said.includes(refused.says)) {
+      throw new Error(`${c.id}: refused, but not for the stated reason — wanted ${JSON.stringify(refused.says)} in:\n${said}`);
     }
   } else if (!res.ok) {
     throw new Error(`${c.id}: upgrade failed (exit ${res.exitCode})\n${res.stdout}${res.stderr}`);
   }
   // The state is the deliverable, not the rendering: what the command PRINTED is compat's
   // business, and asserting it here would break on wording that changes nothing.
-  if (c.after) await assertState("after the upgrade", c.after);
+  if (Object.keys(after).length > 0) await assertState("after the upgrade", after);
 
-  if (!c.finish) return;
-  const want = c.finish;
+  if (!finish) return;
+  const want = finish;
   const budget = want.ticks ?? 20;
   let got: Record<string, unknown> = {};
   for (let i = 0; i <= budget; i++) {
@@ -261,12 +272,12 @@ async function runCase(c: UpgradeCase, ticksOverride?: number): Promise<void> {
 for (const group of GROUPS) {
   describe(group, () => {
     for (const c of loadGroup(group)) {
-      if (!c.sweep) {
+      if (!c.at) {
         test(c.id, () => runCase(c), 60_000);
         continue;
       }
-      for (let k = 0; k <= c.sweep.through; k++) {
-        test(`${c.id} @ tick ${k}`, () => runCase(c, k), 60_000);
+      for (const position of c.at) {
+        test(`${c.id} @ tick ${position.ticks}`, () => runCase(c, position), 60_000);
       }
     }
   });

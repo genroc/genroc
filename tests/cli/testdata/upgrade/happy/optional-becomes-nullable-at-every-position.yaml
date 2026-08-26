@@ -60,11 +60,20 @@ apply:
             switch: end
         output: {result: '$: outputs.fourth.q'}
 start: {process: nullproc, input: {n: 2}, advance_ms: 1000}
-# Ticks 0 and 1 are both `first` and are not the same state: at 0 nothing has run, at 1 the
-# delay is armed. The instance completes at tick 5, so 4 is the last position with a live tree.
-sweep:
-  through: 4
-  positions: [first, first, second, third, fourth]
+# One entry per position the process passes through. Each states what the instance holds THERE —
+# ticks 0 and 1 are both `first` and are not the same state (at 0 nothing has run, at 1 the delay
+# is armed), and the outputs accumulate as it goes. The instance completes at tick 5, so 4 is the
+# last position with a live tree to move.
+#
+# What every position shares is stated once below and inherited: `note` migrates to null wherever
+# the upgrade happens, and the finished output does not depend on WHEN it happened — the
+# strongest thing a sweep can assert, and the reason both versions compute identically.
+at:
+  - {ticks: 0, resting: {task: first, wait_state: ""}, after: {outputs: []}}
+  - {ticks: 1, resting: {task: first}, after: {outputs: []}}
+  - {ticks: 2, resting: {task: second}, after: {outputs: [first]}}
+  - {ticks: 3, resting: {task: third}, after: {outputs: [first, second]}}
+  - {ticks: 4, resting: {task: fourth}, after: {outputs: [first, second, third]}}
 after: {version: 2, values: {input.note: null, input.n: 2}}
 finish: {status: completed, output: {result: 14}}
 run: [nullproc, --from, "1", --to, "2"]
