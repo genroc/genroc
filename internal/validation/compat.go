@@ -765,8 +765,9 @@ func (e explainer) word(b *schema.SubsetBreak) string {
 // row cannot be, being the absence of a verdict rather than one. A verdict never moves: only
 // Gating and Passes answer to the selection.
 //
-// The one token accepted today is `contract`; specs/compat-selection.md has the grammar this
-// restricts. An unknown token is an error, never a no-op.
+// `contract` is the only token. A finer grammar -- per process, task or field -- was designed
+// and dropped (specs/compat-command.md s0), so this is not a restriction of something larger
+// waiting to arrive. An unknown token is an error, never a no-op.
 func (r *SetReport) ApplySelection(ignore []string) error {
 	excused := map[Member]bool{}
 	for _, token := range ignore {

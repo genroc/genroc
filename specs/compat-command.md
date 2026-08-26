@@ -15,18 +15,21 @@ may accept what the check calls different.
 doc argues for: `internal/validation/compat.go` carries `MemberUpgrade`/`MemberContract` and
 a `Verdict` per half, and the CLI has `--ignore contract` and `--json`. §2f's pruning is
 rejected here and correspondingly absent from the code. Its other half — **moving** an
-instance once this says it may — is [version-compatibility.md](version-compatibility.md) and
-remains unbuilt.
+instance once this says it may — is [version-compatibility.md](version-compatibility.md),
+BUILT 2026-08-26, which now consults this comparison at the gate rather than only reporting
+it: an instance parked mid-task is refused when the answer it is waiting for would no longer
+be accepted.
 
 Historical note, since the paragraph below is what this section used to say: one piece was
-built first, the token lexer, `internal/selector`
-([compat-selection.md](compat-selection.md)). An implementation of the rest was written and
-rolled back; findings marked **[run]** came from running it, and three of them contradicted
-this document as it then stood.
+built first, a token lexer for the granular selection this doc defers. That selection was
+DROPPED 2026-08-26 along with its spec and the lexer — indefinitely deferred is a way of
+carrying something forever, and the code had no caller. An implementation of the rest was
+written and rolled back; findings marked **[run]** came from running it, and three of them
+contradicted this document as it then stood.
 
 **Order of work.** The two checks and the report land together (§2–§6): they share one
-comparison, and every fixture moves once rather than twice. Granular selection is deferred
-indefinitely (compat-selection.md), and §2f's pruning is rejected outright.
+comparison, and every fixture moves once rather than twice. Granular selection is dropped
+(see §0), and §2f's pruning is rejected outright.
 
 ## 1. Two checks
 
@@ -88,6 +91,18 @@ so its result schema is part of the upgrade check:
 **`fetch` is the one that genuinely is not**, which is why this is a rule about parking
 rather than a list: request and response happen inside one advance with nothing persisted
 between, so no instance can be holding a fetch result when the version changes.
+
+**`raises` is the same promise on the other channel, and is compared the same way** — per
+code, `old ⊆ new`, strictly. A worker answers a failure with a payload conformed against
+`raises[code]`, and a child that raised carries one its parent conforms at collect; both
+arrive from OUTSIDE and no migration repairs either. Dropping a code is not a narrowing but a
+refusal: the submission is rejected before its payload is read. Unlike the result schema this
+is filed **upgrade-only** — what a call accepts back on the error channel is not a promise to
+its own callers, since registration already refuses a declaration the callee could overflow.
+It was reported for a while as a slot that had merely CHANGED, which read as `compatible`
+while naming the slot that was not; a `child` call escaped that only because its handler task
+reads `error.data`, so the layer comparison caught the narrowing indirectly and coverage
+depended on a handler happening to exist.
 
 **A parked parent is holding a child instance, and the result schema is the whole check —
 which process the call names needs no rule.** [run] The identity rule was implemented and
@@ -311,9 +326,8 @@ and a trailing line names what was excluded and why the exit is 0.
 **`--json` moves nothing at all.** It is a rendering, so it gates identically — the flag a
 pipeline reaches for to capture the findings must not be the flag that stops failing on them.
 
-Per-member and per-path selection is designed and deferred
-([compat-selection.md](compat-selection.md)); `contract` is already a token in that grammar,
-so this flag is its general form restricted to one value.
+Per-member and per-path selection was designed and dropped (§0). `contract` was already a
+token in that grammar, so this flag is what survived of it — the one value anyone asked for.
 
 ## 6. The report
 
@@ -343,8 +357,8 @@ exit did not follow the columns. Both are gone. Nothing is named by a header row
 block sits between two processes and a header a screen up answers nothing; and the exclusion
 is stated **where it applies** — the process line where a whole member was excused, the row
 where a finding under it was. The trailing line could say neither, having no process and no
-address: with one excusable member it was a constant string, and under a finer selection
-(compat-selection.md) it would have been a constant string standing for several answers.
+address: with one excusable member it was a constant string, and under the finer selection this doc
+once proposed (§0) it would have been a constant string standing for several answers.
 
 **A verdict is grouped by fate, not by member: `breaking: upgrade, contract`.** Keying it the
 other way (`upgrade: breaking  contract: breaking`) repeats the longer word once per member
@@ -449,8 +463,8 @@ one they never covered:
 - **`(breaking: <members>)` / `(ignored: <members>)`**, in the process line's grammar and
   joined the same way — so one difference failing both questions prints once, named for
   both, as `(breaking: upgrade, contract)`. A member reads under `ignored` where **every**
-  finding under it at this address was excused; a selection finer than the member
-  (compat-selection.md) can excuse some and not others, and leaving it under `breaking`
+  finding under it at this address was excused; a selection finer than the member — the one
+  §0 records as dropped — could excuse some and not others, and leaving it under `breaking`
   there is what keeps a gating break from reading as green. That is also where the third
   fate (`partly ignored`, and a marker on the finding line, which is the granularity
   `gating` already has on the wire) becomes reachable — none of it is written until a

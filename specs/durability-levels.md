@@ -24,7 +24,8 @@ shape, not on the ladder.
 question is decided: **flag + per-definition field**, and the two sub-questions it called
 blocking are answered (child inheritance turns out not to be a question at all). §7's
 `lease_epoch` hazard is **closed** — it was the one item that had to land before any level
-below `strict` ships, so it did. The ladder itself is still unbuilt.
+below `strict` ships, so it did, and the ladder followed it the same day (see the status
+above).
 
 ## 1. Every benchmark to date measured a no-op
 

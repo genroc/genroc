@@ -281,14 +281,6 @@ per-definition field).
   say "required, not deferred"; the doc now rejects it outright** and the shipped code has
   none, so read §2f rather than this line: pruning `mustNew(T)` to what is actually read
   would promise an upgrade whose instance then reads a value that is not there.
-- [compat-selection.md](compat-selection.md) — **deferred**, and the one piece of it that is
-  built (`internal/selector`, the token lexer). The general form of `--ignore contract`: a
-  token grammar where **colons scope and dots navigate**, so a build can gate on one member,
-  process, task or field. Records why the member vocabulary is reserved in its position (a
-  typo'd member must be a refusal, not a process scope matching nothing), why a token is
-  validated for **existence and never occurrence** (an exclusion is a standing policy — silent
-  while the slot is fine, failing once it is gone), and that an invalid selection degrades to
-  gating *everything*. Predates compat-command's addressing and must be reconciled on landing.
 - [durability-levels.md](durability-levels.md) — **one piece built** (`--sqlite-fullfsync`,
   which changes no default); the rest is proposal. Move the fsync off every persist onto a
   few boundaries, exposed as a tunable ladder (`none` → `accepted` → `only-once` →
@@ -305,10 +297,12 @@ per-definition field).
   work: group commit is Postgres-only and costs no durability at all, capped by
   `--pg-max-open-conns` rather than `--max-concurrent`, so the ladder is mostly a SQLite
   feature and should land *after* the two changes that spend no guarantee. **That ordering
-  is what was taken (2026-08-25) and the ladder is unbuilt**: the decision is to keep every
-  commit synchronous and cut the number of flushes instead, so `--pg-commit-delay` shipped
-  (§6b) and SQLite is left at its ~180 inst/s full-durability ceiling as the single-node
-  engine. §6a is the honest-storage measurement §8 asked for, and carries two corrections
+  is what was taken (2026-08-25)**: the decision was to keep every commit synchronous and cut
+  the NUMBER of flushes rather than their strength, so `--pg-commit-delay` shipped first (§6b)
+  — and then the ladder shipped too, on the same principle. `--durability` defaults to
+  `only-once`, which flushes what cannot be replayed (work handed in from outside, and
+  `only_once` tasks) and lets ordinary task progress replay after a power cut, which the
+  at-least-once contract already allows. What is still deferred is the per-definition field. §6a is the honest-storage measurement §8 asked for, and carries two corrections
   worth reading before trusting any fsync number: throughput peaks at a *small* delay and
   falls while the fsync count keeps improving — so "count fsyncs, not time them" is wrong
   for tuning one — and the size of the gain did not reproduce between a loaded and a quiet
@@ -396,7 +390,8 @@ a union, a container, a `$ref` or an interpolation — a rule the schema package
 every access path.
 
 `version-compatibility.md` is now **only** the upgrade half — the gate, the boundary rules,
-the tree closure, the one-column write, the endpoints — and none of it is built. Everything
+the tree closure, the one-column write, the endpoints — and it is BUILT (2026-08-26), except
+§3b's cross-document pairing check. Everything
 that defined the *check* moved to `compat-command.md`, which owns it outright; the two docs
 divide at a sharp line (the check reads two documents and never an instance, the gate has the
 row in hand). Its §3a prerequisite (dropping `_spawn_result_schema`) shipped, so the address
