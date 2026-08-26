@@ -48,10 +48,10 @@ test("on_error — HTTP failure routes to recovery task", async () => {
 
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
-  expect((data?.context?.outputs as any)?.recovery?.recovered).toBe(true);
+  expect((data?.state?.outputs as any)?.recovery?.recovered).toBe(true);
 
   failMock.stop();
   recoveryMock.stop();
@@ -105,11 +105,11 @@ test("on_error — error context available in recovery task input", async () => 
 
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   // The recovery mock received the request — instance completed means routing worked
-  expect((data?.context?.outputs as any)?.recovery?.done).toBe(true);
+  expect((data?.state?.outputs as any)?.recovery?.done).toBe(true);
 
   failMock.stop();
   recoveryMock.stop();

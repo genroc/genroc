@@ -151,14 +151,14 @@ async function countInstances(client: Client, rootIds: string[]): Promise<number
   if (!COUNT_FIELD) return rootIds.length;
   let total = 0;
   for (const id of rootIds) {
-    const { data, error } = await client.GET("/instances/{id}", {
+    const { data, error } = await client.GET("/instances/{id}/detail", {
       params: { path: { id } },
     });
     if (error) throw new Error(`get_instance failed: ${JSON.stringify(error)}`);
     if (data!.status !== "completed") {
       throw new Error(`root ${id} ended ${data!.status}: ${data!.error_message ?? ""}`);
     }
-    const out = data!.context?.output as Record<string, number> | undefined;
+    const out = data!.state?.output as Record<string, number> | undefined;
     const n = out?.[COUNT_FIELD];
     if (typeof n !== "number") {
       throw new Error(

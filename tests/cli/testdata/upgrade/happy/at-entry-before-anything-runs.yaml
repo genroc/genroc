@@ -17,6 +17,7 @@ apply:
           - id: first
             output: {v: '$: input.n'}
             switch: end
+        output: {v: '$: outputs.first.v'}
   - definitions:
       - name: entryproc
         input_schema:
@@ -27,7 +28,10 @@ apply:
           - id: first
             output: {v: '$: input.n'}
             switch: end
+        output: {v: '$: outputs.first.v'}
 start: {process: entryproc, input: {n: 1}, ticks: 0}
-resting: {task: first, status: running, wait_state: "", outputs: [], context_keys: [error, input, outputs]}
-after: {task: first, status: running, outputs: [], context_keys: [error, input, outputs]}
+resting: {task: first, status: running, wait_state: "", outputs: [], state_keys: [error, input, outputs]}
+after: {task: first, status: running, outputs: [], state_keys: [error, input, outputs]}
 run: [entryproc, --from, "1", --to, "2"]
+# Nothing had run, so nothing had to move — and the instance still finishes on the new version.
+finish: {status: completed, output: {v: 1}}

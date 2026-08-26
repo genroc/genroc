@@ -18,7 +18,7 @@ async function waitUntil(
 ) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+    const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
     if (data && pred(data as unknown as Record<string, unknown>)) return data;
     if (Date.now() > deadline) throw new Error(`instance ${id} never matched`);
     await new Promise((r) => setTimeout(r, 50));
@@ -77,10 +77,10 @@ test("a paused instance moves to a new version and its state is migrated", async
   expect(done.error).toBeUndefined();
   expect(done.data!.upgraded).toBe(true);
 
-  const after = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const after = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   expect(after.data!.version).toBe(2);
   // The migration inserted the null v2 requires, so the row satisfies the version it now runs.
-  expect(after.data!.context?.input).toHaveProperty("note", null);
+  expect(after.data!.state?.input).toHaveProperty("note", null);
 });
 
 test("a stale from_version is refused rather than migrated against a version it has left", async () => {

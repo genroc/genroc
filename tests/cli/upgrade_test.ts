@@ -41,7 +41,7 @@ async function startParked(name: string): Promise<string> {
   expect(error).toBeUndefined();
   const id = data!.id;
   for (let i = 0; i < 100; i++) {
-    const r = await client.GET("/instances/{id}", { params: { path: { id } } });
+    const r = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
     if (r.data?.wait_state === "external") return id;
     await new Promise((res) => setTimeout(res, 50));
   }
@@ -60,12 +60,12 @@ test("sweeps every live root of a process and leaves none paused", async () => {
   expect(run.stderr).toContain("moved 2 tree(s)");
 
   for (const id of ids) {
-    const r = await client.GET("/instances/{id}", { params: { path: { id } } });
+    const r = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
     expect(r.data!.version).toBe(2);
     // Paused to be moved, and put back: an instance the sweep paused must not stay paused.
     expect(r.data!.status).toBe("running");
     // The migration closed the gap v2 opened.
-    expect(r.data!.context?.input).toHaveProperty("note", null);
+    expect(r.data!.state?.input).toHaveProperty("note", null);
   }
 });
 
@@ -86,9 +86,9 @@ test("selects only instances on the --from version", async () => {
   expect(r.ok).toBe(true);
   expect(r.stderr).toContain("moved 1 tree(s)");
 
-  const a = await client.GET("/instances/{id}", { params: { path: { id: old } } });
+  const a = await client.GET("/instances/{id}/detail", { params: { path: { id: old } } });
   expect(a.data!.version).toBe(2);
-  const b = await client.GET("/instances/{id}", { params: { path: { id: already } } });
+  const b = await client.GET("/instances/{id}/detail", { params: { path: { id: already } } });
   expect(b.data!.version).toBe(2); // untouched, and it was never selected
 });
 
@@ -115,7 +115,7 @@ test("sweeps failed instances too, and --status narrows what it takes", async ()
   });
   expect(failRes.error).toBeUndefined();
   for (let i = 0; i < 100; i++) {
-    const r = await client.GET("/instances/{id}", { params: { path: { id: failedId } } });
+    const r = await client.GET("/instances/{id}/detail", { params: { path: { id: failedId } } });
     if (r.data?.status === "failed") break;
     await new Promise((res) => setTimeout(res, 50));
   }
@@ -130,13 +130,13 @@ test("sweeps failed instances too, and --status narrows what it takes", async ()
   expect(only.ok).toBe(true);
   expect(only.stderr).toContain("moved 1 tree(s)");
 
-  const stillV1 = await client.GET("/instances/{id}", { params: { path: { id: live } } });
+  const stillV1 = await client.GET("/instances/{id}/detail", { params: { path: { id: live } } });
   expect(stillV1.data!.version).toBe(1);
 
   // Default takes everything movable, so the running one goes now.
   const rest = runCli(bin, ["upgrade", name, "--from", "1", "--to", "2"]);
   expect(rest.ok).toBe(true);
-  const movedNow = await client.GET("/instances/{id}", { params: { path: { id: live } } });
+  const movedNow = await client.GET("/instances/{id}/detail", { params: { path: { id: live } } });
   expect(movedNow.data!.version).toBe(2);
 });
 

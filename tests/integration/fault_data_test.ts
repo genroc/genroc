@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { client, startMockService, waitForInstance } from "../helpers/client.ts";
+import { client, startMockService, waitForInstance, childrenOfTask } from "../helpers/client.ts";
 import type { components } from "../generated/api.ts";
 
 // A raise or panic concludes with a whole error — code, message, and a `data` shape evaluated
@@ -111,7 +111,7 @@ test("a panic's data stays on the instance that authored it — ancestors inheri
   expect(parentInst?.error_code).toBe("script_broken");
   expect(parentInst?.error_data, "the payload does not travel").toBeUndefined();
 
-  const childId = (parentInst?.context as any)?._children?.run as string;
+  const childId = (await childrenOfTask(id, "run")) as string;
   const { data: childInst } = await client.GET("/instances/{id}", {
     params: { path: { id: childId } },
   });
@@ -187,7 +187,7 @@ test("a raise forwards the caught body only when it asks to; a silent one sends 
     code: "ORDER_MISSING",
   });
 
-  const { data: quiet } = await client.GET("/instances/{id}", {
+  const { data: quiet } = await client.GET("/instances/{id}/detail", {
     params: { path: { id: ids[silent] } },
   });
   // Never inherited: a parent that declares a shape for `lookup_failed` must not receive a body
@@ -199,7 +199,7 @@ test("a raise forwards the caught body only when it asks to; a silent one sends 
 
   // And the cause is not lost with it: it stays in the context, untouched, because the raise's
   // silence is about what it SENDS, not about what the instance caught.
-  const caught = quiet?.context?.error as any;
+  const caught = quiet?.state?.error as any;
   expect(caught?.code).toBe("http.404");
   expect(caught?.data, "the caught body stays where it was caught").toEqual({
     detail: "no such order",

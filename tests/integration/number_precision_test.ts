@@ -7,7 +7,9 @@ import { BASE_URL } from "../helpers/constants.ts";
 // under test before the assertion ran. Comparing the bytes is the only honest
 // check that the server preserved them.
 async function rawOutput(id: string): Promise<string> {
-  const res = await fetch(`${BASE_URL}/instances/${id}`);
+  // The detail endpoint, because the values under test live in STATE: the status endpoint
+  // reports where an instance ended, not what it holds.
+  const res = await fetch(`${BASE_URL}/instances/${id}/detail`);
   return await res.text();
 }
 

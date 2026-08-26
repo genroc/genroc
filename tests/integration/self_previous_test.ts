@@ -66,10 +66,10 @@ async function runAndReadOutput(name: string, n: number, timeoutMs: number) {
   const id = started!.id;
   expect(await waitForInstance(id, timeoutMs)).toBe("completed");
   // The accumulated text is >8 KiB so the output externalizes — splice it back to read it.
-  const { data, error: getErr } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data, error: getErr } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   if (getErr) throw new Error(`get failed: ${JSON.stringify(getErr)}`);
   await spliceObjects(data);
-  return (data!.context as Record<string, { text: string; count: number }>).output;
+  return (data!.state as Record<string, { text: string; count: number }>).output;
 }
 
 test("self.previous accumulates across an in-memory loop (single advance)", async () => {

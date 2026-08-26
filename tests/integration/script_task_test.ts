@@ -82,7 +82,7 @@ async function run(name: string, tasks: unknown[], input?: unknown, inputSchema?
   const { data: started } = await client.POST("/instances", { body: { process: name, input } as never });
   const id = started!.id;
   const status = await waitForInstance(id, 30_000);
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   return { status, data };
 }
 
@@ -101,7 +101,7 @@ test("script task — the return value is self.result, typed by result_schema", 
   );
 
   expect(status).toBe("completed");
-  expect((data?.context?.outputs as any)?.run).toEqual({ fee: 25 });
+  expect((data?.state?.outputs as any)?.run).toEqual({ fee: 25 });
 });
 
 // The headline path, and what the error channel bought: the KIND is the code, so `code: [threw]`
@@ -155,7 +155,7 @@ test("script task — compile_error, nonserializable and exited are distinct cod
     ];
     const { status, data } = await run(`script_${want}_${crypto.randomUUID()}`, tasks);
     expect(status, `${label} should complete via the handler`).toBe("completed");
-    expect((data?.context?.outputs as any)?.broken, label).toEqual({ code: want });
+    expect((data?.state?.outputs as any)?.broken, label).toEqual({ code: want });
   }
 }, 60_000);
 
@@ -169,7 +169,7 @@ test("script task — a script over its budget reports `timeout`, not external.t
   ];
   const { status, data } = await run(`script_timeout_${crypto.randomUUID()}`, tasks);
   expect(status).toBe("completed");
-  expect((data?.context?.outputs as any)?.slow).toEqual({ code: "timeout" });
+  expect((data?.state?.outputs as any)?.slow).toEqual({ code: "timeout" });
 }, 30_000);
 
 // The task input is a Shape, so `${` is genroc's interpolation marker and a JS template
@@ -189,7 +189,7 @@ test("script task — a template literal in the code escapes ${ as $${", async (
     { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
   );
   expect(status).toBe("completed");
-  expect((data?.context?.outputs as any)?.run).toEqual({ greeting: "hi ada" });
+  expect((data?.state?.outputs as any)?.run).toEqual({ greeting: "hi ada" });
 });
 
 test("script task — the unescaped ${ is read by genroc and refused at registration", async () => {
@@ -227,8 +227,8 @@ test("script task — a backlog drains", async () => {
   );
   for (const { id, n } of ids) {
     expect(await waitForInstance(id, 40_000)).toBe("completed");
-    const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-    expect((data?.context?.outputs as any)?.run).toEqual({ doubled: n * 2 });
+    const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+    expect((data?.state?.outputs as any)?.run).toEqual({ doubled: n * 2 });
   }
 }, 60_000);
 
@@ -356,8 +356,8 @@ test("script task — a large script is shared, not copied, and still runs", asy
 
   for (const { id, n } of ids) {
     expect(await waitForInstance(id, 40_000)).toBe("completed");
-    const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-    expect((data?.context?.outputs as any)?.run).toEqual({ doubled: n * 2 });
+    const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+    expect((data?.state?.outputs as any)?.run).toEqual({ doubled: n * 2 });
   }
 }, 60_000);
 

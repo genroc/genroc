@@ -37,10 +37,10 @@ test("lifecycle — task task completes when service returns ok", async () => {
 
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
-  expect((data?.context?.outputs as any)?.call?.done).toBe(true);
+  expect((data?.state?.outputs as any)?.call?.done).toBe(true);
 
   mock.stop();
 });
@@ -130,14 +130,14 @@ test("lifecycle — conditional routes to correct branch", async () => {
   expect(i1Create.error).toBeUndefined();
   await waitForInstance(i1Create.data!.id);
 
-  const i1 = await client.GET("/instances/{id}", {
+  const i1 = await client.GET("/instances/{id}/detail", {
     params: { path: { id: i1Create.data!.id } },
   });
 
   expect(i1.error).toBeUndefined();
 
-  expect((i1.data?.context?.outputs as any)?.then_task?.branch).toBe("then");
-  expect((i1.data?.context?.outputs as any)?.else_task?.branch).toBe(undefined);
+  expect((i1.data?.state?.outputs as any)?.then_task?.branch).toBe("then");
+  expect((i1.data?.state?.outputs as any)?.else_task?.branch).toBe(undefined);
 
   const i2Create = await client.POST("/instances", {
     body: { process: name, input: { go_then: false } },
@@ -145,11 +145,11 @@ test("lifecycle — conditional routes to correct branch", async () => {
   expect(i2Create.error).toBeUndefined();
 
   await waitForInstance(i2Create.data!.id);
-  const i2 = await client.GET("/instances/{id}", {
+  const i2 = await client.GET("/instances/{id}/detail", {
     params: { path: { id: i2Create.data!.id } },
   });
-  expect((i2.data?.context?.outputs as any)?.else_task?.branch).toBe("else");
-  expect((i2.data?.context?.outputs as any)?.then_task?.branch).toBe(undefined);
+  expect((i2.data?.state?.outputs as any)?.else_task?.branch).toBe("else");
+  expect((i2.data?.state?.outputs as any)?.then_task?.branch).toBe(undefined);
 
   thenMock.stop();
   elseMock.stop();
@@ -190,7 +190,7 @@ test("lifecycle — task fails when output violates result_schema", async () => 
 
   expect(await waitForInstance(id, 5000)).toBe("failed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data!.error_message).toContain("output");

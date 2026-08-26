@@ -1,0 +1,41 @@
+# No task moved and nothing was deleted — the new version simply describes a state this
+# instance is not in. `n` became a string, and the instance is carrying the number it was
+# started with, which every later task reads.
+#
+# This is the half a missing-task check cannot cover: the definitions line up structurally and
+# only the VALIDATOR can tell that the state does not fit. Migrating anyway would leave a row
+# whose input violates its own input_schema, discovered later at some expression that reads it.
+apply:
+  - definitions:
+      - name: narrowproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: first
+            action: {type: delay, for: 1}
+            output: {v: '$: input.n'}
+            switch: next
+          - id: second
+            output: {w: '$: input.n'}
+            switch: end
+  - definitions:
+      - name: narrowproc
+        input_schema:
+          type: object
+          properties: {n: {type: string}}
+          required: [n]
+        tasks:
+          - id: first
+            action: {type: delay, for: 1}
+            output: {v: '$: input.n'}
+            switch: next
+          - id: second
+            output: {w: '$: input.n'}
+            switch: end
+start: {process: narrowproc, input: {n: 2}, ticks: 2, advance_ms: 1000}
+resting: {task: second, status: running, version: 1}
+after: {task: second, status: running, version: 1}
+run: [narrowproc, --from, "1", --to, "2"]
+refused: {says: 'does not fit'}

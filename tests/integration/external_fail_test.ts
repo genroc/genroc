@@ -73,8 +73,8 @@ async function start(name: string): Promise<string> {
 // Each terminal task projects into outputs.<task>, so which key is present is itself the
 // assertion that the intended on_error rule fired.
 async function outputsOf(id: string): Promise<any> {
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  return (data as any)?.context?.outputs ?? {};
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  return (data as any)?.state?.outputs ?? {};
 }
 
 test("a declared code routes through on_error and carries its payload as error.data", async () => {
@@ -166,8 +166,8 @@ test("`raises: {code: null}` accepts a failure with no payload and leaves error.
   // Declared-as-carrying-nothing must leave the slot ABSENT, not null: absence is what the
   // validator infers for the code, and a context richer than its type is how an expression
   // comes to read a slot the next reader cannot.
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  const err = (data as any)?.context?.error;
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  const err = (data as any)?.state?.error;
   expect(err?.code).toBe("worker_crashed");
   expect(Object.keys(err ?? {})).not.toContain("data");
 });

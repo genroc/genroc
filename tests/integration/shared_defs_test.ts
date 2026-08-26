@@ -57,9 +57,9 @@ test("process-level $defs are shared by input_schema and result_schemas", async 
   const id = startData!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ctx = data?.context as any;
+  const ctx = data?.state as any;
   expect(ctx?.input?.requester).toEqual({ name: "bo", vip: false });
   expect(ctx?.output).toEqual({ who: "al", requester: "bo" });
 
@@ -100,9 +100,9 @@ test("input_schema as a bare $ref to a def named 'input' works", async () => {
   const id = startData!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.context as any)?.output).toBe("12");
+  expect((data?.state as any)?.output).toBe("12");
 });
 
 // Generated schema names take precedence by renaming: a user definition named
@@ -147,9 +147,9 @@ test("$defs colliding with generated schema names are safely renamed", async () 
   const id = startData!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.context as any)?.output).toEqual({ num: 7 });
+  expect((data?.state as any)?.output).toEqual({ num: 7 });
 
   mock.stop();
 });

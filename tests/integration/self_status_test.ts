@@ -42,8 +42,8 @@ test("self.status / self.headers — readable beside the body", async () => {
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  expect((data?.context?.outputs as any)?.kick).toEqual({
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  expect((data?.state?.outputs as any)?.kick).toEqual({
     status: 202,
     ctype: "application/json",
     missing: true,

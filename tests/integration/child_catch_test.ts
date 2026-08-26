@@ -92,12 +92,12 @@ test("catch — a matching rule routes the parent to a recovery task", async () 
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   // The recovery task read `error.code` — the routed task keeps its context and sees the
   // raised error, mirroring what the child raised.
-  expect((data?.context?.outputs as Record<string, unknown>)?.recover).toBe(
+  expect((data?.state?.outputs as Record<string, unknown>)?.recover).toBe(
     "declined",
   );
 });
@@ -134,11 +134,11 @@ test("catch — a rule routes to end, completing the parent (and computes output
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data?.status).toBe("completed");
-  expect(data?.context?.output).toBe("handled");
+  expect(data?.state?.output).toBe("handled");
 });
 
 // A rule that panics: the parent fails uncatchably with the authored panic code. This is
@@ -174,7 +174,7 @@ test("catch — a rule panics, failing the parent with the authored code", async
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("failed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data?.status).toBe("failed");
@@ -215,13 +215,13 @@ test("catch — a rule re-raises, so the error propagates one named level up", a
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("raised");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data?.status).toBe("raised");
   expect(data?.error_code).toBe("payment_failed");
   // Underneath, `error` still mirrors the child that caused it.
-  const err = data?.context?.error as Record<string, unknown>;
+  const err = data?.state?.error as Record<string, unknown>;
   expect(err?.code).toBe("declined");
   expect(err?.child_key).toBe("a");
 });
@@ -273,7 +273,7 @@ test("unhandled — the parent fails mirroring the child's raised code and messa
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("failed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data?.status).toBe("failed");
@@ -360,10 +360,10 @@ test("batch — the first raised child (by child_index) routes the parent", asyn
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
-  const reported = (data?.context?.outputs as Record<string, unknown>)
+  const reported = (data?.state?.outputs as Record<string, unknown>)
     ?.report as Record<string, unknown>;
   // First raised child (index 1, not 0) routes, and `error` mirrors it.
   expect(reported?.child_index).toBe(1);

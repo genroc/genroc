@@ -68,8 +68,8 @@ for (const c of CLAUSES) {
     const id = started!.id;
     expect(await waitForInstance(id)).toBe("completed");
 
-    const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-    const outputs = (data?.context?.outputs ?? {}) as any;
+    const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+    const outputs = (data?.state?.outputs ?? {}) as any;
     expect(outputs.caught?.code).toBe(c.caught);
 
     // Whether the body may be read at all is the other half of the rule: a status nobody
@@ -118,8 +118,8 @@ test("responses — a bodyless 2xx reaches the definition as null", async () => 
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  expect((data?.context?.outputs as any)?.kick).toEqual({ started: true });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  expect((data?.state?.outputs as any)?.kick).toEqual({ started: true });
 
   svc.stop();
 });
@@ -167,8 +167,8 @@ test("responses — a lone error declaration types the failure without accepting
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  expect((data?.context?.outputs as any)?.missing).toEqual({ reason: "no such order" });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  expect((data?.state?.outputs as any)?.missing).toEqual({ reason: "no such order" });
 
   svc.stop();
 });

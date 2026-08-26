@@ -20,6 +20,7 @@ apply:
           - id: second
             output: {w: '$: outputs.first.v'}
             switch: end
+        output: {carried: '$: outputs.first.v'}
   - definitions:
       - name: midproc
         input_schema:
@@ -34,8 +35,12 @@ apply:
           - id: second
             output: {w: '$: outputs.first.v'}
             switch: end
+        output: {carried: '$: outputs.first.v'}
 # Two ticks with the clock moved: the first arms the delay, the second lets it fire.
 start: {process: midproc, input: {n: 2}, ticks: 2, advance_ms: 1000}
-resting: {task: second, status: running, outputs: [first], context_keys: [input, outputs]}
-after: {task: second, status: running, outputs: [first], context_keys: [input, outputs]}
+resting: {task: second, status: running, outputs: [first], state_keys: [input, output_order, outputs]}
+after: {task: second, status: running, outputs: [first], state_keys: [input, output_order, outputs]}
 run: [midproc, --from, "1", --to, "2"]
+# `first` ran on v1 and its output is what the process returns, so a migration that dropped or
+# reshaped the outputs map shows up here as a hole rather than as a state that merely looked right.
+finish: {status: completed, output: {carried: 2}}

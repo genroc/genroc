@@ -12,10 +12,10 @@ async function childInput(parentID: string): Promise<unknown> {
   });
   const kid = (trail!.items ?? []).find((l) => l.instance !== parentID)?.instance;
   expect(kid, "the parent spawned a child").toBeDefined();
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: kid! } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: kid! } } });
   await spliceObjects(data);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data!.context as any).input.blob;
+  return (data!.state as any).input.blob;
 }
 
 const BLOB = "B".repeat(20 * 1024);

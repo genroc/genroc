@@ -2,7 +2,7 @@ import { expect, test, beforeAll } from "vitest";
 import { join } from "path";
 import { tmpdir } from "os";
 import { buildGenrocBinary, startGenroc, type GenrocProcess } from "../helpers/server.ts";
-import { client, startMockService, waitForInstance, tick } from "../helpers/client.ts";
+import { client, startMockService, waitForInstance, tick, childrenOfTask } from "../helpers/client.ts";
 
 const TICK_PORT = 20017;
 // Its own constant, not TICK_PORT + n: the offsets landed on 20018 and 20019, which are
@@ -221,12 +221,8 @@ test("retry and pause on non-root instance — rejected naming the root", async 
     const rootId = startData!.id;
     expect(await waitForInstance(rootId, 15_000)).toBe("failed");
 
-    // The spawn placeholder in the root's context (_children) holds the child id,
-    // keyed by the child_map entry name.
-    const { data: rootData } = await client.GET("/instances/{id}", {
-      params: { path: { id: rootId } },
-    });
-    const childId = (rootData?.context as any)?._children?.spawn?.out as string;
+    // The spawn placeholder lives in STATE under _children, keyed by the child_map entry name.
+    const childId = ((await childrenOfTask(rootId, "spawn")) as Record<string, string>)?.out;
     expect(childId).toBeTruthy();
 
     const { error: retryErr } = await client.POST("/instances/{id}/retry", {

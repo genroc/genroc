@@ -6,6 +6,7 @@ import {
   tmpPath,
   type GenrocProcess,
 } from "../helpers/server.ts";
+import { childrenOfTask } from "../helpers/client.ts";
 
 // Cached binary — built once per Vitest worker process.
 let _bin: string | null = null;
@@ -153,15 +154,10 @@ export class TickEnv {
     return data!.retry_count as number;
   }
 
-  // Returns the child instance ID recorded under the parent's "_children" key
-  // after SpawnChildrenAndWait. Valid between spawn and child completion.
+  // Returns the child instance ID the spawn recorded in STATE under _children.<taskId>.
+  // Valid between spawn and child completion.
   async childOf(parentId: string, taskId: string): Promise<string> {
-    const { data } = await this.genroc.client.GET("/instances/{id}", {
-      params: { path: { id: parentId } },
-    });
-    const spawned = (data!.context as Record<string, unknown> | null)
-      ?._children as Record<string, unknown> | null;
-    const val = spawned?.[taskId];
+    const val = await childrenOfTask(parentId, taskId, this.genroc.client);
     // A single child is expressed as a one-entry child_map, so its placeholder is a
     // keyed object with exactly one id — unwrap it to the lone child id.
     if (val && typeof val === "object" && !Array.isArray(val)) {
@@ -175,18 +171,12 @@ export class TickEnv {
     );
   }
 
-  // Returns the parallel child IDs keyed by child key, recorded under the
-  // parent's "_children" key after SpawnChildrenAndWait.
+  // Returns the parallel child IDs keyed by child key, from the same state slot.
   async childrenOf(
     parentId: string,
     taskId: string,
   ): Promise<Record<string, string>> {
-    const { data } = await this.genroc.client.GET("/instances/{id}", {
-      params: { path: { id: parentId } },
-    });
-    const spawned = (data!.context as Record<string, unknown> | null)
-      ?._children as Record<string, unknown> | null;
-    const val = spawned?.[taskId];
+    const val = await childrenOfTask(parentId, taskId, this.genroc.client);
     if (typeof val !== "object" || val === null) {
       throw new Error(
         `childrenOf(${parentId}, ${taskId}): expected object placeholder, got ${JSON.stringify(val)}`,
@@ -195,15 +185,9 @@ export class TickEnv {
     return val as Record<string, string>;
   }
 
-  // Returns the child_list child IDs in spawn (input) order, recorded as an array
-  // under the parent's "_children" key after SpawnChildrenAndWait.
+  // Returns the child_list child IDs in spawn (input) order, from the same state slot.
   async listChildrenOf(parentId: string, taskId: string): Promise<string[]> {
-    const { data } = await this.genroc.client.GET("/instances/{id}", {
-      params: { path: { id: parentId } },
-    });
-    const spawned = (data!.context as Record<string, unknown> | null)
-      ?._children as Record<string, unknown> | null;
-    const val = spawned?.[taskId];
+    const val = await childrenOfTask(parentId, taskId, this.genroc.client);
     if (!Array.isArray(val)) {
       throw new Error(
         `listChildrenOf(${parentId}, ${taskId}): expected array placeholder, got ${JSON.stringify(val)}`,

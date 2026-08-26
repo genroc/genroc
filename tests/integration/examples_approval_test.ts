@@ -133,7 +133,7 @@ async function waitForInstanceTicking(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await api.POST("/tick", {});
-    const { data } = await api.GET("/instances/{id}", { params: { path: { id } } });
+    const { data } = await api.GET("/instances/{id}/detail", { params: { path: { id } } });
     const status = data?.status;
     if (status === "completed" || status === "failed" || status === "raised") return status;
     await new Promise((r) => setTimeout(r, 50));
@@ -142,8 +142,8 @@ async function waitForInstanceTicking(
 }
 
 async function outputsOf(id: string, api: ApiClient = client): Promise<Record<string, any>> {
-  const { data } = await api.GET("/instances/{id}", { params: { path: { id } } });
-  return ((data?.context as any)?.outputs ?? {}) as Record<string, any>;
+  const { data } = await api.GET("/instances/{id}/detail", { params: { path: { id } } });
+  return ((data?.state as any)?.outputs ?? {}) as Record<string, any>;
 }
 
 test("examples/expense-approval: an approval submitted by queue token resumes the process and pays", async () => {
@@ -220,7 +220,7 @@ test("examples/expense-approval: a result that violates the result_schema is ref
     expect(error).toBeDefined();
 
     // Still parked, so a valid answer can still arrive.
-    const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+    const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
     expect(data?.status).toBe("running");
   } finally {
     await mock.stop();

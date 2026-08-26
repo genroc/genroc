@@ -51,8 +51,8 @@ test("error.data — a declared 4xx body reaches the handler that catches it", a
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  expect((data?.context?.outputs as any)?.handler).toEqual({
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  expect((data?.state?.outputs as any)?.handler).toEqual({
     reason: "no such order",
     code: "http.404",
   });
@@ -107,8 +107,8 @@ test("error.data — a declared 4xx body that does not conform replaces the stat
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  const outputs = (data?.context?.outputs ?? {}) as any;
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  const outputs = (data?.state?.outputs ?? {}) as any;
   expect(outputs.wrong).toBeUndefined();
   expect(outputs.handler).toEqual({ took: "output.invalid" });
 
@@ -145,8 +145,8 @@ test("error — dropped from the context once the handler routes onward", async 
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  const ctx = (data?.context ?? {}) as any;
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  const ctx = (data?.state ?? {}) as any;
   expect(ctx.outputs.after).toEqual({ seen: "http.500" });
   expect(ctx.error).toBeUndefined();
 
@@ -197,14 +197,14 @@ test("error.data — a large error body externalizes and is still readable", asy
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  const ctx = (data?.context ?? {}) as any;
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  const ctx = (data?.state ?? {}) as any;
   expect(ctx.outputs?.handler).toEqual({ readable: true });
   // Listed rather than carried, which is what says the body went to the object store instead of
   // swelling the instance row. The cut takes the big LEAF inside error.data, so the wrapper
   // stays inline and the listing names the leaf.
   const listed = (data!.objects ?? []).find(
-    (o: any) => o.path[0] === "context" && o.path[1] === "error" && o.path[2] === "data",
+    (o: any) => o.path[0] === "state" && o.path[1] === "error" && o.path[2] === "data",
   );
   expect(listed, "a body past the cutoff must externalize").toBeDefined();
   expect(ctx.error?.code).toBe("http.422");

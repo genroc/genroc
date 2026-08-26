@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, waitForInstance, childrenOfTask } from "../helpers/client.ts";
 
 // A child that exports the TOP TYPE and a caller that narrows it with result_schema: the
 // registration check passes by construction (no declared output = nothing to compare), so
@@ -54,9 +54,9 @@ test("a lost narrowing bet is output.invalid, and an on_error rule catches it", 
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   expect(
-    (data?.context?.output as any)?.code,
+    (data?.state?.output as any)?.code,
     "the handler reads the mismatch as error.code, so the route is the mismatch and not something else",
   ).toBe("output.invalid");
 });
@@ -89,18 +89,18 @@ test("with no rule the parent still fails terminally — as output.invalid, not 
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("failed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   expect(data?.error_code, "the split renames only this failure").toBe("output.invalid");
   expect(data?.error_message).not.toContain("engine.collect");
 
   // The error being diagnosed survives it: the child kept its output, and only the
   // parent's row names the mismatch.
-  const childId = (data?.context as any)?._children?.call as string;
-  const { data: kid } = await client.GET("/instances/{id}", {
+  const childId = (await childrenOfTask(started!.id, "call")) as string;
+  const { data: kid } = await client.GET("/instances/{id}/detail", {
     params: { path: { id: childId } },
   });
   expect(kid?.status, "a mismatch must not retroactively fail the child").toBe("completed");
-  expect(kid?.context?.output).toBe(42);
+  expect(kid?.state?.output).toBe(42);
 });
 
 // The catchable set widened by exactly ONE code, not by a family: every other engine code is
@@ -163,8 +163,8 @@ test("a child_map entry that fails its own narrowing reports output.invalid", as
 
   const { data: started } = await client.POST("/instances", { body: { process: parent } });
   expect(await waitForInstance(started!.id)).toBe("completed");
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
-  expect((data?.context?.output as any)?.code).toBe("output.invalid");
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
+  expect((data?.state?.output as any)?.code).toBe("output.invalid");
 });
 
 test("a child_list element that fails the narrowing reports output.invalid", async () => {
@@ -196,6 +196,6 @@ test("a child_list element that fails the narrowing reports output.invalid", asy
 
   const { data: started } = await client.POST("/instances", { body: { process: parent } });
   expect(await waitForInstance(started!.id)).toBe("completed");
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
-  expect((data?.context?.output as any)?.code).toBe("output.invalid");
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
+  expect((data?.state?.output as any)?.code).toBe("output.invalid");
 });

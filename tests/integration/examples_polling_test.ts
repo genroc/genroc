@@ -3,7 +3,7 @@ import type { AddressInfo } from "net";
 import { readFileSync } from "node:fs";
 import { load as loadYaml } from "js-yaml";
 import { expect, test } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, waitForInstance, childrenOfTask } from "../helpers/client.ts";
 
 // The definitions under test are the real example files in examples/polling-task/, loaded
 // and applied verbatim — so this doubles as an executable check that the shipped example
@@ -108,14 +108,13 @@ async function startExample(port: number, extra: Record<string, unknown> = {}): 
   return data!.id;
 }
 
-// The parent records its spawned child under context._children.<taskId>; a single `child`
-// task stores the bare child id there (not a keyed map), so here it's _children.run. Poll
-// until it appears and return the child instance id.
+// The parent records its spawned child in STATE, under _children.<taskId>; a single `child`
+// task stores the bare child id there (not a keyed map). Poll until it appears and return the
+// child instance id.
 async function waitForChildId(parentId: string, timeoutMs = 10_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const { data } = await client.GET("/instances/{id}", { params: { path: { id: parentId } } });
-    const childId = (data?.context as any)?._children?.run;
+    const childId = await childrenOfTask(parentId, "run");
     if (typeof childId === "string") return childId;
     await new Promise((r) => setTimeout(r, 50));
   }
@@ -123,8 +122,8 @@ async function waitForChildId(parentId: string, timeoutMs = 10_000): Promise<str
 }
 
 async function outputsOf(id: string): Promise<Record<string, any>> {
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  return ((data?.context as any)?.outputs ?? {}) as Record<string, any>;
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  return ((data?.state as any)?.outputs ?? {}) as Record<string, any>;
 }
 
 test("examples/polling-task: the poller returns the job's answer to the parent", async () => {
@@ -178,7 +177,7 @@ test("examples/polling-task: a payload that fails the parent's narrowing is caug
     // The PARENT fails, on the narrowing conform at collect. `poll_timeout` is the only
     // code its on_error catches, so a type violation is not swallowed.
     expect(await waitForInstance(id, 20_000)).toBe("failed");
-    const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+    const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
     expect(data?.error_message ?? "").toMatch(/output validation/i);
   } finally {
     await mock.stop();

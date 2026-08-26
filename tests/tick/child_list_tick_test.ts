@@ -8,7 +8,7 @@
  * input order — and the collected result array must come back in that same order.
  */
 import { expect, test, beforeAll, afterAll } from "vitest";
-import { startMockService } from "../helpers/client.ts";
+import { startMockService, childrenOfTask } from "../helpers/client.ts";
 import { useTickEnv } from "./helpers.ts";
 
 const PORT = 20040;
@@ -49,8 +49,8 @@ async function startWith(process: string, input: unknown): Promise<string> {
 }
 
 async function outputOf(id: string): Promise<any> {
-  const { data } = await ctx.env.client.GET("/instances/{id}", { params: { path: { id } } });
-  return (data?.context?.output as any) ?? null;
+  const { data } = await ctx.env.client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  return (data?.state?.output as any) ?? null;
 }
 
 beforeAll(async () => {
@@ -189,8 +189,7 @@ test("empty over — no children spawned, completes in a single tick with []", a
   expect((await outputOf(root)).results).toEqual([]);
 
   // No child instance was ever created for this parent.
-  const { data } = await ctx.env.client.GET("/instances/{id}", { params: { path: { id: root } } });
-  expect((data?.context as any)?._children?.spread).toEqual([]);
+  expect(await childrenOfTask(root, "spread", ctx.env.client)).toEqual([]);
 
   await ctx.env.tickUntilIdle();
 });

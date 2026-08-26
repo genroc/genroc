@@ -1,0 +1,37 @@
+# The instance is parked on a task the new version deleted. There is nowhere to resume it, so
+# the move must be refused outright — the alternative is a row pointing at a task its own
+# definition does not contain, which no later tick can recover from.
+#
+# `after` is the whole point: a refusal that had already written something would leave the row
+# on v2 while reporting failure, and only the version pins that down.
+apply:
+  - definitions:
+      - name: goneproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: first
+            action: {type: delay, for: 1}
+            output: {v: '$: input.n'}
+            switch: next
+          - id: doomed
+            output: {w: '$: outputs.first.v'}
+            switch: end
+  - definitions:
+      - name: goneproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: first
+            action: {type: delay, for: 1}
+            output: {v: '$: input.n'}
+            switch: end
+start: {process: goneproc, input: {n: 2}, ticks: 2, advance_ms: 1000}
+resting: {task: doomed, status: running, version: 1}
+after: {task: doomed, status: running, version: 1}
+run: [goneproc, --from, "1", --to, "2"]
+refused: {says: 'does not exist'}

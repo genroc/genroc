@@ -1,0 +1,70 @@
+# The sweep. One upgrade is not evidence that upgrading WORKS — it is evidence that upgrading
+# from one state works. This runs the same move from every state the process passes through, so
+# a migration that is right at entry and wrong once an output exists (or vice versa) cannot hide
+# behind a well-chosen tick.
+#
+# The move itself is one that has to TRANSFORM state rather than pass it through: `note` was
+# optional and absent, and v2 requires it as a nullable. Absent and null are the same value to
+# a reader and different values to a schema, so the migration has to write the null in — and
+# `values` compares JSON, where an expected null fails against a missing key.
+#
+# Task logic is identical in both versions on purpose: the finished output must not depend on
+# WHEN the upgrade happened, which is the strongest thing a sweep can assert.
+apply:
+  - definitions:
+      - name: nullproc
+        input_schema:
+          type: object
+          properties:
+            n: {type: number}
+            note: {type: string}
+          required: [n]
+        tasks:
+          - id: first
+            action: {type: delay, for: 1}
+            output: {v: '$: input.n'}
+            switch: next
+          - id: second
+            output: {w: '$: outputs.first.v * 3'}
+            switch: next
+          - id: third
+            action: {type: delay, for: 1}
+            output: {z: '$: outputs.second.w + 1'}
+            switch: next
+          - id: fourth
+            output: {q: '$: outputs.third.z * 2'}
+            switch: end
+        output: {result: '$: outputs.fourth.q'}
+  - definitions:
+      - name: nullproc
+        input_schema:
+          type: object
+          properties:
+            n: {type: number}
+            note: {type: [string, "null"]}
+          required: [n, note]
+        tasks:
+          - id: first
+            action: {type: delay, for: 1}
+            output: {v: '$: input.n'}
+            switch: next
+          - id: second
+            output: {w: '$: outputs.first.v * 3'}
+            switch: next
+          - id: third
+            action: {type: delay, for: 1}
+            output: {z: '$: outputs.second.w + 1'}
+            switch: next
+          - id: fourth
+            output: {q: '$: outputs.third.z * 2'}
+            switch: end
+        output: {result: '$: outputs.fourth.q'}
+start: {process: nullproc, input: {n: 2}, advance_ms: 1000}
+# Ticks 0 and 1 are both `first` and are not the same state: at 0 nothing has run, at 1 the
+# delay is armed. The instance completes at tick 5, so 4 is the last position with a live tree.
+sweep:
+  through: 4
+  positions: [first, first, second, third, fourth]
+after: {version: 2, values: {input.note: null, input.n: 2}}
+finish: {status: completed, output: {result: 14}}
+run: [nullproc, --from, "1", --to, "2"]

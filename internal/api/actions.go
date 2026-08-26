@@ -367,27 +367,31 @@ var registry = func() []actionDef {
 			},
 		},
 		{
-			Name:    "get_instance",
+			Name:    "get_instance_detail",
 			Method:  http.MethodGet,
-			Path:    "/instances/{id}",
-			Summary: "Get status of a process instance",
+			Path:    "/instances/{id}/detail",
+			Summary: "Get everything stored on a process instance: its state verbatim, plus the columns around it",
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
 				ID      string `path:"id" format:"uuid"`
-				Resolve bool   `query:"resolve" description:"Splice externalized values into the context where they fit; anything over the per-object limit stays listed under objects for the caller to fetch"`
+				Resolve bool   `query:"resolve" description:"Splice externalized values into the state where they fit; anything over the per-object limit stays listed under objects for the caller to fetch"`
 			}{},
-			Resp: InstanceStatusResp{
+			Resp: InstanceDetailResp{
 				ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
-				Version: 1, Status: model.StatusFailed, Task: "charge_card",
-				ErrorCode: "only_once.interrupted",
-				Context:   map[string]any{"order_id": 42, "charged": true},
-				Objects:   []ObjectEntry{{Path: []any{"context", "outputs", "render"}, Ref: "9f2ac1b4e7d05f38", Size: 221110}},
+				Version: 1, Status: model.StatusRunning, Task: "charge_card",
+				State: map[string]any{
+					"input":     map[string]any{"order_id": 42},
+					"outputs":   map[string]any{"reserve": map[string]any{"ok": true}},
+					"_children": map[string]any{"charge_card": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"},
+				},
+				TaskEpoch: 3,
+				Objects:   []ObjectEntry{{Path: []any{"state", "outputs", "render"}, Ref: "9f2ac1b4e7d05f38", Size: 221110}},
 			},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
 				resolve, _ := strconv.ParseBool(r.URL.Query().Get("resolve"))
 				b, _ := json.Marshal(map[string]bool{"resolve": resolve})
-				return Envelope{Action: "get_instance", ID: r.PathValue("id"), Payload: b}, nil
+				return Envelope{Action: "get_instance_detail", ID: r.PathValue("id"), Payload: b}, nil
 			},
 			handle: func(h *Handlers, env Envelope) Reply {
 				p, err := decodeOptionalBody[struct {
@@ -396,7 +400,29 @@ var registry = func() []actionDef {
 				if err != nil {
 					return errReply(err)
 				}
-				return h.getInstance(env.ID, p.Resolve)
+				return h.getInstanceDetail(env.ID, p.Resolve)
+			},
+		},
+		{
+			Name:    "get_instance",
+			Method:  http.MethodGet,
+			Path:    "/instances/{id}",
+			Summary: "Get status of a process instance",
+			Tags:    []string{"Instances"},
+			Errors:  []Code{CodeNotFound},
+			PathQuery: struct {
+				ID string `path:"id" format:"uuid"`
+			}{},
+			Resp: InstanceStatusResp{
+				ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
+				Version: 1, Status: model.StatusFailed, Task: "charge_card",
+				ErrorCode: "only_once.interrupted", ErrorMessage: "the task may have already run",
+			},
+			fromHTTP: func(r *http.Request) (Envelope, error) {
+				return Envelope{Action: "get_instance", ID: r.PathValue("id")}, nil
+			},
+			handle: func(h *Handlers, env Envelope) Reply {
+				return h.getInstance(env.ID)
 			},
 		},
 		{

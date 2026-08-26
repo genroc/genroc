@@ -30,11 +30,11 @@ test("no-action output map drives a counter via self.previous; switch reads self
   await ctx.env.tickUntilIdle();
 
   expect(await ctx.env.status(id)).toBe("completed");
-  const { data } = await ctx.env.client.GET("/instances/{id}", {
+  const { data } = await ctx.env.client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data!.context as any)?.output?.n).toBe(3);
+  expect((data!.state as any)?.output?.n).toBe(3);
 });
 
 test("cross-task mutual recursion (start <-> loop) type-checks and runs", async () => {
@@ -67,10 +67,10 @@ test("cross-task mutual recursion (start <-> loop) type-checks and runs", async 
   await ctx.env.tickUntilIdle();
 
   expect(await ctx.env.status(id)).toBe("completed");
-  const { data } = await ctx.env.client.GET("/instances/{id}", {
+  const { data } = await ctx.env.client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   // loop counts 1,2,3 (stops at >= ttl); start mirrors the prior loop value → 2.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data!.context as any)?.output?.num).toBe(2);
+  expect((data!.state as any)?.output?.num).toBe(2);
 });

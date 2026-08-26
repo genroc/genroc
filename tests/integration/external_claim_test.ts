@@ -56,8 +56,8 @@ async function claimWhenReady(worker: string, process: string, opts: Record<stri
 }
 
 async function outputsOf(id: string): Promise<any> {
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  return (data as any)?.context?.outputs ?? {};
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  return (data as any)?.state?.outputs ?? {};
 }
 
 test("a claim leases the task, and the granted token answers it", async () => {

@@ -427,7 +427,9 @@ func runGetCmd(server string, args []string) {
 	resolveFlag := fs.Bool("resolve", false, "fetch the values listed under \"objects\" and put them back where they belong")
 	id := instanceIDAndFlags(fs, args)
 
-	u := *serverFlag + "/instances/" + url.PathEscape(id)
+	// The detail endpoint: `get` shows what the instance HOLDS, which is state -- the status
+	// endpoint carries only what an instance reports outward.
+	u := *serverFlag + "/instances/" + url.PathEscape(id) + "/detail"
 	if *resolveFlag {
 		// The server splices what fits and leaves the rest listed, so ask it first and then
 		// fetch whatever it could not carry: two round trips at most for the small case, and
@@ -458,10 +460,9 @@ func runGetCmd(server string, args []string) {
 		// with the rest of the state it stopped holding.
 		ErrorCode    string         `json:"error_code"`
 		ErrorMessage string         `json:"error_message"`
-		ErrorData    any            `json:"error_data"`
 		CreatedAt    string         `json:"created_at"`
 		UpdatedAt    string         `json:"updated_at"`
-		Context      map[string]any `json:"context"`
+		State        map[string]any `json:"state"`
 	}
 	if err := callGet(u, &inst); err != nil {
 		fatal("%v", err)
@@ -490,15 +491,11 @@ func runGetCmd(server string, args []string) {
 	if inst.ErrorCode != "" {
 		fmt.Fprintf(w, "Code:\t%s\n", inst.ErrorCode)
 	}
-	if inst.ErrorData != nil {
-		b, _ := json.Marshal(inst.ErrorData)
-		fmt.Fprintf(w, "Data:\t%s\n", b)
-	}
 	w.Flush()
 
-	if len(inst.Context) > 0 {
-		fmt.Println("\nContext:")
-		b, _ := json.MarshalIndent(inst.Context, "", "  ")
+	if len(inst.State) > 0 {
+		fmt.Println("\nState:")
+		b, _ := json.MarshalIndent(inst.State, "", "  ")
 		os.Stdout.Write(b)
 		os.Stdout.Write([]byte("\n"))
 	}

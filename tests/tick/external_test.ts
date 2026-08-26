@@ -35,8 +35,8 @@ async function resolve(token: string, result: unknown) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function contextOf(id: string): Promise<any> {
-  const { data } = await ctx.env.client.GET("/instances/{id}", { params: { path: { id } } });
-  return data!.context;
+  const { data } = await ctx.env.client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  return data!.state;
 }
 
 test("external parks, is queued, and resumes when resolved", async () => {

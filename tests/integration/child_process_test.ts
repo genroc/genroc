@@ -106,7 +106,7 @@ test("child — output validation failure error includes process name", async ()
   const status = await waitForInstance(data!.id, 10_000);
   expect(status).toBe("failed");
 
-  const { data: inst } = await client.GET("/instances/{id}", {
+  const { data: inst } = await client.GET("/instances/{id}/detail", {
     params: { path: { id: data!.id } },
   });
   expect(inst?.error_message).toContain(childName);
@@ -238,7 +238,7 @@ test("child — failure propagates through the entire ancestor chain", async () 
   const { data } = await client.POST("/instances", { body: { process: grandName } });
   expect(await waitForInstance(data!.id, 15_000)).toBe("failed");
 
-  const { data: inst } = await client.GET("/instances/{id}", { params: { path: { id: data!.id } } });
+  const { data: inst } = await client.GET("/instances/{id}/detail", { params: { path: { id: data!.id } } });
   expect(inst?.error_message).toBeTruthy();
 
   failMock.stop();
@@ -281,7 +281,7 @@ test("child — parent error contains child's error message when child fails", a
   const { data } = await client.POST("/instances", { body: { process: parentName } });
   expect(await waitForInstance(data!.id, 10_000)).toBe("failed");
 
-  const { data: inst } = await client.GET("/instances/{id}", { params: { path: { id: data!.id } } });
+  const { data: inst } = await client.GET("/instances/{id}/detail", { params: { path: { id: data!.id } } });
   expect(inst?.error_message).toBeTruthy();
 
   failMock.stop();
@@ -360,10 +360,10 @@ test("child_map — recursive spawn completes with correct aggregated output", a
   expect(spawned.every((i) => i.status === "completed")).toBe(true);
 
   // root output: (3 + 3 + 1) = 7
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
-  expect((data?.context?.output as any)?.processes).toBe(7);
+  expect((data?.state?.output as any)?.processes).toBe(7);
 });
 
 // Regression: a parent with TWO sequential child tasks must spawn both batches.
@@ -445,10 +445,10 @@ test("child — two sequential child tasks both spawn and collect", async () => 
     expect(mock.requestCount()).toBe(2);
 
     // …and both collects produced an output.
-    const { data } = await client.GET("/instances/{id}", {
+    const { data } = await client.GET("/instances/{id}/detail", {
       params: { path: { id } },
     });
-    const outputs = data?.context?.outputs as any;
+    const outputs = data?.state?.outputs as any;
     expect(outputs?.first?.done).toBe(true);
     expect(outputs?.second?.done).toBe(true);
   } finally {

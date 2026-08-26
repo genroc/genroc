@@ -55,13 +55,13 @@ if (startErr) throw new Error(`start failed: ${JSON.stringify(startErr)}`);
 // The process parks until the next whole 10 seconds before reading, so this takes a few
 // seconds — no timeout here, since waiting on a wall clock is the design.
 const status = await waitForInstance(started!.id, Infinity, client);
-const { data } = await client.GET("/instances/{id}", {
+const { data } = await client.GET("/instances/{id}/detail", {
   params: { path: { id: started!.id } },
 });
 
 console.log(`\n${started!.id} → ${status}`);
 if (status === "completed") {
-  const out = data?.context?.output as ProcessOutput | undefined;
+  const out = data?.state?.output as ProcessOutput | undefined;
   console.log(`${out?.readings} reading(s) of ${out?.place}`);
   console.log(out?.last?.summary);
 } else {
@@ -69,4 +69,4 @@ if (status === "completed") {
   // boundary is a CODE, which is the whole point of the child's throws clause.
   console.log(`${data?.error_code}: ${data?.error_message}`);
 }
-console.log(JSON.stringify(data?.context, null, 2));
+console.log(JSON.stringify(data?.state, null, 2));

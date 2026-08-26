@@ -50,7 +50,7 @@ test("GET /instances/{id} — returns instance status", async () => {
   expect(startError).toBeUndefined();
   const id = startData!.id;
 
-  const { data, error } = await client.GET("/instances/{id}", {
+  const { data, error } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(error).toBeUndefined();
@@ -82,7 +82,7 @@ test("GET /instances — task reports where the instance is, and clears when it 
   const id = started!.id;
   await waitForInstance(id, 15_000);
 
-  const { data: detail } = await client.GET("/instances/{id}", {
+  const { data: detail } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(detail!.status).toBe("failed");
@@ -115,18 +115,18 @@ test("GET /instances/{id} — a completed process reports the task it finished a
   const id = started!.id;
   expect(await waitForInstance(id, 15_000)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data!.task).toBe("last");
 });
 
 test("GET /instances/{id} — returns error for unknown ID", async () => {
-  const { data, error } = await client.GET("/instances/{id}", {
+  const { data, error } = await client.GET("/instances/{id}/detail", {
     params: { path: { id: "00000000-0000-0000-0000-000000000000" } },
   });
   expect(error).toBeDefined();
-  expect(data?.context).toBeUndefined();
+  expect(data?.state).toBeUndefined();
 });
 
 test("GET /instances — lists instances", async () => {
@@ -174,12 +174,12 @@ test("GET /instances/{id} — detail includes the full context", async () => {
     body: { process: processName, input: { order_id: 99 } },
   });
 
-  const { data, error } = await client.GET("/instances/{id}", {
+  const { data, error } = await client.GET("/instances/{id}/detail", {
     params: { path: { id: started!.id } },
   });
   expect(error).toBeUndefined();
-  expect(data!.context).toBeDefined();
-  expect((data!.context as Record<string, unknown>).input).toEqual({ order_id: 99 });
+  expect(data!.state).toBeDefined();
+  expect((data!.state as Record<string, unknown>).input).toEqual({ order_id: 99 });
 });
 
 test("POST /instances — fails when input is invalid", async () => {

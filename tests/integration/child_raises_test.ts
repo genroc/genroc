@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { client, waitForInstance, objectAt, spliceObjects } from "../helpers/client.ts";
+import { client, waitForInstance, objectAt, spliceObjects, childrenOfTask } from "../helpers/client.ts";
 
 // `raises` on a child call declares what a raised fault's payload looks like, keyed by raise
 // code — the error channel's counterpart to result_schema, and declared by the CALLER so a
@@ -64,8 +64,8 @@ test("a declared code makes the payload readable as error.data at the routed tas
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  expect(data?.context?.output).toEqual({ wait: 3600, why: "51" });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  expect(data?.state?.output).toEqual({ wait: 3600, why: "51" });
 });
 
 test("an undeclared code leaves error.data absent — the read is a registration error", async () => {
@@ -127,15 +127,15 @@ test("a payload that does not fit the declaration replaces the raised code with 
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   expect(
-    data?.context?.output,
+    data?.state?.output,
     "the code is replaced, so the rule naming the raised code no longer fires",
   ).toEqual({ via: "mismatch", code: "output.invalid" });
 
   // The error being diagnosed survives: the child is still raised, with its own code.
-  const childId = (data?.context as any)?._children?.pay as string;
-  const { data: kid } = await client.GET("/instances/{id}", { params: { path: { id: childId } } });
+  const childId = (await childrenOfTask(started!.id, "pay")) as string;
+  const { data: kid } = await client.GET("/instances/{id}/detail", { params: { path: { id: childId } } });
   expect(kid?.status).toBe("raised");
   expect(kid?.error_code).toBe("card_declined");
 });
@@ -165,7 +165,7 @@ test("a declared code the child raises without data is the same lost bet", async
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("failed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   expect(
     data?.error_code,
     "a declaration is a bet on a shape; nothing is not that shape",
@@ -200,8 +200,8 @@ test("a child_map declares per entry, and the action-level slot is refused", asy
 
   const { data: started } = await client.POST("/instances", { body: { process: perEntry } });
   expect(await waitForInstance(started!.id)).toBe("completed");
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
-  expect(data?.context?.output).toEqual({ wait: 3600 });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
+  expect(data?.state?.output).toEqual({ wait: 3600 });
 
   const wrong = `raises_map_bad_${uid}`;
   const { error } = await client.PUT("/definitions", {
@@ -369,8 +369,8 @@ test("{} exposes the payload opaquely: forwardable, but a field read is refused"
 
   const { data: started } = await client.POST("/instances", { body: { process: whole } });
   expect(await waitForInstance(started!.id)).toBe("completed");
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
-  expect((data?.context?.output as any)?.payload).toEqual({ decline_code: "51", retry_after: 3600 });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
+  expect((data?.state?.output as any)?.payload).toEqual({ decline_code: "51", retry_after: 3600 });
 });
 
 // The conform NORMALIZES, exactly as result_schema does on the success path: the caller sees
@@ -414,8 +414,8 @@ test("the payload is conformed, not passed through: extras dropped, defaults fil
 
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   expect(await waitForInstance(started!.id)).toBe("completed");
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
-  expect((data?.context?.output as any)?.seen).toEqual({ decline_code: "51", channel: "unknown" });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
+  expect((data?.state?.output as any)?.seen).toEqual({ decline_code: "51", channel: "unknown" });
 });
 
 // child_list declares on the action (one process for every element), and the first raised
@@ -454,8 +454,8 @@ test("child_list declares on the action, and the first raised slot's payload cro
 
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   expect(await waitForInstance(started!.id)).toBe("completed");
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
-  expect(data?.context?.output).toEqual({ slot: 0, why: "51" });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
+  expect(data?.state?.output).toEqual({ slot: 0, why: "51" });
 });
 
 // A declaration is an ordinary schema document, so it may name a shared definition — which
@@ -490,8 +490,8 @@ test("a raises schema may be a $ref into the process $defs", async () => {
 
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   expect(await waitForInstance(started!.id)).toBe("completed");
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
-  expect(data?.context?.output).toEqual({ wait: 3600 });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
+  expect(data?.state?.output).toEqual({ wait: 3600 });
 });
 
 // Past the 2 KiB inline cutoff the payload lives in the object store, so crossing to the
@@ -531,20 +531,19 @@ test("a payload past the inline cutoff externalizes and still crosses whole", as
   // The proof that the object store was involved is on the CHILD's row, where the payload was
   // written: the fault slot is enveloped alone, so past the cutoff it reads as a {ref, size}
   // marker until something asks for it.
-  const { data: lazy } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
-  const childId = (lazy?.context as any)?._children?.pay as string;
-  const { data: kid } = await client.GET("/instances/{id}", { params: { path: { id: childId } } });
+  const { data: lazy } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
+  const childId = (await childrenOfTask(started!.id, "pay")) as string;
+  const { data: kid } = await client.GET("/instances/{id}/detail", { params: { path: { id: childId } } });
   // The cut takes the big leaf inside the raised payload, so the listing names a path THROUGH
-  // it — rooted where the RESPONSE carries it, which is `error_data`, not the context slot it
-  // was cut from.
+  // the state slot it was cut from.
   expect(
-    (kid!.objects ?? []).some((o: any) => o.path[0] === "error_data"),
+    (kid!.objects ?? []).some((o: any) => o.path[0] === "state" && o.path[1] === "_error_data"),
     "8 KiB is past the 2 KiB cutoff, so the payload must be externalized",
   ).toBe(true);
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
   await spliceObjects(data);
-  expect((data?.context?.output as any)?.trace).toBe(blob);
+  expect((data?.state?.output as any)?.trace).toBe(blob);
 });
 
 // A wildcard reaches codes no key declares, so it admits null even where every code it
@@ -768,8 +767,8 @@ test("a % rule unions every declared shape it can reach, and the raised code dec
       body: { process: parent, input: { expired } },
     });
     expect(await waitForInstance(started!.id)).toBe("completed");
-    const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
-    const out = data?.context?.output as any;
+    const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
+    const out = data?.state?.output as any;
     expect(out?.seen, `expired=${expired} must arrive as its own declared shape`).toEqual(expectedArm);
     expect(out?.kind).toBe(expectedArm.kind);
     // The other arm's field is present in the TYPE and null in this VALUE.
@@ -812,6 +811,6 @@ test("a field only one arm of the union declares reads as null when the other ar
     body: { process: parent, input: { expired: true } },
   });
   expect(await waitForInstance(started!.id)).toBe("completed");
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
-  expect((data?.context?.output as any)?.code, "card_expired carries no decline_code").toBeNull();
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
+  expect((data?.state?.output as any)?.code, "card_expired carries no decline_code").toBeNull();
 });

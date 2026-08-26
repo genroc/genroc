@@ -205,7 +205,7 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
 
       // genroc2 detected the takeover and refused to re-execute the only_once task.
       expect(finalStatus).toBe("failed");
-      const { data } = await genroc2.client.GET("/instances/{id}", {
+      const { data } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
       });
       expect(data!.error_message).toContain("only_once");
@@ -282,7 +282,7 @@ test("a pausing instance whose worker crashes is settled to paused by the reclai
     await genroc1.client.POST("/instances/{id}/pause", {
       params: { path: { id: instanceId } },
     });
-    const { data: mid } = await genroc1.client.GET("/instances/{id}", {
+    const { data: mid } = await genroc1.client.GET("/instances/{id}/detail", {
       params: { path: { id: instanceId } },
     });
     expect(mid!.status).toBe("pausing");
@@ -295,7 +295,7 @@ test("a pausing instance whose worker crashes is settled to paused by the reclai
       // Expire the dead lease from genroc2's view and let it reclaim.
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
 
-      const { data: after } = await genroc2.client.GET("/instances/{id}", {
+      const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
       });
       // Settled, not advanced: the pause the operator asked for is honoured, and
@@ -375,7 +375,7 @@ test("a pausing only_once instance with a handler pauses at the handler and runs
 
       // Decided, then suspended: the routing happened, and the pause the operator
       // asked for still landed on the write that carried it.
-      const { data: after } = await genroc2.client.GET("/instances/{id}", {
+      const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
       });
       expect(after!.status).toBe("paused");
@@ -427,7 +427,7 @@ test("a pausing only_once instance whose worker crashes fails instead of pausing
       // pausing here would launder an at-most-once violation into a silent
       // re-execution on resume. The instance fails instead — and stays failed,
       // because a failure is an outcome and a pause is not.
-      const { data: after } = await genroc2.client.GET("/instances/{id}", {
+      const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
       });
       expect(after!.status).toBe("failed");
@@ -796,10 +796,10 @@ test("crash recovery — a handler may end the process, and its output is still 
 
       // goto: end goes through completeViaErrorHandler, which computes the process
       // output like any other end — an anticipated interruption is a normal finish.
-      const { data: after } = await genroc2.client.GET("/instances/{id}", {
+      const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
       });
-      expect((after!.context as Record<string, unknown>).output).toEqual({
+      expect((after!.state as Record<string, unknown>).output).toEqual({
         recovered: true,
       });
       expect(charge.requestCount()).toBe(1);
@@ -839,14 +839,14 @@ test("crash recovery — a handler may raise an authored code instead of routing
     expect(await waitForInstance(run.instanceId, 15_000, run.genroc2.client)).toBe(
       "raised",
     );
-    const { data: after } = await run.genroc2.client.GET("/instances/{id}", {
+    const { data: after } = await run.genroc2.client.GET("/instances/{id}/detail", {
       params: { path: { id: run.instanceId } },
     });
     // The authored code is what an operator filters on; the engine's own code stays
     // visible in `error`, which is the point of raising rather than failing.
     expect(after!.error_code).toBe("charge_unconfirmed");
     expect(
-      (after!.context as Record<string, Record<string, unknown>>).error?.code,
+      (after!.state as Record<string, Record<string, unknown>>).error?.code,
     ).toBe("only_once.interrupted");
     expect(charge.requestCount()).toBe(1);
   } finally {

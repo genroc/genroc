@@ -1,0 +1,73 @@
+# Upgrading a tree. The operator names only the ROOT; which version its live child moves to is
+# read from the parent's TARGET definition, where it was pinned at registration.
+#
+# The child's v2 is what differs, and only in a task it has not reached yet, so the finished
+# output names the version that actually executed: 20 if the child moved with its parent, 4 if
+# it was left behind on the version it was spawned from. Nothing shallower can tell those apart
+# — the tree looks identical either way while the child is still parked.
+apply:
+  - definitions:
+      - name: leaf
+        input_schema:
+          type: object
+          properties: {k: {type: number}}
+          required: [k]
+        tasks:
+          - id: hold
+            action: {type: delay, for: 1}
+            switch: next
+          - id: go
+            output: {v: '$: input.k * 2'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: root
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: call
+            action:
+              type: child
+              name: leaf
+              input: {k: '$: input.n'}
+              result_schema: {type: number}
+            output: {v: '$: self.result'}
+            switch: end
+        output: {got: '$: outputs.call.v'}
+  - definitions:
+      - name: leaf
+        input_schema:
+          type: object
+          properties: {k: {type: number}}
+          required: [k]
+        tasks:
+          - id: hold
+            action: {type: delay, for: 1}
+            switch: next
+          - id: go
+            output: {v: '$: input.k * 10'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: root
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: call
+            action:
+              type: child
+              name: leaf
+              input: {k: '$: input.n'}
+              result_schema: {type: number}
+            output: {v: '$: self.result'}
+            switch: end
+        output: {got: '$: outputs.call.v'}
+# The clock stands still here so the child stays parked on its delay: a child that had already
+# finished is not a live tree, and the case would be asserting nothing.
+start: {process: root, input: {n: 2}, ticks: 3, advance_ms: 0}
+resting: {task: call, status: running, wait_state: waiting, version: 1}
+after: {task: call, status: running, wait_state: waiting, version: 2}
+run: [root, --from, "1", --to, "2"]
+finish: {status: completed, output: {got: 20}, advance_ms: 1000}

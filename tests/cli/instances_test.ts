@@ -118,11 +118,11 @@ test("run --set — overlays onto --input rather than replacing it", () => {
   const name = apply(inputDef(uid("proc")));
   const id = startedID(runCli(bin, ["run", name, "--input", "{count: 1, name: Base}", "--set", "count=2"]).stdout);
 
-  const { context } = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout) as {
-    context: { input: { count: number; name: string } };
+  const { state } = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout) as {
+    state: { input: { count: number; name: string } };
   };
-  expect(context.input.count).toBe(2); // --set won the field it named
-  expect(context.input.name).toBe("Base"); // the untouched field survived
+  expect(state.input.count).toBe(2); // --set won the field it named
+  expect(state.input.name).toBe("Base"); // the untouched field survived
 });
 
 test("run --version and --channel — pin which version starts", () => {
@@ -162,7 +162,7 @@ test("run — input that fails the schema is reported before anything starts", (
 
 // ── get: displayed fields ───────────────────────────────────────────────────────
 
-test("get — the detail block names the instance, its process and its context", () => {
+test("get — the detail block names the instance, its process and its state", () => {
   const name = apply(inputDef(uid("proc")));
   const id = startedID(runCli(bin, ["run", name, "--set", "count=42"]).stdout);
 
@@ -172,7 +172,7 @@ test("get — the detail block names the instance, its process and its context",
   expect(r.stdout).toContain(`${name}@v1`);
   expect(r.stdout).toContain("Created:");
   expect(r.stdout).toContain("Updated:");
-  expect(r.stdout).toContain("Context:");
+  expect(r.stdout).toContain("State:");
   expect(r.stdout).toContain("42"); // the input value lives in the context
 
   // --json is the raw server object, so it carries the context verbatim.

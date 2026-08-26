@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -122,7 +121,21 @@ func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 // one query parameter -- while degrading rather than failing, so the answer is always usable.
 const maxInlineResolveBytes = 1 << 20
 
-func (h *Handlers) getInstance(id string, resolve bool) Reply {
+func (h *Handlers) getInstance(id string) Reply {
+	if id == "" {
+		return invalid("id is required").reply()
+	}
+	inst, err := h.db.GetInstance(id)
+	if err != nil {
+		return errReply(err)
+	}
+	return okReply(instanceToResp(inst))
+}
+
+// getInstanceDetail returns the row as stored. Unlike getInstance it hides nothing: the state
+// it returns is the object an upgrade validates and a migration rewrites, so an operator
+// diagnosing a refusal is looking at what was actually checked.
+func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
 	}
@@ -133,20 +146,14 @@ func (h *Handlers) getInstance(id string, resolve bool) Reply {
 	// No redaction here. `secret: true` keeps a value out of the server's stdout, where an
 	// operator reads it without asking; an API response is someone asking. specs/object-store.md
 	// §Redaction.
-	ctxData := inst.ContextData
-	// Externalized slots leave the context entirely and are listed instead, with the path they
-	// belong at. There is no resolve=true: materializing every slot server-side put an unbounded
-	// response behind one query parameter, and the recipient is the side that knows which values
-	// it actually wants. specs/object-store.md §The wire.
 	//
-	// BEFORE orderedContext, which pre-marshals `outputs` to JSON text to fix its key order --
-	// after it, a marker under outputs.<task> is bytes the walk cannot see into, and the ref
-	// would ship inline exactly where this is meant to remove it. It mutates the map, which is
-	// safe here and only here: the redacted copy is ours, and an unredacted `inst` is discarded
-	// with this response.
+	// Rooted at "state", the field these paths point into on THIS response. Externalized slots
+	// leave it entirely and are listed instead, at the path they belong to.
 	var objects []ObjectEntry
-	ctxData, _ = extractObjects(ctxData, []any{"context"}, &objects).(map[string]any)
-
+	state, _ := extractObjects(inst.ContextData, []any{"state"}, &objects).(map[string]any)
+	if state == nil {
+		state = map[string]any{}
+	}
 	if resolve {
 		kept := objects[:0]
 		for _, e := range objects {
@@ -164,19 +171,61 @@ func (h *Handlers) getInstance(id string, resolve bool) Reply {
 				kept = append(kept, e)
 				continue
 			}
-			// The path is rooted at the response, so drop the leading "context" to place it in
-			// the context map this handler still holds separately.
-			if !model.Place(ctxData, e.Path[1:], value) {
+			// The path is rooted at the response, so drop the leading "state" to place it in the
+			// map this handler still holds separately.
+			if !model.Place(state, e.Path[1:], value) {
 				kept = append(kept, e)
 			}
 		}
 		objects = kept
 	}
+	return okReply(InstanceDetailResp{
+		ID:          inst.ID,
+		Process:     inst.ProcessName,
+		Version:     inst.ProcessVersion,
+		ParentID:    inst.ParentID,
+		SpawnTaskID: inst.SpawnTaskID,
+		CallStack:   inst.CallStack,
 
-	liftErrorDataPaths(objects)
-	resp := instanceToResp(inst, ctxData)
-	resp.Objects = objects
-	return okReply(resp)
+		Status:     inst.Status,
+		WaitState:  inst.WaitState,
+		Task:       inst.Task,
+		RetryCount: inst.RetryCount,
+		WakeAt:     formatTimePtr(inst.WakeAt),
+		CreatedAt:  inst.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:  inst.UpdatedAt.Format(time.RFC3339),
+
+		ErrorCode:    inst.ErrorCode,
+		ErrorMessage: inst.Error,
+		State:        state,
+
+		WorkerID:        derefString(inst.WorkerID),
+		LeaseExpiresAt:  formatTimePtr(inst.LeaseExpiresAt),
+		LeaseEpoch:      inst.LeaseEpoch,
+		TaskEpoch:       inst.TaskEpoch,
+		ParentTaskEpoch: inst.ParentTaskEpoch,
+		NextReplayable:  inst.NextReplayable,
+
+		ExternalWorkerID:       derefString(inst.ExternalWorkerID),
+		ExternalLeaseExpiresAt: formatTimePtr(inst.ExternalLeaseExpiresAt),
+		ExternalClaimEpoch:     inst.ExternalClaimEpoch,
+
+		Objects: objects,
+	})
+}
+
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func formatTimePtr(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 func (h *Handlers) pauseInstance(id string) Reply {
@@ -239,7 +288,7 @@ func (h *Handlers) tick(raw json.RawMessage) Reply {
 	return okReply(map[string]any{"count": n})
 }
 
-func instanceToResp(inst *model.ProcessInstance, ctx map[string]any) InstanceStatusResp {
+func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
 	return InstanceStatusResp{
 		ID:           inst.ID,
 		Process:      inst.ProcessName,
@@ -253,22 +302,9 @@ func instanceToResp(inst *model.ProcessInstance, ctx map[string]any) InstanceSta
 		// From ctx, not inst.ContextData: where the payload was externalized the latter still
 		// holds a {ref, size} marker, and shipping that would put a reference where the value
 		// belongs.
-		ErrorData: ctx[model.ErrorDataKey],
+		ErrorData: inst.ContextData[model.ErrorDataKey],
 		CreatedAt: inst.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: inst.UpdatedAt.Format(time.RFC3339),
-		Context:   orderedContext(ctx),
-	}
-}
-
-// liftErrorDataPaths re-roots the object entries cut from the payload slot, which the response
-// carries as `error_data` rather than as a context key. A path naming a place the response does
-// not have is a reference the caller cannot put back.
-func liftErrorDataPaths(objects []ObjectEntry) {
-	for i, e := range objects {
-		if len(e.Path) < 2 || e.Path[0] != "context" || e.Path[1] != model.ErrorDataKey {
-			continue
-		}
-		objects[i].Path = append([]any{"error_data"}, e.Path[2:]...)
 	}
 }
 
@@ -286,62 +322,4 @@ func instanceSummaryToResp(s *model.InstanceSummary) InstanceSummaryResp {
 		CreatedAt:    s.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:    s.UpdatedAt.Format(time.RFC3339),
 	}
-}
-
-// orderedContext returns a copy of contextData with outputs serialized in task
-// completion order (tracked by "output_order"), hiding the order key itself.
-func orderedContext(ctxData map[string]any) map[string]any {
-	result := make(map[string]any, len(ctxData))
-	for k, v := range ctxData {
-		// The outbound error is rendered as the response's own `error`, so it is not also a
-		// context key — leaving it here would show one error twice and the other not at all.
-		if k != "output_order" && k != model.ErrorDataKey {
-			result[k] = v
-		}
-	}
-
-	outputs, _ := ctxData["outputs"].(map[string]any)
-	if len(outputs) == 0 {
-		return result
-	}
-
-	var order []string
-	switch v := ctxData["output_order"].(type) {
-	case []string:
-		order = v
-	case []interface{}:
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				order = append(order, s)
-			}
-		}
-	}
-
-	var buf bytes.Buffer
-	buf.WriteByte('{')
-	first := true
-	// output_order is written unique (engine.appendOutputOrder), but rows persisted before
-	// that was true still hold repeats — and emitting one twice would put a duplicate key
-	// in the JSON object, which parsers resolve by silently keeping the last.
-	emitted := make(map[string]bool, len(order))
-	for _, key := range order {
-		val, ok := outputs[key]
-		if !ok || emitted[key] {
-			continue
-		}
-		emitted[key] = true
-		if !first {
-			buf.WriteByte(',')
-		}
-		keyBytes, _ := json.Marshal(key)
-		valBytes, _ := json.Marshal(val)
-		buf.Write(keyBytes)
-		buf.WriteByte(':')
-		buf.Write(valBytes)
-		first = false
-	}
-	buf.WriteByte('}')
-
-	result["outputs"] = json.RawMessage(buf.Bytes())
-	return result
 }

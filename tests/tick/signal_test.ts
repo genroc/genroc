@@ -24,8 +24,8 @@ async function signal(id: string, taskId: string, result: unknown) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function contextOf(id: string): Promise<any> {
-  const { data } = await ctx.env.client.GET("/instances/{id}", { params: { path: { id } } });
-  return data!.context;
+  const { data } = await ctx.env.client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  return data!.state;
 }
 
 test("a signal that arrives before the task arms is buffered, then consumed on arming", async () => {

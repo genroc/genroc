@@ -50,7 +50,7 @@ test("raise — switch case concludes the process as raised, with its code", asy
 
   expect(await waitForInstance(id)).toBe("raised");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data?.status).toBe("raised");
@@ -106,14 +106,14 @@ test("raise — on_error rule raises instead of routing", async () => {
 
   expect(await waitForInstance(id)).toBe("raised");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data?.error_code).toBe("card_declined");
   expect(data?.error_message).toBe("the issuer declined the charge");
   // The engine's own code stays visible in `error`, so the underlying cause is not lost
   // when error_code becomes the authored one.
-  expect((data?.context?.error as Record<string, unknown>)?.code).toBe(
+  expect((data?.state?.error as Record<string, unknown>)?.code).toBe(
     "http.402",
   );
 
@@ -152,7 +152,7 @@ test("panic — fails the process with the authored code, and stays retryable", 
 
   expect(await waitForInstance(id)).toBe("failed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data?.status).toBe("failed");
@@ -208,14 +208,14 @@ test("panic — an on_error rule panics on an action task", async () => {
 
   expect(await waitForInstance(id)).toBe("failed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data?.status).toBe("failed");
   expect(data?.error_code).toBe("upstream_contract_broken");
   expect(data?.error_message).toBe("the upstream returned an unusable 5xx");
   // The engine's own code stays in `error` underneath the authored one.
-  expect((data?.context?.error as Record<string, unknown>)?.code).toBe(
+  expect((data?.state?.error as Record<string, unknown>)?.code).toBe(
     "http.500",
   );
 
@@ -256,11 +256,11 @@ test("on_error → end computes the process output, like a normal completion", a
   const id = started!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data?.status).toBe("completed");
-  expect(data?.context?.output).toBe("recovered");
+  expect(data?.state?.output).toBe("recovered");
 
   failMock.stop();
 });
@@ -295,7 +295,7 @@ test("error_code — engine failures carry their own dotted code", async () => {
 
   expect(await waitForInstance(id)).toBe("failed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   expect(data?.error_code).toBe("http.500");
@@ -425,7 +425,7 @@ test("raise message — interpolates the scope the clause fires in", async () =>
   const id = started!.id!;
   expect(await waitForInstance(id)).toBe("raised");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   expect(data!.error_message).toBe("sam asked for 250, over the limit");
   // The code is untouched by rendering — an operator still filters on the literal.
   expect(data!.error_code).toBe("limit_exceeded");
@@ -451,7 +451,7 @@ test("raise message — $${ is an escape, so a literal ${ survives", async () =>
   const id = started!.id!;
   expect(await waitForInstance(id)).toBe("raised");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   expect(data!.error_message).toBe("write ${x} to escape");
 });
 
@@ -537,7 +537,7 @@ test("raise message — an on_error rule reads the error it caught", async () =>
     const id = started!.id!;
     expect(await waitForInstance(id)).toBe("raised");
 
-    const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+    const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
     expect(data!.error_message).toBe("upstream said overloaded");
   } finally {
     await svc.stop();

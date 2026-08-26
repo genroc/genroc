@@ -145,8 +145,8 @@ async function startOrder(
 }
 
 async function outputsOf(id: string, api: ApiClient = client): Promise<Record<string, any>> {
-  const { data } = await api.GET("/instances/{id}", { params: { path: { id } } });
-  return ((data?.context as any)?.outputs ?? {}) as Record<string, any>;
+  const { data } = await api.GET("/instances/{id}/detail", { params: { path: { id } } });
+  return ((data?.state as any)?.outputs ?? {}) as Record<string, any>;
 }
 
 // waitForInstance, but for a tick-only server (--poll 0).
@@ -158,7 +158,7 @@ async function waitForInstanceTicking(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await api.POST("/tick", {});
-    const { data } = await api.GET("/instances/{id}", { params: { path: { id } } });
+    const { data } = await api.GET("/instances/{id}/detail", { params: { path: { id } } });
     const status = data?.status;
     if (status === "completed" || status === "failed" || status === "raised") return status;
     await new Promise((r) => setTimeout(r, 50));

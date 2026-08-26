@@ -267,9 +267,9 @@ for (const backend of backends) {
         expect(finalInsts.every((i) => isTerminal(i.status))).toBe(true);
 
         for (const id of rootIds) {
-          const { data } = await api.GET("/instances/{id}", { params: { path: { id } } });
+          const { data } = await api.GET("/instances/{id}/detail", { params: { path: { id } } });
           expect(data?.status).toBe("completed");
-          expect((data?.context?.output as { processes?: number })?.processes).toBe(
+          expect((data?.state?.output as { processes?: number })?.processes).toBe(
             NODES_PER_ROOT,
           );
         }

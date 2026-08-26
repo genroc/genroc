@@ -81,9 +81,9 @@ test("map — child_list fans out over a reshaped array", async () => {
 
   expect(await waitForInstance(id, 15_000)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   // count+1 was computed per element, and code was renamed to sku.
-  expect((data?.context?.output as any)?.lines).toEqual(["AAAx2", "BBBx5"]);
+  expect((data?.state?.output as any)?.lines).toEqual(["AAAx2", "BBBx5"]);
 });
 
 // The registration-time type check is the point of a statically inferred map: a

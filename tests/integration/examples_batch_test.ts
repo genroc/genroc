@@ -100,8 +100,8 @@ async function startRun(port: number, invoices: unknown[]): Promise<string> {
 }
 
 async function outputsOf(id: string): Promise<Record<string, any>> {
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
-  return ((data?.context as any)?.outputs ?? {}) as Record<string, any>;
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  return ((data?.state as any)?.outputs ?? {}) as Record<string, any>;
 }
 
 function inv(invoice_id: string, amount_cents = 1000) {

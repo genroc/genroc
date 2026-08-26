@@ -45,12 +45,12 @@ test("output map remaps an action result — only the projection is exported", a
   const id = startData!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   // Only the projected {id} is exported — not the full {job_id, queue, secret} body.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.context?.outputs as any)?.create).toEqual({ id: "j-42" });
+  expect((data?.state?.outputs as any)?.create).toEqual({ id: "j-42" });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.context as any)?.output?.id).toBe("j-42");
+  expect((data?.state as any)?.output?.id).toBe("j-42");
 
   mock.stop();
 });
@@ -92,12 +92,12 @@ test("single-expression output passes the action result through", async () => {
   const id = startData!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   // The whole result is exported (passthrough), and the process output forwards it.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.context?.outputs as any)?.create).toEqual({ job_id: "j-7", queue: "q1" });
+  expect((data?.state?.outputs as any)?.create).toEqual({ job_id: "j-7", queue: "q1" });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.context as any)?.output).toEqual({ job_id: "j-7", queue: "q1" });
+  expect((data?.state as any)?.output).toEqual({ job_id: "j-7", queue: "q1" });
 
   mock.stop();
 });
@@ -137,9 +137,9 @@ test("nested output shapes data with nested objects", async () => {
   const id = startData!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.context?.outputs as any)?.create).toEqual({
+  expect((data?.state?.outputs as any)?.create).toEqual({
     meta: { id: "j-9", where: "q2" },
   });
 

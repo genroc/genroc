@@ -1,0 +1,44 @@
+# The case the whole feature exists for: a task that has NOT run yet computes something
+# different in the new version, and the value it reads was produced by the OLD one.
+#
+# Every other happy case has two versions that behave identically, so running the instance on
+# afterwards cannot tell whether the upgrade took effect — only whether it broke something.
+# Here `second` doubles in v1 and decuples in v2, so the finished output says which definition
+# actually executed, on state that predates it. An upgrade that migrated the context but left
+# the row on its old version passes every assertion up to `after` and produces 4 here.
+apply:
+  - definitions:
+      - name: laterproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: first
+            action: {type: delay, for: 1}
+            output: {v: '$: input.n'}
+            switch: next
+          - id: second
+            output: {w: '$: outputs.first.v * 2'}
+            switch: end
+        output: {w: '$: outputs.second.w'}
+  - definitions:
+      - name: laterproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: first
+            action: {type: delay, for: 1}
+            output: {v: '$: input.n'}
+            switch: next
+          - id: second
+            output: {w: '$: outputs.first.v * 10'}
+            switch: end
+        output: {w: '$: outputs.second.w'}
+start: {process: laterproc, input: {n: 2}, ticks: 2, advance_ms: 1000}
+resting: {task: second, status: running, outputs: [first]}
+after: {task: second, status: running, outputs: [first]}
+run: [laterproc, --from, "1", --to, "2"]
+finish: {status: completed, output: {w: 20}}

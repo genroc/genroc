@@ -61,11 +61,11 @@ test("child — result is the child's output unwrapped (not keyed)", async () =>
 
   expect(await waitForInstance(data!.id, 10_000)).toBe("completed");
 
-  const { data: inst } = await client.GET("/instances/{id}", {
+  const { data: inst } = await client.GET("/instances/{id}/detail", {
     params: { path: { id: data!.id } },
   });
   // Unwrapped: output.got IS the child output { value: 21 }, no intermediate key.
-  expect((inst?.context?.output as any)?.got).toEqual({ value: 21 });
+  expect((inst?.state?.output as any)?.got).toEqual({ value: 21 });
 });
 
 // The collected output is validated against result_schema, and a child whose output
@@ -112,7 +112,7 @@ test("child — output validation failure fails the parent and names the child",
 
   expect(await waitForInstance(data!.id, 10_000)).toBe("failed");
 
-  const { data: inst } = await client.GET("/instances/{id}", {
+  const { data: inst } = await client.GET("/instances/{id}/detail", {
     params: { path: { id: data!.id } },
   });
   expect(inst?.error_message).toContain(leaf);

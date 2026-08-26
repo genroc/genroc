@@ -65,7 +65,7 @@ async function callScript(name: string, code: string, caller: Record<string, unk
   expect(error, `put ${name} failed: ${JSON.stringify(error)}`).toBeUndefined();
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   const status = await waitForInstance(started!.id, 30_000);
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
   return { status, data };
 }
 
@@ -78,7 +78,7 @@ test("script child — a return value comes back through the wrapper, narrowed b
   expect(status).toBe("completed");
   // The wrapper's own output is the top type; the CALLER's result_schema is what narrows it,
   // and the conform drops what the caller did not declare.
-  expect((data?.context?.outputs as any)?.call).toEqual({ fee: 25 });
+  expect((data?.state?.outputs as any)?.call).toEqual({ fee: 25 });
 });
 
 // The regression this file exists for. `script_threw` carries {name, message}, and the caller
@@ -100,7 +100,7 @@ test("script child — script_threw carries {name, message} for a caller that de
     },
   );
   expect(status, `expected the caller's script_threw rule to fire: ${data?.error_message}`).toBe("completed");
-  expect((data?.context?.outputs as any)?.caught).toEqual({
+  expect((data?.state?.outputs as any)?.caught).toEqual({
     name: "UpstreamError",
     message: "the sky is closed",
   });

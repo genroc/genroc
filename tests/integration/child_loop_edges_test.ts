@@ -22,7 +22,7 @@ async function define(name: string, body: Record<string, unknown>) {
 async function run(name: string, input?: unknown) {
   const { data: started } = await client.POST("/instances", { body: { process: name, input } as never });
   const status = await waitForInstance(started!.id, 20_000);
-  const { data } = await client.GET("/instances/{id}", { params: { path: { id: started!.id } } });
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
   return { id: started!.id, status, data };
 }
 
@@ -67,7 +67,7 @@ test("child_map in a loop — each pass collects its own keyed batch", async () 
 
   const { status, data } = await run(name, { n: 3 });
   expect(status, JSON.stringify(data?.error_message)).toBe("completed");
-  expect(Object.keys((data?.context?.output as any)?.keys ?? {}).sort()).toEqual(["a", "b"]);
+  expect(Object.keys((data?.state?.output as any)?.keys ?? {}).sort()).toEqual(["a", "b"]);
 });
 
 test("loop re-entered through a raised child's on_error route", async () => {
@@ -93,7 +93,7 @@ test("loop re-entered through a raised child's on_error route", async () => {
 
   const { status, data } = await run(name, { n: 3 });
   expect(status, JSON.stringify(data?.error_message)).toBe("completed");
-  expect((data?.context?.output as any)?.rounds).toBe(3);
+  expect((data?.state?.output as any)?.rounds).toBe(3);
 });
 
 test("loop re-entered through a call error's on_error route", async () => {
@@ -126,5 +126,5 @@ test("loop re-entered through a call error's on_error route", async () => {
 
   const { status, data } = await run(name, { n: 3 });
   expect(status, JSON.stringify(data?.error_message)).toBe("completed");
-  expect((data?.context?.output as any)?.rounds).toBe(3);
+  expect((data?.state?.output as any)?.rounds).toBe(3);
 });

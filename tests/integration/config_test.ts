@@ -43,11 +43,11 @@ test("config resolves from the environment and is usable in expressions", async 
   const id = startData!.id;
   expect(await waitForInstance(id)).toBe("completed");
 
-  const { data } = await client.GET("/instances/{id}", {
+  const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const output = (data?.context as any)?.output;
+  const output = (data?.state as any)?.output;
   expect(output.url).toBe("https://config.example.test");
   expect(output.port).toBe(8080); // coerced to a number, not the string "8080"
   expect(output.region).toBe("us"); // default applied (e2e_region unset)

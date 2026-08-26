@@ -357,17 +357,61 @@ type InstanceStatusResp struct {
 	// ErrorMessage and ErrorData are the rest of the same error. Data is what the clause
 	// attached, absent where it attached nothing — a parent reads it only where its call
 	// declares the code under `raises`; here it is for an operator.
-	ErrorMessage string         `json:"error_message,omitempty"`
-	ErrorData    any            `json:"error_data,omitempty"`
-	CreatedAt    string         `json:"created_at"`
-	UpdatedAt    string         `json:"updated_at"`
-	Context      map[string]any `json:"context"`
+	ErrorMessage string `json:"error_message,omitempty"`
+	ErrorData    any    `json:"error_data,omitempty"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+// InstanceDetailResp is the whole row: the instance's STATE exactly as stored -- bookkeeping
+// slots included, nothing hidden or renamed -- plus the columns around it. It is the debugging
+// and upgrade view; `context` on the status response is the authoring one, and the difference
+// is deliberate. State is internal, and a caller reading it is reading engine internals.
+//
+// Config is absent on purpose. It is resolved per tick from the environment, never persisted,
+// and never returned over the API, because it is where secrets live (model.ProcessInstance).
+type InstanceDetailResp struct {
+	ID          string   `json:"id"`
+	Process     string   `json:"process"`
+	Version     int      `json:"version"`
+	ParentID    string   `json:"parent_id,omitempty"`
+	SpawnTaskID string   `json:"spawn_task_id,omitempty"`
+	CallStack   []string `json:"call_stack,omitempty"`
+
+	Status     model.Status    `json:"status"`
+	WaitState  model.WaitState `json:"wait_state,omitempty"`
+	Task       string          `json:"task,omitempty"`
+	RetryCount int             `json:"retry_count"`
+	WakeAt     string          `json:"wake_at,omitempty"`
+	CreatedAt  string          `json:"created_at"`
+	UpdatedAt  string          `json:"updated_at"`
+
+	ErrorCode    string `json:"error_code,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
+
+	// State is the stored context verbatim: input, outputs, output_order, output, error, and the
+	// engine's own slots (_error_data, _external, _children, _spawn_*). The set is CLOSED -- a key
+	// outside it does not survive a write -- so this is the whole of what the instance holds.
+	State map[string]any `json:"state"`
+
+	// The lease is the engine's grant to advance this instance; the external claim is a worker
+	// holding a parked task. They are different things and deliberately separate columns.
+	WorkerID        string `json:"worker_id,omitempty"`
+	LeaseExpiresAt  string `json:"lease_expires_at,omitempty"`
+	LeaseEpoch      int64  `json:"lease_epoch"`
+	TaskEpoch       int64  `json:"task_epoch"`
+	ParentTaskEpoch int64  `json:"parent_task_epoch"`
+	NextReplayable  bool   `json:"next_replayable"`
+
+	ExternalWorkerID       string `json:"external_worker_id,omitempty"`
+	ExternalLeaseExpiresAt string `json:"external_lease_expires_at,omitempty"`
+	ExternalClaimEpoch     int64  `json:"external_claim_epoch"`
+
 	// Objects lists the values too large to be carried inline, each with the path in this
 	// response where it belongs. Fetch one with GET /objects/{ref} and put it there; the slot is
-	// ABSENT from context rather than holding a marker, so nothing in the data can be mistaken
-	// for a reference. Omitted when there are none, like every other section — a recipient
-	// checks for the field, so one shape everywhere beats a distinction between absent and
-	// empty. specs/object-store.md §The wire.
+	// ABSENT from state rather than holding a marker, so nothing in the data can be mistaken for
+	// a reference. Omitted when there are none, like every other section — a recipient checks
+	// for the field, so one shape everywhere beats absent-versus-empty. specs/object-store.md.
 	Objects []ObjectEntry `json:"objects,omitempty"`
 }
 

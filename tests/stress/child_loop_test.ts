@@ -139,9 +139,9 @@ describe.runIf(!!DSN)("child task in a loop — worker fleet, postgres", () => {
       expect(failed.map((i) => `${i.id}:${i.error_message}`), "no tree failed").toEqual([]);
 
       for (const id of rootIds) {
-        const { data } = await api.GET("/instances/{id}", { params: { path: { id } } });
+        const { data } = await api.GET("/instances/{id}/detail", { params: { path: { id } } });
         expect(data?.status).toBe("completed");
-        expect((data?.context?.output as { rounds?: number } | undefined)?.rounds).toBe(PASSES);
+        expect((data?.state?.output as { rounds?: number } | undefined)?.rounds).toBe(PASSES);
       }
 
       // The checksum: one child per pass and not one more.
