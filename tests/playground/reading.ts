@@ -69,7 +69,7 @@ export default async function (input: Input): Promise<Output> {
   const temperature_c = Math.round(current.temperature_2m * 10) / 10;
   const summary = `${geo.name}  ${current.time}  ${temperature_c} °C  ${condition}`;
 
-  console.log(new Date().toISOString(), summary, "newer");
+  console.log(new Date().toISOString(), summary);
 
   await appendFile("weather.log", `${new Date().toISOString()} ${summary}\n`);
 
