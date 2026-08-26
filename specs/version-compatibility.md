@@ -1,10 +1,9 @@
 # Instance upgrade
 
-**Status: not built.** The compatibility check this gates on is
+**Status: built.** The compatibility check this gates on is
 [compat-command.md](compat-command.md)'s subject — what is compared, in which direction, and
 how it is reported. This doc is the other half: **moving** an instance from one version to
-another, once that check says it may. Nothing here is implemented except §3a, which shipped
-as a prerequisite.
+another, once that check says it may.
 
 The two halves answer different questions, and this one starts where the other stops: the
 check reads two documents and never an instance, so it must assume every reachable state.
@@ -84,7 +83,7 @@ contract (compat-command.md §3a) transitively implies row two, but the pairing 
 named the field is unaffected, and only this says so. Per key for `child_map`, per element
 for `child_list`; skipped without a `result_schema`.
 
-### 3c. A running child may not move without its parent (not built)
+### 3c. A running child may not move without its parent
 
 §3b answers "will the data fit"; this answers "does the system still describe itself".
 A parent's definition names its child versions (explicit `action.version`, else
@@ -96,6 +95,13 @@ the child's target. It closes both ways, so the unit of upgrade is the **non-ter
 tree closure**. Terminal descendants stay put (their outputs are frozen; §3b covers
 them). No ordering imposed: any mid-migration window is one of §3b's checked mixed
 cases.
+
+Built as described. The closure is `NonTerminalSubtree`, the non-root refusal is in the
+handler, and which version each child moves to comes from `ResolveChildVersion` against the
+parent's TARGET — one rule shared with the engine's spawn path, because two copies of it
+drift silently and a parent running a child version its definition never mentions is exactly
+the drift this section exists to prevent. A self-reference has no dependency row to read and
+inherits the parent's target, which is only observable when the target is not the latest.
 
 ## 4. Upgrade writes one column
 
@@ -149,18 +155,41 @@ Bulk upgrade plans the whole closure first, then writes one row per transaction
    effect; §2 admits expired leases precisely for crashed workers, the same state this
    flag decides — read the slot report before moving such instances.
 
-## 6. Surface (not built)
+## 6. Surface
 
-`POST /instances/{id}/upgrade` and a bulk form with `dry_run` leading the docs; both operate
-on the non-terminal tree closure (a tree with one immovable member does not move — refusing
-partially is the point). Default statuses `running`+`paused`; `failed` opt-in;
-`completed`/`raised` unselectable. Never implicit in an apply or a channel move. The CLI
-mirrors apply's ergonomics; every form names both sides; the table carries a reason column.
+`POST /instances/{id}/upgrade` moves ONE tree: the non-terminal closure under a root, all or
+nothing — a tree with one immovable member does not move, because refusing partially is the
+point. It refuses a non-root instance outright: moving a child alone would leave its parent
+collecting a version its own definition does not name.
+
+    genctl upgrade <process> --from <version|channel> --to <version|channel>
+                             [--status running,paused,failed] [--json]
+
+The CLI is the bulk form: it sweeps every instance of a process on `--from` with a cursor,
+pausing a running one, moving it, and putting it back. `--status` narrows what it takes;
+the default is every state that can move. Both sides are always named — there is no implicit
+"latest". Never implicit in an apply or a channel move.
+
+**There is no `dry_run`.** It was in this doc and did not survive contact: on a RUNNING
+instance the answer it gives is about a state the instance has already left, and what an
+operator actually wants beforehand — "would these two versions be compatible at all" — is
+what `compat` answers, from documents, without touching a row.
+
+The write is conditional on everything that would make the migration stale (version, task,
+status, lease), so a row that moved between the plan and the write loses the race rather than
+being clobbered. A refusal names the instance and the reason; a tree that cannot even be
+PLANNED (a child in a slot the target no longer declares) reports the same way rather than
+failing the request.
 
 ## 7. Where it lives
 
 `internal/validation` owns the dataflow and the child-ref checks, with no db/engine/api
-dependencies, so the whole thing is testable from two documents. **`CompareSet` is not a
+dependencies, so the whole thing is testable from two documents. That constraint is why the
+API handler owns the COMPOSITION — plan which versions the tree moves to (db), migrate each
+state to the definition it is moving to (validation), write them together (db) — rather than
+either package reaching into the other. It is also why the in-flight result check compares
+SCHEMAS: conforming a completed child's actual output would need the object store, which
+`validation` deliberately cannot reach (§5.8). **`CompareSet` is not a
 loop over `Compare`**: §3b needs old-parent/new-child and new-parent/old-child in one frame.
 The comparison's own internals — the two `$defs` pools, changed slots as a field comparison,
 why diagnostics decompose above `isSubset` — are compat-command.md §7 and that package's
