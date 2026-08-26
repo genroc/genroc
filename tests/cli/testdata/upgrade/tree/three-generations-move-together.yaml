@@ -1,0 +1,71 @@
+# Three levels. `PlanUpgrade` walks the tree breadth-first, and a grandchild is only reached
+# through its parent's TARGET definition — top v2 names mid, mid v2 names gc — so a walk that
+# stopped at the first generation would leave gc behind on a version its parent no longer names.
+#
+# Only the GRANDCHILD's arithmetic changes between the versions, so the finished number says
+# whether the walk reached the bottom: 10 if gc moved, 2 if it was left behind. Nothing shallower
+# distinguishes them — the tree looks identical either way while it is still running.
+#
+# The positions are the generations coming into existence, one per tick, and then settling back
+# up. Tick 3 is the one where the bottom has already finished under v1 and stays there.
+apply:
+  - definitions:
+      - name: gc
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: go
+            output: {v: '$: input.k * 2'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: mid
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: down
+            action: {type: child, name: gc, input: {k: '$: input.k'}, result_schema: {type: number}}
+            output: {v: '$: self.result'}
+            switch: end
+        output: '$: outputs.down.v'
+      - name: top
+        input_schema: {type: object, properties: {n: {type: number}}, required: [n]}
+        tasks:
+          - id: call
+            action: {type: child, name: mid, input: {k: '$: input.n'}, result_schema: {type: number}}
+            output: {v: '$: self.result'}
+            switch: end
+        output: {got: '$: outputs.call.v'}
+  - definitions:
+      - name: gc
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: go
+            output: {v: '$: input.k * 10'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: mid
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: down
+            action: {type: child, name: gc, input: {k: '$: input.k'}, result_schema: {type: number}}
+            output: {v: '$: self.result'}
+            switch: end
+        output: '$: outputs.down.v'
+      - name: top
+        input_schema: {type: object, properties: {n: {type: number}}, required: [n]}
+        tasks:
+          - id: call
+            action: {type: child, name: mid, input: {k: '$: input.n'}, result_schema: {type: number}}
+            output: {v: '$: self.result'}
+            switch: end
+        output: {got: '$: outputs.call.v'}
+start: {process: top, input: {n: 1}}
+at:
+  # Nothing spawned: the whole tree is built after the move, so every level is v2.
+  - {ticks: 0, resting: {task: call, wait_state: ""},         finish: {status: completed, output: {got: 10}}}
+  # mid exists, gc not yet — the grandchild is spawned by a parent that has already moved.
+  - {ticks: 1, resting: {task: call, wait_state: waiting},    finish: {status: completed, output: {got: 10}}}
+  # All three live: the walk has to reach the bottom generation to move it.
+  - {ticks: 2, resting: {task: call, wait_state: waiting},    finish: {status: completed, output: {got: 10}}}
+  # gc has COMPLETED under v1: terminal, so it stays, and its number is what comes back up.
+  - {ticks: 3, resting: {task: call, wait_state: waiting},    finish: {status: completed, output: {got: 2}}}
+after: {version: 2}
+run: [top, --from, "1", --to, "2"]

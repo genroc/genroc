@@ -1,0 +1,99 @@
+# A process that spawns ITSELF, moved to a version that is NOT the latest.
+#
+# Which version a child runs is normally pinned at the parent's registration, but a
+# self-reference records no dependency at all — there is nothing to pin, because the answer has
+# to be "whatever version the parent is on". It therefore inherits the version the parent is
+# moving TO; a recursion resolved any other way forks into two definitions running in the same
+# tree.
+#
+# THREE versions is what makes that observable. With only two, "inherit the parent's target" and
+# "use the latest" give the same answer and a case cannot tell them apart. Here the tree moves
+# 1 → 2 while v3 exists, so the deepest instance returns 10 if it inherited and 100 if it
+# reached for the latest.
+#
+# Only the BASE case's arithmetic differs between versions, and only the deepest instance runs
+# it, so the number coming back up reports which definition ran at the bottom.
+apply:
+  - definitions:
+      - name: rec
+        input_schema:
+          type: object
+          properties: {depth: {type: number}, k: {type: number}}
+          required: [depth, k]
+        tasks:
+          - id: step
+            switch:
+              - case: 'input.depth > 0'
+                goto: $down
+              - goto: $base
+          - id: base
+            output: {v: '$: input.k * 2'}
+            switch: end
+          - id: down
+            action:
+              type: child
+              name: rec
+              input: {depth: '$: input.depth - 1', k: '$: input.k'}
+              result_schema: {type: number}
+            output: {v: '$: self.result'}
+            switch: end
+        output: '$: outputs.base.v ?? outputs.down.v'
+  - definitions:
+      - name: rec
+        input_schema:
+          type: object
+          properties: {depth: {type: number}, k: {type: number}}
+          required: [depth, k]
+        tasks:
+          - id: step
+            switch:
+              - case: 'input.depth > 0'
+                goto: $down
+              - goto: $base
+          - id: base
+            output: {v: '$: input.k * 10'}
+            switch: end
+          - id: down
+            action:
+              type: child
+              name: rec
+              input: {depth: '$: input.depth - 1', k: '$: input.k'}
+              result_schema: {type: number}
+            output: {v: '$: self.result'}
+            switch: end
+        output: '$: outputs.base.v ?? outputs.down.v'
+  - definitions:
+      - name: rec
+        input_schema:
+          type: object
+          properties: {depth: {type: number}, k: {type: number}}
+          required: [depth, k]
+        tasks:
+          - id: step
+            switch:
+              - case: 'input.depth > 0'
+                goto: $down
+              - goto: $base
+          - id: base
+            output: {v: '$: input.k * 100'}
+            switch: end
+          - id: down
+            action:
+              type: child
+              name: rec
+              input: {depth: '$: input.depth - 1', k: '$: input.k'}
+              result_schema: {type: number}
+            output: {v: '$: self.result'}
+            switch: end
+        output: '$: outputs.base.v ?? outputs.down.v'
+start: {process: rec, input: {depth: 2, k: 1}}
+at:
+  # Nothing spawned: the whole recursion is built after the move, every level on v2.
+  - {ticks: 0, resting: {task: step, wait_state: ""},         finish: {status: completed, output: 10}}
+  - {ticks: 1, resting: {task: down, wait_state: waiting},    finish: {status: completed, output: 10}}
+  # Fully descended: three live instances of one definition, and every one must land on v2.
+  - {ticks: 2, resting: {task: down, wait_state: waiting},    finish: {status: completed, output: 10}}
+  # The BASE has already run under v1 — terminal, so it stays, and its number comes back up.
+  - {ticks: 3, resting: {task: down, wait_state: waiting},    finish: {status: completed, output: 2}}
+after: {version: 2}
+run: [rec, --from, "1", --to, "2"]

@@ -1,0 +1,77 @@
+# A child that RAISED is terminal like one that completed, but its answer travels the other
+# channel: the payload is conformed against the parent's raises[code], and routed by on_error.
+# Nothing else exercises that across a version change.
+#
+# Position 2 is the one worth having — the child has raised and the parent has NOT collected
+# yet. The child stays on the version that ran it (terminal descendants do not move), so its
+# stored payload was produced under v1 and is conformed under v2. The finished output is that
+# payload, which is what says it survived the migration and still reached the handler.
+#
+# The two versions differ only by an added optional input property, so nothing about the stored
+# state has any reason to move — what is being asserted is that a move which SHOULD be
+# invisible to a raised child is in fact invisible.
+apply:
+  - definitions:
+      - name: kid
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: go
+            switch:
+              - raise: {code: declined, message: "no", data: {why: "card"}}
+      - name: boss
+        input_schema: {type: object, properties: {n: {type: number}}, required: [n]}
+        tasks:
+          - id: call
+            action:
+              type: child
+              name: kid
+              input: {k: '$: input.n'}
+              result_schema: {}
+              raises:
+                declined: {type: object, properties: {why: {type: string}}}
+            on_error: [{code: [declined], goto: $explain}]
+            output: {v: '$: self.result'}
+            switch: end
+          - id: explain
+            output: {saw: '$: error.data.why'}
+            switch: end
+        output: {got: '$: outputs.explain.saw'}
+  - definitions:
+      - name: kid
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: go
+            switch:
+              - raise: {code: declined, message: "no", data: {why: "card"}}
+      - name: boss
+        input_schema:
+          type: object
+          properties: {n: {type: number}, note: {type: [string, "null"]}}
+          required: [n]
+        tasks:
+          - id: call
+            action:
+              type: child
+              name: kid
+              input: {k: '$: input.n'}
+              result_schema: {}
+              raises:
+                declined: {type: object, properties: {why: {type: string}}}
+            on_error: [{code: [declined], goto: $explain}]
+            output: {v: '$: self.result'}
+            switch: end
+          - id: explain
+            output: {saw: '$: error.data.why'}
+            switch: end
+        output: {got: '$: outputs.explain.saw'}
+start: {process: boss, input: {n: 1}}
+at:
+  - {ticks: 0, resting: {task: call, wait_state: ""}}
+  - {ticks: 1, resting: {task: call, wait_state: waiting}}
+  # Raised and uncollected: the payload is on the child's row, produced under v1.
+  - {ticks: 2, resting: {task: call, wait_state: collecting}}
+  # Already routed: the payload has reached the handler and is in the parent's own error slot.
+  - {ticks: 3, resting: {task: explain, wait_state: ""}}
+after: {version: 2}
+finish: {status: completed, output: {got: card}}
+run: [boss, --from, "1", --to, "2"]

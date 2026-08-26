@@ -56,11 +56,12 @@ run: [--from, retyped_a, --to, retyped_b]
 
 expect: |
   retyped_boss  v1 → v2  breaking: upgrade, contract
+    work:child.raises  (breaking: upgrade)
+      declined.why: string → integer
     explain            (breaking: upgrade)
       error.data.why: string → integer
     output             (breaking: contract)
       why: null|string → integer|null
-    work:child.raises  (ok)
 
   retyped_kid   v1       unchanged
 

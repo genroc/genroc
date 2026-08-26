@@ -2,6 +2,7 @@ package validation
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -397,6 +398,66 @@ func resultContracts(old, new *model.Task) []resultContract {
 	return pair(old.ID+":"+actionType+".result", old.Action.ResultSchema, new.Action.ResultSchema)
 }
 
+// raiseContract is resultContract for the ERROR channel: what one code promises, on a task
+// whose answer may already be on its way. The relation and the direction are the result's --
+// old ⊆ new, strictly -- because the answer comes from OUTSIDE and nothing migrates it: a
+// worker submitting a failure was handed the old declaration, and a child that raised carries
+// a payload its parent conforms against whichever declaration the parent is on when it
+// collects.
+type raiseContract struct {
+	address  string
+	task     string
+	code     string
+	old, new *schema.Schema
+	// declared is whether the new version names this code AT ALL. A dropped code is not a
+	// narrowing, it is a refusal: the submission is rejected before its payload is looked at.
+	declared bool
+	parks    bool
+}
+
+// raiseContracts pairs the codes the OLD version declared. A code the new version adds
+// constrains nobody -- no answer in flight can carry it.
+func raiseContracts(old, new *model.Task) []raiseContract {
+	if old.Action == nil || new.Action == nil {
+		return nil
+	}
+	actionType := string(old.Action.Type)
+	parks := parksMidTask(actionType)
+	var out []raiseContract
+	add := func(address string, oldR, newR model.Raises) {
+		for _, code := range sortedRaiseCodes(oldR) {
+			newSchema, declared := newR[code]
+			out = append(out, raiseContract{
+				address: address, task: old.ID, code: code,
+				old: oldR[code], new: newSchema, declared: declared, parks: parks,
+			})
+		}
+	}
+	// A child_map declares per entry, since its entries can be different processes -- the same
+	// split result_schema has.
+	if old.Action.Type == model.ActionTypeChildMap {
+		for _, key := range sortedChildKeys(old.Action.Children) {
+			newChild, ok := new.Action.Children[key]
+			if !ok {
+				continue
+			}
+			add(childKeyAddress(old.ID, actionType, key)+".raises", old.Action.Children[key].Raises, newChild.Raises)
+		}
+		return out
+	}
+	add(old.ID+":"+actionType+".raises", old.Action.Raises, new.Action.Raises)
+	return out
+}
+
+func sortedRaiseCodes(r model.Raises) []string {
+	codes := make([]string, 0, len(r))
+	for code := range r {
+		codes = append(codes, code)
+	}
+	slices.Sort(codes)
+	return codes
+}
+
 func sortedChildKeys(children map[string]model.ChildEntry) []string {
 	keys := make([]string, 0, len(children))
 	for k := range children {
@@ -434,6 +495,50 @@ func resultIssues(old, new *model.Task) []Issue {
 			}
 			out = append(out, Issue{
 				Member: MemberContract, Address: rc.address, Task: rc.task,
+				Path: f.path, Message: f.msg, Gating: true,
+			})
+		}
+	}
+	out = append(out, raiseIssues(old, new)...)
+	return out
+}
+
+// raiseIssues is resultIssues for the error channel. Kept separate only because a code is an
+// extra level of address: the finding's path names the code first, then the place inside its
+// payload, so one slot row covers every code the way one covers every property.
+func raiseIssues(old, new *model.Task) []Issue {
+	var out []Issue
+	for _, rc := range raiseContracts(old, new) {
+		var found []finding
+		switch {
+		case !rc.declared:
+			// Not a narrowing: the submission is refused before its payload is read, and a child
+			// that raised this code has nothing left to route on.
+			found = []finding{{path: rc.code, msg: "code no longer declared"}}
+		case rc.old == nil && rc.new != nil:
+			// The old version promised no payload, so an answer carrying none is entitled to
+			// exist. A new schema that accepts everything still accepts it.
+			if !(schema.Schema{}).IsSubset(*rc.new) {
+				found = []finding{{path: rc.code, msg: addedResultMessage}}
+			}
+		case rc.old != nil && rc.new != nil:
+			for _, f := range (explainer{}).explain(*rc.old, *rc.new) {
+				path := rc.code
+				if f.path != "" {
+					path += "." + f.path
+				}
+				found = append(found, finding{path: path, msg: f.msg})
+			}
+		}
+		// UPGRADE only. What a call accepts back on the error channel is not a promise to its
+		// own callers -- registration already refuses a declaration the callee could overflow --
+		// so narrowing it breaks instances in flight and nobody else.
+		if !rc.parks {
+			continue
+		}
+		for _, f := range found {
+			out = append(out, Issue{
+				Member: MemberUpgrade, Address: rc.address, Task: rc.task,
 				Path: f.path, Message: f.msg, Gating: true,
 			})
 		}

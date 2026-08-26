@@ -62,9 +62,10 @@ run: [--from, declined_a, --to, declined_b]
 
 expect: |
   declined_boss  v1 → v2  breaking: upgrade; compatible
+    work:child.raises  (breaking: upgrade)
+      declined.why: newly required field
     explain            (breaking: upgrade)
       error.data.why: newly required field
-    work:child.raises  (ok)
 
   declined_kid   v1       unchanged
 

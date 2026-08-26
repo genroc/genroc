@@ -91,8 +91,8 @@ func (db *DB) childTargetVersion(parent *model.ProcessInstance, parentDef *model
 		}
 	}
 	if task == nil || task.Action == nil {
-		return 0, fmt.Errorf("child %q was spawned from task %q, which %s@%d does not declare as a spawning task",
-			kid.ID, kid.SpawnTaskID, parent.ProcessName, parentTarget)
+		return 0, fmt.Errorf("child %q was spawned from task %q, which %s@%d does not declare as a spawning task: %w",
+			kid.ID, kid.SpawnTaskID, parent.ProcessName, parentTarget, ErrUpgradeBlocked)
 	}
 
 	// The slot a child occupies: a child_map key, empty for child and child_list. It is the
@@ -102,14 +102,14 @@ func (db *DB) childTargetVersion(parent *model.ProcessInstance, parentDef *model
 	if key != "" {
 		entry, ok := task.Action.Children[key]
 		if !ok {
-			return 0, fmt.Errorf("child %q occupies slot %q of task %q, which the target version no longer declares",
-				kid.ID, key, kid.SpawnTaskID)
+			return 0, fmt.Errorf("child %q occupies slot %q of task %q, which the target version no longer declares: %w",
+				kid.ID, key, kid.SpawnTaskID, ErrUpgradeBlocked)
 		}
 		declared, name = entry.Version, entry.Name
 	}
 	if name != kid.ProcessName {
-		return 0, fmt.Errorf("child %q runs %s but the target version spawns %s from task %q; a rename is not a move",
-			kid.ID, kid.ProcessName, name, kid.SpawnTaskID)
+		return 0, fmt.Errorf("child %q runs %s but the target version spawns %s from task %q; a rename is not a move: %w",
+			kid.ID, kid.ProcessName, name, kid.SpawnTaskID, ErrUpgradeBlocked)
 	}
 	return db.ResolveChildVersion(parent.ProcessName, parentTarget, kid.SpawnTaskID, name, declared, key)
 }

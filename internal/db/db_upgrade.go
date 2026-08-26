@@ -37,6 +37,12 @@ type InstanceUpgrade struct {
 	NewContext map[string]any
 }
 
+// ErrUpgradeBlocked reports that the tree cannot be planned at all: a child sits in a slot the
+// target version no longer declares, or under a task that no longer spawns. It is a REFUSAL and
+// not a failure -- the definition legitimately says this, and the caller wants to be told which
+// child and why, the same way every other refusal names one.
+var ErrUpgradeBlocked = fmt.Errorf("upgrade blocked")
+
 // ErrUpgradeStale reports that a row moved between the read that produced the migrated
 // state and this write -- its version, task, status or lease changed. The migration was
 // computed against something that is no longer there, so the whole batch rolls back.

@@ -1,0 +1,104 @@
+# the-child-family-parks-too.yaml makes this argument for `result_schema`; the error channel is
+# the same promise and reaches the rule by the same route. A child that RAISES carries a payload
+# its parent conforms against raises[code] as that declaration currently stands, so narrowing it
+# strands a parent already waiting — exactly as narrowing the result does.
+#
+#   one   child       one map of codes on the action
+#   many  child_map   one PER KEY, and the address carries the key: `many:child_map.a.raises`
+#   each  child_list  one map for every element
+#
+# UPGRADE only, and no contract row. What a call accepts back on the error channel is not a
+# promise to its own callers — registration already refuses a declaration the callee could
+# overflow — so narrowing it breaks instances in flight and nobody else.
+apply:
+  - channel: raisefam_a
+    definitions:
+      - name: raisefam_kid
+        tasks:
+          - id: run
+            switch:
+              - raise: {code: declined, message: "no", data: {why: "card", code: "51"}}
+      - name: raisefam_proc
+        tasks:
+          - id: one
+            action:
+              type: child
+              name: raisefam_kid
+              result_schema: {}
+              raises:
+                declined: {type: object, properties: {why: {type: string}}}
+            on_error: [{code: [declined], goto: end}]
+            switch: next
+          - id: many
+            action:
+              type: child_map
+              children:
+                a:
+                  name: raisefam_kid
+                  result_schema: {}
+                  raises:
+                    declined: {type: object, properties: {why: {type: string}}}
+            on_error: [{code: [declined], goto: end}]
+            switch: next
+          - id: each
+            action:
+              type: child_list
+              name: raisefam_kid
+              over: '$: [1, 2]'
+              result_schema: {}
+              raises:
+                declined: {type: object, properties: {why: {type: string}}}
+            on_error: [{code: [declined], goto: end}]
+            switch: end
+  - channel: raisefam_b
+    definitions:
+      - name: raisefam_kid
+        tasks:
+          - id: run
+            switch:
+              - raise: {code: declined, message: "no", data: {why: "card", code: "51"}}
+      - name: raisefam_proc
+        tasks:
+          - id: one
+            action:
+              type: child
+              name: raisefam_kid
+              result_schema: {}
+              raises:
+                declined: {type: object, properties: {why: {type: string}}, required: [why]}
+            on_error: [{code: [declined], goto: end}]
+            switch: next
+          - id: many
+            action:
+              type: child_map
+              children:
+                a:
+                  name: raisefam_kid
+                  result_schema: {}
+                  raises:
+                    declined: {type: object, properties: {why: {type: string}}, required: [why]}
+            on_error: [{code: [declined], goto: end}]
+            switch: next
+          - id: each
+            action:
+              type: child_list
+              name: raisefam_kid
+              over: '$: [1, 2]'
+              result_schema: {}
+              raises:
+                declined: {type: object, properties: {why: {type: string}}, required: [why]}
+            on_error: [{code: [declined], goto: end}]
+            switch: end
+run: [--from, raisefam_a, --to, raisefam_b]
+
+expect: |
+  raisefam_kid   v1       unchanged
+  raisefam_proc  v1 → v2  breaking: upgrade; compatible
+    one:child.raises         (breaking: upgrade)
+      declined.why: newly required field
+    many:child_map.a.raises  (breaking: upgrade)
+      declined.why: newly required field
+    each:child_list.raises   (breaking: upgrade)
+      declined.why: newly required field
+
+  exit 1

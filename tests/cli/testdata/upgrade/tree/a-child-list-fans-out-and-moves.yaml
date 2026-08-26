@@ -1,0 +1,83 @@
+# A child_list across the three states a batch passes through. Two things are being asserted at
+# once, and the output value carries both:
+#
+#   ORDER — the array is in INPUT order, which is `_spawn_index` on each child. That index is
+#           the one piece of spawn bookkeeping a version change must not disturb, and a batch
+#           that came back [10, 30, 20] would say it had.
+#   VERSION — leaf v2 decuples where v1 doubled, so the numbers say which definition ran.
+#
+# The third position is the one that differs: children that already COMPLETED stay on the
+# version that ran them, so the parent collects v1's numbers.
+apply:
+  - definitions:
+      - name: leaf
+        input_schema:
+          type: object
+          properties: {k: {type: number}}
+          required: [k]
+        tasks:
+          - id: go
+            output: {v: '$: input.k * 2'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: fan
+        input_schema:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                properties: {k: {type: number}}
+                required: [k]
+          required: [items]
+        tasks:
+          - id: spread
+            action:
+              type: child_list
+              name: leaf
+              over: '$: input.items'
+              # For a child_list this is the ELEMENT type: the engine wraps the batch in the array.
+              result_schema: {type: number}
+            output: {v: '$: self.result'}
+            switch: end
+        output: {got: '$: outputs.spread.v'}
+  - definitions:
+      - name: leaf
+        input_schema:
+          type: object
+          properties: {k: {type: number}}
+          required: [k]
+        tasks:
+          - id: go
+            output: {v: '$: input.k * 10'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: fan
+        input_schema:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                properties: {k: {type: number}}
+                required: [k]
+          required: [items]
+        tasks:
+          - id: spread
+            action:
+              type: child_list
+              name: leaf
+              over: '$: input.items'
+              result_schema: {type: number}
+            output: {v: '$: self.result'}
+            switch: end
+        output: {got: '$: outputs.spread.v'}
+start: {process: fan, input: {items: [{k: 1}, {k: 2}, {k: 3}]}}
+at:
+  - {ticks: 0, resting: {task: spread, wait_state: ""},         finish: {status: completed, output: {got: [10, 20, 30]}}}
+  - {ticks: 1, resting: {task: spread, wait_state: waiting},    finish: {status: completed, output: {got: [10, 20, 30]}}}
+  - {ticks: 2, resting: {task: spread, wait_state: collecting}, finish: {status: completed, output: {got: [2, 4, 6]}}}
+after: {version: 2}
+run: [fan, --from, "1", --to, "2"]

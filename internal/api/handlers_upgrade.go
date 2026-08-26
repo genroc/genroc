@@ -9,6 +9,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"genroc/internal/db"
@@ -68,6 +69,16 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage) Reply {
 
 	plan, err := h.db.PlanUpgrade(ctx, id, req.ToVersion)
 	if err != nil {
+		// A tree the plan cannot form is a refusal, not a failure to answer: it names the child
+		// and the reason, which is what the caller wants, and reads the same as every other
+		// refusal rather than as an internal error.
+		if errors.Is(err, db.ErrUpgradeBlocked) {
+			return okReply(UpgradeResp{Moves: []UpgradeMove{{
+				ID: root.ID, Process: root.ProcessName, Task: root.Task,
+				FromVersion: root.ProcessVersion, ToVersion: req.ToVersion,
+				Status: string(root.Status), Reason: err.Error(),
+			}}})
+		}
 		return errReply(err)
 	}
 

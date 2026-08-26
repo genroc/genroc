@@ -1,0 +1,77 @@
+# One batch, two children in different states at the same moment: `fast` has completed, `slow`
+# is still parked. They are treated oppositely and both are right — a terminal descendant stays
+# on the version that ran it, a live one moves with its parent — so a single batch exercises the
+# rule from both sides at once.
+#
+# `quick` decuples in v2, so the number `fast` contributes says which version produced it. At
+# tick 2 it has already finished under v1, so 2 is what the parent will eventually collect from
+# that slot, while `slow` is on v2 waiting for a worker that has not answered.
+#
+# The batch cannot finish (nothing submits `slow`'s result), so what is asserted is the state
+# after the move rather than an output: the parent still parked, on the new version, with both
+# children still addressable by their keys.
+apply:
+  - definitions:
+      - name: quick
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: go
+            output: {v: '$: input.k * 2'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: slowp
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: park
+            action: {type: external, input: {}, result_schema: {type: number}}
+            output: {r: '$: self.result'}
+            switch: end
+        output: '$: outputs.park.r'
+      - name: boss
+        input_schema: {type: object, properties: {n: {type: number}}, required: [n]}
+        tasks:
+          - id: call
+            action:
+              type: child_map
+              children:
+                fast: {name: quick, input: {k: '$: input.n'}, result_schema: {type: number}}
+                slow: {name: slowp, input: {k: '$: input.n'}, result_schema: {type: number}}
+            output: {v: '$: self.result'}
+            switch: end
+        output: {got: '$: outputs.call.v'}
+  - definitions:
+      - name: quick
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: go
+            output: {v: '$: input.k * 10'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: slowp
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: park
+            action: {type: external, input: {}, result_schema: {type: number}}
+            output: {r: '$: self.result'}
+            switch: end
+        output: '$: outputs.park.r'
+      - name: boss
+        input_schema: {type: object, properties: {n: {type: number}}, required: [n]}
+        tasks:
+          - id: call
+            action:
+              type: child_map
+              children:
+                fast: {name: quick, input: {k: '$: input.n'}, result_schema: {type: number}}
+                slow: {name: slowp, input: {k: '$: input.n'}, result_schema: {type: number}}
+            output: {v: '$: self.result'}
+            switch: end
+        output: {got: '$: outputs.call.v'}
+start: {process: boss, input: {n: 1}}
+at:
+  # Both children live: the whole batch moves.
+  - {ticks: 1, resting: {task: call, wait_state: waiting}}
+  # `fast` has completed and `slow` has not: the batch splits, and the move still succeeds.
+  - {ticks: 2, resting: {task: call, wait_state: waiting}}
+after: {task: call, status: running, wait_state: waiting, version: 2}
+run: [boss, --from, "1", --to, "2"]

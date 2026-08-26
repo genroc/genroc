@@ -1,0 +1,70 @@
+# A child_map across the same three states. Its entries can name DIFFERENT processes, so each
+# key declares its own call — and each child carries `_spawn_child_key` to say which slot it
+# fills. That key is what the plan reads to find the entry a live child belongs to, and what a
+# keyed result is assembled by.
+#
+# The two entries move differently on purpose: `slow` decuples in v2 and `fast` is untouched, so
+# the collected object says per key which definition ran rather than giving one number that
+# could have come from either.
+apply:
+  - definitions:
+      - name: slow
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: go
+            output: {v: '$: input.k * 2'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: fast
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: go
+            output: {v: '$: input.k + 100'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: boss
+        input_schema: {type: object, properties: {n: {type: number}}, required: [n]}
+        tasks:
+          - id: call
+            action:
+              type: child_map
+              children:
+                a: {name: slow, input: {k: '$: input.n'}, result_schema: {type: number}}
+                b: {name: fast, input: {k: '$: input.n'}, result_schema: {type: number}}
+            output: {v: '$: self.result'}
+            switch: end
+        output: {got: '$: outputs.call.v'}
+  - definitions:
+      - name: slow
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: go
+            output: {v: '$: input.k * 10'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: fast
+        input_schema: {type: object, properties: {k: {type: number}}, required: [k]}
+        tasks:
+          - id: go
+            output: {v: '$: input.k + 100'}
+            switch: end
+        output: '$: outputs.go.v'
+      - name: boss
+        input_schema: {type: object, properties: {n: {type: number}}, required: [n]}
+        tasks:
+          - id: call
+            action:
+              type: child_map
+              children:
+                a: {name: slow, input: {k: '$: input.n'}, result_schema: {type: number}}
+                b: {name: fast, input: {k: '$: input.n'}, result_schema: {type: number}}
+            output: {v: '$: self.result'}
+            switch: end
+        output: {got: '$: outputs.call.v'}
+start: {process: boss, input: {n: 3}}
+at:
+  - {ticks: 0, resting: {task: call, wait_state: ""},         finish: {status: completed, output: {got: {a: 30, b: 103}}}}
+  - {ticks: 1, resting: {task: call, wait_state: waiting},    finish: {status: completed, output: {got: {a: 30, b: 103}}}}
+  - {ticks: 2, resting: {task: call, wait_state: collecting}, finish: {status: completed, output: {got: {a: 6, b: 103}}}}
+after: {version: 2}
+run: [boss, --from, "1", --to, "2"]

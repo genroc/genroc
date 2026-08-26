@@ -1,0 +1,65 @@
+# The nullable-versus-optional gap, on the error channel.
+#
+# `why` was optional; it becomes required AND nullable. For STORED state that gap is closable —
+# a migration writes the null in — and every storage-optics check accepts it. A worker's failure
+# submission is not stored state: it arrives from outside, is conformed once, and `data: {}` is
+# refused. So the same gap must be judged strictly here, and the move refused.
+#
+# The result-channel twin is refused/result-gap-only-a-migration-could-close. Both channels need
+# it because both are conformed at a boundary, and neither is repaired by anything.
+apply:
+  - definitions:
+      - name: raisegap
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: hold
+            action:
+              type: external
+              input: {n: '$: input.n'}
+              result_schema: {}
+              raises:
+                boom:
+                  type: object
+                  properties: {why: {type: string}}
+            on_error:
+              - code: [boom]
+                goto: end
+            output: {r: '$: self.result'}
+            switch: end
+  - definitions:
+      - name: raisegap
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: hold
+            action:
+              type: external
+              input: {n: '$: input.n'}
+              result_schema: {}
+              # `why` becomes required: a failure the old version accepted without it is refused.
+              raises:
+                boom:
+                  type: object
+                  properties: {why: {type: [string, "null"]}}
+                  required: [why]
+            on_error:
+              - code: [boom]
+                goto: end
+            output: {r: '$: self.result'}
+            switch: end
+start: {process: raisegap, input: {n: 1}}
+at:
+  - ticks: 0
+    resting: {task: hold, wait_state: "", version: 1}
+    after: {task: hold, wait_state: "", version: 2}
+    refused: false
+  - ticks: 1
+    resting: {task: hold, wait_state: external, version: 1}
+    after: {task: hold, wait_state: external, version: 1}
+    refused: {says: 'raises.boom'}
+run: [raisegap, --from, "1", --to, "2"]

@@ -1,0 +1,64 @@
+# A child_map's key is the slot a child occupies, carried on the CHILD as _spawn_child_key —
+# the one piece of spawn bookkeeping that is not derivable from either definition, because it
+# records WHICH child got which slot. Removing the key while its child is live leaves that child
+# in a slot the parent's new definition does not name, so the tree cannot be planned at all.
+#
+# Also the case that says a plan refusal reads like every other refusal: it names the child and
+# the reason, rather than surfacing as an internal error because the plan could not be formed.
+apply:
+  - definitions:
+      - name: leaf
+        input_schema:
+          type: object
+          properties: {k: {type: number}}
+          required: [k]
+        tasks:
+          - id: park
+            action: {type: external, input: {}, result_schema: {}}
+            output: {r: '$: self.result'}
+            switch: end
+        output: '$: outputs.park.r'
+      - name: boss
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: call
+            action:
+              type: child_map
+              children:
+                a: {name: leaf, input: {k: 1}, result_schema: {}}
+                b: {name: leaf, input: {k: 2}, result_schema: {}}
+            output: {v: '$: self.result'}
+            switch: end
+  - definitions:
+      - name: leaf
+        input_schema:
+          type: object
+          properties: {k: {type: number}}
+          required: [k]
+        tasks:
+          - id: park
+            action: {type: external, input: {}, result_schema: {}}
+            output: {r: '$: self.result'}
+            switch: end
+        output: '$: outputs.park.r'
+      - name: boss
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: call
+            action:
+              type: child_map
+              children:
+                a: {name: leaf, input: {k: 1}, result_schema: {}}
+            output: {v: '$: self.result'}
+            switch: end
+start: {process: boss, input: {n: 1}, ticks: 2}
+resting: {task: call, status: running, wait_state: waiting, version: 1}
+after: {task: call, status: running, wait_state: waiting, version: 1}
+run: [boss, --from, "1", --to, "2"]
+refused: {says: 'occupies slot "b"'}
