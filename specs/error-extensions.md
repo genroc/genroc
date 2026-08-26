@@ -44,6 +44,17 @@ specifies.
 **Trigger:** D7's own — the §10.1 workaround used repeatedly on batches big enough for
 the waste to matter.
 
+**ACCEPTED 2026-08-26 (designed, not built) — this is child-error-handling.md §5.5, and D7
+is reversed with it.** The costing above was right that a per-slot attempt dimension is
+needed and wrong about what it costs: the count rides the child's `_spawn_*` bookkeeping,
+written by the parent at insert, so the sibling queries gain neither column nor predicate and
+the lock-ordering discipline is untouched. The "which codes are retryable" question it
+wanted answered is answered by `on_error` itself — a rule already names codes, and R5 bounds
+them to `raises(D)`. The "argues against §0" objection is gone
+too: §0 now says only a *declared* condition can be retried around. X1 (routing on batch
+shape) is unaffected and stays open — §5.5 re-spawns every raised slot rather than
+consulting the shape.
+
 ## X2 — A payload on `raise` — **BUILT 2026-08-22** (§X2-c)
 
 **Gap.** A raise carries code + message only (I6); a raising child computes no output.

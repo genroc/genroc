@@ -414,6 +414,12 @@ per-definition field).
 that exists. The invariants extracted from them live in
 the `CLAUDE.md` of the owning package.
 
+One exception, and it is marked in place: **`child-error-handling.md` §12** (per-slot
+re-spawn on `retry`, designed 2026-08-26) is not built, and the amendments that point at it
+carry *(designed, not built)*. §12 also records two defects in the shipped revive walk — the
+unconditional `task_epoch` bump and the epoch-blind sibling lookup — so read it before
+touching `RetryProcess`.
+
 `fetch-http-surface.md` is the newest of these and the largest: `query`, the status-keyed
 `responses` map that replaced `result_schema` on a fetch, and `self.status` / `self.headers`.
 Read it for the decisions rather than the behaviour — `docs/reference/tasks.mdx` is the
