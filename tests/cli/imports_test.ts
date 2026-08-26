@@ -234,6 +234,39 @@ test("apply — a relative -f path still resolves the site absolutely", async ()
   expect(instance.state.output).toBe("relative\n");
 });
 
+test("compat — the document is resolved before it is compared", () => {
+  const p = echoProject();
+  const name = uid("import");
+  p.write("snippet.txt", "the body\n");
+  const def = p.write(
+    "proc.yaml",
+    [
+      `name: ${name}`,
+      "tasks:",
+      "  - id: t",
+      "    output:",
+      '      code: "$import: ./snippet.txt"',
+      "    switch: [{ goto: end }]",
+      'output: "$: outputs.t.code"',
+      "",
+    ].join("\n"),
+  );
+  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
+
+  // Unresolved, the slot holds the literal `$import: ./snippet.txt` beside the text v1
+  // stores, so every imported site compares changed and no document can ever read unchanged
+  // — the same file apply just deduped.
+  const same = runCli(bin, ["compat", "-f", def, "--from", `${name}@1`]);
+  expect(same.ok, same.stderr).toBe(true);
+  expect(same.stdout).toMatch(new RegExp(`${name}\\s+v1\\s+unchanged`));
+
+  // The yaml is untouched here: only the IMPORTED file changed, so a report that notices is
+  // one that ran the resolver.
+  p.write("snippet.txt", "another body\n");
+  const edited = runCli(bin, ["compat", "-f", def, "--from", `${name}@1`]);
+  expect(edited.stdout).toMatch(new RegExp(`${name}\\s+v1 → \\(new\\)`));
+});
+
 // ── refusals ────────────────────────────────────────────────────────────────────
 
 test("apply — an unregistered resolver names itself and stores nothing", () => {

@@ -1154,7 +1154,7 @@ func compatSidesForInstance(server, id string, fromFlag, toFlag, files multiFlag
 	from := map[string]any{"versions": map[string]any{row.Process: row.Version}}
 	switch {
 	case len(files) > 0:
-		defs, err := loadDefs(files)
+		defs, err := resolvedDefs(files, server)
 		if err != nil {
 			fatal("%v", err)
 		}
@@ -1209,7 +1209,10 @@ func runCompatCmd(server string, args []string) {
 		if len(fromFlag) == 0 {
 			fatal("--from is required with -f: naming only one side hides which two documents were compared")
 		}
-		defs, err := loadDefs(files)
+		// Resolved, exactly as apply resolves: an unresolved `$import:` leaf is a literal
+		// string next to the code a stored version holds, so every site that has one compares
+		// changed and the row can never read `unchanged`.
+		defs, err := resolvedDefs(files, *serverFlag)
 		if err != nil {
 			fatal("%v", err)
 		}

@@ -63,7 +63,10 @@ The sequence, per `genctl apply`:
 4. Splice each string into its slot, `$`-escaped (below).
 5. `POST /definitions`.
 
-`genctl validate` stops after step 3 in `types` mode, and never reaches step 5.
+`genctl validate` stops after step 3 in `types` mode, and never reaches step 5. `genctl
+compat -f` runs 1–4 and then compares instead of storing: a stored version holds the resolved
+string, so an unresolved directive would compare as a literal against it and every imported
+site would read as changed.
 
 ### Two roundtrips, and why it is not "validate then apply"
 
