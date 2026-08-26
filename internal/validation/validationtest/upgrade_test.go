@@ -5,6 +5,8 @@ package validationtest
 // verdict. specs/version-compatibility.md s1.
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"genroc/internal/validation"
@@ -53,20 +55,49 @@ func TestMigrateState_ClosesTheNullGap(t *testing.T) {
 	}
 }
 
-func TestMigrateState_KeepsStateTheNewVersionDoesNotDeclare(t *testing.T) {
-	// A dropped task's output is real data nobody asked to delete, and stripping it would
-	// make the move unrecoverable. Strict would strip it; the migration mode does not.
+// The layer is PARTIAL at the top and complete below it, and the migration has to treat those
+// two halves oppositely. Inside `outputs` the schema names every task the target has, so a task
+// it does not name is gone: nothing on the new version can read that output -- an expression
+// naming it is refused at registration -- and keeping it stores weight that only grows and pins
+// whatever it references. At the top the layer names only a definition's own slots, so the
+// engine's bookkeeping is not undeclared-and-dead, it is simply none of the layer's business.
+func TestMigrateState_PrunesDeadOutputsAndKeepsBookkeeping(t *testing.T) {
+	// The order reaches here as []string read from the row and as []any decoded from JSON.
+	// Covering one only would have passed while the storage path pruned nothing.
+	for _, order := range []any{[]string{"first", "gone"}, []any{"first", "gone"}} {
+		t.Run(fmt.Sprintf("%T", order), func(t *testing.T) { migratePrunes(t, order) })
+	}
+}
+
+func migratePrunes(t *testing.T, order any) {
+	t.Helper()
 	to := defFrom(t, twoTaskDef(false))
 	state := stateAtWork()
 	state["outputs"].(map[string]any)["gone"] = map[string]any{"x": float64(9)}
+	state["output_order"] = order
+	state["_children"] = map[string]any{"work": "01a03d00-0000-7000-8000-000000000000"}
+	state["_spawn_index"] = float64(2)
 
 	got, err := validation.MigrateState(to, "work", state)
 	if err != nil {
 		t.Fatalf("MigrateState: %v", err)
 	}
 	outs, _ := got["outputs"].(map[string]any)
-	if _, kept := outs["gone"]; !kept {
-		t.Fatalf("the output of a task the new version does not declare was stripped: %#v", outs)
+	if _, kept := outs["gone"]; kept {
+		t.Errorf("the output of a task the target does not declare survived: %#v", outs)
+	}
+	if _, kept := outs["first"]; !kept {
+		t.Errorf("a live task's output was stripped with the dead one: %#v", outs)
+	}
+	// The order is bookkeeping and survives untouched, which is why it has to be filtered:
+	// left alone it names a task the state no longer holds an output for.
+	if b, _ := json.Marshal(got["output_order"]); string(b) != `["first"]` {
+		t.Errorf("output_order = %s, want only the surviving task", b)
+	}
+	for _, k := range []string{"_children", "_spawn_index"} {
+		if _, kept := got[k]; !kept {
+			t.Errorf("%s is the engine's, not the layer's, and must survive the migration", k)
+		}
 	}
 }
 

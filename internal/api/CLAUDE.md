@@ -110,6 +110,31 @@ rather than a failure.
 workers that were seconds from recovering — and restart discards the in-flight advances the
 gate was protecting.
 
+## A list row must be complete; a single-instance response may be incomplete
+
+A value past the inline cutoff leaves the row and is listed under `objects` instead, at the
+path it belongs to. That is fine on a single-instance response: the caller asked about one
+thing and can see what was cut. It is not fine in a LISTING — a row whose slot came back
+silently empty is a row a caller computes on and gets wrong, and there is no natural moment
+to notice. So a list row carries no value that can be externalized, and therefore carries no
+`objects`.
+
+Two endpoints are exempt because the externalized value IS what the caller came for, and
+omitting it would not make the response complete, only useless:
+
+| endpoint | why |
+|---|---|
+| `/external-tasks` | a worker claims a task to get its `input` |
+| `/instances/{id}/logs` | a log entry exists to carry its payload |
+
+Their hazard is real and worth knowing: a worker that ignores `objects` receives `input: {}`
+and runs the task against an empty payload — a wrong answer rather than a failure. The shipped
+worker splices (`evaluator/worker.ts`); a third-party one has to be told.
+
+`listshape_test.go` walks the action registry and enforces this, so a new listing that carries
+`objects` fails rather than being noticed later. Adding a third exception means naming it there
+with its reason.
+
 ## Adding a `Code` means three edits
 
 `errors.go` holds the API classification. A new `Code` needs its constant, an entry in

@@ -77,11 +77,22 @@ var closables = []closable{
 		want: `{}`,
 	},
 	{
-		name: "an undeclared key is not data to tidy away",
+		// A key the target does not name is one nothing on the new version can read -- an
+		// expression naming it is refused at registration -- so carrying it forward stores
+		// weight that only grows and pins whatever it references. A caller whose schema is
+		// deliberately partial puts the rest back itself; see validation.MigrateState.
+		name: "an undeclared key is stripped, like it is at every other boundary",
 		old:  `{"type":"object","properties":{"note":{"type":["string","null"]}}}`,
 		new:  `{"type":"object","properties":{"note":{"type":"string"}}}`,
 		in:   `{"note":null,"stale":{"from":"a dropped task"}}`,
-		want: `{"stale":{"from":"a dropped task"}}`,
+		want: `{}`,
+	},
+	{
+		name: "an undeclared key nested inside a declared one goes too",
+		old:  `{"type":"object","properties":{"a":{"type":"object","properties":{"b":{"type":["string","null"]}}}}}`,
+		new:  `{"type":"object","properties":{"a":{"type":"object","properties":{"b":{"type":"string"}}}}}`,
+		in:   `{"a":{"b":null,"stale":1}}`,
+		want: `{"a":{}}`,
 	},
 }
 

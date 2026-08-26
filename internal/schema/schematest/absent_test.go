@@ -428,16 +428,6 @@ func TestAbsentAsNull_FillLeavesAcceptedValuesUntouched(t *testing.T) {
 			schema: `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"number","default":7}},"required":["a"]}`,
 			value:  `{"a":"x"}`,
 		},
-		{
-			name:   "undeclared keys, which a strict check strips and a migration must not",
-			schema: `{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]}`,
-			value:  `{"a":"x","stale":"kept"}`,
-		},
-		{
-			name:   "undeclared keys nested inside a declared one",
-			schema: `{"type":"object","properties":{"a":{"type":"object","properties":{"b":{"type":"string"}},"required":["b"]}},"required":["a"]}`,
-			value:  `{"a":{"b":"x","stale":1}}`,
-		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

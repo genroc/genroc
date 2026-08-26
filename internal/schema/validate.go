@@ -70,12 +70,18 @@ const (
 	//   present null, optional, admits  → the key is REMOVED; the value cannot stay, and
 	//   no null                           the property is optional, so absence is valid
 	//
-	// Two things it deliberately does not do. **Undeclared keys are KEPT** — stripping is a
-	// conform's job at a boundary, and a stale key from a dropped task is real data nobody
-	// asked to delete. **Defaults are NOT filled**: a default filled at creation is filled
-	// before anything reads it, so every value derived from it agrees; filling one into a
-	// half-run instance disagrees with the values already computed in its absence, and
-	// nothing recomputes them (specs/compat-command.md §2d).
+	// Undeclared keys are STRIPPED, as in every other mode: a key the target schema does not
+	// name is one nothing on the new version can read -- validation rejects the reference --
+	// so keeping it stores weight that only grows, and pins whatever it references in the
+	// object store for as long as the instance lives. A caller whose schema is deliberately
+	// PARTIAL is the one that must put the rest back; see validation.MigrateState, where the
+	// layer describes a definition's own slots and the engine's bookkeeping is not its
+	// business.
+	//
+	// One thing it deliberately does not do. **Defaults are NOT filled**: a default filled at
+	// creation is filled before anything reads it, so every value derived from it agrees;
+	// filling one into a half-run instance disagrees with the values already computed in its
+	// absence, and nothing recomputes them (specs/compat-command.md §2d).
 	ConformToSchemaExactly
 )
 
@@ -194,15 +200,12 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 		if _, declared := nd.Properties[name]; declared {
 			continue
 		}
-		switch {
-		case nd.AdditionalProperties != nil:
+		if nd.AdditionalProperties != nil {
 			norm, err := conformGuard(nd.AdditionalProperties, defs, val, JoinPath(path, name), nil, mode)
 			if err != nil {
 				return nil, err
 			}
 			out[name] = norm
-		case mode == ConformToSchemaExactly:
-			out[name] = val
 		}
 	}
 	return out, nil
