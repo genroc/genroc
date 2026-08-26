@@ -196,8 +196,19 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 	if err != nil {
 		return errReply(err)
 	}
+	// What shape a batch was spawned in is the PARENT definition's to say. Reading it from a
+	// discriminant on the child would be reading a copy, and a copy is what an upgrade leaves
+	// stale when the parent's task changes shape.
+	spawnShape := map[string]model.ActionType{}
+	if def, err := h.db.GetDefinition(inst.ProcessName, inst.ProcessVersion); err == nil {
+		for _, t := range def.Tasks {
+			if t != nil && t.Action != nil {
+				spawnShape[t.ID] = t.Action.Type
+			}
+		}
+	}
 	return okReply(InstanceDetailResp{
-		Children:    spawnPlaceholder(kids),
+		Children:    spawnPlaceholder(kids, spawnShape),
 		ID:          inst.ID,
 		Process:     inst.ProcessName,
 		Version:     inst.ProcessVersion,
@@ -348,7 +359,7 @@ func instanceSummaryToResp(s *model.InstanceSummary) InstanceSummaryResp {
 // single child, an object keyed by entry for a child_map, an array in spawn order for a
 // child_list. One task, one shape -- so a reader branches on the action type it already knows
 // from the definition, never on what the value happens to look like.
-func spawnPlaceholder(kids []db.ChildSpawn) map[string]any {
+func spawnPlaceholder(kids []db.ChildSpawn, shape map[string]model.ActionType) map[string]any {
 	if len(kids) == 0 {
 		return nil
 	}
@@ -363,14 +374,14 @@ func spawnPlaceholder(kids []db.ChildSpawn) map[string]any {
 	out := make(map[string]any, len(order))
 	for _, task := range order {
 		group := byTask[task]
-		switch group[0].ActionType {
-		case string(model.ActionTypeChildMap):
+		switch shape[task] {
+		case model.ActionTypeChildMap:
 			keyed := make(map[string]any, len(group))
 			for _, k := range group {
 				keyed[k.Key] = k.ID
 			}
 			out[task] = keyed
-		case string(model.ActionTypeChildList):
+		case model.ActionTypeChildList:
 			sort.Slice(group, func(i, j int) bool { return group[i].Index < group[j].Index })
 			ids := make([]any, len(group))
 			for i, k := range group {

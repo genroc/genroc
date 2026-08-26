@@ -300,9 +300,8 @@ func encodeEngineState(cd map[string]any) (string, error) {
 // engineStateKeys maps the engine-internal context keys to their engine_state field
 // names (and back, in decodeState).
 var engineStateKeys = map[string]string{
-	"_spawn_action_type": "spawn_action_type",
-	"_spawn_child_key":   "spawn_child_key",
-	"_spawn_index":       "spawn_index",
+	"_spawn_child_key": "spawn_child_key",
+	"_spawn_index":     "spawn_index",
 }
 
 func toStringSlice(v any) []string {
@@ -729,11 +728,10 @@ func childPathOf(at []any, key any) []any {
 // ChildSpawn is one child as its parent's detail view names it: which task spawned it, and
 // which slot of that task's batch it occupies.
 type ChildSpawn struct {
-	ID         string
-	TaskID     string
-	ActionType string // child | child_map | child_list
-	Key        string // child_map only
-	Index      int    // child_list only
+	ID     string
+	TaskID string
+	Key    string // child_map only
+	Index  int    // child_list only
 }
 
 // ChildrenOfInstance rebuilds the spawn placeholder from the child rows. It is derived, not
@@ -750,14 +748,13 @@ func (db *DB) ChildrenOfInstance(id string) ([]ChildSpawn, error) {
 		c := ChildSpawn{ID: r.ID, TaskID: r.SpawnTaskID}
 		if r.EngineState != "" {
 			var es struct {
-				SpawnActionType string `json:"spawn_action_type"`
-				SpawnChildKey   string `json:"spawn_child_key"`
-				SpawnIndex      *int   `json:"spawn_index"`
+				SpawnChildKey string `json:"spawn_child_key"`
+				SpawnIndex    *int   `json:"spawn_index"`
 			}
 			if err := json.Unmarshal([]byte(r.EngineState), &es); err != nil {
 				return nil, fmt.Errorf("decode engine_state of %s: %w", r.ID, err)
 			}
-			c.ActionType, c.Key = es.SpawnActionType, es.SpawnChildKey
+			c.Key = es.SpawnChildKey
 			if es.SpawnIndex != nil {
 				c.Index = *es.SpawnIndex
 			}

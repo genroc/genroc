@@ -120,7 +120,7 @@ func TestMigrateState_CarriesEngineBookkeepingThrough(t *testing.T) {
 	// _external unparks an instance from a task it is still waiting on.
 	to := defFrom(t, twoTaskDef(false))
 	state := stateAtWork()
-	state["_external"] = map[string]any{"task_id": "work", "input": map[string]any{"n": float64(1)}}
+	state["_external"] = map[string]any{"input": map[string]any{"n": float64(1)}}
 	state["_spawn_child_key"] = "out"
 
 	got, err := validation.MigrateState(to, "work", state)
@@ -131,7 +131,7 @@ func TestMigrateState_CarriesEngineBookkeepingThrough(t *testing.T) {
 		t.Errorf("_spawn_child_key came back %#v; the slot a child occupies is what its upgrade reads", got["_spawn_child_key"])
 	}
 	ext, ok := got["_external"].(map[string]any)
-	if !ok || ext["task_id"] != "work" {
+	if in, _ := ext["input"].(map[string]any); !ok || in["n"] != float64(1) {
 		t.Errorf("_external came back %#v; a parked instance would be unparked by its own upgrade", got["_external"])
 	}
 }

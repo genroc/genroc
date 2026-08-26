@@ -1,7 +1,13 @@
 # Parked waiting for an outside caller: the state an upgrade is most likely to meet in
-# production, because it is the one instances sit in for days. The context carries `_external`
-# — engine bookkeeping the definition never declares — so this case is what would catch a
-# migration that strips what it does not recognise and silently unparks the instance.
+# production, because it is the one instances sit in for days.
+#
+# The arming SURVIVES, and that is the point. A worker may already hold this task, and these two
+# versions promise it the same result contract — so what it answers will still be accepted, and
+# disturbing it would throw away work for nothing. The sibling case
+# refused/result-narrowed-while-a-worker-holds-it is the same state where that does not hold.
+#
+# The state carries `_external`, engine bookkeeping no definition declares, so this is also what
+# would catch a migration that strips what it does not recognise and silently unparks the row.
 apply:
   - definitions:
       - name: parkedproc

@@ -113,8 +113,8 @@ func (e *Engine) resolveChildVersion(inst *model.ProcessInstance, taskID, name s
 }
 
 // newChildInstance builds a running child. id is base+i so siblings sort after the parent
-// in spawn order; spawnCtx carries only per-CHILD discriminants (_spawn_action_type,
-// _spawn_child_key/_spawn_index) — per-task data lives on the parent's definition.
+// in spawn order; spawnCtx carries only per-CHILD discriminants (_spawn_child_key,
+// _spawn_index) — what SHAPE the batch is lives on the parent's definition, not here.
 func newChildInstance(parent *model.ProcessInstance, task *model.Task, def *model.ProcessDefinition, version int, input any, callStack []string, id string, spawnCtx map[string]any) *model.ProcessInstance {
 	childCtx := map[string]any{
 		"input":   input,
@@ -163,9 +163,7 @@ func (e *Engine) buildSingleChild(inst *model.ProcessInstance, task *model.Task,
 	if err != nil {
 		return nil, stop(e.failInstance(inst, errcode.EngineInput, fmt.Sprintf("task %q child input validation: %v", task.ID, err)))
 	}
-	spawnCtx := map[string]any{
-		"_spawn_action_type": string(model.ActionTypeChild),
-	}
+	spawnCtx := map[string]any{}
 	base := idgen.ChildBase(inst.ID)
 	return newChildInstance(inst, task, def, version, input, callStack, idgen.Add(base, 0).String(), spawnCtx), nil
 }
@@ -205,8 +203,7 @@ func (e *Engine) buildMapChildren(ctx context.Context, inst *model.ProcessInstan
 			return nil, stop(e.failInstance(inst, errcode.EngineInput, fmt.Sprintf("task %q child_map[%q] input validation: %v", task.ID, key, err)))
 		}
 		spawnCtx := map[string]any{
-			"_spawn_action_type": string(model.ActionTypeChildMap),
-			"_spawn_child_key":   key,
+			"_spawn_child_key": key,
 		}
 		children = append(children, newChildInstance(inst, task, def, version, input, callStack, idgen.Add(base, uint64(i)).String(), spawnCtx))
 	}
@@ -255,8 +252,7 @@ func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInsta
 			return nil, stop(e.failInstance(inst, errcode.EngineInput, fmt.Sprintf("task %q child_list[%d] input validation: %v", task.ID, i, err)))
 		}
 		spawnCtx := map[string]any{
-			"_spawn_action_type": string(model.ActionTypeChildList),
-			"_spawn_index":       i,
+			"_spawn_index": i,
 		}
 		children = append(children, newChildInstance(inst, task, def, version, input, callStack, idgen.Add(base, uint64(i)).String(), spawnCtx))
 	}

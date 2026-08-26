@@ -641,8 +641,7 @@ func TestState_RoundTripsWhole(t *testing.T) {
 	  "output":  {"done": true},
 	  "error":   {"task": "t", "code": "boom", "message": "m", "data": {"why": "x"}, "child_index": 2},
 	  "_error_data": {"retry_after": 3600},
-	  "_external": {"task_id": "t", "input": {"k": 1}},
-	  "_spawn_action_type": "child_map",
+	  "_external": {"input": {"k": 1}},
 	  "_spawn_child_key": "out",
 	  "_spawn_index": 0
 	}`, blob)
@@ -662,6 +661,7 @@ func TestState_RoundTripsWhole(t *testing.T) {
 			// rows (db.ChildrenOfInstance), and a copy on the parent would be a second source.
 			written["invented"] = "not part of state"
 			written["_children"] = map[string]any{"spawn": "derived, not stored"}
+			written["_spawn_action_type"] = "child_map" // the PARENT's task says this, not the child
 
 			inst := &model.ProcessInstance{
 				ID: "roundtrip", ProcessName: "test", ProcessVersion: 1, Task: "step1",
@@ -683,7 +683,7 @@ func TestState_RoundTripsWhole(t *testing.T) {
 			}
 			resolveAll(t, b.db, got)
 
-			for _, outside := range []string{"invented", "_children"} {
+			for _, outside := range []string{"invented", "_children", "_spawn_action_type"} {
 				if _, ok := got.State[outside]; ok {
 					t.Errorf("%q is outside the closed set but was stored; encodeState must drop what it does not name", outside)
 				}

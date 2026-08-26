@@ -107,6 +107,16 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage) Reply {
 			resp.Moves = append(resp.Moves, move)
 			return okReply(resp)
 		}
+		// The state is only half of it. An instance PARKED mid-task also has a result on its
+		// way back: a worker was handed the old version's contract and will answer against it,
+		// and no layer describes a value that is not on the row yet. So the new version has to
+		// accept what the old one promised, or the work already in flight lands on a schema
+		// that refuses it.
+		if reason := h.inFlightBreak(m.Instance, def, m.ToVersion); reason != "" {
+			move.Reason = reason
+			resp.Moves = append(resp.Moves, move)
+			return okReply(resp)
+		}
 		resp.Moves = append(resp.Moves, move)
 		ups = append(ups, db.InstanceUpgrade{Instance: m.Instance, ToVersion: m.ToVersion, NewContext: state})
 	}
@@ -141,4 +151,42 @@ func (h *Handlers) auditUpgrades(ups []db.InstanceUpgrade) {
 // settled enough to be rewritten. specs/version-compatibility.md s2.
 func movableStatus(s model.Status) bool {
 	return s == model.StatusPaused || s == model.StatusFailed
+}
+
+// inFlightBreak reports why an instance parked on a task that holds an outstanding RESULT
+// cannot move, or "" when it can. Scoped to a parked instance on purpose: a task that merely
+// COULD park is registration's concern, while this asks whether this row has work outstanding
+// right now.
+func (h *Handlers) inFlightBreak(inst *model.ProcessInstance, to *model.ProcessDefinition, toVersion int) string {
+	if inst.WaitState == model.WaitStateNone {
+		return ""
+	}
+	from, err := h.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)
+	if err != nil {
+		return err.Error()
+	}
+	oldTask, newTask := taskByID(from, inst.Task), taskByID(to, inst.Task)
+	if oldTask == nil || newTask == nil || oldTask.Action == nil || !oldTask.Action.Type.Holds().Result {
+		return ""
+	}
+	breaks := validation.InFlightResultBreaks(oldTask, newTask)
+	if len(breaks) == 0 {
+		return ""
+	}
+	b := breaks[0]
+	where := b.Address
+	if b.Path != "" {
+		where += "." + b.Path
+	}
+	return fmt.Sprintf("task %q is waiting on a result promised by v%d, which v%d would refuse: %s (%s)",
+		inst.Task, inst.ProcessVersion, toVersion, b.Message, where)
+}
+
+func taskByID(def *model.ProcessDefinition, id string) *model.Task {
+	for _, t := range def.Tasks {
+		if t != nil && t.ID == id {
+			return t
+		}
+	}
+	return nil
 }

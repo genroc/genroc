@@ -1,0 +1,43 @@
+# The same narrowing that refused/result-narrowed-while-a-worker-holds-it forbids — result goes
+# from `number` to `integer` on an external task — except this instance has not reached the task
+# yet. Nothing is in flight, no worker holds a contract, so there is no promise to keep and the
+# move is fine.
+#
+# The pair is what makes the rule the right one: it asks whether THIS ROW has work outstanding,
+# not whether the task is the kind that could have. The instance below sits ON the external task
+# with nothing armed — the state that separates the two questions, since checking the task alone
+# would refuse it.
+apply:
+  - definitions:
+      - name: notyet
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: hold
+            action:
+              type: external
+              input: {asked: '$: input.n'}
+              result_schema: {type: number}
+            output: {r: '$: self.result'}
+            switch: end
+  - definitions:
+      - name: notyet
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: hold
+            action:
+              type: external
+              input: {asked: '$: input.n'}
+              result_schema: {type: integer}
+            output: {r: '$: self.result'}
+            switch: end
+# Nothing ticked: the instance sits ON `hold` and has never armed it.
+start: {process: notyet, input: {n: 1}, ticks: 0}
+resting: {task: hold, status: running, wait_state: "", version: 1}
+after: {task: hold, status: running, wait_state: "", version: 2}
+run: [notyet, --from, "1", --to, "2"]

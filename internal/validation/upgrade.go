@@ -59,3 +59,31 @@ func MigrateState(to *model.ProcessDefinition, task string, state map[string]any
 	}
 	return out, nil
 }
+
+// InFlightResultBreaks reports why a task that is PARKED MID-FLIGHT cannot move between two
+// versions. It is the half MigrateState cannot see: a layer describes the state an instance
+// HOLDS, and a parked task also has a result on its way back that nothing on the row records.
+// A worker was handed the old version's contract and will answer against it, so the new
+// version has to accept what the old one promised -- `old ⊆ new`, the same relation and the
+// same direction registration uses.
+//
+// Only the UPGRADE member is returned. The same difference is also a contract break for
+// callers, but that is registration's business and gates a different thing.
+//
+// What it CANNOT check is the request. `input` is an expression, the worker already holds the
+// value it produced under the old version, and deciding whether the new one would have asked
+// the same question means evaluating it against this instance's state -- which only the engine
+// can do, at arm time. So this guarantees a result the worker was entitled to produce is still
+// accepted, never that it was asked the right question.
+func InFlightResultBreaks(from, to *model.Task) []Issue {
+	if from == nil || to == nil {
+		return nil
+	}
+	var out []Issue
+	for _, issue := range resultIssues(from, to) {
+		if issue.Member == MemberUpgrade {
+			out = append(out, issue)
+		}
+	}
+	return out
+}

@@ -28,7 +28,7 @@ func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Tas
 	data, declared, err := e.raisedData(task, first, raisedCode)
 	if err != nil {
 		msg := fmt.Sprintf("child %q (%s) raised %q: %v",
-			first.ProcessName, childSlotLabel(first), first.ErrorCode, err)
+			first.ProcessName, childSlotLabel(task, first), first.ErrorCode, err)
 		var invalid outputInvalid
 		if errors.As(err, &invalid) {
 			return e.handleCallError(inst, task, msg, errcode.OutputInvalid)
@@ -47,7 +47,7 @@ func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Tas
 		// error_code stays the raised code an operator would filter on.
 		return e.failInstance(inst, raisedCode, fmt.Sprintf(
 			"task %q: child %q (%s) raised %q: %s; no on_error rule matches",
-			task.ID, first.ProcessName, childSlotLabel(first), first.ErrorCode, first.ErrorMessage))
+			task.ID, first.ProcessName, childSlotLabel(task, first), first.ErrorCode, first.ErrorMessage))
 	case rule.Raise != nil:
 		return e.raiseInstance(inst, task, rule.Raise, nil)
 	case rule.Panic != nil:
@@ -123,15 +123,17 @@ func addChildSlot(m map[string]any, child *model.ProcessInstance) {
 }
 
 // childSlotLabel renders a child's identity for a human-readable message
-// (`child_key "charge"`, `child_index 3`).
-func childSlotLabel(child *model.ProcessInstance) string {
+// (`child_key "charge"`, `child_index 3`). The single-child case is read off the PARENT's task
+// rather than a discriminant on the child: what shape a batch was spawned in is the parent
+// definition's to say, and a copy carried by the child is one an upgrade can leave stale.
+func childSlotLabel(task *model.Task, child *model.ProcessInstance) string {
 	if key := spawnKey(child); key != "" {
 		return fmt.Sprintf("child_key %q", key)
 	}
 	if idx, ok := spawnIndex(child); ok {
 		return fmt.Sprintf("child_index %d", idx)
 	}
-	if at, _ := child.State["_spawn_action_type"].(string); at == string(model.ActionTypeChild) {
+	if task.Action != nil && task.Action.Type == model.ActionTypeChild {
 		return "single child"
 	}
 	return "child ?"

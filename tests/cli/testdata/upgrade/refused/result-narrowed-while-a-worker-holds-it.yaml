@@ -1,0 +1,43 @@
+# The half a layer cannot see. The instance is PARKED on an external task: a worker has been
+# handed the old version's contract and will answer against it, and that result is not on the
+# row for any layer to describe. The stored state migrates cleanly here — nothing about it
+# changed — so a check that only conformed state would let this move and the work already in
+# flight would land on a schema that refuses it.
+#
+# v2 narrows the result from `number` to `integer`. What we CANNOT check is the request: `input`
+# is an expression whose value the worker already holds, so this guarantees a result the worker
+# was entitled to produce is still accepted, never that it was asked the right question.
+apply:
+  - definitions:
+      - name: waitproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: hold
+            action:
+              type: external
+              input: {asked: '$: input.n'}
+              result_schema: {type: number}
+            output: {r: '$: self.result'}
+            switch: end
+  - definitions:
+      - name: waitproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: hold
+            action:
+              type: external
+              input: {asked: '$: input.n'}
+              result_schema: {type: integer}
+            output: {r: '$: self.result'}
+            switch: end
+start: {process: waitproc, input: {n: 1}, ticks: 1}
+resting: {task: hold, status: running, wait_state: external, version: 1}
+after: {task: hold, status: running, wait_state: external, version: 1}
+run: [waitproc, --from, "1", --to, "2"]
+refused: {says: 'waiting on a result promised by v1'}

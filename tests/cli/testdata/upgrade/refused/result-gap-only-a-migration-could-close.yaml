@@ -1,0 +1,52 @@
+# The schema-versus-schema case, and the one that says WHICH optics the upgrade reads a pending
+# result through.
+#
+# Everywhere else an upgrade compares DATA to a schema: the state is on the row, so the conform
+# has something to conform. A result in flight is not there yet — the worker still holds it —
+# so the only thing to compare is the old promise against the new one.
+#
+# `a` goes from optional to required-and-nullable. As STORED that gap is closable: a migration
+# writes the null in, and every stored-state check accepts it. A worker's submission is not
+# stored state — it arrives from outside, is conformed once at the boundary, and `{}` is simply
+# refused. So this must be judged strictly and the move refused, and a check reading it through
+# storage optics would let it through. The sibling case result-narrowed-while-a-worker-holds-it
+# breaks under BOTH relations, so it cannot tell the two apart; this one can.
+apply:
+  - definitions:
+      - name: gapproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: hold
+            action:
+              type: external
+              input: {asked: '$: input.n'}
+              result_schema:
+                type: object
+                properties: {a: {type: string}}
+            output: {r: '$: self.result'}
+            switch: end
+  - definitions:
+      - name: gapproc
+        input_schema:
+          type: object
+          properties: {n: {type: number}}
+          required: [n]
+        tasks:
+          - id: hold
+            action:
+              type: external
+              input: {asked: '$: input.n'}
+              result_schema:
+                type: object
+                properties: {a: {type: [string, "null"]}}
+                required: [a]
+            output: {r: '$: self.result'}
+            switch: end
+start: {process: gapproc, input: {n: 1}, ticks: 1}
+resting: {task: hold, status: running, wait_state: external, version: 1}
+after: {task: hold, status: running, wait_state: external, version: 1}
+run: [gapproc, --from, "1", --to, "2"]
+refused: {says: 'newly required field'}
