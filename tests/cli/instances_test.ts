@@ -77,11 +77,11 @@ test("get --json — a child task in a loop appears once, not once per iteration
   const id = startedID(runCli(bin, ["run", parent]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
 
-  // Asserted on RAW stdout: a spawn appended to output_order on every pass, so the outputs
-  // object carried the key three times — and JSON.parse would have hidden that by silently
-  // keeping the last. The stored order list grew per iteration too, unbounded in a loop.
+  // `outputs` holds ONE value per task however many times a loop re-enters it. Asserted on RAW
+  // stdout because the failure this guards was a repeated KEY in the object, which JSON.parse
+  // hides by silently keeping the last.
   const raw = runCli(bin, ["get", id, "--json"]).stdout;
-  const outputs = raw.slice(raw.indexOf('"outputs"')); // _children keys on the task id too
+  const outputs = raw.slice(raw.indexOf('"outputs"'));
   const occurrences = outputs.split(`"call":`).length - 1;
   expect(occurrences, `"call" appears ${occurrences}x in outputs:\n${raw}`).toBe(1);
 });

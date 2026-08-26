@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"time"
 
 	"genroc/internal/db"
@@ -191,7 +192,12 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 		}
 		objects = kept
 	}
+	kids, err := h.db.ChildrenOfInstance(id)
+	if err != nil {
+		return errReply(err)
+	}
 	return okReply(InstanceDetailResp{
+		Children:    spawnPlaceholder(kids),
 		ID:          inst.ID,
 		Process:     inst.ProcessName,
 		Version:     inst.ProcessVersion,
@@ -336,4 +342,44 @@ func instanceSummaryToResp(s *model.InstanceSummary) InstanceSummaryResp {
 		CreatedAt:    s.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:    s.UpdatedAt.Format(time.RFC3339),
 	}
+}
+
+// spawnPlaceholder shapes the child rows the way the spawning action does: a bare id for a
+// single child, an object keyed by entry for a child_map, an array in spawn order for a
+// child_list. One task, one shape -- so a reader branches on the action type it already knows
+// from the definition, never on what the value happens to look like.
+func spawnPlaceholder(kids []db.ChildSpawn) map[string]any {
+	if len(kids) == 0 {
+		return nil
+	}
+	byTask := map[string][]db.ChildSpawn{}
+	order := []string{}
+	for _, k := range kids {
+		if _, seen := byTask[k.TaskID]; !seen {
+			order = append(order, k.TaskID)
+		}
+		byTask[k.TaskID] = append(byTask[k.TaskID], k)
+	}
+	out := make(map[string]any, len(order))
+	for _, task := range order {
+		group := byTask[task]
+		switch group[0].ActionType {
+		case string(model.ActionTypeChildMap):
+			keyed := make(map[string]any, len(group))
+			for _, k := range group {
+				keyed[k.Key] = k.ID
+			}
+			out[task] = keyed
+		case string(model.ActionTypeChildList):
+			sort.Slice(group, func(i, j int) bool { return group[i].Index < group[j].Index })
+			ids := make([]any, len(group))
+			for i, k := range group {
+				ids[i] = k.ID
+			}
+			out[task] = ids
+		default:
+			out[task] = group[0].ID
+		}
+	}
+	return out
 }

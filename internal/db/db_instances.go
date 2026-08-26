@@ -117,7 +117,6 @@ type stateCols struct {
 // outputsColumn is the on-disk shape of outputs_data: the completion order plus the
 // per-task output envelopes, each independently inline-or-externalized.
 type outputsColumn struct {
-	Order []string                   `json:"order,omitempty"`
 	Items map[string]json.RawMessage `json:"items,omitempty"`
 }
 
@@ -184,7 +183,7 @@ func encodeState(inst *model.ProcessInstance) (cols stateCols, pending []*pendin
 		}
 	}
 	if outs, ok := cd["outputs"].(map[string]any); ok {
-		oc := outputsColumn{Order: toStringSlice(cd["output_order"]), Items: map[string]json.RawMessage{}}
+		oc := outputsColumn{Items: map[string]json.RawMessage{}}
 		for k, v := range outs {
 			b, e := cut(v, "outputs", k)
 			if e != nil {
@@ -301,7 +300,6 @@ func encodeEngineState(cd map[string]any) (string, error) {
 // engineStateKeys maps the engine-internal context keys to their engine_state field
 // names (and back, in decodeState).
 var engineStateKeys = map[string]string{
-	"_children":          "children",
 	"_spawn_action_type": "spawn_action_type",
 	"_spawn_child_key":   "spawn_child_key",
 	"_spawn_index":       "spawn_index",
@@ -675,9 +673,6 @@ func decodeState(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}, 
 			items[k] = v
 		}
 		cd["outputs"] = items
-		if oc.Order != nil {
-			cd["output_order"] = oc.Order
-		}
 	}
 	if r.ExternalData != "" {
 		v, err := value(r.ExternalData, "external_data")
@@ -729,4 +724,45 @@ func childPathOf(at []any, key any) []any {
 	copy(out, at)
 	out[len(at)] = key
 	return out
+}
+
+// ChildSpawn is one child as its parent's detail view names it: which task spawned it, and
+// which slot of that task's batch it occupies.
+type ChildSpawn struct {
+	ID         string
+	TaskID     string
+	ActionType string // child | child_map | child_list
+	Key        string // child_map only
+	Index      int    // child_list only
+}
+
+// ChildrenOfInstance rebuilds the spawn placeholder from the child rows. It is derived, not
+// stored: the parent's own row would otherwise carry a copy of a relation the children already
+// state, and a copy is a second source to keep in step. The discriminants live on the CHILD
+// (engine_state), which is why they come back with it.
+func (db *DB) ChildrenOfInstance(id string) ([]ChildSpawn, error) {
+	rows, err := db.q.ChildrenOfInstance(context.Background(), id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ChildSpawn, 0, len(rows))
+	for _, r := range rows {
+		c := ChildSpawn{ID: r.ID, TaskID: r.SpawnTaskID}
+		if r.EngineState != "" {
+			var es struct {
+				SpawnActionType string `json:"spawn_action_type"`
+				SpawnChildKey   string `json:"spawn_child_key"`
+				SpawnIndex      *int   `json:"spawn_index"`
+			}
+			if err := json.Unmarshal([]byte(r.EngineState), &es); err != nil {
+				return nil, fmt.Errorf("decode engine_state of %s: %w", r.ID, err)
+			}
+			c.ActionType, c.Key = es.SpawnActionType, es.SpawnChildKey
+			if es.SpawnIndex != nil {
+				c.Index = *es.SpawnIndex
+			}
+		}
+		out = append(out, c)
+	}
+	return out, nil
 }

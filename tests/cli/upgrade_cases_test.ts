@@ -46,7 +46,7 @@ interface UpgradeCase {
    * The state the instance must be in AFTER the upgrade. Without it a case asserts only what
    * the command PRINTED, and a migration that dropped half the context prints exactly the
    * same line — `context_keys` is what sees engine bookkeeping the definition never declares
-   * (output_order, _external) going missing.
+   * (_external, _spawn_*) going missing.
    */
   after?: RestingState;
   /** Arguments after `genctl upgrade`. */

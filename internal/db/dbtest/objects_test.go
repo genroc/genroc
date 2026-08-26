@@ -638,12 +638,10 @@ func TestState_RoundTripsWhole(t *testing.T) {
 	raw := fmt.Sprintf(`{
 	  "input":   {"n": 9007199254740993, "amount": 123456789.123456789, "nested": {"deep": [1, null, "x"]}},
 	  "outputs": {"first": {"v": 1}, "huge": {"blob": %q}, "nothing": null},
-	  "output_order": ["first", "huge", "nothing"],
 	  "output":  {"done": true},
 	  "error":   {"task": "t", "code": "boom", "message": "m", "data": {"why": "x"}, "child_index": 2},
 	  "_error_data": {"retry_after": 3600},
 	  "_external": {"task_id": "t", "input": {"k": 1}},
-	  "_children": {"spawn": {"out": "01a03d00-0000-7000-8000-000000000000"}},
 	  "_spawn_action_type": "child_map",
 	  "_spawn_child_key": "out",
 	  "_spawn_index": 0
@@ -660,7 +658,10 @@ func TestState_RoundTripsWhole(t *testing.T) {
 				t.Fatalf("decode fixture: %v", err)
 			}
 			// Dropped rather than stored: the closed set has an outside, and this is it.
+			// _children is in it deliberately -- a parent's children are DERIVED from the child
+			// rows (db.ChildrenOfInstance), and a copy on the parent would be a second source.
 			written["invented"] = "not part of state"
+			written["_children"] = map[string]any{"spawn": "derived, not stored"}
 
 			inst := &model.ProcessInstance{
 				ID: "roundtrip", ProcessName: "test", ProcessVersion: 1, Task: "step1",
@@ -682,10 +683,12 @@ func TestState_RoundTripsWhole(t *testing.T) {
 			}
 			resolveAll(t, b.db, got)
 
-			if _, ok := got.State["invented"]; ok {
-				t.Errorf("a key outside the closed set was stored; encodeState must drop what it does not name")
+			for _, outside := range []string{"invented", "_children"} {
+				if _, ok := got.State[outside]; ok {
+					t.Errorf("%q is outside the closed set but was stored; encodeState must drop what it does not name", outside)
+				}
+				delete(got.State, outside)
 			}
-			delete(got.State, "invented")
 
 			want, _ := json.Marshal(stored)
 			have, _ := json.Marshal(got.State)

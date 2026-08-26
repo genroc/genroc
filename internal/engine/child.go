@@ -51,15 +51,9 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 		return output, nil
 	}
 
-	// Phase 1: spawn children. Record the spawned child IDs under the internal
-	// "_children" key (keyed by task, then by child key for parallel) so observers
-	// can correlate a parent task with its children. This is metadata only — child
-	// results flow to self.result at collection, not into outputs.
+	// Phase 1: spawn children. The parent stores no list of them -- the child rows carry
+	// parent_id, and the detail view rebuilds the placeholder from that (db.ChildrenOfInstance).
 	childCallStack := append(inst.CallStack, inst.ID)
-	if inst.State["_children"] == nil {
-		inst.State["_children"] = map[string]any{}
-	}
-	spawned := inst.State["_children"].(map[string]any)
 
 	var children []*model.ProcessInstance
 	switch task.Action.Type {
@@ -70,7 +64,6 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 		}
 		// Metadata mirrors the result shape: a single child records its one id as a
 		// scalar (child_map records an object, child_list an array).
-		spawned[task.ID] = single.ID
 		children = []*model.ProcessInstance{single}
 	case model.ActionTypeChildMap:
 		mapped, fail := e.buildMapChildren(ctx, inst, task, childCallStack)
@@ -82,7 +75,6 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 			key, _ := c.State["_spawn_child_key"].(string)
 			ids[key] = c.ID
 		}
-		spawned[task.ID] = ids
 		children = mapped
 	case model.ActionTypeChildList:
 		listChildren, fail := e.buildListChildren(ctx, inst, task, childCallStack)
@@ -94,7 +86,6 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 			// result and continue inline — do NOT park. SpawnChildrenAndWait is a
 			// no-op on zero children, so parking here would leave the parent to
 			// re-run this task forever.
-			spawned[task.ID] = []any{}
 			e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventChildrenSpawned, Task: task.ID, Msg: "0 children"})
 			return []any{}, nil
 		}
@@ -102,11 +93,8 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 		for i, c := range listChildren {
 			ids[i] = c.ID
 		}
-		spawned[task.ID] = ids
 		children = listChildren
 	}
-
-	appendOutputOrder(inst, task.ID)
 
 	inst.RetryCount = 0
 	inst.WakeAt = nil
@@ -129,10 +117,9 @@ func (e *Engine) resolveChildVersion(inst *model.ProcessInstance, taskID, name s
 // _spawn_child_key/_spawn_index) — per-task data lives on the parent's definition.
 func newChildInstance(parent *model.ProcessInstance, task *model.Task, def *model.ProcessDefinition, version int, input any, callStack []string, id string, spawnCtx map[string]any) *model.ProcessInstance {
 	childCtx := map[string]any{
-		"input":        input,
-		"outputs":      map[string]any{},
-		"output_order": []string{},
-		"error":        nil,
+		"input":   input,
+		"outputs": map[string]any{},
+		"error":   nil,
 	}
 	for k, v := range spawnCtx {
 		childCtx[k] = v

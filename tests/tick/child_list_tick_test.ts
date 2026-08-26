@@ -188,8 +188,11 @@ test("empty over — no children spawned, completes in a single tick with []", a
   expect(await ctx.env.status(root)).toBe("completed");
   expect((await outputOf(root)).results).toEqual([]);
 
-  // No child instance was ever created for this parent.
-  expect(await childrenOfTask(root, "spread", ctx.env.client)).toEqual([]);
+  // No child instance was ever created for this parent. The placeholder is derived from the
+  // child rows, so a task that spawned nothing names nothing — there is no empty array to
+  // tell apart from a task that never ran. The task's own output, [] above, is what says it
+  // ran and fanned out over nothing.
+  expect(await childrenOfTask(root, "spread", ctx.env.client)).toBeUndefined();
 
   await ctx.env.tickUntilIdle();
 });

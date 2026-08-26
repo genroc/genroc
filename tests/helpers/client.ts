@@ -37,7 +37,7 @@ export async function listAllInstances(
 /**
  * The instance's STATE: everything stored on it, bookkeeping slots included. `context` on the
  * status response carries only what a definition's author reads (input/outputs/output/error);
- * the engine's own slots -- _children, _external, _spawn_*, output_order, _error_data -- live
+ * the engine's own slots -- _external, _spawn_*, _error_data -- live
  * here, because they are state and not context.
  */
 export async function instanceState(
@@ -51,14 +51,21 @@ export async function instanceState(
   return (data!.state ?? {}) as Record<string, unknown>;
 }
 
-/** The child ids a spawn task recorded, keyed the way the action type keys them. */
+/**
+ * The children a spawn task made, keyed the way its action type keys them. Derived by the
+ * server from the child rows, not read off a slot on the parent — so a `child_list` that
+ * spawned nothing names no task at all.
+ */
 export async function childrenOfTask(
   id: string,
   taskID: string,
   apiClient: typeof client = client,
 ): Promise<unknown> {
-  const state = await instanceState(id, apiClient);
-  return (state._children as Record<string, unknown> | undefined)?.[taskID];
+  const { data, error } = await apiClient.GET("/instances/{id}/detail", {
+    params: { path: { id } },
+  });
+  if (error) throw new Error(`detail ${id}: ${JSON.stringify(error)}`);
+  return (data!.children as Record<string, unknown> | undefined)?.[taskID];
 }
 
 export async function waitForInstance(

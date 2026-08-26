@@ -51,10 +51,10 @@ test("the detail view carries state, bookkeeping included", async () => {
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
 
   const state = data!.state as Record<string, unknown>;
-  // output_order is the engine's own: no definition declares it, and it is exactly the kind of
-  // slot the outward view used to hide and this one must not. `error` is seeded null when the
-  // instance is created, so it is here even for a process with no error handling at all.
-  expect(Object.keys(state).sort()).toEqual(["error", "input", "output", "output_order", "outputs"]);
+  // `error` is seeded null when the instance is created, so it is here even for a process with
+  // no error handling at all -- a slot no definition declares, which the outward view used to
+  // hide and this one must not.
+  expect(Object.keys(state).sort()).toEqual(["error", "input", "output", "outputs"]);
   expect(data).toHaveProperty("task_epoch");
   expect(data).toHaveProperty("lease_epoch");
   expect(data).toHaveProperty("next_replayable");

@@ -492,42 +492,6 @@ func (e *Engine) setTaskOutput(inst *model.ProcessInstance, taskID string, value
 		inst.State["outputs"] = map[string]any{}
 	}
 	inst.State["outputs"].(map[string]any)[taskID] = value
-	appendOutputOrder(inst, taskID)
-}
-
-// appendOutputOrder records id's position in output_order, **at most once** — and rebuilds
-// the stored list under that rule, so a row already carrying duplicates is repaired rather
-// than merely stopped from growing. It tolerates the []any shape the field takes after a
-// JSON round-trip through engine_state.
-//
-// The uniqueness is load-bearing, not tidiness: `outputs` holds one value per task, so a
-// second position could never be filled. A child task in a loop spawns on every pass
-// (child.go), which grew this list once per iteration — unbounded in context_data — and
-// made the outputs object serialise the same key repeatedly.
-func appendOutputOrder(inst *model.ProcessInstance, id string) {
-	var order []string
-	seen := make(map[string]bool)
-	add := func(s string) {
-		if seen[s] {
-			return
-		}
-		seen[s] = true
-		order = append(order, s)
-	}
-	switch v := inst.State["output_order"].(type) {
-	case []string:
-		for _, s := range v {
-			add(s)
-		}
-	case []any:
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				add(s)
-			}
-		}
-	}
-	add(id)
-	inst.State["output_order"] = order
 }
 
 // evalSwitch returns the first matching case (empty Case = catch-all; nil never happens on

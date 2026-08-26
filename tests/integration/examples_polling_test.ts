@@ -108,9 +108,8 @@ async function startExample(port: number, extra: Record<string, unknown> = {}): 
   return data!.id;
 }
 
-// The parent records its spawned child in STATE, under _children.<taskId>; a single `child`
-// task stores the bare child id there (not a keyed map). Poll until it appears and return the
-// child instance id.
+// A single `child` task's placeholder is the bare child id, keyed by the task that spawned it.
+// Poll until it appears and return the child instance id.
 async function waitForChildId(parentId: string, timeoutMs = 10_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

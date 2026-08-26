@@ -122,7 +122,7 @@ func ParseExternalToken(token string) (instanceID string, taskEpoch, claimEpoch 
 }
 
 // Engine-owned STATE keys for the external-task lifecycle. Underscore-prefixed like
-// _children / _spawn_* so they are clearly bookkeeping and not a definition's to read.
+// _spawn_* so they are clearly bookkeeping and not a definition's to read.
 const (
 	// StateExternal holds the parked external task's metadata: {task_id, input}. The queue
 	// endpoint reads input from here and derives the token from the row's task_epoch;
@@ -158,8 +158,12 @@ type ProcessInstance struct {
 	ExternalClaimEpoch     int64
 
 	// State is everything this instance holds: the slots a definition reads (input, outputs,
-	// error) and the engine's own bookkeeping (_error_data, _external, _children, _spawn_*,
-	// output_order). The set is CLOSED -- storage names these keys and drops the rest.
+	// output, error) and the engine's own bookkeeping (_error_data, _external, _spawn_*). The
+	// set is CLOSED -- storage names these keys and drops the rest.
+	//
+	// Nothing derivable belongs here. A parent's children are not a slot: the child rows carry
+	// parent_id, and a copy on the parent is a second source to keep in step (see
+	// db.ChildrenOfInstance). Neither is completion order, which the log already records.
 	//
 	// Not "context": context is the EXPRESSION scope, which is state's readable slots plus
 	// config (never stored) and self (per-task). specs/version-compatibility.md.

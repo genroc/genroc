@@ -399,8 +399,15 @@ type InstanceDetailResp struct {
 	// field. Its externalized pieces are listed once, under the state path they were cut from.
 	ErrorData any `json:"error_data,omitempty"`
 
-	// State is the stored context verbatim: input, outputs, output_order, output, error, and the
-	// engine's own slots (_error_data, _external, _children, _spawn_*). The set is CLOSED -- a key
+	// Children is the parent's spawns, keyed by the task that made them: a bare id for a single
+	// `child`, an object keyed by entry for a `child_map`, an array in spawn order for a
+	// `child_list`. DERIVED from the child rows on every read rather than stored on the parent
+	// -- the relation is already in the rows, and a copy on the parent is a second source to
+	// keep in step. A `child_list` that spawned nothing therefore names no task here.
+	Children map[string]any `json:"children,omitempty"`
+
+	// State is the stored state verbatim: input, outputs, output, error, and the
+	// engine's own slots (_error_data, _external, _spawn_*). The set is CLOSED -- a key
 	// outside it does not survive a write -- so this is the whole of what the instance holds.
 	State map[string]any `json:"state"`
 

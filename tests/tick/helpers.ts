@@ -154,7 +154,7 @@ export class TickEnv {
     return data!.retry_count as number;
   }
 
-  // Returns the child instance ID the spawn recorded in STATE under _children.<taskId>.
+  // Returns the child instance ID the spawn placeholder names for this task.
   // Valid between spawn and child completion.
   async childOf(parentId: string, taskId: string): Promise<string> {
     const val = await childrenOfTask(parentId, taskId, this.genroc.client);

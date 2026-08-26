@@ -21,6 +21,47 @@ func (q *Queries) BumpDurabilityMarker(ctx context.Context) error {
 	return err
 }
 
+const childrenOfInstance = `-- name: ChildrenOfInstance :many
+SELECT id, spawn_task_id, engine_state
+FROM process_instances
+WHERE parent_id = ?1
+ORDER BY created_at, id
+`
+
+type ChildrenOfInstanceRow struct {
+	ID          string
+	SpawnTaskID string
+	EngineState string
+}
+
+// Every child a parent has spawned, for the detail view. Derived from parent_id rather than
+// read off a slot on the parent: the rows already carry the relation, and a copy kept on the
+// parent is a second source nothing keeps in step with deletes or reparenting. engine_state
+// comes along because the slot a child occupies -- its child_map key, its child_list index --
+// is recorded on the CHILD.
+func (q *Queries) ChildrenOfInstance(ctx context.Context, parentID string) ([]ChildrenOfInstanceRow, error) {
+	rows, err := q.db.QueryContext(ctx, childrenOfInstance, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChildrenOfInstanceRow
+	for rows.Next() {
+		var i ChildrenOfInstanceRow
+		if err := rows.Scan(&i.ID, &i.SpawnTaskID, &i.EngineState); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const clearObjectRelease = `-- name: ClearObjectRelease :execrows
 UPDATE objects SET released_at = NULL
 WHERE released_at IS NOT NULL

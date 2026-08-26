@@ -244,6 +244,17 @@ WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id)
   AND parent_task_epoch = sqlc.arg(parent_task_epoch);
 
+-- name: ChildrenOfInstance :many
+-- Every child a parent has spawned, for the detail view. Derived from parent_id rather than
+-- read off a slot on the parent: the rows already carry the relation, and a copy kept on the
+-- parent is a second source nothing keeps in step with deletes or reparenting. engine_state
+-- comes along because the slot a child occupies -- its child_map key, its child_list index --
+-- is recorded on the CHILD.
+SELECT id, spawn_task_id, engine_state
+FROM process_instances
+WHERE parent_id = sqlc.arg(parent_id)
+ORDER BY created_at, id;
+
 -- name: FailAncestors :exec
 -- Paused ancestors are included: pause suppresses advancement, not settlement, so a
 -- dead branch still poisons upward. 'raised' is deliberately absent (a settled outcome

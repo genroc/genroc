@@ -221,7 +221,7 @@ test("retry and pause on non-root instance — rejected naming the root", async 
     const rootId = startData!.id;
     expect(await waitForInstance(rootId, 15_000)).toBe("failed");
 
-    // The spawn placeholder lives in STATE under _children, keyed by the child_map entry name.
+    // A child_map's placeholder is keyed by the entry name.
     const childId = ((await childrenOfTask(rootId, "spawn")) as Record<string, string>)?.out;
     expect(childId).toBeTruthy();
 

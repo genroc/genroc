@@ -5,8 +5,6 @@ package validationtest
 // verdict. specs/version-compatibility.md s1.
 
 import (
-	"encoding/json"
-	"fmt"
 	"testing"
 
 	"genroc/internal/validation"
@@ -62,19 +60,9 @@ func TestMigrateState_ClosesTheNullGap(t *testing.T) {
 // whatever it references. At the top the layer names only a definition's own slots, so the
 // engine's bookkeeping is not undeclared-and-dead, it is simply none of the layer's business.
 func TestMigrateState_PrunesDeadOutputsAndKeepsBookkeeping(t *testing.T) {
-	// The order reaches here as []string read from the row and as []any decoded from JSON.
-	// Covering one only would have passed while the storage path pruned nothing.
-	for _, order := range []any{[]string{"first", "gone"}, []any{"first", "gone"}} {
-		t.Run(fmt.Sprintf("%T", order), func(t *testing.T) { migratePrunes(t, order) })
-	}
-}
-
-func migratePrunes(t *testing.T, order any) {
-	t.Helper()
 	to := defFrom(t, twoTaskDef(false))
 	state := stateAtWork()
 	state["outputs"].(map[string]any)["gone"] = map[string]any{"x": float64(9)}
-	state["output_order"] = order
 	state["_children"] = map[string]any{"work": "01a03d00-0000-7000-8000-000000000000"}
 	state["_spawn_index"] = float64(2)
 
@@ -88,11 +76,6 @@ func migratePrunes(t *testing.T, order any) {
 	}
 	if _, kept := outs["first"]; !kept {
 		t.Errorf("a live task's output was stripped with the dead one: %#v", outs)
-	}
-	// The order is bookkeeping and survives untouched, which is why it has to be filtered:
-	// left alone it names a task the state no longer holds an output for.
-	if b, _ := json.Marshal(got["output_order"]); string(b) != `["first"]` {
-		t.Errorf("output_order = %s, want only the surviving task", b)
 	}
 	for _, k := range []string{"_children", "_spawn_index"} {
 		if _, kept := got[k]; !kept {
@@ -131,23 +114,21 @@ func TestMigrateState_RefusesWhatCannotBeReconciled(t *testing.T) {
 }
 
 func TestMigrateState_CarriesEngineBookkeepingThrough(t *testing.T) {
-	// A real context holds more than input/outputs: output_order, and _external for a parked
-	// task. compat's layers describe none of it -- they are about the data a definition can
-	// see -- so the migration must carry it through untouched. Losing output_order silently
-	// reorders a process's output; losing _external unparks an instance from a task it is
-	// still waiting on.
+	// A real state holds more than input/outputs: _external for a parked task, and the spawn
+	// discriminants for a live child. compat's layers describe none of it -- they are about the
+	// data a definition can see -- so the migration must carry it through untouched. Losing
+	// _external unparks an instance from a task it is still waiting on.
 	to := defFrom(t, twoTaskDef(false))
 	state := stateAtWork()
-	state["output_order"] = []any{"first"}
 	state["_external"] = map[string]any{"task_id": "work", "input": map[string]any{"n": float64(1)}}
+	state["_spawn_child_key"] = "out"
 
 	got, err := validation.MigrateState(to, "work", state)
 	if err != nil {
 		t.Fatalf("MigrateState: %v", err)
 	}
-	order, ok := got["output_order"].([]any)
-	if !ok || len(order) != 1 || order[0] != "first" {
-		t.Errorf("output_order came back %#v; the engine's own bookkeeping must survive a migration", got["output_order"])
+	if got["_spawn_child_key"] != "out" {
+		t.Errorf("_spawn_child_key came back %#v; the slot a child occupies is what its upgrade reads", got["_spawn_child_key"])
 	}
 	ext, ok := got["_external"].(map[string]any)
 	if !ok || ext["task_id"] != "work" {

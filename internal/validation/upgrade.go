@@ -57,39 +57,5 @@ func MigrateState(to *model.ProcessDefinition, task string, state map[string]any
 			out[k] = v
 		}
 	}
-	pruneOutputOrder(out)
 	return out, nil
-}
-
-// pruneOutputOrder drops the completion-order entries whose output the conform removed. The
-// order is bookkeeping and so survives untouched, which is exactly why it has to be filtered
-// here: left alone it would name a task the state no longer holds an output for.
-func pruneOutputOrder(state map[string]any) {
-	outputs, _ := state["outputs"].(map[string]any)
-	survives := func(name string) bool { _, ok := outputs[name]; return ok }
-
-	// The order arrives as []string read from the row and as []any decoded from JSON, and this
-	// runs on both paths -- so handling only one silently prunes nothing.
-	switch order := state["output_order"].(type) {
-	case []string:
-		kept := make([]string, 0, len(order))
-		for _, name := range order {
-			if survives(name) {
-				kept = append(kept, name)
-			}
-		}
-		if len(kept) != len(order) {
-			state["output_order"] = kept
-		}
-	case []any:
-		kept := make([]any, 0, len(order))
-		for _, id := range order {
-			if name, _ := id.(string); survives(name) {
-				kept = append(kept, id)
-			}
-		}
-		if len(kept) != len(order) {
-			state["output_order"] = kept
-		}
-	}
 }
