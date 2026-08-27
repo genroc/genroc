@@ -1306,3 +1306,98 @@ func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 		})
 	}
 }
+
+// saveInst inserts an instance with explicit epochs, which insertInst/insertChild cannot
+// express — a looped spawn task is only representable by setting them.
+func saveInst(t *testing.T, db *dbpkg.DB, inst *model.ProcessInstance) {
+	t.Helper()
+	if inst.State == nil {
+		inst.State = map[string]any{}
+	}
+	if err := db.SaveInstance(inst); err != nil {
+		t.Fatalf("save %q: %v", inst.ID, err)
+	}
+}
+
+// A parent reconstructed onto its own batch must keep the epoch that IDENTIFIES that batch.
+// Bumping it orphans every child: the collect that follows finds nothing, so a child_map
+// merges {} and the instance reports 'completed' with its children's outputs silently gone.
+func TestRetryProcess_KeepsBatchEpoch(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInst(t, b.db, "root", model.StatusFailed, "", nil, "boom")
+			insertChild(t, b.db, "c1", model.StatusCompleted, "root", "step1", []string{"root"}, "")
+			insertChild(t, b.db, "c2", model.StatusFailed, "root", "step1", []string{"root"}, "boom")
+
+			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+				t.Fatalf("RetryProcess: %v", err)
+			}
+			root, err := b.db.GetInstance("root")
+			if err != nil {
+				t.Fatalf("get root: %v", err)
+			}
+			if root.TaskEpoch != 0 {
+				t.Errorf("root task_epoch = %d, want 0: the batch is addressed by it, so a bump loses every child", root.TaskEpoch)
+			}
+			kids, err := b.db.ChildrenForTask(context.Background(), "root", "step1", root.TaskEpoch)
+			if err != nil {
+				t.Fatalf("children for task: %v", err)
+			}
+			if len(kids) != 2 {
+				t.Errorf("batch at the revived epoch has %d children, want 2: the parent collects only what this query returns", len(kids))
+			}
+		})
+	}
+}
+
+// Without a batch the revived task re-runs from the top, and that IS a fresh occurrence:
+// an external task derives its token from task_epoch, so re-arming on the old number would
+// let a result submitted against the previous arming be accepted. specs/lease-fencing.md.
+func TestRetryProcess_BumpsEpochWithoutABatch(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInst(t, b.db, "root", model.StatusFailed, "", nil, "boom")
+
+			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+				t.Fatalf("RetryProcess: %v", err)
+			}
+			root, err := b.db.GetInstance("root")
+			if err != nil {
+				t.Fatalf("get root: %v", err)
+			}
+			if root.TaskEpoch != 1 {
+				t.Errorf("root task_epoch = %d, want 1: a re-armed external task must not reuse the previous arming's token", root.TaskEpoch)
+			}
+		})
+	}
+}
+
+// A spawn task re-entered by a loop leaves an older generation under the same
+// (parent_id, spawn_task_id). Only the CURRENT epoch's batch is the parent's to revive;
+// an unscoped lookup revives two generations at once and reconstructs the wrong wait state.
+func TestRetryProcess_ScopesBatchToCurrentEpoch(t *testing.T) {
+	for _, b := range testBackends(t) {
+		for _, inst := range []*model.ProcessInstance{
+			{ID: "root", ProcessName: "test", ProcessVersion: 1, Task: "step1",
+				Status: model.StatusFailed, TaskEpoch: 1, ErrorMessage: "boom"},
+			{ID: "old", ProcessName: "test", ProcessVersion: 1, Task: "step1",
+				Status: model.StatusFailed, ParentID: "root", SpawnTaskID: "step1",
+				ParentTaskEpoch: 0, CallStack: []string{"root"}, ErrorMessage: "stale"},
+			{ID: "cur", ProcessName: "test", ProcessVersion: 1, Task: "step1",
+				Status: model.StatusFailed, ParentID: "root", SpawnTaskID: "step1",
+				ParentTaskEpoch: 1, CallStack: []string{"root"}, ErrorMessage: "boom"},
+		} {
+			saveInst(t, b.db, inst)
+		}
+
+		if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+			t.Fatalf("RetryProcess: %v", err)
+		}
+		if got := mustStatus(t, b.db, "cur"); got != model.StatusRunning {
+			t.Errorf("current-epoch child is %q, want running", got)
+		}
+		if got := mustStatus(t, b.db, "old"); got != model.StatusFailed {
+			t.Errorf("previous generation is %q, want failed (untouched): it belongs to a batch the parent has already collected", got)
+		}
+	}
+}

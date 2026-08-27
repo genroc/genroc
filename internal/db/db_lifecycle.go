@@ -612,9 +612,19 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 		}
 		// node is failed
 		newWaitState := model.WaitStateNone
+		hasBatch := false
 		if node.Task != "" {
-			kids := children[node.ID][node.Task]
+			// Scoped to the epoch that identifies THIS batch: children live under
+			// (parent_id, spawn_task_id), which a spawn task re-entered by a loop reuses,
+			// so an unscoped lookup hands the walk two generations at once.
+			var kids []*model.ProcessInstance
+			for _, k := range children[node.ID][node.Task] {
+				if k.ParentTaskEpoch == node.TaskEpoch {
+					kids = append(kids, k)
+				}
+			}
 			if len(kids) > 0 {
+				hasBatch = true
 				// Interrupted inside this spawn task's wait/collect cycle —
 				// revive the batch and reconstruct the wait state. (Kids exist
 				// only for spawn tasks: SpawnChildrenAndWait is atomic.)
@@ -650,6 +660,13 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 		node.Status = model.StatusRunning
 		node.WaitState = newWaitState
 		node.ErrorMessage = ""
+		// A task re-entered from the top is a fresh occurrence and an external task derives
+		// its token from the epoch, so without the bump a result submitted against the
+		// previous arming is accepted. A reconstructed batch is the opposite case: the epoch
+		// IS that batch's identity, and moving it orphans every child the parent kept.
+		if !hasBatch {
+			node.TaskEpoch++
+		}
 		// RetryCount tells the two timer kinds apart: a retry-backoff parks with
 		// RetryCount > 0 (clear it so the retry runs now), a delay with RetryCount == 0
 		// (keep wake_at so it resumes toward its deadline). It is otherwise kept, so the
@@ -689,11 +706,9 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 			// Passed through with the columns it describes: the context is unchanged, so what it
 			// references is unchanged. Writing "" here would erase the declaration while the
 			// claims stood, and the instance's own values would look like content nothing holds.
-			Objects:    raw.Objects,
-			RetryCount: int64(node.RetryCount),
-			// A revived task is entered afresh, so its batch must be too: without the bump a
-			// re-spawned child task collides with the children its failed attempt left behind.
-			TaskEpoch:    raw.TaskEpoch + 1,
+			Objects:      raw.Objects,
+			RetryCount:   int64(node.RetryCount),
+			TaskEpoch:    node.TaskEpoch,
 			WakeAt:       fromTimePtr(node.WakeAt),
 			Status:       string(node.Status),
 			WaitState:    string(node.WaitState),

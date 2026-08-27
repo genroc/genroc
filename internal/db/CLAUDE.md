@@ -74,8 +74,12 @@ task re-entered by a loop spawns a fresh batch under the same pair.
   without transitioning. Pointing at the task about to run (advance's loop head) is not
   an entry: a parked parent resumes there to collect and must still hold the epoch it
   spawned under, or its own children stop matching. `SpawnChildrenAndWait` therefore
-  **carries** the parent's epoch when it parks it; `RetryProcess` **bumps** it, because a
-  revived task is entered afresh and must not re-spawn into its failed attempt's batch.
+  **carries** the parent's epoch when it parks it. `RetryProcess` **splits**: it bumps a node
+  revived with no batch, because that task re-runs from the top and an external task's token
+  is derived from the epoch, but it **keeps** the epoch of a parent reconstructed onto its own
+  batch -- there the epoch is the batch's identity, and moving it orphans every child the
+  parent kept, so the collect that follows merges nothing and still reports success. For the
+  same reason the walk's own sibling lookup binds `parent_task_epoch`.
 - **The external token IS it**, not a copy of it: `model.ExternalToken` renders
   `<instance>.<task_epoch>` on demand, `ResolveExternalTask` compares the submitted epoch
   against the row under the same lock that checks the wait state, and `_external` stores no

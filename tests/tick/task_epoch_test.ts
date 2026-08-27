@@ -178,12 +178,18 @@ test("task_epoch — a loop re-entered through a RAISED child's route gets a fre
 });
 
 /**
- * RetryProcess is the one epoch move that is NOT a definition transition: an operator
- * reviving a failed tree re-enters the task, so its batch must be new. Without the bump a
- * re-spawn lands in the batch the failed attempt's children already occupy, and the collect
- * that follows sees both.
+ * RetryProcess reconstructs a parent onto ITS OWN batch — a failed child is revived in place
+ * — so the epoch that ADDRESSES that batch must not move. Bumping it orphans every child the
+ * parent kept, and the collect that follows finds none of them: a child_map then merges {}
+ * and reports 'completed'. specs/child-error-handling.md §12.
+ *
+ * The re-spawn this once guarded against cannot happen now that the walk scopes its lookup to
+ * the current epoch: children at that epoch mean reconstruct-never-respawn, and no children
+ * there means a spawn collides with nothing. The one revive that DOES move the epoch — a task
+ * with no batch, which re-arms an external task on a token derived from it — is pinned by
+ * TestRetryProcess_BumpsEpochWithoutABatch.
  */
-test("task_epoch — an operator retry re-spawns into a fresh batch", async () => {
+test("task_epoch — an operator retry reconstructs the existing batch", async () => {
   const env = ctx.env;
   // Nothing listens on port 1, so this leaf fails every time and poisons its parent.
   const leaf = `epoch_deadleaf_${crypto.randomUUID()}`;
@@ -211,11 +217,12 @@ test("task_epoch — an operator retry re-spawns into a fresh batch", async () =
   await env.retry(id);
   await env.tickUntilIdle(40);
 
-  expect(env.epochs(id).task, "reviving a task is an entry, so the epoch moves").toBeGreaterThan(
+  expect(env.epochs(id).task, "the epoch addresses the batch, so reconstructing must not move it").toBe(
     epochBefore,
   );
   const after = env.allChildrenOf(id, "call");
-  expect(new Set(after.map((c) => c.batch)).size, "one batch per attempt").toBe(after.length);
+  expect(after, "a failed child is revived in place, never re-spawned beside itself").toHaveLength(1);
+  expect(new Set(after.map((c) => c.batch)).size, "still one batch").toBe(1);
   // The failure repeats, but as a clean failure — never a collect over two batches.
   const { data } = await env.client.GET("/instances/{id}", { params: { path: { id } } });
   expect(String(data?.error_message ?? ""), "must not be the multi-batch collect error").not.toContain(

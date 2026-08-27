@@ -264,6 +264,7 @@ test("retry with parallel children — only the failed child re-runs", async () 
             switch: [{ goto: "end" }],
           },
         ],
+        output: { slot: "good" },
       },
     });
     await client.PUT("/definitions", {
@@ -277,6 +278,7 @@ test("retry with parallel children — only the failed child re-runs", async () 
             switch: [{ goto: "end" }],
           },
         ],
+        output: { slot: "bad" },
       },
     });
     await client.PUT("/definitions", {
@@ -288,13 +290,15 @@ test("retry with parallel children — only the failed child re-runs", async () 
             action: {
               type: "child_map" as const,
               children: {
-                good: { name: goodName },
-                bad: { name: badName },
+                good: { name: goodName, result_schema: {} },
+                bad: { name: badName, result_schema: {} },
               },
             },
+            output: "$: self.result",
             switch: [{ goto: "end" }],
           },
         ],
+        output: { kids: "$: outputs.fanout" },
       },
     });
 
@@ -315,6 +319,17 @@ test("retry with parallel children — only the failed child re-runs", async () 
     expect(await waitForInstance(rootId, 15_000)).toBe("completed");
     // The completed child was never re-executed.
     expect(goodMock.requestCount()).toBe(1);
+
+    // Asserting the COLLECTED OUTPUT, not just the status: a revived parent whose batch was
+    // orphaned still reaches 'completed', merging {} and reporting success with every
+    // child's output silently gone. Status alone cannot tell the two apart.
+    const { data: detail } = await client.GET("/instances/{id}/detail", {
+      params: { path: { id: rootId } },
+    });
+    expect((detail?.state?.output as any)?.kids).toEqual({
+      good: { slot: "good" },
+      bad: { slot: "bad" },
+    });
   } finally {
     await goodMock.stop();
     await badMock.stop();
