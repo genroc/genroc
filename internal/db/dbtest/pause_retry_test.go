@@ -3,7 +3,6 @@ package dbtest
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1406,12 +1405,11 @@ func TestRetryProcess_ScopesBatchToCurrentEpoch(t *testing.T) {
 	}
 }
 
-// A raised slot is retried by RE-SPAWNING it, never by reviving it: a raise concluded at a
-// task boundary, so reviving would re-run the very switch that decided to raise, against the
-// upstream state that produced the decision. The attempt is retired rather than deleted --
-// it is the history -- and the replacement joins the SAME batch beside the siblings the
-// parent kept. specs/child-error-handling.md §12.
-func TestRetryProcess_RespawnsRaisedSlot(t *testing.T) {
+// A raised slot is NOT re-spawned here: the db layer marks the parent and the engine does it
+// on the next collect, because a replacement's input is re-evaluated against the parent's
+// current definition — which is how a fix published as a new version reaches the child — and
+// nothing in this package can evaluate an expression. specs/child-error-handling.md §12.
+func TestRetryProcess_MarksRaisedBatchForRespawn(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			saveDef(t, b.db, "test", 1, []*model.Task{
@@ -1426,84 +1424,26 @@ func TestRetryProcess_RespawnsRaisedSlot(t *testing.T) {
 			}
 
 			if got := mustStatus(t, b.db, "raiser"); got != model.StatusRaised {
-				t.Errorf("retired attempt is %q, want raised (kept verbatim as history)", got)
+				t.Errorf("the raised attempt is %q, want raised: it is retired by the engine, not here", got)
 			}
-			live, err := b.db.ChildrenForTask(context.Background(), "root", "step1", 0)
-			if err != nil {
-				t.Fatalf("children for task: %v", err)
-			}
-			if len(live) != 2 {
-				t.Fatalf("batch has %d live children, want 2 (the kept sibling and one replacement): a retired row still in the batch makes the collect merge two values into one slot", len(live))
-			}
-			var replacement *model.ProcessInstance
-			for _, c := range live {
-				if c.ID != "kept" {
-					replacement = c
-				}
-			}
-			if replacement == nil {
-				t.Fatal("no replacement in the batch: the raised slot was left with no live occupant")
-			}
-			if replacement.ID == "raiser" {
-				t.Error("the raised child was revived in place; a raise must be re-spawned")
-			}
-			if replacement.Status != model.StatusRunning || replacement.Task != "first" {
-				t.Errorf("replacement is %q at task %q, want running at the definition's first task", replacement.Status, replacement.Task)
-			}
-			if replacement.ParentTaskEpoch != 0 {
-				t.Errorf("replacement parent_task_epoch = %d, want 0: it must join the batch the parent kept", replacement.ParentTaskEpoch)
-			}
-			all, err := b.db.ChildrenOfInstance("root")
-			if err != nil {
-				t.Fatalf("children of instance: %v", err)
-			}
-			if len(all) != 3 {
-				t.Errorf("tree shows %d children, want 3: the retired attempt is kept for its history", len(all))
-			}
-			// An active replacement means the parent waits for it rather than collecting now.
-			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateWaiting {
-				t.Errorf("parent wait_state = %q, want waiting: a fresh child is active", got)
-			}
-		})
-	}
-}
-
-// The operator's retry BYPASSES the budget; it does not reset it. The replacement carries the
-// attempt count forward, so a slot already at its limit gets exactly one more run: if it
-// raises again, §5.5's admission declines and the batch routes. Dropping the count instead
-// hands the slot its whole policy again, which reads as a retry command that silently
-// multiplies the definition's budget. specs/child-error-handling.md §12.
-func TestRetryProcess_RespawnCarriesAttemptCount(t *testing.T) {
-	for _, b := range testBackends(t) {
-		t.Run(b.name, func(t *testing.T) {
-			saveDef(t, b.db, "test", 1, []*model.Task{
-				{ID: "first", Switch: model.SwitchMap{{Goto: model.GotoEnd}}},
-			})
-			insertInst(t, b.db, "root", model.StatusFailed, "", nil, "spent its budget")
-			saveInst(t, b.db, &model.ProcessInstance{
-				ID: "spent", ProcessName: "test", ProcessVersion: 1, Task: "first",
-				Status: model.StatusRaised, ErrorCode: "svc_down", ErrorMessage: "down",
-				ParentID: "root", SpawnTaskID: "step1", CallStack: []string{"root"},
-				State: map[string]any{"input": map[string]any{}, "_spawn_attempt": 2},
-			})
-
-			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
-				t.Fatalf("RetryProcess: %v", err)
-			}
-
 			kids, err := b.db.ChildrenForTask(context.Background(), "root", "step1", 0)
 			if err != nil {
 				t.Fatalf("children for task: %v", err)
 			}
-			if len(kids) != 1 {
-				t.Fatalf("batch has %d live children, want 1", len(kids))
+			if len(kids) != 2 {
+				t.Errorf("batch has %d children, want the 2 it had: this walk adds none", len(kids))
 			}
-			got, ok := kids[0].State["_spawn_attempt"]
-			if !ok {
-				t.Fatal("replacement carries no _spawn_attempt: the slot is back on a full budget, so the operator's one override became the whole policy again")
+			// Every child is terminal, so the parent comes back armed to COLLECT — which is
+			// where the engine's admission runs and sees the grant.
+			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateCollecting {
+				t.Errorf("parent wait_state = %q, want collecting", got)
 			}
-			if fmt.Sprint(got) != "2" {
-				t.Errorf("replacement _spawn_attempt = %v, want 2 carried verbatim", got)
+			root, err := b.db.GetInstance("root")
+			if err != nil {
+				t.Fatalf("get root: %v", err)
+			}
+			if root.State["_retry_override"] != true {
+				t.Error("no override marker: without it the engine's admission consults the budget, which is spent, and the raised slot is never re-spawned")
 			}
 		})
 	}

@@ -220,11 +220,19 @@ so `attempt < limit` admits exactly `limit` retries against whichever rule match
 round. The replacement's `wake_at` is `updated_at + retryDelay(attempt, policy)`, measured
 from the **raised child's** conclusion rather than from dispatch: the wall-clock it spent
 waiting on siblings already served what a backoff is for, so a delay shorter than that wait
-lands in the past and the replacement is claimable at once. A replacement **re-sends the
-stored input** — retrying a call with the same arguments is the function-call reading, and it
-avoids inventing a per-slot input for `child_list`, whose slots come from indexing one `over`
-array. The cost: a live `config` change between attempts is invisible here, where a fetch
-retry would catch it.
+lands in the past and the replacement is claimable at once.
+
+A replacement's input is **re-evaluated** against the parent as it now stands — version
+re-resolved, input rebuilt and re-validated — not copied from the attempt it replaces.
+*Reversed 2026-08-27, having shipped as a copy.* The copy was argued on "retrying a call
+re-sends the same arguments", with a live `config` the only thing it could miss. That misses
+the case the whole reversal exists for: a `$import`ed script is an **input**, and publishing a
+new version is how a caller changes one — so copying makes a fix undeliverable. Fix the
+script, apply, upgrade, retry, and the replacement is handed the old string. The batch phase 1
+would spawn now is rebuilt **once per round** and indexed by slot, so a hundred-slot fan-out
+retrying forty still evaluates each input once. A slot the parent no longer declares — an
+upgrade removed the entry, or `over` came back shorter — fails the instance rather than
+inventing an input for it.
 
 **The batch is the unit.** A slot is re-spawned when the batch settles, not when it raises.
 That is what keeps §5.4 true: retrying eagerly would spend an attempt, and its side effects,
@@ -433,15 +441,20 @@ standing), a `raised` child is re-spawned whole, since only re-running the upstr
 that produced the decision can produce a different one. §11.1's fault-vs-outcome line one
 level down, on the distinction D4 already carries.
 
-**The operator bypasses the budget rather than resetting it.** A raised slot is re-spawned
-whatever `_spawn_attempt` says, and the count is allowed over the limit, so the fresh child
-runs exactly once: if it raises again §5.5's admission declines and the batch routes or
-fails. One extra attempt per slot — the shape retry already has on a failed action task,
-which keeps `retry_count` so the revived task "runs once and surfaces its failure instead of
-grinding backoffs". It carries **no backoff**: someone asking for a retry wants it now.
-`RetryProcess` copies `_spawn_attempt` rather than incrementing it, since a count at the
-limit declines either way and the db layer has no business editing context JSON; the price is
-an attempt chain that undercounts operator-forced rounds.
+**The operator bypasses the budget rather than resetting it**, and does it by MARKING the
+parent rather than re-spawning. `RetryProcess` revives the parent to `collecting` with a
+one-shot `_retry_override`; the engine's admission reads it on the next collect, admits every
+raised slot whatever `_spawn_attempt` says, and clears it. The count still advances, so the
+fresh child runs exactly once: if it raises again §5.5's admission declines and the batch
+routes or fails. One extra attempt per slot — the shape retry already has on a failed action
+task, which keeps `retry_count` so the revived task "runs once and surfaces its failure
+instead of grinding backoffs". Under the override the rules are not consulted at all, which
+also means **no backoff**: someone asking for a retry wants it now.
+
+The marker exists because the re-spawn cannot happen in the db layer. A replacement's input is
+re-evaluated against the parent's current definition (§5.5) — that is how a fix published as a
+new version reaches the child — and nothing in `internal/db` can evaluate an expression. One
+re-spawn implementation, one place inputs are built.
 
 The mechanism, shared with §5.5:
 

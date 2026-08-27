@@ -447,3 +447,51 @@ test("a handler task revived by retry still has the error it was reached through
   expect(data!.error_message, "the message renders, so the handler still had its error").toBe("threw Error");
   expect(String(data!.error_message)).not.toContain("${");
 });
+
+// ---- the workflow the reversal exists for: fix, apply, upgrade, retry --------------------
+
+test("upgrade then retry runs the child with the NEW input, not the one it failed on", async () => {
+  const uid2 = uid();
+  const child = `upg_child_${uid2}`;
+  const parent = `upg_parent_${uid2}`;
+  await ctx.env.define(child, [
+    { id: "go", switch: [{ raise: { code: "svc_down", message: "down" } }] },
+  ]);
+  // v1 passes the broken "code". No on_error, so the unmatched raise fails the parent
+  // STANDING ON the child call — which is what leaves the batch in retry's reach.
+  const callTask = (codeVal: string) => ({
+    id: "call",
+    action: { type: "child", name: child, input: { code: codeVal } },
+    switch: [{ goto: "end" }],
+  });
+  await ctx.env.define(parent, [callTask("broken-v1")]);
+
+  const id = await ctx.env.start(parent);
+  await ctx.env.tickUntilIdle(30);
+  expect(await ctx.env.status(id)).toBe("failed");
+
+  // The fix, published as a new version — exactly what `$import`ing a corrected script does.
+  await ctx.env.define(parent, [callTask("fixed-v2")]);
+  const { error: upErr } = await ctx.env.client.POST("/instances/{id}/upgrade", {
+    params: { path: { id } },
+    body: { from_version: 0, to_version: 2 }, // 0 skips the from-version assertion
+  });
+  expect(upErr).toBeUndefined();
+
+  await ctx.env.retry(id);
+  await ctx.env.tickUntilIdle(30);
+
+  // The replacement's input is REBUILT from the parent as it now stands. Re-sending what the
+  // failed attempt was given would hand it "broken-v1" forever, and no amount of fixing,
+  // applying and upgrading could ever reach the child.
+  const inputs = ctx.env
+    .query<{ input_data: string }>(
+      "SELECT input_data FROM process_instances WHERE parent_id = ? ORDER BY created_at",
+      id,
+    )
+    .map((r) => JSON.parse(r.input_data).code);
+  expect(inputs, "the first attempt ran the broken input; its replacement runs the fixed one").toEqual([
+    "broken-v1",
+    "fixed-v2",
+  ]);
+});

@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	dbgen "genroc/internal/db/gen"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 )
 
@@ -598,58 +597,11 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 		return nil, fmt.Errorf("task %q not found in %s v%d", node.Task, node.ProcessName, node.ProcessVersion)
 	}
 
-	// respawnSlot builds the replacement for a raised slot: same identity, nothing the
-	// attempt produced. It is built FRESH rather than copied -- a copy would carry
-	// LoadedObjectHashes across, and applyContextObjectDiff would then take the input's
-	// objects for already-claimed and declare none of them, leaving the new row pointing at
-	// content nothing holds for it. specs/child-error-handling.md s12.
-	respawnSlot := func(old *model.ProcessInstance) (*model.ProcessInstance, error) {
-		def, err := loadDef(old.ProcessName, old.ProcessVersion)
-		if err != nil {
-			return nil, err
-		}
-		if len(def.Tasks) == 0 {
-			return nil, fmt.Errorf("re-spawn %q: %s v%d has no tasks", old.ID, old.ProcessName, old.ProcessVersion)
-		}
-		state := map[string]any{
-			"input":   old.State["input"],
-			"outputs": map[string]any{},
-			"error":   nil,
-		}
-		// The slot's discriminants travel; what shape the batch is stays on the parent.
-		// `_spawn_attempt` travels TOO, and carrying it is what makes this one extra attempt
-		// rather than a fresh budget: an operator overrides the admission check once, and a
-		// count still at the limit declines the next round on its own. Dropping it hands the
-		// slot the whole policy again. specs/child-error-handling.md s12.
-		for _, k := range []string{"_spawn_child_key", "_spawn_index", "_spawn_attempt"} {
-			if v, ok := old.State[k]; ok {
-				state[k] = v
-			}
-		}
-		return &model.ProcessInstance{
-			ID:             idgen.ChildBase(old.ParentID).String(),
-			ProcessName:    old.ProcessName,
-			ProcessVersion: old.ProcessVersion,
-			Task:           def.Tasks[0].ID,
-			// Same reason as a first spawn: without it every replacement's first claim
-			// pays an fsync. specs/durability-levels.md s4.
-			NextReplayable: !def.Tasks[0].OnlyOnceAction(),
-			State:          state,
-			Status:         model.StatusRunning,
-			ParentID:       old.ParentID,
-			SpawnTaskID:    old.SpawnTaskID,
-			// The SAME batch: the parent collects the replacement beside the siblings it kept.
-			ParentTaskEpoch: old.ParentTaskEpoch,
-			CallStack:       old.CallStack,
-		}, nil
-	}
-
 	// Walk the tree top-down, reviving the interrupted path. Only the root and
 	// the front-task children of revived nodes are visited, so completed tasks
 	// and finished side branches are never touched.
 	var dirty []*model.ProcessInstance
-	var retired []string                   // raised slots this retry takes out of the batch
-	var respawned []*model.ProcessInstance // and the replacements that take their place
+	var overriddenID string // the node whose batch holds a raised slot, marked for the engine
 	var revive func(node *model.ProcessInstance) error
 	revive = func(node *model.ProcessInstance) error {
 		switch node.Status {
@@ -689,17 +641,13 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 				anyActive := false
 				for _, k := range kids {
 					// A raise concluded by design, so reviving it would re-run the very task
-					// whose switch decided to raise. Only a fresh child re-runs the upstream
-					// tasks that produced the decision, so the slot is re-spawned instead --
-					// the old row retired, not deleted (s12).
+					// whose switch decided to raise; the slot needs a FRESH child. That is not
+					// done here: the replacement's input must be re-evaluated against the
+					// parent's current definition, which is how an upgraded fix reaches the
+					// child, and this layer cannot evaluate expressions. The parent is marked
+					// instead and the engine re-spawns on its next collect (s12).
 					if k.Status == model.StatusRaised {
-						replacement, err := respawnSlot(k)
-						if err != nil {
-							return err
-						}
-						retired = append(retired, k.ID)
-						respawned = append(respawned, replacement)
-						anyActive = true
+						overriddenID = node.ID
 						continue
 					}
 					if err := revive(k); err != nil {
@@ -754,33 +702,6 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 	}
 
 	now := nowMillis()
-	// Retire the raised slots and fill them, in the transaction that revives the tree: a
-	// crash between the two would leave a slot with no live occupant, and the collect that
-	// followed would merge a batch short of it -- silently for a keyed or list shape.
-	for _, id := range retired {
-		if err := qtx.SupersedeInstance(ctx, dbgen.SupersedeInstanceParams{
-			ID:           id,
-			SupersededAt: sql.NullInt64{Int64: now, Valid: true},
-		}); err != nil {
-			return LifecycleResult{}, fmt.Errorf("supersede %q: %w", id, err)
-		}
-	}
-	for i, child := range respawned {
-		// created_at is nudged per child so siblings keep a strict spawn order, the same way
-		// SpawnChildrenAndWait does it -- ClaimInstances reads them back in that order.
-		ts := now + int64(i)
-		cols, err := db.persistState(ctx, qtx, child, ts)
-		if err != nil {
-			return LifecycleResult{}, fmt.Errorf("re-spawn %q: %w", child.ID, err)
-		}
-		params, err := insertInstanceParams(child, cols, string(model.StatusRunning), ts, ts)
-		if err != nil {
-			return LifecycleResult{}, fmt.Errorf("re-spawn %q: %w", child.ID, err)
-		}
-		if err := qtx.InsertInstance(ctx, params); err != nil {
-			return LifecycleResult{}, fmt.Errorf("re-spawn %q: %w", child.ID, err)
-		}
-	}
 	for _, node := range dirty {
 		// Retry preserves the instance's context verbatim, so the already-encoded
 		// column strings (and the objects they reference) pass straight through —
@@ -804,7 +725,10 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 			// status that carried it.
 			ErrorData:    "",
 			ExternalData: raw.ExternalData,
-			EngineState:  raw.EngineState,
+			// The one-shot override marker rides here when this node owns a raised batch: the
+			// engine reads it on the collect that follows and grants those slots an attempt
+			// past their budget, then clears it. specs/child-error-handling.md s12.
+			EngineState: engineStateWithOverride(raw.EngineState, node.ID == overriddenID),
 			// Passed through with the columns it describes: the context is unchanged, so what it
 			// references is unchanged. Writing "" here would erase the declaration while the
 			// claims stood, and the instance's own values would look like content nothing holds.
@@ -999,4 +923,32 @@ func (db *DB) parkParentWaiting(ctx context.Context, qtx *dbgen.Queries, parent 
 		return fmt.Errorf("suspend parent: %w", err)
 	}
 	return nil
+}
+
+// engineStateWithOverride sets (or leaves) the one-shot marker that tells the engine's next
+// collect to grant this parent's raised slots one attempt past their budget.
+//
+// It is the one place this package edits context JSON, and deliberately narrow: a boolean
+// flag, never a value. The re-spawn it stands in for belongs to the engine, because a
+// replacement's input is re-evaluated against the parent's current definition — which is how
+// a fix published as a new version actually reaches the child — and nothing here can evaluate
+// an expression. specs/child-error-handling.md s12.
+func engineStateWithOverride(raw string, set bool) string {
+	if !set {
+		return raw
+	}
+	es := map[string]any{}
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &es); err != nil {
+			// Unreadable bookkeeping is not this write's to repair; the collect simply runs
+			// without the grant, which fails visibly rather than corrupting the column.
+			return raw
+		}
+	}
+	es["retry_override"] = true
+	b, err := json.Marshal(es)
+	if err != nil {
+		return raw
+	}
+	return string(b)
 }

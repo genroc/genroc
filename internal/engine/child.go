@@ -31,7 +31,7 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 		// against the raised codes and route accordingly. resolveRaisedBatch clears the
 		// wait state and returns the terminal/route outcome itself.
 		if raised := raisedInSlotOrder(siblings, task); len(raised) > 0 {
-			return nil, stop(e.resolveRaisedBatch(inst, task, raised))
+			return nil, stop(e.resolveRaisedBatch(ctx, inst, task, raised))
 		}
 
 		output, err := e.buildChildOutput(task, siblings)
@@ -103,6 +103,57 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 	// this parent — the children and the wait state have to land together or a crash
 	// between them strands one side.
 	return nil, stop(advanceOutcome{kind: outcomeSpawn, children: children})
+}
+
+// freshBatch is the batch phase 1 would spawn from the parent AS IT STANDS NOW — versions
+// re-resolved against its current task, inputs re-evaluated against its context and
+// re-validated — indexed by slot. Built ONCE per retry round rather than per slot, so a
+// hundred-slot fan-out retrying forty of them still evaluates each input once.
+//
+// A replacement must not re-send what its attempt was given. A definition upgrade is how a
+// caller changes what a child receives, and a `$import`ed script IS an input, so copying
+// makes a fix impossible to deliver: the operator edits the code, applies, upgrades, retries,
+// and the old string is handed to the replacement.
+func (e *Engine) freshBatch(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (map[string]*model.ProcessInstance, *advanceOutcome) {
+	callStack := append(inst.CallStack, inst.ID)
+	var built []*model.ProcessInstance
+	switch task.Action.Type {
+	case model.ActionTypeChildMap:
+		mapped, fail := e.buildMapChildren(ctx, inst, task, callStack)
+		if fail != nil {
+			return nil, fail
+		}
+		built = mapped
+	case model.ActionTypeChildList:
+		listed, fail := e.buildListChildren(ctx, inst, task, callStack)
+		if fail != nil {
+			return nil, fail
+		}
+		built = listed
+	default:
+		single, fail := e.buildSingleChild(inst, task, callStack)
+		if fail != nil {
+			return nil, fail
+		}
+		built = []*model.ProcessInstance{single}
+	}
+	out := make(map[string]*model.ProcessInstance, len(built))
+	for _, c := range built {
+		out[slotID(c)] = c
+	}
+	return out, nil
+}
+
+// slotID names the position a child occupies in its batch, across all three shapes. A single
+// child has no discriminant, which is itself the discriminant.
+func slotID(c *model.ProcessInstance) string {
+	if k := spawnKey(c); k != "" {
+		return "key:" + k
+	}
+	if i, ok := spawnIndex(c); ok {
+		return fmt.Sprintf("idx:%d", i)
+	}
+	return "single"
 }
 
 // resolveChildVersion asks the shared rule (db.ResolveChildVersion) about THIS instance's

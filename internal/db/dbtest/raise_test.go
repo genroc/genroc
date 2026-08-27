@@ -112,24 +112,11 @@ func TestRetryProcess_RaisedChildDoesNotStrandParentInWaiting(t *testing.T) {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 
-			// Since §12 the raised slot is re-spawned, so the batch is no longer settled and
-			// the parent waits. What must stay true is what the old assertion was really
-			// protecting: it waits only because something in the batch can still run.
-			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateWaiting {
-				t.Fatalf("parent should wait for the replacement, got wait_state %q", got)
-			}
-			kids, err := b.db.ChildrenForTask(context.Background(), "parent", "step1", 0)
-			if err != nil {
-				t.Fatalf("children for task: %v", err)
-			}
-			active := 0
-			for _, k := range kids {
-				if !k.Status.Terminal() {
-					active++
-				}
-			}
-			if active == 0 {
-				t.Fatal("parent is waiting on a batch where nothing can run — wedged forever")
+			// Every child is settled, so the parent comes back armed to COLLECT. That is where
+			// the engine re-spawns the raised slot (§12) — a 'waiting' parent here would be
+			// waiting on a batch where nothing can run, which is wedged forever.
+			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateCollecting {
+				t.Fatalf("parent should be armed for collect, got wait_state %q", got)
 			}
 		})
 	}

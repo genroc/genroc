@@ -59,23 +59,10 @@ tasks:
       # the queue, so only a spent DEADLINE reaches here, as script_unknown.
       - code: ["script_timeout", "script_unknown"]
         goto: $wait
-      # A throw splits on which refusal it was, which is a value and not a code.
-      - code: ["script_threw"]
-        goto: $classify
     switch:
       - case: "input.ticks > 0 && self.output.count >= input.ticks"
         goto: end
       - goto: $wait
-
-  # The sky refusing is transient; anything else reading.ts throws is a bug in it, and
-  # looping on a bug would hide it forever behind a process that never finishes.
-  - id: classify
-    switch:
-      - case: 'error.data.name == "UpstreamError"'
-        goto: $wait
-      - panic:
-          code: reading_broken
-          message: "reading.ts threw ${error.data.name}: ${error.data.message}"
 
 output:
   place: "$: outputs.location.name"

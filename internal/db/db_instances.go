@@ -308,6 +308,12 @@ var engineStateKeys = map[string]string{
 	// as zero, every retry round admits again and the batch never settles.
 	// specs/child-error-handling.md s5.5.
 	"_spawn_attempt": "spawn_attempt",
+	// One-shot: the operator's `retry` grants the parent's raised slots one attempt past
+	// their budget. It is a MARKER rather than a re-spawn done here, because the replacement's
+	// input must be re-evaluated against the parent's current definition -- which is how an
+	// upgraded fix reaches the child -- and this layer cannot evaluate expressions.
+	// specs/child-error-handling.md s12.
+	"_retry_override": "retry_override",
 }
 
 func toStringSlice(v any) []string {

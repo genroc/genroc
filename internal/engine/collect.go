@@ -1,13 +1,13 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 
 	"genroc/internal/errcode"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 	"genroc/internal/schema"
 	"genroc/internal/shape"
@@ -17,12 +17,12 @@ import (
 // buildChildOutput). Only the FIRST raised child in key order routes (I3); the routing
 // mirrors handleCallError minus retries (D7); no matching rule degrades the raise to a
 // defect carrying the child's own code. specs/child-error-handling.md.
-func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Task, raised []*model.ProcessInstance) advanceOutcome {
+func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInstance, task *model.Task, raised []*model.ProcessInstance) advanceOutcome {
 	// Admission runs before anything is written: a slot under its rule's limit is re-spawned
 	// and the batch goes back to waiting, so `error` is never set for a parent that is only
 	// backing off -- the action path reaches its own error write the same way, by returning
 	// from the retry branch first. specs/child-error-handling.md s5.5.
-	retired, replacements, logs, fail := e.admitRetries(inst, task, raised)
+	retired, replacements, logs, fail := e.admitRetries(ctx, inst, task, raised)
 	if fail != nil {
 		return *fail
 	}
@@ -88,37 +88,65 @@ func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Tas
 // code and compares its own `_spawn_attempt` against the limit the matched rule names.
 // A slot whose code matches no retry rule is simply never re-spawned, so a permanently
 // broken one stops dragging the batch through rounds. specs/child-error-handling.md s5.5.
-func (e *Engine) admitRetries(inst *model.ProcessInstance, task *model.Task, raised []*model.ProcessInstance) (retired []string, replacements []*model.ProcessInstance, logs []string, fail *advanceOutcome) {
+func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, task *model.Task, raised []*model.ProcessInstance) (retired []string, replacements []*model.ProcessInstance, logs []string, fail *advanceOutcome) {
+	// Built lazily: a batch with nothing admissible must not pay for a rebuild, and the
+	// rebuild can fail the instance (an upgraded parent may no longer declare the slot).
+	var fresh map[string]*model.ProcessInstance
+	// The operator's `retry` marks the parent instead of re-spawning in the db layer, so the
+	// replacement's input is re-evaluated here against the parent's CURRENT definition. It
+	// grants one attempt past the budget and is one-shot: the count still advances, so the
+	// next automatic round declines on its own. specs/child-error-handling.md s12.
+	override := inst.State[retryOverrideKey] == true
+	delete(inst.State, retryOverrideKey)
 	for _, child := range raised {
 		code, err := e.slotCode(task, child)
 		if err != nil {
 			msg := fmt.Sprintf("child %q (%s) raised %q: %v", child.ProcessName, childSlotLabel(task, child), child.ErrorCode, err)
 			return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %s", task.ID, msg)))
 		}
-		rule := matchOnError(task, code)
-		if rule == nil || rule.Retry.IsZero() {
-			continue
-		}
-		policy, err := rule.Retry.Resolve(func(expr string) (any, error) {
-			return e.evalShape(inst, shape.Shape{Raw: expr}, nil)
-		})
-		if err != nil {
-			// Same reading as the action path: a policy that quietly became "no retries" is
-			// an author's budget vanishing with nothing reporting it.
-			return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q on_error: %v", task.ID, err)))
+		// Under an override the rules are not consulted at all: an operator naming a failed
+		// tree has decided, and a zero policy also means no backoff — someone asking for a
+		// retry wants it now.
+		var policy model.ResolvedRetry
+		if !override {
+			rule := matchOnError(task, code)
+			if rule == nil || rule.Retry.IsZero() {
+				continue
+			}
+			resolved, err := rule.Retry.Resolve(func(expr string) (any, error) {
+				return e.evalShape(inst, shape.Shape{Raw: expr}, nil)
+			})
+			if err != nil {
+				// Same reading as the action path: a policy that quietly became "no retries"
+				// is an author's budget vanishing with nothing reporting it.
+				return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q on_error: %v", task.ID, err)))
+			}
+			policy = resolved
+			if spawnAttempt(child) >= int64(policy.Attempts) {
+				continue
+			}
 		}
 		attempt := spawnAttempt(child)
-		if attempt >= int64(policy.Attempts) {
-			continue
+		if fresh == nil {
+			built, rebuildFail := e.freshBatch(ctx, inst, task)
+			if rebuildFail != nil {
+				return nil, nil, nil, rebuildFail
+			}
+			fresh = built
 		}
-		replacement, err := e.respawnChild(child, attempt+1, policy)
+		replacement, err := e.respawnChild(child, fresh, attempt+1, policy)
 		if err != nil {
 			return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineSpawn, fmt.Sprintf("task %q retry: %v", task.ID, err)))
 		}
 		retired = append(retired, child.ID)
 		replacements = append(replacements, replacement)
-		logs = append(logs, fmt.Sprintf("child %q (%s) raised %q; re-spawning (attempt %d/%d)",
-			child.ProcessName, childSlotLabel(task, child), child.ErrorCode, attempt+1, policy.Attempts))
+		if override {
+			logs = append(logs, fmt.Sprintf("child %q (%s) raised %q; re-spawning on operator retry (attempt %d)",
+				child.ProcessName, childSlotLabel(task, child), child.ErrorCode, attempt+1))
+		} else {
+			logs = append(logs, fmt.Sprintf("child %q (%s) raised %q; re-spawning (attempt %d/%d)",
+				child.ProcessName, childSlotLabel(task, child), child.ErrorCode, attempt+1, policy.Attempts))
+		}
 	}
 	return retired, replacements, logs, nil
 }
@@ -143,47 +171,32 @@ func (e *Engine) slotCode(task *model.Task, child *model.ProcessInstance) (errco
 // was given, none of what the attempt produced, and a wake_at measured from the attempt's own
 // conclusion rather than from now -- the wall-clock it spent waiting on its siblings already
 // served what a backoff is for, so charging the delay again would charge the wait twice.
-func (e *Engine) respawnChild(old *model.ProcessInstance, attempt int64, policy model.ResolvedRetry) (*model.ProcessInstance, error) {
-	def, err := e.definition(old.ProcessName, old.ProcessVersion)
-	if err != nil {
-		return nil, err
+func (e *Engine) respawnChild(old *model.ProcessInstance, fresh map[string]*model.ProcessInstance, attempt int64, policy model.ResolvedRetry) (*model.ProcessInstance, error) {
+	slot := slotID(old)
+	replacement, ok := fresh[slot]
+	if !ok {
+		// The parent no longer declares this slot -- an upgrade removed the entry, or a
+		// `child_list` fan-out came back shorter. Nothing here can invent an input for it.
+		return nil, fmt.Errorf("slot %s is no longer declared by task %q", slot, old.SpawnTaskID)
 	}
-	if len(def.Tasks) == 0 {
-		return nil, fmt.Errorf("%s v%d has no tasks", old.ProcessName, old.ProcessVersion)
-	}
-	state := map[string]any{
-		"input":         old.State["input"],
-		"outputs":       map[string]any{},
-		"error":         nil,
-		spawnAttemptKey: attempt,
-	}
-	for _, k := range []string{"_spawn_child_key", "_spawn_index"} {
-		if v, ok := old.State[k]; ok {
-			state[k] = v
-		}
-	}
+	// Rebuilt as phase 1 would build it, then placed in the batch it is replacing INTO:
+	// same epoch, so it is collected beside the siblings the parent kept.
+	replacement.ParentTaskEpoch = old.ParentTaskEpoch
+	replacement.State[spawnAttemptKey] = attempt
+	// Measured from the attempt's own conclusion, not from now: the wall-clock it spent
+	// waiting on its siblings already served what a backoff is for.
 	wake := old.UpdatedAt.Add(e.retryDelay(int(attempt), policy))
-	return &model.ProcessInstance{
-		ID:             idgen.ChildBase(old.ParentID).String(),
-		ProcessName:    old.ProcessName,
-		ProcessVersion: old.ProcessVersion,
-		Task:           def.Tasks[0].ID,
-		NextReplayable: !def.Tasks[0].OnlyOnceAction(),
-		State:          state,
-		Status:         model.StatusRunning,
-		ParentID:       old.ParentID,
-		SpawnTaskID:    old.SpawnTaskID,
-		// The SAME batch: the replacement is collected beside the siblings the parent kept.
-		ParentTaskEpoch: old.ParentTaskEpoch,
-		CallStack:       old.CallStack,
-		WakeAt:          &wake,
-	}, nil
+	replacement.WakeAt = &wake
+	return replacement, nil
 }
 
 // spawnAttemptKey records how many times this slot has been re-spawned. It rides the child's
 // own `_spawn_*` bookkeeping beside the slot identity, so the sibling queries gain neither a
 // column nor a predicate -- the cost D7 mispriced. specs/child-error-handling.md s5.5.
 const spawnAttemptKey = "_spawn_attempt"
+
+// retryOverrideKey is the one-shot grant RetryProcess leaves for the next collect (s12).
+const retryOverrideKey = "_retry_override"
 
 // spawnAttempt reads it. Zero for a first-generation child, so `attempt < limit` admits
 // exactly `limit` retries -- the same base as inst.RetryCount on an action task.
