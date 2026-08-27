@@ -162,12 +162,23 @@ func (e *Engine) completeViaErrorHandler(inst *model.ProcessInstance, task *mode
 func (e *Engine) faultMessage(inst *model.ProcessInstance, f *model.Fault, self any) string {
 	rendered, err := e.evalShape(inst, shape.Shape{Raw: f.Message}, self)
 	if err != nil {
+		// Degrading is right -- escalating would trade the outcome the author asked for
+		// against a cosmetic failure -- but it must not be SILENT. `${ }` is also legal
+		// literal text (that is what `$${` escapes), so an unrendered template is
+		// indistinguishable from an intended one to whoever reads the message.
+		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: inst.Task,
+			Msg: fmt.Sprintf("fault message did not render, emitting its source text: %v", err)})
 		return f.Message
 	}
 	if s, ok := rendered.(string); ok {
 		return s
 	}
-	return f.Message
+	// Registration type-checks a message to a non-null string, so arriving here means that
+	// guarantee did not hold at runtime. Show the value rather than the template: it is the
+	// evidence, and the template is what the reader already has.
+	e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: inst.Task,
+		Msg: fmt.Sprintf("fault message rendered to %T, not a string", rendered)})
+	return fmt.Sprint(rendered)
 }
 
 // raiseInstance concludes as 'raised' (specs/child-error-handling.md). It must keep

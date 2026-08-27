@@ -1270,6 +1270,7 @@ func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 				}
 				return m.Ref
 			}
+			// refs[0] is the CAUGHT error's payload (kept), refs[1] the REPORTED one (cleared).
 			refs := []string{marker("error", "data"), marker(model.StateErrorData, "trace")}
 
 			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
@@ -1286,22 +1287,24 @@ func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 			if _, ok := revived.State[model.StateErrorData]; ok {
 				t.Errorf("the reported error's payload survived: %v", revived.State[model.StateErrorData])
 			}
-			if _, ok := revived.State["error"]; ok {
-				t.Errorf("the caught error survived: %v", revived.State["error"])
+			if _, ok := revived.State["error"]; !ok {
+				t.Error("the caught error was cleared: it is state at the task being revived, not part of the conclusion being undone")
 			}
 			// The revived instance is running, so a write always follows -- and it is that write
-			// which drops the claims the cleared slots held.
+			// which drops the claims the cleared slots held. The two directions part company
+			// here: the reported payload is gone, so its object must be released; the caught
+			// error is still referenced, so releasing ITS object would be the object-store bug
+			// that leaves a context pointing at content nothing holds.
 			if err := b.db.UpdateInstance(revived); err != nil {
 				t.Fatalf("UpdateInstance: %v", err)
 			}
-			for _, ref := range refs {
+			for ref, want := range map[string]int64{refs[0]: 1, refs[1]: 0} {
 				n, err := b.db.CountObjectRefs(ref)
 				if err != nil {
 					t.Fatalf("CountObjectRefs: %v", err)
 				}
-				if n != 0 {
-					t.Errorf("object %s is stranded: still claimed by %d owner(s) after the write "+
-						"following the clear, so the sweep can never collect it", ref, n)
+				if n != want {
+					t.Errorf("object %s has %d owner(s), want %d", ref, n, want)
 				}
 			}
 		})

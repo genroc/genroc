@@ -793,10 +793,13 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 			Task:        raw.Task,
 			OutputsData: raw.OutputsData,
 			OutputData:  raw.OutputData,
-			// The error slots clear together: a kept error_code corrupts the column it exists
-			// for; a kept error_internal would survive into `error` reads. mustErr/mayErr admits an `error`
-			// read only where an error exists on every path, so a cleared one is never readable.
-			ErrorInternal: "",
+			// Only the REPORTED slots clear; the CAUGHT one is kept. error_internal is this
+			// instance's state at the task it stopped on (migration 034), and a revived node
+			// can stand on a task reachable only through on_error -- where mustErr/mayErr
+			// promises an `error` exists. Clearing it there hands that task a null it was
+			// analysed as never seeing: the handler takes the wrong branch, and any message
+			// interpolating `error` degrades to its raw source text.
+			ErrorInternal: raw.ErrorInternal,
 			// A revived instance has concluded nothing, so the fault it was reporting goes with the
 			// status that carried it.
 			ErrorData:    "",

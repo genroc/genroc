@@ -135,9 +135,10 @@ func TestRetryProcess_RaisedChildDoesNotStrandParentInWaiting(t *testing.T) {
 	}
 }
 
-// Reviving clears every error slot together. Leaving error_code behind fails quietly:
-// the instance goes on to complete and still reports having died of the old code,
-// corrupting exactly the column the code exists to serve.
+// Reviving clears the REPORTED error and keeps the CAUGHT one. Leaving error_code behind
+// fails quietly: the instance goes on to complete and still reports having died of the old
+// code, corrupting exactly the column the code exists to serve. Clearing the caught error
+// fails just as quietly in the other direction — see the assertion below.
 func TestRetryProcess_ClearsErrorCodeAndErrorData(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -171,8 +172,11 @@ func TestRetryProcess_ClearsErrorCodeAndErrorData(t *testing.T) {
 			if revived.ErrorMessage != "" {
 				t.Errorf("error should be cleared, got %q", revived.ErrorMessage)
 			}
-			if got := revived.State["error"]; got != nil {
-				t.Errorf("`error` should be cleared, got %v", got)
+			// The CAUGHT error is kept: it is this instance's state at the task it stopped on
+			// (migration 034), and a revived node can stand on a task reachable only through
+			// on_error, where mustErr/mayErr promises an `error` exists.
+			if got := revived.State["error"]; got == nil {
+				t.Error("`error` should survive: clearing it hands a revived handler task a null the analysis says it can never see")
 			}
 		})
 	}
