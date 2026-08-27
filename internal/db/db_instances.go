@@ -299,9 +299,15 @@ func encodeEngineState(cd map[string]any) (string, error) {
 
 // engineStateKeys maps the engine-internal context keys to their engine_state field
 // names (and back, in decodeState).
+// It is a WHITELIST: a key missing from it is dropped on write with nothing reporting it,
+// which reads at runtime as the value having never been set.
 var engineStateKeys = map[string]string{
 	"_spawn_child_key": "spawn_child_key",
 	"_spawn_index":     "spawn_index",
+	// How many times this slot has been re-spawned. Load-bearing for termination: read back
+	// as zero, every retry round admits again and the batch never settles.
+	// specs/child-error-handling.md s5.5.
+	"_spawn_attempt": "spawn_attempt",
 }
 
 func toStringSlice(v any) []string {

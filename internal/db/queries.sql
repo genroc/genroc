@@ -469,3 +469,10 @@ WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
   AND (process_instances.id = sqlc.arg(root)
        OR status NOT IN ('completed', 'failed', 'raised'))
 ORDER BY created_at ASC, id ASC;
+
+-- name: SupersedeInstance :exec
+-- Retires one attempt at a batch slot. The row stays -- it is the attempt's history, its logs
+-- and its object claims -- but GetChildrenForTask and the revive walk stop treating it as the
+-- slot's live occupant, so the collect merges one value per slot and a replaced raise is not
+-- routed again. specs/child-error-handling.md s12.
+UPDATE process_instances SET superseded_at = sqlc.arg(superseded_at) WHERE id = sqlc.arg(id);

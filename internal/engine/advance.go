@@ -19,7 +19,8 @@ import (
 // in runAdvance (see CLAUDE.md).
 type advanceOutcome struct {
 	kind     outcomeKind
-	children []*model.ProcessInstance // outcomeSpawn: inserted alongside the parent's park
+	children []*model.ProcessInstance // outcomeSpawn/outcomeRespawn: inserted with the parent's park
+	retired  []string                 // outcomeRespawn: the attempts those children replace
 	arm      *externalArm             // outcomeArm: the wait to install, or the signal to consume
 }
 
@@ -31,6 +32,7 @@ const (
 	outcomeTerminal                    // completed/failed/paused   → saveAndNotify
 	outcomeSpawn                       // children + parent parked  → SpawnChildrenAndWait
 	outcomeArm                         // external wait             → ArmExternalUnlessSignalled
+	outcomeRespawn                     // raised slots retried      → RespawnSlotsAndWait
 )
 
 // writeVerb names an outcome whose write is the instance's own failure rather than the
@@ -39,7 +41,7 @@ const (
 // vanished instance); the plain state writes cannot, and their errors belong to the worker.
 func (o advanceOutcome) writeVerb() string {
 	switch o.kind {
-	case outcomeSpawn:
+	case outcomeSpawn, outcomeRespawn:
 		return "spawn"
 	case outcomeArm:
 		return "arm"
@@ -67,6 +69,13 @@ func (e *Engine) persist(ctx context.Context, inst *model.ProcessInstance, o adv
 		return e.db.UpdateInstance(inst)
 	case outcomeSpawn:
 		return e.persistSpawn(ctx, inst, o.children)
+	case outcomeRespawn:
+		if err := e.db.RespawnSlotsAndWait(ctx, inst, o.retired, o.children); err != nil {
+			return err
+		}
+		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: inst.Task,
+			Msg: fmt.Sprintf("re-spawned %d raised child(ren)", len(o.children))})
+		return nil
 	case outcomeArm:
 		return e.persistArm(ctx, inst, o.arm)
 	default:

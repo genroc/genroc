@@ -350,3 +350,141 @@ test("tick is rejected when the engine runs the continuous pump", async () => {
     genroc.stop();
   }
 }, 30_000);
+
+// The case §12 was written for: a child concluded with a RAISE its parent has no rule for,
+// so the tree failed. The condition is fixed outside, and retry must actually run that child
+// again — reviving it would only re-run the switch that decided to raise, against the same
+// upstream state. specs/child-error-handling.md §12.
+test("retry re-spawns a raised child once its cause is fixed", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const childName = `respawn_child_${uid}`;
+  const rootName = `respawn_root_${uid}`;
+
+  let mock = await startMockService(0, { statusCode: 503 });
+  const port = mock.port;
+  try {
+    const { error: childErr } = await client.PUT("/definitions", {
+      body: {
+        name: childName,
+        tasks: [
+          {
+            id: "call",
+            action: {
+              type: "fetch" as const,
+              url: `http://localhost:${port}/action`,
+              responses: { "200": {} },
+            },
+            timeout: 2000,
+            on_error: [{ code: ["http.5%"], raise: { code: "svc_down", message: "service is down" } }],
+            output: "$: self.result",
+            switch: [{ goto: "end" }],
+          },
+        ],
+        output: { reached: true },
+      } as never,
+    });
+    expect(childErr).toBeUndefined();
+
+    const { error: rootErr } = await client.PUT("/definitions", {
+      body: {
+        name: rootName,
+        tasks: [
+          {
+            id: "run",
+            action: { type: "child" as const, name: childName, result_schema: {} },
+            output: "$: self.result",
+            switch: [{ goto: "end" }],
+          },
+        ],
+        output: { kid: "$: outputs.run" },
+      } as never,
+    });
+    expect(rootErr).toBeUndefined();
+
+    const { data: started } = await client.POST("/instances", { body: { process: rootName } });
+    const id = started!.id;
+    expect(await waitForInstance(id, 15_000)).toBe("failed");
+    const { data: failed } = await client.GET("/instances/{id}", { params: { path: { id } } });
+    expect(failed!.error_code, "an unmatched raise fails the parent with the child's code").toBe("svc_down");
+
+    // Fix the cause the child raised about, then retry.
+    await mock.stop();
+    mock = await startMockService(port, { response: { ok: true } });
+
+    const { error: retryErr } = await client.POST("/instances/{id}/retry", { params: { path: { id } } });
+    expect(retryErr).toBeUndefined();
+
+    expect(await waitForInstance(id, 15_000)).toBe("completed");
+    expect(mock.requestCount(), "the replacement child really ran; a revived one would not have called out again").toBe(1);
+    const { data: detail } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+    expect((detail?.state?.output as any)?.kid).toEqual({ reached: true });
+  } finally {
+    await mock.stop();
+  }
+}, 30_000);
+
+// §5.5: a child task retries like any other task. The child raises a code the parent names in
+// on_error with a budget; each round re-spawns the raised slot, and when the budget is spent
+// the rule routes. Exhaustion is the deterministic half — it proves admission runs, that the
+// per-slot counter advances (rather than resetting, which would never terminate), and that
+// routing waits for the budget.
+test("child task retry — a raised slot is re-spawned until its budget is spent", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const childName = `slotretry_child_${uid}`;
+  const rootName = `slotretry_root_${uid}`;
+
+  const mock = await startMockService(0, { statusCode: 503 });
+  try {
+    const { error: childErr } = await client.PUT("/definitions", {
+      body: {
+        name: childName,
+        tasks: [
+          {
+            id: "call",
+            action: {
+              type: "fetch" as const,
+              url: `http://localhost:${mock.port}/action`,
+              responses: { "200": {} },
+            },
+            timeout: 2000,
+            on_error: [{ code: ["http.5%"], raise: { code: "svc_down", message: "down" } }],
+            output: "$: self.result",
+            switch: [{ goto: "end" }],
+          },
+        ],
+        output: { reached: true },
+      } as never,
+    });
+    expect(childErr).toBeUndefined();
+
+    const { error: rootErr } = await client.PUT("/definitions", {
+      body: {
+        name: rootName,
+        tasks: [
+          {
+            id: "run",
+            action: { type: "child" as const, name: childName, result_schema: {} },
+            on_error: [{ code: ["svc_down"], retry: { attempts: 2, delay: 10 }, goto: "$gave_up" }],
+            output: "$: self.result",
+            switch: [{ goto: "end" }],
+          },
+          { id: "gave_up", output: { gave_up: true }, switch: [{ goto: "end" }] },
+        ],
+        output: "$: outputs.gave_up",
+      } as never,
+    });
+    expect(rootErr).toBeUndefined();
+
+    const { data: started } = await client.POST("/instances", { body: { process: rootName } });
+    const id = started!.id;
+
+    expect(await waitForInstance(id, 20_000)).toBe("completed");
+    const { data: detail } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+    expect(detail?.state?.output, "the rule routes once the budget is spent").toEqual({ gave_up: true });
+    // 1 first attempt + 2 retries. Fewer means admission never fired; more means the counter
+    // reset each round, which is the shape that never terminates.
+    expect(mock.requestCount(), "the slot ran once per admitted attempt").toBe(3);
+  } finally {
+    await mock.stop();
+  }
+}, 40_000);

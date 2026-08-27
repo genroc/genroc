@@ -1166,6 +1166,24 @@ func (q *Queries) RenewWorkerLeasesChunk(ctx context.Context, arg RenewWorkerLea
 	return result.RowsAffected()
 }
 
+const supersedeInstance = `-- name: SupersedeInstance :exec
+UPDATE process_instances SET superseded_at = ?1 WHERE id = ?2
+`
+
+type SupersedeInstanceParams struct {
+	SupersededAt sql.NullInt64
+	ID           string
+}
+
+// Retires one attempt at a batch slot. The row stays -- it is the attempt's history, its logs
+// and its object claims -- but GetChildrenForTask and the revive walk stop treating it as the
+// slot's live occupant, so the collect merges one value per slot and a replaced raise is not
+// routed again. specs/child-error-handling.md s12.
+func (q *Queries) SupersedeInstance(ctx context.Context, arg SupersedeInstanceParams) error {
+	_, err := q.db.ExecContext(ctx, supersedeInstance, arg.SupersededAt, arg.ID)
+	return err
+}
+
 const unparkExternal = `-- name: UnparkExternal :exec
 UPDATE process_instances
 SET wait_state = '',

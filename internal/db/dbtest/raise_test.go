@@ -104,8 +104,7 @@ func TestRetryProcess_RaisedChildDoesNotStrandParentInWaiting(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInstW(t, b.db, "parent", model.StatusFailed, model.WaitStateNone, "", nil, "boom")
-			// Batch of the parent's current task: one raised, one completed. Both settled,
-			// so the parent must come back armed to collect, not to wait.
+			// Batch of the parent's current task: one raised, one completed.
 			insertRaised(t, b.db, "kid-raised", "parent", "step1", "out_of_stock", []string{"parent"})
 			insertChild(t, b.db, "kid-done", model.StatusCompleted, "parent", "step1", []string{"parent"}, "")
 
@@ -113,9 +112,24 @@ func TestRetryProcess_RaisedChildDoesNotStrandParentInWaiting(t *testing.T) {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 
-			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateCollecting {
-				t.Fatalf("parent should be armed for collect, got wait_state %q "+
-					"(a 'waiting' parent here is wedged forever)", got)
+			// Since §12 the raised slot is re-spawned, so the batch is no longer settled and
+			// the parent waits. What must stay true is what the old assertion was really
+			// protecting: it waits only because something in the batch can still run.
+			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateWaiting {
+				t.Fatalf("parent should wait for the replacement, got wait_state %q", got)
+			}
+			kids, err := b.db.ChildrenForTask(context.Background(), "parent", "step1", 0)
+			if err != nil {
+				t.Fatalf("children for task: %v", err)
+			}
+			active := 0
+			for _, k := range kids {
+				if !k.Status.Terminal() {
+					active++
+				}
+			}
+			if active == 0 {
+				t.Fatal("parent is waiting on a batch where nothing can run — wedged forever")
 			}
 		})
 	}

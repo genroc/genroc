@@ -383,14 +383,18 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 		}
 
 		if child {
-			// D7: no parent-side retry — re-spawning a batch is not a retry, so the field would be
-			// silently ignored. Refused whenever the policy names ANYTHING (a delay-only policy still
-			// expects retries); `retry: {}` / `retry: 0` are the absent key. R5 lives in validation.
-			if !ec.Retry.IsZero() {
-				return fmt.Errorf("task %q %s: retry is not supported on a child task; retry inside the child, then raise", s.ID, where)
-			}
+			// R4, reversed: a child task retries like any other, because a child is a call
+			// (specs/child-error-handling.md R4, D7). What stays refused is `not_reached`,
+			// and it is load-bearing rather than tidy -- see the only_once check below.
 			if ec.NotReached != nil {
 				return fmt.Errorf("task %q %s: not_reached has no meaning on a child task", s.ID, where)
+			}
+			// Refused at registration rather than dropped at runtime. isRetryAllowed would
+			// decline this silently: every code a child task can catch means the child ran,
+			// so nothing here is ever `not_reached`. A policy that can never fire is what D7
+			// meant by "rejecting beats silently ignoring".
+			if onlyOnce && !ec.Retry.IsZero() {
+				return fmt.Errorf("task %q %s: retry cannot run on an only_once child task -- every code a child task catches means the child already ran, so no attempt is safe to repeat", s.ID, where)
 			}
 			continue
 		}

@@ -182,22 +182,23 @@ func TestFault_R4_ChildTaskOnError(t *testing.T) {
 			t.Fatalf("want empty-pattern rejection, got %v", err)
 		}
 	})
-	t.Run("retry rejected", func(t *testing.T) {
+	t.Run("retry accepted — a child is a call, and a call retries", func(t *testing.T) {
+		// D7 reversed 2026-08-26: retrying a raised slot re-spawns it, which re-runs the
+		// upstream tasks that produced the decision. specs/child-error-handling.md R4.
 		d := def(childTask([]ErrorCase{{Code: []string{"card_declined"}, Retry: RetryAttempts(3), Goto: GotoEnd}}))
-		if err := d.Validate(); err == nil || !strings.Contains(err.Error(), "retry is not supported on a child task") {
-			t.Fatalf("want retry rejection, got %v", err)
+		if err := d.Validate(); err != nil {
+			t.Fatalf("retry must be legal on a child task: %v", err)
 		}
 	})
-	t.Run("retry rejected even when it names only a backoff", func(t *testing.T) {
-		// Attempts 0 with a delay set is still an author expecting retries, so D7 must
-		// refuse the key's presence rather than a non-zero count.
-		delay, err := ParseRetryDuration("30s")
-		if err != nil {
-			t.Fatalf("ParseRetryDuration: %v", err)
-		}
-		d := def(childTask([]ErrorCase{{Code: []string{"card_declined"}, Retry: Retry{Delay: delay}, Goto: GotoEnd}}))
-		if err := d.Validate(); err == nil || !strings.Contains(err.Error(), "retry is not supported on a child task") {
-			t.Fatalf("want retry rejection, got %v", err)
+	t.Run("retry rejected on an only_once child task", func(t *testing.T) {
+		// Not left to isRetryAllowed, which would decline it silently at runtime: every code
+		// a child task can catch means the child already ran, so the policy could never fire.
+		task := childTask([]ErrorCase{{Code: []string{"card_declined"}, Retry: RetryAttempts(3), Goto: GotoEnd}})
+		once := true
+		task.OnlyOnce = &once
+		d := def(task)
+		if err := d.Validate(); err == nil || !strings.Contains(err.Error(), "only_once child task") {
+			t.Fatalf("want only_once retry rejection, got %v", err)
 		}
 	})
 	t.Run("not_reached rejected", func(t *testing.T) {

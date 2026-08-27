@@ -1401,3 +1401,65 @@ func TestRetryProcess_ScopesBatchToCurrentEpoch(t *testing.T) {
 		}
 	}
 }
+
+// A raised slot is retried by RE-SPAWNING it, never by reviving it: a raise concluded at a
+// task boundary, so reviving would re-run the very switch that decided to raise, against the
+// upstream state that produced the decision. The attempt is retired rather than deleted --
+// it is the history -- and the replacement joins the SAME batch beside the siblings the
+// parent kept. specs/child-error-handling.md §12.
+func TestRetryProcess_RespawnsRaisedSlot(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			saveDef(t, b.db, "test", 1, []*model.Task{
+				{ID: "first", Switch: model.SwitchMap{{Goto: model.GotoEnd}}},
+			})
+			insertInst(t, b.db, "root", model.StatusFailed, "", nil, "unmatched raise")
+			insertChild(t, b.db, "kept", model.StatusCompleted, "root", "step1", []string{"root"}, "")
+			insertChild(t, b.db, "raiser", model.StatusRaised, "root", "step1", []string{"root"}, "declined")
+
+			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+				t.Fatalf("RetryProcess: %v", err)
+			}
+
+			if got := mustStatus(t, b.db, "raiser"); got != model.StatusRaised {
+				t.Errorf("retired attempt is %q, want raised (kept verbatim as history)", got)
+			}
+			live, err := b.db.ChildrenForTask(context.Background(), "root", "step1", 0)
+			if err != nil {
+				t.Fatalf("children for task: %v", err)
+			}
+			if len(live) != 2 {
+				t.Fatalf("batch has %d live children, want 2 (the kept sibling and one replacement): a retired row still in the batch makes the collect merge two values into one slot", len(live))
+			}
+			var replacement *model.ProcessInstance
+			for _, c := range live {
+				if c.ID != "kept" {
+					replacement = c
+				}
+			}
+			if replacement == nil {
+				t.Fatal("no replacement in the batch: the raised slot was left with no live occupant")
+			}
+			if replacement.ID == "raiser" {
+				t.Error("the raised child was revived in place; a raise must be re-spawned")
+			}
+			if replacement.Status != model.StatusRunning || replacement.Task != "first" {
+				t.Errorf("replacement is %q at task %q, want running at the definition's first task", replacement.Status, replacement.Task)
+			}
+			if replacement.ParentTaskEpoch != 0 {
+				t.Errorf("replacement parent_task_epoch = %d, want 0: it must join the batch the parent kept", replacement.ParentTaskEpoch)
+			}
+			all, err := b.db.ChildrenOfInstance("root")
+			if err != nil {
+				t.Fatalf("children of instance: %v", err)
+			}
+			if len(all) != 3 {
+				t.Errorf("tree shows %d children, want 3: the retired attempt is kept for its history", len(all))
+			}
+			// An active replacement means the parent waits for it rather than collecting now.
+			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateWaiting {
+				t.Errorf("parent wait_state = %q, want waiting: a fresh child is active", got)
+			}
+		})
+	}
+}

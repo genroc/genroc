@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	dbgen "genroc/internal/db/gen"
+	"genroc/internal/idgen"
 	"genroc/internal/model"
 )
 
@@ -565,22 +566,29 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 	// would block on the single SQLite connection this transaction holds — a deadlock.
 	// Definitions are immutable, so a per-call cache avoids re-reads.
 	defCache := map[string]*model.ProcessDefinition{}
+	loadDef := func(name string, version int) (*model.ProcessDefinition, error) {
+		key := fmt.Sprintf("%s\x00%d", name, version)
+		if def, ok := defCache[key]; ok {
+			return def, nil
+		}
+		row, err := qtx.GetDefinition(ctx, dbgen.GetDefinitionParams{Name: name, Version: int64(version)})
+		if err != nil {
+			return nil, fmt.Errorf("load definition %s v%d: %w", name, version, err)
+		}
+		def := &model.ProcessDefinition{}
+		if err := json.Unmarshal([]byte(row.Definition), def); err != nil {
+			return nil, fmt.Errorf("decode definition %s v%d: %w", name, version, err)
+		}
+		defCache[key] = def
+		return def, nil
+	}
 	loadTask := func(node *model.ProcessInstance) (*model.Task, error) {
 		if node.Task == "" {
 			return nil, nil
 		}
-		key := fmt.Sprintf("%s\x00%d", node.ProcessName, node.ProcessVersion)
-		def, ok := defCache[key]
-		if !ok {
-			row, err := qtx.GetDefinition(ctx, dbgen.GetDefinitionParams{Name: node.ProcessName, Version: int64(node.ProcessVersion)})
-			if err != nil {
-				return nil, fmt.Errorf("load definition for %q: %w", node.ID, err)
-			}
-			def = &model.ProcessDefinition{}
-			if err := json.Unmarshal([]byte(row.Definition), def); err != nil {
-				return nil, fmt.Errorf("decode definition for %q: %w", node.ID, err)
-			}
-			defCache[key] = def
+		def, err := loadDef(node.ProcessName, node.ProcessVersion)
+		if err != nil {
+			return nil, err
 		}
 		for _, t := range def.Tasks {
 			if t.ID == node.Task {
@@ -590,10 +598,54 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 		return nil, fmt.Errorf("task %q not found in %s v%d", node.Task, node.ProcessName, node.ProcessVersion)
 	}
 
+	// respawnSlot builds the replacement for a raised slot: same identity, nothing the
+	// attempt produced. It is built FRESH rather than copied -- a copy would carry
+	// LoadedObjectHashes across, and applyContextObjectDiff would then take the input's
+	// objects for already-claimed and declare none of them, leaving the new row pointing at
+	// content nothing holds for it. specs/child-error-handling.md s12.
+	respawnSlot := func(old *model.ProcessInstance) (*model.ProcessInstance, error) {
+		def, err := loadDef(old.ProcessName, old.ProcessVersion)
+		if err != nil {
+			return nil, err
+		}
+		if len(def.Tasks) == 0 {
+			return nil, fmt.Errorf("re-spawn %q: %s v%d has no tasks", old.ID, old.ProcessName, old.ProcessVersion)
+		}
+		state := map[string]any{
+			"input":   old.State["input"],
+			"outputs": map[string]any{},
+			"error":   nil,
+		}
+		// The slot's discriminants travel; what shape the batch is stays on the parent.
+		for _, k := range []string{"_spawn_child_key", "_spawn_index"} {
+			if v, ok := old.State[k]; ok {
+				state[k] = v
+			}
+		}
+		return &model.ProcessInstance{
+			ID:             idgen.ChildBase(old.ParentID).String(),
+			ProcessName:    old.ProcessName,
+			ProcessVersion: old.ProcessVersion,
+			Task:           def.Tasks[0].ID,
+			// Same reason as a first spawn: without it every replacement's first claim
+			// pays an fsync. specs/durability-levels.md s4.
+			NextReplayable: !def.Tasks[0].OnlyOnceAction(),
+			State:          state,
+			Status:         model.StatusRunning,
+			ParentID:       old.ParentID,
+			SpawnTaskID:    old.SpawnTaskID,
+			// The SAME batch: the parent collects the replacement beside the siblings it kept.
+			ParentTaskEpoch: old.ParentTaskEpoch,
+			CallStack:       old.CallStack,
+		}, nil
+	}
+
 	// Walk the tree top-down, reviving the interrupted path. Only the root and
 	// the front-task children of revived nodes are visited, so completed tasks
 	// and finished side branches are never touched.
 	var dirty []*model.ProcessInstance
+	var retired []string                   // raised slots this retry takes out of the batch
+	var respawned []*model.ProcessInstance // and the replacements that take their place
 	var revive func(node *model.ProcessInstance) error
 	revive = func(node *model.ProcessInstance) error {
 		switch node.Status {
@@ -632,6 +684,20 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 				// only for spawn tasks: SpawnChildrenAndWait is atomic.)
 				anyActive := false
 				for _, k := range kids {
+					// A raise concluded by design, so reviving it would re-run the very task
+					// whose switch decided to raise. Only a fresh child re-runs the upstream
+					// tasks that produced the decision, so the slot is re-spawned instead --
+					// the old row retired, not deleted (s12).
+					if k.Status == model.StatusRaised {
+						replacement, err := respawnSlot(k)
+						if err != nil {
+							return err
+						}
+						retired = append(retired, k.ID)
+						respawned = append(respawned, replacement)
+						anyActive = true
+						continue
+					}
 					if err := revive(k); err != nil {
 						return err
 					}
@@ -684,6 +750,33 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 	}
 
 	now := nowMillis()
+	// Retire the raised slots and fill them, in the transaction that revives the tree: a
+	// crash between the two would leave a slot with no live occupant, and the collect that
+	// followed would merge a batch short of it -- silently for a keyed or list shape.
+	for _, id := range retired {
+		if err := qtx.SupersedeInstance(ctx, dbgen.SupersedeInstanceParams{
+			ID:           id,
+			SupersededAt: sql.NullInt64{Int64: now, Valid: true},
+		}); err != nil {
+			return LifecycleResult{}, fmt.Errorf("supersede %q: %w", id, err)
+		}
+	}
+	for i, child := range respawned {
+		// created_at is nudged per child so siblings keep a strict spawn order, the same way
+		// SpawnChildrenAndWait does it -- ClaimInstances reads them back in that order.
+		ts := now + int64(i)
+		cols, err := db.persistState(ctx, qtx, child, ts)
+		if err != nil {
+			return LifecycleResult{}, fmt.Errorf("re-spawn %q: %w", child.ID, err)
+		}
+		params, err := insertInstanceParams(child, cols, string(model.StatusRunning), ts, ts)
+		if err != nil {
+			return LifecycleResult{}, fmt.Errorf("re-spawn %q: %w", child.ID, err)
+		}
+		if err := qtx.InsertInstance(ctx, params); err != nil {
+			return LifecycleResult{}, fmt.Errorf("re-spawn %q: %w", child.ID, err)
+		}
+	}
 	for _, node := range dirty {
 		// Retry preserves the instance's context verbatim, so the already-encoded
 		// column strings (and the objects they reference) pass straight through —
@@ -793,43 +886,110 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 
 		// Suspend parent: keep status, set wait_state='waiting'. The fence sits here;
 		// the child inserts above roll back with it — no children without the park.
-		parentCols, err := db.persistState(ctx, qtx, parent, now)
-		if err != nil {
+		if err := db.parkParentWaiting(ctx, qtx, parent, currentStatus, now); err != nil {
 			return err
-		}
-		if err := requireFenced(qtx.UpdateInstance(ctx, dbgen.UpdateInstanceParams{
-			ID:            parent.ID,
-			Task:          parent.Task,
-			OutputsData:   parentCols.OutputsData,
-			OutputData:    parentCols.OutputData,
-			ErrorInternal: parentCols.ErrorInternal,
-			ErrorData:     parentCols.ErrorData,
-			ExternalData:  parentCols.ExternalData,
-			EngineState:   parentCols.EngineState,
-			Objects:       parentCols.Objects,
-			RetryCount:    int64(parent.RetryCount),
-			// Carried, never bumped: the parent is parking on the task it just spawned from,
-			// and this is the epoch its collect will bind against the children.
-			TaskEpoch:    parent.TaskEpoch,
-			WakeAt:       sql.NullInt64{},
-			Status:       currentStatus,
-			WaitState:    string(model.WaitStateWaiting),
-			ErrorMessage: parent.ErrorMessage,
-			ErrorCode:    parent.ErrorCode,
-			UpdatedAt:    now,
-			LeaseEpoch:   parent.LeaseEpoch,
-			WorkerID:     fenceWorker(parent),
-			// The parent parks here and is claimed again to collect. Left unset this zeroes
-			// to "needs flush", so every parent in a spawning tree would pay an fsync on its
-			// collect claim.
-			NextReplayable: boolToInt(parent.NextReplayable),
-		})); err != nil {
-			if errors.Is(err, ErrLeaseLost) {
-				return err
-			}
-			return fmt.Errorf("suspend parent: %w", err)
 		}
 
 		return nil
 	})
+}
+
+// RespawnSlotsAndWait retires raised slots and fills them in one transaction, parking the
+// parent back on 'waiting'. It is SpawnChildrenAndWait for a batch already in flight, and it
+// is separate for two reasons that are not stylistic: the parent is mid-resolution, so its row
+// reads 'collecting' where that primitive requires an empty wait_state, and the retire must
+// join the inserts -- a crash between them leaves a slot with no live occupant, and the next
+// collect merges a batch short of it, silently for a keyed or list shape.
+// specs/child-error-handling.md s5.5.
+func (db *DB) RespawnSlotsAndWait(ctx context.Context, parent *model.ProcessInstance, retired []string, children []*model.ProcessInstance) error {
+	if len(children) == 0 {
+		return nil
+	}
+	return db.withTxAt(ctx, syncStrict, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
+		var currentStatus, currentWaitState string
+		if err := raw.QueryRowContext(ctx,
+			`SELECT status, wait_state FROM process_instances WHERE id = ?`+db.forUpdate(),
+			parent.ID).Scan(&currentStatus, &currentWaitState); err != nil {
+			return fmt.Errorf("lock parent: %w", err)
+		}
+		if model.WaitState(currentWaitState) != model.WaitStateCollecting {
+			return fmt.Errorf("parent %q is in wait_state %q, not collecting", parent.ID, currentWaitState)
+		}
+		// Same landing as a first spawn: a pause that arrived mid-resolution settles here,
+		// and the replacements inherit it so a suspended tree queues nothing runnable.
+		if model.Status(currentStatus) == model.StatusPausing {
+			currentStatus = string(model.StatusPaused)
+		}
+
+		now := nowMillis()
+		for _, id := range retired {
+			if err := qtx.SupersedeInstance(ctx, dbgen.SupersedeInstanceParams{
+				ID:           id,
+				SupersededAt: sql.NullInt64{Int64: now, Valid: true},
+			}); err != nil {
+				return fmt.Errorf("supersede %q: %w", id, err)
+			}
+		}
+		for i, child := range children {
+			ts := now + int64(i)
+			cols, err := db.persistState(ctx, qtx, child, ts)
+			if err != nil {
+				return err
+			}
+			// The child carries its own wake_at -- the backoff measured from the attempt it
+			// replaces -- so insertInstanceParams passes it through untouched.
+			params, err := insertInstanceParams(child, cols, currentStatus, ts, ts)
+			if err != nil {
+				return err
+			}
+			if err := qtx.InsertInstance(ctx, params); err != nil {
+				return fmt.Errorf("insert replacement: %w", err)
+			}
+		}
+		return db.parkParentWaiting(ctx, qtx, parent, currentStatus, now)
+	})
+}
+
+// parkParentWaiting writes a parent onto 'waiting' beside the children it just inserted, in
+// their transaction. Shared by the two primitives that park one -- the first spawn and a
+// retry's re-spawn -- because the parameter list is long enough that two copies would drift,
+// and the epoch line in it is the one that must never be "fixed" independently.
+func (db *DB) parkParentWaiting(ctx context.Context, qtx *dbgen.Queries, parent *model.ProcessInstance, status string, now int64) error {
+	parentCols, err := db.persistState(ctx, qtx, parent, now)
+	if err != nil {
+		return err
+	}
+	if err := requireFenced(qtx.UpdateInstance(ctx, dbgen.UpdateInstanceParams{
+		ID:            parent.ID,
+		Task:          parent.Task,
+		OutputsData:   parentCols.OutputsData,
+		OutputData:    parentCols.OutputData,
+		ErrorInternal: parentCols.ErrorInternal,
+		ErrorData:     parentCols.ErrorData,
+		ExternalData:  parentCols.ExternalData,
+		EngineState:   parentCols.EngineState,
+		Objects:       parentCols.Objects,
+		RetryCount:    int64(parent.RetryCount),
+		// Carried, never bumped: the parent is parking on the task it just spawned from,
+		// and this is the epoch its collect will bind against the children.
+		TaskEpoch:    parent.TaskEpoch,
+		WakeAt:       sql.NullInt64{},
+		Status:       status,
+		WaitState:    string(model.WaitStateWaiting),
+		ErrorMessage: parent.ErrorMessage,
+		ErrorCode:    parent.ErrorCode,
+		UpdatedAt:    now,
+		LeaseEpoch:   parent.LeaseEpoch,
+		WorkerID:     fenceWorker(parent),
+		// The parent parks here and is claimed again to collect. Left unset this zeroes
+		// to "needs flush", so every parent in a spawning tree would pay an fsync on its
+		// collect claim.
+		NextReplayable: boolToInt(parent.NextReplayable),
+	})); err != nil {
+		if errors.Is(err, ErrLeaseLost) {
+			return err
+		}
+		return fmt.Errorf("suspend parent: %w", err)
+	}
+	return nil
 }
