@@ -4,10 +4,6 @@ input_schema:
   type: object
   properties:
     place: { type: string, default: "Praha" }
-    ticks:
-      type: integer
-      default: 0
-      description: "how many measurements to do; 0 = run forever"
 tasks:
   - id: location
     action:
@@ -67,14 +63,7 @@ tasks:
         goto: $wait
 
     switch:
-      - case: "input.ticks > 0 && self.output.count >= input.ticks"
-        goto: end
       - goto: $wait
-
-output:
-  place: "$: outputs.location.name"
-  readings: "$: outputs.reading.count"
-  last: "$: outputs.reading.last"
 
 $defs:
   # Only the two fields this process reads: the conform narrows the forwarded payload to
