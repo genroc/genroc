@@ -371,8 +371,11 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 				return fmt.Errorf("task %q %s: code pattern must not be empty", s.ID, where)
 			}
 		}
+		// A GUARDED rule is never a catch-all: `case` can decline, so rules after it are
+		// reachable and it promises nothing. Only an unguarded empty code list is total.
+		// specs/child-error-handling.md M2.
 		isLast := i == len(s.OnError)-1
-		if len(ec.Code) == 0 && !isLast {
+		if len(ec.Code) == 0 && ec.Case == "" && !isLast {
 			return fmt.Errorf("task %q %s: catch-all must be the last rule (unreachable rules after it)", s.ID, where)
 		}
 

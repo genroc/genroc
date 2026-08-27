@@ -814,3 +814,64 @@ test("a field only one arm of the union declares reads as null when the other ar
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
   expect((data?.state?.output as any)?.code, "card_expired carries no decline_code").toBeNull();
 });
+
+// M2's typing claim: a rule's `case` is checked against the payload of the codes THAT RULE
+// names, not the union a routed task would see. Two codes with incompatible shapes make the
+// difference observable — the same expression is legal under one rule and rejected under the
+// other. specs/child-error-handling.md M2.
+const NAMED = { type: "object", properties: { name: { type: "string" } }, required: ["name"] } as const;
+const NUMBERED = { type: "object", properties: { digits: { type: "integer" } }, required: ["digits"] } as const;
+
+async function putCaseScopeChild(name: string) {
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name,
+      // Both codes from ONE task: raises(D) is a syntactic scan, so a case that never fires
+      // still puts its code in the set — and a second task nothing routes to would be
+      // rejected as unreachable.
+      tasks: [
+        {
+          id: "go",
+          switch: [
+            { case: "false", raise: { code: "numbered", message: "d", data: { digits: 1 } } as never },
+            { raise: { code: "named", message: "n", data: { name: "X" } } as never },
+          ],
+        },
+      ],
+    },
+  });
+  expect(error).toBeUndefined();
+}
+
+async function callerWithCase(child: string, code: string, caseExpr: string) {
+  return client.PUT("/definitions", {
+    body: {
+      name: `case_scope_${crypto.randomUUID().slice(0, 8)}`,
+      tasks: [
+        {
+          id: "pay",
+          action: { type: "child" as const, name: child, raises: { named: NAMED, numbered: NUMBERED } },
+          on_error: [{ code: [code], case: caseExpr, goto: "$handled" } as never],
+          switch: [{ goto: "end" }],
+        },
+        { id: "handled", output: { ok: true }, switch: [{ goto: "end" }] },
+      ],
+    } as never,
+  });
+}
+
+test("an on_error case is typed by the codes its own rule names", async () => {
+  const child = `case_scope_child_${crypto.randomUUID().slice(0, 8)}`;
+  await putCaseScopeChild(child);
+
+  // `named` declares `name`, so the rule that catches it may read it — and as a NON-NULL
+  // string, which a union across both codes could not offer.
+  const ok = await callerWithCase(child, "named", 'error.data.name == "X"');
+  expect(ok.error, "a case may read what its own code declares").toBeUndefined();
+
+  // `numbered` does not. Were the case typed against the task's whole catchable set — both
+  // codes — `name` would be present-but-optional here and this would be accepted.
+  const bad = await callerWithCase(child, "numbered", 'error.data.name == "X"');
+  expect(bad.error, "a case must not read a field only ANOTHER code declares").toBeDefined();
+  expect(JSON.stringify(bad.error)).toContain("name");
+});

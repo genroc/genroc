@@ -163,7 +163,8 @@ type Shape = shape.Shape
 // default when a rule exists only to document a code or to cap retries.
 type ErrorCase struct {
 	Code       []string `json:"code,omitempty"        description:"Patterns matched against the error code. '%' is the only wildcard (matches any run of characters); every other character, including '_' and '.', is literal — so 'order_%' matches 'order_placed' but not 'order.placed'. Empty list = catch-all. Catchable engine codes (an action task's call reports these): http.NNN (e.g. http.500), http.timeout, http.disconnected, pre.error, pre.timeout, output.parse, output.too_large, output.invalid, external.timeout, external.lost. pre.* codes mean the call never reached the remote; http.disconnected means it did go out and the connection broke before a response, so whether it took effect is unknowable. Internal engine.* failures (engine.spawn, engine.collect, engine.expression, …) are terminal and are NOT routed through on_error. On a child/child_map/child_list task the codes instead match what the child processes can raise, plus output.invalid (a child completed, but its output failed the result_schema this task narrowed it with); each pattern is checked at registration against that set. A child that failed (rather than raised) is never catchable — convert the failure into a raise inside the child."`
-	Retry      Retry    `json:"retry,omitempty,omitzero" description:"Retry policy applied before the rule routes: a bare attempt count, or an object naming any of attempts / delay / factor / max_delay. Omit for no retries. On only_once:true tasks only pre.* codes (or rules with not_reached:true) may have attempts > 0. Not supported on child tasks — retry inside the child, then raise."`
+	Case       string   `json:"case,omitempty"        description:"Boolean expression checked in ADDITION to code, against the error this rule matched — the same predicate a switch case is, on the error channel. The rule applies only when both hold; a false case falls through to the next rule. Because code has already narrowed which error this is, error.data here is that code's declared shape rather than the union a routed task sees. Omit to match on the code alone. NOTE: with a case, naming a code no longer guarantees the error is handled — an error every rule declines is unmatched, and an unmatched raise fails the instance."`
+	Retry      Retry    `json:"retry,omitempty,omitzero" description:"Retry policy applied before the rule routes: a bare attempt count, or an object naming any of attempts / delay / factor / max_delay. Omit for no retries. On only_once:true tasks only pre.* codes (or rules with not_reached:true) may have attempts > 0. On a child task a retry re-spawns the raised slot with its input rebuilt from this definition, so a fix published as a new version is what the next attempt runs; it is refused on an only_once child task, where every catchable code means the child already ran."`
 	Goto       string   `json:"goto,omitempty"        description:"Task to route to when retries are exhausted. '$task-id' or 'end'. Omit to fail the instance."`
 	Raise      *Fault   `json:"raise,omitempty"       description:"Terminate as 'raised' with this code and message instead of routing — an anticipated condition a parent process may react to. Mutually exclusive with goto and panic."`
 	Panic      *Fault   `json:"panic,omitempty"       description:"Terminate as 'failed' with this code and message instead of routing — a defect. Nothing can catch a panic; the code exists to classify the failure, not to branch on it. Mutually exclusive with goto and raise."`
@@ -174,6 +175,7 @@ type ErrorCase struct {
 // UnmarshalJSON so the tags stay in lockstep.
 type errorCaseWire struct {
 	Code       []string `json:"code,omitempty"`
+	Case       string   `json:"case,omitempty"`
 	Retry      Retry    `json:"retry,omitempty,omitzero"`
 	Goto       string   `json:"goto,omitempty"`
 	Raise      *Fault   `json:"raise,omitempty"`
@@ -182,7 +184,7 @@ type errorCaseWire struct {
 }
 
 func (e ErrorCase) MarshalJSON() ([]byte, error) {
-	w := errorCaseWire{Code: e.Code, Retry: e.Retry, Raise: e.Raise, Panic: e.Panic, NotReached: e.NotReached}
+	w := errorCaseWire{Code: e.Code, Case: e.Case, Retry: e.Retry, Raise: e.Raise, Panic: e.Panic, NotReached: e.NotReached}
 	if e.Goto != "" {
 		if e.Goto == GotoEnd {
 			w.Goto = "end"
@@ -197,7 +199,7 @@ func (e ErrorCase) MarshalJSON() ([]byte, error) {
 // a catch-all — hence rejection plus the hints below. Strict decoding is safe over stored
 // rows: SaveDefinition persists the canonical re-marshal, which carries no unknown fields.
 var (
-	errorCaseFields  = map[string]bool{"code": true, "retry": true, "goto": true, "raise": true, "panic": true, "not_reached": true}
+	errorCaseFields  = map[string]bool{"code": true, "case": true, "retry": true, "goto": true, "raise": true, "panic": true, "not_reached": true}
 	switchCaseFields = map[string]bool{"case": true, "goto": true, "raise": true, "panic": true}
 
 	// Advice for keys that are valid somewhere else, or used to be valid here. Only
@@ -205,7 +207,7 @@ var (
 	// it. `retries` is the pre-policy spelling: it would otherwise be dropped in silence,
 	// leaving a rule that still matches and still routes but never retries.
 	ruleFieldHints = map[string]string{
-		"case":    `an on_error rule selects errors with "code"; "case" belongs to a switch`,
+
 		"code":    `a switch case selects with "case"; "code" belongs to on_error`,
 		"retries": `renamed to "retry": write "retry": 3, or "retry": {attempts: 3, delay: "30s"} to shape the backoff`,
 	}
@@ -239,11 +241,21 @@ func (e *ErrorCase) UnmarshalJSON(data []byte) error {
 	if err := rejectUnknownFields("on_error", data, errorCaseFields); err != nil {
 		return err
 	}
+	// `case` is legal here since M2, but a LIST under it is the old mistake wearing the new
+	// key: an author reaching for `code` and typing `case`. The generic decode error names
+	// only the Go type, so say what was meant instead.
+	var probe struct {
+		Case json.RawMessage `json:"case"`
+	}
+	if json.Unmarshal(data, &probe) == nil && len(probe.Case) > 0 && probe.Case[0] == '[' {
+		return fmt.Errorf(`on_error: "case" is a boolean expression, not a list - select errors by code with "code"`)
+	}
 	var w errorCaseWire
 	if err := json.Unmarshal(data, &w); err != nil {
 		return err
 	}
 	e.Code = w.Code
+	e.Case = w.Case
 	e.Retry = w.Retry
 	e.Raise = w.Raise
 	e.Panic = w.Panic

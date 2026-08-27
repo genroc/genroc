@@ -495,3 +495,113 @@ test("upgrade then retry runs the child with the NEW input, not the one it faile
     "fixed-v2",
   ]);
 });
+
+// ---- M2: `case` on an on_error rule -----------------------------------------------------
+
+/** A child raising `boom` with the given `name` in its payload. */
+async function defineNamedRaiser(name: string): Promise<string> {
+  const proc = `named_${uid()}`;
+  await ctx.env.define(proc, [
+    { id: "go", switch: [{ raise: { code: "boom", message: "kaboom", data: { name } } }] },
+  ]);
+  return proc;
+}
+
+const BOOM_SHAPE = { type: "object", properties: { name: { type: "string" } }, required: ["name"] };
+
+/** A caller that treats a "Transient" boom as a wait and leaves every other boom unmatched. */
+async function defineGuardedCaller(child: string): Promise<string> {
+  const proc = `guarded_${uid()}`;
+  await ctx.env.define(proc, [
+    {
+      id: "call",
+      action: { type: "child", name: child, raises: { boom: BOOM_SHAPE } },
+      on_error: [{ code: ["boom"], case: 'error.data.name == "Transient"', goto: "$recovered" }],
+      switch: [{ goto: "end" }],
+    },
+    { id: "recovered", output: { routed: true }, switch: [{ goto: "end" }] },
+  ]);
+  return proc;
+}
+
+test("a case that holds routes the rule", async () => {
+  const id = await ctx.env.start(await defineGuardedCaller(await defineNamedRaiser("Transient")));
+  await ctx.env.tickUntilIdle(30);
+
+  expect(await ctx.env.status(id)).toBe("completed");
+  const { data } = await ctx.env.client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  expect((data?.state?.outputs as any)?.recovered).toEqual({ routed: true });
+});
+
+test("a case that fails leaves the error unmatched, on the task that failed", async () => {
+  const id = await ctx.env.start(await defineGuardedCaller(await defineNamedRaiser("Bug")));
+  await ctx.env.tickUntilIdle(30);
+
+  // The rule named the code but declined, so nothing caught it: the raise degrades to a
+  // defect (§5.2) and the instance stops STANDING ON the child call. That is the whole point
+  // — a handler task would have taken it out of retry's reach (§11.1).
+  const { data } = await ctx.env.client.GET("/instances/{id}", { params: { path: { id } } });
+  expect(data!.status).toBe("failed");
+  expect(data!.error_code, "the parent inherits the child's raised code").toBe("boom");
+  expect(data!.task, "and it stands on the child call, where retry can act").toBe("call");
+});
+
+test("a declined rule falls through to the next one", async () => {
+  const child = await defineNamedRaiser("Bug");
+  const proc = `fallthrough_${uid()}`;
+  await ctx.env.define(proc, [
+    {
+      id: "call",
+      action: { type: "child", name: child, raises: { boom: BOOM_SHAPE } },
+      on_error: [
+        { code: ["boom"], case: 'error.data.name == "Transient"', goto: "$transient" },
+        { code: ["boom"], goto: "$permanent" },
+      ],
+      switch: [{ goto: "end" }],
+    },
+    { id: "transient", output: { took: "transient" }, switch: [{ goto: "end" }] },
+    { id: "permanent", output: { took: "permanent" }, switch: [{ goto: "end" }] },
+  ]);
+
+  const id = await ctx.env.start(proc);
+  await ctx.env.tickUntilIdle(30);
+
+  // Same code, two rules, the predicate choosing between them — without fall-through the
+  // first rule's decline would have ended the match and the second would be dead.
+  const { data } = await ctx.env.client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  expect((data?.state?.outputs as any)?.permanent).toEqual({ took: "permanent" });
+  expect((data?.state?.outputs as any)?.transient).toBeUndefined();
+});
+
+test("the case decides per slot, against that slot's own error", async () => {
+  const proc = `perslot_${uid()}`;
+  await ctx.env.define(proc, [
+    {
+      id: "fanout",
+      action: {
+        type: "child_map",
+        children: {
+          a_bug: { name: await defineNamedRaiser("Bug"), raises: { boom: BOOM_SHAPE } },
+          b_transient: { name: await defineNamedRaiser("Transient"), raises: { boom: BOOM_SHAPE } },
+        },
+      },
+      on_error: [
+        { code: ["boom"], case: 'error.data.name == "Transient"', retry: { attempts: 2 } },
+      ],
+      switch: [{ goto: "end" }],
+    },
+  ]);
+
+  const id = await ctx.env.start(proc);
+  await ctx.env.tickUntilIdle(60);
+
+  // Only the slot whose OWN payload satisfies the predicate is admitted. Evaluating the case
+  // once for raised[0] would have decided the whole batch on one slot's data.
+  const rows = ctx.env.query<{ error_code: string; engine_state: string }>(
+    "SELECT error_code, engine_state FROM process_instances WHERE parent_id = ?",
+    id,
+  );
+  expect(rows).toHaveLength(4); // a_bug ran once; b_transient ran 1 + 2 retries
+  const attempts = rows.filter((r) => r.engine_state.includes("b_transient")).length;
+  expect(attempts, "the transient slot spent its budget").toBe(3);
+});

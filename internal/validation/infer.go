@@ -193,12 +193,27 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 		// An on_error rule sees the error it CAUGHT, not the one that reaches a task it
 		// routes to — so its context is built per rule rather than from errs[s.ID].
 		for i, ec := range s.OnError {
-			if ec.Raise == nil && ec.Panic == nil {
+			if ec.Raise == nil && ec.Panic == nil && ec.Case == "" {
 				continue
 			}
 			ruleCtx := contextSchema(required[s.ID], optional[s.ID], taskSchemas,
 				processInput, configSchema, ruleErrAt(s, ec, defs)).WithDefs(defs)
 			where := fmt.Sprintf("on_error[%d]", i)
+			// The case is checked in the SAME per-rule scope as the clauses: `code` has
+			// already said which error this is, so `error.data` here is that code's declared
+			// shape rather than the union a routed task sees. No `self` — the task produced
+			// no result. specs/child-error-handling.md M2.
+			if ec.Case != "" {
+				hooks := shape.CheckHooks{
+					Result: func(inferred, _ schema.Schema) error {
+						return fmt.Errorf("task %q %s case %q: expression must evaluate to boolean, got %q", s.ID, where, ec.Case, inferred.TypeName())
+					},
+				}
+				shp := shape.Shape{Raw: ec.Case, Schema: &boolSchema, Name: fmt.Sprintf("task %q %s case %q", s.ID, where, ec.Case), Expr: true}
+				if _, err := shp.CheckWith(ruleCtx, hooks); err != nil {
+					return err
+				}
+			}
 			if err := checkFaultClauses(ec.Raise, ec.Panic, ruleCtx, s.ID, where); err != nil {
 				return err
 			}

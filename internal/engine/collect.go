@@ -52,8 +52,13 @@ func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInst
 		// the collect path reports rather than a shape the caller got wrong.
 		return e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %s", task.ID, msg))
 	}
+	// Written before matching here, unlike in admission: this path routes or fails whatever
+	// the rules say, so the error is the instance's state either way.
 	e.setBatchError(inst, task, first, data, declared)
-	rule := matchOnError(task, raisedCode)
+	rule, matchErr := matchOnErrorWith(task, raisedCode, e.caseEvaluator(inst, batchErrorValue(task, first, data, declared)))
+	if matchErr != nil {
+		return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q: %v", task.ID, matchErr))
+	}
 
 	switch {
 	case rule == nil || (rule.Goto == "" && rule.Raise == nil && rule.Panic == nil):
@@ -99,7 +104,7 @@ func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, 
 	override := inst.State[retryOverrideKey] == true
 	delete(inst.State, retryOverrideKey)
 	for _, child := range raised {
-		code, err := e.slotCode(task, child)
+		code, errVal, err := e.slotError(task, child)
 		if err != nil {
 			msg := fmt.Sprintf("child %q (%s) raised %q: %v", child.ProcessName, childSlotLabel(task, child), child.ErrorCode, err)
 			return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %s", task.ID, msg)))
@@ -109,17 +114,21 @@ func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, 
 		// retry wants it now.
 		var policy model.ResolvedRetry
 		if !override {
-			rule := matchOnError(task, code)
+			// The case sees THIS slot's error: per-slot admission means a per-slot predicate.
+			rule, err := matchOnErrorWith(task, code, e.caseEvaluator(inst, errVal))
+			if err != nil {
+				return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q: %v", task.ID, err)))
+			}
 			if rule == nil || rule.Retry.IsZero() {
 				continue
 			}
-			resolved, err := rule.Retry.Resolve(func(expr string) (any, error) {
+			resolved, resErr := rule.Retry.Resolve(func(expr string) (any, error) {
 				return e.evalShape(inst, shape.Shape{Raw: expr}, nil)
 			})
-			if err != nil {
+			if resErr != nil {
 				// Same reading as the action path: a policy that quietly became "no retries"
 				// is an author's budget vanishing with nothing reporting it.
-				return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q on_error: %v", task.ID, err)))
+				return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q on_error: %v", task.ID, resErr)))
 			}
 			policy = resolved
 			if spawnAttempt(child) >= int64(policy.Attempts) {
@@ -151,20 +160,22 @@ func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, 
 	return retired, replacements, logs, nil
 }
 
-// slotCode is the code a raised slot is judged by: its own, unless the payload it carries
-// fails the shape the call declared, which replaces it with output.invalid before any rule
-// is consulted (the fetch precedent -- a malformed declared body takes a 400 away from
-// `http.4%`). A payload that cannot be read at all is corruption, not a lost bet.
-func (e *Engine) slotCode(task *model.Task, child *model.ProcessInstance) (errcode.Code, error) {
+// slotError is what a raised slot is judged by: its code — its own, unless the payload it
+// carries fails the shape the call declared, which replaces it with output.invalid before any
+// rule is consulted (the fetch precedent — a malformed declared body takes a 400 away from
+// `http.4%`) — and the `error` value an M2 case reads. A payload that cannot be read at all is
+// corruption, not a lost bet.
+func (e *Engine) slotError(task *model.Task, child *model.ProcessInstance) (errcode.Code, map[string]any, error) {
 	code := errcode.Code(child.ErrorCode)
-	if _, _, err := e.raisedData(task, child, code); err != nil {
+	data, declared, err := e.raisedData(task, child, code)
+	if err != nil {
 		var invalid outputInvalid
 		if errors.As(err, &invalid) {
-			return errcode.OutputInvalid, nil
+			return errcode.OutputInvalid, batchErrorValue(task, child, nil, false), nil
 		}
-		return "", err
+		return "", nil, err
 	}
-	return code, nil
+	return code, batchErrorValue(task, child, data, declared), nil
 }
 
 // respawnChild builds the replacement for a raised slot: the slot's identity and the input it
@@ -250,16 +261,53 @@ func raisedInSlotOrder(siblings []*model.ProcessInstance, task *model.Task) []*m
 // null (I6 as amended). child_key (string) and child_index (integer) are separate
 // single-typed fields so an expression never type-switches.
 func (e *Engine) setBatchError(inst *model.ProcessInstance, task *model.Task, first *model.ProcessInstance, data any, declared bool) {
+	inst.State["error"] = batchErrorValue(task, first, data, declared)
+}
+
+// batchErrorValue is what a routed task reads as `error` (§5.3). Separated from the write so
+// admission can BIND it for an M2 case without persisting it: a rule that declines must leave
+// nothing behind, and a retrying parent carries no `error` at all (§5.5).
+func batchErrorValue(task *model.Task, child *model.ProcessInstance, data any, declared bool) map[string]any {
 	errCtx := map[string]any{
 		"task":    task.ID,
-		"code":    first.ErrorCode,
-		"message": first.ErrorMessage,
+		"code":    child.ErrorCode,
+		"message": child.ErrorMessage,
 	}
 	if declared {
 		errCtx["data"] = data
 	}
-	addChildSlot(errCtx, first)
-	inst.State["error"] = errCtx
+	addChildSlot(errCtx, child)
+	return errCtx
+}
+
+// caseEvaluator returns the predicate hook matchOnErrorWith needs, with errVal bound as
+// `error` for the evaluation and restored afterwards — bound, never written (M2).
+func (e *Engine) caseEvaluator(inst *model.ProcessInstance, errVal map[string]any) func(string) (bool, error) {
+	return func(expr string) (bool, error) {
+		prev, had := inst.State["error"]
+		inst.State["error"] = errVal
+		defer func() {
+			if had {
+				inst.State["error"] = prev
+			} else {
+				delete(inst.State, "error")
+			}
+		}()
+		// Expr: true — a case is a bare boolean expression, not a template. Without it the
+		// text is rendered as a string and never compares as anything.
+		v, err := e.evalShape(inst, shape.Shape{Raw: expr, Expr: true}, nil)
+		if err != nil {
+			return false, fmt.Errorf("on_error case %q: %w", expr, err)
+		}
+		b, ok := v.(bool)
+		if !ok {
+			// Registration type-checks the case to a boolean, so this means that guarantee
+			// did not hold. Erroring beats declining: a silent non-match routes the error
+			// somewhere the author never wrote.
+			return false, fmt.Errorf("on_error case %q evaluated to %T, not a boolean", expr, v)
+		}
+		return b, nil
+	}
 }
 
 // addChildSlot sets the one identity field a child carries: "child_key" (string) for a

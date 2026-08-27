@@ -7,7 +7,10 @@ import { client, startMockService, waitForInstance } from "../helpers/client.ts"
 // used to be accepted silently, which turned the rule into a catch-all and then reported a
 // catch-all problem the author had not written — so the mis-keyed field is rejected by
 // name, pointing at the list it actually belongs to.
-test("on_error — a switch's \"case\" key is rejected by name", async () => {
+// `case` is a legal on_error key since M2, but a CODE LIST under it is still the mistake it
+// always was — an author reaching for `code`. The rejection moved from "unknown field" to a
+// type error, and must keep naming the key they meant.
+test("on_error — a code list under \"case\" is rejected by name", async () => {
   const { error } = await client.PUT("/definitions", {
     body: {
       name: `ni_wrong_key_${crypto.randomUUID()}`,
@@ -23,8 +26,8 @@ test("on_error — a switch's \"case\" key is rejected by name", async () => {
       ],
     },
   });
-  expect(error?.error).toContain(`unknown field "case"`);
-  expect(error?.error).toContain(`an on_error rule selects errors with "code"`);
+  expect(error?.error).toContain(`"case" is a boolean expression, not a list`);
+  expect(error?.error).toContain(`select errors by code with "code"`);
 });
 
 test("switch — an on_error's \"code\" key is rejected by name", async () => {

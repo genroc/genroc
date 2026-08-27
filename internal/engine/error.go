@@ -39,18 +39,47 @@ const interruptedMessage = "its previous attempt was interrupted; the engine wil
 // list), or nil. Serves both action tasks (engine codes) and child tasks (a child's raised
 // code) through the same matcher.
 func matchOnError(task *model.Task, errCode errcode.Code) *model.ErrorCase {
+	c, _ := matchOnErrorWith(task, errCode, nil)
+	return c
+}
+
+// matchOnErrorWith is matchOnError with M2's predicate: a rule carrying a `case` applies only
+// when the code matches AND the case is true, and a false case falls THROUGH to the next rule
+// — without that the guard could only ever turn a match into a failure.
+//
+// eval is nil where no case can appear (the caller has no scope to evaluate one in); a rule
+// with a case is then skipped rather than silently treated as matching. A case that will not
+// evaluate is an error, never a non-match: it is type-checked at registration, so a runtime
+// failure means that guarantee did not hold, and quietly declining would route the error
+// somewhere the author never wrote. specs/child-error-handling.md M2.
+func matchOnErrorWith(task *model.Task, errCode errcode.Code, eval func(string) (bool, error)) (*model.ErrorCase, error) {
 	for i := range task.OnError {
 		c := &task.OnError[i]
-		if len(c.Code) == 0 {
-			return c
-		}
+		matched := len(c.Code) == 0
 		for _, pat := range c.Code {
 			if errcode.MatchCode(pat, string(errCode)) {
-				return c
+				matched = true
+				break
 			}
 		}
+		if !matched {
+			continue
+		}
+		if c.Case == "" {
+			return c, nil
+		}
+		if eval == nil {
+			continue
+		}
+		ok, err := eval(c.Case)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return c, nil
+		}
 	}
-	return nil
+	return nil, nil
 }
 
 // handleCallError evaluates on_error rules, retries if allowed, injects `error`, and routes
@@ -67,7 +96,17 @@ func (e *Engine) handleCallError(inst *model.ProcessInstance, task *model.Task, 
 // declared under `raises`. A nil map leaves `error` exactly as it was; a map holding a nil
 // `data` is NOT the same thing, because key presence is what says the shape was described.
 func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Task, errMsg string, errCode errcode.Code, extra map[string]any) advanceOutcome {
-	matched := matchOnError(task, errCode)
+	// The `error` an M2 case reads is the one this call is about to report, built here rather
+	// than at the write below: matching needs it, and the retry branch returns before any
+	// write, so a rule that declines — or a retry that is granted — leaves nothing behind.
+	caseErr := map[string]any{"task": task.ID, "message": errMsg, "code": string(errCode)}
+	for k, v := range extra {
+		caseErr[k] = v
+	}
+	matched, matchErr := matchOnErrorWith(task, errCode, e.caseEvaluator(inst, caseErr))
+	if matchErr != nil {
+		return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q: %v", task.ID, matchErr))
+	}
 
 	// Any slot of a policy may be a "$:" expression, so it is resolved before it is
 	// consulted. A resolution failure fails the instance rather than falling through: a

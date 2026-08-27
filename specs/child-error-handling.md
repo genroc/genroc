@@ -4,7 +4,7 @@ Status: **shipped 2026-07-20** (raise/panic + `error_code`, single-child catch, 
 resolution); **fault payloads shipped 2026-08-22**, replacing I6's original "no data
 crosses" — designed in [error-extensions.md](error-extensions.md) X2, whose X1 and X3 stay
 declined. **§5.5 and §12 — per-slot child retry and the operator's re-spawn — shipped
-2026-08-27**, reversing D7.
+2026-08-27**, reversing D7, as did **M2** (`case` on an `on_error` rule).
 
 ## 0. Governing principle
 
@@ -140,6 +140,58 @@ rejected as painful for shared children (D3).
 catch-all) — the same `matchOnError` as action tasks. **`%` is the only wildcard**; `_` and
 `.` are literal. Two draft positions were reversed here: literal-only matching, and the
 SQL-`LIKE` semantics that would have made `_` a silent single-character wildcard.
+
+**M2 — `case`, a predicate on the matched error. Shipped 2026-08-27.** A rule may
+carry a `case` beside its `code`; it matches only when both hold, and a false case falls
+through to the next rule. It is `SwitchCase.Case` on the error channel — `on_error` was always
+a switch over errors, and the predicate is the half it was missing.
+
+**What it removes is a task, and that is the point.** Classifying an error in a handler leaves
+the instance standing on the *handler*, with the batch behind it and nothing able to re-run
+the child — retry re-runs the task the instance sits on (§11.1), so a routed failure is out of
+its reach. Deciding at the rule leaves the instance on the task that failed, which is where
+`retry` can act. The alternative without it is to let a retry budget separate transient from
+permanent by observation, which works but spends attempts on failures already known to be
+permanent.
+
+**The prefilter is what makes the predicate worth writing.** At a routed task `error` is the
+union over every rule that routes there, so `error.data` is whatever any of them could carry.
+Inside a rule naming `code: ["x"]` it is exactly `raises.x` — one declared shape. The case is
+therefore *better* typed than the handler it replaces, and needs no new inference: the union
+across a rule's patterns is already computed for the routed task, applied one step earlier.
+A rule naming a code the call never declared under `raises` has no readable `error.data`, and
+reading it stays a registration error.
+
+Five things the design has to say:
+
+- **Fall-through, or the feature is inert.** Code-matched-but-case-false must try the next
+  rule, not fail the match outright.
+- **A guarded rule is never a catch-all.** An empty `code` list means catch-all and must be
+  last; `{code: [], case: X}` is not total, so it must neither satisfy that requirement nor be
+  forced last. Missing this rejects good definitions and, worse, keeps promising that some
+  rule always fires.
+- **Naming a code stops guaranteeing the error is handled.** Today a code in a rule means it
+  is caught; with a case it means it is *considered*. Nothing static can warn — the predicate
+  is dynamic — so this is the hazard the feature buys, and an unmatched raise still degrades
+  to a defect (§5.2).
+- **The error is bound, not written.** The case evaluates in the scope the routed task would
+  see — the process context plus `error`, no `self`, since the task produced no result. The
+  payload conform runs first (it can replace the code, which decides the rule), but nothing is
+  persisted: a rule that does not match leaves no trace, and since §5.5 a retrying parent
+  writes no `error` at all.
+- **A failed evaluation fails the instance.** It is type-checked at registration, so a runtime
+  failure means that guarantee did not hold — `engine.expression`, not a silent non-match.
+  Same reading as fault `data`: a contract, not prose.
+
+R5 is untouched: reachability stays a question about codes, and the case narrows at runtime on
+top of it. Per-slot admission (§5.5) evaluates the case per slot, against that slot's own
+error, which is the same rule applied where the batch has many.
+
+Two things the build added. The case is an **expression, not a template** (`Expr: true`) — as
+a template it renders to a string and compares as nothing, silently taking every guarded rule
+out of play. And `case` was previously a REJECTED key on `on_error`, with a hint pointing at
+`code`; the mistake it caught — a code list written under `case` — is still a mistake, so it
+is now refused by shape instead, keeping the same hint.
 
 ## 5. Operational semantics
 
@@ -402,6 +454,10 @@ re-raises identically (provably for a switch-only task, and worse with an action
 already *succeeded* and would repeat a side effect). So the line is fault vs outcome, and
 status already encodes it (D4). **Panics stay retryable**: `panic` chose `failed` precisely
 because it means fault, and fix-outside-and-re-enter is what retry is for.
+
+A definition can be written into a corner by this: an error routed to a handler leaves the
+instance on the handler, so the failure that mattered is behind it. M2 is the way out — decide
+at the rule, and the instance stays where retry can reach.
 
 **Rejected refinement:** gating retry on "the task has an action". The proxy is wrong —
 `config` is live, so a switch-only panic on `config.psp_enabled` retries meaningfully after

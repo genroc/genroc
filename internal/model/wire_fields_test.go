@@ -19,11 +19,13 @@ func TestRuleDecode_UnknownFields(t *testing.T) {
 		wantHint string
 	}{
 		{
-			name:     "on_error given a switch's case",
+			// `case` is a legal key since M2, but a LIST under it is an author reaching for
+			// `code`. The generic decode error would name only the Go type.
+			name:     "on_error given a code list under case",
 			json:     `{"case": ["pre.4%"], "not_reached": true, "goto": "$wait", "retry": 3}`,
 			into:     &ErrorCase{},
-			wantErr:  `unknown field "case"`,
-			wantHint: `an on_error rule selects errors with "code"`,
+			wantErr:  `"case" is a boolean expression, not a list`,
+			wantHint: `select errors by code with "code"`,
 		},
 		{
 			name:    "on_error given a stray key",
