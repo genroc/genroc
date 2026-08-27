@@ -22,13 +22,13 @@ func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Tas
 	// and the batch goes back to waiting, so `error` is never set for a parent that is only
 	// backing off -- the action path reaches its own error write the same way, by returning
 	// from the retry branch first. specs/child-error-handling.md s5.5.
-	retired, replacements, fail := e.admitRetries(inst, task, raised)
+	retired, replacements, logs, fail := e.admitRetries(inst, task, raised)
 	if fail != nil {
 		return *fail
 	}
 	if len(replacements) > 0 {
 		inst.WaitState = model.WaitStateWaiting
-		return advanceOutcome{kind: outcomeRespawn, children: replacements, retired: retired}
+		return advanceOutcome{kind: outcomeRespawn, children: replacements, retired: retired, respawnLogs: logs}
 	}
 
 	inst.WaitState = model.WaitStateNone
@@ -88,12 +88,12 @@ func (e *Engine) resolveRaisedBatch(inst *model.ProcessInstance, task *model.Tas
 // code and compares its own `_spawn_attempt` against the limit the matched rule names.
 // A slot whose code matches no retry rule is simply never re-spawned, so a permanently
 // broken one stops dragging the batch through rounds. specs/child-error-handling.md s5.5.
-func (e *Engine) admitRetries(inst *model.ProcessInstance, task *model.Task, raised []*model.ProcessInstance) (retired []string, replacements []*model.ProcessInstance, fail *advanceOutcome) {
+func (e *Engine) admitRetries(inst *model.ProcessInstance, task *model.Task, raised []*model.ProcessInstance) (retired []string, replacements []*model.ProcessInstance, logs []string, fail *advanceOutcome) {
 	for _, child := range raised {
 		code, err := e.slotCode(task, child)
 		if err != nil {
 			msg := fmt.Sprintf("child %q (%s) raised %q: %v", child.ProcessName, childSlotLabel(task, child), child.ErrorCode, err)
-			return nil, nil, stop(e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %s", task.ID, msg)))
+			return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %s", task.ID, msg)))
 		}
 		rule := matchOnError(task, code)
 		if rule == nil || rule.Retry.IsZero() {
@@ -105,7 +105,7 @@ func (e *Engine) admitRetries(inst *model.ProcessInstance, task *model.Task, rai
 		if err != nil {
 			// Same reading as the action path: a policy that quietly became "no retries" is
 			// an author's budget vanishing with nothing reporting it.
-			return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q on_error: %v", task.ID, err)))
+			return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q on_error: %v", task.ID, err)))
 		}
 		attempt := spawnAttempt(child)
 		if attempt >= int64(policy.Attempts) {
@@ -113,12 +113,14 @@ func (e *Engine) admitRetries(inst *model.ProcessInstance, task *model.Task, rai
 		}
 		replacement, err := e.respawnChild(child, attempt+1, policy)
 		if err != nil {
-			return nil, nil, stop(e.failInstance(inst, errcode.EngineSpawn, fmt.Sprintf("task %q retry: %v", task.ID, err)))
+			return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineSpawn, fmt.Sprintf("task %q retry: %v", task.ID, err)))
 		}
 		retired = append(retired, child.ID)
 		replacements = append(replacements, replacement)
+		logs = append(logs, fmt.Sprintf("child %q (%s) raised %q; re-spawning (attempt %d/%d)",
+			child.ProcessName, childSlotLabel(task, child), child.ErrorCode, attempt+1, policy.Attempts))
 	}
-	return retired, replacements, nil
+	return retired, replacements, logs, nil
 }
 
 // slotCode is the code a raised slot is judged by: its own, unless the payload it carries

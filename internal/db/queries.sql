@@ -253,7 +253,7 @@ WHERE parent_id = sqlc.arg(parent_id)
 -- parent is a second source nothing keeps in step with deletes or reparenting. engine_state
 -- comes along because the slot a child occupies -- its child_map key, its child_list index --
 -- is recorded on the CHILD.
-SELECT id, spawn_task_id, engine_state
+SELECT id, spawn_task_id, engine_state, superseded_at
 FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
 ORDER BY created_at, id;

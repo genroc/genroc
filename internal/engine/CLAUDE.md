@@ -84,6 +84,29 @@ own transaction, so a crash leaves a trail of what the worker was doing even whe
 committed. The audits for spawn and arm are the exception — they run *after* their commit so
 they can never name children that do not exist.
 
+## Retrying a child task is a fourth outcome, not a branch of the third
+
+A raised slot under its rule's budget is re-spawned: `resolveRaisedBatch` admits per slot,
+returns `outcomeRespawn`, and `persist` hands it to `RespawnSlotsAndWait`, which retires the
+old rows and inserts the replacements with the parent's park in one transaction.
+[specs/child-error-handling.md](../../specs/child-error-handling.md) §5.5. Four things that
+break silently:
+
+1. **Admission runs before `setBatchError`.** A parent that is only backing off must carry no
+   `error` — the action path reaches its own error write the same way, by returning from the
+   retry branch first. Writing it early also claims the payload's objects for a slot the
+   retry is about to replace.
+2. **The budget is per slot and lives on the child** (`_spawn_attempt`, in `engine_state`),
+   never the parent's `retry_count` — entering a spawn task zeroes that, which is exactly what
+   makes the §10.1 `goto` workaround unbounded. Reading the counter back as zero for any
+   reason is an infinite retry loop; see the whitelist note in
+   [internal/db/CLAUDE.md](../db/CLAUDE.md).
+3. **The parent keeps its `task_epoch`.** The epoch is the batch's identity here, not an
+   occurrence counter — the action retry branch bumps it because an external token derives
+   from it, and a child task has no token. Bumping orphans the siblings the parent kept.
+4. **Every raised slot is conformed each round**, not just `raised[0]`: a payload that fails
+   its declaration replaces the code, and the code is what picks the slot's rule.
+
 ## A read inside an advance is retried, not believed
 
 `retryRead` (`readretry.go`) wraps every database read an advance depends on — the object loader

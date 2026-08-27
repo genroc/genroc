@@ -365,6 +365,12 @@ func instanceSummaryToResp(s *model.InstanceSummary) InstanceSummaryResp {
 // single child, an object keyed by entry for a child_map, an array in spawn order for a
 // child_list. One task, one shape -- so a reader branches on the action type it already knows
 // from the definition, never on what the value happens to look like.
+//
+// RETIRED ATTEMPTS ARE SKIPPED. A retried slot has more than one row (s5.5/s12) and only the
+// live one occupies it; including them makes a child_list longer than its fan-out and hands a
+// single `child` the attempt it replaced, because the retired row is the older of the two.
+// The attempts themselves stay discoverable through the instance listing, which returns every
+// row carrying this parent_id.
 func spawnPlaceholder(kids []db.ChildSpawn, shape map[string]model.ActionType) map[string]any {
 	if len(kids) == 0 {
 		return nil
@@ -372,6 +378,9 @@ func spawnPlaceholder(kids []db.ChildSpawn, shape map[string]model.ActionType) m
 	byTask := map[string][]db.ChildSpawn{}
 	order := []string{}
 	for _, k := range kids {
+		if k.Superseded {
+			continue
+		}
 		if _, seen := byTask[k.TaskID]; !seen {
 			order = append(order, k.TaskID)
 		}

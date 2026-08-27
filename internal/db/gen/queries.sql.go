@@ -22,16 +22,17 @@ func (q *Queries) BumpDurabilityMarker(ctx context.Context) error {
 }
 
 const childrenOfInstance = `-- name: ChildrenOfInstance :many
-SELECT id, spawn_task_id, engine_state
+SELECT id, spawn_task_id, engine_state, superseded_at
 FROM process_instances
 WHERE parent_id = ?1
 ORDER BY created_at, id
 `
 
 type ChildrenOfInstanceRow struct {
-	ID          string
-	SpawnTaskID string
-	EngineState string
+	ID           string
+	SpawnTaskID  string
+	EngineState  string
+	SupersededAt sql.NullInt64
 }
 
 // Every child a parent has spawned, for the detail view. Derived from parent_id rather than
@@ -48,7 +49,12 @@ func (q *Queries) ChildrenOfInstance(ctx context.Context, parentID string) ([]Ch
 	var items []ChildrenOfInstanceRow
 	for rows.Next() {
 		var i ChildrenOfInstanceRow
-		if err := rows.Scan(&i.ID, &i.SpawnTaskID, &i.EngineState); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.SpawnTaskID,
+			&i.EngineState,
+			&i.SupersededAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

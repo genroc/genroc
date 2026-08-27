@@ -2,7 +2,7 @@ import { expect, test, beforeAll } from "vitest";
 import { join } from "path";
 import { tmpdir } from "os";
 import { buildGenrocBinary, startGenroc, type GenrocProcess } from "../helpers/server.ts";
-import { client, startMockService, waitForInstance, tick, childrenOfTask } from "../helpers/client.ts";
+import { client, startMockService, waitForInstance, tick, childrenOfTask, listAllInstances } from "../helpers/client.ts";
 
 const TICK_PORT = 20017;
 // Its own constant, not TICK_PORT + n: the offsets landed on 20018 and 20019, which are
@@ -418,6 +418,15 @@ test("retry re-spawns a raised child once its cause is fixed", async () => {
     expect(mock.requestCount(), "the replacement child really ran; a revived one would not have called out again").toBe(1);
     const { data: detail } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
     expect((detail?.state?.output as any)?.kid).toEqual({ reached: true });
+
+    // The slot now has two rows, and the placeholder must name the LIVE one. The retired
+    // attempt is the older of the two, so a single `child` that took the first row would
+    // point an operator at the instance that raised rather than the one that succeeded.
+    const live = await listAllInstances();
+    const kids = live.filter((i) => i.parent_id === id);
+    expect(kids, "both attempts are kept as history").toHaveLength(2);
+    const completedKid = kids.find((k) => k.status === "completed");
+    expect((detail?.children as any)?.run).toBe(completedKid!.id);
   } finally {
     await mock.stop();
   }
@@ -486,5 +495,88 @@ test("child task retry — a raised slot is re-spawned until its budget is spent
     expect(mock.requestCount(), "the slot ran once per admitted attempt").toBe(3);
   } finally {
     await mock.stop();
+  }
+}, 40_000);
+
+// The fan-out case per-slot budgets exist for: one slot raises and retries on its own while a
+// completed sibling stands. A shared budget could not express this, and a batch-wide re-spawn
+// would re-run the sibling. specs/child-error-handling.md §5.5.
+test("child task retry — one slot retries while its completed sibling stands", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const goodName = `fanretry_good_${uid}`;
+  const flakyName = `fanretry_flaky_${uid}`;
+  const rootName = `fanretry_root_${uid}`;
+
+  const goodMock = await startMockService(0, { response: { ok: true } });
+  const flakyMock = await startMockService(0, { statusCode: 503 });
+  try {
+    for (const [name, port, raises] of [
+      [goodName, goodMock.port, false],
+      [flakyName, flakyMock.port, true],
+    ] as const) {
+      const { error } = await client.PUT("/definitions", {
+        body: {
+          name,
+          tasks: [
+            {
+              id: "call",
+              action: { type: "fetch" as const, url: `http://localhost:${port}/action`, responses: { "200": {} } },
+              timeout: 2000,
+              ...(raises
+                ? { on_error: [{ code: ["http.5%"], raise: { code: "svc_down", message: "down" } }] }
+                : {}),
+              output: "$: self.result",
+              switch: [{ goto: "end" }],
+            },
+          ],
+          output: { from: name },
+        } as never,
+      });
+      expect(error).toBeUndefined();
+    }
+
+    const { error: rootErr } = await client.PUT("/definitions", {
+      body: {
+        name: rootName,
+        tasks: [
+          {
+            id: "fanout",
+            action: {
+              type: "child_map" as const,
+              children: {
+                good: { name: goodName, result_schema: {} },
+                flaky: { name: flakyName, result_schema: {} },
+              },
+            },
+            on_error: [{ code: ["svc_down"], retry: { attempts: 2, delay: 10 }, goto: "$gave_up" }],
+            output: "$: self.result",
+            switch: [{ goto: "end" }],
+          },
+          { id: "gave_up", output: { gave_up: true }, switch: [{ goto: "end" }] },
+        ],
+        output: "$: outputs.gave_up",
+      } as never,
+    });
+    expect(rootErr).toBeUndefined();
+
+    const { data: started } = await client.POST("/instances", { body: { process: rootName } });
+    const id = started!.id;
+    expect(await waitForInstance(id, 20_000)).toBe("completed");
+
+    expect(flakyMock.requestCount(), "the raised slot ran once per admitted attempt").toBe(3);
+    expect(goodMock.requestCount(), "a completed sibling is never re-run — only the raised slot is replaced").toBe(1);
+
+    // One audit line per re-spawned SLOT, naming which slot and which attempt. A per-round
+    // line cannot say either, and a round is not a unit anyone debugs.
+    const { data: logs } = await client.GET("/instances/{id}/logs", {
+      params: { path: { id }, query: { limit: 100 } },
+    });
+    const respawns = (logs?.items ?? []).filter((l: any) => String(l.message ?? "").includes("re-spawning"));
+    expect(respawns).toHaveLength(2);
+    expect(String(respawns[0].message)).toContain('child_key "flaky"');
+    expect(respawns.map((l: any) => String(l.message).match(/attempt (\d)\//)?.[1]).sort()).toEqual(["1", "2"]);
+  } finally {
+    await goodMock.stop();
+    await flakyMock.stop();
   }
 }, 40_000);

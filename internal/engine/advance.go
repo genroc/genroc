@@ -18,10 +18,11 @@ import (
 // is one transaction. A path that writes for itself escapes the marker/lease discipline
 // in runAdvance (see CLAUDE.md).
 type advanceOutcome struct {
-	kind     outcomeKind
-	children []*model.ProcessInstance // outcomeSpawn/outcomeRespawn: inserted with the parent's park
-	retired  []string                 // outcomeRespawn: the attempts those children replace
-	arm      *externalArm             // outcomeArm: the wait to install, or the signal to consume
+	kind        outcomeKind
+	children    []*model.ProcessInstance // outcomeSpawn/outcomeRespawn: inserted with the parent's park
+	retired     []string                 // outcomeRespawn: the attempts those children replace
+	respawnLogs []string                 // outcomeRespawn: one audit line per slot, written after the commit
+	arm         *externalArm             // outcomeArm: the wait to install, or the signal to consume
 }
 
 type outcomeKind uint8
@@ -73,8 +74,12 @@ func (e *Engine) persist(ctx context.Context, inst *model.ProcessInstance, o adv
 		if err := e.db.RespawnSlotsAndWait(ctx, inst, o.retired, o.children); err != nil {
 			return err
 		}
-		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: inst.Task,
-			Msg: fmt.Sprintf("re-spawned %d raised child(ren)", len(o.children))})
+		// After the commit, like spawn's: an audit must never name children that do not exist.
+		// One line per slot rather than one per round -- a round is not a unit anyone debugs,
+		// and the action path reports each attempt too.
+		for _, msg := range o.respawnLogs {
+			e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: inst.Task, Msg: msg})
+		}
 		return nil
 	case outcomeArm:
 		return e.persistArm(ctx, inst, o.arm)

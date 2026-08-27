@@ -3,7 +3,8 @@
 Status: **shipped 2026-07-20** (raise/panic + `error_code`, single-child catch, batch
 resolution); **fault payloads shipped 2026-08-22**, replacing I6's original "no data
 crosses" — designed in [error-extensions.md](error-extensions.md) X2, whose X1 and X3 stay
-declined. **§12 is the exception: designed 2026-08-26, not built.**
+declined. **§5.5 and §12 — per-slot child retry and the operator's re-spawn — shipped
+2026-08-27**, reversing D7.
 
 ## 0. Governing principle
 
@@ -107,7 +108,7 @@ in an `on_error` rule, which puts the new code into *its* raise set.
   (exhaust retries, then fail with the engine's code). Checked in the validator, not the
   decoder, so the rejection names task and case index.
 - **R4 — `retry` is allowed on a child task; `not_reached` is not.** *Reversed 2026-08-26
-  (designed, not built):* a child task's `on_error` carries `retry` like any other task's,
+  (built 2026-08-27):* a child task's `on_error` carries `retry` like any other task's,
   and retrying re-spawns the raised slots (§5.5). The `not_reached` rejection stays, and is
   now load-bearing: it keeps an `only_once` child task — the parent's own spawning task,
   whose re-attempt is within *this* instance — un-retryable, since every code such a task can
@@ -253,6 +254,11 @@ Five things break silently:
 Budgets multiply: a child's own `retry: 3` under a parent's `retry: 3` is nine attempts at
 the underlying call. A re-spawned child that panics ends the loop at once (§5.4).
 
+A round audits **one line per slot**, not one per round, at warn — naming the slot, the code
+it raised and `attempt n/N`, the same granularity the action path reports. A round is not a
+unit anyone debugs, and a per-round line can name neither the slot nor the attempt. Like the
+spawn audit it is written after the commit, so it can never name a child that does not exist.
+
 Tests must assert the **collected output**, not status — today's e2e retry test passes while
 the batch it collects is silently empty. Also pin that completed siblings do not re-execute,
 that a slot which always raises stops after `limit` rounds, that superseded rows never reach
@@ -351,7 +357,7 @@ on an unreachable task inflates `raises(D)` safely.
 - **D5 — defects are never catchable** (§5.4). **D6 — `panic` carries a code for
   classification, not branching**: parents branch, API consumers classify, and the asymmetry
   is reachability rather than shape (R6).
-- **D7 — no parent-side retry. REVERSED 2026-08-26 (designed, not built).** The original
+- **D7 — no parent-side retry. REVERSED 2026-08-27 (built).** The original
   argued that a raise is settled so re-spawning reproduces it, and that per-slot retry would
   add an attempt dimension to the concurrency-sensitive sibling queries. Provisional —
   refused until a use case arrived — and one did. Both premises fell: §5.5 re-spawns the
@@ -420,7 +426,7 @@ edits travel together, either alone hangs a parent.
 
 ## 12. Re-spawn on the `retry` command
 
-**DESIGNED 2026-08-26. NOT BUILT.** The operator's counterpart to §5.5 — same mechanism,
+**Shipped 2026-08-27.** The operator's counterpart to §5.5 — same mechanism,
 different trigger. `retry` stays one verb with no flag, because the child's status is the
 intent: a `failed` child is retried from inside (its pending task, everything before it
 standing), a `raised` child is re-spawned whole, since only re-running the upstream tasks
@@ -440,12 +446,14 @@ an attempt chain that undercounts operator-forced rounds.
 The mechanism, shared with §5.5:
 
 - **The parent keeps its `task_epoch`.** Batch identity is `(parent_id, spawn_task_id,
-  parent_task_epoch)` and the kept siblings live under it. *The shipped code bumps the epoch
-  on every revived node*, orphaning the batch: the collect finds nothing, so `child_map`
-  merges `{}` and reports **completed**, a single `child` fails `engine.collect`, and a raised
-  sibling is never resolved. A defect to remove — db/CLAUDE.md's `task_epoch` bullet carries
-  it too. The walk must also bind `parent_task_epoch` when it looks children up, or a spawn
-  task re-entered by a loop hands it two generations at once.
+  parent_task_epoch)` and the kept siblings live under it. Until 2026-08-27 the walk bumped
+  the epoch on *every* revived node, which orphaned the batch: the collect found nothing, so a
+  `child_map` merged `{}` and reported **completed**, a single `child` failed
+  `engine.collect`, and a raised sibling was never resolved. It had been wrong since the
+  epochs were introduced. Fixed by splitting the decision — a node revived with no batch still
+  bumps, because it re-runs from the top and an external token derives from the epoch — and by
+  binding `parent_task_epoch` in the walk's own lookup, without which a spawn task re-entered
+  by a loop hands it two generations at once.
 - **The replacement copies the slot's identity** (`spawn_task_id`, `_spawn_child_key` /
   `_spawn_index`, `call_stack`, input) with fresh runtime state, through the ordinary persist
   path — an input carrying object references needs its own claims declared, and a raw column

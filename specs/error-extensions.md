@@ -44,8 +44,7 @@ specifies.
 **Trigger:** D7's own — the §10.1 workaround used repeatedly on batches big enough for
 the waste to matter.
 
-**ACCEPTED 2026-08-26 (designed, not built) — this is child-error-handling.md §5.5, and D7
-is reversed with it.** The costing above was right that a per-slot attempt dimension is
+**BUILT 2026-08-27 — this is child-error-handling.md §5.5, and D7 is reversed with it.** The costing above was right that a per-slot attempt dimension is
 needed and wrong about what it costs: the count rides the child's `_spawn_*` bookkeeping,
 written by the parent at insert, so the sibling queries gain neither column nor predicate and
 the lock-ordering discipline is untouched. The "which codes are retryable" question it

@@ -107,6 +107,16 @@ task re-entered by a loop spawns a fresh batch under the same pair.
   `scanInstance` because of its trailing `prev_worker`). Missing the third fails only on
   Postgres, and only at runtime.
 
+### `engine_state` is a whitelist, and a missing key is dropped in silence
+
+`engineStateKeys` maps the engine-internal context keys (`_spawn_child_key`, `_spawn_index`,
+`_spawn_attempt`) to their `engine_state` field names, and `encodeState`/`decodeState` both
+walk it. A key that is not in the map is **written nowhere and read back as absent**, which at
+runtime is indistinguishable from never having been set — no error, no log. `_spawn_attempt`
+was added for §5.5 and cost two rounds of this: dropped by the whitelist, then read back as
+`json.Number` (engine_state decodes with `UseNumber`) by a type switch that did not expect it.
+Both read as zero, and a retry budget that never advances never terminates.
+
 ### PostgreSQL runtime setup
 
 `open()` in `db.go` runs a Postgres-only bootstrap (the `if dialect == "postgres"` block) after migrations: the `json_each` helper function and **aggressive autovacuum on `process_instances`**. (Tree enumeration uses a recursive `parent_id` walk, so there is no `call_stack` GIN index.)

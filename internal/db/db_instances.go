@@ -740,6 +740,9 @@ type ChildSpawn struct {
 	TaskID string
 	Key    string // child_map only
 	Index  int    // child_list only
+	// Superseded marks a retired attempt at a slot (s5.5/s12). The row is still a child of
+	// this parent, so it belongs in this list; what it is not is the slot's current occupant.
+	Superseded bool
 }
 
 // ChildrenOfInstance rebuilds the spawn placeholder from the child rows. It is derived, not
@@ -753,7 +756,7 @@ func (db *DB) ChildrenOfInstance(id string) ([]ChildSpawn, error) {
 	}
 	out := make([]ChildSpawn, 0, len(rows))
 	for _, r := range rows {
-		c := ChildSpawn{ID: r.ID, TaskID: r.SpawnTaskID}
+		c := ChildSpawn{ID: r.ID, TaskID: r.SpawnTaskID, Superseded: r.SupersededAt.Valid}
 		if r.EngineState != "" {
 			var es struct {
 				SpawnChildKey string `json:"spawn_child_key"`
