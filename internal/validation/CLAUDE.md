@@ -168,6 +168,14 @@ generic wrapper forwards. That is `NarrowsTo`'s whole point and specs/error-exte
 turns on it: a caller narrowing an unknown is making a bet, and the bet may lose with both
 definitions consistent.
 
+**One inherited imprecision, pinned rather than fixed.** A clause's scope is the COLLAPSED
+context at its task, so an output set on every branch of a join is merely optional there and
+`a ?? b` types nullable — a payload built that way is refused against the non-null shape it
+can only ever carry. `inferProcessOutput` recovers this with a per-terminal walk and a raise
+clause has no equivalent; the remedy is the one every other read in that context takes
+(`?? ""`, or declaring the slot nullable), and the break names the slot and both types.
+`TestChildRaises_JoinedBranchPayloadTypesNullable` is there so nobody reads it as a bug.
+
 ## Pointers
 
 - `NarrowsTo` vs `IsSubset`, and why only what a child hands back may narrow —

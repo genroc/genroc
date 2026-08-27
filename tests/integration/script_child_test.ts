@@ -57,7 +57,9 @@ async function callScript(name: string, code: string, caller: Record<string, unk
   if (catches) {
     tasks.push({
       id: "caught",
-      output: { name: "$: error.data.name", message: "$: error.data.message" },
+      // The name comes off the PAYLOAD and the text off error.MESSAGE — script.yaml
+      // recomposes the refusal that way, and registration now holds it to it.
+      output: { name: "$: error.data.name", message: "$: error.message" },
       switch: [{ goto: "end" }],
     });
   }
@@ -81,10 +83,11 @@ test("script child — a return value comes back through the wrapper, narrowed b
   expect((data?.state?.outputs as any)?.call).toEqual({ fee: 25 });
 });
 
-// The regression this file exists for. `script_threw` carries {name, message}, and the caller
-// declares that shape under `raises` — a mismatch is not a wrong value but an output.invalid
-// that takes the raised code away, so the caller's rule stops firing entirely.
-test("script child — script_threw carries {name, message} for a caller that declares it", async () => {
+// The regression this file exists for: a caller must still be able to tell one refusal from
+// another AND read what it said. `script_threw` carries {name, stack} and puts the text on
+// error.message — declaring a shape the payload cannot satisfy is refused at registration now,
+// and a declaration that fits but reads the wrong slot yields null rather than the message.
+test("script child — script_threw's name and text both reach a caller that declares it", async () => {
   const { status, data } = await callScript(
     `script_child_threw_${crypto.randomUUID()}`,
     "const e = new Error('the sky is closed'); e.name = 'UpstreamError'; throw e;",
@@ -93,8 +96,10 @@ test("script child — script_threw carries {name, message} for a caller that de
       raises: {
         script_threw: {
           type: "object",
-          properties: { name: { type: "string" }, message: { type: "string" } },
-          required: ["name", "message"],
+          // `stack` is nullable because the evaluator sends it only when the throw carried
+          // one; requiring a plain string here is refused, which is the check working.
+          properties: { name: { type: "string" }, stack: { type: ["string", "null"] } },
+          required: ["name"],
         },
       },
     },
@@ -102,8 +107,40 @@ test("script child — script_threw carries {name, message} for a caller that de
   expect(status, `expected the caller's script_threw rule to fire: ${data?.error_message}`).toBe("completed");
   expect((data?.state?.outputs as any)?.caught).toEqual({
     name: "UpstreamError",
-    message: "the sky is closed",
+    message: "script threw (UpstreamError): the sky is closed",
   });
+});
+
+// The other half of the same guard: a shape script.yaml's payload can never carry is refused
+// where it is written, not discovered as an output.invalid on a run that already happened.
+test("script child — a caller declaring a slot script_threw never sets is refused", async () => {
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name: `script_child_bad_${crypto.randomUUID()}`,
+      tasks: [
+        {
+          id: "call",
+          action: {
+            type: "child" as const,
+            name: script.name,
+            input: { code: "throw new Error('x');", input: {} },
+            raises: {
+              script_threw: {
+                type: "object",
+                properties: { name: { type: "string" }, message: { type: "string" } },
+                required: ["name", "message"],
+              },
+            },
+          },
+          switch: [{ goto: "end" }],
+        },
+      ],
+    } as never,
+  });
+  expect(
+    JSON.stringify(error),
+    "the text is on error.message, not in the payload — a declaration that requires it there can never conform",
+  ).toContain("message: declared required, never set");
 });
 
 test("script child — a broken script panics rather than raising something catchable", async () => {
