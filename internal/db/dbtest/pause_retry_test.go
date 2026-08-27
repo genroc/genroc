@@ -3,6 +3,7 @@ package dbtest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1459,6 +1460,47 @@ func TestRetryProcess_RespawnsRaisedSlot(t *testing.T) {
 			// An active replacement means the parent waits for it rather than collecting now.
 			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateWaiting {
 				t.Errorf("parent wait_state = %q, want waiting: a fresh child is active", got)
+			}
+		})
+	}
+}
+
+// The operator's retry BYPASSES the budget; it does not reset it. The replacement carries the
+// attempt count forward, so a slot already at its limit gets exactly one more run: if it
+// raises again, §5.5's admission declines and the batch routes. Dropping the count instead
+// hands the slot its whole policy again, which reads as a retry command that silently
+// multiplies the definition's budget. specs/child-error-handling.md §12.
+func TestRetryProcess_RespawnCarriesAttemptCount(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			saveDef(t, b.db, "test", 1, []*model.Task{
+				{ID: "first", Switch: model.SwitchMap{{Goto: model.GotoEnd}}},
+			})
+			insertInst(t, b.db, "root", model.StatusFailed, "", nil, "spent its budget")
+			saveInst(t, b.db, &model.ProcessInstance{
+				ID: "spent", ProcessName: "test", ProcessVersion: 1, Task: "first",
+				Status: model.StatusRaised, ErrorCode: "svc_down", ErrorMessage: "down",
+				ParentID: "root", SpawnTaskID: "step1", CallStack: []string{"root"},
+				State: map[string]any{"input": map[string]any{}, "_spawn_attempt": 2},
+			})
+
+			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+				t.Fatalf("RetryProcess: %v", err)
+			}
+
+			kids, err := b.db.ChildrenForTask(context.Background(), "root", "step1", 0)
+			if err != nil {
+				t.Fatalf("children for task: %v", err)
+			}
+			if len(kids) != 1 {
+				t.Fatalf("batch has %d live children, want 1", len(kids))
+			}
+			got, ok := kids[0].State["_spawn_attempt"]
+			if !ok {
+				t.Fatal("replacement carries no _spawn_attempt: the slot is back on a full budget, so the operator's one override became the whole policy again")
+			}
+			if fmt.Sprint(got) != "2" {
+				t.Errorf("replacement _spawn_attempt = %v, want 2 carried verbatim", got)
 			}
 		})
 	}

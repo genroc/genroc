@@ -617,7 +617,11 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 			"error":   nil,
 		}
 		// The slot's discriminants travel; what shape the batch is stays on the parent.
-		for _, k := range []string{"_spawn_child_key", "_spawn_index"} {
+		// `_spawn_attempt` travels TOO, and carrying it is what makes this one extra attempt
+		// rather than a fresh budget: an operator overrides the admission check once, and a
+		// count still at the limit declines the next round on its own. Dropping it hands the
+		// slot the whole policy again. specs/child-error-handling.md s12.
+		for _, k := range []string{"_spawn_child_key", "_spawn_index", "_spawn_attempt"} {
 			if v, ok := old.State[k]; ok {
 				state[k] = v
 			}
