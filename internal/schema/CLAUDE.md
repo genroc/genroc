@@ -20,12 +20,14 @@ Three things to know before touching it:
    `description` (which `isEmptyNode` ignores, so `{"description": "…"}` is still the
    top type, and `canonicalizeNode` strips before comparison). The full argument is in
    the doc — read it before re-proposing.
-2. **Only `result_schema` may narrow.** `Schema.NarrowsTo` (`accessors.go`) is `IsSubset`
-   with the `isEmptyNode(sub)` rule flipped, and its sole caller is `checkChildOutputType`
-   in `internal/validation`. That is sound only because collect conforms the child's actual
-   output against the parent's `result_schema` (`resolveAndValidateChildOutput`) — a real
-   runtime check standing behind the static claim. Do not reach for `NarrowsTo` in a slot
-   with no such conform; an unknown flowing into a typed *input* is rejected on purpose.
+2. **Only what a child hands back may narrow.** `Schema.NarrowsTo` (`accessors.go`) is
+   `IsSubset` with the `isEmptyNode(sub)` rule flipped, and its callers are the two channels
+   of a child call in `internal/validation`: `checkChildOutputType` against `result_schema`,
+   and `checkDeclaredRaises` against `raises[code]`. Each is sound only because collect
+   conforms the value against that very schema — `resolveAndValidateChildOutput` on the
+   success channel, `Engine.raisedData` on the error one — a real runtime check standing
+   behind the static claim. Do not reach for `NarrowsTo` in a slot with no such conform; an
+   unknown flowing into a typed *input* is rejected on purpose.
 3. **Unrecognised type names are rejected in `CheckDoc`, not the decoder** — the
    decoder also runs over rows already in the DB, and a legacy bad name must fail its
    own registration rather than become undecodable. `validTypes` is exactly the JSON

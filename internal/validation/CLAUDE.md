@@ -138,9 +138,39 @@ went unanswered. Neither contributes to the roll-up: a deployed channel always c
 processes a bundle does not, so counting them would report almost every real comparison
 as incompatible.
 
+## A child call has two channels and one contract
+
+`checkChildContract` runs both off ONE `Generate` of the child, because the success value and
+the raised value are the same claim: what the child hands back, conformed by collect against
+what the caller declared. `result_schema` is checked against `SchemaFile.ProcessOutput`,
+`raises[code]` against `SchemaFile.Raises[code]`, both with `NarrowsTo`, both worded by
+`narrowBreaks` so a caller reads the same sentence whichever channel broke.
+
+**The raise types are collected during `buildInputs`, not by a pass beside it.** A clause's
+`data` is typed in the scope it FIRES in — an `on_error` raise sees the error it caught — and
+`checkFaultClauses` is the only place that scope is still in hand. A second walk would have to
+rebuild `ruleErrAt` and would drift from the type-check that already ran there.
+
+Three rules the type follows from the runtime, each of which changes which declarations
+register and none of which is a compile error if dropped (`raises_test.go` pins them):
+
+1. **Two clauses on one code union.** Either may fire, so what only one sets is not something
+   a caller may require.
+2. **A clause with no `data` types as `null`, not absent.** `setErrorData` clears the slot, so
+   the caller conforms `null` — which no declared object shape admits. Dropping this rule
+   makes `raises` accept a bet that loses on every run, which is the bug the check exists for.
+3. **`sf.Raises` is keyed by exactly `ProcessDefinition.Raises()`.** `checkDeclaredRaises`
+   reads the "never raises" refusal off that key set, so a code that stops recording would
+   stop being declarable rather than stop being checked.
+
+What still reaches the runtime conform is a payload registration cannot type — the top type a
+generic wrapper forwards. That is `NarrowsTo`'s whole point and specs/error-extensions.md §X2-c
+turns on it: a caller narrowing an unknown is making a bet, and the bet may lose with both
+definitions consistent.
+
 ## Pointers
 
-- `NarrowsTo` vs `IsSubset`, and why only a `result_schema` may narrow —
+- `NarrowsTo` vs `IsSubset`, and why only what a child hands back may narrow —
   [internal/schema/CLAUDE.md](../schema/CLAUDE.md).
 - The collapse that makes `outputs.a.v ?? outputs.b.v` imprecise, and the per-terminal walk
   that recovers it — [specs/path-sensitive-output.md](../../specs/path-sensitive-output.md).

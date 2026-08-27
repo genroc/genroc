@@ -392,11 +392,35 @@ at the reading end would mean truncating, and truncated JSON cannot satisfy a de
 shape — it would trip the mismatch above and kill the parent for the wrong reason. The
 invariant to preserve: `data` either conforms or the definitions are wrong.
 
-#### Not in scope
+#### Inferring the child's `data` shapes — **built 2026-08-27**, having been out of scope
 
-Inferring the child's `data` shapes into `raises(D)` — the caller declares, which is what
-keeps a generic wrapper generic. If discoverability becomes the complaint, `raises(D)` is
-already published per version and can carry shapes later without changing this syntax.
+The original entry read: *"the caller declares, which is what keeps a generic wrapper generic.
+If discoverability becomes the complaint, `raises(D)` is already published per version and can
+carry shapes later without changing this syntax."* Both halves survive — the caller still
+declares, and the syntax did not change — but the conclusion did not, because the argument
+answers the wrong question. Keeping the wrapper generic is about what the CHILD may leave
+unstated; it says nothing about whether the caller's bet is checkable, and the success channel
+has always checked exactly that bet with `checkChildOutputType`.
+
+What made it wrong in practice: `data: {name: …, stack: …}` under a caller declaring
+`{name, message}` required is a conform that fails on **every** run, and nothing said so until
+one did. The success channel would have refused it at registration.
+
+So `SchemaFile.Raises` types every code a definition raises — the error channel's
+`ProcessOutput` — and `checkDeclaredRaises` runs `NarrowsTo` against the caller's declaration,
+the same relation `result_schema` gets and sound for the same reason: `Engine.raisedData`
+conforms the payload against that very schema. Three rules the type follows from the runtime:
+
+- **Two clauses on one code are a union.** Either may fire, so a declaration must accept both;
+  what only one of them sets is not something a caller may require.
+- **A clause attaching nothing types as `null`**, not as absent. `setErrorData` CLEARS the
+  slot, so the caller conforms `null` — and a declared object shape does not admit it.
+- **Panics contribute nothing**, for the reason `raises(D)` excludes their codes.
+
+What still reaches the runtime conform is the case registration cannot type: a payload whose
+own type is the top type. That is the open-type story of §X2-c intact — a generic wrapper
+forwarding an unknown, a caller narrowing it, and the bet losing with both definitions
+consistent. What no longer reaches it is a bet that could never have won.
 
 ## X3 — Opt-in exhaustiveness over a child's raise set
 

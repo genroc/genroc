@@ -270,12 +270,20 @@ test("a raised ROOT is refused — there is no parent to re-spawn it from", asyn
 
 // ---- the conform that decides which rule a slot matches ---------------------------------
 
-/** A child that raises `card_declined` carrying the given payload. */
-async function defineDecliner(data: unknown): Promise<string> {
+/**
+ * A child that raises `card_declined` carrying whatever payload its caller passed in.
+ *
+ * The payload comes through an OPAQUE input slot rather than as a literal on the clause: a
+ * declaration a caller could be judged against at registration is refused there now, and this
+ * test is about the conform at collect. `{}` is the one shape that reaches it.
+ */
+async function defineDecliner(): Promise<string> {
   const name = `decliner_${uid()}`;
-  await ctx.env.define(name, [
-    { id: "go", switch: [{ raise: { code: "card_declined", message: "declined", data } }] },
-  ]);
+  await ctx.env.define(
+    name,
+    [{ id: "go", switch: [{ raise: { code: "card_declined", message: "declined", data: "$: input.payload" } }] }],
+    { input_schema: { type: "object", properties: { payload: {} } } },
+  );
   return name;
 }
 
@@ -286,8 +294,8 @@ const DECLINE_SHAPE = {
 };
 
 test("each slot is conformed, so a bad payload takes its own code away", async () => {
-  const conforms = await defineDecliner({ decline_code: "51" });
-  const doesNot = await defineDecliner("just a string");
+  const conforms = await defineDecliner();
+  const doesNot = await defineDecliner();
   const name = `conform_${uid()}`;
   await ctx.env.define(name, [
     {
@@ -295,8 +303,8 @@ test("each slot is conformed, so a bad payload takes its own code away", async (
       action: {
         type: "child_map",
         children: {
-          a_ok: { name: conforms, raises: { card_declined: DECLINE_SHAPE } },
-          b_bad: { name: doesNot, raises: { card_declined: DECLINE_SHAPE } },
+          a_ok: { name: conforms, input: { payload: { decline_code: "51" } }, raises: { card_declined: DECLINE_SHAPE } },
+          b_bad: { name: doesNot, input: { payload: "just a string" }, raises: { card_declined: DECLINE_SHAPE } },
         },
       },
       on_error: [

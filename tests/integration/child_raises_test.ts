@@ -27,6 +27,28 @@ async function putDecliner(name: string, data?: unknown) {
   expect(error).toBeUndefined();
 }
 
+// The same child with an OPAQUE payload: whatever the caller passes in comes back out on the
+// raise. A declaration over `{}` is the one a caller may still get wrong, since registration
+// judges every payload it can type — so this is what the runtime conform is tested through.
+async function putOpaqueDecliner(name: string) {
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: { type: "object", properties: { payload: {} } },
+      tasks: [
+        {
+          id: "charge",
+          switch: [
+            { case: "true", raise: { code: "card_declined", message: "the card was declined", data: "$: input.payload" } },
+            { goto: "end" },
+          ],
+        },
+      ],
+    } as never,
+  });
+  expect(error).toBeUndefined();
+}
+
 test("a declared code makes the payload readable as error.data at the routed task", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_child_${uid}`;
@@ -99,9 +121,10 @@ test("a payload that does not fit the declaration replaces the raised code with 
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_bad_child_${uid}`;
   const parent = `raises_bad_parent_${uid}`;
-  // A string where the caller declared an object: both definitions are self-consistent, and
-  // only the caller's bet about the shape is wrong.
-  await putDecliner(child, "the card was declined");
+  // A string where the caller declared an object. The child's payload is opaque, so nothing at
+  // registration could have said so — a mismatch it CAN type is refused there instead, which
+  // is the test below.
+  await putOpaqueDecliner(child);
 
   await client.PUT("/definitions", {
     body: {
@@ -109,7 +132,12 @@ test("a payload that does not fit the declaration replaces the raised code with 
       tasks: [
         {
           id: "pay",
-          action: { type: "child" as const, name: child, raises: { card_declined: DECLINE_SHAPE } },
+          action: {
+            type: "child" as const,
+            name: child,
+            input: { payload: "the card was declined" },
+            raises: { card_declined: DECLINE_SHAPE },
+          },
           on_error: [
             { code: ["card_declined"], goto: "$by_code" },
             { code: ["output.invalid"], goto: "$by_mismatch" },
@@ -140,36 +168,104 @@ test("a payload that does not fit the declaration replaces the raised code with 
   expect(kid?.error_code).toBe("card_declined");
 });
 
-test("a declared code the child raises without data is the same lost bet", async () => {
+// The payload is checked against the declaration at REGISTRATION, exactly as a child's output
+// type is checked against result_schema — NarrowsTo either way, both backed by the conform at
+// collect. Only a payload registration cannot type (the `{}` above) reaches that conform.
+// specs/error-extensions.md §X2-c.
+test("a payload the child can never produce is refused where it is declared", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
-  const child = `raises_nodata_child_${uid}`;
-  const parent = `raises_nodata_parent_${uid}`;
-  await putDecliner(child); // raises card_declined, attaches nothing
+  const wrongType = `raises_static_type_${uid}`;
+  const noData = `raises_static_nodata_${uid}`;
+  await putDecliner(wrongType, "the card was declined"); // a string where an object is declared
+  await putDecliner(noData); // raises card_declined, attaches nothing
 
-  await client.PUT("/definitions", {
-    body: {
-      name: parent,
-      tasks: [
-        {
-          id: "pay",
-          action: { type: "child" as const, name: child, raises: { card_declined: DECLINE_SHAPE } },
-          on_error: [{ code: ["card_declined"], goto: "$backoff" }],
-          switch: [{ goto: "end" }],
-        },
-        { id: "backoff", output: { wait: "$: error.data.retry_after" }, switch: [{ goto: "end" }] },
-      ],
-    },
+  const parent = (name: string, child: string) => ({
+    name,
+    tasks: [
+      {
+        id: "pay",
+        action: { type: "child" as const, name: child, raises: { card_declined: DECLINE_SHAPE } },
+        on_error: [{ code: ["card_declined"], goto: "$backoff" }],
+        switch: [{ goto: "end" }],
+      },
+      { id: "backoff", output: { wait: "$: error.data.retry_after" }, switch: [{ goto: "end" }] },
+    ],
   });
 
-  const { data: started } = await client.POST("/instances", { body: { process: parent } });
-  const id = started!.id;
-  expect(await waitForInstance(id)).toBe("failed");
-
-  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  const { error: typeErr } = await client.PUT("/definitions", {
+    body: parent(`raises_static_type_parent_${uid}`, wrongType),
+  });
   expect(
-    data?.error_code,
-    "a declaration is a bet on a shape; nothing is not that shape",
-  ).toBe("output.invalid");
+    JSON.stringify(typeErr),
+    "a string is not an object on any run, so the declaration is refused rather than lost later",
+  ).toContain("string is not accepted where object is expected");
+
+  const { error: nodataErr } = await client.PUT("/definitions", {
+    body: parent(`raises_static_nodata_parent_${uid}`, noData),
+  });
+  expect(
+    JSON.stringify(nodataErr),
+    "a clause attaching nothing clears the slot; a declaration is a bet on a shape, and nothing is not that shape",
+  ).toContain("null is not accepted where object is expected");
+});
+
+// A code the child raises from two clauses is a UNION: either may fire, so a declaration has
+// to accept both, and one arm alone is not enough.
+test("a code raised from two clauses is checked against both", async () => {
+  const uid = crypto.randomUUID().slice(0, 8);
+  const child = `raises_union_child_${uid}`;
+  await client.PUT("/definitions", {
+    body: {
+      name: child,
+      input_schema: { type: "object", properties: { early: { type: "boolean" } } },
+      tasks: [
+        {
+          id: "charge",
+          switch: [
+            {
+              case: "input.early ?? false",
+              raise: { code: "card_declined", message: "no", data: { decline_code: "51", retry_after: 3600 } },
+            },
+            { goto: "$settle" },
+          ],
+        },
+        {
+          id: "settle",
+          switch: [
+            { case: "true", raise: { code: "card_declined", message: "no", data: { decline_code: "61" } } },
+            { goto: "end" },
+          ],
+        },
+      ],
+    } as never,
+  });
+
+  const call = (name: string, shape: unknown) =>
+    client.PUT("/definitions", {
+      body: {
+        name,
+        tasks: [
+          {
+            id: "pay",
+            action: { type: "child" as const, name: child, raises: { card_declined: shape } },
+            switch: [{ goto: "end" }],
+          },
+        ],
+      } as never,
+    });
+
+  const { error: bothErr } = await call(`raises_union_both_${uid}`, DECLINE_SHAPE);
+  expect(
+    JSON.stringify(bothErr),
+    "the second clause never sets retry_after, so requiring it can fail on a run the first clause did not take",
+  ).toContain("retry_after");
+
+  const { error: coveredErr } = await call(`raises_union_ok_${uid}`, {
+    type: "object",
+    properties: { decline_code: { type: "string" }, retry_after: { type: "integer" } },
+    required: ["decline_code"],
+  });
+  expect(coveredErr, "what both clauses guarantee is what a declaration may require").toBeUndefined();
 });
 
 test("a child_map declares per entry, and the action-level slot is refused", async () => {

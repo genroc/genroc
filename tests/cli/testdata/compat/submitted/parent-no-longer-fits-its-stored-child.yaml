@@ -37,6 +37,6 @@ run: [--from, tighten_a]
 
 expect: |
   --- stderr ---
-  genctl: server: tighten_boss: task "work": child: the child's output type is not compatible with the declared result_schema
+  genctl: server: tighten_boss: task "work": child: the child's output type is not compatible with the declared result_schema: id: string → integer
 
   exit 1

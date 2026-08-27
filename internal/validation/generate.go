@@ -28,7 +28,11 @@ type SchemaFile struct {
 	ProcessInput  schema.Schema          `json:"process_input,omitzero"`
 	ProcessOutput schema.Schema          `json:"process_output,omitzero"`
 	Tasks         map[string]TaskSchemas `json:"tasks,omitempty"`
-	Defs          schema.Defs            `json:"$defs,omitzero"`
+	// Raises types the payload each code this process can raise carries — the error channel's
+	// ProcessOutput. Its keys are exactly ProcessDefinition.Raises(): a clause attaching
+	// nothing types as null rather than dropping out. See CLAUDE.md.
+	Raises map[string]schema.Schema `json:"raises,omitempty"`
+	Defs   schema.Defs              `json:"$defs,omitzero"`
 }
 
 // RedactContext returns a copy of an instance's context_data with secret-derived
@@ -114,9 +118,11 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 	}
 	result.ProcessInput = processInput
 
-	if err := buildInputs(def.Tasks, tasks, processInput, configSchema, defs); err != nil {
+	rd := newRaiseData()
+	if err := buildInputs(def.Tasks, tasks, processInput, configSchema, defs, rd); err != nil {
 		return SchemaFile{}, err
 	}
+	result.Raises = rd.types()
 
 	for _, s := range def.Tasks {
 		if ts, ok := tasks[s.ID]; ok {

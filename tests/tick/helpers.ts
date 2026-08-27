@@ -104,10 +104,11 @@ export class TickEnv {
     return Object.fromEntries(entries);
   }
 
+  // `extra` carries the definition-level slots beside the tasks (input_schema, output, $defs).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async define(name: string, tasks: object[]): Promise<void> {
+  async define(name: string, tasks: object[], extra: object = {}): Promise<void> {
     const { error } = await this.genroc.client.PUT("/definitions", {
-      body: { name, tasks } as any,
+      body: { name, tasks, ...extra } as any,
     });
     if (error)
       throw new Error(`define(${name}) failed: ${JSON.stringify(error)}`);

@@ -51,45 +51,9 @@ tasks:
       # claim instead of answering, and the task simply waits on the queue for another worker.
       # That is the queue's own retry, and it costs the definition nothing.
       - code: [threw]
-        goto: $threw
-      - code: [timeout]
-        goto: $timed_out
-      # A script that would not compile, returned what JSON cannot represent, or ended its own
-      # realm. One arm because they are fixed the same way — by editing the script — and none
-      # is a condition a caller could react to.
-      - code: [compile_error, nonserializable, exited]
-        panic:
-          code: script_broken
-          message: "the script is broken (${error.code}) - ${error.message}"
-          # Nobody can catch a panic, so this reaches an operator and no one else — which is
-          # the only place a stack trace was ever going to be read.
-          data:
-            name: "$: error.data.name"
-            message: "$: error.message"
-      # The deadline passed with nothing submitted: no evaluator is running, or one died
-      # holding the task. Which of those it was is not knowable from here, so this says so
-      # rather than picking the reassuring reading.
-      - code: [external.timeout]
         raise:
-          code: script_unknown
-          message: "no evaluator answered within the budget; the script may or may not have run"
-    switch:
-      - goto: end
-
-  # The error codes are this process's `throws` clause, and they split on whether a caller
-  # could sensibly react: a script that ran and said no is a raise, a script that is simply
-  # wrong is a panic no one should work around.
-  #
-  # The messages carry the evaluator's own words, for whoever reads the failure; nothing
-  # should ever parse them back. A caller branches on the CODE, and reads the machine-readable
-  # half through `data`, where it declares a shape for the code under `raises`.
-  - id: threw
-    switch:
-      # Spelled the way JavaScript prints an error, because that is what it is: `name` is
-      # what a script sets to tell one refusal from another (evaluator/README.md).
-      - raise:
           code: script_threw
-          message: "${error.data.name}: ${error.message}"
+          message: "script threw (${error.data.name}): ${error.message}"
           # The refusal, recomposed rather than forwarded whole: the evaluator puts the text
           # on error.MESSAGE and only `name`/`stack` in data, so a caller declaring
           # {name, message} would fail the conform against a verbatim `$: error.data`.
@@ -98,7 +62,30 @@ tasks:
           # declaring a shape under `raises`.
           data:
             name: "$: error.data.name"
-            message: "$: error.message"
+            stack: "$: error.data.stack"
+      - code: [timeout]
+        goto: $timed_out
+      # A script that would not compile, returned what JSON cannot represent, or ended its own
+      # realm. One arm because they are fixed the same way — by editing the script — and none
+      # is a condition a caller could react to.
+      - code: [compile_error, nonserializable, exited]
+        panic:
+          code: script_broken
+          message: "the script is broken (${error.code}): ${error.message}"
+          # Nobody can catch a panic, so this reaches an operator and no one else — which is
+          # the only place a stack trace was ever going to be read.
+          data:
+            name: "$: error.data.name"
+            stack: "$: error.data.stack"
+      # The deadline passed with nothing submitted: no evaluator is running, or one died
+      # holding the task. Which of those it was is not knowable from here, so this says so
+      # rather than picking the reassuring reading.
+      - code: [external.timeout]
+        raise:
+          code: script_unknown
+          message: "no evaluator answered within the budget"
+    switch:
+      - goto: end
 
   # The budget is the caller's, so name it — "too slow" without the number sends whoever
   # reads this to the wrong file.

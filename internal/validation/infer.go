@@ -13,7 +13,7 @@ import (
 	"genroc/internal/template"
 )
 
-func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, processInput, configSchema schema.Schema, defs schema.Defs) error {
+func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, processInput, configSchema schema.Schema, defs schema.Defs, rd *raiseData) error {
 	if err := checkReachability(tasks); err != nil {
 		return err
 	}
@@ -184,7 +184,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			// here rather than beside the code's shape rule in model.
 			for i := range s.Switch {
 				where := fmt.Sprintf("switch case %d", i)
-				if err := checkFaultClauses(s.Switch[i].Raise, s.Switch[i].Panic, switchCtx, s.ID, where); err != nil {
+				if err := checkFaultClauses(s.Switch[i].Raise, s.Switch[i].Panic, switchCtx, s.ID, where, rd); err != nil {
 					return err
 				}
 			}
@@ -214,7 +214,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					return err
 				}
 			}
-			if err := checkFaultClauses(ec.Raise, ec.Panic, ruleCtx, s.ID, where); err != nil {
+			if err := checkFaultClauses(ec.Raise, ec.Panic, ruleCtx, s.ID, where, rd); err != nil {
 				return err
 			}
 		}
@@ -285,11 +285,16 @@ func checkMessageTemplate(expr string, ctx schema.Schema, label string) error {
 // to a non-null string, and `data` type-checks against the same scope — any type will do
 // there, since a caller declares the shape it expects. Ordered rather than ranged over a
 // map so a definition with both reports the same one every run.
-func checkFaultClauses(raise, panics *model.Fault, ctx schema.Schema, taskID, where string) error {
+//
+// A `raise` also RECORDS what its data inferred to. This is the only place the scope a clause
+// fires in is still in hand, and rd carries the answer out to the caller's check; a panic
+// records nothing, for the reason ProcessDefinition.Raises excludes its code.
+func checkFaultClauses(raise, panics *model.Fault, ctx schema.Schema, taskID, where string, rd *raiseData) error {
 	for _, c := range []struct {
-		name  string
-		fault *model.Fault
-	}{{"raise", raise}, {"panic", panics}} {
+		name     string
+		fault    *model.Fault
+		raisable bool
+	}{{"raise", raise, true}, {"panic", panics, false}} {
 		if c.fault == nil {
 			continue
 		}
@@ -297,15 +302,80 @@ func checkFaultClauses(raise, panics *model.Fault, ctx schema.Schema, taskID, wh
 		if err := checkMessageTemplate(c.fault.Message, ctx, label+" message"); err != nil {
 			return err
 		}
-		if c.fault.Data.Present() {
-			data := *c.fault.Data
-			data.Name = label + " data"
-			if _, err := data.Check(ctx); err != nil {
-				return err
+		if !c.fault.Data.Present() {
+			if c.raisable {
+				rd.absent(c.fault.Code)
 			}
+			continue
+		}
+		data := *c.fault.Data
+		data.Name = label + " data"
+		inferred, err := data.Check(ctx)
+		if err != nil {
+			return err
+		}
+		if c.raisable {
+			rd.add(c.fault.Code, inferred)
 		}
 	}
 	return nil
+}
+
+// raiseData accumulates the payload type of every raise clause, keyed by code. Two clauses
+// raising one code make it a union: either may fire, so a caller has to accept both.
+type raiseData struct {
+	arms     map[string][]schema.Schema
+	nullable map[string]bool
+}
+
+func newRaiseData() *raiseData {
+	return &raiseData{arms: map[string][]schema.Schema{}, nullable: map[string]bool{}}
+}
+
+func (r *raiseData) add(code string, t schema.Schema) { r.arms[code] = append(r.arms[code], t) }
+
+// absent records a clause that attached nothing. Not a no-op and not a zero schema: the slot
+// is CLEARED, so the payload a caller conforms is null — which a declared object shape does
+// not admit, and that refusal is the point.
+func (r *raiseData) absent(code string) { r.nullable[code] = true }
+
+// types collapses each code's arms into the one type its payload can carry. Identical arms
+// collapse for ErrorDataSchema's reason: a union no arm is alone in says nothing extra.
+func (r *raiseData) types() map[string]schema.Schema {
+	out := make(map[string]schema.Schema, len(r.arms)+len(r.nullable))
+	for code, arms := range r.arms {
+		out[code] = combineErrData(dedupeSchemas(arms), r.nullable[code])
+	}
+	for code := range r.nullable {
+		if _, ok := out[code]; !ok {
+			out[code] = schema.Type("null")
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func dedupeSchemas(arms []schema.Schema) []schema.Schema {
+	if len(arms) < 2 {
+		return arms
+	}
+	out := make([]schema.Schema, 0, len(arms))
+	seen := map[string]bool{}
+	for _, a := range arms {
+		key, err := json.Marshal(a)
+		if err != nil {
+			out = append(out, a)
+			continue
+		}
+		if seen[string(key)] {
+			continue
+		}
+		seen[string(key)] = true
+		out = append(out, a)
+	}
+	return out
 }
 
 // checkArrayTemplate type-checks a child_list `over` against ctx: it must produce a

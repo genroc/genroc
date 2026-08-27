@@ -70,6 +70,7 @@ export default async function (input: Input): Promise<Output> {
   const summary = `${geo.name}  ${current.time}  ${temperature_c} °C  ${condition}`;
 
   console.log(new Date().toISOString(), summary);
+  throw new Error("something happened");
 
   await appendFile("weather.log", `${new Date().toISOString()} ${summary}\n`);
 

@@ -3,6 +3,7 @@ package validation
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"genroc/internal/errcode"
 	"genroc/internal/model"
@@ -180,27 +181,56 @@ func validateChildEntry(taskID string, label string, p model.ChildEntry, ctx sch
 		}
 	}
 
-	if err := checkDeclaredRaises(prefix, child, childVersion, p.Raises); err != nil {
-		return err
-	}
-	return checkChildOutputType(prefix, child, p.ResultSchema)
+	return checkChildContract(prefix, child, childVersion, p.ResultSchema, p.Raises)
 }
 
-// checkDeclaredRaises: a caller may only declare payload shapes for codes the child can
-// actually raise. Same direction and same value as R5 — a typo'd key is a declaration that
-// can never apply, and the type it would give error.data is one no rule can ever read.
-func checkDeclaredRaises(prefix string, child *model.ProcessDefinition, childVersion int, raises model.Raises) error {
-	if len(raises) == 0 {
+// checkChildContract checks both channels a call declares against the child it names:
+// `result_schema` against the child's output type, `raises[code]` against that code's payload
+// type. One SchemaFile serves both — they are one contract. See CLAUDE.md.
+func checkChildContract(prefix string, child *model.ProcessDefinition, childVersion int, resultSchema *schema.Schema, raises model.Raises) error {
+	// A child with no declared output is the open type: nothing to compare, and the conform
+	// at collect is the whole check. Kept as a short-circuit so a child_map of many entries
+	// pointing at such a child does not infer it once per entry.
+	needOutput := resultSchema != nil && child.Output.Present()
+	if !needOutput && len(raises) == 0 {
 		return nil
 	}
-	raisable := map[string]bool{}
-	for _, code := range child.Raises() {
-		raisable[code] = true
+	sf, err := Generate(child)
+	if err != nil {
+		return fmt.Errorf("%s: infer %q v%d: %w", prefix, child.Name, childVersion, err)
 	}
+	if err := checkDeclaredRaises(prefix, sf, child.Name, childVersion, raises); err != nil {
+		return err
+	}
+	if !needOutput {
+		return nil
+	}
+	return checkChildOutputType(prefix, sf, resultSchema)
+}
+
+// checkDeclaredRaises: the code must be one the child can raise (R5's direction — a typo'd key
+// is a declaration no rule can ever read), and its payload must narrow to the shape declared.
+// NarrowsTo is sound because Engine.raisedData conforms the payload against this very schema.
+func checkDeclaredRaises(prefix string, sf SchemaFile, childName string, childVersion int, raises model.Raises) error {
 	for _, code := range sortedCodes(raises) {
-		if !raisable[code] {
-			return fmt.Errorf("%s: raises declares %q, which %q v%d never raises", prefix, code, child.Name, childVersion)
+		// sf.Raises is keyed by exactly the codes ProcessDefinition.Raises() reports: a clause
+		// attaching nothing still records, as null.
+		actual, raisable := sf.Raises[code]
+		if !raisable {
+			return fmt.Errorf("%s: raises declares %q, which %q v%d never raises", prefix, code, childName, childVersion)
 		}
+		declared := raises[code]
+		// `raises: {code: null}` — the code is declared and carries nothing. collect conforms
+		// nothing against nothing, so there is no shape here to disagree with.
+		if declared == nil {
+			continue
+		}
+		actual = actual.WithDefs(sf.Defs)
+		if actual.NarrowsTo(*declared) {
+			continue
+		}
+		return fmt.Errorf("%s: raises[%q] does not fit what %q v%d raises there: %s",
+			prefix, code, childName, childVersion, narrowBreaks(actual, *declared))
 	}
 	return nil
 }
@@ -216,40 +246,45 @@ func sortedCodes(raises model.Raises) []string {
 
 // checkChildOutputType: the child's declared output must NarrowsTo the parent's
 // result_schema — the output analogue of the input subset check. NarrowsTo (not IsSubset)
-// is THIS slot's privilege alone: collect conforms the value at runtime, so an unknown {}
-// is backed by a real check. Skipped when either side declares nothing.
-func checkChildOutputType(prefix string, child *model.ProcessDefinition, resultSchema *schema.Schema) error {
-	if resultSchema == nil {
-		return nil
-	}
-	childOut, ok, err := processOutputType(child)
+// is this slot's privilege and the error channel's alike: collect conforms the value at
+// runtime, so an unknown {} is backed by a real check.
+func checkChildOutputType(prefix string, sf SchemaFile, resultSchema *schema.Schema) error {
+	childOut, ok, err := schemaFileOutput(sf)
 	if err != nil {
 		return fmt.Errorf("%s: %w", prefix, err)
 	}
 	if !ok {
 		return nil
 	}
-	if !childOut.NarrowsTo(*resultSchema) {
-		return fmt.Errorf("%s: the child's output type is not compatible with the declared result_schema", prefix)
+	if childOut.NarrowsTo(*resultSchema) {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("%s: the child's output type is not compatible with the declared result_schema: %s",
+		prefix, narrowBreaks(childOut, *resultSchema))
 }
 
-// processOutputType infers and RESOLVES the definition's output (Generate returns a $ref
-// into its own $defs; resolving makes it comparable against another pool). ok=false =
-// no declared output = open type = nothing to check, at every caller.
-func processOutputType(def *model.ProcessDefinition) (schema.Schema, bool, error) {
-	if !def.Output.Present() {
-		return schema.Schema{}, false, nil
+// narrowBreaks words every place `actual` fails to narrow to `declared`, in the relation's own
+// walk order. Both channels print through here, so a caller reads the same sentence whichever
+// broke. Wording only — compat.go's explainer carries why it lives beside the check.
+func narrowBreaks(actual, declared schema.Schema) string {
+	breaks := actual.ExplainNarrowsTo(declared)
+	parts := make([]string, 0, len(breaks))
+	for _, b := range breaks {
+		switch {
+		case b.Kind == schema.BreakMissingRequired:
+			parts = append(parts, fmt.Sprintf("%s: declared required, never set", b.Path))
+		case b.Path == "":
+			parts = append(parts, fmt.Sprintf("%s is not accepted where %s is expected", b.Sub, b.Super))
+		default:
+			parts = append(parts, fmt.Sprintf("%s: %s → %s", b.Path, b.Sub, b.Super))
+		}
 	}
-	sf, err := Generate(def)
-	if err != nil {
-		return schema.Schema{}, false, fmt.Errorf("infer output type: %w", err)
-	}
-	return schemaFileOutput(sf)
+	return strings.Join(parts, "; ")
 }
 
-// schemaFileOutput is processOutputType for a caller that already holds the SchemaFile.
+// schemaFileOutput RESOLVES a definition's inferred output (Generate returns a $ref into its
+// own $defs; resolving makes it comparable against another pool). ok=false = no declared
+// output = open type = nothing to check, at every caller.
 func schemaFileOutput(sf SchemaFile) (schema.Schema, bool, error) {
 	if sf.ProcessOutput.IsZero() {
 		return schema.Schema{}, false, nil
@@ -307,8 +342,5 @@ func validateChildListEntry(taskID string, action *model.Action, ctx schema.Sche
 	// result_schema types each element of the child_list output, and each child's output
 	// is validated against it individually — so the per-child check is childOutput ⊆
 	// action.ResultSchema, the same shape as child_map's.
-	if err := checkDeclaredRaises(prefix, child, childVersion, action.Raises); err != nil {
-		return err
-	}
-	return checkChildOutputType(prefix, child, action.ResultSchema)
+	return checkChildContract(prefix, child, childVersion, action.ResultSchema, action.Raises)
 }

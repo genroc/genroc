@@ -253,6 +253,12 @@ func (s Schema) ExplainSubsetAsStored(super Schema) []*SubsetBreak {
 	return subsetBreaks(s.n, super.n, subsetMode{absentAsNull: true, afterConform: true})
 }
 
+// ExplainNarrowsTo is ExplainSubset for the NarrowsTo relation, and carries its soundness
+// condition with it: only a slot whose value is conformed against super at runtime.
+func (s Schema) ExplainNarrowsTo(super Schema) []*SubsetBreak {
+	return subsetBreaks(s.n, super.n, subsetMode{narrow: true})
+}
+
 // ─── Secrets ────────────────────────────────────────────────────────────────────
 
 // IsSecret looks through nullable / single-variant union wrappers.

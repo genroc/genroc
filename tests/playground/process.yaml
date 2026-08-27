@@ -72,8 +72,8 @@ $defs:
     type: object
     properties:
       name: { type: string }
-      message: { type: string }
-    required: [name, message]
+      stack: { type: [string, "null"] }
+    required: [name, stack]
 
   geo_response:
     type: object

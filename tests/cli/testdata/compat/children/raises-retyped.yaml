@@ -1,15 +1,20 @@
 # The same declaration, a different shape underneath it: the handler still reads the field, so
 # the break lands on what it reads rather than on the slot that was edited — and it reaches the
 # CONTRACT too, because this handler projects the value into the process output.
+#
+# The kid's payload is OPAQUE (it forwards an untyped input) so that both declarations register:
+# registration checks a caller's `raises` against what the child actually raises, and a typed
+# payload would refuse the retyped side before compat ever ran.
 apply:
   - channel: retyped_a
     definitions:
       - name: retyped_kid
+        input_schema: {type: object, properties: {why: {}}}
         tasks:
           - id: charge
             switch:
               - case: "true"
-                raise: {code: declined, message: "no", data: {why: "card"}}
+                raise: {code: declined, message: "no", data: {why: '$: input.why'}}
               - goto: end
       - name: retyped_boss
         tasks:
@@ -30,11 +35,12 @@ apply:
   - channel: retyped_b
     definitions:
       - name: retyped_kid
+        input_schema: {type: object, properties: {why: {}}}
         tasks:
           - id: charge
             switch:
               - case: "true"
-                raise: {code: declined, message: "no", data: {why: "card"}}
+                raise: {code: declined, message: "no", data: {why: '$: input.why'}}
               - goto: end
       - name: retyped_boss
         tasks:
