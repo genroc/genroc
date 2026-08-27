@@ -307,17 +307,21 @@ one type where one rule reaches one handler.
   carrying no response at all (`pre.*`, `http.timeout`, `http.disconnected`,
   `only_once.interrupted`, a child
   raise), which is most of the set — nullable is not a formality.
-- **`error.data` persists like a task output, which is a change: `error` is not a value-slot
-  today.** `encodeContext` marshals it straight into the `error_internal` column
-  ([db_instances.go:203](../internal/db/db_instances.go#L203)) — no envelope, nothing
-  externalized, nothing resolved lazily. Outputs are enveloped **per task id**, which is what
-  keeps one big output from dragging the rest through an object load, so the faithful
-  translation envelopes `error.data` **alone** and leaves `task`/`message`/`code` inline;
-  otherwise every `error.code` read in an `on_error` handler pays for a body it never asked
-  for. Pinning, dereference and GC then apply unchanged, and `buildEnv` resolves an
-  `error.data` marker beside the `outputs.<id>` and `self.previous` ones it already handles.
-  The stored shape of `error_internal` changes with it — in-flight instances in an existing
-  database do not survive that, which a prototype can accept and a release could not.
+- **`error.data` persists like a task output, which is a change: `error` was not a value-slot
+  when this was written.** *Built, and by a simpler answer than the one below.* `error` is now
+  an ORDINARY cut slot — `encodeState` puts it through the same `cut` as every other value
+  ([db_instances.go:207](../internal/db/db_instances.go#L207)) — with no per-field envelope at
+  all. The worry the envelope existed for (every `error.code` read in an `on_error` handler
+  paying for a body it never asked for) is answered on the READ side instead: `model.Context`
+  walks to the path and loads only what that path needs (lazy-context.md), so cheapness is the
+  accessor's job rather than the column's. The plan it replaces is kept below because the
+  reasoning about *where* the cost lands is what chose the accessor.
+
+  > Outputs are enveloped **per task id**, which is what keeps one big output from dragging the
+  > rest through an object load, so the faithful translation envelopes `error.data` **alone**
+  > and leaves `task`/`message`/`code` inline. Pinning, dereference and GC then apply unchanged.
+  > The stored shape of `error_internal` changes with it — in-flight instances in an existing
+  > database do not survive that, which a prototype can accept and a release could not.
 
 - Keys need a splitter in front of `ValidStatusPattern`, which validates one pattern: split on
   commas, trim, validate each, reject an empty element or a repeat within a key. Specificity,

@@ -512,8 +512,8 @@ version ordered them, then the output; then the added tasks.
 
 ### 6d. On the wire
 
-`genctl` reconstructs a finding by peeling the path off a reason string at the first space
-(`splitReason`). Nothing can key off that — a bracket-quoted key may contain a space. **A
+`genctl` reconstructed a finding by peeling the path off a reason string at the first space
+(`splitReason`, deleted below). Nothing can key off that — a bracket-quoted key may contain a space. **A
 finding must arrive addressed**, and the CLI parses no prose:
 
     {"name":"p","status":"compared","from":1,"to":2,

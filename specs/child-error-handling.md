@@ -125,6 +125,12 @@ in an `on_error` rule, which puts the new code into *its* raise set.
   `child.failed` rejection: an empty raise set makes any pattern unreachable.
 - **R6 — a code is a raise code or a panic code, never both.** Otherwise `error_code` means
   two things on one process, for exactly the observers it serves.
+- **R7 — a declared payload must be one the code can carry.** *Added 2026-08-27.* Beside R5's
+  question about the code, `raises[code]` is checked against the payload type the child's raise
+  clauses actually produce: `NarrowsTo`, the same relation and the same soundness condition as
+  `result_schema` (collect conforms it, so an unknown may be narrowed). Two clauses on one code
+  union; a clause attaching nothing types as `null`, since the slot is cleared.
+  specs/error-extensions.md §X2-c.
 
 ### 3.1 What R5 does and does not catch
 
@@ -302,8 +308,8 @@ Five things break silently:
   (`child.go`) — which is what §10.1's "unbounded" means. A count the parent never rewrites is
   what terminates the loop.
 - **Per-slot admission needs a per-slot conform.** A payload failing its declaration replaces
-  the code, and the code picks the rule, so every raised slot is conformed each round where
-  today only `raised[0]` is.
+  the code, and the code picks the rule, so every raised slot is conformed each round — where
+  before §5.5 only `raised[0]` was. Built: `admitRetries` loops the batch through `slotError`.
 - **Dispatch is `outcomeSpawn` but not `SpawnChildrenAndWait`.** That primitive refuses a
   parent whose `wait_state` is not `''`, and a retrying parent's row reads `collecting`. The
   supersede, the inserts and the park must be one transaction, or a crash leaves a slot with
@@ -343,6 +349,9 @@ the collect, and, on the shiftable clock, that the delay runs from the failure.
   (reading it is a registration error), and a payload that does not fit its declaration
   reports `output.invalid` in place of the raised code. The original "no data crosses" rule
   is out; what survives is the half that mattered — the caller asks by name.
+  **Amended 2026-08-27:** a declaration is checked against the child's inferred payload at
+  registration (R7), so `output.invalid` is reached only by a payload registration cannot
+  type — the top type a generic wrapper forwards.
 - **E6 amended 2026-08-22 (built).** §2.4's "nothing else they can see" no longer holds
   exactly: a child task's catchable set is `raises(D) ∪ {output.invalid}`, the
   `result_schema` conform having moved off `engine.collect` so a caller narrowing an

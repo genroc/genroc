@@ -12,8 +12,10 @@ Two deviations from the draft as shipped:
   pass. It is an ordinary fenced `UpdateInstanceProgress` that releases; the result lands
   durably in `external_data` and the next claim resumes via `runExternal` phase 2. Retired
   for uniformity ("no outcome keeps the lease") at the cost of one claim round trip per
-  pre-buffered signal; the pop still rolls back with a refused write. `SetExternalResult`
-  is therefore unfenced — its only callers act on parked rows under the row lock.
+  pre-buffered signal; the pop still rolls back with a refused write. The inbound write is
+  therefore unfenced — its only callers act on parked rows under the row lock. (That write was
+  `SetExternalResult` then, `SetExternalOutcome` after; both are gone — see
+  [external-outcome-as-signal.md](external-outcome-as-signal.md) — and `DeliverSignal` is it now.)
 - The migration is 025, not 024 (taken by then).
 
 ## Motivation
@@ -83,11 +85,11 @@ predicate it passed on the still-matching epoch.
 | `FinishChild` | child's `UpdateInstance` | `WakeParent` |
 | `FailInstanceAndAncestors` | child's `UpdateInstance` | `FailAncestors`, `WakeParent` |
 | `SpawnChildrenAndWait` | parent's `UpdateInstance` | every `InsertInstance` |
-| `ArmExternalOrConsumeSignal` | `UpdateInstanceProgress` (consume) / `UpdateInstance` (park) | `PopOldestSignal` |
+| `ArmExternalUnlessSignalled` | `UpdateInstanceProgress` (skip park) / `UpdateInstance` (park) | — |
 
 Deliberately unfenced: inserts (no prior grant); operator verbs (pause/resume/retry act
 on rows regardless of holder — retry binds the epoch it read under the tree lock, a
-no-op); `ResolveExternalTask`/`DeliverSignal`/`SetExternalResult` (parked rows under the
+no-op); `ResolveExternalTask`/`DeliverSignal` (parked rows under the
 row lock); `FailAncestors`/`WakeParent` (rows this worker never held — their right
 derives from the fenced child write in the same transaction); log and object writes
 (append-only; a trail that survives a lost lease is the point). Revival needs no bump of

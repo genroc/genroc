@@ -54,7 +54,7 @@ provably-empty `maxItems: 0` (the `?? []` idiom — same lesson as
 scalar → its kind (`json.Number` splits integer from number). `IsSubset` gained the
 array arm. Null at a slot root means absent (pointer-nil); nested null is a value.
 
-Two operations, the engine's existing split: `Fits` (author time — inferShape then
+Two operations, the engine's existing split: `Shape.Check` (author time — infer then
 IsSubset; untyped into typed refused) and eval + `conform` (runtime — validates and
 fills defaults).
 
@@ -73,7 +73,7 @@ residual indentation does not defeat detection).
 ## Where it applies
 
 - Free projection, no schema (task/process `output`, fetch `body`, external `input`):
-  grammar applies, `Fits` skipped.
+  grammar applies, `Shape.Check` skipped.
 - Target schema exists (child `input` ⊆ input_schema; `headers` against
   `object<string>`): checked.
 - String positions (`url`, `method`): templates, checked non-null against `string`.
@@ -84,7 +84,7 @@ residual indentation does not defeat detection).
   downstream analysis needs their concrete values.
 
 Deferred, with this grammar as prerequisite: per-action payload schemas (collapsing
-`validateActionRequiredFields` into one `Fits`), the fetch payload pull-out, the
+`validateActionRequiredFields` into one `Shape.Check`), the fetch payload pull-out, the
 `unknown` result type.
 
 ## Editor schema
@@ -116,7 +116,7 @@ expression escape hatch), applied recursively. Decisions that bit:
   `TestProcessSchemaShape`.
 - Sigils settled: `$:` and `${}`; `$()` rejected (reads as a call). No trailing-space
   rule.
-- Open: author-time strictness on unknown object keys (runtime conform strips; `Fits`
+- Open: author-time strictness on unknown object keys (runtime conform strips; `Shape.Check`
   should probably reject so editors flag typos). Homogeneous arrays only (matches the
   engine's single `items`). Object spread (`...$:`) deferred — order-dependent override
   needs an ordered representation, and both `...` and `$:` need quoting; net-new in the

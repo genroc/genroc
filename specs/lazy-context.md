@@ -30,7 +30,7 @@ loads what that path needs and nothing else.
 
 1. Five on-disk shapes for one idea (`Envelope`, the `outputs` wrapper, `error.data`,
    `external_data`'s sibling `objects` key, `engine_state`), and `loaded` collected by hand at
-   five sites in `decodeContext`. [fixed -- see §1]
+   five sites in `decodeState`. [fixed -- see §1]
 2. `Roots` is name-level (`Outputs []string`), and `buildEnv` resolves whole slots before eval.
 3. `resolveNested` **writes back through `inst.ContextData`**. First read destroys the markers,
    so the next write re-marshals and re-hashes the slot to arrive at the hash it already had.
@@ -102,8 +102,8 @@ it walked, so `error.code` always paid for the body. `Through.ErrorData` restore
 
 ### 4. Resolution is a view, never a write-back
 
-The engine materializes exactly the analysed path set into the expression env; `ContextData`
-keeps its markers for the whole advance. Three consequences:
+The engine materializes exactly the analysed path set into the expression env; the context's
+own map (`Context.Data()`) keeps its markers for the whole advance. Three consequences:
 
 - a slot read once is not re-marshalled and re-hashed by the next write;
 - a value nothing read flows into the next write as its reference (wish 3);

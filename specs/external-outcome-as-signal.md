@@ -30,13 +30,13 @@ Three costs, and the third is the one that is not obvious:
 2. **It is the store's last asymmetry.** The outcome lives inside `external_data`, so its
    references are rooted at `_external.result` while the context key is `_external_result`. That
    is the only place in the store where an `objects` path does not address the context, and it
-   forces an ordering constraint nothing declares: `decodeContext` must place references *before*
+   forces an ordering constraint nothing declares: `decodeState` must place references *before*
    it lifts the outcomes onto their own keys.
 3. **The outcome is written UNCUT and UNDECLARED.** `SetExternalOutcome` holds only the instance
    row lock and has no reference set to reconcile, so `withExternalKeys` writes the value inline
    whatever its size — no cut, no `objects` entry, no claim. A large submitted result sits on the
    row until some later full write tidies it. Routed through the buffer instead, the engine
-   consumes it under lease and writes it through the ordinary `encodeContext`: cut, declared,
+   consumes it under lease and writes it through the ordinary `encodeState`: cut, declared,
    claimed, like every other value.
 
 ## Design
@@ -85,7 +85,7 @@ about the arm, where the database arbitrates park-xor-consume under the row lock
 
 `withExternalOutcome`, `withExternalSlot`, `SetExternalOutcome`; the `_external_result` and
 `_external_error` context keys; the `result` / `has_result` / `error` / `has_error` keys in the
-column; the arm's pop-and-write branch; and `decodeContext`'s lift-after-place ordering.
+column; the arm's pop-and-write branch; and `decodeState`'s lift-after-place ordering.
 `external_data` becomes the parked bookkeeping and nothing else. `withExternalKeys` stays for the
 `lost` marker.
 
@@ -115,7 +115,7 @@ Two things came out better than the design said, and one worse:
 - **Better:** the pre-buffered case costs one advance, not two (above).
 - **Better:** `withExternalSlot` / `withExternalOutcome` are gone entirely rather than shrunk, and
   with them the `result` / `has_result` / `error` / `has_error` keys, the `_external_result` and
-  `_external_error` context keys, `SetExternalOutcome`, and `decodeContext`'s lift-after-place
+  `_external_error` context keys, `SetExternalOutcome`, and `decodeState`'s lift-after-place
   ordering. `external_data` now holds one context key, so its `objects` paths address the context
   like every other slot's — the store has no non-uniform corner left.
 - **Worse:** a failure to READ the buffer during an advance has nowhere clean to go. `advance`

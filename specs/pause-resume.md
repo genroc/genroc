@@ -61,7 +61,7 @@ beside `failed`, leaving `paused` untouched.
    automatically".
 6. **Delivery is not advancement.** A paused instance still accepts signals (rejecting
    would make a pause lose events). Armed → delivered but not advanced
-   (`SetExternalResult` leaves status alone); unreached → buffered. Treating
+   (`DeliverSignal` leaves status alone); unreached → buffered. Treating
    paused-but-armed as unarmed looks safer and is not: an armed task never re-arms, so
    the buffered result would sit unread forever (caught by a test, not review). The
    external-task queue excludes paused rows — resolve would reject the submission.

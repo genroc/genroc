@@ -127,7 +127,8 @@ This started as a complication and became a deletion. There are two redaction me
   body: (a) learns values from the instance context, and a response body never enters the
   context — only the projected output does.
 
-(b) was the hard one to move, because it runs at the call site inside `snippetResult`, collapsing
+(b) was the hard one to move, because it runs at the call site inside the audit snippet
+(`Engine.snippet`), collapsing
 value to string *before* `audit()` is called — so audit has no unredacted version left to store.
 Config-only removes (b) outright rather than solving it: with no `secret: true` in `responses`,
 there is nothing for it to blank.
@@ -647,7 +648,7 @@ on every run — and it is the same code a worker needs.
 1. **Cross-instance dedup**, immediately, for every externalized value — not just code.
 2. **A place to own definition-embedded values.** A large Shape literal externalizes at
    `PUT /definitions` under a `definition` ref, evaluation passes the `ObjectRef` leaf through
-   unchanged (`encodeContextValue` already does exactly this), and `external_data` holds
+   unchanged (the slot cut already does exactly this), and `external_data` holds
    `{code: {ref, size}}` instead of 221 KB.
 3. **A cacheable handle for workers.** A sha256 ref is immutable by construction, so a worker
    fetches once and caches forever with no invalidation problem. The claim response shrinks to
@@ -656,19 +657,21 @@ on every run — and it is the same code a worker needs.
 
 ## Choosing what to externalize: a size-driven cut
 
-Status: **BUILT 2026-08-24** (`internal/db/objectcut.go`), for the task-input slot. Context slots
-still use the whole-slot rule; moving them onto the same cut is the remaining half.
+Status: **BUILT 2026-08-24** (`internal/db/objectcut.go`) for the task-input slot; **context
+slots followed**, so `cutSlot` now runs the same `cutForSize` against `contextObjectThreshold`
+and the two rules below are both gone.
 
-### What is wrong with both current rules
+### What was wrong with the two rules this replaced
 
-There are two, and neither is about the thing that matters — how big the row ends up:
+Neither was about the thing that matters — how big the row ends up:
 
-- **Whole-slot, over 2 KiB** (`encodeContextValue`, for context slots). All or nothing: a 2.1 KiB
-  slot goes out entirely, and a slot's small fields travel to the object store with its big one.
-- **Per-leaf, over 2 KiB** (`externalizeLeaves`, for a task input). Independent of the total, so a
-  value of a hundred 1 KiB leaves — 100 KB — stays fully inline because no single leaf crosses
-  the line, while a value of two 3 KiB leaves externalizes both even though removing one would
-  have been enough.
+- **Whole-slot, over 2 KiB** (`encodeContextValue`, for context slots; removed). All or nothing:
+  a 2.1 KiB slot went out entirely, and a slot's small fields travelled to the object store with
+  its big one.
+- **Per-leaf, over 2 KiB** (`externalizeLeaves`, for a task input; removed). Independent of the
+  total, so a value of a hundred 1 KiB leaves — 100 KB — stayed fully inline because no single
+  leaf crossed the line, while a value of two 3 KiB leaves externalized both even though removing
+  one would have been enough.
 
 Both ask "is this piece big" when the question is "is the row still too big".
 

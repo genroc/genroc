@@ -153,11 +153,11 @@ per-definition field).
   (`armed && !liveLeased`), and the row-write branch is the store's last non-uniform corner: an
   outcome's references are rooted at `_external.result` while its context key is
   `_external_result`, which is the only `objects` path that does not address the context and
-  forces `decodeContext` to place references before it lifts the outcomes. The reason that is
+  forces `decodeState` to place references before it lifts the outcomes. The reason that is
   worth spending a change on is the third cost rather than the tidiness: `SetExternalOutcome`
   holds only the row lock and has no reference set to reconcile, so it writes the outcome **uncut
   and undeclared** whatever its size — through the buffer, the engine consumes it under lease and
-  writes it through the ordinary `encodeContext`. Names the one implementation trap (phase 2 must
+  writes it through the ordinary `encodeState`. Names the one implementation trap (phase 2 must
   READ in advance and POP in persist; consume-then-yield adds a poll interval to every external
   task, which for the evaluator is every script task) and the behaviour change to state rather
   than discover: FIFO order replaces phase 2a's read-the-failure-first arbitration.

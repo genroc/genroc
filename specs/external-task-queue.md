@@ -189,6 +189,8 @@ the row and un-park — and `runExternal` routes it on the next claim:
 
 - `external_data` gains `error` + `has_error`; `model.CtxExternalError`;
   `SetExternalResult` generalises to `SetExternalOutcome` (still unfenced, same reason).
+  *Both were later removed with the outcome-as-signal change —
+  [external-outcome-as-signal.md](external-outcome-as-signal.md); `DeliverSignal` is the write now.*
 - Phase 2 checks `_external_error` first and calls `handleCallErrorWith(..., {"data":
   payload})` — the path an unaccepted `fetch` response already takes, so `error.data` means
   the same on both.

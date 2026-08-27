@@ -82,7 +82,7 @@ task would become permanently unretryable because of a default it never set.
 
 ## 3. Retry backoff had no jitter, and overflowed
 
-`RetryDelay` was `2^attempt` seconds capped at 5 minutes, with no randomization.
+`retryDelay` was `2^attempt` seconds capped at 5 minutes, with no randomization.
 
 **Thundering herd.** Every instance that failed against the same outage retried at exactly
 1s, 2s, 4s… from its own failure. Because the poll loop already aligns wakeups, those
@@ -179,7 +179,8 @@ property in place.
   protocol change rather than a limit. Both transports are opt-in via flag, unlike the HTTP
   listener.
 - **`retries` has no upper bound at registration.** The overflow it used to cause is fixed
-  in `RetryDelay`, so a large value is now merely a long-running retry loop — the author's
+  in `retryDelay` (`internal/engine/backoff.go`), so a large value is now merely a
+  long-running retry loop — the author's
   choice — but nothing tells them the delay stops growing after attempt 9.
 - **No metrics.** `/healthz` answers "is this worker serving"; it does not answer "how many
   instances are in flight, how deep is the backlog, how often are leases being taken over".

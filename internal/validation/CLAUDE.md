@@ -6,14 +6,16 @@
 `CompareSet` (`compat.go`) read two **documents** and never see an instance, so they must
 assume every reachable state and report a structural difference wherever one exists —
 without judging whether it would hurt. That judgement needs a position (which task an
-instance sits on, which keys its row actually holds), and belongs to the upgrade gate, which
-is **not built yet**.
+instance sits on, which keys its row actually holds), and belongs to the upgrade gate —
+`MigrateState` / `InFlightResultBreaks` in `upgrade.go`, **built**, and specified in
+specs/version-compatibility.md.
 
 Two imprecisions follow, and neither is a bug to fix here: a branch that only sometimes runs
 makes its output merely optional, and a new main-line task carrying an `output` becomes
 required at every later task even where nothing reads it. **Nothing added here may turn a
-tolerable verdict into a refusal**, or a later gate built on top of it would be unsound while
-still returning a bool.
+tolerable verdict into a refusal** — the gate refines the first of those with the row it
+holds (version-compatibility.md §1) and refines the second not at all, so a verdict this side
+hardens is one the gate can no longer soften.
 
 The second imprecision looks like it wants pruning — require only what is read from here on
 — and that was built and **reverted**. It is not monotone, it is unsound: pruning leaves the

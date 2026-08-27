@@ -179,6 +179,16 @@ you reach for when you must.
 > `error.data.kind` inline — must be judged as a proposal to dissolve this, not as an
 > ergonomic tidy-up.
 
+**The guard was dissolved 2026-08-27, deliberately** — `case` on `on_error` shipped
+(child-error-handling.md M2). The warning above was answered rather than overlooked, and by an
+argument this section did not have: a rule's `case` keeps the instance on the task that FAILED,
+where `retry` can still act, while a handler that classifies leaves it standing past the batch
+(M2, "what it removes is a task, and that is the point"). So argument 2's gradient no longer
+holds as written — branching on error data costs one line now, not a whole task — and the guard
+that survives is a different one: **a `case` reads only what the caller declared under `raises`
+for the codes its rule names**, so data still has to be asked for by name. Argument 3, which
+decides the shape, is untouched.
+
 **Third argument, which decides the shape rather than the yes/no:** the gap is created
 by *reuse*. `evaluator/README.md` shows the intended pattern — call the script inline,
 branch on `error.data.name == "LimitExceeded"`, mint a specific code. That works today.
@@ -361,15 +371,16 @@ first. It did: **built 2026-08-22**, ahead of the rest. Three notes:
 - **A split, not a rename.** Only the conform becomes `output.invalid`. The four other
   failures reaching the same `failInstance` are corruption rather than contract — a
   sibling that is not `completed` ("an invariant, not a case to handle"), a single-child
-  task with ≠1 sibling, an invalid `_spawn_index`, and object-store resolution failing in
-  `resolveValue`. Those stay `engine.collect`.
+  task with ≠1 sibling, an invalid `_spawn_index`, and object-store resolution failing while
+  the value is materialised. Those stay `engine.collect`.
 - **It amends E6.** §2.4 of child-error-handling.md justifies the no-namespace rule with
   "there is nothing else they can see: every other failure path … goes straight to
   `failInstance`". A child task's catchable set becomes `raises(D) ∪ {output.invalid}`.
   That stays unambiguous for the reason §2.4 itself gives — R1 forbids dots in raised
   codes and every engine code has one — but the sentence is false as written.
-- **R5 admits the one dotted code.** `matchesSomeRaise` rejects
-  `code: ["output.invalid"]` on a child task today.
+- **R5 admits the one dotted code** (built): `matchesSomeRaise` unions
+  `errcode.OutputInvalid` into the raisable set, so `code: ["output.invalid"]` on a child
+  task is reachable rather than rejected.
 
 On the raise path the code is **replaced**, so a rule matching the original raised code no
 longer fires — the fetch precedent, where a declared body that fails validation means
