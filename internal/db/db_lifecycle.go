@@ -524,7 +524,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 	// the outer FOR UPDATE (Postgres) locks.
 	rows, err := exec.QueryContext(ctx, subtreeCTE+`
 		SELECT `+instanceColumns+` FROM process_instances
-		WHERE id IN (SELECT id FROM subtree)
+		WHERE id IN (SELECT id FROM subtree) AND superseded_at IS NULL
 		ORDER BY id`+db.forUpdate(), id)
 	if err != nil {
 		return LifecycleResult{}, fmt.Errorf("lock tree: %w", err)
@@ -616,7 +616,9 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (Lifecycl
 		if node.Task != "" {
 			// Scoped to the epoch that identifies THIS batch: children live under
 			// (parent_id, spawn_task_id), which a spawn task re-entered by a loop reuses,
-			// so an unscoped lookup hands the walk two generations at once.
+			// so an unscoped lookup hands the walk two generations at once. Retired
+			// attempts are already out -- the tree read excludes superseded rows, which are
+			// terminal history no revival may treat as the slot's live occupant.
 			var kids []*model.ProcessInstance
 			for _, k := range children[node.ID][node.Task] {
 				if k.ParentTaskEpoch == node.TaskEpoch {

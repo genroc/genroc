@@ -1,0 +1,14 @@
+-- superseded_at retires one attempt at a batch slot without deleting it.
+--
+-- A retry replaces a raised child with a fresh one in the SAME batch (child-error-handling.md
+-- §5.5, §12), so the batch briefly holds two rows for one slot. The collect must see only the
+-- live one: otherwise buildChildOutput merges two values into one key and raisedInSlotOrder
+-- routes the raise the replacement was spawned to clear.
+--
+-- Kept rather than deleted because the retired row IS the attempt history -- its logs, its
+-- output, its object claims -- and a detail view rebuilds the chain from it.
+--
+-- CountActiveSiblings deliberately gains no predicate: a retired row is 'raised', hence
+-- already outside its "not settled" test. Adding one there would be dead weight on the
+-- child-settle hot path.
+ALTER TABLE process_instances ADD COLUMN superseded_at BIGINT;

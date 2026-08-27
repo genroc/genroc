@@ -117,6 +117,8 @@ type CountActiveSiblingsParams struct {
 // Only completed/failed/raised are settled; a paused sibling counts as active, so a
 // parent never collects while a child is suspended. 'raised' must stay or the parent
 // hangs in 'waiting'. The SQL half of model.Status.Terminal(); kept in step by hand.
+// No superseded_at predicate on purpose: a retired attempt is 'raised', so it is already
+// outside this test, and the check would cost the child-settle hot path nothing but time.
 func (q *Queries) CountActiveSiblings(ctx context.Context, arg CountActiveSiblingsParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countActiveSiblings, arg.ParentID, arg.SpawnTaskID, arg.ParentTaskEpoch)
 	var count int64
@@ -380,11 +382,12 @@ SELECT id, process_name, process_version, parent_id,
        input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data
+       next_replayable, error_data, superseded_at
 FROM process_instances
 WHERE parent_id = ?1
   AND spawn_task_id = ?2
   AND parent_task_epoch = ?3
+  AND superseded_at IS NULL
 `
 
 type GetChildrenForTaskParams struct {
@@ -435,6 +438,7 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.Objects,
 			&i.NextReplayable,
 			&i.ErrorData,
+			&i.SupersededAt,
 		); err != nil {
 			return nil, err
 		}
@@ -507,7 +511,7 @@ SELECT id, process_name, process_version, parent_id,
        input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data
+       next_replayable, error_data, superseded_at
 FROM process_instances
 WHERE id = ?1
 `
@@ -554,6 +558,7 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.Objects,
 		&i.NextReplayable,
 		&i.ErrorData,
+		&i.SupersededAt,
 	)
 	return i, err
 }
@@ -921,7 +926,7 @@ SELECT id, process_name, process_version, parent_id,
        input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data
+       next_replayable, error_data, superseded_at
 FROM process_instances
 WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
   AND (process_instances.id = ?1
@@ -980,6 +985,7 @@ func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]Proces
 			&i.Objects,
 			&i.NextReplayable,
 			&i.ErrorData,
+			&i.SupersededAt,
 		); err != nil {
 			return nil, err
 		}

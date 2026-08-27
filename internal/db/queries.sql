@@ -151,7 +151,7 @@ SELECT id, process_name, process_version, parent_id,
        input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data
+       next_replayable, error_data, superseded_at
 FROM process_instances
 WHERE id = sqlc.arg(id);
 
@@ -211,6 +211,8 @@ WHERE id IN (
 -- Only completed/failed/raised are settled; a paused sibling counts as active, so a
 -- parent never collects while a child is suspended. 'raised' must stay or the parent
 -- hangs in 'waiting'. The SQL half of model.Status.Terminal(); kept in step by hand.
+-- No superseded_at predicate on purpose: a retired attempt is 'raised', so it is already
+-- outside this test, and the check would cost the child-settle hot path nothing but time.
 SELECT COUNT(*) FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id)
@@ -238,11 +240,12 @@ SELECT id, process_name, process_version, parent_id,
        input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data
+       next_replayable, error_data, superseded_at
 FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id)
-  AND parent_task_epoch = sqlc.arg(parent_task_epoch);
+  AND parent_task_epoch = sqlc.arg(parent_task_epoch)
+  AND superseded_at IS NULL;
 
 -- name: ChildrenOfInstance :many
 -- Every child a parent has spawned, for the detail view. Derived from parent_id rather than
@@ -460,7 +463,7 @@ SELECT id, process_name, process_version, parent_id,
        input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data
+       next_replayable, error_data, superseded_at
 FROM process_instances
 WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
   AND (process_instances.id = sqlc.arg(root)

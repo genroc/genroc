@@ -85,6 +85,7 @@ type ProcessInstance struct {
 	Objects                string
 	NextReplayable         int64
 	ErrorData              string
+	SupersededAt           sql.NullInt64
 }
 
 type ProcessLog struct {
