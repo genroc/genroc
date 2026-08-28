@@ -768,7 +768,8 @@ holding a worker, then routes via <code>switch</code>. Exactly one of the two.</
 
 <table><thead><tr><th>Field</th><th>Accepts</th></tr></thead><tbody><tr><td><code>for</code></td><td><code>&quot;2h30m&quot;</code>, <code>&quot;1d 12h&quot;</code> (units <code>ms</code>, <code>s</code>, <code>m</code>, <code>h</code>, <code>d</code>, <code>w</code>, <code>mo</code>, <code>y</code>), a bare number of milliseconds, or a <code>$:</code> expression evaluating to milliseconds. A quoted number without a unit is rejected as ambiguous.</td></tr><tr><td><code>until</code></td><td><code>&quot;2026-09-01T08:00:00+02:00&quot;</code> (RFC 3339), <code>&quot;2026-09-01 08:00&quot;</code> (in <code>tz</code>), <code>&quot;+2d 08:00&quot;</code>, <code>&quot;*-*-01 08:00&quot;</code>, <code>&quot;mon 09:00&quot;</code>, <code>&quot;*:*:00&quot;</code> (every whole minute; any clock field may be <code>*</code> or a base/step — <code>&quot;*:*:0/5&quot;</code> is every five seconds), a bare number of unix milliseconds, or a <code>$:</code> expression evaluating to unix milliseconds. An instant already past resolves immediately.</td></tr><tr><td><code>tz</code></td><td>IANA name (<code>&quot;Europe/Prague&quot;</code>) or fixed offset (<code>&quot;+02:00&quot;</code>). Defaults to UTC. Abbreviations such as <code>CET</code> are rejected — they are ambiguous across DST.</td></tr></tbody></table>
 <h3 id="external"><code>external</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#external"><span></span></a></h3>
-<p>Parks the instance until an outside caller submits a result through the external-tasks API.
+<p>Parks the instance until an outside caller submits a result — by <code>signal</code> (instance id + task
+id), or by claiming the task and resolving the token that claim returns.
 No worker is held while waiting.</p>
 
 
@@ -817,7 +818,7 @@ endpoints take either:</p>
 
 
 
-<table><thead><tr><th></th><th>addressed by</th><th>unarmed task</th></tr></thead><tbody><tr><td><code>POST /api/external-tasks/resolve</code></td><td>a <code>token</code> (from the queue, or from a claim)</td><td>rejected — the token names a live arming</td></tr><tr><td><code>POST /api/instances/{id}/signal</code></td><td>instance id + <code>task_id</code></td><td>buffered FIFO until the task next arms</td></tr></tbody></table>
+<table><thead><tr><th></th><th>addressed by</th><th>unarmed task</th></tr></thead><tbody><tr><td><code>POST /api/external-tasks/resolve</code></td><td>a <code>token</code> (formed from the instance, or returned by a claim)</td><td>rejected — the token names a live arming</td></tr><tr><td><code>POST /api/external-tasks/signal</code></td><td><code>instance_id</code> + <code>task_id</code></td><td>buffered FIFO until the task next arms</td></tr></tbody></table>
 <p>An <code>error</code> is routed through the task’s <code>on_error</code> rules exactly like a call error:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="jsonc"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">// POST /api/external-tasks/resolve</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">{</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">token</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">…</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">result</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">fee</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 25</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">          // the success channel</span></span>
@@ -879,9 +880,8 @@ stays parked, and the caller can answer again with a corrected one.</p>
 spell an engine code such as <code>http.500</code> or <code>external.timeout</code> and be caught by a rule written
 for the wire.</p>
 <h4 id="pulling-work-claim-renew-release">Pulling work: claim, renew, release<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#pulling-work-claim-renew-release"><span></span></a></h4>
-<p><code>GET /api/external-tasks</code> lists the queue and <code>POST /api/external-tasks/resolve</code> answers it — enough
-for a person or a webhook. A <strong>worker fleet</strong> wants the pull half instead, so two of them do
-not run the same task:</p>
+<p>A person or a webhook that already knows the instance answers it directly: <code>POST /api/external-tasks/signal</code> needs no token at all, and buffers if the task is not armed yet.
+A <strong>worker fleet</strong> wants the pull half instead, so two of them do not run the same task:</p>
 
 
 
@@ -905,9 +905,9 @@ not run the same task:</p>
 
 <table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>POST /api/external-tasks/claim</code></td><td>leases parked tasks to a <code>worker_id</code>, oldest park first. Filters by <code>process</code> / <code>version</code> / <code>task</code>, <code>limit</code> per batch, <code>lease_ms</code> for the visibility timeout (default 30s).</td></tr><tr><td><code>POST /api/external-tasks/renew</code></td><td>extends this worker’s claims. <code>renewed</code> reports how many it still held — a worker learns it lost one here rather than when its answer is refused.</td></tr><tr><td><code>POST /api/external-tasks/release</code></td><td>hands a claim back at once instead of waiting out the lease.</td></tr></tbody></table>
 <p>A claim returns a <strong>three-part token</strong> — <code>&lt;instance&gt;.&lt;arming&gt;.&lt;grant&gt;</code> — and that is the only
-handle accepted while the claim is live. The two-part token the queue publishes still answers
-an <em>unclaimed</em> task, so the approval-UI path is untouched, but it cannot answer over a worker
-mid-flight. A signal, which carries no handle at all, is buffered rather than delivered while a
+handle accepted while the claim is live. The two-part token <code>&lt;instance&gt;.&lt;arming&gt;</code>, which anyone
+holding the instance id and its <code>task_epoch</code> can form, still answers an <em>unclaimed</em> task, but it
+cannot answer over a worker mid-flight. A signal, which carries no handle at all, is buffered rather than delivered while a
 claim is live, for the same reason.</p>
 <p>Expiry and re-claim are deliberately asymmetric:</p>
 <ul>
