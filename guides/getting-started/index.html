@@ -197,9 +197,9 @@ moves on, and <code>self.result.ok</code> is readable and known to be a boolean.
 with the YAML extension, Neovim, Helix — will complete field names, type-check values and
 show the <code>description</code> of whatever is under the cursor:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic"># yaml-language-server: $schema=https://genroc.org/process-schema.json</span></span></code></pre>
-<p>That URL is the same schema <code>GET /process-schema.json</code> serves, republished here on every
+<p>That URL is the same schema <code>GET /public/process-schema.json</code> serves, republished here on every
 change, so it works with no genroc running. A local server is still the right target when
-you are on an unreleased build: point it at <code>http://localhost:8448/process-schema.json</code>.</p>
+you are on an unreleased build: point it at <code>http://localhost:8448/public/process-schema.json</code>.</p>
 <div class="note"> <p><span class="note-label">note</span></p> <p>Every value position also accepts a string, because <code>${ }</code> and <code>$:</code> can stand where a
 value can — so the schema catches misspelled fields and wrong shapes, but says nothing
 about what an expression evaluates to. <code>genctl validate</code> is what checks that.</p> </div>
