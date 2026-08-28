@@ -35,6 +35,25 @@ per-definition field).
   narrows an **unknown child output** moved off `engine.collect` onto a catchable
   `output.invalid` — which is why a child task's catchable set is now
   `raises(D) ∪ {output.invalid}` (child-error-handling.md E6).
+- [api-auth.md](api-auth.md) — **proposal, nothing built.** How genroc gets authenticated at
+  all: today every endpoint is open and `PUT /definitions` is arbitrary code execution. The
+  decision it rests on is a split — **genroc owns authorization, the deployment owns identity**
+  — because which endpoints a caller may reach is a statement about our own API surface, and
+  pushing it into ingress rules means every user keeps a hand-copied list of our routes that
+  goes stale the next time `actions.go` grows one. So a `Perm` field sits on `actionDef` beside
+  `Method` and `Path`, zero value closed, and identity arrives as a **signed JWT** the proxy
+  forwards (§2.1: the signature moves the guarantee into the request, so a bypassed proxy buys
+  nothing — plain-header trust rests on a network fact genroc cannot see or test), with plain
+  headers kept as the fallback. **Two modes ship together and are not alternatives** (§5): a
+  proxy authenticates humans, and says nothing about how a CI job or a worker authenticates, so
+  genroc mints opaque `genroc_sk_*` tokens — SHA-256 in the table, permissions on the row,
+  revocable individually — for machines. §9 keeps the reasoning that deferred them, because the
+  error is instructive: "everyone who needs tokens also has a proxy" is a non-sequitur. Two things in it are worth acting on
+  regardless of when the rest lands: the **path layout does not currently separate trust zones**
+  (§1 — the queue listing sits under the worker prefix, `signal` sits under the admin one), and
+  that is cheap to fix only until someone's ingress config depends on it; and **attribution**
+  (§7) works even with auth off, since recording an asserted identity header costs nothing and
+  "who deployed v7?" is unanswerable forever for anything written before it lands.
 - [custom-tasks.md](custom-tasks.md) — north-star: extend genroc **without plugins** —
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the
