@@ -30,7 +30,7 @@ var instancePaginator = paginator{
 }
 
 // instanceCursorVals returns inst's key-column values for the active sort, matching
-// externalPaginator's column order (the external-task queue keys on updated_at).
+// the queue's column order (parked external tasks key on updated_at).
 func instanceCursorVals(sort string, inst *model.ProcessInstance) []any {
 	switch sort {
 	case "updated": // external-task queue

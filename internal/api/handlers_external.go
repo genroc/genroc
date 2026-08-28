@@ -14,29 +14,6 @@ import (
 	"genroc/internal/schema"
 )
 
-func (h *Handlers) listExternalTasks(raw json.RawMessage) Reply {
-	req, err := decodeOptionalBody[ListExternalTasksReq](raw)
-	if err != nil {
-		return errReply(err)
-	}
-	instances, info, err := h.db.ListExternalTasks(req.Process, req.Version, req.Task,
-		db.Window{After: req.UpdatedAfter, Before: req.UpdatedBefore}, req.page())
-	if err != nil {
-		return errReply(err)
-	}
-	resp := make([]ExternalTaskResp, 0, len(instances))
-	for _, inst := range instances {
-		task, err := h.db.CurrentTask(inst)
-		if err != nil || task == nil {
-			// Not a resolvable external task (no current task), which a concurrent
-			// transition could momentarily produce — skip it.
-			continue
-		}
-		resp = append(resp, externalTaskToResp(inst, task))
-	}
-	return okReply(PageResp[ExternalTaskResp]{Items: resp, Page: info})
-}
-
 func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalTaskResp {
 	ext, _ := inst.State[model.StateExternal].(map[string]any)
 	// Derived from the row, not read back from external_data — the epoch IS the occurrence.
@@ -206,17 +183,18 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 	return okReply(map[string]any{"resolved": true})
 }
 
-func (h *Handlers) signalInstance(id string, raw json.RawMessage) Reply {
-	if id == "" {
-		return invalid("id is required").reply()
-	}
+func (h *Handlers) signalInstance(raw json.RawMessage) Reply {
 	req, err := decodeBody[SignalInstanceReq](raw)
 	if err != nil {
 		return errReply(err)
 	}
+	if req.InstanceID == "" {
+		return invalid("instance_id is required").reply()
+	}
 	if req.TaskID == "" {
 		return invalid("task_id is required").reply()
 	}
+	id := req.InstanceID
 	inst, err := h.db.GetInstance(id)
 	if err != nil {
 		return errReply(err)

@@ -1,3 +1,4 @@
+import { claimInProcess, parkedInProcess } from "../helpers/external.ts";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { spawn, type ChildProcess } from "child_process";
 import { join } from "path";
@@ -392,9 +393,12 @@ test("script task — a large script leaves the instance and is listed, not carr
   const deadline = Date.now() + 20_000;
   let entries: any[] = [];
   while (Date.now() < deadline) {
-    const { data } = await client.GET("/external-tasks", { params: { query: { process: name } } });
-    entries = ((data as any)?.items ?? []) as any[];
-    if (entries.length === 2) break;
+    if ((await parkedInProcess(name, client)).length === 2) {
+      // The externalized-value list is on the CLAIM, not on discovery: it is what a worker
+      // needs to fetch the bundle, so it travels with the work rather than with the view.
+      entries = await claimInProcess(name);
+      if (entries.length === 2) break;
+    }
     await new Promise((r) => setTimeout(r, 50));
   }
   expect(entries.length, "both instances parked").toBe(2);

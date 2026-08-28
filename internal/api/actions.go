@@ -605,38 +605,6 @@ var registry = func() []actionDef {
 			},
 		},
 		{
-			Name:    "list_external_tasks",
-			Method:  http.MethodGet,
-			Path:    "/external-tasks",
-			Summary: "List instances parked on an external task (the external-task queue); never exposes process context",
-			Tags:    []string{"External Tasks"},
-			PathQuery: struct {
-				Process       string `query:"process" description:"Filter by process name"`
-				Version       int    `query:"version" description:"Filter by process version (0 = any)"`
-				Task          string `query:"task" description:"Filter by task id"`
-				UpdatedAfter  int64  `query:"updated_after" description:"Only tasks parked at/after this unix-millis timestamp (updated_at is the park time and this list's sort)"`
-				UpdatedBefore int64  `query:"updated_before" description:"Only tasks parked strictly before this unix-millis timestamp"`
-				pageQuery
-			}{},
-			Resp: PageResp[ExternalTaskResp]{},
-			fromHTTP: func(r *http.Request) (Envelope, error) {
-				q := r.URL.Query()
-				version, _ := strconv.Atoi(q.Get("version"))
-				b, _ := json.Marshal(ListExternalTasksReq{
-					Process:       q.Get("process"),
-					Version:       version,
-					Task:          q.Get("task"),
-					UpdatedAfter:  millisQuery(r, "updated_after"),
-					UpdatedBefore: millisQuery(r, "updated_before"),
-					Pagination:    paginationFrom(r),
-				})
-				return Envelope{Action: "list_external_tasks", Payload: b}, nil
-			},
-			handle: func(h *Handlers, env Envelope) Reply {
-				return h.listExternalTasks(env.Payload)
-			},
-		},
-		{
 			Name:    "claim_external_tasks",
 			Method:  http.MethodPost,
 			Path:    "/external-tasks/claim",
@@ -686,17 +654,18 @@ var registry = func() []actionDef {
 		{
 			Name:    "signal_instance",
 			Method:  http.MethodPost,
-			Path:    "/instances/{id}/signal",
-			Summary: "Deliver an outcome (result or error) to an external task by id: resolves it if armed now, else buffers FIFO until the task next arms",
+			Path:    "/external-tasks/signal",
+			Summary: "Deliver an outcome (result or error) to an external task by instance id + task id: resolves it if armed now, else buffers FIFO until the task next arms",
 			Tags:    []string{"External Tasks"},
 			Errors:  []Code{CodeNotFound, CodeConflict},
-			PathQuery: struct {
-				ID string `path:"id" format:"uuid"`
-			}{},
-			Req:  SignalInstanceReq{TaskID: "approval", Result: map[string]any{"approved": true}},
+			Req: SignalInstanceReq{
+				InstanceID: "550e8400-e29b-41d4-a716-446655440000",
+				TaskID:     "approval",
+				Result:     map[string]any{"approved": true},
+			},
 			Resp: map[string]any{"delivered": true, "buffered": false},
 			handle: func(h *Handlers, env Envelope) Reply {
-				return h.signalInstance(env.ID, env.Payload)
+				return h.signalInstance(env.Payload)
 			},
 		},
 		{

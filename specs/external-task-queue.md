@@ -8,6 +8,16 @@ runs against `process_instances` — and the error channel `external` has never 
 motivating consumer is [`evaluator/`](../evaluator/README.md), which ships as a `fetch`
 ([script-tasks.md](script-tasks.md)).
 
+**The `GET /external-tasks` listing was removed 2026-08-28.** It was the original queue — poll
+the list, pick a task, answer it — and §0's whole argument is that polling a list is not a queue:
+two readers see the same row, and nothing leases. `claim`/`renew`/`release` replaced it, and what
+survived afterwards was a *view*, kept for discovery and for handing out tokens. Both turned out
+to be derivable: a token is `<instance>.<task_epoch>` (`model.ExternalToken`), formed from the
+instance itself, and discovery is `GET /instances` — whose rows carry `wait_state`. What only the
+listing published was `result_schema`, `raises` and the `objects` list, and those belong to the
+CLAIM, which is what hands a worker the work it must answer. So the endpoint outlived its
+argument, and `idx_external_queue` now earns its keep serving FILTERED claims instead.
+
 ## Why move off `fetch`
 
 Not because requests are lost under overload — a failed fetch is a routed error code and
@@ -308,13 +318,18 @@ Three mechanics that are not obvious from the outside:
 
 **The timeout split this section used to propose is NOT built, because it is unsound.** The
 argument was that a timeout on a task nobody ever claimed means nothing was reached, so it
-could be retried even under `only_once`. It cannot: `GET /external-tasks` publishes `input` to
-any caller without claiming — that is what the two-part token is for — so an unclaimed task may
-still have been picked up and worked on through the list-then-resolve path. "Never claimed"
-therefore does not prove "never reached", and loosening it would break at-most-once for exactly
-the callers who do not use the claim API. It would become sound only if the list endpoint
-stopped exposing `input`, which is the approval-UI path's whole reason to exist — so this is a
-foreclosed direction, not a deferred one.
+could be retried even under `only_once`. It cannot: an unclaimed task is still reachable and
+still answerable. `GET /instances/{id}/detail` publishes the evaluated `input` under
+`state._external`, a two-part token is formed from that same row, and `signal` delivers an
+outcome with no handle at all — so an unclaimed task may have been picked up and worked on
+without the claim API ever hearing of it. "Never claimed" therefore does not prove "never
+reached", and loosening it would break at-most-once for exactly those callers.
+
+**Deleting the listing (above) did not make this sound**, and the earlier wording invited that
+reading by pinning the argument on `GET /external-tasks` alone: it said the split "would become
+sound only if the list endpoint stopped exposing `input`", which is now literally true and still
+changes nothing. The premise was never the listing — it is that the unclaimed path exists at all,
+which is the approval path's whole purpose. Foreclosed, not deferred.
 
 ### API surface
 

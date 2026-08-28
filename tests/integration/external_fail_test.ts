@@ -1,3 +1,5 @@
+import { claimInProcess } from "../helpers/external.ts";
+import { parkedInProcess } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { client, waitForInstance } from "../helpers/client.ts";
 
@@ -10,15 +12,11 @@ import { client, waitForInstance } from "../helpers/client.ts";
 async function waitForQueued(process: string, timeoutMs = 20_000): Promise<any> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const { data, error } = await client.GET("/external-tasks", {
-      params: { query: { process } },
-    });
-    if (error) throw new Error(`list external tasks failed: ${JSON.stringify(error)}`);
-    const items = ((data as any)?.items ?? []) as any[];
-    if (items.length) return items[0];
+    const found = await parkedInProcess(process, client);
+    if (found.length) return found[0];
     await new Promise((r) => setTimeout(r, 50));
   }
-  throw new Error(`no external task queued for ${process} in time`);
+  throw new Error(`no external task parked for ${process} in time`);
 }
 
 // A process that parks on `work`, declares one payload shape, and routes the code to a task
@@ -83,8 +81,9 @@ test("a declared code routes through on_error and carries its payload as error.d
   const id = await start(name);
   const queued = await waitForQueued(name);
 
-  // The queue publishes the shapes a worker may answer with, on both channels.
-  expect(queued.raises?.limit_exceeded).toBeTruthy();
+  // The CLAIM publishes the shapes a worker may answer with, on both channels.
+  const [claimed] = await claimInProcess(name);
+  expect(claimed.raises?.limit_exceeded).toBeTruthy();
 
   const { error } = await client.POST("/external-tasks/resolve", {
     body: {
@@ -344,8 +343,7 @@ test("not_reached:true lets an only_once task re-arm, and the re-arming gets a f
   const deadline = Date.now() + 20_000;
   let second: any;
   while (Date.now() < deadline) {
-    const { data } = await client.GET("/external-tasks", { params: { query: { process: name } } });
-    const hit = ((data as any)?.items ?? [])[0];
+    const hit = (await parkedInProcess(name, client))[0];
     if (hit && hit.token !== first.token) {
       second = hit;
       break;
@@ -378,9 +376,8 @@ test("signal delivers a failure to an armed task, by instance id", async () => {
   const id = await start(name);
   await waitForQueued(name); // armed
 
-  const { data, error } = await client.POST("/instances/{id}/signal", {
-    params: { path: { id } },
-    body: { task_id: "work", error: { code: "limit_exceeded", message: "over", data: { limit: 3 } } },
+  const { data, error } = await client.POST("/external-tasks/signal", {
+    body: { instance_id: id, task_id: "work", error: { code: "limit_exceeded", message: "over", data: { limit: 3 } } },
   });
   expect(error, `signal was rejected: ${JSON.stringify(error)}`).toBeUndefined();
   expect((data as any)?.delivered, "an armed task takes the failure immediately").toBe(true);
@@ -415,9 +412,8 @@ test("a failure signalled BEFORE the task arms is buffered, then routed when it 
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
 
   const id = await start(name);
-  const { data, error } = await client.POST("/instances/{id}/signal", {
-    params: { path: { id } },
-    body: { task_id: "work", error: { code: "upstream_failed", message: "the job died", data: { why: "oom" } } },
+  const { data, error } = await client.POST("/external-tasks/signal", {
+    body: { instance_id: id, task_id: "work", error: { code: "upstream_failed", message: "the job died", data: { why: "oom" } } },
   });
   expect(error, `signal was rejected: ${JSON.stringify(error)}`).toBeUndefined();
   // Buffered, not delivered: the whole reason process_signals.result had to become `outcome`.
@@ -476,17 +472,15 @@ test("signal validates the failure against the task it names, not another task's
 
   // `only_on_first` is declared by the CURRENT task but not by the one being signalled, so
   // addressing `second` with it must be refused: signal's closed set is the named task's.
-  const { error: wrong } = await client.POST("/instances/{id}/signal", {
-    params: { path: { id } },
-    body: { task_id: "second", error: { code: "only_on_first", message: "m" } },
+  const { error: wrong } = await client.POST("/external-tasks/signal", {
+    body: { instance_id: id, task_id: "second", error: { code: "only_on_first", message: "m" } },
   });
   expect(wrong, "signal must validate against the task it names, not the current one").toBeTruthy();
   expect(JSON.stringify(wrong)).toContain("only_on_second"); // the message lists that task's set
 
   // And the converse: the named task's own code is accepted, buffered for when it arms.
-  const { data, error } = await client.POST("/instances/{id}/signal", {
-    params: { path: { id } },
-    body: { task_id: "second", error: { code: "only_on_second", message: "m" } },
+  const { data, error } = await client.POST("/external-tasks/signal", {
+    body: { instance_id: id, task_id: "second", error: { code: "only_on_second", message: "m" } },
   });
   expect(error, `the named task's own code was refused: ${JSON.stringify(error)}`).toBeUndefined();
   expect((data as any)?.buffered).toBe(true);
@@ -507,17 +501,15 @@ test("signal runs the same outcome validation as resolve", async () => {
     ["both outcomes at once", { result: { ok: true }, error: { code: "limit_exceeded", message: "m", data: { limit: 1 } } }],
   ];
   for (const [label, body] of cases) {
-    const { error } = await client.POST("/instances/{id}/signal", {
-      params: { path: { id } },
-      body: { task_id: "work", ...body } as never,
+    const { error } = await client.POST("/external-tasks/signal", {
+      body: { instance_id: id, task_id: "work", ...body } as never,
     });
     expect(error, `signal must refuse ${label}, as resolve does`).toBeTruthy();
   }
 
   // Still answerable afterwards: every refusal above is a 400 that left the task parked.
-  const { error: ok } = await client.POST("/instances/{id}/signal", {
-    params: { path: { id } },
-    body: { task_id: "work", error: { code: "limit_exceeded", message: "m", data: { limit: 9 } } },
+  const { error: ok } = await client.POST("/external-tasks/signal", {
+    body: { instance_id: id, task_id: "work", error: { code: "limit_exceeded", message: "m", data: { limit: 9 } } },
   });
   expect(ok, `the valid submission was rejected: ${JSON.stringify(ok)}`).toBeUndefined();
   expect(await waitForInstance(id)).toBe("completed");
@@ -551,15 +543,13 @@ test("signal validates a result against result_schema", async () => {
   const id = await start(name);
   await waitForQueued(name);
 
-  const { error } = await client.POST("/instances/{id}/signal", {
-    params: { path: { id } },
-    body: { task_id: "work", result: { approved: "yes" } },
+  const { error } = await client.POST("/external-tasks/signal", {
+    body: { instance_id: id, task_id: "work", result: { approved: "yes" } },
   });
   expect(error, "signal must conform a result to result_schema, as resolve does").toBeTruthy();
 
-  const { error: ok } = await client.POST("/instances/{id}/signal", {
-    params: { path: { id } },
-    body: { task_id: "work", result: { approved: true } },
+  const { error: ok } = await client.POST("/external-tasks/signal", {
+    body: { instance_id: id, task_id: "work", result: { approved: true } },
   });
   expect(ok, `the valid result was rejected: ${JSON.stringify(ok)}`).toBeUndefined();
   expect(await waitForInstance(id)).toBe("completed");

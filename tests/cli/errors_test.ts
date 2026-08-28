@@ -115,7 +115,7 @@ test("apply -f — a missing file names the path", () => {
 
 test("an unreachable server fails every list rather than printing an empty one", () => {
   const dead = "http://127.0.0.1:1";
-  for (const args of [["instances"], ["definitions"], ["external-tasks"], ["logs", missingID]]) {
+  for (const args of [["instances"], ["definitions"], ["logs", missingID]]) {
     const r = runCli(bin, args, { GENROC_SERVER: dead });
     expect(r.ok, `${args[0]} should fail against a dead server`).toBe(false);
     // "no instances" would be a lie here — nothing was successfully read.

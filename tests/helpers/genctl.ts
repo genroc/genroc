@@ -1,3 +1,4 @@
+import { waitForParked } from "./external.ts";
 import { client } from "./client.ts";
 
 // Shared fixtures for the per-entity genctl suites (tests/cli/*_test.ts). Each of those
@@ -171,20 +172,11 @@ export function blobInputDef(name: string) {
 // ── waits ───────────────────────────────────────────────────────────────────────
 
 /**
- * Poll the external-task queue until the instance's entry is armed, returning its resolve
- * token (`<instance-id>.<nonce>`). The shared server auto-polls, so parking lands a cycle
- * or two after run.
+ * Poll until the instance is parked on an external task, returning its resolve token
+ * (`<instance-id>.<task_epoch>`). Derived from the instance: the listing that used to hand
+ * tokens out is gone (helpers/external.ts). The shared server auto-polls, so parking lands a
+ * cycle or two after run.
  */
 export async function waitForExternalToken(id: string, timeoutMs = 5000): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const { data, error } = await client.GET("/external-tasks", {});
-    if (error) throw new Error(`list external tasks failed: ${JSON.stringify(error)}`);
-    const entry = (data?.items ?? []).find(
-      (t) => typeof t.token === "string" && t.token.startsWith(`${id}.`),
-    );
-    if (entry?.token) return entry.token;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error(`external task for ${id} was not queued within ${timeoutMs}ms`);
+  return (await waitForParked(id, client, timeoutMs)).token;
 }

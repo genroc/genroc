@@ -121,11 +121,12 @@ per-definition field).
   the evaluator switchover remain proposal. Turns `external` into a queue a worker fleet
   **pulls** from. One thing it proposed was **dropped as unsound** on contact with the code:
   splitting `external.timeout` so a never-claimed timeout counts as never-reached and stays
-  retryable under `only_once`. `GET /external-tasks` publishes `input` to any caller without
-  claiming — that is what the two-part token is for — so "never claimed" does not prove "never
-  reached", and the loosening would break at-most-once for exactly the callers not using the
-  claim API. Foreclosed rather than deferred: it needs the list endpoint to stop exposing
-  `input`, which is the approval path's whole purpose. Opens by discarding the usual reason for moving
+  retryable under `only_once`. The unclaimed path publishes `input` (on the instance detail) and
+  answers without a handle (`signal`), so "never claimed" does not prove "never reached", and the
+  loosening would break at-most-once for exactly the callers not using the claim API. Foreclosed
+  rather than deferred, and **deleting the `GET /external-tasks` listing in 2026-08-28 did not
+  change that** — the premise is that an unclaimed path exists at all, which is the approval
+  path's whole purpose. Opens by discarding the usual reason for moving
   [`evaluator/`](../evaluator/README.md) off `fetch` — requests are not lost under overload,
   since a failed fetch is a routed code and the instance stays durable; what overload
   produces is a worse *code* (`http.timeout`, unknowable, never retried on `only_once`),

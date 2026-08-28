@@ -12,7 +12,6 @@
 //	genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [-q]
 //	genctl instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>] [--children] [--sort updated|created] [--since <when>] [--until <when>] [--json | -q]
 //	genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
-//	genctl external-tasks [--process <name>] [--version <n>] [--task <id>] [--since <when>] [--until <when>] [--json]
 //	genctl upgrade  <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]
 //	genctl upgrade  <instance-id> [<instance-id> ...] --to <version|channel> [--json]
 //	genctl get      <instance-id> [--resolve] [--json]
@@ -155,8 +154,6 @@ func main() {
 		runInstancesCmd(server, args)
 	case "definitions":
 		runDefinitionsCmd(server, args)
-	case "external-tasks":
-		runExternalTasksCmd(server, args)
 	case "logs":
 		runLogsCmd(server, args)
 	case "pause":
@@ -311,7 +308,6 @@ func usage() {
   genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
   genctl instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>] [--children] [--sort updated|created] [--since <when>] [--until <when>] [--json | -q]
   genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
-  genctl external-tasks [--process <name>] [--version <n>] [--task <id>] [--since <when>] [--until <when>] [--json]
   genctl upgrade  <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]
   genctl upgrade  <instance-id> [<instance-id> ...] --to <version|channel> [--json]
   genctl get      <instance-id> [--resolve] [--json]
@@ -378,7 +374,7 @@ Time zones:
   hours apart, the same reason a definition's tz takes an IANA name or an offset only.
   --mode json is the exception — it passes the server's UTC RFC3339 through untouched,
   so machine output never depends on who ran the command.
-  --json    machine-readable output: a list (instances/external-tasks) prints its
+  --json    machine-readable output: a list (instances/definitions) prints its
             raw items as a JSON array; get prints the raw instance object
   --resolve get: fetch the values listed under "objects" and put them back where
             they belong. logs never resolves - a trail is scanned, not read, and
@@ -406,8 +402,8 @@ Instance id:
   because a comparison carries one version per process.
 
 External tasks:
-  external-tasks lists the queue of instances waiting on an external result, and who
-  holds a live claim on each (CLAIMED BY; "-" means claimable).
+  A worker enumerates the queue by CLAIMING it -- there is no listing endpoint; the one
+  that existed was the polling shape claim/renew/release replaced.
   resolve takes a task's resolve token (the "<instance-id>.<nonce>" TOKEN column
   from that list); signal addresses a task by instance id + --task and buffers the
   result if the task is not armed yet. Both answer on the error channel with

@@ -1,3 +1,5 @@
+import { claimInProcess } from "../helpers/external.ts";
+import { parkedInProcess } from "../helpers/external.ts";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
 import { readFileSync } from "node:fs";
@@ -111,13 +113,9 @@ async function waitForQueued(
   while (Date.now() < deadline) {
     // A tick-only server (--poll 0) advances nothing on its own, so drive it here.
     if (opts.tick) await api.POST("/tick", {});
-    const { data, error } = await api.GET("/external-tasks", {
-      params: { query: { process: approval.name } },
-    });
-    if (error) throw new Error(`list external tasks failed: ${JSON.stringify(error)}`);
-    const items = ((data as any)?.items ?? []) as any[];
-    // The queue exposes no instance id, so match on the snapshot the task published.
-    const hit = items.find((t) => t.task_id === taskId && t.input?.requester === marker);
+    const items = await parkedInProcess(approval.name, api);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const hit = items.find((t) => t.task_id === taskId && (t.input as any)?.requester === marker);
     if (hit) return hit;
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -163,7 +161,9 @@ test("examples/expense-approval: an approval submitted by queue token resumes th
       amount_cents: 4200,
       purpose: "conference ticket",
     });
-    expect(queued.result_schema?.required).toEqual(["approved", "reviewer"]);
+    // The shape a worker must answer with is published by the CLAIM, not by discovery.
+    const [claimed] = await claimInProcess(approval.name);
+    expect(claimed.result_schema?.required).toEqual(["approved", "reviewer"]);
 
     const { error } = await client.POST("/external-tasks/resolve", {
       body: { token: queued.token, result: { approved: true, reviewer: "alice" } },
@@ -190,9 +190,8 @@ test("examples/expense-approval: a rejection raises expense_rejected", async () 
     await waitForQueued(marker, "review");
 
     // The second submission route: address the instance + task directly, no token.
-    const { error } = await client.POST("/instances/{id}/signal", {
-      params: { path: { id } },
-      body: { task_id: "review", result: { approved: false, reviewer: "bob" } },
+    const { error } = await client.POST("/external-tasks/signal", {
+      body: { instance_id: id, task_id: "review", result: { approved: false, reviewer: "bob" } },
     });
     expect(error).toBeUndefined();
 

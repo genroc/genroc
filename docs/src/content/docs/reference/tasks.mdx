@@ -403,7 +403,8 @@ holding a worker, then routes via `switch`. Exactly one of the two.
 
 ### `external`
 
-Parks the instance until an outside caller submits a result through the external-tasks API.
+Parks the instance until an outside caller submits a result — by `signal` (instance id + task
+id), or by claiming the task and resolving the token that claim returns.
 No worker is held while waiting.
 
 | Field | Meaning |
@@ -422,8 +423,8 @@ endpoints take either:
 
 | | addressed by | unarmed task |
 |---|---|---|
-| `POST /api/external-tasks/resolve` | a `token` (from the queue, or from a claim) | rejected — the token names a live arming |
-| `POST /api/instances/{id}/signal` | instance id + `task_id` | buffered FIFO until the task next arms |
+| `POST /api/external-tasks/resolve` | a `token` (formed from the instance, or returned by a claim) | rejected — the token names a live arming |
+| `POST /api/external-tasks/signal` | `instance_id` + `task_id` | buffered FIFO until the task next arms |
 
 An `error` is routed through the task's `on_error` rules exactly like a call error:
 
@@ -479,9 +480,9 @@ for the wire.
 
 #### Pulling work: claim, renew, release
 
-`GET /api/external-tasks` lists the queue and `POST /api/external-tasks/resolve` answers it — enough
-for a person or a webhook. A **worker fleet** wants the pull half instead, so two of them do
-not run the same task:
+A person or a webhook that already knows the instance answers it directly: `POST
+/api/external-tasks/signal` needs no token at all, and buffers if the task is not armed yet.
+A **worker fleet** wants the pull half instead, so two of them do not run the same task:
 
 | | |
 |---|---|
@@ -490,9 +491,9 @@ not run the same task:
 | `POST /api/external-tasks/release` | hands a claim back at once instead of waiting out the lease. |
 
 A claim returns a **three-part token** — `<instance>.<arming>.<grant>` — and that is the only
-handle accepted while the claim is live. The two-part token the queue publishes still answers
-an *unclaimed* task, so the approval-UI path is untouched, but it cannot answer over a worker
-mid-flight. A signal, which carries no handle at all, is buffered rather than delivered while a
+handle accepted while the claim is live. The two-part token `<instance>.<arming>`, which anyone
+holding the instance id and its `task_epoch` can form, still answers an *unclaimed* task, but it
+cannot answer over a worker mid-flight. A signal, which carries no handle at all, is buffered rather than delivered while a
 claim is live, for the same reason.
 
 Expiry and re-claim are deliberately asymmetric:

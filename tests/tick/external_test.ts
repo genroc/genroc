@@ -1,3 +1,4 @@
+import { parkedTask } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 
@@ -14,16 +15,9 @@ const approvedSchema: any = {
   required: ["approved"],
 };
 
-// Find the single queue entry for an instance id (the token is `<id>.<nonce>`).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function queueEntryFor(id: string): Promise<any | undefined> {
-  const { data, error } = await ctx.env.client.GET("/external-tasks", {});
-  if (error) throw new Error(`list external tasks failed: ${JSON.stringify(error)}`);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data?.items ?? []) as any[]).find(
-    (t) => typeof t.token === "string" && t.token.startsWith(`${id}.`),
-  );
-}
+// The parked task, assembled from the instance itself — the listing that used to hand these
+// out is gone (helpers/external.ts).
+const queueEntryFor = (id: string) => parkedTask(id, ctx.env.client);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function resolve(token: string, result: unknown) {
@@ -57,17 +51,15 @@ test("external parks, is queued, and resumes when resolved", async () => {
   // While parked it is not claimable — a plain tick processes nothing.
   expect(await ctx.env.tick()).toBe(0);
 
-  // It appears on the queue with its input + result_schema + a token, no context.
+  // Parked, with the evaluated input snapshot readable and a token derivable from the row.
   const entry = await queueEntryFor(id);
   expect(entry).toBeDefined();
-  expect(entry.task_id).toBe("approval");
-  expect(entry.process).toBe("ext_happy");
-  expect(entry.input).toEqual({ msg: "approve me" });
-  expect(entry.result_schema).toBeTruthy();
-  expect(entry).not.toHaveProperty("context");
+  expect(entry!.task_id).toBe("approval");
+  expect(entry!.input).toEqual({ msg: "approve me" });
+  expect(entry!.token).toBe(`${id}.0`);
 
   // Submitting a valid result un-parks it; the next tick runs it to completion.
-  const { error } = await resolve(entry.token, { approved: true });
+  const { error } = await resolve(entry!.token, { approved: true });
   expect(error).toBeUndefined();
 
   expect(await ctx.env.tick()).toBe(1);
@@ -85,12 +77,12 @@ test("resolve validates the result against result_schema", async () => {
 
   const entry = await queueEntryFor(id);
   // approved must be a boolean — a string is rejected and the task stays parked.
-  const { error } = await resolve(entry.token, { approved: "yes" });
+  const { error } = await resolve(entry!.token, { approved: "yes" });
   expect(error).toBeDefined();
   expect(await ctx.env.status(id)).toBe("running external");
 
   // A valid result still works afterwards.
-  const ok = await resolve(entry.token, { approved: false });
+  const ok = await resolve(entry!.token, { approved: false });
   expect(ok.error).toBeUndefined();
   expect(await ctx.env.tick()).toBe(1);
   expect(await ctx.env.status(id)).toBe("completed");
@@ -104,9 +96,9 @@ test("a stale/double resolve is rejected", async () => {
   expect(await ctx.env.tick()).toBe(1);
 
   const entry = await queueEntryFor(id);
-  expect((await resolve(entry.token, { approved: true })).error).toBeUndefined();
+  expect((await resolve(entry!.token, { approved: true })).error).toBeUndefined();
   // Second submit with the same token: the task is no longer waiting.
-  expect((await resolve(entry.token, { approved: false })).error).toBeDefined();
+  expect((await resolve(entry!.token, { approved: false })).error).toBeDefined();
   await ctx.env.tickUntilIdle(); // drain the resolved instance so it does not bleed into later tests
 });
 
@@ -180,61 +172,9 @@ test("a no-timeout external wait is never self-claimed", async () => {
 
   // Only a submitted result resumes it.
   const entry = await queueEntryFor(id);
-  expect((await resolve(entry.token, { approved: true })).error).toBeUndefined();
+  expect((await resolve(entry!.token, { approved: true })).error).toBeUndefined();
   expect(await ctx.env.tick()).toBe(1);
   expect(await ctx.env.status(id)).toBe("completed");
-});
-
-test("the queue filters by task id in SQL, so filtered pages stay full and counts stay accurate", async () => {
-  // Two processes whose external tasks have distinct ids. Park 3 betas, then 3 alphas,
-  // so the betas sort ahead (oldest-first). A task=pq_alpha filter must skip the betas
-  // in SQL — not page over them and post-filter, which would under-fill the page and
-  // count the skipped betas.
-  await ctx.env.define("ext_pq_alpha", [
-    { id: "pq_alpha", action: { type: "external", result_schema: approvedSchema }, switch: "end" },
-  ]);
-  await ctx.env.define("ext_pq_beta", [
-    { id: "pq_beta", action: { type: "external", result_schema: approvedSchema }, switch: "end" },
-  ]);
-
-  const betas = [
-    await ctx.env.start("ext_pq_beta"),
-    await ctx.env.start("ext_pq_beta"),
-    await ctx.env.start("ext_pq_beta"),
-  ];
-  const alphas = [
-    await ctx.env.start("ext_pq_alpha"),
-    await ctx.env.start("ext_pq_alpha"),
-    await ctx.env.start("ext_pq_alpha"),
-  ];
-  // max-concurrent=1: exactly one instance arms per tick, in start order — so all six
-  // park betas-before-alphas in updated_at (and UUIDv7 id) order.
-  for (let i = 0; i < betas.length + alphas.length; i++) await ctx.env.tick();
-
-  // First filtered page: two alphas, the three betas skipped entirely, one alpha after.
-  const first = await ctx.env.client.GET("/external-tasks", {
-    params: { query: { task: "pq_alpha", limit: 2 } },
-  });
-  if (first.error) throw new Error(`list failed: ${JSON.stringify(first.error)}`);
-  const page1 = first.data!;
-  expect(page1.items!.map((t) => t.task_id)).toEqual(["pq_alpha", "pq_alpha"]);
-  expect(page1.page.items_before).toBe(0);
-  expect(page1.page.items_after).toBe(1); // only the third alpha; betas are not counted
-  expect(page1.page.after).toBeTruthy(); // more to come
-
-  // Following the cursor yields the last alpha and nothing else.
-  const second = await ctx.env.client.GET("/external-tasks", {
-    params: { query: { task: "pq_alpha", limit: 2, after: page1.page.after } },
-  });
-  if (second.error) throw new Error(`list failed: ${JSON.stringify(second.error)}`);
-  const page2 = second.data!;
-  expect(page2.items!.map((t) => t.task_id)).toEqual(["pq_alpha"]);
-  expect(page2.page.items_before).toBe(2);
-  expect(page2.page.items_after).toBe(0);
-
-  // Pause so these leave the queue and do not bleed into later tests.
-  for (const id of [...betas, ...alphas]) await ctx.env.pause(id);
-  await ctx.env.tickUntilIdle();
 });
 
 test("pausing an externally-waiting instance takes it out of the queue", async () => {
@@ -250,12 +190,13 @@ test("pausing an externally-waiting instance takes it out of the queue", async (
   await ctx.env.pause(id);
   expect(await ctx.env.status(id)).toBe("paused external");
 
-  // The queue identifies tasks by "<instance-id>.<nonce>" resolve token.
-  const queuedIds = async () =>
-    (await ctx.env.client.GET("/external-tasks", {})).data!.items!.map((t) =>
-      t.token.split(".")[0],
-    );
-  expect(await queuedIds()).not.toContain(id);
+  // "Out of the queue" is observable where the queue now lives: a claim does not offer it.
+  const claimed = await ctx.env.client.POST("/external-tasks/claim", {
+    body: { worker_id: "w-pause", limit: 10 },
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const claimedIds = ((claimed.data as any)?.items ?? []).map((t: any) => t.token.split(".")[0]);
+  expect(claimedIds).not.toContain(id);
 
   // Resolving a paused task is rejected.
   const { data, error } = await ctx.env.client.POST("/external-tasks/resolve", {
@@ -264,10 +205,14 @@ test("pausing an externally-waiting instance takes it out of the queue", async (
   });
   expect(error ?? (data as { error?: string })?.error).toBeTruthy();
 
-  // Resuming puts it back in the queue on exactly the same external wait.
+  // Resuming puts it back on exactly the same external wait, and claimable again.
   await ctx.env.resume(id);
   expect(await ctx.env.status(id)).toBe("running external");
-  expect(await queuedIds()).toContain(id);
+  const again = await ctx.env.client.POST("/external-tasks/claim", {
+    body: { worker_id: "w-resume", limit: 10 },
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  expect(((again.data as any)?.items ?? []).map((t: any) => t.token.split(".")[0])).toContain(id);
 
   await ctx.env.pause(id);
 });

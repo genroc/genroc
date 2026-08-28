@@ -796,9 +796,9 @@ type InsertSignalParams struct {
 	CreatedAt  int64
 }
 
-// ListInstances is hand-written in db_instances.go and ListExternalTasks in
-// db_external.go (dynamic ORDER BY + keyset cursor; see paginate.go). The
-// external-task queue is still served by the partial idx_external_queue index.
+// ListInstances is hand-written in db_instances.go (dynamic ORDER BY + keyset cursor; see
+// paginate.go). idx_external_queue now serves FILTERED claims -- (process_name,
+// process_version, updated_at) is the claim's predicate once a worker names a process or task.
 func (q *Queries) InsertSignal(ctx context.Context, arg InsertSignalParams) error {
 	_, err := q.db.ExecContext(ctx, insertSignal,
 		arg.ID,

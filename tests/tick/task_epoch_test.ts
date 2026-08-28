@@ -14,6 +14,7 @@
  * there instead of in enterTask, a parent would collect against an epoch none of its own
  * children carry, and every child task would hang.
  */
+import { parkedTask } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 
@@ -250,13 +251,9 @@ test("task_epoch — a re-arm issues a new external token, and the stale one is 
   ]);
   const id = await env.start(name);
 
-  // Read the token the QUEUE hands out, not one reconstructed here: external_data no
-  // longer stores it, so this also checks the endpoint derives it from the row.
-  const tokenOf = async () => {
-    const { data } = await env.client.GET("/external-tasks", {});
-    const mine = (data?.items ?? []).filter((t) => (t.token ?? "").startsWith(`${id}.`));
-    return mine.length === 1 ? (mine[0].token as string) : "";
-  };
+  // The token is derived from the row's task_epoch, never stored — which is the whole point
+  // here: it must MOVE when the epoch moves, and a stale one must stop resolving.
+  const tokenOf = async () => (await parkedTask(id, env.client))?.token ?? "";
 
   await env.tick();
   const first = await tokenOf();

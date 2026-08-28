@@ -114,10 +114,9 @@ test("sweeps failed instances too, and --status narrows what it takes", async ()
   // A failed root: settled, so it moves with no pause/resume dance. It is the case an
   // upgrade is most FOR — move it, then retry it on the new version.
   const failedId = await startParked(name);
-  const failRes = await client.POST("/instances/{id}/signal", {
-    params: { path: { id: failedId } },
+  const failRes = await client.POST("/external-tasks/signal", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: { task_id: "hold", error: { code: "boom", message: "x" } } as any,
+    body: { instance_id: failedId, task_id: "hold", error: { code: "boom", message: "x" } } as any,
   });
   expect(failRes.error).toBeUndefined();
   for (let i = 0; i < 100; i++) {
@@ -224,10 +223,9 @@ test("several ids move several trees, and one refused does not stop the rest", a
 
   // Completed moves no work, so it is the refusal — named BETWEEN the two that can move, so
   // an abort would leave `second` behind and the count would say so.
-  const done = await client.POST("/instances/{id}/signal", {
-    params: { path: { id: stuck } },
+  const done = await client.POST("/external-tasks/signal", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: { task_id: "hold", result: {} } as any,
+    body: { instance_id: stuck, task_id: "hold", result: {} } as any,
   });
   expect(done.error).toBeUndefined();
   for (let i = 0; i < 100; i++) {

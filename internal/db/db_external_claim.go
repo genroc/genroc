@@ -25,7 +25,8 @@ const claimableWhere = `wait_state = 'external' AND status = 'running'
 		  AND (wake_at IS NULL OR wake_at > ?)`
 
 // ClaimExternalTasks atomically leases up to limit parked external tasks to workerID, oldest
-// park first (FIFO -- the reverse of ListExternalTasks, whose newest-first is a UI affordance).
+// park first (FIFO). Claiming is the only way to enumerate the queue: the listing endpoint that
+// once did it was removed, having been the polling shape this replaced.
 // Filters are the queue's own: process name, version and task id, each empty/0 for any.
 //
 // The ONLY place external_claim_epoch moves: a claim is a grant, and the bump fences out

@@ -114,16 +114,6 @@ func TestBuildSQL(t *testing.T) {
 		t.Errorf("filtered count args = %v", cargs)
 	}
 
-	// baseWhere stays a literal so Postgres matches the partial index.
-	b, _ = externalPaginator.query(PageReq{}).build()
-	if !strings.Contains(b.pageSQL, "WHERE wait_state = 'external'") {
-		t.Errorf("external pageSQL missing literal baseWhere: %q", b.pageSQL)
-	}
-	ecount, _ := b.countQuery([]any{int64(1), "x"}, nil)
-	if !strings.Contains(ecount, "wait_state = 'external' AND") {
-		t.Errorf("external count missing literal baseWhere: %q", ecount)
-	}
-
 	// Backward paging flips the scan to ASC (orient reverses the slice back).
 	b, _ = instancePaginator.query(PageReq{Before: cur}).build()
 	if !strings.Contains(b.pageSQL, "ORDER BY created_at ASC, id ASC") {

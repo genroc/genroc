@@ -219,16 +219,6 @@ type RetryInstanceReq struct {
 	Force bool `json:"force"` // override only_once retry protection
 }
 
-type ListExternalTasksReq struct {
-	Process string `json:"process"` // optional: filter by process name
-	Version int    `json:"version"` // optional: filter by process version (0 = any)
-	Task    string `json:"task"`    // optional: filter by task id
-	// updated_at is the park time and this list's sort, so there is no created_* pair.
-	UpdatedAfter  int64 `json:"updated_after"`  // only tasks parked at/after this timestamp
-	UpdatedBefore int64 `json:"updated_before"` // only tasks parked strictly before it
-	Pagination
-}
-
 // ExternalTaskResp is one entry in the external-task queue. It exposes only the task's
 // snapshotted input + the result_schema the resolver must satisfy, plus the resolve
 // token — never the process context.
@@ -282,9 +272,12 @@ type ReleaseExternalTaskReq struct {
 }
 
 type SignalInstanceReq struct {
-	TaskID string      `json:"task_id"`          // the external task to deliver to (addressed, not by token)
-	Result any         `json:"result,omitempty"` // the result, validated against the task's result_schema
-	Error  *FailureReq `json:"error,omitempty"`  // set INSTEAD of result to answer on the error channel
+	// InstanceID addresses the target BY NAME, where resolve addresses it by token. Both
+	// deliver the same ExternalOutcome; the split is who holds what, not what arrives.
+	InstanceID string      `json:"instance_id"`
+	TaskID     string      `json:"task_id"`          // the external task to deliver to
+	Result     any         `json:"result,omitempty"` // the result, validated against the task's result_schema
+	Error      *FailureReq `json:"error,omitempty"`  // set INSTEAD of result to answer on the error channel
 }
 
 type ListLogsReq struct {

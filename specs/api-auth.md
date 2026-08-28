@@ -32,24 +32,33 @@ any other contract.
 
 Two zones, and today's layout does not express them:
 
-- **`GET /external-tasks`** — the queue listing — is operator observability (it exposes evaluated
-  task inputs across every process), yet it sits under the prefix a worker rule would open.
-- **`POST /instances/{id}/signal`** is the reverse: low-trust inbound (an external system
-  delivering an outcome to a parked task, no claim token) living beside `retry`, `upgrade`,
-  `pause` and `resume`.
+- ~~`GET /external-tasks`~~ — the queue listing was operator observability sitting under the
+  prefix a worker rule would open. **Resolved by deleting it (2026-08-28)**: it was the polling
+  shape `claim` replaced, and everything it published is either derivable from the instance or
+  belongs to the claim. external-task-queue.md records the argument.
+- ~~`POST /instances/{id}/signal`~~ — the reverse mismatch: low-trust inbound (an external
+  system delivering an outcome to a parked task, no claim token) living beside `retry`,
+  `upgrade`, `pause` and `resume`. **Moved to `POST /api/external-tasks/signal` (2026-08-28)**,
+  taking `instance_id` in the body beside the `task_id` it already carried — so the two delivery
+  endpoints sit together and differ only in whether they address by token or by name.
 
-So the two rules a user would write do not separate the two zones, and each mismatch is exactly
-the subtle detail we would be asking every user to get right.
+Both are now resolved, and neither by the rename this section originally proposed.
 
-**Proposed layout.** Two things at once, because they are one edit: the whole API moves under
-`/api/`, and a dedicated prefix inside it carries only worker verbs.
+**The layout, as built.**
 
 | zone | paths | who routes it |
 |---|---|---|
-| **open** | `GET /healthz` | direct — a probe must never meet a login redirect |
-| **queue** (low trust) | `POST /api/queue/{claim,renew,release,resolve,signal}`, `GET /api/objects/{ref}` | direct |
-| **control plane** | the rest of `/api/*` — definitions, instances, channels, `GET /api/external-tasks` | direct |
+| **open** | `GET /healthz`, `GET /process-schema.json` | direct — a probe must never meet a login redirect |
+| **inbound** (low trust) | `POST /api/external-tasks/*` — claim, renew, release, resolve, signal | direct |
+| **shared** | `GET /api/objects/{ref}` | direct — workers fetch externalized inputs, operators read the same refs |
+| **control plane** | the rest of `/api/*` — definitions, instances, channels, tick | direct |
 | **human** | everything else — the UI, once there is one | through the SSO proxy |
+
+**A `/api/queue/*` prefix was proposed here and dropped.** Its whole justification was that the
+operator listing sat under the prefix a worker rule would open; deleting that listing did the
+structural work, leaving `/api/external-tasks/*` holding worker verbs and nothing else. Renaming
+after that is taste, and it would have cost churn across the evaluator, genctl, the docs and the
+tests for no change in what a rule can express.
 
 **Built 2026-08-28**, ahead of the rest of this spec, because it stops being free the moment a
 config outside this repo names a path. `apiPrefix` is applied at mount time and the registry
@@ -69,17 +78,9 @@ catch-all and machines take the explicit prefix, so a browser arriving at the ba
 on the UI and gets a login flow, rather than the 401 JSON it would get if the API were at the
 root. Three prefix rules at the ingress, no regex, one DNS name.
 
-`signal` moves to `POST /api/queue/signal` and takes `instance_id` in the body beside the `task_id`
-it already carries — the two paths deliver the same `ExternalOutcome` and differ only in whether
-they address by token or by name, so one zone is right for both.
-
-This does not re-litigate `queue:` naming, which
-[external-task-queue.md](external-task-queue.md) dropped: that was about a field in a
-*definition*, where `(process, version, task)` filters are the addressing. This is a URL prefix,
-and the concepts do not touch.
-
-**Do this before anyone's ingress depends on it.** Paths are free to change today and expensive
-to change once a config outside this repo references them.
+Three prefix rules, no regex, no method matching, one DNS name — which was the whole point of
+the exercise, and the reason it was done before the rest of this spec: paths stop being free the
+moment a config outside this repo names one.
 
 ## 2. Modes: identity in, `Principal` out
 
@@ -227,6 +228,17 @@ Five permissions, deliberately coarse:
 They are a flat set, not a hierarchy: a role maps to a list, and `[read, operate]` says what a
 hierarchy would say without inventing an ordering we would then have to defend. `upgrade` is
 `deploy` rather than `operate` because it changes which version an instance executes.
+
+**Two shapes v1 must not foreclose, because both are expensive to retrofit and free now.**
+
+1. **`Perms` is `[]Grant`, not `[]Perm`** — a permission plus an optional, empty-in-v1
+   constraint. A bare permission cannot express *"resolve tasks in `approval`"*, which is §9's
+   first request after the coarse set works.
+2. **Authorization is two-phase.** A check in front of the handler answers *does this principal
+   hold `worker` at all* — but `resolve` carries only a token, and the process it belongs to is
+   not known until the row is fetched. So the resource half runs INSIDE the handler, once the
+   target is loaded. A pure middleware model cannot express this, and bolting it on later means
+   threading the grant into every handler that resolves an id.
 
 ## 4. The role map, and where it lives
 
@@ -441,9 +453,41 @@ question undiagnosable from the response.
   cookie rides along, and the proxy dutifully forwards the identity header — so header trust
   does not save a cookie-authenticated control plane from CSRF. A UI should exchange its session
   for a short-lived bearer token; the cookie then authenticates only the minting endpoint.
-- **Per-process ACLs.** The extension point is the role map — a permission gains an optional
-  process pattern. Not built, because nobody has asked and the coarse set is what makes the
+- **Scoped grants** — a permission narrowed by a filter rather than held over everything. The
+  driver is concrete: a UI that renders forms for one process's approvals should hold something
+  that resolves tasks *in that process*, not `worker` over the whole queue.
+
+  **The constraint vocabulary already exists and should be reused verbatim: `(process, version,
+  task)`.** That is what `ClaimExternalTasks` already filters on, what the queue index covers,
+  and what `process_dependencies` addresses by. A grant of
+  `{perm: worker, process: "approval", task: "review"}` introduces no new concept — it is the
+  same triple, applied by the server instead of supplied by the caller.
+
+  Nothing new has to be loaded to enforce it. `claim` already turns the triple into SQL
+  predicates, so a constrained grant forces them and a caller cannot widen past its own grant;
+  `resolve` holds the instance and its current task by the time it validates the token
+  (`GetInstance` then `CurrentTask`); `signal` fetches the instance too. What it needs is §3's
+  two-phase check, which is why that is called out there rather than here.
+
+  It generalises: `read` or `operate` narrowed to a process works the same way — load the
+  instance, compare. One hook, every axis. Not built, because the coarse set is what makes a
   first version reviewable.
+
+- **A per-TASK grant** is the narrower cousin, and genroc already has one worth not reinventing.
+  The two-part
+  token `<instance>.<task_epoch>` names exactly one arming: it is validated against the row, it
+  stops working the moment the task un-parks or a worker claims it, and a retry moves the epoch
+  out from under it. So it is single-use and self-expiring by construction — most of what a
+  scoped grant needs, already there.
+
+  What it is *not* is secret-grade. An instance id is a UUIDv7 — around 74 bits of randomness,
+  and it appears in logs, CLI history and every instance view. That is fine as a handle passed
+  between trusted components and **not** fine as the only thing standing between the public and
+  a resolve, which is what a browser form would make it. So the likely shape is a genroc token
+  (§5) whose row carries `{perm: worker, instance, task}` plus a TTL — minted per form, revocable,
+  attributable — with the external token remaining the addressing INSIDE the request rather than
+  the authorization for it. Recording the distinction now because conflating the two is the
+  tempting shortcut, and it is the one that puts a weak capability on the open internet.
 - ~~**`token` mode first.**~~ **Reversed 2026-08-27, and the original reasoning is kept because
   it is instructive.** It read: *"genroc's own token store is strictly more code than reading a
   header, and every user who needs it in production also has a proxy."* The second clause is a

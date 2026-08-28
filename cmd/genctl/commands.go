@@ -399,13 +399,13 @@ func runSignalCmd(server string, args []string) {
 		fatal("%v", err)
 	}
 
-	body := outcomeBody(map[string]any{"task_id": *taskFlag}, payload, *codeFlag, *messageFlag)
+	body := outcomeBody(map[string]any{"instance_id": id, "task_id": *taskFlag}, payload, *codeFlag, *messageFlag)
 
 	var resp struct {
 		Delivered bool `json:"delivered"`
 		Buffered  bool `json:"buffered"`
 	}
-	if err := call(*serverFlag+"/api/instances/"+url.PathEscape(id)+"/signal", http.MethodPost, body, &resp); err != nil {
+	if err := call(*serverFlag+"/api/external-tasks/signal", http.MethodPost, body, &resp); err != nil {
 		// Surface a result-schema mismatch as a dedicated message (mirrors resolve/run).
 		if detail, ok := resultValidationError(err); ok {
 			fatal("result is not valid for task %q:\n  %s", *taskFlag, detail)
@@ -711,93 +711,6 @@ func runDefinitionsCmd(server string, args []string) {
 	note(capped)
 }
 
-func runExternalTasksCmd(server string, args []string) {
-	fs := flag.NewFlagSet("external-tasks", flag.ExitOnError)
-	serverFlag := addServerFlag(fs, server)
-	processFlag := fs.String("process", "", "filter by process name")
-	versionFlag := fs.Int("version", 0, "filter by process version (0 = any)")
-	taskFlag := fs.String("task", "", "filter by task id")
-	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04)")
-	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
-	jsonFlag := fs.Bool("json", false, "print the raw items as a JSON array (includes each task's input and result_schema)")
-	fs.Parse(args)
-
-	q := url.Values{}
-	if *processFlag != "" {
-		q.Set("process", *processFlag)
-	}
-	if *versionFlag != 0 {
-		q.Set("version", strconv.Itoa(*versionFlag))
-	}
-	if *taskFlag != "" {
-		q.Set("task", *taskFlag)
-	}
-	// updated_at is the park time — the WAITING column and this queue's only sort.
-	limit := applyWindow(q, *sinceFlag, *untilFlag, "updated_at", listCap)
-	u := *serverFlag + "/api/external-tasks"
-	if enc := q.Encode(); enc != "" {
-		u += "?" + enc
-	}
-	note := func(capped bool) {
-		noteCapped(capped, fmt.Sprintf("the newest %d waiting tasks", listCap), "--since")
-	}
-
-	if *jsonFlag {
-		var items []json.RawMessage
-		capped, err := fetchOrdered(u, limit, newestFirst, func(page []json.RawMessage) error {
-			items = append(items, page...)
-			return nil
-		})
-		if err != nil {
-			fatal("%v", err)
-		}
-		printJSONItems(items)
-		note(capped)
-		return
-	}
-
-	// The queue never exposes process context, so these fields mirror ExternalTaskResp.
-	// The table shows only the addressable columns; --json carries input + result_schema.
-	type taskRow struct {
-		Token        string `json:"token"`
-		Process      string `json:"process"`
-		Version      int    `json:"version"`
-		TaskID       string `json:"task_id"`
-		WaitingSince string `json:"waiting_since"`
-		ClaimedBy    string `json:"claimed_by"`
-	}
-
-	// TOKEN goes last (it is long) and is what you pass to `genctl resolve`.
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	rows := 0
-	capped, err := fetchOrdered(u, limit, newestFirst, func(page []taskRow) error {
-		for _, r := range page {
-			if rows == 0 {
-				fmt.Fprintln(w, "WAITING\tPROCESS\tTASK\tCLAIMED BY\tTOKEN")
-			}
-			rows++
-			// A dash rather than a blank: an unclaimed task and a column that failed to
-			// render should not look the same in a queue you are reading to find stuck work.
-			claimedBy := r.ClaimedBy
-			if claimedBy == "" {
-				claimedBy = "-"
-			}
-			fmt.Fprintf(w, "%s\t%s@v%d\t%s\t%s\t%s\n",
-				shortTime(r.WaitingSince), r.Process, r.Version, r.TaskID, claimedBy, r.Token)
-		}
-		return nil
-	})
-	if err != nil {
-		fatal("%v", err)
-	}
-	if rows == 0 {
-		fmt.Println("no external tasks waiting")
-		return
-	}
-	w.Flush()
-	note(capped)
-}
-
 // Caps for a list command that names no start point (--since/--from lifts the cap by
 // saying where to begin — one control per list). logs is larger because a trail is
 // read as a trail, not scanned as a table.
@@ -806,11 +719,6 @@ const (
 	listCap        = 20
 )
 
-// noteCapped tells the reader on stderr that the cap dropped rows, naming the flag that
-// reaches past it. stderr so it never lands in a pipe beside the rows; silent when nothing
-// was dropped, so it can never send anyone chasing rows that do not exist.
-// parentCol returns the cell only when children are in the listing, so the default table
-// keeps exactly the columns it had.
 func parentCol(cell string, children bool) string {
 	if children {
 		return cell

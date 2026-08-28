@@ -1,3 +1,4 @@
+import { parkedInProcess } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { client, waitForInstance } from "../helpers/client.ts";
 
@@ -89,10 +90,9 @@ test("a live claim is not offered to a second worker, and hides the task from th
   const [job] = await claimWhenReady("worker-1", name);
   expect(await claim("worker-2", name), "a live claim must not be handed out twice").toEqual([]);
 
-  // The LIST endpoint still shows it — an operator must be able to see work in progress —
-  // but reports who holds it, and the two-part token it publishes cannot answer over them.
-  const { data } = await client.GET("/external-tasks", { params: { query: { process: name } } });
-  const listed = ((data as any)?.items ?? [])[0];
+  // The instance still reports who holds the claim — an operator must be able to see work in
+  // progress — and the two-part token derived from the row cannot answer over a live claim.
+  const listed = (await parkedInProcess(name, client))[0];
   expect(listed?.claimed_by).toBe("worker-1");
   expect(listed?.claim_expires).toBeTruthy();
 

@@ -155,9 +155,9 @@ SELECT id, process_name, process_version, parent_id,
 FROM process_instances
 WHERE id = sqlc.arg(id);
 
--- ListInstances is hand-written in db_instances.go and ListExternalTasks in
--- db_external.go (dynamic ORDER BY + keyset cursor; see paginate.go). The
--- external-task queue is still served by the partial idx_external_queue index.
+-- ListInstances is hand-written in db_instances.go (dynamic ORDER BY + keyset cursor; see
+-- paginate.go). idx_external_queue now serves FILTERED claims -- (process_name,
+-- process_version, updated_at) is the claim's predicate once a worker names a process or task.
 
 -- name: InsertSignal :exec
 INSERT INTO process_signals (id, instance_id, task_id, outcome, created_at)
