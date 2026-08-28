@@ -39,6 +39,14 @@ type altResp struct {
 // literals would put it in two places that must agree.
 const apiPrefix = "/api"
 
+// publicPrefix carries what is served WITHOUT authentication and is not derived from a user's
+// data: the API documentation, the OpenAPI spec and the process-definition schema. It exists so
+// "unauthenticated" is visible in the path — a deployment writes ingress rules from prefixes,
+// and a route that reads as gated but is not is the mismatch specs/api-auth.md §1 is about.
+// `/healthz` is the ONE thing outside it, on the idiom: a probe path is configured from muscle
+// memory by whoever runs the platform, not by whoever reads these docs.
+const publicPrefix = "/public"
+
 // mountPath is where this action is actually served.
 func (a actionDef) mountPath() string {
 	if a.Root {

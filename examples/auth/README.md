@@ -9,7 +9,7 @@ that holds the weakest one. specs/api-auth.md.
 Both credentials are written to `examples/auth/.env` and neither is printed — echoing a secret
 that is already in a file only adds a copy to your scrollback.
 
-`OPS_TOKEN` is your admin credential. Store it wherever you keep secrets, then delete the line:
+`ADMIN_TOKEN` is your admin credential. Store it wherever you keep secrets, then delete the line:
 genroc has its hash after the first start and never needs the value again. `WORKER_TOKEN` stays,
 because the evaluator reads it at every start.
 
@@ -40,7 +40,7 @@ genroc keeps its hash, so later starts do not need the secret, and deleting the 
 resting in a file compose reads and in an environment `docker inspect` can print. Verified:
 
     first start                     created=2
-    (delete OPS_TOKEN, restart)     created=0  no_secret_supplied=ops
+    (delete ADMIN_TOKEN, restart)     created=0  no_secret_supplied=admin
     the stored token                still works
 
 `no_secret_supplied` names the label deliberately, so a credential that vanished by accident
@@ -96,7 +96,7 @@ exposed as a password, so a real deployment terminates TLS at an ingress or a pr
   — there is a `tools` profile that needs no running server and no credential:
 
       docker compose -f examples/auth/compose.yaml run --rm tools \
-        token create -pg "$PG" --perms admin --label ops
+        token create -pg "$PG" --perms admin --label admin
 
 - `examples/auth/.env` is gitignored and written `0600`. Delete it and re-run `gen-env.sh` to
   rotate; the old tokens keep working until revoked, so revoke them after the fleet has rolled.

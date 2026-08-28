@@ -274,7 +274,7 @@ test(
 
     // Make sure a server is up (a crash may have landed on the last iteration).
     try {
-      const r = await fetch(`${BASE_URL}/api/openapi.json`);
+      const r = await fetch(`${BASE_URL}/public/openapi.json`);
       await r.body?.cancel();
       if (!r.ok) throw new Error("not ok");
     } catch {

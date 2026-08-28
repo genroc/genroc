@@ -79,7 +79,7 @@ script-runner:
 	cd evaluator && npm install && GENROC_SERVER=$(genroc_server) node worker.ts
 
 # The process-definition JSON Schema, as a static file the site serves at
-# genroc.org/process-schema.json — the same bytes GET /process-schema.json returns, so a
+# genroc.org/process-schema.json — the same bytes GET /public/process-schema.json returns, so a
 # `# yaml-language-server: $schema=` comment resolves with no genroc running. Generated,
 # never committed: it is a projection of internal/model.
 docs-schema:

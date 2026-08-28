@@ -82,9 +82,9 @@ show the `description` of whatever is under the cursor:
 # yaml-language-server: $schema=https://genroc.org/process-schema.json
 ```
 
-That URL is the same schema `GET /process-schema.json` serves, republished here on every
+That URL is the same schema `GET /public/process-schema.json` serves, republished here on every
 change, so it works with no genroc running. A local server is still the right target when
-you are on an unreleased build: point it at `http://localhost:8448/process-schema.json`.
+you are on an unreleased build: point it at `http://localhost:8448/public/process-schema.json`.
 
 <Note>
   Every value position also accepts a string, because `${ }` and `$:` can stand where a

@@ -47,6 +47,17 @@ type Server struct {
 	auth Authenticator
 }
 
+// guard authorizes a hand-written route, for the handful that cannot be registry actions
+// because they answer with something other than a Reply. Everything else goes through
+// authorize in the registry loop; this is the same decision spelled at the call site.
+func (s *Server) guard(r *http.Request, allow ...Perm) *Error {
+	p, err := s.principalFor(r.Context(), bearerToken(r.Header.Get("Authorization")))
+	if err != nil {
+		return err
+	}
+	return authorize(actionDef{Name: r.URL.Path, Allow: allow}, p)
+}
+
 // SetAuthenticator turns on an identity mode. Called once at startup, before Listen*.
 func (s *Server) SetAuthenticator(a Authenticator) { s.auth = a }
 
@@ -109,25 +120,40 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 		})
 	}
 
-	mux.HandleFunc("GET /api/docs", func(w http.ResponseWriter, _ *http.Request) {
+	// The generic API documentation is UNAUTHENTICATED, and lives under its own prefix so that
+	// is legible from a routing rule. Under /api/ it read as gated and was not — the exact
+	// mismatch specs/api-auth.md §1 exists to prevent, since a deployment writes its ingress
+	// rules from the prefix. Nothing here is derived from a user's data: it is the same spec
+	// published at genroc.org, and the UI is a static page.
+	mux.HandleFunc("GET "+publicPrefix+"/docs", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, swaggerUIHTML("genroc API", "/api/openapi.json"))
+		fmt.Fprint(w, swaggerUIHTML("genroc API", publicPrefix+"/openapi.json"))
 	})
 
-	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET "+publicPrefix+"/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(buildSpec())
 	})
 
-	// Deliberately NOT under /api: the docs site serves the same bytes at
-	// genroc.org/process-schema.json, and a `# yaml-language-server: $schema=` comment
-	// pointed at a local server should resolve at the same path as the public one.
-	mux.HandleFunc("GET /process-schema.json", func(w http.ResponseWriter, _ *http.Request) {
+	// A schema document, unauthenticated and derived from nothing a caller stored — the same
+	// class as the OpenAPI spec above, so it lives beside it. The docs site publishes the same
+	// bytes at genroc.org/process-schema.json; that is a released artifact at a stable public
+	// URL, while this is the convenience for an unreleased build, and getting-started.mdx says
+	// which to use. They do not have to share a path.
+	mux.HandleFunc("GET "+publicPrefix+"/process-schema.json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(buildProcessDefinitionSchema())
 	})
 
+	// The PER-PROCESS documentation stays under /api/ and is gated: it is generated from a
+	// stored definition, so it discloses process names, input schemas and task structure —
+	// the caller's data, not ours. It cannot be a registry action because it answers with
+	// HTML and raw JSON rather than a Reply, so the check is explicit here instead.
 	mux.HandleFunc("GET /api/definitions/{name}/docs", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.guard(r, PermRead); err != nil {
+			writeReply(w, err.reply())
+			return
+		}
 		name := r.PathValue("name")
 		specURL := "/api/definitions/" + name + "/openapi.json"
 		if v := r.URL.Query().Get("version"); v != "" {
@@ -138,6 +164,10 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 	})
 
 	mux.HandleFunc("GET /api/definitions/{name}/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.guard(r, PermRead); err != nil {
+			writeReply(w, err.reply())
+			return
+		}
 		version := 0
 		if v := r.URL.Query().Get("version"); v != "" {
 			if parsed, err := strconv.Atoi(v); err == nil {

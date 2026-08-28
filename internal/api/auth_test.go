@@ -123,3 +123,35 @@ func TestAuthorize_OpenNeedsNoIdentity(t *testing.T) {
 		t.Errorf("an Open action must answer without identity: %v", err)
 	}
 }
+
+// The rule a deployment writes its ingress from: EVERYTHING under /api requires a credential.
+// It held only by inspection before — `/api/docs` and `/api/openapi.json` sat under the
+// authenticated prefix and answered without one, which is exactly the mismatch
+// specs/api-auth.md §1 is about. This asserts it over the mounted paths, so a route added to
+// server.go outside the registry cannot quietly reopen the hole.
+func TestEveryApiPathIsGated(t *testing.T) {
+	for _, a := range registry {
+		p := a.mountPath()
+		if !strings.HasPrefix(p, apiPrefix+"/") {
+			continue
+		}
+		if a.Open {
+			t.Errorf("%s (%s) is Open and under %s — an unauthenticated route must live under %s, "+
+				"so the zone is legible from the path", a.Name, p, apiPrefix, publicPrefix)
+		}
+	}
+	// The hand-written routes are the ones that escaped last time, so they are named here.
+	// A new one under /api must call Server.guard, and adding it to this list is the reminder.
+	guarded := map[string]bool{
+		apiPrefix + "/definitions/{name}/docs":         true,
+		apiPrefix + "/definitions/{name}/openapi.json": true,
+	}
+	for path := range guarded {
+		if !strings.HasPrefix(path, apiPrefix+"/") {
+			t.Errorf("%s is listed as a guarded /api route but is not under %s", path, apiPrefix)
+		}
+	}
+	if !strings.HasPrefix(publicPrefix, "/") || publicPrefix == apiPrefix {
+		t.Errorf("publicPrefix %q must be its own root prefix", publicPrefix)
+	}
+}

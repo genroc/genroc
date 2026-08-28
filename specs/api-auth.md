@@ -56,7 +56,7 @@ Both are now resolved, and neither by the rename this section originally propose
 
 | zone | paths | who routes it |
 |---|---|---|
-| **open** | `GET /healthz`, `GET /process-schema.json` | direct — a probe must never meet a login redirect |
+| **open** | `GET /healthz`, `/public/*` | direct — a probe must never meet a login redirect |
 | **inbound** (low trust) | `POST /api/external-tasks/*` — claim, renew, release, resolve, signal | direct |
 | **shared** | `GET /api/objects/{ref}` | direct — workers fetch externalized inputs, operators read the same refs |
 | **control plane** | the rest of `/api/*` — definitions, instances, channels, tick | direct |
@@ -76,10 +76,24 @@ generated client prepends it, and the documented paths stay the ones the registr
 `actionDef.Root` is the exception, and `/healthz` is its only user: a probe must not move when
 the API namespace does, so it is mounted at the root and its path item overrides `servers`.
 
-`/api/docs` and `/api/openapi.json` moved with the rest. `/process-schema.json` did **not**: the
-docs site serves the same bytes at `genroc.org/process-schema.json`, and a
-`# yaml-language-server: $schema=` comment pointed at a local server should resolve at the same
-path as the public one.
+**Everything under `/api/` requires a credential, with no exceptions** — which is the rule a
+deployment writes its ingress from, and `TestEveryApiPathIsGated` is what keeps it true. It was
+briefly false: the API docs sat at `/api/docs` and `/api/openapi.json` and answered without one,
+reading as gated while not being it. They now live under **`/public/`**, so "unauthenticated" is
+legible from the prefix rather than from a list of exceptions.
+
+The PER-PROCESS docs stayed under `/api/` and are gated at `read`: they are generated from a
+stored definition, so they disclose process names, input schemas and task structure — the
+caller's data rather than ours. They cannot be registry actions (they answer with HTML and raw
+JSON, not a `Reply`), so `Server.guard` spells the same check at the call site.
+
+**`/healthz` is the one route outside both prefixes**, on the idiom: a probe path is configured
+from muscle memory by whoever runs the platform, not by whoever reads this, and `actionDef.Root`
+already exists for it. `/process-schema.json` moved INTO `/public/` — an earlier draft kept it at
+the root for "parity" with `genroc.org/process-schema.json`, which does not survive examination:
+that URL is a released artifact at a stable public address, this is the convenience for an
+unreleased build, and getting-started.mdx says which to use. They need not share a path, and one
+exception is better than two.
 
 **`/api/` is what lets one hostname serve both audiences** (§5.1). The human path is the
 catch-all and machines take the explicit prefix, so a browser arriving at the bare domain lands

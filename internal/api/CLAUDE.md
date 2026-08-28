@@ -42,9 +42,19 @@ Today every mode is `none`, so the transports attach `anonymousAdmin()` and noth
 The gate is inert but load-bearing — the point is that a mode wires in at ONE place.
 specs/api-auth.md §2, §3.
 
-`/process-schema.json` is served outside the registry and outside the prefix, for a different
-reason: the docs site publishes the same bytes at `genroc.org/process-schema.json`, and an editor
-`$schema` comment pointed at a local server must resolve at the same path as the public one.
+**Everything under `apiPrefix` requires a credential; `publicPrefix` (`/public`) is what does
+not.** The split exists so the zone is legible from the path — a deployment writes ingress rules
+from prefixes, and a route that reads as gated while answering without one is the mismatch
+specs/api-auth.md §1 is about. It was briefly real: the API docs sat at `/api/docs`.
+
+A hand-written route under `/api` that cannot be a registry action (it answers with HTML or raw
+JSON rather than a `Reply`) must call `Server.guard` — the per-process docs are the only two,
+and `TestEveryApiPathIsGated` names them so a third cannot be added silently.
+
+`/public/process-schema.json` is served outside the registry because it answers with raw bytes
+rather than a `Reply`, like the OpenAPI routes beside it. The docs site publishes the same schema
+at `genroc.org/process-schema.json`; that is a released artifact and this is the unreleased-build
+convenience, so the paths differ deliberately and getting-started.mdx says which to use.
 
 Routes, request/response shapes and the OpenAPI spec are all generated from the action
 registry in `actions.go` — **add an endpoint there, not in `server.go`**. `ListenHTTP`

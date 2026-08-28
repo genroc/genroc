@@ -27,7 +27,7 @@ WORKER_TOKEN=$("$GENCTL" token generate)
 
 # For the FIRST start only. Store it (genctl config set token <value>), then delete this line —
 # genroc has its hash and does not need the secret again. See README.md.
-OPS_TOKEN=$("$GENCTL" token generate)
+ADMIN_TOKEN=$("$GENCTL" token generate)
 ENV
 # The secrets are NOT echoed: they are in .env already, and printing them again only adds a
 # copy to terminal scrollback. Where they are and what happens to them is enough — how to store
@@ -36,6 +36,6 @@ echo "\nwrote examples/auth/.env (mode $(stat -f '%Lp' .env 2>/dev/null || stat 
 cat <<'NEXT'
 
   WORKER_TOKEN  stays — the evaluator reads it at every start.
-  OPS_TOKEN     your admin credential. Store it wherever you keep secrets, then delete the
-                line after the first start: genroc keeps its hash and never needs it again.
+  ADMIN_TOKEN   yours. Store it wherever you keep secrets, then delete the line after the
+                first start: genroc keeps its hash and never needs the value again.
 NEXT
