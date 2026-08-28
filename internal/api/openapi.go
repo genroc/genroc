@@ -131,6 +131,12 @@ func buildSpec() []byte {
 		r.Spec.Info.Description = &desc
 		r.Spec.Info.Version = "1.0.0"
 
+		// The base path belongs here, not repeated into every path key: a generated client
+		// prepends it, and the registry keeps the logical path it routes and documents by.
+		// `/healthz` is served outside it (actionDef.Root) and is therefore absent from this
+		// spec, which is correct — it is a probe, not API surface.
+		r.Spec.Servers = []openapi31.Server{{URL: apiPrefix}}
+
 		r.DefaultOptions = append(r.DefaultOptions, jsonschema.InterceptDefName(shapeDefName))
 
 		// Fields are required by default; add json:",omitempty" or use a pointer type to opt out.
@@ -153,6 +159,21 @@ func buildSpec() []byte {
 
 		for _, a := range registry {
 			addOperation(&r, a)
+		}
+
+		// A root-mounted action does not sit under the spec's base path, so its path item
+		// overrides `servers`. OpenAPI 3.1 has this for exactly the case; the alternative —
+		// leaving the action out of the spec — would undocument a real endpoint.
+		if r.Spec.Paths != nil {
+			for _, a := range registry {
+				if !a.Root {
+					continue
+				}
+				if item, ok := r.Spec.Paths.MapOfPathItemValues[a.Path]; ok {
+					item.Servers = []openapi31.Server{{URL: "/"}}
+					r.Spec.Paths.MapOfPathItemValues[a.Path] = item
+				}
+			}
 		}
 
 		b, _ := r.Spec.MarshalJSON()

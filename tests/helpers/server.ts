@@ -132,7 +132,9 @@ async function waitUntilReady(
       );
     }
     try {
-      const r = await fetch(`http://localhost:${port}/openapi.json`);
+      // /healthz, not /openapi.json: it is the readiness endpoint, it is root-mounted
+      // (actionDef.Root), and so it does not move when the API namespace does.
+      const r = await fetch(`http://localhost:${port}/healthz`);
       await r.body?.cancel();
       if (r.ok) return;
     } catch {}
@@ -174,7 +176,7 @@ export async function startGenroc(
   const proc = spawnProc(bin, port, db, pgDSN, pollMs, maxConcurrent, immediateRetries);
   await waitUntilReady(port, proc);
   return {
-    client: createClientTyped({ baseUrl: `http://localhost:${port}` }),
+    client: createClientTyped({ baseUrl: `http://localhost:${port}/api` }),
     stop: () => stopProc(proc),
     crash: () => proc.kill("SIGKILL"),
     dbPath: pgDSN ? "" : db,
@@ -266,7 +268,7 @@ let sharedServer: GenrocProcess | null = null;
 
 async function ping(): Promise<boolean> {
   try {
-    const r = await fetch(`${BASE_URL}/openapi.json`);
+    const r = await fetch(`${BASE_URL}/healthz`);
     await r.body?.cancel();
     return r.ok;
   } catch {

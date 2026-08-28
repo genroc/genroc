@@ -383,7 +383,7 @@ func fetchSchemas(docs []sourceDoc, server string) (map[string]any, error) {
 		payload[i] = sd.doc
 	}
 	var files []map[string]any
-	if err := call(server+"/definitions/validate", "POST", payload, &files); err != nil {
+	if err := call(server+"/api/definitions/validate", "POST", payload, &files); err != nil {
 		return nil, err
 	}
 	out := make(map[string]any, len(files))

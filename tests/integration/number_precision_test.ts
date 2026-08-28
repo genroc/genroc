@@ -9,7 +9,7 @@ import { BASE_URL } from "../helpers/constants.ts";
 async function rawOutput(id: string): Promise<string> {
   // The detail endpoint, because the values under test live in STATE: the status endpoint
   // reports where an instance ended, not what it holds.
-  const res = await fetch(`${BASE_URL}/instances/${id}/detail`);
+  const res = await fetch(`${BASE_URL}/api/instances/${id}/detail`);
   return await res.text();
 }
 
@@ -34,7 +34,7 @@ test("numbers — large integers survive a round trip untouched", async () => {
 
   // 9007199254740993 is 2^53+1 — the smallest integer float64 cannot represent.
   const body = `{"process":"${name}","input":{"id":9007199254740993,"amount":123456789.123456789}}`;
-  const started = await fetch(`${BASE_URL}/instances`, {
+  const started = await fetch(`${BASE_URL}/api/instances`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body,
@@ -73,7 +73,7 @@ test("numbers — decimal arithmetic is exact", async () => {
     },
   });
 
-  const started = await fetch(`${BASE_URL}/instances`, {
+  const started = await fetch(`${BASE_URL}/api/instances`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: `{"process":"${name}","input":{"a":0.1,"b":0.2,"big":9007199254740993}}`,

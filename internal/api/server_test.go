@@ -140,7 +140,7 @@ func TestListenHTTP_ShutsDownImmediatelyWhenIdle(t *testing.T) {
 // putDefinition submits body to PUT /definitions and returns the status and reply.
 func putDefinition(t *testing.T, addr, body string) (int, string) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPut, "http://"+addr+"/definitions", strings.NewReader(body))
+	req, err := http.NewRequest(http.MethodPut, "http://"+addr+"/api/definitions", strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}

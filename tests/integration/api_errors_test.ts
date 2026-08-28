@@ -10,7 +10,7 @@ import { BASE_URL } from "../helpers/constants.ts";
 const MISSING_ID = "00000000-0000-0000-0000-000000000000";
 
 async function errorOf(path: string, init?: RequestInit) {
-  const res = await fetch(`${BASE_URL}${path}`, init);
+  const res = await fetch(`${BASE_URL}/api${path}`, init);
   return { status: res.status, body: await res.json() as Record<string, unknown> };
 }
 

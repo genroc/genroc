@@ -40,7 +40,7 @@ const objectCache = new Map<string, unknown>();
 async function fetchObject(ref: string): Promise<unknown> {
   const cached = objectCache.get(ref);
   if (cached !== undefined) return cached;
-  const res = await fetch(`${SERVER}/objects/${encodeURIComponent(ref)}`);
+  const res = await fetch(`${SERVER}/api/objects/${encodeURIComponent(ref)}`);
   if (!res.ok) throw new Error(`fetch object ${ref}: HTTP ${res.status}`);
   const { data } = (await res.json()) as { data: string };
   let value: unknown;
@@ -110,7 +110,7 @@ const inFlight = new Map<string, QueueTask>();
 let running = true;
 
 async function claim(n: number): Promise<QueueTask[]> {
-  const { ok, data } = await call("/external-tasks/claim", {
+  const { ok, data } = await call("/api/external-tasks/claim", {
     worker_id: WORKER_ID,
     limit: n,
     lease_ms: LEASE_MS,
@@ -125,7 +125,7 @@ async function claim(n: number): Promise<QueueTask[]> {
 }
 
 async function release(token: string): Promise<void> {
-  const { ok, data } = await call("/external-tasks/release", { token });
+  const { ok, data } = await call("/api/external-tasks/release", { token });
   if (!ok) console.error(`release failed: ${JSON.stringify(data)}`);
 }
 
@@ -134,7 +134,7 @@ async function release(token: string): Promise<void> {
  *  not fit `raises`), and guessing again would only pick a second wrong answer. Release it, so
  *  the task returns to the queue and an operator sees it waiting rather than silently gone. */
 async function answer(token: string, outcome: Record<string, unknown>): Promise<void> {
-  const { ok, data } = await call("/external-tasks/resolve", { token, ...outcome });
+  const { ok, data } = await call("/api/external-tasks/resolve", { token, ...outcome });
   if (ok) return;
   console.error(`genroc refused the outcome for ${token}: ${JSON.stringify(data)}`);
   await release(token);
@@ -195,7 +195,7 @@ async function renewLoop(): Promise<void> {
     await new Promise((r) => setTimeout(r, RENEW_MS));
     const tokens = [...inFlight.keys()];
     if (!tokens.length) continue;
-    const { ok, data } = await call("/external-tasks/renew", {
+    const { ok, data } = await call("/api/external-tasks/renew", {
       worker_id: WORKER_ID,
       tokens,
       lease_ms: LEASE_MS,

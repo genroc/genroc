@@ -4,7 +4,12 @@ import type { AddressInfo } from "net";
 import type { components, paths } from "../generated/api.ts";
 import { BASE_URL } from "./constants.ts";
 
-export const client = createClient<paths>({ baseUrl: BASE_URL });
+// The spec declares the API prefix in `servers`; openapi-fetch does not read that, so the
+// base URL carries it. `/healthz` is mounted at the ROOT (actionDef.Root) and is the one
+// path this client cannot reach — rootClient is for those.
+export const API_BASE = `${BASE_URL}/api`;
+export const client = createClient<paths>({ baseUrl: API_BASE });
+export const rootClient = createClient<paths>({ baseUrl: BASE_URL });
 export const createClientTyped: typeof createClient<paths> = (options) =>
   createClient<paths>(options);
 

@@ -422,13 +422,13 @@ endpoints take either:
 
 | | addressed by | unarmed task |
 |---|---|---|
-| `POST /external-tasks/resolve` | a `token` (from the queue, or from a claim) | rejected — the token names a live arming |
-| `POST /instances/{id}/signal` | instance id + `task_id` | buffered FIFO until the task next arms |
+| `POST /api/external-tasks/resolve` | a `token` (from the queue, or from a claim) | rejected — the token names a live arming |
+| `POST /api/instances/{id}/signal` | instance id + `task_id` | buffered FIFO until the task next arms |
 
 An `error` is routed through the task's `on_error` rules exactly like a call error:
 
 ```jsonc
-// POST /external-tasks/resolve
+// POST /api/external-tasks/resolve
 { "token": "…", "result": { "fee": 25 } }          // the success channel
 { "token": "…", "error":  { "code": "limit_exceeded",
                             "message": "over the approval limit",
@@ -479,15 +479,15 @@ for the wire.
 
 #### Pulling work: claim, renew, release
 
-`GET /external-tasks` lists the queue and `POST /external-tasks/resolve` answers it — enough
+`GET /api/external-tasks` lists the queue and `POST /api/external-tasks/resolve` answers it — enough
 for a person or a webhook. A **worker fleet** wants the pull half instead, so two of them do
 not run the same task:
 
 | | |
 |---|---|
-| `POST /external-tasks/claim` | leases parked tasks to a `worker_id`, oldest park first. Filters by `process` / `version` / `task`, `limit` per batch, `lease_ms` for the visibility timeout (default 30s). |
-| `POST /external-tasks/renew` | extends this worker's claims. `renewed` reports how many it still held — a worker learns it lost one here rather than when its answer is refused. |
-| `POST /external-tasks/release` | hands a claim back at once instead of waiting out the lease. |
+| `POST /api/external-tasks/claim` | leases parked tasks to a `worker_id`, oldest park first. Filters by `process` / `version` / `task`, `limit` per batch, `lease_ms` for the visibility timeout (default 30s). |
+| `POST /api/external-tasks/renew` | extends this worker's claims. `renewed` reports how many it still held — a worker learns it lost one here rather than when its answer is refused. |
+| `POST /api/external-tasks/release` | hands a claim back at once instead of waiting out the lease. |
 
 A claim returns a **three-part token** — `<instance>.<arming>.<grant>` — and that is the only
 handle accepted while the claim is live. The two-part token the queue publishes still answers

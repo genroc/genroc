@@ -49,15 +49,25 @@ the subtle detail we would be asking every user to get right.
 | **open** | `GET /healthz` | direct — a probe must never meet a login redirect |
 | **queue** (low trust) | `POST /api/queue/{claim,renew,release,resolve,signal}`, `GET /api/objects/{ref}` | direct |
 | **control plane** | the rest of `/api/*` — definitions, instances, channels, `GET /api/external-tasks` | direct |
-| **human** | everything else — the UI, `/docs` | through the SSO proxy |
+| **human** | everything else — the UI, once there is one | through the SSO proxy |
+
+**Built 2026-08-28**, ahead of the rest of this spec, because it stops being free the moment a
+config outside this repo names a path. `apiPrefix` is applied at mount time and the registry
+keeps the logical path (`actionDef.mountPath`), so the prefix lives in one constant rather than
+28 literals. The OpenAPI spec declares it in `servers`, which is where a base path belongs — a
+generated client prepends it, and the documented paths stay the ones the registry routes.
+`actionDef.Root` is the exception, and `/healthz` is its only user: a probe must not move when
+the API namespace does, so it is mounted at the root and its path item overrides `servers`.
+
+`/api/docs` and `/api/openapi.json` moved with the rest. `/process-schema.json` did **not**: the
+docs site serves the same bytes at `genroc.org/process-schema.json`, and a
+`# yaml-language-server: $schema=` comment pointed at a local server should resolve at the same
+path as the public one.
 
 **`/api/` is what lets one hostname serve both audiences** (§5.1). The human path is the
 catch-all and machines take the explicit prefix, so a browser arriving at the bare domain lands
 on the UI and gets a login flow, rather than the 401 JSON it would get if the API were at the
 root. Three prefix rules at the ingress, no regex, one DNS name.
-
-Undecided, and small: `/openapi.json` and `/process-schema.json` are consumed by tooling but also
-by browsers. Either side works; they only must not straddle.
 
 `signal` moves to `POST /api/queue/signal` and takes `instance_id` in the body beside the `task_id`
 it already carries — the two paths deliver the same `ExternalOutcome` and differ only in whether

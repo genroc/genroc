@@ -40,10 +40,12 @@ beforeAll(async () => {
   server.stderr!.on("data", (c: Buffer) => {
     stdout += c.toString();
   });
-  client = createClientTyped({ baseUrl: `http://localhost:${PORT}` });
+  client = createClientTyped({ baseUrl: `http://localhost:${PORT}/api` });
+  // /healthz is root-mounted, so the readiness poll cannot go through the API client.
+  const probe = createClientTyped({ baseUrl: `http://localhost:${PORT}` });
   for (let i = 0; i < 100; i++) {
     try {
-      const { error } = await client.GET("/healthz", {});
+      const { error } = await probe.GET("/healthz", {});
       if (!error) break;
     } catch {
       /* not up yet */

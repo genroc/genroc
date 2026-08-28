@@ -52,7 +52,7 @@ func runApplyCmd(server string, args []string) {
 		Version int    `json:"version"`
 		Saved   bool   `json:"saved"`
 	}
-	if err := call(*serverFlag+"/definitions/batch", http.MethodPut, body, &resp); err != nil {
+	if err := call(*serverFlag+"/api/definitions/batch", http.MethodPut, body, &resp); err != nil {
 		fatal("%v", err)
 	}
 	for _, r := range resp {
@@ -82,7 +82,7 @@ func runValidateCmd(server string, args []string) {
 	}
 
 	var raw json.RawMessage
-	if err := call(*serverFlag+"/definitions/validate", http.MethodPost, defs, &raw); err != nil {
+	if err := call(*serverFlag+"/api/definitions/validate", http.MethodPost, defs, &raw); err != nil {
 		fatal("%v", err)
 	}
 	printIndented(raw)
@@ -139,7 +139,7 @@ func runChannelCmd(server string, args []string) {
 			Channel string `json:"channel"`
 			Version int    `json:"version"`
 		}
-		listURL := *serverFlag + "/channels?name=" + url.QueryEscape(rest[0])
+		listURL := *serverFlag + "/api/channels?name=" + url.QueryEscape(rest[0])
 		resp, err := listAll[channelRow](listURL)
 		if err != nil {
 			fatal("%v", err)
@@ -156,7 +156,7 @@ func runChannelCmd(server string, args []string) {
 		if err != nil || v < 1 {
 			fatal("version must be a positive integer")
 		}
-		if err := call(*serverFlag+"/channels", http.MethodPut,
+		if err := call(*serverFlag+"/api/channels", http.MethodPut,
 			map[string]any{"name": rest[0], "channel": rest[1], "version": v}, nil); err != nil {
 			fatal("%v", err)
 		}
@@ -166,7 +166,7 @@ func runChannelCmd(server string, args []string) {
 		if len(rest) < 2 {
 			fatal("usage: genctl channel delete <process> <channel>")
 		}
-		if err := call(*serverFlag+"/channels", http.MethodDelete,
+		if err := call(*serverFlag+"/api/channels", http.MethodDelete,
 			map[string]any{"name": rest[0], "channel": rest[1]}, nil); err != nil {
 			fatal("%v", err)
 		}
@@ -199,7 +199,7 @@ func runPromoteCmd(server string, args []string) {
 		To       string           `json:"to"`
 		Promoted []map[string]any `json:"promoted"`
 	}
-	if err := call(*serverFlag+"/channels/promote", http.MethodPost, body, &resp); err != nil {
+	if err := call(*serverFlag+"/api/channels/promote", http.MethodPost, body, &resp); err != nil {
 		fatal("%v", err)
 	}
 	for _, p := range resp.Promoted {
@@ -223,7 +223,7 @@ func runStatusCmd(server string, args []string) {
 			ChannelVersion int    `json:"channel_version"`
 		} `json:"stale_refs"`
 	}
-	if err := call(*serverFlag+"/channels/status", http.MethodPost,
+	if err := call(*serverFlag+"/api/channels/status", http.MethodPost,
 		map[string]any{"channel": *channelFlag}, &resp); err != nil {
 		fatal("%v", err)
 	}
@@ -285,7 +285,7 @@ func runRunCmd(server string, args []string) {
 		Version int    `json:"version"`
 		Status  string `json:"status"`
 	}
-	if err := call(*serverFlag+"/instances", http.MethodPost, body, &resp); err != nil {
+	if err := call(*serverFlag+"/api/instances", http.MethodPost, body, &resp); err != nil {
 		// Surface an input-schema mismatch as a clear, dedicated message instead of
 		// the generic "server: ..." wrapper.
 		if detail, ok := inputValidationError(err); ok {
@@ -336,7 +336,7 @@ func runResolveCmd(server string, args []string) {
 	var resp struct {
 		Resolved bool `json:"resolved"`
 	}
-	if err := call(*serverFlag+"/external-tasks/resolve", http.MethodPost, body, &resp); err != nil {
+	if err := call(*serverFlag+"/api/external-tasks/resolve", http.MethodPost, body, &resp); err != nil {
 		// Surface a result-schema mismatch as a clear, dedicated message instead of the
 		// generic "server: ..." wrapper (mirrors run's input-validation handling).
 		if detail, ok := resultValidationError(err); ok {
@@ -405,7 +405,7 @@ func runSignalCmd(server string, args []string) {
 		Delivered bool `json:"delivered"`
 		Buffered  bool `json:"buffered"`
 	}
-	if err := call(*serverFlag+"/instances/"+url.PathEscape(id)+"/signal", http.MethodPost, body, &resp); err != nil {
+	if err := call(*serverFlag+"/api/instances/"+url.PathEscape(id)+"/signal", http.MethodPost, body, &resp); err != nil {
 		// Surface a result-schema mismatch as a dedicated message (mirrors resolve/run).
 		if detail, ok := resultValidationError(err); ok {
 			fatal("result is not valid for task %q:\n  %s", *taskFlag, detail)
@@ -431,7 +431,7 @@ func runGetCmd(server string, args []string) {
 
 	// The detail endpoint: `get` shows what the instance HOLDS, which is state -- the status
 	// endpoint carries only what an instance reports outward.
-	u := *serverFlag + "/instances/" + url.PathEscape(id) + "/detail"
+	u := *serverFlag + "/api/instances/" + url.PathEscape(id) + "/detail"
 	if *resolveFlag {
 		// The server splices what fits and leaves the rest listed, so ask it first and then
 		// fetch whatever it could not carry: two round trips at most for the small case, and
@@ -549,7 +549,7 @@ func runInstancesCmd(server string, args []string) {
 		sinceCol = "updated_at"
 	}
 	limit := applyWindow(q, *sinceFlag, *untilFlag, sinceCol, listCap)
-	u := *serverFlag + "/instances?" + q.Encode()
+	u := *serverFlag + "/api/instances?" + q.Encode()
 	note := func(capped bool) {
 		noteCapped(capped, fmt.Sprintf("the newest %d instances", listCap), "--since")
 	}
@@ -661,7 +661,7 @@ func runDefinitionsCmd(server string, args []string) {
 	if *sortFlag == "name" {
 		dir, shown = firstFirst, "the first %d definitions"
 	}
-	u := *serverFlag + "/definitions?" + q.Encode()
+	u := *serverFlag + "/api/definitions?" + q.Encode()
 	note := func(capped bool) {
 		noteCapped(capped, fmt.Sprintf(shown, listCap), "--since")
 	}
@@ -734,7 +734,7 @@ func runExternalTasksCmd(server string, args []string) {
 	}
 	// updated_at is the park time — the WAITING column and this queue's only sort.
 	limit := applyWindow(q, *sinceFlag, *untilFlag, "updated_at", listCap)
-	u := *serverFlag + "/external-tasks"
+	u := *serverFlag + "/api/external-tasks"
 	if enc := q.Encode(); enc != "" {
 		u += "?" + enc
 	}
@@ -881,7 +881,7 @@ func runLogsCmd(server string, args []string) {
 	if *recursiveFlag {
 		q.Set("recursive", "true")
 	}
-	u := *serverFlag + "/instances/" + url.PathEscape(id) + "/logs"
+	u := *serverFlag + "/api/instances/" + url.PathEscape(id) + "/logs"
 	if enc := q.Encode(); enc != "" {
 		u += "?" + enc
 	}
@@ -982,7 +982,7 @@ func runPauseCmd(server string, args []string) {
 	ids := instanceIDsAndFlags(fs, args)
 
 	eachInstance(ids, "paused", func(id string) (model.Outcome, error) {
-		return assert(*serverFlag + "/instances/" + url.PathEscape(id) + "/pause")
+		return assert(*serverFlag + "/api/instances/" + url.PathEscape(id) + "/pause")
 	})
 }
 
@@ -992,7 +992,7 @@ func runResumeCmd(server string, args []string) {
 	ids := instanceIDsAndFlags(fs, args)
 
 	eachInstance(ids, "resumed", func(id string) (model.Outcome, error) {
-		return assert(*serverFlag + "/instances/" + url.PathEscape(id) + "/resume")
+		return assert(*serverFlag + "/api/instances/" + url.PathEscape(id) + "/resume")
 	})
 }
 
@@ -1003,7 +1003,7 @@ func runRetryCmd(server string, args []string) {
 	ids := instanceIDsAndFlags(fs, args)
 
 	eachInstance(ids, "retried", func(id string) (model.Outcome, error) {
-		u := *serverFlag + "/instances/" + url.PathEscape(id) + "/retry"
+		u := *serverFlag + "/api/instances/" + url.PathEscape(id) + "/retry"
 		if *forceFlag {
 			u += "?force=true"
 		}
@@ -1210,7 +1210,7 @@ func compatSidesForInstance(server, id string, fromFlag, toFlag, files multiFlag
 		fatal("-f already names the target side; drop --to")
 	}
 	var row instanceRow
-	if err := callGet(server+"/instances/"+id, &row); err != nil {
+	if err := callGet(server+"/api/instances/"+id, &row); err != nil {
 		fatal("%v", err)
 	}
 	from := map[string]any{"versions": map[string]any{row.Process: row.Version}}
@@ -1318,7 +1318,7 @@ func runCompatCmd(server string, args []string) {
 
 	if *jsonFlag {
 		var raw json.RawMessage
-		if err := call(*serverFlag+"/definitions/compat", http.MethodPost, body, &raw); err != nil {
+		if err := call(*serverFlag+"/api/definitions/compat", http.MethodPost, body, &raw); err != nil {
 			fatal("%v", err)
 		}
 		printIndented(raw)
@@ -1333,7 +1333,7 @@ func runCompatCmd(server string, args []string) {
 	}
 
 	var resp compatReport
-	if err := call(*serverFlag+"/definitions/compat", http.MethodPost, body, &resp); err != nil {
+	if err := call(*serverFlag+"/api/definitions/compat", http.MethodPost, body, &resp); err != nil {
 		fatal("%v", err)
 	}
 	printCompatReport(resp)
@@ -1714,7 +1714,7 @@ func spliceObjects(server string, raw json.RawMessage) json.RawMessage {
 		var resp struct {
 			Data string `json:"data"`
 		}
-		if err := callGet(server+"/objects/"+url.PathEscape(ref), &resp); err != nil {
+		if err := callGet(server+"/api/objects/"+url.PathEscape(ref), &resp); err != nil {
 			fatal("fetch object %s: %v", ref, err)
 		}
 		var value any
@@ -1780,7 +1780,7 @@ func runObjectCmd(server string, args []string) {
 	var resp struct {
 		Data string `json:"data"`
 	}
-	if err := callGet(*serverFlag+"/objects/"+url.PathEscape(ref), &resp); err != nil {
+	if err := callGet(*serverFlag+"/api/objects/"+url.PathEscape(ref), &resp); err != nil {
 		fatal("%v", err)
 	}
 	fmt.Println(resp.Data)

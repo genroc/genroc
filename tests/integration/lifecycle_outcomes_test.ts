@@ -11,7 +11,7 @@ import { BASE_URL } from "../helpers/constants.ts";
 const MISSING_ID = "00000000-0000-0000-0000-000000000000";
 
 async function post(path: string) {
-  const res = await fetch(`${BASE_URL}${path}`, { method: "POST" });
+  const res = await fetch(`${BASE_URL}/api${path}`, { method: "POST" });
   const text = await res.text();
   return { status: res.status, body: text ? (JSON.parse(text) as Record<string, unknown>) : null };
 }

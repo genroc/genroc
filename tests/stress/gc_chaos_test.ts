@@ -79,7 +79,7 @@ function startGenMock() {
 
 let bin = "";
 const dbPath = tmpPath("genroc_gc_chaos", ".db");
-const api = createClientTyped({ baseUrl: BASE_URL });
+const api = createClientTyped({ baseUrl: `${BASE_URL}/api` });
 let server: GenrocProcess | undefined;
 let mock: ReturnType<typeof startGenMock>;
 let mockPort = 0;
@@ -274,7 +274,7 @@ test(
 
     // Make sure a server is up (a crash may have landed on the last iteration).
     try {
-      const r = await fetch(`${BASE_URL}/openapi.json`);
+      const r = await fetch(`${BASE_URL}/api/openapi.json`);
       await r.body?.cancel();
       if (!r.ok) throw new Error("not ok");
     } catch {

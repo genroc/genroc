@@ -83,7 +83,7 @@ test("a config value reaches expressions but neither view, nor the state behind 
   expect(await waitForInstance(started!.id)).toBe("completed");
 
   for (const path of [`/instances/${started!.id}`, `/instances/${started!.id}/detail`]) {
-    const body = await (await fetch(`${BASE_URL}${path}`)).text();
+    const body = await (await fetch(`${BASE_URL}/api${path}`)).text();
     expect(body, `${path} must not carry the config value`).not.toContain("supersecret-token-value");
     expect(body, `${path} must not carry a config slot at all`).not.toContain('"config"');
   }

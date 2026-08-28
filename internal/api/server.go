@@ -62,7 +62,7 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 
 	for _, a := range registry {
 		a := a
-		mux.HandleFunc(a.Method+" "+a.Path, func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc(a.Method+" "+a.mountPath(), func(w http.ResponseWriter, r *http.Request) {
 			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 			env, err := a.envelope(r)
 			if err != nil {
@@ -76,24 +76,27 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 		})
 	}
 
-	mux.HandleFunc("GET /docs", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/docs", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprint(w, swaggerUIHTML("genroc API", "/openapi.json"))
+		fmt.Fprint(w, swaggerUIHTML("genroc API", "/api/openapi.json"))
 	})
 
-	mux.HandleFunc("GET /openapi.json", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(buildSpec())
 	})
 
+	// Deliberately NOT under /api: the docs site serves the same bytes at
+	// genroc.org/process-schema.json, and a `# yaml-language-server: $schema=` comment
+	// pointed at a local server should resolve at the same path as the public one.
 	mux.HandleFunc("GET /process-schema.json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(buildProcessDefinitionSchema())
 	})
 
-	mux.HandleFunc("GET /definitions/{name}/docs", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/definitions/{name}/docs", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
-		specURL := "/definitions/" + name + "/openapi.json"
+		specURL := "/api/definitions/" + name + "/openapi.json"
 		if v := r.URL.Query().Get("version"); v != "" {
 			specURL += "?version=" + v
 		}
@@ -101,7 +104,7 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 		fmt.Fprint(w, swaggerUIHTML(name+" — genroc API", specURL))
 	})
 
-	mux.HandleFunc("GET /definitions/{name}/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/definitions/{name}/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		version := 0
 		if v := r.URL.Query().Get("version"); v != "" {
 			if parsed, err := strconv.Atoi(v); err == nil {

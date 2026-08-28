@@ -1,5 +1,22 @@
 # internal/api
 
+## The API namespace is one constant, and one action opts out
+
+Every route is served under `apiPrefix` (`/api`), applied by `actionDef.mountPath` at mount time.
+The registry keeps the LOGICAL path, so the prefix is in one place rather than in 28 literals,
+and the OpenAPI spec declares it once in `servers` — which is where a base path belongs, and what
+lets a generated client prepend it while the documented paths stay the ones the registry routes.
+
+`actionDef.Root` mounts an action at the server root instead. `/healthz` is its only user and the
+bar for a second is high: it exists so a **probe does not move when the API namespace does**, and
+so a deployment splitting humans from machines by path on one hostname can leave it alone
+(specs/api-auth.md §1). A Root action's path item overrides the spec's `servers`, or it would be
+documented at a path it is not served on.
+
+`/process-schema.json` is served outside the registry and outside the prefix, for a different
+reason: the docs site publishes the same bytes at `genroc.org/process-schema.json`, and an editor
+`$schema` comment pointed at a local server must resolve at the same path as the public one.
+
 Routes, request/response shapes and the OpenAPI spec are all generated from the action
 registry in `actions.go` — **add an endpoint there, not in `server.go`**. `ListenHTTP`
 iterates the registry; the handwritten `mux.HandleFunc` blocks below it are the docs and

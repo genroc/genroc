@@ -95,7 +95,7 @@ func runUpgradeCmd(server string, args []string) {
 	// -- its root moves the whole tree -- so a sweep that included them would collect
 	// refusals it could do nothing about. Roots-only is the endpoint's default now, which
 	// is why nothing here asks for it.
-	base := appendQuery(*serverFlag+"/instances", "process", process)
+	base := appendQuery(*serverFlag+"/api/instances", "process", process)
 	base = appendQuery(base, "version", strconv.Itoa(from))
 
 	var tally upgradeTally
@@ -180,7 +180,7 @@ func upgradeByIDs(server string, refs []string, fromRef, toRef, statusFlag strin
 		// (?root=true), and here the refusal has to come before the pause mutates a row the
 		// server would then refuse anyway.
 		var row instanceRow
-		if err := callGet(server+"/instances/"+id+"/detail", &row); err != nil {
+		if err := callGet(server+"/api/instances/"+id+"/detail", &row); err != nil {
 			tally.record(instanceRow{ID: id}, reasonf("%v", err), jsonOut)
 			continue
 		}
@@ -244,7 +244,7 @@ func upgradeOneTree(server string, row instanceRow, to int, jsonOut bool) *strin
 	if row.Status == "running" {
 		// The endpoint only moves settled rows, so a running one is paused first. A pause is
 		// a request, not an act: it lands on the owner's next write, so this waits for it.
-		if err := call(server+"/instances/"+row.ID+"/pause", "POST", nil, nil); err != nil {
+		if err := call(server+"/api/instances/"+row.ID+"/pause", "POST", nil, nil); err != nil {
 			return reasonf("pause: %v", err)
 		}
 		if err := waitForStatus(server, row.ID, "paused", 10*time.Second); err != nil {
@@ -254,13 +254,13 @@ func upgradeOneTree(server string, row instanceRow, to int, jsonOut bool) *strin
 	}
 
 	var res upgradeResult
-	err := call(server+"/instances/"+row.ID+"/upgrade", "POST",
+	err := call(server+"/api/instances/"+row.ID+"/upgrade", "POST",
 		map[string]any{"from_version": row.Version, "to_version": to}, &res)
 
 	// Put it back before reporting anything: an instance this command paused must not be
 	// left paused because the move failed.
 	if paused {
-		if rerr := call(server+"/instances/"+row.ID+"/resume", "POST", nil, nil); rerr != nil {
+		if rerr := call(server+"/api/instances/"+row.ID+"/resume", "POST", nil, nil); rerr != nil {
 			fmt.Fprintf(os.Stderr, "genctl: %s moved but could not be resumed: %v\n", row.ID, rerr)
 		}
 	}
@@ -333,7 +333,7 @@ func waitForStatus(server, id, want string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
 		var row instanceRow
-		if err := callGet(server+"/instances/"+id, &row); err != nil {
+		if err := callGet(server+"/api/instances/"+id, &row); err != nil {
 			return fmt.Errorf("read %s: %w", id, err)
 		}
 		if row.Status == want {
@@ -369,7 +369,7 @@ func lookupVersionRef(server, process, ref string) (int, error) {
 			Version int    `json:"version"`
 		} `json:"items"`
 	}
-	if err := callGet(appendQuery(server+"/channels", "name", process), &page); err != nil {
+	if err := callGet(appendQuery(server+"/api/channels", "name", process), &page); err != nil {
 		return 0, fmt.Errorf("resolve %q for %s: %w", ref, process, err)
 	}
 	for _, c := range page.Items {

@@ -18,7 +18,7 @@ const PORT = 20080;
 useTickEnv(PORT);
 
 async function post(body?: unknown) {
-  const res = await fetch(`http://localhost:${PORT}/tick`, {
+  const res = await fetch(`http://localhost:${PORT}/api/tick`, {
     method: "POST",
     ...(body === undefined
       ? {}

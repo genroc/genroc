@@ -1,6 +1,6 @@
 import { createClientTyped } from "../helpers/client";
 
-const client = createClientTyped({ baseUrl: "http://localhost:8888" });
+const client = createClientTyped({ baseUrl: "http://localhost:8888/api" });
 
 async function getAll() {
   let cursor: string | undefined;

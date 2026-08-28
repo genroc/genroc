@@ -32,7 +32,7 @@ const repoRoot = join(import.meta.dirname, "../..");
 const defs = ["script.yaml", "process.yaml"].map((f) =>
   join(import.meta.dirname, f),
 );
-const client = createClientTyped({ baseUrl: SERVER });
+const client = createClientTyped({ baseUrl: `${SERVER}/api` });
 
 console.log(`\nRegistering "${PROCESS_NAME}"…`);
 const reg = spawnSync(

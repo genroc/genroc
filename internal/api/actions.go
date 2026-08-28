@@ -29,6 +29,24 @@ type altResp struct {
 // actionDef is the single source of truth for one API action.
 // It drives HTTP routing (Method + Path) and OpenAPI documentation
 // (schemas reflected from Go types).
+// apiPrefix namespaces every action except the probes. It exists so a deployment can route
+// humans and machines apart by path on ONE hostname — the API under this prefix reached
+// directly, everything else through an SSO proxy — which is what keeps a browser hitting the
+// bare domain from receiving a 401 body instead of a login page. specs/api-auth.md §1, §5.1.
+//
+// It is NOT repeated in Path: the registry holds the logical path and the spec declares the
+// prefix once in `servers`, which is where OpenAPI puts a base path. Duplicating it into 28
+// literals would put it in two places that must agree.
+const apiPrefix = "/api"
+
+// mountPath is where this action is actually served.
+func (a actionDef) mountPath() string {
+	if a.Root {
+		return a.Path
+	}
+	return apiPrefix + a.Path
+}
+
 type actionDef struct {
 	Name    string
 	Method  string
@@ -55,6 +73,12 @@ type actionDef struct {
 	// the corresponding statuses. CodeInvalid and CodeInternal are implicit — every
 	// action can reject a body and every action can fail — so list only the extras.
 	Errors []Code
+
+	// Root mounts this action at the server root instead of under apiPrefix. Probes only:
+	// a liveness check must not depend on how the API namespace is routed, and a proxy
+	// splitting humans from machines by path must be able to leave it alone. See
+	// specs/api-auth.md §1.
+	Root bool
 
 	// fromHTTP extracts an Envelope from an HTTP request.
 	// nil = default: decode body as JSON payload.
@@ -679,6 +703,7 @@ var registry = func() []actionDef {
 			Name:    "health",
 			Method:  http.MethodGet,
 			Path:    "/healthz",
+			Root:    true,
 			Summary: "Readiness probe: 200 when this worker can reach its database, 503 when it cannot",
 			Tags:    []string{"Debug"},
 			Errors:  []Code{CodeUnavailable},
