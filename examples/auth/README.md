@@ -6,16 +6,17 @@ that holds the weakest one. specs/api-auth.md.
     ./examples/auth/gen-env.sh                       # once — mints both credentials
     docker compose -f examples/auth/compose.yaml up --build
 
-`gen-env.sh` prints the admin token and tells you to store it. Do that, then **delete the
-`OPS_TOKEN` line from `.env`**:
+Both credentials are written to `examples/auth/.env` and neither is printed — echoing a secret
+that is already in a file only adds a copy to your scrollback.
 
-    genctl config set token genroc_sk_...             # stored 0600 on YOUR machine
-    sed -i '' '/^OPS_TOKEN=/d' examples/auth/.env
+`OPS_TOKEN` is your admin credential. Store it wherever you keep secrets, then delete the line:
+genroc has its hash after the first start and never needs the value again. `WORKER_TOKEN` stays,
+because the evaluator reads it at every start.
 
-From then on you drive it from the host — no container holds an admin credential:
+You drive the stack from the host, so no container ever holds an admin credential:
 
-    genctl token list
-    genctl definitions
+    GENROC_TOKEN=… genctl token list
+    GENROC_TOKEN=… genctl definitions
 
 ## What it shows
 
