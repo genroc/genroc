@@ -704,6 +704,44 @@ var registry = func() []actionDef {
 			},
 		},
 		{
+			Name:    "create_token",
+			Allow:   []Perm{PermAdmin},
+			Method:  http.MethodPost,
+			Path:    "/tokens",
+			Summary: "Mint an API token. The secret is returned once and never again — only its hash is stored",
+			Tags:    []string{"Tokens"},
+			Req:     CreateTokenReq{Label: "ci", Perms: []string{"deploy", "read"}},
+			Resp:    CreateTokenResp{ID: "01a0…", Token: "genroc_sk_…", Label: "ci", Perms: []string{"deploy", "read"}},
+			handle:  func(h *Handlers, env Envelope) Reply { return h.createToken(env.Payload) },
+		},
+		{
+			Name:    "list_tokens",
+			Allow:   []Perm{PermAdmin},
+			Method:  http.MethodGet,
+			Path:    "/tokens",
+			Summary: "List API tokens. Secrets are never included — the row cannot produce one",
+			Tags:    []string{"Tokens"},
+			Resp:    map[string]any{"items": []TokenResp{}},
+			handle:  func(h *Handlers, _ Envelope) Reply { return h.listTokens() },
+		},
+		{
+			Name:    "revoke_token",
+			Allow:   []Perm{PermAdmin},
+			Method:  http.MethodDelete,
+			Path:    "/tokens/{id}",
+			Summary: "Revoke an API token. Takes effect on the next request that presents it",
+			Tags:    []string{"Tokens"},
+			Errors:  []Code{CodeNotFound},
+			PathQuery: struct {
+				ID string `path:"id"`
+			}{},
+			Resp: map[string]any{"revoked": true},
+			fromHTTP: func(r *http.Request) (Envelope, error) {
+				return Envelope{Action: "revoke_token", ID: r.PathValue("id")}, nil
+			},
+			handle: func(h *Handlers, env Envelope) Reply { return h.revokeToken(env.ID) },
+		},
+		{
 			Name:    "health",
 			Open:    true,
 			Method:  http.MethodGet,

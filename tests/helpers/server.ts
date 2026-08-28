@@ -40,6 +40,14 @@ function spawnProc(
   const pollArgs = pollMs !== undefined ? ["--poll", String(pollMs)] : [];
   const concArgs = maxConcurrent !== undefined ? ["--max-concurrent", String(maxConcurrent)] : [];
   const retryArgs = immediateRetries ? ["--immediate-retries"] : [];
+  // Auth mode via env, so the auth suite can start an authenticated server without adding a
+  // parameter to a chain every other caller passes positionally.
+  const authArgs = [
+    ...(process.env.GENROC_TEST_AUTH ? ["--auth", process.env.GENROC_TEST_AUTH] : []),
+    ...(process.env.GENROC_TEST_BOOTSTRAP_TOKEN
+      ? ["--bootstrap-token", process.env.GENROC_TEST_BOOTSTRAP_TOKEN]
+      : []),
+  ];
   // Optional lease overrides via env (used by the benchmark to tune the lease).
   const leaseArgs = [
     ...(process.env.GENROC_LEASE_DURATION ? ["--lease-duration", process.env.GENROC_LEASE_DURATION] : []),
@@ -69,7 +77,7 @@ function spawnProc(
     // what every test other than the benchmark wants.
     ...(process.env.GENROC_DURABILITY ? ["--durability", process.env.GENROC_DURABILITY] : []),
   ];
-  return spawn(bin, [...dbArgs, "--http", `:${port}`, "--log", "error", ...pollArgs, ...concArgs, ...retryArgs, ...leaseArgs, ...poolArgs, ...syncArgs], {
+  return spawn(bin, [...dbArgs, "--http", `:${port}`, "--log", "error", ...pollArgs, ...concArgs, ...retryArgs, ...authArgs, ...leaseArgs, ...poolArgs, ...syncArgs], {
     stdio: "ignore",
     // Fixed config fixtures for the config e2e test. The test's process names are
     // random, so we use the global tier (GENROC_GLOBAL_<NAME> → config.<NAME>).

@@ -10,6 +10,8 @@ import (
 
 type genrocConfig struct {
 	Server string `yaml:"server,omitempty"`
+	// Token is an API credential (genroc_sk_*). $GENROC_TOKEN wins over it.
+	Token string `yaml:"token,omitempty"`
 }
 
 func configFilePath() (string, error) {

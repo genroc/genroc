@@ -8,6 +8,16 @@ import { evaluate, type EvalRequest, type FailureKind } from "./eval.ts";
 
 const SERVER = (process.env.GENROC_SERVER ?? "http://localhost:8448").replace(/\/$/, "");
 const WORKER_ID = process.env.WORKER_ID ?? `evaluator-${process.pid}`;
+// The credential, when the server runs with --auth token. A worker needs exactly the `worker`
+// permission — the four queue verbs plus GET /api/objects — so mint it scoped rather than
+// handing a worker an admin token: this is the credential most likely to sit on a machine you
+// trust least. specs/api-auth.md §5.
+//
+// Sent as a header rather than in the URL because Node's fetch REFUSES a URL carrying
+// credentials ("Request cannot be constructed from a URL that includes credentials"), so the
+// basic-auth-in-the-URL trick that works for genctl is not available here.
+const TOKEN = process.env.GENROC_TOKEN ?? "";
+const authHeaders: Record<string, string> = TOKEN ? { authorization: `Bearer ${TOKEN}` } : {};
 // Concurrency is the worker's to set, and that is the point of pulling: under the old fetch
 // shape genroc decided how many scripts ran at once (--max-concurrent, default 200) and the
 // evaluator accepted every one of them. Here it claims what it can run and no more, so a
@@ -40,7 +50,7 @@ const objectCache = new Map<string, unknown>();
 async function fetchObject(ref: string): Promise<unknown> {
   const cached = objectCache.get(ref);
   if (cached !== undefined) return cached;
-  const res = await fetch(`${SERVER}/api/objects/${encodeURIComponent(ref)}`);
+  const res = await fetch(`${SERVER}/api/objects/${encodeURIComponent(ref)}`, { headers: authHeaders });
   if (!res.ok) throw new Error(`fetch object ${ref}: HTTP ${res.status}`);
   const { data } = (await res.json()) as { data: string };
   let value: unknown;
@@ -79,7 +89,7 @@ async function resolveObjects(job: QueueTask): Promise<unknown> {
 async function call(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: any }> {
   const res = await fetch(SERVER + path, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...authHeaders },
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -110,7 +120,7 @@ const inFlight = new Map<string, QueueTask>();
 let running = true;
 
 async function claim(n: number): Promise<QueueTask[]> {
-  const { ok, data } = await call("/api/external-tasks/claim", {
+  const { ok, status, data } = await call("/api/external-tasks/claim", {
     worker_id: WORKER_ID,
     limit: n,
     lease_ms: LEASE_MS,
@@ -118,6 +128,17 @@ async function claim(n: number): Promise<QueueTask[]> {
     ...(TASK_FILTER ? { task: TASK_FILTER } : {}),
   });
   if (!ok) {
+    // A credential problem is not transient, and polling through it looks like a healthy
+    // worker that never picks anything up — the worst shape for an operator to debug. Exit
+    // instead, so a supervisor restarts it and the failure is visible where it happened.
+    if (status === 401 || status === 403) {
+      console.error(
+        `claim rejected (${status}): ${JSON.stringify(data)}\n` +
+          `The server requires authentication. Set GENROC_TOKEN to a token with the 'worker' ` +
+          `permission — mint one with: genctl token create --perms worker --label evaluator -q`,
+      );
+      process.exit(1);
+    }
     console.error(`claim failed: ${JSON.stringify(data)}`);
     return [];
   }

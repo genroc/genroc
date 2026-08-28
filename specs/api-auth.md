@@ -1,13 +1,14 @@
 # API authentication and authorization
 
-Status: **PROPOSAL 2026-08-27; §1 and §3 BUILT 2026-08-28.** The path layout is in place (it
+Status: **PROPOSAL 2026-08-27; §1, §3 and §5 (token mode) BUILT 2026-08-28.** The path layout is in place (it
 went first because paths stop being free the moment a config outside this repo names one), and
-so is the permission model: `Allow` on every action, one `authorize` gate every transport passes
-through, and 401/403 as separate codes. What is NOT built is **identity** — every mode is still
-`none`, so `anonymousAdmin()` is attached to every request and nothing is refused in practice.
-The gate is therefore load-bearing but inert, which is deliberate: the shape it fixes (§3's
-`[]Grant` and two-phase check) is the part that is free now and expensive later. Until a mode
-lands: there is no middleware, no `Authorization` handling, and no actor recorded
+so is the permission model (`Allow` on every action, one `authorize` gate every transport passes
+through, 401/403 as separate codes) and **`token` mode** — `genroc_sk_*` credentials hashed in
+`api_tokens`, `-auth token`, all three bootstrap paths, `genroc token` for break-glass and
+`genctl token` for everyday use.
+
+Still unbuilt: **`jwt` and `header` modes**, so there is no path for a human behind an SSO
+proxy yet — machines are served, people are not. The default remains `none`, which means: there is no middleware, no `Authorization` handling, and no actor recorded
 anywhere, so every endpoint is open and `PUT /definitions` is arbitrary code execution on the
 server, reachable by anyone who can open a socket.
 

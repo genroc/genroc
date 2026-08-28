@@ -21,6 +21,12 @@ import (
 )
 
 func main() {
+	// Subcommands are dispatched before flag parsing, since `genroc token …` takes its own
+	// flags and must work without the server's. specs/api-auth.md §5.3.
+	if len(os.Args) > 1 && os.Args[1] == "token" {
+		runTokenCmd(os.Args[2:])
+		return
+	}
 	dbPath := flag.String("db", "genroc.db", "SQLite database file path")
 	pgDSN := flag.String("pg", "", "PostgreSQL DSN (e.g. postgres://user:pass@host/db). When set, --db is ignored.")
 	pgMaxOpenConns := flag.Int("pg-max-open-conns", 50, "PostgreSQL connection pool size, and with it the group-commit batch-width ceiling: only transactions in flight together coalesce into one WAL flush, so the pool bounds how many ever do. Size a worker fleet so workers*pg-max-open-conns stays under the server's max_connections. Ignored for SQLite.")

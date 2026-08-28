@@ -15,8 +15,31 @@ import (
 	"strings"
 )
 
+// authToken is the credential every request presents, resolved ONCE in main from
+// $GENROC_TOKEN or the config file, before any command runs. A package var rather than a
+// parameter through 30-odd call sites: genctl is a single-shot process that sets this before
+// dispatch and never writes it again, so it is startup configuration in the same sense the
+// server URL is. Nothing here runs concurrently.
+//
+// (internal/ forbids package-level state for reasons that turn on goroutines and GC roots;
+// cmd/ is outside that boundary, and neither reason applies to a CLI invocation.)
+var authToken string
+
+// authGet is http.Get plus the credential. Go attaches basic-auth from URL userinfo on its
+// own, so a deployment behind a proxy that wants that still works without this.
+func authGet(url string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken)
+	}
+	return http.DefaultClient.Do(req)
+}
+
 func callGet(url string, out any) error {
-	resp, err := http.Get(url)
+	resp, err := authGet(url)
 	if err != nil {
 		return fmt.Errorf("connect to server: %w", err)
 	}
@@ -233,6 +256,9 @@ func callStatus(url, method string, body any, out any) (int, error) {
 		return 0, fmt.Errorf("request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

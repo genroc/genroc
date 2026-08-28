@@ -447,3 +447,29 @@ type LogEntryResp struct {
 	// its owner. specs/object-store.md §The wire.
 	Objects []ObjectEntry `json:"objects,omitempty"`
 }
+
+// ── tokens ───────────────────────────────────────────────────────────────────────
+
+type CreateTokenReq struct {
+	Label string   `json:"label"` // optional: shown in listings and recorded as the actor
+	Perms []string `json:"perms"` // required: admin, deploy, operate, read, worker
+}
+
+// CreateTokenResp is the ONE response that carries a secret. Every later read of the row
+// cannot produce it, because only its hash was stored.
+type CreateTokenResp struct {
+	ID    string   `json:"id"`
+	Token string   `json:"token"` // shown once; there is no way to retrieve it again
+	Label string   `json:"label,omitempty"`
+	Perms []string `json:"perms"`
+}
+
+// TokenResp is a token as a listing shows it — deliberately without the secret.
+type TokenResp struct {
+	ID         string   `json:"id"`
+	Label      string   `json:"label,omitempty"`
+	Perms      []string `json:"perms"`
+	CreatedAt  string   `json:"created_at"`
+	LastUsedAt string   `json:"last_used_at,omitempty"`
+	RevokedAt  string   `json:"revoked_at,omitempty"`
+}

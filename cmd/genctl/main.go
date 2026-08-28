@@ -8,6 +8,7 @@
 //	genctl validate -f file.yaml [-f file2.yaml ...]
 //	genctl types    -f file.yaml [-f file2.yaml ...]
 //	genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
+//	genctl token   create --perms <list> [--label <name>] [-q] | list [--json] | revoke <id>...
 //	genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
 //	genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [-q]
 //	genctl instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>] [--children] [--sort updated|created] [--since <when>] [--until <when>] [--json | -q]
@@ -79,8 +80,7 @@
 //	genctl channel delete <process> <channel>
 //	genctl promote  --from <channel> --to <channel> [--process <name>]
 //	genctl status   --channel <channel>
-//	genctl config   get <key>
-//	genctl config   set <key> <value>
+//	genctl config   get <key> | set <key> <value> | unset <key>
 //
 // A `$<resolver>: <path>` leaf in a source file is replaced by a string a binary named in
 // the project's genroc.yaml produces, before anything is sent. Every command that reads a
@@ -101,6 +101,7 @@ import (
 	"strings"
 
 	"genroc/internal/model"
+	"io"
 )
 
 // Command conventions (naming, --server, table/--json output, the no---limit list
@@ -119,9 +120,23 @@ func main() {
 	if server == "" {
 		server = "http://localhost:8448"
 	}
+	// Set before dispatch, so every request carries it without threading a parameter through
+	// each command. Env wins over the config file, the same precedence `server` uses.
+	authToken = os.Getenv("GENROC_TOKEN")
+	if authToken == "" {
+		authToken = cfg.Token
+	}
 
 	cmd := os.Args[1]
 	args := os.Args[2:]
+
+	// Asking for help is not an error: it goes to stdout and exits 0, so `genctl -h | less`
+	// works and a script checking the status does not see a failure.
+	switch cmd {
+	case "-h", "--help", "help":
+		usageTo(os.Stdout)
+		return
+	}
 
 	switch cmd {
 	case "apply":
@@ -132,6 +147,8 @@ func main() {
 		runTypesCmd(server, args)
 	case "run":
 		runRunCmd(server, args)
+	case "token":
+		runTokenCmd(server, args)
 	case "resolve":
 		runResolveCmd(server, args)
 	case "object":
@@ -298,8 +315,12 @@ func eachInstance(ids []string, done string, do func(id string) (model.Outcome, 
 	}
 }
 
-func usage() {
-	fmt.Fprintln(os.Stderr, `Usage:
+// usage writes to w: stderr when it accompanies an error, stdout when it IS the answer
+// (`genctl -h`), so help can be piped without redirecting stderr.
+func usage() { usageTo(os.Stderr) }
+
+func usageTo(w io.Writer) {
+	fmt.Fprintln(w, `Usage:
   genctl apply    -f file.yaml [-f file2.yaml ...] [--channel latest]
   genctl validate -f file.yaml [-f file2.yaml ...]
   genctl types    -f file.yaml [-f file2.yaml ...]
@@ -326,8 +347,8 @@ func usage() {
   genctl channel delete <process> <channel>
   genctl promote  --from <channel> --to <channel> [--process <name>]
   genctl status   --channel <channel>
-  genctl config   get <key>
-  genctl config   set <key> <value>
+  genctl token    create --perms <list> [--label <name>] [-q] | list [--json] | revoke <id>...
+  genctl config   get <key> | set <key> <value> | unset <key>
 
 Flags:
   -f        apply: definition file(s), YAML or JSON, multi-doc --- (repeatable);
@@ -410,8 +431,9 @@ External tasks:
   --code/--message instead of a result: the code is routed through the task's
   on_error rules like any other call error, and buffers the same way.
 
-Config keys:
-  server    genroc server base URL`)
+Config keys (~/.config/genroc/config.yaml, mode 0600):
+  server    genroc server base URL                    ($GENROC_SERVER wins)
+  token     API credential, a genroc_sk_* value       ($GENROC_TOKEN wins)`)
 }
 
 func fatal(format string, args ...any) {

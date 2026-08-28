@@ -11,12 +11,26 @@ Design record: [specs/external-task-queue.md](../specs/external-task-queue.md) f
 
     GENROC_SERVER=http://localhost:8448 node evaluator/worker.ts
 
+Against a server started with `--auth token`, mint a scoped credential first:
+
+    TOKEN=$(genctl token create --perms worker --label evaluator -q)
+    GENROC_SERVER=http://localhost:8448 GENROC_TOKEN=$TOKEN node evaluator/worker.ts
+
+`worker` reaches the four queue verbs and `GET /api/objects/{ref}` — enough to claim, fetch an
+externalized input and answer, and nothing else. This is the credential most likely to end up on
+a machine you trust least, so it is worth scoping rather than reusing an admin token: a leaked
+one cannot read a definition, list an instance, or mint another token.
+
+A credential problem **exits the worker** rather than being retried. Polling through a 401 looks
+like a healthy worker that never picks anything up, which is the worst shape to debug.
+
 It needs **Node 24 or newer**: the sources are TypeScript and are run as-is, by Node's own
 type stripping.
 
 | env | default | |
 |---|---|---|
 | `GENROC_SERVER` | `http://localhost:8448` | where to claim from |
+| `GENROC_TOKEN` | *(none)* | credential, when the server runs with `--auth token`. Needs the **`worker`** permission and nothing more |
 | `WORKER_ID` | `evaluator-<pid>` | the claim holder; renewals are scoped to it |
 | `CONCURRENCY` | `4` | how many scripts run at once — **this worker's** decision |
 | `LEASE_MS` | `30000` | visibility timeout; renewed at a third of it while working |

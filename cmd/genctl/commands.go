@@ -1016,24 +1016,31 @@ func readFile(path string) ([]any, error) {
 
 func runConfigCmd(args []string) {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: genctl config get <key>")
+		fmt.Fprintln(os.Stderr, "Usage: genctl config get <key>          (server, token)")
 		fmt.Fprintln(os.Stderr, "       genctl config set <key> <value>")
+		fmt.Fprintln(os.Stderr, "       genctl config unset <key>")
 		os.Exit(1)
 	}
 	sub, key := args[0], args[1]
 	switch sub {
 	case "get":
 		cfg := loadConfig()
-		switch key {
-		case "server":
-			if cfg.Server == "" {
-				fmt.Println("(not set)")
-			} else {
-				fmt.Println(cfg.Server)
-			}
-		default:
-			fatal("unknown config key %q", key)
+		val, err := configValue(cfg, key)
+		if err != nil {
+			fatal("%v", err)
 		}
+		if val == "" {
+			fmt.Println("(not set)")
+			return
+		}
+		// A credential is never printed back. `get` is what someone runs to check a setting,
+		// often with a colleague watching or a terminal being recorded, and the value is
+		// recoverable from the file by whoever owns it anyway.
+		if key == "token" {
+			fmt.Printf("(set: %s)\n", maskToken(val))
+			return
+		}
+		fmt.Println(val)
 	case "set":
 		if len(args) < 3 {
 			fatal("usage: genctl config set <key> <value>")
@@ -1043,18 +1050,62 @@ func runConfigCmd(args []string) {
 		switch key {
 		case "server":
 			cfg.Server = val
+		case "token":
+			cfg.Token = val
 		default:
-			fatal("unknown config key %q", key)
+			fatal("unknown config key %q (server, token)", key)
 		}
 		if err := saveConfig(cfg); err != nil {
 			fatal("save config: %v", err)
 		}
 		path, _ := configFilePath()
-		fmt.Printf("set server = %s  (%s)\n", val, path)
+		shown := val
+		if key == "token" {
+			shown = maskToken(val)
+		}
+		fmt.Printf("set %s = %s  (%s)\n", key, shown, path)
+	case "unset":
+		cfg := loadConfig()
+		switch key {
+		case "server":
+			cfg.Server = ""
+		case "token":
+			cfg.Token = ""
+		default:
+			fatal("unknown config key %q (server, token)", key)
+		}
+		if err := saveConfig(cfg); err != nil {
+			fatal("save config: %v", err)
+		}
+		fmt.Printf("unset %s\n", key)
 	default:
-		fatal("unknown config subcommand %q", sub)
+		fatal("unknown config subcommand %q (get, set, unset)", sub)
 	}
 }
+
+func configValue(cfg genrocConfig, key string) (string, error) {
+	switch key {
+	case "server":
+		return cfg.Server, nil
+	case "token":
+		return cfg.Token, nil
+	}
+	return "", fmt.Errorf("unknown config key %q (server, token)", key)
+}
+
+// maskToken shows enough to tell two credentials apart and not enough to use one. The prefix
+// is not secret — it is the same on every token — so only the tail is elided.
+func maskToken(t string) string {
+	const keep = 6
+	if len(t) <= len(tokenPrefix)+keep {
+		return "…"
+	}
+	return t[:len(tokenPrefix)+keep] + "…"
+}
+
+// tokenPrefix mirrors db.TokenPrefix. Duplicated rather than imported: genctl is a client and
+// must not depend on the server's internal packages.
+const tokenPrefix = "genroc_sk_"
 
 // ── version compatibility ─────────────────────────────────────────────────────
 
@@ -1692,4 +1743,120 @@ func runObjectCmd(server string, args []string) {
 		fatal("%v", err)
 	}
 	fmt.Println(resp.Data)
+}
+
+// ── tokens ──────────────────────────────────────────────────────────────────────
+
+// `genctl token` manages API credentials over the API, which means it needs an admin
+// credential of its own. The break-glass equivalent that needs none is `genroc token`, run
+// against the database by whoever can read it. specs/api-auth.md §5.3.
+func runTokenCmd(server string, args []string) {
+	if len(args) == 0 {
+		fatal("usage: genctl token create --perms <list> [--label <name>] | token list | token revoke <id>...")
+	}
+	sub, rest := args[0], args[1:]
+
+	fs := flag.NewFlagSet("token "+sub, flag.ExitOnError)
+	serverFlag := addServerFlag(fs, server)
+	labelFlag := fs.String("label", "", "a name for this token, shown in listings")
+	permsFlag := fs.String("perms", "", "comma-separated: admin, deploy, operate, read, worker")
+	jsonFlag := fs.Bool("json", false, "print the raw items as a JSON array")
+	quietFlag := fs.Bool("quiet", false, "on create, print only the token")
+	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")
+	fs.Parse(rest)
+
+	switch sub {
+	case "create":
+		if *permsFlag == "" {
+			fatal("token create: --perms is required (e.g. --perms deploy,read)")
+		}
+		var perms []string
+		for _, p := range strings.Split(*permsFlag, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				perms = append(perms, p)
+			}
+		}
+		var resp struct {
+			ID    string   `json:"id"`
+			Token string   `json:"token"`
+			Perms []string `json:"perms"`
+		}
+		body := map[string]any{"label": *labelFlag, "perms": perms}
+		if err := call(*serverFlag+"/api/tokens", http.MethodPost, body, &resp); err != nil {
+			fatal("%v", err)
+		}
+		// The secret alone on stdout, so it composes: TOKEN=$(genctl token create --perms read -q).
+		if *quietFlag {
+			fmt.Println(resp.Token)
+			return
+		}
+		fmt.Fprintf(os.Stderr, "created %s  perms=%s\n  shown once:\n", resp.ID, strings.Join(resp.Perms, ","))
+		fmt.Println(resp.Token)
+	case "list":
+		// Decoded once as raw items so --json echoes the server verbatim, then per item for
+		// the table. Two fields sharing a `json:"items"` tag would silently decode to nothing.
+		var page struct {
+			Items []json.RawMessage `json:"items"`
+		}
+		if err := callGet(*serverFlag+"/api/tokens", &page); err != nil {
+			fatal("%v", err)
+		}
+		if *jsonFlag {
+			printJSONItems(page.Items)
+			return
+		}
+		if len(page.Items) == 0 {
+			fmt.Println("no tokens")
+			return
+		}
+		type tokenRow struct {
+			ID         string   `json:"id"`
+			Label      string   `json:"label"`
+			Perms      []string `json:"perms"`
+			CreatedAt  string   `json:"created_at"`
+			LastUsedAt string   `json:"last_used_at"`
+			RevokedAt  string   `json:"revoked_at"`
+		}
+		rows := make([]tokenRow, 0, len(page.Items))
+		for _, raw := range page.Items {
+			var t tokenRow
+			if err := json.Unmarshal(raw, &t); err != nil {
+				fatal("decode token: %v", err)
+			}
+			rows = append(rows, t)
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "ID\tLABEL\tPERMS\tCREATED\tLAST USED\tSTATUS")
+		for _, t := range rows {
+			status := "live"
+			if t.RevokedAt != "" {
+				status = "revoked"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.ID, orDash(t.Label),
+				strings.Join(t.Perms, ","), shortTime(t.CreatedAt), orDash(shortTime(t.LastUsedAt)), status)
+		}
+		w.Flush()
+	case "revoke":
+		if fs.NArg() == 0 {
+			fatal("usage: genctl token revoke <id>...")
+		}
+		for _, id := range fs.Args() {
+			var resp struct {
+				Revoked bool `json:"revoked"`
+			}
+			if err := call(*serverFlag+"/api/tokens/"+url.PathEscape(id), http.MethodDelete, nil, &resp); err != nil {
+				fatal("%v", err)
+			}
+			fmt.Printf("revoked: %s\n", id)
+		}
+	default:
+		fatal("token: unknown subcommand %q (create, list, revoke)", sub)
+	}
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
