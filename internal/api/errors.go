@@ -37,6 +37,13 @@ const (
 	// unreachable). Unlike CodeInternal it is a statement about the whole worker, which
 	// is what makes it the right answer for a readiness probe: route elsewhere, retry.
 	CodeUnavailable Code = "unavailable"
+	// CodeUnauthenticated — no identity was established. Distinct from CodeForbidden on
+	// purpose: "I do not know who you are" and "I know, and no" are the two most common
+	// failures of this feature and have opposite fixes — a broken proxy wiring versus a
+	// missing role mapping. One code makes the commonest support question undiagnosable.
+	CodeUnauthenticated Code = "unauthenticated"
+	// CodeForbidden — the caller is known and lacks the permission this action needs.
+	CodeForbidden Code = "forbidden"
 	// CodeInternal — anything unclassified. This is the default on purpose: an error
 	// nobody classified is a server fault until proven otherwise, which is what makes
 	// the classification pass self-driving — any path still answering 500 is a path
@@ -47,12 +54,14 @@ const (
 // statusByCode renders a Code as an HTTP status. Every Code must appear here;
 // statusOf falls back to 500, which is also what an empty Code gets.
 var statusByCode = map[Code]int{
-	CodeInvalid:     http.StatusBadRequest,
-	CodeNotFound:    http.StatusNotFound,
-	CodeConflict:    http.StatusConflict,
-	CodeUnsupported: http.StatusNotImplemented,
-	CodeUnavailable: http.StatusServiceUnavailable,
-	CodeInternal:    http.StatusInternalServerError,
+	CodeInvalid:         http.StatusBadRequest,
+	CodeNotFound:        http.StatusNotFound,
+	CodeConflict:        http.StatusConflict,
+	CodeUnsupported:     http.StatusNotImplemented,
+	CodeUnavailable:     http.StatusServiceUnavailable,
+	CodeUnauthenticated: http.StatusUnauthorized,
+	CodeForbidden:       http.StatusForbidden,
+	CodeInternal:        http.StatusInternalServerError,
 }
 
 // statusOfOutcome maps a successful assertion to its HTTP status, the success-side twin
@@ -82,7 +91,8 @@ func statusOf(c Code) int {
 // interface), which is what makes the code a documented part of the contract rather
 // than an undocumented debugging aid clients key on anyway.
 func (Code) Enum() []interface{} {
-	return []interface{}{CodeInvalid, CodeNotFound, CodeConflict, CodeUnsupported, CodeUnavailable, CodeInternal}
+	return []interface{}{CodeInvalid, CodeNotFound, CodeConflict, CodeUnsupported,
+		CodeUnavailable, CodeUnauthenticated, CodeForbidden, CodeInternal}
 }
 
 // errorStatuses returns the HTTP statuses to document for an action, given the extra
@@ -125,6 +135,7 @@ func invalid(format string, a ...any) *Error     { return apiErrf(CodeInvalid, f
 func notFound(format string, a ...any) *Error    { return apiErrf(CodeNotFound, format, a...) }
 func conflict(format string, a ...any) *Error    { return apiErrf(CodeConflict, format, a...) }
 func unsupported(format string, a ...any) *Error { return apiErrf(CodeUnsupported, format, a...) }
+func forbidden(format string, a ...any) *Error   { return apiErrf(CodeForbidden, format, a...) }
 func unavailable(format string, a ...any) *Error { return apiErrf(CodeUnavailable, format, a...) }
 
 // codeOf classifies in precedence order: explicit *Error, then a db sentinel (forwarding

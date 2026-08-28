@@ -46,6 +46,10 @@ type Envelope struct {
 	Payload json.RawMessage `json:"payload"`
 	// For GET-style actions that only need an ID.
 	ID string `json:"id,omitempty"`
+	// principal is who is asking, attached by the TRANSPORT after identity is established.
+	// Unexported so it cannot be decoded: an envelope arrives straight off a socket, and a
+	// serialisable field here would let a client assert its own grants. specs/api-auth.md §2.
+	principal *Principal
 }
 
 type Reply struct {
@@ -71,6 +75,9 @@ type Reply struct {
 func (h *Handlers) Handle(env Envelope) Reply {
 	for i := range registry {
 		if registry[i].Name == env.Action {
+			if err := authorize(registry[i], env.principal); err != nil {
+				return err.reply()
+			}
 			return registry[i].handle(h, env)
 		}
 	}

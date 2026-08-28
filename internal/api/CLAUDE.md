@@ -13,6 +13,35 @@ so a deployment splitting humans from machines by path on one hostname can leave
 (specs/api-auth.md §1). A Root action's path item overrides the spec's `servers`, or it would be
 documented at a path it is not served on.
 
+**A new endpoint's prefix is a security decision, not a filing decision.** A deployment splits
+humans from machines by path (specs/api-auth.md §1): `/api/external-tasks/*` is the low-trust
+inbound zone a worker or a webhook is given, and everything else under `/api/` is control plane.
+So an endpoint goes where its LOWEST-trust caller needs it, not next to the endpoints it reads
+like. Filing a control-plane action under the inbound prefix hands it to every worker; filing an
+inbound one under the control plane forces users to punch a hole in the rule protecting
+`PUT /definitions`. Both mistakes have already been made once each and are recorded in §1.
+
+## One gate, every transport, and a permission that cannot be forgotten
+
+`authorize` (`auth.go`) is the only authorization check, and BOTH dispatch paths call it —
+`ListenHTTP`'s route wrapper and `Handlers.Handle`, which serves TCP and UDS. Putting it in HTTP
+middleware alone would leave two transports open, which is the shape this nearly had.
+
+**An action with an empty `Allow` is admin-only.** That is the fail-closed default: a new
+endpoint is closed until someone decides otherwise, and `TestEveryActionDeclaresAPermission`
+makes the decision explicit by requiring admin-only actions to be named there with a reason.
+`Open: true` skips the gate entirely; `/healthz` is its only user, pinned by
+`TestOnlyTheProbeIsOpen`, because a probe must answer before an identity exists.
+
+`Envelope.principal` is **unexported on purpose**. The envelope is decoded straight off a socket
+for TCP/UDS, so a serialisable field there would let a client assert its own grants. The
+transport attaches it after establishing identity; `Handle` refuses an envelope without one
+rather than defaulting to open, which is why in-process callers (tests) must supply their own.
+
+Today every mode is `none`, so the transports attach `anonymousAdmin()` and nothing is refused.
+The gate is inert but load-bearing — the point is that a mode wires in at ONE place.
+specs/api-auth.md §2, §3.
+
 `/process-schema.json` is served outside the registry and outside the prefix, for a different
 reason: the docs site publishes the same bytes at `genroc.org/process-schema.json`, and an editor
 `$schema` comment pointed at a local server must resolve at the same path as the public one.

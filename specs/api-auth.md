@@ -1,8 +1,15 @@
 # API authentication and authorization
 
-Status: **PROPOSAL 2026-08-27. Nothing built.** Today every endpoint is open: there is no
-middleware, no `Authorization` handling, and no actor recorded anywhere. `PUT /definitions` is
-arbitrary code execution on the server, reachable by anyone who can open a socket.
+Status: **PROPOSAL 2026-08-27; §1 and §3 BUILT 2026-08-28.** The path layout is in place (it
+went first because paths stop being free the moment a config outside this repo names one), and
+so is the permission model: `Allow` on every action, one `authorize` gate every transport passes
+through, and 401/403 as separate codes. What is NOT built is **identity** — every mode is still
+`none`, so `anonymousAdmin()` is attached to every request and nothing is refused in practice.
+The gate is therefore load-bearing but inert, which is deliberate: the shape it fixes (§3's
+`[]Grant` and two-phase check) is the part that is free now and expensive later. Until a mode
+lands: there is no middleware, no `Authorization` handling, and no actor recorded
+anywhere, so every endpoint is open and `PUT /definitions` is arbitrary code execution on the
+server, reachable by anyone who can open a socket.
 
 ## 0. The split that decides everything
 
@@ -30,7 +37,7 @@ Delegation only works if a rule written once keeps meaning the same thing. That 
 **documented path contract**: a promise about which prefixes carry which trust zone, tested like
 any other contract.
 
-Two zones, and today's layout does not express them:
+Two zones, and the layout did not express them — both mismatches are now fixed:
 
 - ~~`GET /external-tasks`~~ — the queue listing was operator observability sitting under the
   prefix a worker rule would open. **Resolved by deleting it (2026-08-28)**: it was the polling
@@ -76,11 +83,9 @@ path as the public one.
 **`/api/` is what lets one hostname serve both audiences** (§5.1). The human path is the
 catch-all and machines take the explicit prefix, so a browser arriving at the bare domain lands
 on the UI and gets a login flow, rather than the 401 JSON it would get if the API were at the
-root. Three prefix rules at the ingress, no regex, one DNS name.
-
-Three prefix rules, no regex, no method matching, one DNS name — which was the whole point of
-the exercise, and the reason it was done before the rest of this spec: paths stop being free the
-moment a config outside this repo names one.
+root. Three prefix rules at the ingress, no regex, no method matching, one DNS name — which was
+the point of the exercise, and the reason it was done ahead of the rest of this spec: paths stop
+being free the moment a config outside this repo names one.
 
 ## 2. Modes: identity in, `Principal` out
 

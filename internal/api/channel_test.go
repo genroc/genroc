@@ -10,7 +10,9 @@ func batchApply(h *Handlers, channel string, defs ...any) Reply {
 		"channel":     channel,
 		"definitions": defs,
 	})
-	return h.Handle(Envelope{Action: "put_definitions_batch", Payload: payload})
+	// In-process callers supply their own identity: the transports attach one, and Handle
+	// refuses an envelope without it rather than defaulting to open.
+	return h.Handle(Envelope{Action: "put_definitions_batch", Payload: payload, principal: anonymousAdmin()})
 }
 
 // A versioned self-reference must be stored as a dependency row, not dropped as a self-ref.

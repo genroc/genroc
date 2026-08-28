@@ -11,7 +11,7 @@ import {
   uid,
   waitForExternalToken,
 } from "../helpers/genctl.ts";
-import { parkedTask } from "../helpers/external.ts";
+import { waitForParked } from "../helpers/external.ts";
 
 // The two ways to answer an external task from the CLI — `resolve` by token, `signal` by
 // instance id + task id. The `external-tasks` listing they used to be discovered through is
@@ -79,8 +79,10 @@ test("resolve — a result failing result_schema is rejected and the task stays 
   const r = runCli(bin, ["resolve", token, "--set", "approved=notabool"]);
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain("result is not valid for this task");
-  // Rejected, not consumed: the instance is still parked on the same wait.
-  expect(await parkedTask(id)).toBeDefined();
+  // Rejected, not consumed: the instance is still parked on the same wait. Polled rather than
+  // read once — the shared server advances on its own clock, and a consumed task never comes
+  // back parked, so this still fails loudly if the rejection did resolve it.
+  await waitForParked(id, undefined, 2_000);
 
   runCli(bin, ["resolve", token, "--set", "approved=true"]);
   expect(await waitForInstance(id)).toBe("completed");

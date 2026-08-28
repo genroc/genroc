@@ -74,6 +74,16 @@ type actionDef struct {
 	// action can reject a body and every action can fail — so list only the extras.
 	Errors []Code
 
+	// Allow lists the permissions that admit this action; ANY one of them suffices, and
+	// PermAdmin always does. EMPTY means admin-only — the fail-closed default, so an endpoint
+	// added without thinking is closed rather than open. specs/api-auth.md §3.
+	Allow []Perm
+
+	// Open exempts this action from authorization entirely. `/healthz` is its only user and
+	// the bar for a second is high: a probe has to answer before any identity exists, and a
+	// supervisor cannot hold a credential. It reveals only whether the database is reachable.
+	Open bool
+
 	// Root mounts this action at the server root instead of under apiPrefix. Probes only:
 	// a liveness check must not depend on how the API namespace is routed, and a proxy
 	// splitting humans from machines by path must be able to leave it alone. See
@@ -148,6 +158,7 @@ var registry = func() []actionDef {
 	return []actionDef{
 		{
 			Name:    "put_definition",
+			Allow:   []Perm{PermDeploy},
 			Method:  http.MethodPut,
 			Path:    "/definitions",
 			Summary: "Register or update a process definition",
@@ -192,6 +203,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "list_definitions",
+			Allow:   []Perm{PermRead},
 			Method:  http.MethodGet,
 			Path:    "/definitions",
 			Summary: "List all registered process definitions (newest registered first)",
@@ -216,6 +228,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "start_instance",
+			Allow:   []Perm{PermOperate},
 			Method:  http.MethodPost,
 			Path:    "/instances",
 			Summary: "Start a new process instance (omit version to use latest)",
@@ -235,6 +248,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "list_instances",
+			Allow:   []Perm{PermRead},
 			Method:  http.MethodGet,
 			Path:    "/instances",
 			Summary: "List process instances - roots only unless children=true, so one row per tree",
@@ -273,6 +287,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "put_definitions_batch",
+			Allow:   []Perm{PermDeploy},
 			Method:  http.MethodPut,
 			Path:    "/definitions/batch",
 			Summary: "Apply process definitions to a channel, atomically",
@@ -293,6 +308,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "put_channel",
+			Allow:   []Perm{PermDeploy},
 			Method:  http.MethodPut,
 			Path:    "/channels",
 			Summary: "Set a channel pointer to a specific process version",
@@ -306,6 +322,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "delete_channel",
+			Allow:   []Perm{PermDeploy},
 			Method:  http.MethodDelete,
 			Path:    "/channels",
 			Summary: "Remove a channel pointer from a process",
@@ -318,6 +335,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "list_channels",
+			Allow:   []Perm{PermRead},
 			Method:  http.MethodGet,
 			Path:    "/channels",
 			Summary: "List all channels for a process",
@@ -340,6 +358,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "promote_channel",
+			Allow:   []Perm{PermDeploy},
 			Method:  http.MethodPost,
 			Path:    "/channels/promote",
 			Summary: "Copy all channel pointers from one channel to another (optionally scoped to a process subtree)",
@@ -353,6 +372,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "channel_status",
+			Allow:   []Perm{PermRead},
 			Method:  http.MethodPost,
 			Path:    "/channels/status",
 			Summary: "Report stale child references within a channel",
@@ -366,6 +386,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "validate_definitions",
+			Allow:   []Perm{PermRead},
 			Method:  http.MethodPost,
 			Path:    "/definitions/validate",
 			Summary: "Validate process definitions and return inferred JSON schemas (no save)",
@@ -383,6 +404,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "compare_definitions",
+			Allow:   []Perm{PermRead},
 			Method:  http.MethodPost,
 			Path:    "/definitions/compat",
 			Summary: "Compare two sets of process versions: could an instance running one continue under the other, and does the newer one still honour the output contract consumers were written against. It is a shape check — it cannot see a change of meaning such as dollars becoming cents",
@@ -413,6 +435,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "get_instance_detail",
+			Allow:   []Perm{PermRead},
 			Method:  http.MethodGet,
 			Path:    "/instances/{id}/detail",
 			Summary: "Get everything stored on a process instance: its state verbatim, plus the columns around it",
@@ -450,6 +473,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "get_instance",
+			Allow:   []Perm{PermRead},
 			Method:  http.MethodGet,
 			Path:    "/instances/{id}",
 			Summary: "Get status of a process instance",
@@ -472,6 +496,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "list_instance_logs",
+			Allow:   []Perm{PermRead},
 			Method:  http.MethodGet,
 			Path:    "/instances/{id}/logs",
 			Summary: "Get the execution audit trail for a process instance (newest first)",
@@ -504,6 +529,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "get_object",
+			Allow:   []Perm{PermWorker, PermRead},
 			Method:  http.MethodGet,
 			Path:    "/objects/{ref}",
 			Summary: "Fetch an externalized value by its content hash, as listed in a response's objects section",
@@ -529,6 +555,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "pause_instance",
+			Allow:   []Perm{PermOperate},
 			Method:  http.MethodPost,
 			Path:    "/instances/{id}/pause",
 			Summary: "Pause a running root process instance and its entire descendant tree; takes effect at the next task boundary, so a task already executing runs to completion. An assertion: 200 if the tree stopped, 202 if a task already in flight is still draining, 204 if it was not running anyway",
@@ -550,6 +577,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "resume_instance",
+			Allow:   []Perm{PermOperate},
 			Method:  http.MethodPost,
 			Path:    "/instances/{id}/resume",
 			Summary: "Resume a paused root process instance and its tree, continuing exactly where it stopped (timers kept running while paused). An assertion: 200 if it was resumed, 204 if the tree was already advancing; 409 only if it has settled and cannot advance again",
@@ -567,6 +595,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "retry_instance",
+			Allow:   []Perm{PermOperate},
 			Method:  http.MethodPost,
 			Path:    "/instances/{id}/retry",
 			Summary: "Retry a failed root process instance, reviving its tree where it died and granting the failing task another attempt beyond its on_error budget",
@@ -588,6 +617,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "upgrade_instance",
+			Allow:   []Perm{PermDeploy},
 			Method:  http.MethodPost,
 			Path:    "/instances/{id}/upgrade",
 			Summary: "Move a process instance and every live descendant to another version of their definitions",
@@ -606,6 +636,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "claim_external_tasks",
+			Allow:   []Perm{PermWorker},
 			Method:  http.MethodPost,
 			Path:    "/external-tasks/claim",
 			Summary: "Lease parked external tasks to a worker (FIFO by park time); the returned token is the only handle accepted while the claim is live",
@@ -616,6 +647,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "renew_external_claims",
+			Allow:   []Perm{PermWorker},
 			Method:  http.MethodPost,
 			Path:    "/external-tasks/renew",
 			Summary: "Extend this worker's claims; `renewed` reports how many it still held",
@@ -626,6 +658,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "release_external_task",
+			Allow:   []Perm{PermWorker},
 			Method:  http.MethodPost,
 			Path:    "/external-tasks/release",
 			Summary: "Hand a claim back to the queue immediately instead of waiting out its lease",
@@ -637,6 +670,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "resolve_external_task",
+			Allow:   []Perm{PermWorker},
 			Method:  http.MethodPost,
 			Path:    "/external-tasks/resolve",
 			Summary: "Submit an outcome for a waiting external task — a result, or an `error` routed through the task's on_error rules; validated against what the task declares, then the process resumes",
@@ -653,6 +687,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "signal_instance",
+			Allow:   []Perm{PermWorker},
 			Method:  http.MethodPost,
 			Path:    "/external-tasks/signal",
 			Summary: "Deliver an outcome (result or error) to an external task by instance id + task id: resolves it if armed now, else buffers FIFO until the task next arms",
@@ -670,6 +705,7 @@ var registry = func() []actionDef {
 		},
 		{
 			Name:    "health",
+			Open:    true,
 			Method:  http.MethodGet,
 			Path:    "/healthz",
 			Root:    true,

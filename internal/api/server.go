@@ -65,11 +65,18 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 		mux.HandleFunc(a.Method+" "+a.mountPath(), func(w http.ResponseWriter, r *http.Request) {
 			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 			env, err := a.envelope(r)
+			if err == nil {
+				env.principal = anonymousAdmin()
+			}
 			if err != nil {
 				// The envelope only fails on a body that is not JSON at all, or one
 				// past maxRequestBytes, so this is always the caller's fault, never
 				// the server's.
 				writeReply(w, invalid("bad request: %w", err).reply())
+				return
+			}
+			if authErr := authorize(a, env.principal); authErr != nil {
+				writeReply(w, authErr.reply())
 				return
 			}
 			writeReply(w, a.handle(h, env))
@@ -207,6 +214,10 @@ func (s *Server) handleConn(conn net.Conn) {
 		if err := dec.Decode(&env); err != nil {
 			return
 		}
+		// Identity for TCP/UDS is not established yet (mode: none), so the same anonymous
+		// principal HTTP uses applies. When a mode lands, it attaches here — never from the
+		// decoded envelope, which the client controls.
+		env.principal = anonymousAdmin()
 		if err := enc.Encode(s.handlers.Handle(env)); err != nil {
 			s.log.Warn("write reply", "err", err)
 			return
