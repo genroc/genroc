@@ -33,3 +33,4 @@ docs/node_modules/
 /p_schema.json
 /p.json
 tests/weather.log
+examples/auth/.env

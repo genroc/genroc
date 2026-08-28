@@ -54,6 +54,29 @@ func HashToken(secret string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// minSecretBody is the shortest credential body accepted from an operator. NewTokenSecret
+// produces 43 base64url characters (256 bits); this floor allows a different generator while
+// refusing anything a person could have typed.
+const minSecretBody = 32
+
+// ValidateTokenSecret refuses a secret genroc could never authenticate.
+//
+// This exists because a supplied secret is NOT symmetric with a generated one: LookupToken
+// requires the prefix, so storing a prefix-less value creates a row that can never be used —
+// while still counting as a live admin token, which permanently satisfies the bootstrap
+// condition. The result is a silent lockout with no way back except `genroc token create`.
+// Refusing at the boundary is the only place that cannot be forgotten.
+func ValidateTokenSecret(secret string) error {
+	if !strings.HasPrefix(secret, TokenPrefix) {
+		return fmt.Errorf("a token must start with %q (generate one with `genctl token generate`)", TokenPrefix)
+	}
+	if body := strings.TrimPrefix(secret, TokenPrefix); len(body) < minSecretBody {
+		return fmt.Errorf("a token must carry at least %d characters after %q; got %d — "+
+			"a guessable admin credential is worse than none", minSecretBody, TokenPrefix, len(body))
+	}
+	return nil
+}
+
 // MintToken creates a token granting perms and returns it with its plaintext, which is the only
 // time the plaintext exists anywhere.
 func (db *DB) MintToken(ctx context.Context, label string, perms []string) (APIToken, error) {
@@ -170,6 +193,13 @@ func (db *DB) RevokeToken(ctx context.Context, id string) error {
 func (db *DB) EnsureBootstrapToken(ctx context.Context, label string, secret string) (APIToken, bool, error) {
 	// Bounded: a loser needs one more pass to see the winner's row. More attempts than
 	// replicas would be a busy-wait on a contended row for no gain.
+	// Validated once, before the retry loop: a malformed secret is not transient, and retrying
+	// it five times only delays the same refusal.
+	if secret != "" {
+		if err := ValidateTokenSecret(secret); err != nil {
+			return APIToken{}, false, err
+		}
+	}
 	const attempts = 5
 	var err error
 	for i := 0; i < attempts; i++ {
@@ -201,6 +231,8 @@ func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string
 		if secret, err = NewTokenSecret(); err != nil {
 			return APIToken{}, false, err
 		}
+	} else if err := ValidateTokenSecret(secret); err != nil {
+		return APIToken{}, false, err
 	}
 	perms, _ := json.Marshal([]string{"admin"})
 	tok = APIToken{
@@ -217,4 +249,43 @@ func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string
 		return APIToken{}, false, err
 	}
 	return tok, true, nil
+}
+
+// SeedToken ensures a token with this exact secret exists, granting perms under label. It is
+// how an operator supplies credentials they generated themselves — the secret never originates
+// inside genroc, so it never reaches its logs or rests in its container.
+//
+// Idempotent by SECRET, not by label: re-running with the same value is a no-op, and changing
+// the value mints a second token rather than mutating the first. Rotation is therefore additive
+// — the old credential keeps working until it is revoked, which is what lets a fleet roll
+// without a window where half the workers are refused.
+//
+// created reports whether this call inserted, so a caller can log the difference between
+// provisioning and a restart.
+func (db *DB) SeedToken(ctx context.Context, label string, perms []string, secret string) (created bool, err error) {
+	if err := ValidateTokenSecret(secret); err != nil {
+		return false, fmt.Errorf("seed token %q: %w", label, err)
+	}
+	if _, ok, err := db.LookupToken(ctx, secret); err != nil {
+		return false, err
+	} else if ok {
+		return false, nil
+	}
+	encoded, err := json.Marshal(perms)
+	if err != nil {
+		return false, err
+	}
+	err = db.q.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
+		ID: idgen.New(), Hash: HashToken(secret), Label: label,
+		Perms: string(encoded), CreatedAt: nowMillis(),
+	})
+	if err != nil {
+		// A concurrent replica seeding the same secret loses the UNIQUE(hash) race, which is
+		// success rather than failure: the row it wanted exists.
+		if _, ok, lookupErr := db.LookupToken(ctx, secret); lookupErr == nil && ok {
+			return false, nil
+		}
+		return false, fmt.Errorf("seed token %q: %w", label, err)
+	}
+	return true, nil
 }

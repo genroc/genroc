@@ -217,3 +217,46 @@ func TestTokens_BootstrapUsesTheSuppliedSecret(t *testing.T) {
 		})
 	}
 }
+
+// A supplied secret is NOT symmetric with a generated one, and the asymmetry bricks a
+// deployment: LookupToken requires the prefix, so a prefix-less value is stored as a live
+// admin row that can never authenticate — while permanently satisfying the bootstrap
+// condition. No usable credential, and no second chance to mint one.
+func TestTokens_BootstrapRefusesAnUnusableSecret(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			for _, bad := range []string{
+				"hunter2",         // no prefix: could never authenticate
+				"genroc_sk_short", // prefixed but guessable
+				dbpkg.TokenPrefix, // prefix alone
+			} {
+				if _, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", bad); err == nil || created {
+					t.Errorf("%q was accepted (created=%v); an unusable admin row is a silent lockout", bad, created)
+				}
+			}
+			// Nothing may be left behind: a row would satisfy the bootstrap condition forever.
+			rows, err := b.db.ListTokens(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 0 {
+				t.Fatalf("%d rows written by refused bootstraps; the table must be untouched", len(rows))
+			}
+			// A well-formed one still works, and a generated secret satisfies the same rule.
+			good, err := dbpkg.NewTokenSecret()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := dbpkg.ValidateTokenSecret(good); err != nil {
+				t.Fatalf("a generated secret must pass its own validator: %v", err)
+			}
+			if _, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", good); err != nil || !created {
+				t.Fatalf("created=%v err=%v", created, err)
+			}
+			if _, ok, _ := b.db.LookupToken(ctx, good); !ok {
+				t.Error("the supplied secret does not authenticate")
+			}
+		})
+	}
+}

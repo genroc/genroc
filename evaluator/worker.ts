@@ -50,6 +50,9 @@ const objectCache = new Map<string, unknown>();
 async function fetchObject(ref: string): Promise<unknown> {
   const cached = objectCache.get(ref);
   if (cached !== undefined) return cached;
+  // Left to throw on purpose: this runs while a task is IN FLIGHT, and a task whose input
+  // cannot be fetched must fail rather than silently run against a missing value. The caller
+  // releases the claim, so the task returns to the queue.
   const res = await fetch(`${SERVER}/api/objects/${encodeURIComponent(ref)}`, { headers: authHeaders });
   if (!res.ok) throw new Error(`fetch object ${ref}: HTTP ${res.status}`);
   const { data } = (await res.json()) as { data: string };
@@ -87,11 +90,20 @@ async function resolveObjects(job: QueueTask): Promise<unknown> {
 }
 
 async function call(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: any }> {
-  const res = await fetch(SERVER + path, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...authHeaders },
-    body: JSON.stringify(body),
-  });
+  // A network error is a REPLY, not a throw. A worker outlives the server it polls — a
+  // restart, a rolling deploy, a container coming up before genroc is listening — and an
+  // unhandled rejection here kills it for a condition the next poll would clear. Status 0
+  // says "never reached the server", which is distinct from anything genroc answers.
+  let res: Response;
+  try {
+    res = await fetch(SERVER + path, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...authHeaders },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    return { ok: false, status: 0, data: { error: `${SERVER} unreachable: ${(err as Error).message}` } };
+  }
   const text = await res.text();
   let data: any = null;
   try {
@@ -119,6 +131,12 @@ function asEvalRequest(input: unknown): EvalRequest | string {
 const inFlight = new Map<string, QueueTask>();
 let running = true;
 
+// Whether the last claim reached genroc. A worker polls several times a second, so an
+// unreachable server would otherwise emit a line per poll — thousands during a restart, which
+// buries the one line that mattered. Announce the TRANSITIONS instead: going away, and coming
+// back. Silence in between is the report that nothing changed.
+let serverReachable = true;
+
 async function claim(n: number): Promise<QueueTask[]> {
   const { ok, status, data } = await call("/api/external-tasks/claim", {
     worker_id: WORKER_ID,
@@ -139,8 +157,25 @@ async function claim(n: number): Promise<QueueTask[]> {
       );
       process.exit(1);
     }
+    // status 0 is "never reached the server" (see call): a restart, a rolling deploy, a
+    // network blip. Not an error to act on — the next poll clears it — so it is reported once
+    // and then waited out.
+    if (status === 0) {
+      if (serverReachable) {
+        serverReachable = false;
+        console.error(
+          `genroc at ${SERVER} is unreachable — ${(data as { error?: string })?.error ?? ""}. ` +
+            `Still polling every ${POLL_MS}ms; work resumes when it comes back.`,
+        );
+      }
+      return [];
+    }
     console.error(`claim failed: ${JSON.stringify(data)}`);
     return [];
+  }
+  if (!serverReachable) {
+    serverReachable = true;
+    console.error(`genroc at ${SERVER} is reachable again — resuming.`);
   }
   return (data?.items ?? []) as QueueTask[];
 }

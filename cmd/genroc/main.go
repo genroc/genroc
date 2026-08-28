@@ -18,6 +18,7 @@ import (
 	"genroc/internal/engine"
 	"genroc/internal/logview"
 	"net"
+	"strings"
 )
 
 func main() {
@@ -35,6 +36,7 @@ func main() {
 	sqliteFullFsync := flag.Bool("sqlite-fullfsync", false, "Use F_FULLFSYNC on macOS, where plain fsync(2) returns before the drive flushes its write cache — without this, --sqlite-synchronous=FULL is not actually power-loss durable on Apple hardware. Costs ~4ms/commit on an M1. No effect on other platforms or for PostgreSQL.")
 	durability := flag.String("durability", "only-once", "How much of the write path is flushed to disk before it is acknowledged. only-once (default) flushes what cannot be replayed - work handed in from outside, and only_once tasks - and lets ordinary task progress replay after a power cut, which the at-least-once contract already allows. terminal additionally flushes process ends, so a finished process cannot rewind to running. strict flushes every commit, so no completed task ever repeats. Below strict, a client polling an instance can see a state it already passed after an unclean shutdown. See specs/durability-levels.md.")
 	authMode := flag.String("auth", "none", "How callers are identified: none (default; every request is treated as an operator) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database). A unix socket is authorised by its file mode either way. See specs/api-auth.md.")
+	seedTokens := flag.String("seed-tokens", "", "Credentials the operator generated, as a comma-separated list of `label=perms=secret` (perms itself is +-separated), e.g. \"ops=admin=genroc_sk_...,evaluator=worker=genroc_sk_...\" ($GENROC_SEED_TOKENS). Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive. The secret never originates here, so it never reaches these logs.")
 	bootstrapToken := flag.String("bootstrap-token", "", "In token mode, the admin credential to create when the deployment has no live one ($GENROC_BOOTSTRAP_TOKEN). Idempotent: ignored once an admin token exists, so it doubles as declarative recovery. Omit it and one is generated and printed once, to stderr.")
 	httpAddr := flag.String("http", ":8448", "HTTP listen address (empty to disable)")
 	tcpAddr := flag.String("tcp", "", "TCP listen address, e.g. 127.0.0.1:9090 (empty to disable)")
@@ -123,6 +125,25 @@ func main() {
 				"addr", *httpAddr)
 		}
 	case "token":
+		seeds := *seedTokens
+		if seeds == "" {
+			seeds = os.Getenv("GENROC_SEED_TOKENS")
+		}
+		if seeds != "" {
+			n, skipped, err := seedSuppliedTokens(database, seeds)
+			if err != nil {
+				log.Error("seed-tokens", "err", err)
+				os.Exit(1)
+			}
+			if len(skipped) > 0 {
+				// Named, so a credential that vanished by accident looks different from one
+				// removed on purpose.
+				log.Info("seeded operator-supplied credentials", "created", n,
+					"no_secret_supplied", strings.Join(skipped, ","))
+			} else {
+				log.Info("seeded operator-supplied credentials", "created", n)
+			}
+		}
 		secret := *bootstrapToken
 		if secret == "" {
 			secret = os.Getenv("GENROC_BOOTSTRAP_TOKEN")
@@ -254,4 +275,57 @@ func exposedAddr(addr string) bool {
 		return false
 	}
 	return true
+}
+
+// seedSuppliedTokens stores credentials the operator generated. The format is deliberately
+// flat — `label=perms=secret`, perms joined by `+` — because it has to survive a compose
+// `environment:` value and a shell, where anything richer needs quoting nobody gets right.
+// Token bodies are base64url without padding, so they carry no `=` of their own.
+func seedSuppliedTokens(database *db.DB, spec string) (created int, skipped []string, err error) {
+	for _, entry := range strings.Split(spec, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		parts := strings.SplitN(entry, "=", 3)
+		if len(parts) != 3 {
+			return 0, nil, fmt.Errorf("bad entry %q: want label=perms=secret", redactSeed(entry))
+		}
+		label, permSpec, secret := parts[0], parts[1], parts[2]
+		// An entry whose SECRET is empty is one the operator removed after first start —
+		// which is the intended lifecycle for an admin credential they have since stored
+		// elsewhere. Seeding is idempotent, so the row is already there; skipping is the
+		// no-op that keeps a restart working. A malformed entry (fewer than three parts) is
+		// still an error, so this cannot swallow a typo.
+		if secret == "" {
+			skipped = append(skipped, label)
+			continue
+		}
+		var perms []string
+		for _, p := range strings.Split(permSpec, "+") {
+			if p = strings.TrimSpace(p); p != "" {
+				perms = append(perms, p)
+			}
+		}
+		if label == "" || len(perms) == 0 {
+			return 0, nil, fmt.Errorf("bad entry %q: label and perms are both required", redactSeed(entry))
+		}
+		ok, seedErr := database.SeedToken(context.Background(), label, perms, secret)
+		if seedErr != nil {
+			return 0, nil, seedErr
+		}
+		if ok {
+			created++
+		}
+	}
+	return created, skipped, nil
+}
+
+// redactSeed keeps a malformed entry out of the logs intact — the reason it is malformed is
+// usually a mangled separator, and the rest of the line is still a credential.
+func redactSeed(entry string) string {
+	if i := strings.Index(entry, db.TokenPrefix); i >= 0 {
+		return entry[:i+len(db.TokenPrefix)] + "..."
+	}
+	return entry
 }

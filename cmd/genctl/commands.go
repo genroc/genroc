@@ -21,6 +21,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"crypto/rand"
+	"encoding/base64"
 	"genroc/internal/model"
 )
 
@@ -1766,6 +1768,16 @@ func runTokenCmd(server string, args []string) {
 	fs.Parse(rest)
 
 	switch sub {
+	case "generate":
+		// Offline: no server, no credential. This is what makes "the operator supplies the
+		// token" possible at all — `create` needs an authenticated server, so it cannot make
+		// the FIRST one. Generated here, the secret never originates inside genroc, never
+		// reaches its logs, and never rests in its container.
+		secret, err := generateTokenSecret()
+		if err != nil {
+			fatal("%v", err)
+		}
+		fmt.Println(secret)
 	case "create":
 		if *permsFlag == "" {
 			fatal("token create: --perms is required (e.g. --perms deploy,read)")
@@ -1859,4 +1871,16 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// generateTokenSecret mirrors the server's db.NewTokenSecret. Duplicated rather than imported:
+// genctl is a client and must not depend on the server's internal packages. The SERVER
+// validates the format regardless (db.ValidateTokenSecret), so this is a convenience, not the
+// guarantee — an operator can always set the env var by hand.
+func generateTokenSecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate token: %w", err)
+	}
+	return tokenPrefix + base64.RawURLEncoding.EncodeToString(b), nil
 }
