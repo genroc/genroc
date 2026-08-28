@@ -476,3 +476,32 @@ ORDER BY created_at ASC, id ASC;
 -- slot's live occupant, so the collect merges one value per slot and a replaced raise is not
 -- routed again. specs/child-error-handling.md s12.
 UPDATE process_instances SET superseded_at = sqlc.arg(superseded_at) WHERE id = sqlc.arg(id);
+
+-- name: InsertAPIToken :exec
+INSERT INTO api_tokens (id, hash, label, perms, created_at)
+VALUES (sqlc.arg(id), sqlc.arg(hash), sqlc.arg(label), sqlc.arg(perms), sqlc.arg(created_at));
+
+-- name: GetAPITokenByHash :one
+-- The authentication read, on the hot path for every request in token mode. Revoked rows are
+-- excluded here rather than by the caller: a revocation that only some call sites honour is
+-- the kind of hole that survives review.
+SELECT id, perms, label FROM api_tokens
+WHERE hash = sqlc.arg(hash) AND revoked_at IS NULL;
+
+-- name: TouchAPIToken :exec
+UPDATE api_tokens SET last_used_at = sqlc.arg(last_used_at) WHERE id = sqlc.arg(id);
+
+-- name: ListAPITokens :many
+SELECT id, label, perms, created_at, last_used_at, revoked_at FROM api_tokens
+ORDER BY created_at DESC, id;
+
+-- name: RevokeAPIToken :execrows
+UPDATE api_tokens SET revoked_at = sqlc.arg(revoked_at)
+WHERE id = sqlc.arg(id) AND revoked_at IS NULL;
+
+-- name: CountLiveAdminTokens :one
+-- Bootstrap asks this under the same transaction as its insert. Counting ADMIN rows rather
+-- than all rows is what makes "no way in" the condition, rather than "no tokens at all": a
+-- deployment holding only worker tokens has locked its operators out and still needs a way back.
+SELECT COUNT(*) FROM api_tokens
+WHERE revoked_at IS NULL AND perms LIKE '%"admin"%';

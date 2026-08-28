@@ -8,6 +8,16 @@ import (
 	"database/sql"
 )
 
+type ApiToken struct {
+	ID         string
+	Hash       string
+	Label      string
+	Perms      string
+	CreatedAt  int64
+	LastUsedAt sql.NullInt64
+	RevokedAt  sql.NullInt64
+}
+
 type DurabilityMarker struct {
 	ID int64
 	N  int64

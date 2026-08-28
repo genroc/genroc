@@ -41,6 +41,27 @@ type Server struct {
 	readTimeout       time.Duration
 	idleTimeout       time.Duration
 	shutdownTimeout   time.Duration
+
+	// auth establishes identity. Nil is `mode: none` — every caller is anonymousAdmin, which
+	// is the pre-auth behaviour written down rather than a branch in the gate.
+	auth Authenticator
+}
+
+// SetAuthenticator turns on an identity mode. Called once at startup, before Listen*.
+func (s *Server) SetAuthenticator(a Authenticator) { s.auth = a }
+
+// principalFor resolves the caller. An authenticator that cannot DECIDE (its database is
+// unreachable) fails the request rather than answering "unauthenticated": a valid credential
+// refused as invalid is a lie the operator never sees, and 503 is the honest answer.
+func (s *Server) principalFor(ctx context.Context, credential string) (*Principal, *Error) {
+	if s.auth == nil {
+		return anonymousAdmin(), nil
+	}
+	p, err := s.auth.Authenticate(ctx, credential)
+	if err != nil {
+		return nil, apiErrf(CodeUnavailable, "cannot verify credentials right now: %v", err)
+	}
+	return p, nil
 }
 
 func NewServer(handlers *Handlers, log *slog.Logger) *Server {
@@ -66,7 +87,12 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 			env, err := a.envelope(r)
 			if err == nil {
-				env.principal = anonymousAdmin()
+				p, authErr := s.principalFor(r.Context(), bearerToken(r.Header.Get("Authorization")))
+				if authErr != nil {
+					writeReply(w, authErr.reply())
+					return
+				}
+				env.principal = p
 			}
 			if err != nil {
 				// The envelope only fails on a body that is not JSON at all, or one
@@ -170,7 +196,7 @@ func (s *Server) ListenTCP(ctx context.Context, addr string) error {
 		return fmt.Errorf("listen tcp %s: %w", addr, err)
 	}
 	s.log.Info("TCP listening", "addr", addr)
-	return s.acceptLoop(ctx, ln)
+	return s.acceptLoop(ctx, ln, false)
 }
 
 func (s *Server) ListenUDS(ctx context.Context, path string) error {
@@ -180,10 +206,12 @@ func (s *Server) ListenUDS(ctx context.Context, path string) error {
 		return fmt.Errorf("listen uds %s: %w", path, err)
 	}
 	s.log.Info("UDS listening", "path", path)
-	return s.acceptLoop(ctx, ln)
+	// A unix socket's file mode is the boundary, which is the standard answer for local IPC
+	// and the one the docker socket uses. specs/api-auth.md §5.
+	return s.acceptLoop(ctx, ln, true)
 }
 
-func (s *Server) acceptLoop(ctx context.Context, ln net.Listener) error {
+func (s *Server) acceptLoop(ctx context.Context, ln net.Listener, trustedTransport bool) error {
 	go func() {
 		<-ctx.Done()
 		ln.Close()
@@ -201,11 +229,11 @@ func (s *Server) acceptLoop(ctx context.Context, ln net.Listener) error {
 			s.log.Error("accept error", "err", err)
 			continue
 		}
-		go s.handleConn(conn)
+		go s.handleConn(conn, trustedTransport)
 	}
 }
 
-func (s *Server) handleConn(conn net.Conn) {
+func (s *Server) handleConn(conn net.Conn, trustedTransport bool) {
 	defer conn.Close()
 	dec := json.NewDecoder(conn)
 	enc := json.NewEncoder(conn)
@@ -214,10 +242,21 @@ func (s *Server) handleConn(conn net.Conn) {
 		if err := dec.Decode(&env); err != nil {
 			return
 		}
-		// Identity for TCP/UDS is not established yet (mode: none), so the same anonymous
-		// principal HTTP uses applies. When a mode lands, it attaches here — never from the
-		// decoded envelope, which the client controls.
-		env.principal = anonymousAdmin()
+		// A trusted transport is authorised by the filesystem, so it skips the mode entirely.
+		// Everything else presents its credential in the envelope, which is the only metadata
+		// channel this protocol has — `principal` is unexported precisely so the wire cannot
+		// set it directly.
+		if trustedTransport {
+			env.principal = anonymousAdmin()
+		} else {
+			p, authErr := s.principalFor(context.Background(), env.Token)
+			if authErr != nil {
+				_ = enc.Encode(authErr.reply())
+				return
+			}
+			env.principal = p
+		}
+		env.Token = ""
 		if err := enc.Encode(s.handlers.Handle(env)); err != nil {
 			s.log.Warn("write reply", "err", err)
 			return

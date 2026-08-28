@@ -46,6 +46,9 @@ type Envelope struct {
 	Payload json.RawMessage `json:"payload"`
 	// For GET-style actions that only need an ID.
 	ID string `json:"id,omitempty"`
+	// Token is a credential presented over TCP, whose protocol has no header channel. It is
+	// consumed by the transport and cleared before dispatch, so no handler can read it.
+	Token string `json:"token,omitempty"`
 	// principal is who is asking, attached by the TRANSPORT after identity is established.
 	// Unexported so it cannot be decoded: an envelope arrives straight off a socket, and a
 	// serialisable field here would let a client assert its own grants. specs/api-auth.md §2.

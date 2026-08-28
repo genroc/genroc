@@ -12,10 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"fmt"
 	"genroc/internal/api"
 	"genroc/internal/db"
 	"genroc/internal/engine"
 	"genroc/internal/logview"
+	"net"
 )
 
 func main() {
@@ -26,6 +28,8 @@ func main() {
 	sqliteSync := flag.String("sqlite-synchronous", "FULL", "SQLite durability (PRAGMA synchronous): FULL (default; fsync every commit for full power-loss durability, matching Postgres synchronous_commit=on) or NORMAL (faster; durable across a process crash but may lose the last commits on power loss). Note FULL is bounded by your disk's serial fsync rate - SQLite has one writer and no group commit, so unlike PostgreSQL it cannot trade latency for batch width. Ignored for PostgreSQL.")
 	sqliteFullFsync := flag.Bool("sqlite-fullfsync", false, "Use F_FULLFSYNC on macOS, where plain fsync(2) returns before the drive flushes its write cache — without this, --sqlite-synchronous=FULL is not actually power-loss durable on Apple hardware. Costs ~4ms/commit on an M1. No effect on other platforms or for PostgreSQL.")
 	durability := flag.String("durability", "only-once", "How much of the write path is flushed to disk before it is acknowledged. only-once (default) flushes what cannot be replayed - work handed in from outside, and only_once tasks - and lets ordinary task progress replay after a power cut, which the at-least-once contract already allows. terminal additionally flushes process ends, so a finished process cannot rewind to running. strict flushes every commit, so no completed task ever repeats. Below strict, a client polling an instance can see a state it already passed after an unclean shutdown. See specs/durability-levels.md.")
+	authMode := flag.String("auth", "none", "How callers are identified: none (default; every request is treated as an operator) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database). A unix socket is authorised by its file mode either way. See specs/api-auth.md.")
+	bootstrapToken := flag.String("bootstrap-token", "", "In token mode, the admin credential to create when the deployment has no live one ($GENROC_BOOTSTRAP_TOKEN). Idempotent: ignored once an admin token exists, so it doubles as declarative recovery. Omit it and one is generated and printed once, to stderr.")
 	httpAddr := flag.String("http", ":8448", "HTTP listen address (empty to disable)")
 	tcpAddr := flag.String("tcp", "", "TCP listen address, e.g. 127.0.0.1:9090 (empty to disable)")
 	udsPath := flag.String("uds", "", "Unix socket path, e.g. /tmp/genroc.sock (empty to disable)")
@@ -102,6 +106,38 @@ func main() {
 	eng := engine.New(database, time.Duration(*pollMs)*time.Millisecond, *maxConcurrent, *immediateRetries, *leaseDuration, *leaseRenewInterval, logCfg, log)
 	handlers := api.NewHandlers(database, eng)
 	srv := api.NewServer(handlers, log)
+
+	switch *authMode {
+	case "none":
+		// The pre-auth default. Loud rather than silent when it is also reachable off-host:
+		// `docker run -p` puts an unauthenticated PUT /definitions on the network, and that
+		// should be a decision. specs/api-auth.md §6.
+		if exposedAddr(*httpAddr) {
+			log.Warn("API is UNAUTHENTICATED and bound beyond loopback — anyone who reaches this port can register a definition, which is arbitrary code execution on this server. Use -auth token, or bind to localhost.",
+				"addr", *httpAddr)
+		}
+	case "token":
+		secret := *bootstrapToken
+		if secret == "" {
+			secret = os.Getenv("GENROC_BOOTSTRAP_TOKEN")
+		}
+		tok, created, err := database.EnsureBootstrapToken(context.Background(), "bootstrap", secret)
+		if err != nil {
+			log.Error("bootstrap token", "err", err)
+			os.Exit(1)
+		}
+		if created && *bootstrapToken == "" && os.Getenv("GENROC_BOOTSTRAP_TOKEN") == "" {
+			// Printed once, and nowhere else: this is the weakest of §5.3's three paths
+			// because log aggregation ships it off the box.
+			fmt.Fprintf(os.Stderr, "genroc: created bootstrap admin token %s\n  %s\n"+
+				"  This is the only time it is shown, and it is now in your logs — rotate it.\n", tok.ID, tok.Secret)
+		}
+		srv.SetAuthenticator(api.NewTokenAuth(database))
+		log.Info("API authentication enabled", "mode", "token")
+	default:
+		log.Error("unknown -auth mode", "mode", *authMode, "valid", "none, token")
+		os.Exit(1)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -195,4 +231,21 @@ func newLogger(level string, mode logview.Mode) *slog.Logger {
 		l = slog.LevelInfo
 	}
 	return slog.New(logview.NewHandler(os.Stderr, l, mode))
+}
+
+// exposedAddr reports whether a listen address can be reached from off-host. An empty host
+// (":8448") binds every interface, which is what a container publishes.
+func exposedAddr(addr string) bool {
+	if addr == "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return true // unparseable: assume the risky reading
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		return false
+	}
+	return true
 }

@@ -182,6 +182,21 @@ func (q *Queries) CountDrainingInTree(ctx context.Context, root string) (int64, 
 	return count, err
 }
 
+const countLiveAdminTokens = `-- name: CountLiveAdminTokens :one
+SELECT COUNT(*) FROM api_tokens
+WHERE revoked_at IS NULL AND perms LIKE '%"admin"%'
+`
+
+// Bootstrap asks this under the same transaction as its insert. Counting ADMIN rows rather
+// than all rows is what makes "no way in" the condition, rather than "no tokens at all": a
+// deployment holding only worker tokens has locked its operators out and still needs a way back.
+func (q *Queries) CountLiveAdminTokens(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countLiveAdminTokens)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countObjectRefs = `-- name: CountObjectRefs :one
 SELECT COUNT(*) FROM object_refs WHERE hash = ?1
 `
@@ -362,6 +377,27 @@ func (q *Queries) FindVersionByHash(ctx context.Context, arg FindVersionByHashPa
 	var max interface{}
 	err := row.Scan(&max)
 	return max, err
+}
+
+const getAPITokenByHash = `-- name: GetAPITokenByHash :one
+SELECT id, perms, label FROM api_tokens
+WHERE hash = ?1 AND revoked_at IS NULL
+`
+
+type GetAPITokenByHashRow struct {
+	ID    string
+	Perms string
+	Label string
+}
+
+// The authentication read, on the hot path for every request in token mode. Revoked rows are
+// excluded here rather than by the caller: a revocation that only some call sites honour is
+// the kind of hole that survives review.
+func (q *Queries) GetAPITokenByHash(ctx context.Context, hash string) (GetAPITokenByHashRow, error) {
+	row := q.db.QueryRowContext(ctx, getAPITokenByHash, hash)
+	var i GetAPITokenByHashRow
+	err := row.Scan(&i.ID, &i.Perms, &i.Label)
+	return i, err
 }
 
 const getChannel = `-- name: GetChannel :one
@@ -613,6 +649,30 @@ func (q *Queries) GetWaitState(ctx context.Context, id string) (string, error) {
 	return wait_state, err
 }
 
+const insertAPIToken = `-- name: InsertAPIToken :exec
+INSERT INTO api_tokens (id, hash, label, perms, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5)
+`
+
+type InsertAPITokenParams struct {
+	ID        string
+	Hash      string
+	Label     string
+	Perms     string
+	CreatedAt int64
+}
+
+func (q *Queries) InsertAPIToken(ctx context.Context, arg InsertAPITokenParams) error {
+	_, err := q.db.ExecContext(ctx, insertAPIToken,
+		arg.ID,
+		arg.Hash,
+		arg.Label,
+		arg.Perms,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const insertDefinition = `-- name: InsertDefinition :exec
 INSERT INTO process_definitions (name, version, definition, content_hash, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5)
@@ -819,6 +879,50 @@ func (q *Queries) LatestVersion(ctx context.Context, name string) (interface{}, 
 	var max interface{}
 	err := row.Scan(&max)
 	return max, err
+}
+
+const listAPITokens = `-- name: ListAPITokens :many
+SELECT id, label, perms, created_at, last_used_at, revoked_at FROM api_tokens
+ORDER BY created_at DESC, id
+`
+
+type ListAPITokensRow struct {
+	ID         string
+	Label      string
+	Perms      string
+	CreatedAt  int64
+	LastUsedAt sql.NullInt64
+	RevokedAt  sql.NullInt64
+}
+
+func (q *Queries) ListAPITokens(ctx context.Context) ([]ListAPITokensRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAPITokens)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAPITokensRow
+	for rows.Next() {
+		var i ListAPITokensRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Label,
+			&i.Perms,
+			&i.CreatedAt,
+			&i.LastUsedAt,
+			&i.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listDependencies = `-- name: ListDependencies :many
@@ -1172,6 +1276,24 @@ func (q *Queries) RenewWorkerLeasesChunk(ctx context.Context, arg RenewWorkerLea
 	return result.RowsAffected()
 }
 
+const revokeAPIToken = `-- name: RevokeAPIToken :execrows
+UPDATE api_tokens SET revoked_at = ?1
+WHERE id = ?2 AND revoked_at IS NULL
+`
+
+type RevokeAPITokenParams struct {
+	RevokedAt sql.NullInt64
+	ID        string
+}
+
+func (q *Queries) RevokeAPIToken(ctx context.Context, arg RevokeAPITokenParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeAPIToken, arg.RevokedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const supersedeInstance = `-- name: SupersedeInstance :exec
 UPDATE process_instances SET superseded_at = ?1 WHERE id = ?2
 `
@@ -1187,6 +1309,20 @@ type SupersedeInstanceParams struct {
 // routed again. specs/child-error-handling.md s12.
 func (q *Queries) SupersedeInstance(ctx context.Context, arg SupersedeInstanceParams) error {
 	_, err := q.db.ExecContext(ctx, supersedeInstance, arg.SupersededAt, arg.ID)
+	return err
+}
+
+const touchAPIToken = `-- name: TouchAPIToken :exec
+UPDATE api_tokens SET last_used_at = ?1 WHERE id = ?2
+`
+
+type TouchAPITokenParams struct {
+	LastUsedAt sql.NullInt64
+	ID         string
+}
+
+func (q *Queries) TouchAPIToken(ctx context.Context, arg TouchAPITokenParams) error {
+	_, err := q.db.ExecContext(ctx, touchAPIToken, arg.LastUsedAt, arg.ID)
 	return err
 }
 

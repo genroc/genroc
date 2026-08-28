@@ -78,7 +78,7 @@ func testBackends(t *testing.T) []backend {
 		ctx := context.Background()
 		// process_dependencies has an FK to process_definitions, so it must be
 		// cleared first to avoid a constraint violation on Postgres.
-		for _, table := range []string{"process_logs", "object_refs", "objects", "process_signals", "process_dependencies", "process_instances", "process_channels", "process_definitions"} {
+		for _, table := range []string{"process_logs", "object_refs", "objects", "process_signals", "process_dependencies", "process_instances", "process_channels", "process_definitions", "api_tokens"} {
 			if _, err := sharedPgRaw.ExecContext(ctx, "DELETE FROM "+table); err != nil {
 				t.Fatalf("reset %s: %v", table, err)
 			}
