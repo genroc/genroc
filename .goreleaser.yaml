@@ -14,7 +14,7 @@ builds:
     binary: genctl
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
-    ldflags: ["-s -w"]
+    ldflags: ["-s -w -X main.version={{ .Version }}"]
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
 

@@ -106,6 +106,10 @@ import (
 
 // Command conventions (naming, --server, table/--json output, the no---limit list
 // bounds rule) and the deliberate exceptions: cmd/genctl/CLAUDE.md.
+// Set at build time: -ldflags "-X main.version=0.1.0". A binary that cannot say what it is
+// makes every bug report start with a guess.
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -135,6 +139,9 @@ func main() {
 	switch cmd {
 	case "-h", "--help", "help":
 		usageTo(os.Stdout)
+		return
+	case "-v", "--version", "version":
+		fmt.Println(version)
 		return
 	}
 

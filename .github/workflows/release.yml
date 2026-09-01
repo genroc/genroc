@@ -59,6 +59,8 @@ jobs:
           context: .
           file: ${{ matrix.image == 'genroc' && 'Dockerfile' || 'eval-node/Dockerfile' }}
           platforms: ${{ matrix.platform }}
+          build-args: |
+            VERSION=${{ github.ref_type == 'tag' && github.ref_name || 'edge' }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.platform }}
           cache-to: type=gha,scope=${{ matrix.image }}-${{ matrix.platform }},mode=max
@@ -164,6 +166,8 @@ jobs:
   # the server does not, which is why it ships as an image instead.
   cli:
     name: genctl binaries
+    # After the images: a tag should not leave binaries published against images that failed.
+    needs: merge
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
@@ -191,6 +195,7 @@ jobs:
   # this file breaks publishing until the setting is updated.
   npm:
     name: npm package
+    needs: merge
     if: ${{ startsWith(github.ref, 'refs/tags/v') && github.repository == 'genroc/genroc' }}
     runs-on: ubuntu-latest
     permissions:

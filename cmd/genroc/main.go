@@ -21,6 +21,9 @@ import (
 	"strings"
 )
 
+// Set at build time: -ldflags "-X main.version=0.1.0".
+var version = "dev"
+
 func main() {
 	// Subcommands are dispatched before flag parsing, since `genroc token …` takes its own
 	// flags and must work without the server's. specs/api-auth.md §5.3.
@@ -55,7 +58,12 @@ func main() {
 	logPayloadBytes := flag.Int("log-payload-bytes", 2048, "Max bytes per captured request/response snippet in audit logs")
 	logRetention := flag.Duration("log-retention", 168*time.Hour, "Delete per-instance audit logs older than this; 0 = keep forever")
 	objectGrace := flag.Duration("object-grace", time.Hour, "How long a released large value stays fetchable by a reference already handed out. A read hands out references and fetching them is a second call, so the data can move on in between; this is the window in which that cannot lose. Raise it for slow consumers, lower it for processes that churn big values in a loop.")
+	showVersion := flag.Bool("version", false, "Print the version and exit.")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	mode, err := logview.ParseMode(*logMode)
 	if err != nil {
