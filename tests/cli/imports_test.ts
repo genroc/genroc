@@ -66,7 +66,7 @@ type Project = { dir: string; write: (name: string, body: string) => string; man
 
 function project(resolvers: string): Project {
   const dir = mkdtempSync(join(tmpdir(), "genroc_import_"));
-  writeFileSync(join(dir, "genroc.yaml"), resolvers, "utf8");
+  writeFileSync(join(dir, ".genroc"), resolvers, "utf8");
   writeFileSync(join(dir, "echo.mjs"), ECHO_RESOLVER, "utf8");
   return {
     dir,
@@ -288,7 +288,7 @@ test("apply — an unregistered resolver names itself and stores nothing", () =>
   const r = runCli(bin, ["apply", "-f", def]);
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain('no resolver named "nosuch"');
-  expect(r.stderr).toContain("genroc.yaml");
+  expect(r.stderr).toContain(".genroc");
 });
 
 test("apply — a missing file is refused before anything is sent", () => {

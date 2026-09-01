@@ -83,7 +83,7 @@
 //	genctl config   get <key> | set <key> <value> | unset <key>
 //
 // A `$<resolver>: <path>` leaf in a source file is replaced by a string a binary named in
-// the project's genroc.yaml produces, before anything is sent. Every command that reads a
+// the project's .genroc produces, before anything is sent. Every command that reads a
 // source file resolves first — apply, validate, and compat's -f, which compares what an
 // apply WOULD store; types generates the resolver's declarations without building or
 // applying. See specs/source-resolution.md.

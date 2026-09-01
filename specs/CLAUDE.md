@@ -91,7 +91,7 @@ per-definition field).
   context-only objects are never served).
 - [source-resolution.md](source-resolution.md) — **code phase built** (2026-08-21;
   `cmd/genctl/sources.go`, `eval-node/import.ts`), structural phase and `$infer` unbuilt.
-  How a definition **source file** becomes a definition: a `genroc.yaml` in the repo registers resolver binaries and a
+  How a definition **source file** becomes a definition: a `.genroc` in the repo registers resolver binaries and a
   `"$import: ./x.ts"` directive names one, so a TS bundler, a type generator and a YAML
   fragment loader are all clients of one mechanism. Supersedes script-tasks.md's single-pass
   directive, which cannot work — the `Input` declarations a script typechecks against are the

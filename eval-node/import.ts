@@ -51,7 +51,7 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-/** Creates the parent directory, which `.genroc/` relies on: nothing else makes it. */
+/** Creates the parent directory, which `.genroc-cache/` relies on: nothing else makes it. */
 async function write(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, content);
@@ -197,7 +197,9 @@ async function nearestTsconfig(from: string, root: string): Promise<string | nul
 }
 
 async function typecheck(root: string, sites: Site[]): Promise<void> {
-  const dir = join(root, ".genroc");
+  // NOT `.genroc`: that is the project config FILE, and a directory of the same name cannot
+  // coexist with it. The suffix is what keeps the scratch area out of its way.
+  const dir = join(root, ".genroc-cache");
   await write(join(dir, ".gitignore"), "*\n");
 
   // One tsc per distinct base config: `extends` takes a single base, so merging two would

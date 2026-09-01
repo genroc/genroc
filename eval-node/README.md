@@ -11,8 +11,9 @@ Script tasks for Node. Two halves with different jobs:
 
     npm i -D @genroc/eval-node
 
-Then register the resolver in a `genroc.yaml` beside your definitions — discovery walks up from
-the file, so nothing depends on the cwd:
+Then register the resolver in a `.genroc` beside your definitions — a dotfile, so it does not
+read as another process definition. Discovery walks up from the source file, so nothing depends
+on the cwd:
 
     resolvers:
       import:
@@ -186,7 +187,7 @@ never touches the queue and the worker never runs it; the two halves share this 
 because they share a calling convention, which is exactly the coupling that breaks silently
 if they version apart.
 
-Register it in the project's `genroc.yaml`:
+Register it in the project's `.genroc`:
 
 ```yaml
 resolvers:

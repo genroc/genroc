@@ -5,7 +5,7 @@
 //   npm run playground:scripts         # the evaluator worker (eval-node/), which CLAIMS
 //                                      # script tasks off :8888 — it listens on nothing
 //
-// The reading task's code lives in reading.ts, pulled in by `$import` — genroc.yaml
+// The reading task's code lives in reading.ts, pulled in by `$import` — .genroc
 // registers the resolver, and the apply below typechecks it against generated Input/Output
 // before the string exists. `genctl types -f script.yaml -f process.yaml` regenerates the
 // declarations on their own, which is what an editor wants between applies.

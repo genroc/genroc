@@ -12,7 +12,7 @@ mentions only the value position) is also unbuilt.
 is superseded by this doc, which owns the resolution model outright. The TypeScript
 toolchain is one *client* of what follows — nothing here is about TypeScript.
 
-Names the config file `genroc.yaml` rather than extending `genctl config`, and calls itself
+Names the config file `.genroc` rather than extending `genctl config`, and calls itself
 *source resolution* rather than "config and imports", because `config` already denotes the
 runtime `config.*` namespace resolved from `GENROC_<proc>_` every tick.
 
@@ -91,7 +91,7 @@ is a plugin system with no rule: nothing says whether stage 4's output can inval
 
 ## The project config
 
-`genroc.yaml`, discovered upward from each source file. Deliberately **not**
+`.genroc`, discovered upward from each source file. Deliberately **not**
 `os.UserConfigDir()`, where `genctl config` writes `server`: which bundler builds this repo
 is the repo's property and belongs in the repo; the server URL is the operator's and does
 not. Different owners, different lifetimes, different files.
@@ -157,7 +157,7 @@ stdin:
 ```jsonc
 {
   "mode": "build",                       // or "types" — see below
-  "root": "/abs/path/to/project",        // the directory holding genroc.yaml; also the cwd
+  "root": "/abs/path/to/project",        // the directory holding .genroc; also the cwd
   "schemas": {
     "weather-logger": { /* SchemaFile: process_input, process_output, tasks{}, $defs */ }
   },

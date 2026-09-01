@@ -1,5 +1,6 @@
 node_modules/
 generated/
+.genroc-cache/
 genroc.db
 genroc.db-shm
 genroc.db-wal

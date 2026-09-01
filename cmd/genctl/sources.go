@@ -18,7 +18,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const projectConfigName = "genroc.yaml"
+// A dotfile with no extension, like .eslintrc or .npmrc. Deliberately NOT `*.genroc.yaml`:
+// that suffix means "a process definition", and a settings file sharing it reads as one.
+const projectConfigName = ".genroc"
+
+// legacyProjectConfigName is what projects created before the rename use. Read only, and only
+// when the current name is absent -- an existing checkout keeps working without an edit.
+const legacyProjectConfigName = "genroc.yaml"
 
 type resolverConfig struct {
 	Phase   string   `yaml:"phase"`
@@ -71,16 +77,27 @@ var directiveRe = regexp.MustCompile(`^\s*\$([a-zA-Z][a-zA-Z0-9_-]*):\s*(\S.*?)\
 
 // ── project config ─────────────────────────────────────────────────────────────
 
-// findProjectConfig walks up from dir for genroc.yaml. Absent is not an error: a project
+// findProjectConfig walks up from dir for .genroc. Absent is not an error: a project
 // with no resolvers registered is the normal case, and a directive then fails by name.
+// readProjectConfig returns the first config present in dir, current name before legacy.
+func readProjectConfig(dir string) (string, []byte, bool) {
+	for _, name := range []string{projectConfigName, legacyProjectConfigName} {
+		path := filepath.Join(dir, name)
+		if data, err := os.ReadFile(path); err == nil {
+			return path, data, true
+		}
+	}
+	return "", nil, false
+}
+
 func findProjectConfig(dir string) (projectConfig, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return projectConfig{}, err
 	}
 	for {
-		path := filepath.Join(abs, projectConfigName)
-		if data, err := os.ReadFile(path); err == nil {
+		path, data, found := readProjectConfig(abs)
+		if found {
 			var cfg projectConfig
 			if err := yaml.Unmarshal(data, &cfg); err != nil {
 				return projectConfig{}, fmt.Errorf("%s: %w", path, err)
