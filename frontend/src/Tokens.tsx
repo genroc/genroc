@@ -3,10 +3,8 @@ import { ApiError, PERMS, createToken, listTokens, revokeToken, type ApiToken } 
 
 // Credential management. specs/api-auth.md §5.
 //
-// This exists so a deployment behind a proxy needs no seeded credential to get started: an
-// operator logs in as a person, mints a machine token here, and pastes it into genctl or a
-// worker. Without it the only first token comes from `genroc token create` against the
-// database, which needs shell access to the server.
+// Exists so a proxy-backed deployment needs no seeded credential: an operator logs in as a
+// person and mints a machine token here.
 
 const DESC: Record<string, string> = {
   worker: "claim and resolve external tasks — the low-trust inbound zone",

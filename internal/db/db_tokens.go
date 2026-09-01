@@ -34,8 +34,7 @@ type APIToken struct {
 	CreatedAt  int64
 	LastUsedAt int64
 	RevokedAt  int64
-	// ExpiresAt is 0 for a token that does not expire, which is what a machine credential
-	// wants -- rotating a worker token is a deploy, not a clock. specs/api-auth.md §5.
+	// 0 = never, which is what a machine credential wants. §5.
 	ExpiresAt int64
 }
 
@@ -86,13 +85,10 @@ func ValidateTokenSecret(secret string) error {
 	return nil
 }
 
-// MintToken creates a token granting perms and returns it with its plaintext, which is the only
-// time the plaintext exists anywhere.
+// MintToken returns the token with its plaintext — the only time it exists anywhere.
 //
-// expiresAt is a millisecond timestamp, or 0 for a token that never expires. It is a required
-// argument rather than an option so every call site decides: a machine credential and a browser
-// session want opposite answers, and the wrong default is the one that leaves a permanent
-// credential behind on every page load.
+// expiresAt is millis, or 0 for never. Required rather than optional because a machine
+// credential and a browser session want opposite answers.
 func (db *DB) MintToken(ctx context.Context, label string, perms []string, expiresAt int64) (APIToken, error) {
 	secret, err := NewTokenSecret()
 	if err != nil {

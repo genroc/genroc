@@ -64,6 +64,19 @@ no worker while it waits.
 
 ## Quickstart
 
+The shortest path is Docker — the engine, the UI and a script worker, with nothing to configure:
+
+```sh
+docker compose -f examples/quickstart/compose.yaml up --build
+open http://localhost:8448
+```
+
+See [examples/quickstart](examples/quickstart) for what it starts and what to run next. The
+published image is `ghcr.io/genroc/genroc` (also `genroc/genroc` on Docker Hub); during the
+prototype phase the moving tag is `:preview` and there is deliberately no `:latest`.
+
+From source:
+
 ```sh
 make build            # produces ./genroc and ./genctl
 

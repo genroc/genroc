@@ -72,7 +72,8 @@ services:
   #
   # Then use genctl from the host: genctl config set token <that value>
   tools:
-    build: { context: ../.., dockerfile: Dockerfile, target: tools }
+    # The same image as the server; it carries both binaries.
+    build: { context: ../.., dockerfile: Dockerfile }
     profiles: [tools]
     entrypoint: ["/usr/local/bin/genroc"]
     environment:

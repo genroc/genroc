@@ -1,10 +1,14 @@
 # genroc, the short way in
 
+> **Prototype.** Anything may change between versions — wire format, CLI, stored data. No
+> deprecation window, no upgrade shim. There is no `latest` tag yet: `:preview` is the moving
+> one, `0.1.0-rc.1` is what you pin.
+
     docker compose -f examples/quickstart/compose.yaml up --build
     open http://localhost:8448
 
-No credentials, no setup script, nothing to build first. You get the engine, the UI, a script
-worker, and three example processes already registered so the screen is not empty.
+Two containers, no credentials, nothing to build first. The engine, the UI, a script worker, and
+three processes already registered:
 
     NAME              VERSION  RAISES
     expense-approval  v1       expense_rejected
@@ -17,21 +21,21 @@ Run one from the UI, or:
     genctl run hello-script --set name=you
     genctl instances
 
-## There is no authentication here, and genroc says so
+To use the published image instead of building, swap `build:` for
+`image: ghcr.io/genroc/genroc:preview`.
+
+## No authentication, and genroc says so
 
     WARN  API is UNAUTHENTICATED and bound beyond loopback — anyone who reaches this port
           can register a definition, which is arbitrary code execution on this server.
 
-That is not a caveat in small print: `PUT /definitions` stores code the engine will run, so an
-open port is remote code execution. It is the right trade on a laptop and the wrong one the
-moment anyone else can reach the port.
+`PUT /definitions` stores code the engine runs, so an open port is RCE. Fine on a laptop; not
+once anyone else can reach it. The UI says the same in its header rather than showing a
+credential field you do not need.
 
-The UI says the same thing in its header rather than showing a credential field you do not need.
+## The ladder
 
-## When that stops being right
-
-genroc is the same binary in all three of these, so nothing you do here is thrown away — only
-the flags change.
+Same image throughout — only flags change.
 
 | | adds | for |
 |---|---|---|
@@ -39,22 +43,11 @@ the flags change.
 | [examples/auth](../auth) | `-auth token` | machines: CI, workers, scripts |
 | [examples/proxy](../proxy) | SSO through a proxy | people, with real login |
 
-The ladder is deliberate. Machine tokens come first because they are what a worker needs, and a
-worker is the first thing that outlives your terminal.
+## The image
 
-## What is in the image
+`ghcr.io/genroc/genroc` — engine, UI and SQLite, 39.5 MB on disk and ~10 MB to pull. One origin
+serves API and UI, so there is no CORS anywhere. Omit `-ui` and it runs headless; the UI is
+229 kB, which is why there is no second image to choose between.
 
-`genroc/platform` — the engine and the UI, served from one origin, so `/api` is same-origin from
-the browser and there is no CORS anywhere in the system. `genroc/server` is the same engine with
-no UI, for a cluster that fronts it with something else.
-
-The UI is built by the Dockerfile, not committed and not embedded in the binary: `go build` stays
-free of node, and there is no committed placeholder that can silently ship a broken UI when
-someone forgets to run npm.
-
-## Postgres, not SQLite
-
-The image is built `CGO_ENABLED=0`, and `mattn/go-sqlite3` is a stub without cgo — a SQLite
-database fails at runtime with *"requires cgo to work"*. So the compose file runs Postgres, which
-is what a deployment uses anyway. `./genroc -db genroc.db` on your machine still works; that
-binary is built with cgo.
+Also on Docker Hub as `genroc/genroc`, since that is the only registry `docker run` resolves
+without a host prefix.

@@ -85,9 +85,10 @@ exposed as a password, so a real deployment terminates TLS at an ingress or a pr
 
 ## Notes
 
-- The images use **PostgreSQL**. The Dockerfile builds with `CGO_ENABLED=0`, which cannot open
-  a SQLite database — `mattn/go-sqlite3` is a stub without cgo. A SQLite image needs a cgo
-  build on a glibc or musl base.
+- The image carries a statically linked cgo build, so **SQLite and PostgreSQL both work**.
+  This example uses PostgreSQL because that is what a deployment uses; `-db /data/genroc.db`
+  is the same image with one flag changed.
+
 - **`down` keeps the database; `down -v` resets it.** That distinction matters here: the admin
   row lives in Postgres, so dropping the volume takes your stored credential with it — and
   genroc, finding no admin, mints a fresh one and prints it to the log. After a `down -v`,

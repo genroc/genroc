@@ -1,10 +1,13 @@
 .git
-tests/node_modules
-evaluator/node_modules
-docs/node_modules
+# Beyond context size: the ui stage runs `npm ci` and THEN `COPY frontend/ ./`, so an
+# un-ignored node_modules would overwrite the clean install.
+**/node_modules
+frontend/dist
 docs/dist
+# `COPY . .` would put a live token in a build layer — cached and exportable, though not shipped.
+**/.env
 *.db
 *.db-shm
 *.db-wal
-genroc
-genctl
+/genroc
+/genctl

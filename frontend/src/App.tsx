@@ -20,9 +20,8 @@ export function App() {
   const [error, setError] = useState<ApiError | Error | null>(null);
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<"instances" | "tokens">("instances");
-  // A request that SUCCEEDS while we hold no credential proves `-auth none`. There is no
-  // endpoint that reports the mode, and adding one would publish the deployment's posture to
-  // anyone who asks — so this is inferred from the one observation that already answers it.
+  // A request succeeding with no credential proves `-auth none`. Inferred rather than asked:
+  // an endpoint reporting the mode would publish the deployment's posture to anyone.
   const [authOff, setAuthOff] = useState(false);
 
   // Behind an SSO proxy the browser has a session but no token, so ask the exchange for one

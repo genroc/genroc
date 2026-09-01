@@ -1,6 +1,5 @@
 # genroc behind an SSO proxy, with the UI. specs/api-auth.md §5.1.
 #
-#   cd frontend && npm install && npm run build      # once
 #   ./examples/proxy/gen-env.sh                      # once -- the evaluator's worker token
 #   docker compose -f examples/proxy/compose.yaml up --build
 #   open http://localhost:8080     -> login as alice / demo
@@ -47,6 +46,8 @@ services:
       - token
       - -auth-config
       - /etc/genroc/auth.yaml
+      # Baked into the image, so there is no frontend to build before this runs. genroc serves
+      # it at `/`, which is why the browser talks to ONE origin and no CORS exists here.
       - -ui
       - /srv/ui
       # The evaluator's credential. A PERSON mints their own in the UI, which is why nothing
@@ -60,9 +61,6 @@ services:
       - evaluator=worker=${WORKER_TOKEN:?run ./examples/proxy/gen-env.sh first}
     volumes:
       - ./auth.yaml:/etc/genroc/auth.yaml:ro
-      # The built UI. genroc serves it at `/`, so the browser talks to ONE origin and there is
-      # no CORS anywhere in this system.
-      - ../../frontend/dist:/srv/ui:ro
     depends_on:
       postgres: { condition: service_healthy }
 

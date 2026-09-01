@@ -96,3 +96,15 @@ jobs:
           go-version-file: go.mod
       - name: make test-stress
         run: make test-stress
+
+  # Builds both images on every PR without pushing. The Dockerfile is not exercised by any
+  # test, so without this it rots between releases and the break surfaces during one.
+  images:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: genroc
+        uses: docker/build-push-action@v6
+        with: { context: ., target: genroc, push: false, cache-from: 'type=gha,scope=genroc' }

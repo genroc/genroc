@@ -20,23 +20,16 @@ type AuthConfig struct {
 	Mode   string              `yaml:"mode"` // none | token | header
 	Header HeaderModeConfig    `yaml:"header"`
 	Roles  map[string][]string `yaml:"roles"` // asserted role -> permissions
-	// Users maps a SUBJECT to permissions, unioned with whatever its roles give. Groups are
-	// the better axis and not every identity provider supplies them — Dex's static-password
-	// connector emits none, Google omits them from the ID token — so an allowlist by identity
-	// is what makes those deployments configurable at all. specs/api-auth.md §4.
+	// Users maps a SUBJECT to permissions, unioned with its roles. Groups are the better axis;
+	// this is for providers that supply none (GitHub is OAuth2, Google omits them). §4.
 	Users map[string][]string `yaml:"users"`
-	// SessionTTL bounds a token minted by /session/token, as a Go duration ("8h", "30m").
-	// Empty means defaultSessionTTL.
-	//
-	// It exists because the exchange cannot hand back a token it issued before -- only the hash
-	// is stored, so the plaintext is gone and every exchange mints. Without an expiry each page
-	// load left another permanent credential behind. A machine token still never expires; this
-	// governs only the browser's.
+	// SessionTTL bounds a token from /session/token ("8h"); empty means defaultSessionTTL.
+	// The exchange cannot return a token it issued (only the hash is stored), so every call
+	// mints — without an expiry each page load leaves a permanent credential behind.
 	SessionTTL string `yaml:"session_ttl"`
 }
 
-// defaultSessionTTL is a working day plus slack: long enough that nobody re-authenticates
-// mid-task, short enough that an abandoned laptop's token is dead by morning.
+// A working day plus slack: no re-auth mid-task, dead by morning.
 const defaultSessionTTL = 12 * time.Hour
 
 type HeaderModeConfig struct {
