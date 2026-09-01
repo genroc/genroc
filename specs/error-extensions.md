@@ -149,7 +149,7 @@ was **dropped** (see its section) and a `raises` value of `null` is **refused**,
 the code already says "carries nothing" while `{}` says "present, narrow it".
 
 **1. The trigger fired.** X2-a asked for a grep before building. Six interpolations in
-`tests/playground/script.yaml`, the one real definition — `${error.data.name}`,
+`tests/playground/script-node.yaml`, the one real definition — `${error.data.name}`,
 `${error.data.kind}`, `${error.data.message}` twice, `${error.message}` three times. Two
 of those are machine-readable discriminators being flattened into prose that the file's
 own comment forbids parsing back. Sharper than the count: `$defs/script_error` declares
@@ -299,7 +299,7 @@ set, so the same check catches a typo'd key.
 ```yaml
 action:
   type: child
-  name: script
+  name: script-node
   result_schema: { $ref: "#/$defs/reading" }     # success channel (existing)
   raises:                                         # error channel  (new)
     script_threw: { $ref: "#/$defs/script_error" }

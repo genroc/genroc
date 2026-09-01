@@ -8,7 +8,7 @@ tasks:
   - id: location
     action:
       type: child
-      name: script
+      name: script-node
       input:
         code: "$import: ./location.ts"
         input:
@@ -29,7 +29,7 @@ tasks:
   - id: reading
     action:
       type: child
-      name: script
+      name: script-node
       input:
         code: "$import: ./reading.ts"
         # The script's own budget. script.yaml waits 30s on top of it, so an overrun

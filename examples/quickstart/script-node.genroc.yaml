@@ -8,7 +8,7 @@
 # The output is the TOP TYPE. A forwarding process must not declare a shape that is the
 # caller's concern; the caller narrows it with result_schema, which collect conforms against
 # the real output. See specs/unknown-type.md.
-name: script
+name: script-node
 config_schema:
   type: object
   properties: {}
@@ -21,7 +21,7 @@ input_schema:
     timeout_ms: { type: integer, default: 5000 }
   required: [code]
 tasks:
-  - id: eval
+  - id: eval_node
     action:
       # An `external` task: the engine parks and holds no worker, and an evaluator claims it
       # off the queue. Nothing here names a URL — the worker calls genroc, not the other way
@@ -97,7 +97,7 @@ tasks:
           data:
             budget_ms: "$: input.timeout_ms"
 
-output: "$: outputs.eval"
+output: "$: outputs.eval_node"
 
 $defs:
   # What a failure carries beside its code. `kind` is gone: it IS the code now, which is the

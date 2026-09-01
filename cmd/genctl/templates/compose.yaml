@@ -41,6 +41,8 @@ services:
     image: {{.WorkerImage}}
     environment:
       GENROC_SERVER: http://genroc:8448
+      # Without a filter a worker claims EVERY external task, including another runtime's.
+      TASK: eval_node
     restart: unless-stopped
     depends_on: [genroc]
 {{- end}}

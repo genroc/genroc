@@ -10,6 +10,7 @@ these files — so if a README drifts from the YAML, the suite fails.
 | [expense-approval/](expense-approval/) | a process that waits on a human | `external` tasks, the resolve queue and token, `signal`, `result_schema` as a published contract, `external.timeout` escalation |
 | [batch-invoices/](batch-invoices/) | fan-out over a batch | `child_list`, `child_map`, `map` lambdas, and when a failed item is a *result* vs a *raise* |
 | [polling-task/](polling-task/) | polling a remote job | the `unknown` type (`{}`), status-code branching via `on_error`, a structural poll loop, child→parent raise |
+| [polyglot/](polyglot/) | TypeScript and Python in one process | two `external` task ids, one worker fleet each (`TASK`), a type that crosses the language boundary |
 
 ## Running any of them
 

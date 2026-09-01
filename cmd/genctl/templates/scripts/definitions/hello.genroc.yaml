@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://genroc.org/process-schema.json
 #
-# Calls a TypeScript script as a child. `script.genroc.yaml` beside this file is the process
+# Calls a TypeScript script as a child. `script-node.genroc.yaml` beside this file is the process
 # that knows the evaluator's contract; apply both.
 name: hello
 input_schema:
@@ -11,7 +11,7 @@ tasks:
   - id: greet
     action:
       type: child
-      name: script
+      name: script-node
       input:
         # Bundled and typechecked by `npx genroc-import` at apply time; the stored definition
         # holds the result, so the server never sees TypeScript.

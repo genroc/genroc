@@ -64,7 +64,7 @@ action. Break-glass, if the UI is unreachable:
 
 ## The evaluator, and the credential a person cannot mint
 
-    genctl apply -f examples/proxy/script.genroc.yaml -f examples/proxy/hello-script.genroc.yaml
+    genctl apply -f examples/proxy/script-node.genroc.yaml -f examples/proxy/hello-script-node.genroc.yaml
     genctl run hello-script --set name=genroc      → { "greeting": "hello, genroc" }
 
 A worker starts with the stack, no human present, before anything exists to mint from — that is

@@ -24,6 +24,8 @@ services:
     environment:
       GENROC_SERVER: http://genroc:8448
       CONCURRENCY: "2"
+      # Without a filter a worker claims EVERY external task, including another runtime's.
+      TASK: eval_node
     restart: unless-stopped
     depends_on:
       genroc: { condition: service_started }
@@ -38,9 +40,9 @@ services:
     command:
       - apply
       - -f
-      - /examples/quickstart/script.genroc.yaml
+      - /examples/quickstart/script-node.genroc.yaml
       - -f
-      - /examples/quickstart/hello-script.genroc.yaml
+      - /examples/quickstart/hello-script-node.genroc.yaml
       - -f
       - /examples/expense-approval/approval.genroc.yaml
     # The whole tree, so definitions stay beside their own READMEs.

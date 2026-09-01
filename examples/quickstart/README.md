@@ -13,7 +13,7 @@ three processes already registered:
     NAME              VERSION  RAISES
     expense-approval  v1       expense_rejected
     hello-script      v1
-    script            v1       script_threw, script_timeout, script_unknown
+    script-node       v1       script_threw, script_timeout, script_unknown
 
 Run one from the UI, or:
 
