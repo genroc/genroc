@@ -347,7 +347,7 @@ func usageTo(w io.Writer) {
   genctl channel delete <process> <channel>
   genctl promote  --from <channel> --to <channel> [--process <name>]
   genctl status   --channel <channel>
-  genctl token    create --perms <list> [--label <name>] [-q] | list [--json] | revoke <id>...
+  genctl token    create --perms <list> [--label <name>] [-q] | generate | list [--json] | revoke <id>...
   genctl config   get <key> | set <key> <value> | unset <key>
 
 Flags:

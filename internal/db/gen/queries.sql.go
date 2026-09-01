@@ -185,13 +185,16 @@ func (q *Queries) CountDrainingInTree(ctx context.Context, root string) (int64, 
 const countLiveAdminTokens = `-- name: CountLiveAdminTokens :one
 SELECT COUNT(*) FROM api_tokens
 WHERE revoked_at IS NULL AND perms LIKE '%"admin"%'
+  AND (expires_at IS NULL OR expires_at > ?1)
 `
 
 // Bootstrap asks this under the same transaction as its insert. Counting ADMIN rows rather
 // than all rows is what makes "no way in" the condition, rather than "no tokens at all": a
 // deployment holding only worker tokens has locked its operators out and still needs a way back.
-func (q *Queries) CountLiveAdminTokens(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countLiveAdminTokens)
+// An expired admin token cannot authenticate, so it must not satisfy "a way in still exists"
+// either -- otherwise a deployment whose only admin credential lapsed can never bootstrap again.
+func (q *Queries) CountLiveAdminTokens(ctx context.Context, now sql.NullInt64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countLiveAdminTokens, now)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -382,7 +385,13 @@ func (q *Queries) FindVersionByHash(ctx context.Context, arg FindVersionByHashPa
 const getAPITokenByHash = `-- name: GetAPITokenByHash :one
 SELECT id, perms, label FROM api_tokens
 WHERE hash = ?1 AND revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > ?2)
 `
+
+type GetAPITokenByHashParams struct {
+	Hash string
+	Now  sql.NullInt64
+}
 
 type GetAPITokenByHashRow struct {
 	ID    string
@@ -390,11 +399,12 @@ type GetAPITokenByHashRow struct {
 	Label string
 }
 
-// The authentication read, on the hot path for every request in token mode. Revoked rows are
-// excluded here rather than by the caller: a revocation that only some call sites honour is
-// the kind of hole that survives review.
-func (q *Queries) GetAPITokenByHash(ctx context.Context, hash string) (GetAPITokenByHashRow, error) {
-	row := q.db.QueryRowContext(ctx, getAPITokenByHash, hash)
+// The authentication read, on the hot path for every request in token mode. Revoked and expired
+// rows are excluded here rather than by the caller: a revocation that only some call sites
+// honour is the kind of hole that survives review, and an expiry is the same shape of rule.
+// NULL expires_at means the token does not expire.
+func (q *Queries) GetAPITokenByHash(ctx context.Context, arg GetAPITokenByHashParams) (GetAPITokenByHashRow, error) {
+	row := q.db.QueryRowContext(ctx, getAPITokenByHash, arg.Hash, arg.Now)
 	var i GetAPITokenByHashRow
 	err := row.Scan(&i.ID, &i.Perms, &i.Label)
 	return i, err
@@ -650,8 +660,9 @@ func (q *Queries) GetWaitState(ctx context.Context, id string) (string, error) {
 }
 
 const insertAPIToken = `-- name: InsertAPIToken :exec
-INSERT INTO api_tokens (id, hash, label, perms, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5)
+INSERT INTO api_tokens (id, hash, label, perms, created_at, expires_at)
+VALUES (?1, ?2, ?3, ?4, ?5,
+        ?6)
 `
 
 type InsertAPITokenParams struct {
@@ -660,6 +671,7 @@ type InsertAPITokenParams struct {
 	Label     string
 	Perms     string
 	CreatedAt int64
+	ExpiresAt sql.NullInt64
 }
 
 func (q *Queries) InsertAPIToken(ctx context.Context, arg InsertAPITokenParams) error {
@@ -669,6 +681,7 @@ func (q *Queries) InsertAPIToken(ctx context.Context, arg InsertAPITokenParams) 
 		arg.Label,
 		arg.Perms,
 		arg.CreatedAt,
+		arg.ExpiresAt,
 	)
 	return err
 }
@@ -882,7 +895,7 @@ func (q *Queries) LatestVersion(ctx context.Context, name string) (interface{}, 
 }
 
 const listAPITokens = `-- name: ListAPITokens :many
-SELECT id, label, perms, created_at, last_used_at, revoked_at FROM api_tokens
+SELECT id, label, perms, created_at, last_used_at, revoked_at, expires_at FROM api_tokens
 ORDER BY created_at DESC, id
 `
 
@@ -893,6 +906,7 @@ type ListAPITokensRow struct {
 	CreatedAt  int64
 	LastUsedAt sql.NullInt64
 	RevokedAt  sql.NullInt64
+	ExpiresAt  sql.NullInt64
 }
 
 func (q *Queries) ListAPITokens(ctx context.Context) ([]ListAPITokensRow, error) {
@@ -911,6 +925,7 @@ func (q *Queries) ListAPITokens(ctx context.Context) ([]ListAPITokensRow, error)
 			&i.CreatedAt,
 			&i.LastUsedAt,
 			&i.RevokedAt,
+			&i.ExpiresAt,
 		); err != nil {
 			return nil, err
 		}

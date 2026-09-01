@@ -472,4 +472,7 @@ type TokenResp struct {
 	CreatedAt  string   `json:"created_at"`
 	LastUsedAt string   `json:"last_used_at,omitempty"`
 	RevokedAt  string   `json:"revoked_at,omitempty"`
+	// ExpiresAt is absent for a token that never expires, which every machine credential is.
+	// A session token minted by /session/token always has one.
+	ExpiresAt string `json:"expires_at,omitempty"`
 }

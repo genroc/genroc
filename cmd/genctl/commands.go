@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 	"unicode/utf8"
 
 	"genroc/internal/logview"
@@ -1754,7 +1755,7 @@ func runObjectCmd(server string, args []string) {
 // against the database by whoever can read it. specs/api-auth.md §5.3.
 func runTokenCmd(server string, args []string) {
 	if len(args) == 0 {
-		fatal("usage: genctl token create --perms <list> [--label <name>] | token list | token revoke <id>...")
+		fatal("usage: genctl token create --perms <list> [--label <name>] | token generate | token list | token revoke <id>...")
 	}
 	sub, rest := args[0], args[1:]
 
@@ -1828,6 +1829,7 @@ func runTokenCmd(server string, args []string) {
 			CreatedAt  string   `json:"created_at"`
 			LastUsedAt string   `json:"last_used_at"`
 			RevokedAt  string   `json:"revoked_at"`
+			ExpiresAt  string   `json:"expires_at"`
 		}
 		rows := make([]tokenRow, 0, len(page.Items))
 		for _, raw := range page.Items {
@@ -1838,14 +1840,23 @@ func runTokenCmd(server string, args []string) {
 			rows = append(rows, t)
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tLABEL\tPERMS\tCREATED\tLAST USED\tSTATUS")
+		fmt.Fprintln(w, "ID\tLABEL\tPERMS\tCREATED\tLAST USED\tEXPIRES\tSTATUS")
+		now := time.Now().UTC()
 		for _, t := range rows {
+			// Expiry is a status, not just a column: a lapsed token reported as "live" is the
+			// row an operator skips while wondering why the caller gets 401.
 			status := "live"
-			if t.RevokedAt != "" {
+			switch {
+			case t.RevokedAt != "":
 				status = "revoked"
+			case t.ExpiresAt != "":
+				if at, err := time.Parse(time.RFC3339, t.ExpiresAt); err == nil && !at.After(now) {
+					status = "expired"
+				}
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.ID, orDash(t.Label),
-				strings.Join(t.Perms, ","), shortTime(t.CreatedAt), orDash(shortTime(t.LastUsedAt)), status)
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t.ID, orDash(t.Label),
+				strings.Join(t.Perms, ","), shortTime(t.CreatedAt), orDash(shortTime(t.LastUsedAt)),
+				orDash(shortTime(t.ExpiresAt)), status)
 		}
 		w.Flush()
 	case "revoke":

@@ -64,7 +64,7 @@ func runTokenCmd(args []string) {
 			fmt.Fprintf(os.Stderr, "genroc token create: %v\n", err)
 			os.Exit(2)
 		}
-		tok, err := database.MintToken(ctx, *label, list)
+		tok, err := database.MintToken(ctx, *label, list, 0)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "genroc token create: %v\n", err)
 			os.Exit(1)
@@ -129,15 +129,21 @@ func printTokens(rows []db.APIToken) {
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tLABEL\tPERMS\tCREATED\tLAST USED\tSTATUS")
+	fmt.Fprintln(w, "ID\tLABEL\tPERMS\tCREATED\tLAST USED\tEXPIRES\tSTATUS")
+	now := time.Now().UnixMilli()
 	for _, r := range rows {
+		// Expiry is a status, not just a column: a lapsed token reported as "live" is exactly
+		// the row an operator would skip while wondering why the caller gets 401.
 		status := "live"
-		if r.RevokedAt != 0 {
+		switch {
+		case r.RevokedAt != 0:
 			status = "revoked"
+		case r.ExpiresAt != 0 && r.ExpiresAt <= now:
+			status = "expired"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			r.ID, dash(r.Label), strings.Join(r.Perms, ","),
-			stamp(r.CreatedAt), stamp(r.LastUsedAt), status)
+			stamp(r.CreatedAt), stamp(r.LastUsedAt), stamp(r.ExpiresAt), status)
 	}
 	w.Flush()
 }

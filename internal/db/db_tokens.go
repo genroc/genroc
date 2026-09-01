@@ -34,6 +34,9 @@ type APIToken struct {
 	CreatedAt  int64
 	LastUsedAt int64
 	RevokedAt  int64
+	// ExpiresAt is 0 for a token that does not expire, which is what a machine credential
+	// wants -- rotating a worker token is a deploy, not a clock. specs/api-auth.md §5.
+	ExpiresAt int64
 }
 
 // NewTokenSecret returns a fresh credential. 32 bytes of crypto/rand, base64url without
@@ -52,6 +55,12 @@ func NewTokenSecret() (string, error) {
 func HashToken(secret string) string {
 	sum := sha256.Sum256([]byte(secret))
 	return hex.EncodeToString(sum[:])
+}
+
+// nullMillis renders 0 as SQL NULL, which is how "never expires" is stored: a sentinel zero in
+// the column would compare as long past and expire every token immediately.
+func nullMillis(ms int64) sql.NullInt64 {
+	return sql.NullInt64{Int64: ms, Valid: ms != 0}
 }
 
 // minSecretBody is the shortest credential body accepted from an operator. NewTokenSecret
@@ -79,7 +88,12 @@ func ValidateTokenSecret(secret string) error {
 
 // MintToken creates a token granting perms and returns it with its plaintext, which is the only
 // time the plaintext exists anywhere.
-func (db *DB) MintToken(ctx context.Context, label string, perms []string) (APIToken, error) {
+//
+// expiresAt is a millisecond timestamp, or 0 for a token that never expires. It is a required
+// argument rather than an option so every call site decides: a machine credential and a browser
+// session want opposite answers, and the wrong default is the one that leaves a permanent
+// credential behind on every page load.
+func (db *DB) MintToken(ctx context.Context, label string, perms []string, expiresAt int64) (APIToken, error) {
 	secret, err := NewTokenSecret()
 	if err != nil {
 		return APIToken{}, err
@@ -90,11 +104,12 @@ func (db *DB) MintToken(ctx context.Context, label string, perms []string) (APIT
 	}
 	tok := APIToken{
 		ID: idgen.New(), Label: label, Perms: perms,
-		Secret: secret, CreatedAt: nowMillis(),
+		Secret: secret, CreatedAt: nowMillis(), ExpiresAt: expiresAt,
 	}
 	err = db.q.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
 		ID: tok.ID, Hash: HashToken(secret), Label: label,
 		Perms: string(encoded), CreatedAt: tok.CreatedAt,
+		ExpiresAt: nullMillis(expiresAt),
 	})
 	if err != nil {
 		return APIToken{}, fmt.Errorf("insert token: %w", err)
@@ -114,7 +129,9 @@ func (db *DB) LookupToken(ctx context.Context, secret string) (APIToken, bool, e
 		return APIToken{}, false, nil
 	}
 	hash := HashToken(secret)
-	row, err := db.q.GetAPITokenByHash(ctx, hash)
+	row, err := db.q.GetAPITokenByHash(ctx, dbgen.GetAPITokenByHashParams{
+		Hash: hash, Now: sql.NullInt64{Int64: nowMillis(), Valid: true},
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return APIToken{}, false, nil
 	}
@@ -149,6 +166,7 @@ func (db *DB) ListTokens(ctx context.Context) ([]APIToken, error) {
 		out = append(out, APIToken{
 			ID: r.ID, Label: r.Label, Perms: perms, CreatedAt: r.CreatedAt,
 			LastUsedAt: r.LastUsedAt.Int64, RevokedAt: r.RevokedAt.Int64,
+			ExpiresAt: r.ExpiresAt.Int64,
 		})
 	}
 	return out, nil
@@ -220,7 +238,7 @@ func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string
 	}
 	defer tx.Rollback()
 
-	live, err := qtx.CountLiveAdminTokens(ctx)
+	live, err := qtx.CountLiveAdminTokens(ctx, sql.NullInt64{Int64: nowMillis(), Valid: true})
 	if err != nil {
 		return APIToken{}, false, fmt.Errorf("count admin tokens: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	dbpkg "genroc/internal/db"
 )
@@ -17,7 +18,7 @@ func TestTokens_MintThenLookup(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			tok, err := b.db.MintToken(ctx, "ci", []string{"deploy", "read"})
+			tok, err := b.db.MintToken(ctx, "ci", []string{"deploy", "read"}, 0)
 			if err != nil {
 				t.Fatalf("mint: %v", err)
 			}
@@ -45,7 +46,7 @@ func TestTokens_PlaintextIsNotStored(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			tok, err := b.db.MintToken(ctx, "ci", []string{"read"})
+			tok, err := b.db.MintToken(ctx, "ci", []string{"read"}, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -72,7 +73,7 @@ func TestTokens_RevokedStopsAuthenticating(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			tok, err := b.db.MintToken(ctx, "leaked", []string{"admin"})
+			tok, err := b.db.MintToken(ctx, "leaked", []string{"admin"}, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -119,7 +120,7 @@ func TestTokens_BootstrapIgnoresNonAdminTokens(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			if _, err := b.db.MintToken(ctx, "a-worker", []string{"worker"}); err != nil {
+			if _, err := b.db.MintToken(ctx, "a-worker", []string{"worker"}, 0); err != nil {
 				t.Fatal(err)
 			}
 			if _, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", ""); err != nil || !created {
@@ -256,6 +257,85 @@ func TestTokens_BootstrapRefusesAnUnusableSecret(t *testing.T) {
 			}
 			if _, ok, _ := b.db.LookupToken(ctx, good); !ok {
 				t.Error("the supplied secret does not authenticate")
+			}
+		})
+	}
+}
+
+// Expiry. specs/api-auth.md §5 -- the browser exchange mints on every page load, because it
+// cannot return a token it issued before (only the hash is stored), so a session token that
+// never expired left a permanent live credential behind each time.
+
+func TestTokens_ExpiredStopsAuthenticating(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			ttl := time.Hour
+			tok, err := b.db.MintToken(ctx, "session:alice", []string{"read"},
+				dbpkg.Now().Add(ttl).UnixMilli())
+			if err != nil {
+				t.Fatalf("mint: %v", err)
+			}
+			if _, ok, err := b.db.LookupToken(ctx, tok.Secret); err != nil || !ok {
+				t.Fatalf("a token inside its window must authenticate: ok=%v err=%v", ok, err)
+			}
+
+			dbpkg.AdvanceClock(ttl + time.Minute)
+			got, ok, err := b.db.LookupToken(ctx, tok.Secret)
+			if err != nil {
+				t.Fatalf("lookup after expiry: %v", err)
+			}
+			if ok {
+				t.Errorf("an expired token still authenticated as %q with %v — every page load "+
+					"mints one, so this is an unbounded pile of live credentials", got.Label, got.Perms)
+			}
+		})
+	}
+}
+
+// 0 must store NULL, not a zero timestamp. A sentinel zero compares as 1970 and would expire
+// every machine credential the instant it was minted.
+func TestTokens_ZeroExpiryNeverExpires(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			tok, err := b.db.MintToken(ctx, "worker", []string{"worker"}, 0)
+			if err != nil {
+				t.Fatalf("mint: %v", err)
+			}
+			dbpkg.AdvanceClock(365 * 24 * time.Hour)
+			if _, ok, err := b.db.LookupToken(ctx, tok.Secret); err != nil || !ok {
+				t.Errorf("a machine token with no expiry stopped working after a year: ok=%v err=%v", ok, err)
+			}
+		})
+	}
+}
+
+// An expired admin token cannot authenticate, so it must not count as "a way in still exists" --
+// otherwise a deployment whose only admin credential lapsed can never bootstrap another.
+func TestTokens_BootstrapIgnoresAnExpiredAdmin(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			if _, err := b.db.MintToken(ctx, "old-admin", []string{"admin"},
+				dbpkg.Now().Add(time.Hour).UnixMilli()); err != nil {
+				t.Fatalf("mint: %v", err)
+			}
+			if _, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", ""); err != nil || created {
+				t.Fatalf("a LIVE admin token must suppress bootstrap: created=%v err=%v", created, err)
+			}
+
+			dbpkg.AdvanceClock(2 * time.Hour)
+			tok, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", "")
+			if err != nil {
+				t.Fatalf("bootstrap: %v", err)
+			}
+			if !created {
+				t.Fatal("the only admin token has expired and bootstrap still refused to mint — " +
+					"the deployment is locked out with no way back except the database")
+			}
+			if _, ok, err := b.db.LookupToken(ctx, tok.Secret); err != nil || !ok {
+				t.Errorf("the bootstrap token it minted does not authenticate: ok=%v err=%v", ok, err)
 			}
 		})
 	}

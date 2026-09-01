@@ -16,6 +16,7 @@ type ApiToken struct {
 	CreatedAt  int64
 	LastUsedAt sql.NullInt64
 	RevokedAt  sql.NullInt64
+	ExpiresAt  sql.NullInt64
 }
 
 type DurabilityMarker struct {

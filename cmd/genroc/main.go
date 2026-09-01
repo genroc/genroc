@@ -36,6 +36,8 @@ func main() {
 	sqliteFullFsync := flag.Bool("sqlite-fullfsync", false, "Use F_FULLFSYNC on macOS, where plain fsync(2) returns before the drive flushes its write cache — without this, --sqlite-synchronous=FULL is not actually power-loss durable on Apple hardware. Costs ~4ms/commit on an M1. No effect on other platforms or for PostgreSQL.")
 	durability := flag.String("durability", "only-once", "How much of the write path is flushed to disk before it is acknowledged. only-once (default) flushes what cannot be replayed - work handed in from outside, and only_once tasks - and lets ordinary task progress replay after a power cut, which the at-least-once contract already allows. terminal additionally flushes process ends, so a finished process cannot rewind to running. strict flushes every commit, so no completed task ever repeats. Below strict, a client polling an instance can see a state it already passed after an unclean shutdown. See specs/durability-levels.md.")
 	authMode := flag.String("auth", "none", "How callers are identified: none (default; every request is treated as an operator) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database). A unix socket is authorised by its file mode either way. See specs/api-auth.md.")
+	uiDir := flag.String("ui", "", "Serve a built frontend from this directory at `/`. Same origin as the API, which is what keeps CORS out of the picture entirely; see frontend/README.md.")
+	authConfig := flag.String("auth-config", "", "Path to an auth config file (YAML) enabling `mode: header` — a proxy authenticates the caller and forwards the result, and a role map turns the asserted roles into permissions. Combines with -auth token: a deployment runs a proxy for people and tokens for machines. See specs/api-auth.md §2, §4.")
 	seedTokens := flag.String("seed-tokens", "", "Credentials the operator generated, as a comma-separated list of `label=perms=secret` (perms itself is +-separated), e.g. \"admin=admin=genroc_sk_...,evaluator=worker=genroc_sk_...\" ($GENROC_SEED_TOKENS). Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive. The secret never originates here, so it never reaches these logs.")
 	bootstrapToken := flag.String("bootstrap-token", "", "In token mode, the admin credential to create when the deployment has no live one ($GENROC_BOOTSTRAP_TOKEN). Idempotent: ignored once an admin token exists, so it doubles as declarative recovery. Omit it and one is generated and printed once, to stderr.")
 	httpAddr := flag.String("http", ":8448", "HTTP listen address (empty to disable)")
@@ -115,12 +117,37 @@ func main() {
 	handlers := api.NewHandlers(database, eng)
 	srv := api.NewServer(handlers, log)
 
+	if *uiDir != "" {
+		srv.SetUI(*uiDir)
+		log.Info("serving UI", "dir", *uiDir)
+	}
+
+	// A forwarded identity and a bearer token are independent: either may be configured, and a
+	// deployment serving both people and machines configures both.
+	if *authConfig != "" {
+		cfg, err := api.LoadAuthConfig(*authConfig)
+		if err != nil {
+			log.Error("auth-config", "err", err)
+			os.Exit(1)
+		}
+		if cfg.Mode == "header" {
+			h, err := api.NewHeaderAuth(cfg)
+			if err != nil {
+				log.Error("auth-config", "err", err)
+				os.Exit(1)
+			}
+			srv.SetHeaderAuth(h)
+			log.Info("API authentication enabled", "mode", "header",
+				"subject_header", cfg.Header.Subject, "trusted_proxies", cfg.Header.TrustedProxies)
+		}
+	}
+
 	switch *authMode {
 	case "none":
 		// The pre-auth default. Loud rather than silent when it is also reachable off-host:
 		// `docker run -p` puts an unauthenticated PUT /definitions on the network, and that
 		// should be a decision. specs/api-auth.md §6.
-		if exposedAddr(*httpAddr) {
+		if exposedAddr(*httpAddr) && *authConfig == "" {
 			log.Warn("API is UNAUTHENTICATED and bound beyond loopback — anyone who reaches this port can register a definition, which is arbitrary code execution on this server. Use -auth token, or bind to localhost.",
 				"addr", *httpAddr)
 		}
@@ -147,6 +174,16 @@ func main() {
 		secret := *bootstrapToken
 		if secret == "" {
 			secret = os.Getenv("GENROC_BOOTSTRAP_TOKEN")
+		}
+		// A deployment with header mode already has a way in — the proxy identifies an operator
+		// and the role map gives them admin — so minting a bootstrap credential nobody asked
+		// for, and printing it to a log, is pure exposure. Skip it and let the proxy be the
+		// answer; `genroc token create` remains the break-glass path either way.
+		if *authConfig != "" && secret == "" {
+			log.Info("skipping bootstrap token", "reason", "header mode provides an operator path")
+			srv.SetAuthenticator(api.NewTokenAuth(database))
+			log.Info("API authentication enabled", "mode", "token")
+			break
 		}
 		tok, created, err := database.EnsureBootstrapToken(context.Background(), "bootstrap", secret)
 		if err != nil {

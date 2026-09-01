@@ -426,6 +426,24 @@ k8s, and it needs no new concepts here because it produces the same `Principal`.
 **This section is about `header` mode only. In `jwt` mode it does not arise** — that is §2.1's
 whole argument, and the reason `jwt` is the recommended mode rather than the deferred one.
 
+**There are TWO ways header trust fails, and `trusted_proxies` only covers one.**
+
+The second was found by building the proxy example (2026-08-28) and is the nastier of the pair:
+a proxy that **forwards a client's copy** of the identity header launders a forgery into a
+trusted assertion. genroc believes it because the peer is the proxy; that the value came from
+the client is invisible by the time it arrives. Measured against a running stack, before the
+example's config stripped it:
+
+    curl -X PUT -H 'X-Auth-Request-Email: mallory@evil.test' \
+                -H 'X-Auth-Request-Groups: genroc-admins' … /api/definitions  → 200
+
+No credential, full admin. So every route the proxy passes through WITHOUT setting the identity
+header must delete it — genroc cannot help, because a forwarded header and a laundered one are
+byte-identical. That is the sharpest argument for §2.1's signature: a signed token makes the
+difference visible, and no proxy configuration can get it wrong on the operator's behalf.
+
+The first way is the one this section was written for:
+
 **Header trust is a total bypass if genroc is reachable directly.** One `kubectl port-forward`
 past the ingress and any caller asserts any identity. This is the classic misconfiguration of
 this pattern and the design must make it hard rather than merely document it:
@@ -456,6 +474,27 @@ Collapsing them is tempting and wrong: *"I do not know who you are"* and *"I kno
 the two most common failures of this feature and they have opposite fixes — one is a broken
 proxy wiring, the other a missing role mapping. A single code makes the most frequent support
 question undiagnosable from the response.
+
+
+### Session tokens expire; machine tokens do not
+
+The exchange cannot hand back a token it issued before — only the hash is stored, so the
+plaintext is gone the moment it is returned. Every call therefore MINTS, and a browser that asks
+on each page load leaves a live credential behind each time. `session_ttl` (default 12h) bounds
+them; `expires_at NULL` is what a machine credential keeps, because rotating a worker token is a
+deploy, not a clock.
+
+Two rules follow and both are enforced in SQL rather than by callers, for the reason revocation
+already is — a check that only some call sites make is the hole that survives review:
+
+- `GetAPITokenByHash` excludes an expired row, so an expired token is indistinguishable from an
+  absent one.
+- `CountLiveAdminTokens` excludes them too. An expired admin token cannot authenticate, so
+  letting it satisfy "a way in still exists" would lock a deployment out permanently the day its
+  last admin credential lapsed.
+
+The client half is not optional: a UI that exchanges on every load re-creates the pile-up with a
+shorter fuse. `frontend/` asks only when it holds no token, and re-exchanges once on a 401.
 
 ## 9. Not in scope
 

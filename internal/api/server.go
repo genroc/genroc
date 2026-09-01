@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"genroc/internal/model"
+	"path/filepath"
 )
 
 // HTTP listener limits. Deliberately no WriteTimeout: /tick blocks until its claimed
@@ -45,17 +46,46 @@ type Server struct {
 	// auth establishes identity. Nil is `mode: none` — every caller is anonymousAdmin, which
 	// is the pre-auth behaviour written down rather than a branch in the gate.
 	auth Authenticator
+
+	// uiDir serves a built single-page app at `/`. Empty means no UI, and `/` 404s.
+	uiDir string
+
+	// header is `mode: header`, checked BEFORE auth: a request arriving through the trusted
+	// proxy is already identified, and asking the token store about a credential it does not
+	// carry would only cost a query. Both may be configured at once — a deployment runs an SSO
+	// proxy for people and tokens for machines, and each request is admitted by whichever
+	// recognises it. specs/api-auth.md §2.
+	header *HeaderAuth
 }
+
+// SetUI serves a built frontend at `/`. Called once at startup, before Listen*.
+func (s *Server) SetUI(dir string) { s.uiDir = dir }
+
+// SetHeaderAuth turns on `mode: header`. Called once at startup, before Listen*.
+func (s *Server) SetHeaderAuth(h *HeaderAuth) { s.header = h }
 
 // guard authorizes a hand-written route, for the handful that cannot be registry actions
 // because they answer with something other than a Reply. Everything else goes through
 // authorize in the registry loop; this is the same decision spelled at the call site.
 func (s *Server) guard(r *http.Request, allow ...Perm) *Error {
-	p, err := s.principalFor(r.Context(), bearerToken(r.Header.Get("Authorization")))
+	p, err := s.httpPrincipal(r)
 	if err != nil {
 		return err
 	}
 	return authorize(actionDef{Name: r.URL.Path, Allow: allow}, p)
+}
+
+// httpPrincipal resolves who is asking over HTTP, which is the only transport carrying headers.
+// A forwarded identity is preferred over a bearer token because a browser behind the proxy has
+// no token to send; a machine bypasses the proxy and has no forwarded identity. Neither can
+// shadow the other.
+func (s *Server) httpPrincipal(r *http.Request) (*Principal, *Error) {
+	if s.header != nil {
+		if p := s.header.PrincipalFrom(r); p != nil {
+			return p, nil
+		}
+	}
+	return s.principalFor(r.Context(), bearerToken(r.Header.Get("Authorization")))
 }
 
 // SetAuthenticator turns on an identity mode. Called once at startup, before Listen*.
@@ -65,8 +95,12 @@ func (s *Server) SetAuthenticator(a Authenticator) { s.auth = a }
 // unreachable) fails the request rather than answering "unauthenticated": a valid credential
 // refused as invalid is a lie the operator never sees, and 503 is the honest answer.
 func (s *Server) principalFor(ctx context.Context, credential string) (*Principal, *Error) {
-	if s.auth == nil {
+	if s.auth == nil && s.header == nil {
 		return anonymousAdmin(), nil
+	}
+	if s.auth == nil {
+		// header mode alone: a caller the proxy did not identify has no other way in.
+		return nil, nil
 	}
 	p, err := s.auth.Authenticate(ctx, credential)
 	if err != nil {
@@ -98,7 +132,7 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 			env, err := a.envelope(r)
 			if err == nil {
-				p, authErr := s.principalFor(r.Context(), bearerToken(r.Header.Get("Authorization")))
+				p, authErr := s.httpPrincipal(r)
 				if authErr != nil {
 					writeReply(w, authErr.reply())
 					return
@@ -119,6 +153,65 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 			writeReply(w, a.handle(h, env))
 		})
 	}
+
+	// The UI, at the root. Serving it from genroc is what keeps the browser on ONE origin, so
+	// `/api` is same-origin and no CORS exists anywhere in the system (§5.1). Unauthenticated
+	// on purpose: it is a static bundle that discloses nothing — what it can DO is decided by
+	// the credential it obtains, and a deployment behind an SSO proxy puts the login in front
+	// of this route anyway.
+	if s.uiDir != "" {
+		files := http.FileServer(http.Dir(s.uiDir))
+		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			// A single-page app owns its own routing, so an unknown path serves index.html
+			// rather than 404 — otherwise a deep link only works when typed at the root.
+			if _, err := os.Stat(filepath.Join(s.uiDir, filepath.Clean(r.URL.Path))); err != nil {
+				http.ServeFile(w, r, filepath.Join(s.uiDir, "index.html"))
+				return
+			}
+			files.ServeHTTP(w, r)
+		})
+	}
+
+	// The session exchange: what turns a browser's proxy session into a bearer token.
+	//
+	// It lives OUTSIDE /api on purpose. A deployment routes /api/* around the SSO proxy so
+	// machine callers never meet a login redirect (§5.1) — so a route that needs the proxy's
+	// injected identity cannot be under it. The browser zone `/*` already goes through the
+	// proxy, and this falls under that rule with no new ingress config.
+	//
+	// **It must never permit a cross-origin READ.** It is authenticated by whatever ambient
+	// credential the browser holds (the proxy's cookie), so a malicious page can cause the
+	// request — what stops the token escaping is that the page cannot see the response. Adding
+	// `Access-Control-Allow-Origin` here hands every site on the internet a token.
+	mux.HandleFunc("GET /session/token", func(w http.ResponseWriter, r *http.Request) {
+		if s.header == nil {
+			writeReply(w, unsupported("session exchange needs `mode: header`; this server has none").reply())
+			return
+		}
+		// A minted token is only useful if something can verify it on the next request. Header
+		// mode alone cannot: it identifies a caller by a forwarded header, and a bearer token
+		// means nothing to it. Refusing here beats handing the browser a credential that 401s
+		// on every call it makes with it — which is what this did first.
+		if s.auth == nil {
+			writeReply(w, unsupported("session exchange mints a bearer token, so it needs "+
+				"`-auth token` as well as header mode — otherwise nothing can verify what it issues").reply())
+			return
+		}
+		p := s.header.PrincipalFrom(r)
+		if p == nil {
+			writeReply(w, apiErrf(CodeUnauthenticated,
+				"no identity was forwarded — this route must be reached THROUGH the proxy").reply())
+			return
+		}
+		tok, err := s.handlers.mintSessionToken(r.Context(), p, s.header.SessionTTL())
+		if err != nil {
+			writeReply(w, errReply(err))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		json.NewEncoder(w).Encode(map[string]any{"token": tok.Secret, "subject": p.Subject})
+	})
 
 	// The generic API documentation is UNAUTHENTICATED, and lives under its own prefix so that
 	// is legible from a routing rule. Under /api/ it read as gated and was not — the exact
