@@ -113,17 +113,44 @@ func runInitCmd(args []string) {
 	}
 }
 
-// A dev build has no released version to depend on, and "^dev" is not a semver range npm will
-// accept — so an unreleased genctl scaffolds against the published latest instead.
+// EXACT, not a range. The resolver and genctl speak a manifest protocol (specs/source-
+// resolution.md), so the bundler that runs must be the one this genctl was released with — a
+// caret would let npm pick a newer resolver than the binary invoking it.
+//
+// A CHANNEL is not a version. `edge` names an npm dist-tag published from main, so it pins the
+// matching bundler; a plain `go build` has no counterpart and takes `latest`. Pinned by
+// TestDepRange, because this was wrong twice.
 func depRange() string {
-	if version == "dev" || version == "" {
+	switch {
+	case isSemver(version):
+		return version
+	case version == "edge":
+		return "edge"
+	default:
 		return "latest"
 	}
-	return "^" + version
 }
 
-// An unreleased genctl has no matching image tag, so it scaffolds against the moving prerelease
-// pointer rather than a version nobody published.
+// Major.minor.patch, with an optional prerelease suffix. Deliberately not a full semver parse:
+// what matters is telling a version from a channel name.
+func isSemver(v string) bool {
+	digits := 0
+	for _, part := range strings.SplitN(strings.SplitN(v, "-", 2)[0], ".", 4) {
+		if part == "" {
+			return false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+		digits++
+	}
+	return digits == 3
+}
+
+// `edge` and a release version are both real image tags; only a plain `go build` has none, and
+// that scaffolds against the moving prerelease pointer.
 func imageTag() string {
 	if version == "dev" || version == "" {
 		return "preview"

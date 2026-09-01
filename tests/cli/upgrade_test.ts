@@ -1,7 +1,7 @@
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
 import { uid } from "../helpers/genctl.ts";
-import { client } from "../helpers/client.ts";
+import { client, waitForInstance } from "../helpers/client.ts";
 
 /**
  * `genctl upgrade`: the sweep across a fleet (`<process> --from --to`), and the single tree
@@ -119,11 +119,11 @@ test("sweeps failed instances too, and --status narrows what it takes", async ()
     body: { instance_id: failedId, task_id: "hold", error: { code: "boom", message: "x" } } as any,
   });
   expect(failRes.error).toBeUndefined();
-  for (let i = 0; i < 100; i++) {
-    const r = await client.GET("/instances/{id}/detail", { params: { path: { id: failedId } } });
-    if (r.data?.status === "failed") break;
-    await new Promise((res) => setTimeout(res, 50));
-  }
+  // waitForInstance THROWS on timeout; the hand-rolled loop this replaces fell through
+  // silently, so a slow settle surfaced as "moved 0 tree(s)" from the assertion below —
+  // a symptom three steps from the cause. 20s because CI on Postgres is slower than a laptop.
+  const settled = await waitForInstance(failedId, 20_000);
+  expect(settled, "the signalled instance must reach failed before the sweep runs").toBe("failed");
 
   const v2 = parkedDef(name, false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

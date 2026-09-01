@@ -73,3 +73,38 @@ func TestInitOptions_NoDatabaseQuestionWithoutCompose(t *testing.T) {
 		t.Error("postgres was selected although no compose.yaml was requested")
 	}
 }
+
+// `^dev` and `^edge` both shipped as invalid npm ranges, and `edge` as a dist-tag that does not
+// exist. A channel name is not a version, and the scaffold has to tell them apart or
+// `npm install` fails on a fresh project. The version case is EXACT: the resolver speaks a
+// protocol with this binary, so a range could pull one the binary does not expect.
+func TestDepRange(t *testing.T) {
+	saved := version
+	t.Cleanup(func() { version = saved })
+	for in, want := range map[string]string{
+		"0.1.0":      "0.1.0",
+		"0.1.0-rc.1": "0.1.0-rc.1",
+		"dev":        "latest",
+		"edge":       "edge", // an npm dist-tag published from main
+		"":           "latest",
+		"v0.1.0":     "latest", // the tag, not the version — genctl never sets this, but a `v` is not a number
+	} {
+		version = in
+		if got := depRange(); got != want {
+			t.Errorf("version %q gave dependency %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestImageTag(t *testing.T) {
+	saved := version
+	t.Cleanup(func() { version = saved })
+	for in, want := range map[string]string{
+		"0.1.0": "0.1.0", "edge": "edge", "dev": "preview", "": "preview",
+	} {
+		version = in
+		if got := imageTag(); got != want {
+			t.Errorf("version %q gave image tag %q, want %q", in, got, want)
+		}
+	}
+}
