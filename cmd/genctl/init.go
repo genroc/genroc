@@ -71,7 +71,11 @@ func runInitCmd(args []string) {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		out, err := render(p, filepath.Join(dir, filepath.Base(p)), data)
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		out, err := render(p, filepath.Join(dir, rel), data)
 		if err != nil {
 			return err
 		}
@@ -103,9 +107,9 @@ func runInitCmd(args []string) {
 	}
 	if evalNode {
 		fmt.Println("npm install")
-		fmt.Println("       genctl apply -f script.genroc.yaml -f hello.genroc.yaml")
+		fmt.Println("       genctl apply")
 	} else {
-		fmt.Println("genctl apply -f hello.genroc.yaml")
+		fmt.Println("genctl apply")
 	}
 	fmt.Println("       genctl run hello --set who=you")
 	if !evalNode {

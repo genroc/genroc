@@ -80,8 +80,8 @@ test("@last errors when the recorded instance is not on this server", () => {
 
 test("commands that need an argument say which one", () => {
   const cases: { args: string[]; want: string }[] = [
-    { args: ["apply"], want: "-f is required" },
-    { args: ["validate"], want: "-f is required" },
+    { args: ["apply"], want: "no files given" },
+    { args: ["validate"], want: "no files given" },
     { args: ["run"], want: "usage: genctl run" },
     { args: ["channel"], want: "Usage: genctl channel" },
     { args: ["channel", "list"], want: "usage: genctl channel list" },

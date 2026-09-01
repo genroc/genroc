@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -25,18 +26,23 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"genroc/internal/model"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 func runApplyCmd(server string, args []string) {
 	fs := flag.NewFlagSet("apply", flag.ExitOnError)
 	var files multiFlag
-	fs.Var(&files, "f", "definition file (YAML or JSON); repeat for multiple files")
+	fs.Var(&files, "f", "definition file, taken literally (no globbing); repeat for more")
 	serverFlag := addServerFlag(fs, server)
 	channelFlag := fs.String("channel", "latest", "channel to apply definitions to")
 	fs.Parse(args)
-
+	files, pathErr := definitionPaths(files, fs.Args())
+	if pathErr != nil {
+		fatal("%v", pathErr)
+	}
 	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "genctl: -f is required")
+		fmt.Fprintln(os.Stderr, "genctl: no files given, and no `definitions:` in .genroc")
 		os.Exit(1)
 	}
 
@@ -70,12 +76,15 @@ func runApplyCmd(server string, args []string) {
 func runValidateCmd(server string, args []string) {
 	fs := flag.NewFlagSet("validate", flag.ExitOnError)
 	var files multiFlag
-	fs.Var(&files, "f", "definition file (YAML or JSON); repeat for multiple files")
+	fs.Var(&files, "f", "definition file, taken literally (no globbing); repeat for more")
 	serverFlag := addServerFlag(fs, server)
 	fs.Parse(args)
-
+	files, pathErr := definitionPaths(files, fs.Args())
+	if pathErr != nil {
+		fatal("%v", pathErr)
+	}
 	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "genctl: -f is required")
+		fmt.Fprintln(os.Stderr, "genctl: no files given, and no `definitions:` in .genroc")
 		os.Exit(1)
 	}
 
@@ -97,12 +106,15 @@ func runValidateCmd(server string, args []string) {
 func runTypesCmd(server string, args []string) {
 	fs := flag.NewFlagSet("types", flag.ExitOnError)
 	var files multiFlag
-	fs.Var(&files, "f", "definition file (YAML or JSON); repeat for multiple files")
+	fs.Var(&files, "f", "definition file, taken literally (no globbing); repeat for more")
 	serverFlag := addServerFlag(fs, server)
 	fs.Parse(args)
-
+	files, pathErr := definitionPaths(files, fs.Args())
+	if pathErr != nil {
+		fatal("%v", pathErr)
+	}
 	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "genctl: -f is required")
+		fmt.Fprintln(os.Stderr, "genctl: no files given, and no `definitions:` in .genroc")
 		os.Exit(1)
 	}
 
@@ -955,6 +967,60 @@ func loadSourceDocs(files []string) ([]sourceDoc, error) {
 		return nil, fmt.Errorf("no process definitions found in provided files")
 	}
 	return all, nil
+}
+
+// definitionPaths is the file list a command operates on. `-f` entries are LITERAL and skip
+// globbing entirely -- the escape hatch for a filename containing `[`, `*` or `{`, where a
+// pattern would either match nothing or, worse, match a different file that happens to fit.
+// Positional arguments and `definitions:` entries are patterns.
+func definitionPaths(literal, patterns []string) ([]string, error) {
+	if len(literal) == 0 && len(patterns) == 0 {
+		patterns = defaultDefinitionPaths(".")
+	}
+	expanded, err := expandPaths(patterns)
+	if err != nil {
+		return nil, err
+	}
+	return append(append([]string{}, literal...), expanded...), nil
+}
+
+// expandPaths turns every argument into files. There is no path-versus-pattern distinction:
+// a pattern with no metacharacters matches itself, so a plain filename is just the trivial
+// case. `**` matches any depth (doublestar; the stdlib has none).
+//
+// A DIRECTORY is refused, pointing at the pattern that would do it: walking one implicitly
+// hides both the depth and the filename filter, so it would silently differ from the pattern
+// meant to replace it. Sorted, so a batch is deterministic.
+func expandPaths(paths []string) ([]string, error) {
+	var out []string
+	for _, p := range paths {
+		matches, err := doublestar.FilepathGlob(p)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+		if len(matches) == 0 {
+			// A real file whose NAME contains `[`, `*` or `{` matches no pattern, including
+			// its own. Falling back to the literal keeps such a file reachable unescaped.
+			if _, statErr := os.Stat(p); statErr == nil {
+				matches = []string{p}
+			} else if strings.ContainsAny(p, "*?[{") {
+				return nil, fmt.Errorf("%s: matched no files", p)
+			} else {
+				// Wording only, not a second code path: "matched no files" reads as a broken
+				// pattern when what happened is a mistyped name.
+				return nil, fmt.Errorf("%s: no such file", p)
+			}
+		}
+		sort.Strings(matches)
+		for _, m := range matches {
+			if info, err := os.Stat(m); err == nil && info.IsDir() {
+				return nil, fmt.Errorf("%s is a directory; give a pattern, e.g. %s",
+					m, filepath.Join(m, "**", "*.genroc.yaml"))
+			}
+		}
+		out = append(out, matches...)
+	}
+	return out, nil
 }
 
 // resolvedDefs loads, resolves every import directive, and hands back the plain documents

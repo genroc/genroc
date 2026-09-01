@@ -1,7 +1,7 @@
 # A genroc to develop against.
 #
 #   docker compose up -d
-#   genctl apply -f hello.genroc.yaml
+#   genctl apply
 #
 # NO AUTHENTICATION: every caller is an operator, and `PUT /definitions` stores code the engine
 # runs. Fine on a laptop, not on anything anyone else can reach.

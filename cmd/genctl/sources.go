@@ -33,8 +33,31 @@ type resolverConfig struct {
 }
 
 type projectConfig struct {
-	Root      string                    `yaml:"-"`
-	Resolvers map[string]resolverConfig `yaml:"resolvers"`
+	Root string `yaml:"-"`
+	// Definitions is what `genctl apply|validate|types` reads when given no paths. Entries are
+	// files, directories (walked) or globs, resolved against the config's own directory -- so
+	// the command works the same from anywhere in the project.
+	Definitions []string                  `yaml:"definitions"`
+	Resolvers   map[string]resolverConfig `yaml:"resolvers"`
+}
+
+// defaultDefinitionPaths is what a bare `genctl apply` operates on: the `definitions` entries
+// from the nearest .genroc, made absolute. Empty when there is no config or no entries, which
+// the caller reports as "-f is required" rather than as a project error.
+func defaultDefinitionPaths(dir string) []string {
+	cfg, err := findProjectConfig(dir)
+	if err != nil || len(cfg.Definitions) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(cfg.Definitions))
+	for _, d := range cfg.Definitions {
+		if filepath.IsAbs(d) {
+			out = append(out, d)
+			continue
+		}
+		out = append(out, filepath.Join(cfg.Root, d))
+	}
+	return out
 }
 
 // sourceDoc is one definition together with the file it was read from: a directive's path is
