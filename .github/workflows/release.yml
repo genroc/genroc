@@ -213,6 +213,9 @@ jobs:
       - name: publish
         working-directory: eval-node
         run: |
+          # The build needs devDependencies (@types/node, typescript); without them tsc fails
+          # with "Cannot find type definition file for 'node'" at publish time.
+          npm ci
           tag=${GITHUB_REF_NAME#v}
           npm version "$tag" --no-git-tag-version --allow-same-version
           npm run build          # prepublishOnly does this too; explicit so a failure is visible here
@@ -262,6 +265,7 @@ jobs:
       - name: publish @genroc/eval-node@edge
         working-directory: eval-node
         run: |
+          npm ci      # the build needs devDependencies; see the tagged publish above
           # npm versions are immutable, so every edge publish needs its own. `0.0.0-edge.<sha>`
           # sorts below every real release, so it can never become `latest` by accident.
           npm version "0.0.0-edge.$(git rev-parse --short HEAD)" --no-git-tag-version
