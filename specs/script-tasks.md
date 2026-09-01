@@ -7,7 +7,7 @@ evaluator was a plain `fetch` at an HTTP sidecar (2026-08-19), which spent no en
 either but held an advance slot per call and required genroc to be able to reach an
 unauthenticated code-execution endpoint. The queue that made the `external` route viable is
 [external-task-queue.md](external-task-queue.md); what ships is documented in
-[evaluator/README.md](../evaluator/README.md).
+[eval-node/README.md](../eval-node/README.md).
 
 Still unbuilt: the `create-genroc-app` scaffolder. The import directive, the type generator and
 the bundler ARE built — see [source-resolution.md](source-resolution.md).

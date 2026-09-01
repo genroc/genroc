@@ -4,7 +4,7 @@ import { spawn, type ChildProcess } from "child_process";
 import { join } from "path";
 import { client, waitForInstance } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
-import { evaluate } from "../../evaluator/eval.ts";
+import { evaluate } from "../../eval-node/eval.ts";
 
 // A script task is an `external` task: the engine parks and holds no worker, and an evaluator
 // claims it off the queue, evaluates it in its own realm, and answers. What these tests pin is
@@ -13,14 +13,14 @@ import { evaluate } from "../../evaluator/eval.ts";
 //
 // The realm's own properties are asserted by calling evaluate() directly at the bottom: they
 // are relationships between two evaluations in one process, which no definition can observe.
-// See evaluator/README.md.
+// See eval-node/README.md.
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 
 let worker: ChildProcess;
 
 beforeAll(async () => {
-  worker = spawn("node", [join(ROOT, "evaluator/worker.ts")], {
+  worker = spawn("node", [join(ROOT, "eval-node/worker.ts")], {
     // TASK scopes the fleet to this file's script tasks. Without a filter a worker claims
     // every parked external task on the server, including other suites' approvals — which is
     // the same mistake a real deployment makes when one fleet shares a genroc with another.
@@ -41,7 +41,7 @@ beforeAll(async () => {
 
 afterAll(() => worker?.kill());
 
-// The closed set an evaluator may answer with: the failure kinds in evaluator/eval.ts. A
+// The closed set an evaluator may answer with: the failure kinds in eval-node/eval.ts. A
 // definition declares the ones it handles; a code outside this is refused at submission.
 const SCRIPT_ERROR = { type: "object", properties: { name: { type: "string" } }, required: ["name"] };
 const ALL_KINDS = {
@@ -265,7 +265,7 @@ test("evaluator — Math and Date are the realm's own, and die with it", async (
 
 // `stack` is renumbered to the lines the AUTHOR wrote. The compiled body sits under a wrapper
 // whose preamble is ENGINE-specific, so the offset is measured at startup rather than assumed
-// (evaluator/realm.ts) — a stack pointing confidently at the wrong line is worse than none.
+// (eval-node/realm.ts) — a stack pointing confidently at the wrong line is worse than none.
 test("stack — a throw reports the author's line, and the function that threw", async () => {
   const code = [
     "const rate = 0.1;", //          1

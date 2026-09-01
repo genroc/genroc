@@ -35,4 +35,10 @@ docker compose up
 * **Omit `-ui`** to run headless. Same binary.
 * 39.5 MB on disk, ~10 MB compressed.
 
+## The worker
+
+Script tasks need `genroc/eval-node`, which claims them off genroc's queue and evaluates each
+function body in its own realm. It needs only `GENROC_SERVER` — and `GENROC_TOKEN` once auth is
+on. See the quickstart compose above.
+
 Source, docs and examples: https://github.com/genroc/genroc

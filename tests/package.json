@@ -6,7 +6,7 @@
     "typecheck": "tsc --noEmit",
     "generate": "openapi-typescript ../openapi.json -o generated/api.ts",
     "playground:generate": "node playground/codegen.ts",
-    "playground:scripts": "node ../evaluator/worker.ts",
+    "playground:scripts": "node ../eval-node/worker.ts",
     "playground:run": "node playground/run.ts",
     "bench-recursive": "node bench/run.ts recursive",
     "bench-deep": "node bench/run.ts deep",

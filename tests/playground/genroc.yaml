@@ -5,4 +5,4 @@ resolvers:
   import:
     phase: code
     ext: .ts
-    command: [node, ../../evaluator/import.ts]
+    command: [node, ../../eval-node/import.ts]

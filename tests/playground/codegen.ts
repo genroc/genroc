@@ -82,7 +82,7 @@ function withDefs(s: object): object {
 
 // A script task is a child call whose input is {code, input}. Detected by that shape rather
 // than declared, because nothing in the definition marks one — which is the whole design:
-// the engine has no script action type. See evaluator/README.md.
+// the engine has no script action type. See eval-node/README.md.
 function scriptInput(taskInput: Record<string, any> | undefined): object | undefined {
   const props = taskInput?.properties;
   if (props?.code?.type !== "string" || !props?.input) return undefined;

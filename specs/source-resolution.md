@@ -2,7 +2,7 @@
 
 Status: **PROPOSAL 2026-08-20; the code phase BUILT 2026-08-21.** What ships is the
 project config, value-position `$<resolver>: <path>` directives, the batched manifest,
-`genctl types`, and `evaluator/import.ts` as the first resolver
+`genctl types`, and `eval-node/import.ts` as the first resolver
 (`cmd/genctl/sources.go`, `tests/cli/imports_test.ts`). **Unbuilt: the structural phase**
 — no phase-1 resolver exists, `$infer` is not implemented, and `phase: structural` in a
 config is refused rather than ignored. The key-position merge form (§Directive syntax
@@ -134,7 +134,7 @@ visible to every tool, when the property wanted is the opposite.
 
 ## Escaping on splice — the thing the feature is *for*
 
-[evaluator/README.md](../evaluator/README.md) promises the directive removes `$${`. It
+[eval-node/README.md](../eval-node/README.md) promises the directive removes `$${`. It
 does not come free. Splice a file's text in as a plain string and the Shape layer reads
 `${` in it exactly as before. **genctl doubles every `$` on splice** — `escapeDollars`.
 

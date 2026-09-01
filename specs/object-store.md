@@ -751,7 +751,7 @@ selection is a sort plus a walk.
    same round-trip problem, one layer up.
    Leaf by leaf and not whole: externalizing the entire input would fold the per-instance data
    in with the bundle, giving every instance a different hash and no sharing at all.
-4. **Worker caching.** ✅ **Built 2026-08-24.** `evaluator/worker.ts` follows the entry's objects
+4. **Worker caching.** ✅ **Built 2026-08-24.** `eval-node/worker.ts` follows the entry's objects
    section and caches by content hash, which cannot invalidate.
 
 **Measured, on the fixture §The measurement opened with** — a 221 KB script, ten instances:

@@ -58,12 +58,12 @@ per-definition field).
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the
   child-as-worker contract (idempotency, cancel, versioning).
-- [script-tasks.md](script-tasks.md) — **built** (`evaluator/`, 2026-08-19; moved onto
+- [script-tasks.md](script-tasks.md) — **built** (`eval-node/`, 2026-08-19; moved onto
   `external` + the claim queue 2026-08-24), unlike the rest of this list. Its thesis held:
   running user TypeScript needed **no new engine capability**, and the `external`-plus-worker
   shape it argued for is now what ships — the evaluator claims parked script tasks off the
   queue instead of serving `POST /eval`. Read
-  [evaluator/README.md](../evaluator/README.md) for shipped behavior and this doc for the
+  [eval-node/README.md](../eval-node/README.md) for shipped behavior and this doc for the
   decisions. Running user TypeScript needs **no new engine
   capability**: a script task is an `external` task whose input carries a code string, so
   the feature is a setup experience (`create-genroc-app` scaffolds the type generator,
@@ -90,7 +90,7 @@ per-definition field).
   which *is* the retention rule. Constrained by migration 018's serving rule (unredacted
   context-only objects are never served).
 - [source-resolution.md](source-resolution.md) — **code phase built** (2026-08-21;
-  `cmd/genctl/sources.go`, `evaluator/import.ts`), structural phase and `$infer` unbuilt.
+  `cmd/genctl/sources.go`, `eval-node/import.ts`), structural phase and `$infer` unbuilt.
   How a definition **source file** becomes a definition: a `genroc.yaml` in the repo registers resolver binaries and a
   `"$import: ./x.ts"` directive names one, so a TS bundler, a type generator and a YAML
   fragment loader are all clients of one mechanism. Supersedes script-tasks.md's single-pass
@@ -127,7 +127,7 @@ per-definition field).
   rather than deferred, and **deleting the `GET /external-tasks` listing in 2026-08-28 did not
   change that** — the premise is that an unclaimed path exists at all, which is the approval
   path's whole purpose. Opens by discarding the usual reason for moving
-  [`evaluator/`](../evaluator/README.md) off `fetch` — requests are not lost under overload,
+  [`eval-node/`](../eval-node/README.md) off `fetch` — requests are not lost under overload,
   since a failed fetch is a routed code and the instance stays durable; what overload
   produces is a worse *code* (`http.timeout`, unknowable, never retried on `only_once`),
   which is fixable inside the push design. The real case is that a fetch holds one of

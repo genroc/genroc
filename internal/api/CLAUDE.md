@@ -199,7 +199,7 @@ omitting it would not make the response complete, only useless:
 
 Their hazard is real and worth knowing: a worker that ignores `objects` receives `input: {}`
 and runs the task against an empty payload — a wrong answer rather than a failure. The shipped
-worker splices (`evaluator/worker.ts`); a third-party one has to be told.
+worker splices (`eval-node/worker.ts`); a third-party one has to be told.
 
 `listshape_test.go` walks the action registry and enforces this, so a new listing that carries
 `objects` fails rather than being noticed later. Adding a third exception means naming it there

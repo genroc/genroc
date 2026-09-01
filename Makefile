@@ -73,10 +73,10 @@ bench-iterate: client
 sqlc:
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
 
-# The script-task evaluator (evaluator/). A script task is an `external` task; this is the
-# worker that claims them off the queue. See evaluator/README.md.
+# The script-task evaluator (eval-node/). A script task is an `external` task; this is the
+# worker that claims them off the queue. See eval-node/README.md.
 script-runner:
-	cd evaluator && npm install && GENROC_SERVER=$(genroc_server) node worker.ts
+	cd eval-node && npm install && GENROC_SERVER=$(genroc_server) node worker.ts
 
 # The process-definition JSON Schema, as a static file the site serves at
 # genroc.org/process-schema.json — the same bytes GET /public/process-schema.json returns, so a

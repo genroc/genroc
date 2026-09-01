@@ -51,7 +51,7 @@ services:
       postgres: { condition: service_healthy }
 
   evaluator:
-    build: { context: ../.., dockerfile: examples/auth/Dockerfile.evaluator }
+    build: { context: ../.., dockerfile: eval-node/Dockerfile }
     environment:
       GENROC_SERVER: http://genroc:8448
       GENROC_TOKEN: ${WORKER_TOKEN:?run examples/auth/gen-env.sh first}

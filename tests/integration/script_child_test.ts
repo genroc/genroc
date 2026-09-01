@@ -23,7 +23,7 @@ beforeAll(async () => {
 
   // TASK scopes the fleet to script.yaml's own task id; an unfiltered worker would claim
   // every parked external task on the shared test server.
-  worker = spawn("node", [join(ROOT, "evaluator/worker.ts")], {
+  worker = spawn("node", [join(ROOT, "eval-node/worker.ts")], {
     env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", TASK: "eval", WORKER_ID: `child-${process.pid}` },
     stdio: ["ignore", "pipe", "inherit"],
   });

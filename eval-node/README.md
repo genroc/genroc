@@ -9,12 +9,12 @@ to any other external task.
 Design record: [specs/external-task-queue.md](../specs/external-task-queue.md) for the queue,
 [specs/script-tasks.md](../specs/script-tasks.md) for the runtime.
 
-    GENROC_SERVER=http://localhost:8448 node evaluator/worker.ts
+    GENROC_SERVER=http://localhost:8448 node eval-node/worker.ts
 
 Against a server started with `--auth token`, mint a scoped credential first:
 
     TOKEN=$(genctl token create --perms worker --label evaluator -q)
-    GENROC_SERVER=http://localhost:8448 GENROC_TOKEN=$TOKEN node evaluator/worker.ts
+    GENROC_SERVER=http://localhost:8448 GENROC_TOKEN=$TOKEN node eval-node/worker.ts
 
 `worker` reaches the four queue verbs and `GET /api/objects/{ref}` — enough to claim, fetch an
 externalized input and answer, and nothing else. This is the credential most likely to end up on
@@ -160,7 +160,7 @@ Register it in the project's `genroc.yaml`:
 
 ```yaml
 resolvers:
-  import: { phase: code, ext: .ts, command: [node, ../evaluator/import.ts] }
+  import: { phase: code, ext: .ts, command: [node, ../eval-node/import.ts] }
 ```
 
 then write the script as a module and name it from the definition:

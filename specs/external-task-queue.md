@@ -5,7 +5,7 @@ the evaluator switchover 2026-08-24). Only the claim long-poll remains unbuilt. 
 `external.timeout` split phase 3 proposed was dropped as unsound — see §`external.lost`. Turning `external` from a wait point
 into a queue a worker fleet pulls from, with the claim/lease machinery the engine already
 runs against `process_instances` — and the error channel `external` has never had. The
-motivating consumer is [`evaluator/`](../evaluator/README.md), which ships as a `fetch`
+motivating consumer is [`eval-node/`](../eval-node/README.md), which ships as a `fetch`
 ([script-tasks.md](script-tasks.md)).
 
 **The `GET /external-tasks` listing was removed 2026-08-28.** It was the original queue — poll
@@ -355,7 +355,7 @@ answers the latency note, but second — it changes connection lifetime, not the
 3. **`only_once` fidelity.** ✅ **Built 2026-08-24.** `external.lost` (unknowable, catchable),
    refusing to re-hand an `only_once` task whose holder lapsed, and the marker + `wake_at` that
    makes the engine report it. The `external.timeout` split was dropped as unsound.
-4. **Evaluator switchover.** ✅ **Built 2026-08-24.** `evaluator/worker.ts` claims, renews,
+4. **Evaluator switchover.** ✅ **Built 2026-08-24.** `eval-node/worker.ts` claims, renews,
    evaluates and answers; `server.ts` is gone and the realm moved to `realm.ts`. The five
    failure kinds became the authored codes directly. Two things fell out that the plan did not
    anticipate: a **runner fault needs no error code** — releasing the claim is how a queue

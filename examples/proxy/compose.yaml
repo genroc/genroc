@@ -125,7 +125,7 @@ services:
   # The script-task worker. It claims parked `external` tasks off genroc's queue -- genroc never
   # calls it -- so it needs only outbound access and no route through the proxy.
   evaluator:
-    build: { context: ../.., dockerfile: examples/proxy/Dockerfile.evaluator }
+    build: { context: ../.., dockerfile: eval-node/Dockerfile }
     environment:
       # Straight to genroc, not through Caddy: a bearer token authenticates from anywhere, and
       # a hop through the proxy would buy nothing. The port is unpublished, so this address

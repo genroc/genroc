@@ -49,5 +49,9 @@ Same image throughout — only flags change.
 serves API and UI, so there is no CORS anywhere. Omit `-ui` and it runs headless; the UI is
 229 kB, which is why there is no second image to choose between.
 
-Also on Docker Hub as `genroc/genroc`, since that is the only registry `docker run` resolves
-without a host prefix.
+`ghcr.io/genroc/eval-node` is the script worker — 231 MB, almost all of it Node. It installs no
+packages: `worker.ts` imports only node builtins, and the bundler deps belong to the author-time
+resolver genctl runs locally.
+
+Both are on Docker Hub too, since that is the only registry `docker run` resolves without a host
+prefix.

@@ -27,7 +27,7 @@ let runner: ChildProcess | undefined;
 let runnerReady: Promise<void>;
 async function startRunner(): Promise<void> {
   if (runner) return runnerReady;
-  runner = spawn("node", [join(REPO, "evaluator/worker.ts")], {
+  runner = spawn("node", [join(REPO, "eval-node/worker.ts")], {
     // TASK scopes this worker to the script tasks below; an unfiltered one would claim every
     // parked external task on the shared test server.
     env: { ...process.env, GENROC_SERVER: BASE_URL, POLL_MS: "50", TASK: "price", WORKER_ID: `imports-${process.pid}` },
@@ -403,7 +403,7 @@ test("apply — a definition with no directives spends no resolver and no extra 
 
 function tsProject(): Project {
   const p = project(
-    `resolvers:\n  import: { phase: code, ext: .ts, command: [node, ${join(REPO, "evaluator/import.ts")}] }\n`,
+    `resolvers:\n  import: { phase: code, ext: .ts, command: [node, ${join(REPO, "eval-node/import.ts")}] }\n`,
   );
   return p;
 }

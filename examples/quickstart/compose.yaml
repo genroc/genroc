@@ -20,7 +20,7 @@ services:
   # With auth off the worker needs no credential — the first thing that changes when you turn
   # auth on.
   evaluator:
-    build: { context: ../.., dockerfile: examples/quickstart/Dockerfile.evaluator }
+    build: { context: ../.., dockerfile: eval-node/Dockerfile }
     environment:
       GENROC_SERVER: http://genroc:8448
       CONCURRENCY: "2"

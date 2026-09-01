@@ -28,7 +28,7 @@ openapi.json
 /docs/public/process-schema.json
 tests/generated/
 tests/node_modules/
-evaluator/node_modules/
+eval-node/node_modules/
 docs/node_modules/
 /p_schema.json
 /p.json

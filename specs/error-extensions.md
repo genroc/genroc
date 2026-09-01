@@ -190,7 +190,7 @@ for the codes its rule names**, so data still has to be asked for by name. Argum
 decides the shape, is untouched.
 
 **Third argument, which decides the shape rather than the yes/no:** the gap is created
-by *reuse*. `evaluator/README.md` shows the intended pattern — call the script inline,
+by *reuse*. `eval-node/README.md` shows the intended pattern — call the script inline,
 branch on `error.data.name == "LimitExceeded"`, mint a specific code. That works today.
 The playground factored the call into a reusable `script.yaml` child, and a generic
 wrapper cannot mint a caller-specific code (R2: codes are literals), so `name` dies at

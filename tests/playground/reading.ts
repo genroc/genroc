@@ -57,7 +57,7 @@ export default async function (input: Input): Promise<Output> {
   const res = await fetch(url);
   if (!res.ok) {
     // `name` is what the caller's switch tells one refusal from another by; the status is
-    // for whoever reads the failure. evaluator/README.md.
+    // for whoever reads the failure. eval-node/README.md.
     const err = new Error(`open-meteo answered  ${res.status}`);
     err.name = "UpstreamError";
     throw err;

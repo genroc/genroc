@@ -33,7 +33,7 @@ tasks:
         timeout_ms: "$: input.timeout_ms"
       result_schema: {}
       # The closed set of codes an evaluator may answer with: the failure kinds in
-      # evaluator/eval.ts, one arm each below. A code outside this is refused at submission,
+      # eval-node/eval.ts, one arm each below. A code outside this is refused at submission,
       # so a worker that invents one is caught rather than routed to a catch-all.
       raises:
         threw: { $ref: "#/$defs/script_error" }
