@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://genroc.org/process-schema.json
+#
+# Calls a TypeScript script as a child. `script` is the process that knows the evaluator's
+# contract — apply it once from the genroc repo, or copy it beside this file.
+name: {{.Name}}
+input_schema:
+  type: object
+  properties:
+    who: { type: string, default: "world" }
+tasks:
+  - id: greet
+    action:
+      type: child
+      name: script
+      input:
+        # Bundled and typechecked by `npx genroc-import` at apply time; the stored definition
+        # holds the result, so the server never sees TypeScript.
+        code: "$import: ./greet.ts"
+        input:
+          who: "$: input.who"
+      result_schema:
+        type: object
+        properties:
+          greeting: { type: string }
+          at: { type: string }
+        required: [greeting]
+    output: "$: self.result"
+    switch:
+      - goto: end
+
+output: "$: outputs.greet"

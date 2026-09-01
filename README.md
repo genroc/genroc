@@ -80,6 +80,17 @@ GitHub release. To remove it:
 
 `--purge` also deletes genctl's config directory, which holds an API token.
 
+## Starting a project
+
+    genctl init
+
+Asks for a project name, whether you want TypeScript script tasks, whether to write a
+`compose.yaml`, and SQLite or PostgreSQL — then writes a project that applies and runs. Flags
+skip the questions (`--eval-node`, `--postgres`, `--no-compose`, `-y`), and a non-interactive
+stdin takes the defaults rather than hanging.
+
+Templates are embedded in the binary, so a scaffold always matches the genctl that wrote it.
+
 ## Quickstart
 
 The shortest path is Docker — the engine, the UI and a script worker, with nothing to configure:

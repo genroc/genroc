@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://genroc.org/process-schema.json
+name: {{.Name}}
+input_schema:
+  type: object
+  properties:
+    who: { type: string, default: "world" }
+tasks:
+  - id: greet
+    output:
+      greeting: "hello, ${input.who}"
+    switch:
+      - goto: end
+
+output: "$: outputs.greet"

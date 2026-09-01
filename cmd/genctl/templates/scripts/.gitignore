@@ -1,0 +1,5 @@
+node_modules/
+generated/
+genroc.db
+genroc.db-shm
+genroc.db-wal

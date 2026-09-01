@@ -188,6 +188,8 @@ func main() {
 		runRetryCmd(server, args)
 	case "last":
 		runLastCmd(args)
+	case "init":
+		runInitCmd(args)
 	case "config":
 		runConfigCmd(args)
 	default:
@@ -355,6 +357,7 @@ func usageTo(w io.Writer) {
   genctl promote  --from <channel> --to <channel> [--process <name>]
   genctl status   --channel <channel>
   genctl token    create --perms <list> [--label <name>] [-q] | generate | list [--json] | revoke <id>...
+  genctl init     [dir] [--eval-node]
   genctl config   get <key> | set <key> <value> | unset <key>
 
 Flags:

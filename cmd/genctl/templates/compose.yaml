@@ -1,0 +1,49 @@
+# A genroc to develop against.
+#
+#   docker compose up -d
+#   genctl apply -f hello.genroc.yaml
+#
+# NO AUTHENTICATION: every caller is an operator, and `PUT /definitions` stores code the engine
+# runs. Fine on a laptop, not on anything anyone else can reach.
+services:
+{{- if .Postgres}}
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: genroc
+      POSTGRES_PASSWORD: genroc
+      POSTGRES_DB: genroc
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genroc -d genroc"]
+      interval: 2s
+      retries: 15
+    volumes: [genroc-data:/var/lib/postgresql/data]
+{{- end}}
+
+  genroc:
+    image: {{.Image}}
+{{- if .Postgres}}
+    command: [-pg, "postgres://genroc:genroc@postgres:5432/genroc?sslmode=disable", -http, ":8448", -ui, /srv/ui]
+{{- else}}
+    # SQLite: nothing to provision. `-pg <dsn>` is the same image against PostgreSQL.
+    command: [-db, /data/genroc.db, -http, ":8448", -ui, /srv/ui]
+    volumes: [genroc-data:/data]
+{{- end}}
+    ports: ["8448:8448"]
+{{- if .Postgres}}
+    depends_on:
+      postgres: { condition: service_healthy }
+{{- end}}
+{{- if .EvalNode}}
+
+  # Claims parked script tasks off the queue. With auth off it needs no credential.
+  eval-node:
+    image: {{.WorkerImage}}
+    environment:
+      GENROC_SERVER: http://genroc:8448
+    restart: unless-stopped
+    depends_on: [genroc]
+{{- end}}
+
+volumes:
+  genroc-data:

@@ -1,0 +1,8 @@
+{
+  "name": "{{.Name}}",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@genroc/eval-node": "{{.Dep}}"
+  }
+}
