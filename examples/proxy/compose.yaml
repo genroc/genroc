@@ -1,0 +1,154 @@
+# genroc behind an SSO proxy, with the UI. specs/api-auth.md §5.1.
+#
+#   cd frontend && npm install && npm run build      # once
+#   ./examples/proxy/gen-env.sh                      # once -- the evaluator's worker token
+#   docker compose -f examples/proxy/compose.yaml up --build
+#   open http://localhost:8080     -> login as alice / demo
+#
+# What it demonstrates:
+#
+#   * ONE hostname, two zones. A browser hits `/`, gets redirected through a real OIDC login,
+#     and the UI trades that session for a bearer token at /session/token. `/api/*` skips the
+#     login entirely, so a machine presenting a token never meets a redirect (§5.1).
+#   * The TRUST BOUNDARY. genroc believes a forwarded identity only from inside
+#     trusted_proxies, so reaching :8448 directly and asserting a header yourself is refused —
+#     which is the difference between this being security and being decoration (§6).
+
+name: genroc-proxy-demo
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: genroc
+      POSTGRES_PASSWORD: genroc
+      POSTGRES_DB: genroc
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genroc -d genroc"]
+      interval: 2s
+      retries: 15
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+  genroc:
+    build: { context: ../.., dockerfile: Dockerfile }
+    command:
+      - -pg
+      - postgres://genroc:genroc@postgres:5432/genroc?sslmode=disable
+      - -http
+      - :8448
+      # BOTH modes. The proxy identifies people; tokens identify machines. The session
+      # exchange NEEDS `-auth token`, because it mints a bearer token and without a token
+      # authenticator nothing could verify what it issued — genroc says so rather than handing
+      # the browser a credential that 401s.
+      #
+      # No secret reaches the log: with an auth-config present genroc skips the bootstrap
+      # admin, since the proxy already provides an operator path.
+      - -auth
+      - token
+      - -auth-config
+      - /etc/genroc/auth.yaml
+      - -ui
+      - /srv/ui
+      # The evaluator's credential. A PERSON mints their own in the UI, which is why nothing
+      # else is seeded here -- but a worker starts with the stack and no human present, so it
+      # needs one before anything exists to mint from. `worker` is the weakest permission
+      # there is: claim, renew, release, resolve, and nothing else.
+      #
+      # The operator generated this value (gen-env.sh), so the secret never originates inside
+      # genroc and never reaches its logs. specs/api-auth.md §5.3.
+      - -seed-tokens
+      - evaluator=worker=${WORKER_TOKEN:?run ./examples/proxy/gen-env.sh first}
+    volumes:
+      - ./auth.yaml:/etc/genroc/auth.yaml:ro
+      # The built UI. genroc serves it at `/`, so the browser talks to ONE origin and there is
+      # no CORS anywhere in this system.
+      - ../../frontend/dist:/srv/ui:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # The identity provider. One container, users in dex/config.yaml, no database. Built rather
+  # than pulled only to layer a stylesheet over the login page -- see Dockerfile.dex.
+  dex:
+    build: { context: ., dockerfile: Dockerfile.dex }
+    ports: ["5556:5556"]
+    volumes: [./dex/config.yaml:/etc/dex/config.yaml:ro]
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+
+  # Runs the OIDC flow and answers "is this session valid?" for Caddy's forward_auth. It
+  # proxies nothing here — `static://202` is the upstream because every real request goes
+  # through Caddy to genroc instead.
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    command:
+      - --http-address=0.0.0.0:4180
+      - --provider=oidc
+      - --client-id=genroc
+      - --client-secret=genroc-demo-secret
+      - --redirect-url=http://localhost:8080/oauth2/callback
+      # Exactly 32 characters. oauth2-proxy needs 16/24/32 BYTES for its AES key and
+      # base64-decodes first, so `openssl rand -base64 32` fails twice over: 44 characters,
+      # and the standard alphabet is not the urlsafe one it decodes with. Hex has neither
+      # ambiguity.
+      - --cookie-secret=978af45c3d7f51c325ae76d5737a1226
+      - --cookie-secure=false        # this demo is plain HTTP; a real one is not
+      - --email-domain=*
+      # `groups` is NOT optional here and is easy to miss: Dex only puts group membership in the
+      # token when the scope asks for it. Without it every caller arrives with no roles and
+      # falls through to the "*" rule in auth.yaml -- a 403 that looks like a role-map bug.
+      - --scope=openid email profile groups
+      - --reverse-proxy=true
+      - --skip-provider-button=true
+      # oauth2-proxy sends `approval_prompt=force` by default, a Google extension. Dex read it
+      # and overrode its own skipApprovalScreen; left explicit so an IdP swap cannot resurrect
+      # a consent screen on every login.
+      - --approval-prompt=auto
+      # Which claim carries the caller's roles. Zitadel has no groups — it has PROJECT ROLES,
+      # published under this claim. See README for why that is not simply a rename.
+      - --oidc-groups-claim=groups
+      - --upstream=static://202
+      # Emits X-Auth-Request-User/Email/Groups on the /oauth2/auth response, which is exactly
+      # what Caddy's copy_headers forwards and what genroc's auth.yaml reads.
+      - --set-xauthrequest=true
+      #
+      # THE ONE AWKWARD PART, and it is inherent to running an IdP in Docker: an OIDC issuer
+      # is one URL, but it is resolved from two places. The browser must reach `localhost:8081`
+      # (front-channel: login form, redirect); oauth2-proxy must reach `dex:5556` (back-channel:
+      # token exchange, JWKS). Discovery returns one set of URLs and cannot satisfy both, so it
+      # is skipped and each endpoint is named from the side that calls it. The issuer URL stays
+      # the browser-facing one because that is the `iss` claim being verified.
+      - --oidc-issuer-url=http://localhost:5556/dex
+      - --skip-oidc-discovery=true
+      - --login-url=http://localhost:5556/dex/auth
+      - --redeem-url=http://dex:5556/dex/token
+      - --oidc-jwks-url=http://dex:5556/dex/keys
+    depends_on:
+      dex: { condition: service_started }
+
+  # The script-task worker. It claims parked `external` tasks off genroc's queue -- genroc never
+  # calls it -- so it needs only outbound access and no route through the proxy.
+  evaluator:
+    build: { context: ../.., dockerfile: examples/proxy/Dockerfile.evaluator }
+    environment:
+      # Straight to genroc, not through Caddy: a bearer token authenticates from anywhere, and
+      # a hop through the proxy would buy nothing. The port is unpublished, so this address
+      # exists only inside the compose network.
+      GENROC_SERVER: http://genroc:8448
+      GENROC_TOKEN: ${WORKER_TOKEN:?run ./examples/proxy/gen-env.sh first}
+      CONCURRENCY: "2"
+    # A network error is a reply rather than a crash, so the worker survives genroc being
+    # briefly unreachable and needs no healthcheck to wait on -- which the distroless image
+    # has no shell to run anyway.
+    restart: unless-stopped
+    depends_on:
+      genroc: { condition: service_started }
+
+  proxy:
+    image: caddy:2-alpine
+    ports: ["8080:8080"]
+    volumes: [./Caddyfile:/etc/caddy/Caddyfile:ro]
+    depends_on:
+      genroc: { condition: service_started }
+      oauth2-proxy: { condition: service_started }
+
+volumes:
+  pgdata:

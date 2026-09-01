@@ -1,0 +1,10 @@
+# syntax=docker/dockerfile:1
+# The script-task worker. Node runs .ts directly (type stripping), so there is no build step.
+FROM node:24-alpine
+WORKDIR /app
+COPY evaluator/package*.json ./evaluator/
+RUN cd evaluator && npm ci --omit=dev 2>/dev/null || true
+COPY evaluator ./evaluator
+# No GENROC_TOKEN here: the quickstart runs with auth off. Turning auth on is what makes a
+# worker need a credential — see examples/proxy.
+ENTRYPOINT ["node", "evaluator/worker.ts"]

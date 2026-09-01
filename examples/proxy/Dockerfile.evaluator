@@ -1,0 +1,10 @@
+# syntax=docker/dockerfile:1
+# The script-task worker. Node runs .ts directly (type stripping), so there is no build step.
+FROM node:24-alpine
+WORKDIR /app
+COPY evaluator/package*.json ./evaluator/
+RUN cd evaluator && npm ci --omit=dev 2>/dev/null || true
+COPY evaluator ./evaluator
+# GENROC_TOKEN comes from the environment — the operator generated it, so it exists before
+# anything starts and needs no file to pass through.
+ENTRYPOINT ["node", "evaluator/worker.ts"]

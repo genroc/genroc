@@ -1,0 +1,81 @@
+# genroc, the short way in. One command, nothing to configure, no credentials.
+#
+#   docker compose -f examples/quickstart/compose.yaml up --build
+#   open http://localhost:8448
+#
+# What you get: the engine, the UI, a script worker, and three example processes already
+# registered so the screen is not empty. Run one from the UI or with genctl.
+#
+# NO AUTHENTICATION. Every caller is treated as an operator and genroc says so on startup:
+#
+#     WARN  API authentication is off — every caller is an operator
+#
+# That is right for a laptop and wrong for anything reachable by someone else. When it stops
+# being right, examples/auth adds machine tokens and examples/proxy adds SSO; genroc is the same
+# binary in all three, so nothing here is thrown away.
+
+name: genroc-quickstart
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: genroc
+      POSTGRES_PASSWORD: genroc
+      POSTGRES_DB: genroc
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U genroc -d genroc"]
+      interval: 2s
+      retries: 15
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+  # The platform image: engine and UI in one, served from one origin so the browser needs no
+  # CORS anywhere. `-ui /srv/ui` is the image's own default and is spelled out here only
+  # because the rest of the command line replaces it.
+  genroc:
+    build: { context: ../.., dockerfile: Dockerfile, target: platform }
+    command:
+      - -pg
+      - postgres://genroc:genroc@postgres:5432/genroc?sslmode=disable
+      - -http
+      - :8448
+      - -ui
+      - /srv/ui
+    ports: ["8448:8448"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # The script worker. With auth off it needs no credential — which is the whole reason this
+  # example has no setup step, and the first thing that changes when you turn auth on.
+  evaluator:
+    build: { context: ../.., dockerfile: examples/quickstart/Dockerfile.evaluator }
+    environment:
+      GENROC_SERVER: http://genroc:8448
+      CONCURRENCY: "2"
+    restart: unless-stopped
+    depends_on:
+      genroc: { condition: service_started }
+
+  # Registers the example processes, so the UI has something in it on first load. Exits when
+  # done; `restart: on-failure` covers genroc not being ready yet.
+  seed:
+    build: { context: ../.., dockerfile: Dockerfile, target: tools }
+    environment:
+      GENROC_SERVER: http://genroc:8448
+    command:
+      - apply
+      - -f
+      - /examples/quickstart/script.genroc.yaml
+      - -f
+      - /examples/quickstart/hello-script.genroc.yaml
+      - -f
+      - /examples/expense-approval/approval.genroc.yaml
+    # The whole examples tree, so one mount covers definitions that live beside their own
+    # READMEs rather than being copied in here.
+    volumes: [../:/examples:ro]
+    restart: on-failure
+    depends_on:
+      genroc: { condition: service_started }
+
+volumes:
+  pgdata:

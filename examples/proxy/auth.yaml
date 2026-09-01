@@ -1,0 +1,34 @@
+# genroc's half of the proxy arrangement. specs/api-auth.md §2.2, §4.
+mode: header
+header:
+  subject: X-Auth-Request-Email
+  roles: X-Auth-Request-Groups
+  # REQUIRED, and the whole security of this mode: a forwarded identity is believed only from
+  # these peers. Without it, anyone who reaches genroc directly — one `kubectl port-forward`
+  # past the ingress — asserts any identity they like. The range is the compose network.
+  trusted_proxies: [172.16.0.0/12]
+
+# A SUBJECT ALLOWLIST, because this demo's Dex uses `staticPasswords`, which carries no group
+# membership — nothing populates X-Auth-Request-Groups, so `roles:` below can grant nobody
+# anything beyond `*`. That is not a demo artefact: GitHub's provider is OAuth2 rather than
+# OIDC, and Google omits groups from the ID token (specs/api-auth.md §2.4).
+#
+# The cost is that every person is a line here AND a genroc restart — this file is read once at
+# startup. Prefer `roles:` wherever the provider forwards groups.
+users:
+  alice@genroc.test: [admin]
+  carol@genroc.test: [operate, read]
+  # bob is deliberately absent: he falls through to the "*" rule below.
+
+roles:
+  # What a real connector would carry, and what to switch to when you swap `staticPasswords`
+  # for `connectors:` in dex/config.yaml. Left here because it is the line worth copying.
+  genroc-admins: [admin]
+  genroc-operators: [operate, read]
+  # Anyone the proxy authenticated may read. A deployment that wants less says so here.
+  "*": [read]
+
+# How long a token from /session/token lives. The exchange cannot return one it issued before
+# (only the hash is stored), so every page load without a held token mints — an expiry is what
+# stops those accumulating as permanent credentials. Machine tokens are unaffected.
+session_ttl: 12h

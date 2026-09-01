@@ -1,0 +1,54 @@
+:root { color-scheme: light dark; --line: color-mix(in srgb, currentColor 15%, transparent); }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+main { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1rem; }
+header { display: flex; gap: 1rem; align-items: baseline; }
+h1 { font-size: 1rem; margin: 0 auto 0 0; letter-spacing: .1em; }
+input, select, button { font: inherit; padding: .3rem .5rem; border: 1px solid var(--line);
+  background: transparent; color: inherit; border-radius: 3px; }
+input { width: 22rem; }
+.bar { display: flex; gap: .5rem; align-items: center; margin: 1rem 0 .5rem; }
+.muted { opacity: .55; }
+.mono { font-variant-numeric: tabular-nums; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: normal; opacity: .55; border-bottom: 1px solid var(--line); }
+th, td { padding: .35rem .5rem; }
+tr.row { cursor: pointer; }
+tr.row:hover { background: var(--line); }
+.status.failed, .status.raised { color: #d33; }
+.status.completed { opacity: .6; }
+.problem { border: 1px solid #d33; padding: .5rem .75rem; margin: 1rem 0; border-radius: 3px; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: grid; place-items: center; }
+.panel { background: Canvas; color: CanvasText; padding: 1rem 1.25rem; border-radius: 4px;
+  max-width: 48rem; width: 90vw; max-height: 85vh; overflow: auto; position: relative; }
+.close { position: absolute; top: .75rem; right: .75rem; }
+h2 { font-size: .95rem; }
+dl { display: grid; grid-template-columns: 6rem 1fr; gap: .2rem 1rem; }
+dt { opacity: .55; }
+dd { margin: 0; }
+pre { background: var(--line); padding: .75rem; border-radius: 3px; overflow: auto; font-size: 12px; }
+
+/* ── tabs ─────────────────────────────────────────────────────────────────── */
+nav { display: flex; gap: .25rem; }
+.tab { border: 0; background: none; padding: .3rem .6rem; opacity: .55; border-radius: 3px; cursor: pointer; }
+.tab:hover { opacity: .8; background: var(--line); }
+.tab.on { opacity: 1; border: 1px solid var(--line); }
+
+/* ── tokens ───────────────────────────────────────────────────────────────── */
+.mint { border: 1px solid var(--line); border-radius: 4px; padding: .75rem 1rem 1rem; margin: 1rem 0; }
+.mint .bar { margin-top: 0; }
+.mint input[type="text"], .mint input:not([type]) { flex: 1; width: auto; }
+.perms { list-style: none; margin: .75rem 0 0; padding: 0; display: grid; gap: .3rem; }
+.perms label { display: grid; grid-template-columns: auto 5.5rem 1fr; gap: .5rem; align-items: baseline; cursor: pointer; }
+.perms input { width: auto; }
+.pname { letter-spacing: .05em; }
+
+/* The one moment the plaintext exists. Loud on purpose: a reader who scrolls past it has to
+   mint another, because the row stores a hash and cannot produce this again. */
+.minted { border: 1px solid #2f7d5c; border-radius: 4px; padding: .75rem 1rem 1rem; margin: 1rem 0; }
+.minted .bar:first-child { margin-top: 0; gap: .5rem; flex-wrap: wrap; }
+.secret { display: block; margin: .6rem 0; padding: .5rem .6rem; border: 1px solid var(--line);
+  border-radius: 3px; word-break: break-all; user-select: all; font-size: 13px; }
+.status.revoked, .status.expired { opacity: .55; }
+.link { border: 0; background: none; padding: 0; text-decoration: underline; cursor: pointer; opacity: .7; }
+.link:hover { opacity: 1; }

@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://genroc.org/process-schema.json
+#
+# Something for the evaluator to actually do. It calls `script` as a CHILD, which is the
+# documented way to run user TypeScript: the caller writes a child call and a result_schema,
+# and one process (script.genroc.yaml) knows the evaluator's contract. specs/script-tasks.md.
+name: hello-script
+input_schema:
+  type: object
+  properties:
+    name: { type: string, default: "world" }
+tasks:
+  - id: greet
+    action:
+      type: child
+      name: script
+      input:
+        # A FUNCTION BODY, not a module: the evaluator builds an AsyncFunction with `input`
+        # and `require` in scope, so you `return` rather than `export default`. Getting this
+        # wrong comes back as a classified `compile_error`, routed by script.genroc.yaml to
+        # `script_broken` — a panic, because no caller can fix someone else's syntax.
+        #
+        # `$${input.name}` is a TypeScript template literal, ESCAPED. genroc's value layer
+        # reads `${...}` as an interpolation of its own context and would resolve `input.name`
+        # against this task's input before the script ever runs. Caught at apply, not at run.
+        code: |
+          return {
+            greeting: `hello, $${input.name}`,
+            at: new Date().toISOString(),
+          };
+        input:
+          name: "$: input.name"
+      # The child forwards the top type, so the CALLER says what it expects and the collect
+      # conforms the real output against it. specs/unknown-type.md.
+      result_schema:
+        type: object
+        properties:
+          greeting: { type: string }
+          at: { type: string }
+        required: [greeting]
+    output: "$: self.result"
+    switch:
+      - goto: end
+
+output: "$: outputs.greet"

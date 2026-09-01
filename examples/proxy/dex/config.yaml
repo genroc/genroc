@@ -1,0 +1,54 @@
+# Dex, with the demo's people in this file. specs/api-auth.md §5.1.
+#
+# `staticPasswords` is Dex's built-in connector: no directory, no database, no admin UI. That is
+# the right trade for a DEMO -- one container, and the users are visible in the thing you are
+# reading. It is the wrong trade for a deployment, where `connectors:` below is the real answer.
+
+# The issuer must be resolvable at the SAME URL from the browser and from oauth2-proxy, and it
+# cannot be here: the browser resolves `localhost`, the container resolves `dex`. oauth2-proxy's
+# --skip-oidc-discovery breaks the tie -- see compose.yaml.
+issuer: http://localhost:5556/dex
+
+storage: { type: memory }
+web: { http: 0.0.0.0:5556 }
+oauth2: { skipApprovalScreen: true }
+
+frontend:
+  # REQUIRED, and easy to miss: Dex embeds its web assets in the binary, so files placed at
+  # /srv/dex/web are inert until dir points there. Without this the theme 404s and the stock
+  # page renders -- no error, no log line.
+  dir: /srv/dex/web
+  theme: genroc
+  issuer: genroc
+
+staticClients:
+  - id: genroc
+    name: genroc
+    secret: genroc-demo-secret
+    redirectURIs: [http://localhost:8080/oauth2/callback]
+
+enablePasswordDB: true
+staticPasswords:
+  # Hashes are bcrypt: `caddy hash-password --plaintext <pw>`, or `htpasswd -bnBC 10 "" <pw>`.
+  - email: alice@genroc.test        # password: demo
+    username: alice
+    userID: alice
+    hash: "$2a$14$rsthFyNy1.KlHVvXFBMIye42oqFbnFVtZsEHUabtewDOURvFpux3K"
+  - email: carol@genroc.test        # password: s3cret
+    username: carol
+    userID: carol
+    hash: "$2a$14$1FQsQOocZTtu.B3/mtoI/OzsJk8rG2A1lZ.J85pj0dXRbgt07Dqne"
+  - email: bob@genroc.test          # password: hunter2
+    username: bob
+    userID: bob
+    hash: "$2a$14$k2w3RGw/7kSsbrHOwjAdle.j3A5oQZYWny/JuHpLykdF6G8/IR4qC"
+
+# WHAT A DEPLOYMENT USES INSTEAD. A connector federates the directory you already have, and --
+# unlike staticPasswords -- forwards GROUP membership, which is what lets auth.yaml grant by
+# group rather than by person. This is the one line that changes.
+#
+# connectors:
+#   - type: ldap        # or github, google, oidc, microsoft, saml
+#     id: ldap
+#     name: LDAP
+#     config: { ... }
