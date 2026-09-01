@@ -173,6 +173,29 @@ the engine's live lease ("don't race it; buffer instead, and the signal is consu
 re-arms"). A claim is the same situation with a different holder, so it got the same treatment
 rather than a rule of its own.
 
+### Renew is the heartbeat [NOT built]
+
+Renew does two jobs: extend the visibility timeout, and tell the holder whether the work is
+still wanted. It is the *only* channel for the second — a worker dials genroc, never the
+reverse, which is what lets it live behind NAT — so anything the server needs to tell a running
+worker has to ride the renewal it already makes.
+
+The response is a count (`{renewed, requested}`), which is one bit short of usable: a worker
+holding four claims learns it lost one and cannot tell which, so it cannot abandon that job
+alone. It should answer per token — `renewed` / `lost` — with `lost` meaning stop and release,
+distinct from a lapse the worker never notices.
+
+Two consequences to accept before building it: renewal stops being optional, because a worker
+that does not renew cannot be reached and a silent worker looks identical to a healthy one; and
+the claim response should state `renew_before_ms` rather than leaving the interval to folklore.
+
+Cancellation would ride this as a third list. That is the whole mechanism for stopping work in
+flight — an `on_cancel` hook in the definition was considered and dropped, because the engine
+statuses are needed either way and the hook's real cost is definition-language surface: schema,
+validation, a compat rule, the editor schema, docs. What it would have bought — cancelling an
+external *resource* rather than the worker, as in the submit-then-poll shape — `on_error`
+routing already reaches, if the cancellation code is catchable.
+
 ### The error channel
 
 **One outcome, two addressing modes — not a third endpoint.** [built, revised] The first cut

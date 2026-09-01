@@ -8,8 +8,12 @@ One line per item. The argument lives in `specs/`; this is the index.
   exfiltrate every `GENROC_GLOBAL_*` value through a templated `fetch` (specs/api-auth.md)
 - [] **metrics** — `/healthz` is binary; nothing reports backlog depth or the age of the
   oldest due `wake_at` (specs/resource-limits.md)
+- [] **renew as a heartbeat** — the response is a count, so a worker holding several claims
+  cannot tell which to abandon; per-token `renewed`/`lost` is also the only channel that can
+  reach work in flight (specs/external-task-queue.md §Renew is the heartbeat)
 - [] **cancel** — no terminal "an operator stopped this"; a paused tree holds its row forever
-  and strands a waiting parent
+  and strands a waiting parent. `cancelling`/`cancelled` mirroring pause, reusing `failing`'s
+  descendant drain, and riding the renew heartbeat to stop claimed work
 - [] **instance retention** — logs prune and objects sweep, `process_instances` grows forever
 - [] **deterministic simulation**, tier 1 — the only place `only_once` can be asserted
   (specs/deterministic-simulation.md)
