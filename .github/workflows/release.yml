@@ -158,3 +158,25 @@ jobs:
           repository: ${{ vars.DOCKERHUB_NAMESPACE || 'genroc' }}/${{ matrix.image }}
           short-description: ${{ matrix.image == 'genroc' && 'A durable process orchestrator — engine, API and web UI' || 'genroc script-task worker (Node)' }}
           readme-filepath: ./.github/dockerhub-README.md
+
+  # genctl binaries. Tags only — a `main` push publishes images, not a release. genctl is
+  # CGO_ENABLED=0 with no database dependency, so every target cross-compiles from one runner;
+  # the server does not, which is why it ships as an image instead.
+  cli:
+    name: genctl binaries
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }   # goreleaser builds the changelog from history
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

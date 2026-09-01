@@ -41,4 +41,6 @@ Script tasks need `genroc/eval-node`, which claims them off genroc's queue and e
 function body in its own realm. It needs only `GENROC_SERVER` — and `GENROC_TOKEN` once auth is
 on. See the quickstart compose above.
 
+The CLI installs separately: `curl -fsSL https://genroc.org/install.sh | sh`
+
 Source, docs and examples: https://github.com/genroc/genroc

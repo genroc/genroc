@@ -1,0 +1,41 @@
+version: 2
+
+# genctl only. The SERVER's distribution channel is the container image — it needs cgo for
+# SQLite, so a binary release means a native build per target rather than a cross-compile.
+# genctl has no database dependency and builds for every platform from one machine.
+project_name: genctl
+
+before:
+  hooks: [go mod download]
+
+builds:
+  - id: genctl
+    main: ./cmd/genctl
+    binary: genctl
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w"]
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "genctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]
+
+release:
+  # The server is released as an image by the same tag; this is the client half of it.
+  footer: |
+    ## Server
+
+        docker run -p 8448:8448 -v genroc:/data ghcr.io/genroc/genroc:{{ .Tag }} -db /data/genroc.db
