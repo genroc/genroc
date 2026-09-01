@@ -4,9 +4,9 @@
 //
 // Usage:
 //
-//	genctl apply    -f file.yaml [-f file2.yaml ...] [--channel latest]
-//	genctl validate -f file.yaml [-f file2.yaml ...]
-//	genctl types    -f file.yaml [-f file2.yaml ...]
+//	genctl apply    [-f <path|glob> ...] [--channel latest]
+//	genctl validate [-f <path|glob> ...]
+//	genctl types    [-f <path|glob> ...]
 //	genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
 //	genctl token   create --perms <list> [--label <name>] [-q] | list [--json] | revoke <id>...
 //	genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
@@ -50,6 +50,12 @@
 //	genctl retry    [--force] <instance-id> [<instance-id> ...]
 //	genctl last
 //
+// WHICH FILES apply/validate/types/compat read: `-f`, which takes several values and stops at
+// the next flag, preferring an existing path over any pattern reading of it and globbing only
+// when nothing is there; or, with no -f, `definitions:` in the nearest `.genroc`. Files are
+// never positional. `**` matches any depth. A directory is refused, naming the pattern that
+// would do it.
+//
 // get/logs/pause/resume/retry/signal require an instance id; pass @last for the most
 // recently started instance (recorded by run). `genctl last` prints that id. upgrade takes
 // either form: a process name sweeps its fleet, ids move those trees.
@@ -60,8 +66,8 @@
 // and it stops neither the ids after it nor the exit code. specs/id-list-commands.md.
 //
 //	genctl compat   <process> <from> <to>
-//	genctl compat   -f file.yaml [-f ...] --from <channel>
-//	genctl compat   --from <channel> --to <channel> [<process>]
+//	genctl compat   --from <channel> [-f <path|glob> ...]
+//	genctl compat   --from <channel> --to <channel> [--process <name>]
 //	genctl compat   <instance-id> --to <version|channel> | <instance-id> -f file.yaml
 //
 // compat answers two questions about a pair of versions and gives each its own column:
@@ -334,9 +340,9 @@ func usage() { usageTo(os.Stderr) }
 
 func usageTo(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
-  genctl apply    -f file.yaml [-f file2.yaml ...] [--channel latest]
-  genctl validate -f file.yaml [-f file2.yaml ...]
-  genctl types    -f file.yaml [-f file2.yaml ...]
+  genctl apply    [-f <path|glob> ...] [--channel latest]
+  genctl validate [-f <path|glob> ...]
+  genctl types    [-f <path|glob> ...]
   genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
   genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
   genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
@@ -352,8 +358,8 @@ func usageTo(w io.Writer) {
   genctl retry    [--force] <instance-id> [<instance-id> ...]
   genctl last
   genctl compat   <process> <from> <to>
-  genctl compat   -f file.yaml [-f ...] --from <channel>
-  genctl compat   --from <channel> --to <channel> [<process>]
+  genctl compat   --from <channel> [-f <path|glob> ...]
+  genctl compat   --from <channel> --to <channel> [--process <name>]
   genctl compat   <instance-id> --to <version|channel> | <instance-id> -f file.yaml
   genctl channel list   <process>
   genctl channel set    <process> <channel> <version>

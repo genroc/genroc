@@ -32,12 +32,16 @@ import (
 
 func runApplyCmd(server string, args []string) {
 	fs := flag.NewFlagSet("apply", flag.ExitOnError)
-	var files multiFlag
-	fs.Var(&files, "f", "definition file, taken literally (no globbing); repeat for more")
+	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
+		"and repeats")
 	serverFlag := addServerFlag(fs, server)
 	channelFlag := fs.String("channel", "latest", "channel to apply definitions to")
-	fs.Parse(args)
-	files, pathErr := definitionPaths(files, fs.Args())
+	files, rest := takeFileValues(args)
+	if pos := parseArgs(fs, rest); len(pos) > 0 {
+		fatal("%s: unexpected argument. Definitions are named with -f, which takes several:\n"+
+			"  genctl %s -f %s", pos[0], fs.Name(), strings.Join(pos, " "))
+	}
+	files, pathErr := definitionPaths(files)
 	if pathErr != nil {
 		fatal("%v", pathErr)
 	}
@@ -75,11 +79,15 @@ func runApplyCmd(server string, args []string) {
 
 func runValidateCmd(server string, args []string) {
 	fs := flag.NewFlagSet("validate", flag.ExitOnError)
-	var files multiFlag
-	fs.Var(&files, "f", "definition file, taken literally (no globbing); repeat for more")
+	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
+		"and repeats")
 	serverFlag := addServerFlag(fs, server)
-	fs.Parse(args)
-	files, pathErr := definitionPaths(files, fs.Args())
+	files, rest := takeFileValues(args)
+	if pos := parseArgs(fs, rest); len(pos) > 0 {
+		fatal("%s: unexpected argument. Definitions are named with -f, which takes several:\n"+
+			"  genctl %s -f %s", pos[0], fs.Name(), strings.Join(pos, " "))
+	}
+	files, pathErr := definitionPaths(files)
 	if pathErr != nil {
 		fatal("%v", pathErr)
 	}
@@ -105,11 +113,15 @@ func runValidateCmd(server string, args []string) {
 // apply ever runs - without it an author's file is red until they apply once.
 func runTypesCmd(server string, args []string) {
 	fs := flag.NewFlagSet("types", flag.ExitOnError)
-	var files multiFlag
-	fs.Var(&files, "f", "definition file, taken literally (no globbing); repeat for more")
+	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
+		"and repeats")
 	serverFlag := addServerFlag(fs, server)
-	fs.Parse(args)
-	files, pathErr := definitionPaths(files, fs.Args())
+	files, rest := takeFileValues(args)
+	if pos := parseArgs(fs, rest); len(pos) > 0 {
+		fatal("%s: unexpected argument. Definitions are named with -f, which takes several:\n"+
+			"  genctl %s -f %s", pos[0], fs.Name(), strings.Join(pos, " "))
+	}
+	files, pathErr := definitionPaths(files)
 	if pathErr != nil {
 		fatal("%v", pathErr)
 	}
@@ -969,19 +981,40 @@ func loadSourceDocs(files []string) ([]sourceDoc, error) {
 	return all, nil
 }
 
-// definitionPaths is the file list a command operates on. `-f` entries are LITERAL and skip
-// globbing entirely -- the escape hatch for a filename containing `[`, `*` or `{`, where a
-// pattern would either match nothing or, worse, match a different file that happens to fit.
-// Positional arguments and `definitions:` entries are patterns.
-func definitionPaths(literal, patterns []string) ([]string, error) {
-	if len(literal) == 0 && len(patterns) == 0 {
-		patterns = defaultDefinitionPaths(".")
+// definitionPaths is the file list a command operates on. There are exactly two sources, and
+// every command that reads definitions uses both: `-f`, and `definitions:` in the nearest
+// `.genroc` when no `-f` was given. Files are never taken positionally -- `-f` accepts several
+// values, so an unquoted `defs/*.yaml` needs no second syntax, and one rule covers apply,
+// validate, types and compat alike.
+//
+// `-f` is LITERAL FIRST: a value naming an existing file is that file, never a pattern. Only a
+// value naming nothing is globbed. That keeps `a[1].genroc.yaml` reachable when `a1.genroc.yaml`
+// also exists and a pattern would have matched the wrong one, silently.
+//
+// `definitions:` entries are patterns outright: there is no filename to prefer, and a pattern
+// matching nothing is a mistake worth reporting.
+func definitionPaths(files []string) ([]string, error) {
+	if len(files) == 0 {
+		return expandPaths(defaultDefinitionPaths("."))
 	}
-	expanded, err := expandPaths(patterns)
-	if err != nil {
-		return nil, err
+	return expandFileFlags(files)
+}
+
+// expandFileFlags resolves `-f` values: an existing path wins over any pattern reading of it.
+func expandFileFlags(files []string) ([]string, error) {
+	var out []string
+	for _, f := range files {
+		if _, err := os.Stat(f); err == nil {
+			out = append(out, f)
+			continue
+		}
+		matched, err := expandPaths([]string{f})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, matched...)
 	}
-	return append(append([]string{}, literal...), expanded...), nil
+	return out, nil
 }
 
 // expandPaths turns every argument into files. There is no path-versus-pattern distinction:
@@ -1178,16 +1211,60 @@ const tokenPrefix = "genroc_sk_"
 
 // ── version compatibility ─────────────────────────────────────────────────────
 
-// leadingArgs pulls the positional arguments preceding the first flag, then parses the
-// rest and appends any trailing ones — so `compat order_pipeline 2 3 --json` and
-// `compat --json order_pipeline 2 3` are the same command.
-func leadingArgs(fs *flag.FlagSet, args []string) []string {
-	var pos []string
-	for len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		pos, args = append(pos, args[0]), args[1:]
+// takeFileValues pulls `-f`/`--f` and every following argument up to the next flag into one
+// list, and returns the rest. That makes `-f a b c` one flag with three values -- which is what
+// an unquoted `-f defs/*.yaml` expands to -- while `-f a b --channel prod` still stops at the
+// flag, so nothing after it is swallowed.
+//
+// Done here rather than by flag.Value because the stdlib gives a Value exactly one argument.
+func takeFileValues(args []string) (files, rest []string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-f" || a == "--f":
+			for i++; i < len(args) && !strings.HasPrefix(args[i], "-"); i++ {
+				files = append(files, args[i])
+			}
+			i-- // the loop's own i++ steps onto the flag that stopped us
+		case strings.HasPrefix(a, "-f=") || strings.HasPrefix(a, "--f="):
+			files = append(files, a[strings.Index(a, "=")+1:])
+		default:
+			rest = append(rest, a)
+		}
 	}
-	fs.Parse(args)
-	return append(pos, fs.Args()...)
+	return files, rest
+}
+
+// parseArgs parses flags that appear ANYWHERE among the positional arguments, and returns the
+// positionals. flag.Parse stops at the first non-flag, so `--channel prod` after a positional
+// would go unparsed. Parsing one positional at a time and resuming is the way round it.
+func parseArgs(fs *flag.FlagSet, args []string) []string {
+	var pos []string
+	for {
+		fs.Parse(args)
+		rest := fs.Args()
+		if len(rest) == 0 {
+			return pos
+		}
+		pos, args = append(pos, rest[0]), rest[1:]
+	}
+}
+
+// leadingArgs is parseArgs; kept as a name because compat reads better with it.
+func leadingArgs(fs *flag.FlagSet, args []string) []string { return parseArgs(fs, args) }
+
+// looksLikePath is deliberately crude: a process name has no separator and no definition
+// suffix, so anything carrying one was meant as a file.
+func looksLikePath(s string) bool {
+	if strings.ContainsAny(s, "/\\") {
+		return true
+	}
+	for _, ext := range []string{".yaml", ".yml", ".json"} {
+		if strings.HasSuffix(s, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseSelector turns one --from/--to's repeated values into the API selector: EITHER one
@@ -1264,8 +1341,9 @@ func compatSidesForInstance(server, id string, fromFlag, toFlag, files multiFlag
 
 func runCompatCmd(server string, args []string) {
 	fs := flag.NewFlagSet("compat", flag.ExitOnError)
-	var files, fromFlag, toFlag multiFlag
-	fs.Var(&files, "f", "definition file to compare against --from (YAML or JSON); repeat for multiple files")
+	var fromFlag, toFlag multiFlag
+	fs.String("f", "", "definition file or glob to compare against --from; takes several, and repeats")
+	processFlag := fs.String("process", "", "narrow the report to one process")
 	fs.Var(&fromFlag, "from", "the side instances are running now: a channel, or name@version (repeatable). "+
 		"An instance id names this side by itself")
 	fs.Var(&toFlag, "to", "the side to compare against: a channel, or name@version (repeatable); "+
@@ -1276,15 +1354,40 @@ func runCompatCmd(server string, args []string) {
 	fs.Var(&ignore, "ignore", "excuse a check from the exit code: only `contract` is accepted, since the "+
 		"upgrade check answers for rows this deployment already owns. It changes neither what is "+
 		"compared nor what is printed")
-	pos := leadingArgs(fs, args)
+	files, rest := takeFileValues(args)
+	pos := leadingArgs(fs, rest)
 
 	for _, p := range pos {
+		// compat's positions are SELECTORS, so a path here is a mistake with a quiet failure
+		// mode: it would be taken as a process name, match nothing, and report an empty
+		// comparison with exit 0. An unquoted `-f defs/*.yaml` expands to exactly this.
+		if looksLikePath(p) {
+			fatal("%s looks like a file, and compat's positional arguments are selectors.\n"+
+				"Pass files with -f (repeatable), or one quoted pattern: -f 'definitions/*.genroc.yaml'", p)
+		}
 		if isInstanceRef(p) && len(pos) > 1 {
 			// A side carries one version per process (parseSelector's rule), and a second row is
 			// a second version -- of the same process, or of one this report is not scoped to.
 			fatal("compat takes one instance id: two rows are two comparisons, and a side carries " +
 				"one version per process")
 		}
+	}
+
+	// `compat --from latest` with nothing else: the local project IS the target side. This is
+	// the question worth asking before an apply -- does what I have here break what is running?
+	// Only when no other side was named, so it cannot hijack a stored-versus-stored comparison.
+	if len(files) == 0 && len(fromFlag) > 0 && len(toFlag) == 0 && len(pos) == 0 {
+		expanded, err := expandPaths(defaultDefinitionPaths("."))
+		if err != nil {
+			fatal("%v", err)
+		}
+		files = expanded
+	} else if len(files) > 0 {
+		expanded, err := expandFileFlags(files)
+		if err != nil {
+			fatal("%v", err)
+		}
+		files = expanded
 	}
 
 	var from, to map[string]any
@@ -1307,9 +1410,6 @@ func runCompatCmd(server string, args []string) {
 			fatal("%v", err)
 		}
 		from, to = parseSelector("from", fromFlag), map[string]any{"definitions": defs}
-		if len(pos) == 1 {
-			process = pos[0]
-		}
 	case len(pos) == 3:
 		// Sugar for the single-process case. The server closes each side over the child
 		// versions that version was registered against, so this still compares the graph.
@@ -1324,14 +1424,20 @@ func runCompatCmd(server string, args []string) {
 	default:
 		if len(fromFlag) == 0 || len(toFlag) == 0 {
 			fatal("usage: genctl compat <process> <from> <to>\n" +
-				"       genctl compat -f <file> --from <sel>\n" +
-				"       genctl compat --from <sel> --to <sel> [<process>]\n" +
+				"       genctl compat --from <sel> [-f <path|glob> ...]\n" +
+				"       genctl compat --from <sel> --to <sel> [--process <name>]\n" +
 				"       genctl compat <instance-id> --to <version|channel>")
 		}
 		from, to = parseSelector("from", fromFlag), parseSelector("to", toFlag)
 		if len(pos) == 1 {
-			process = pos[0]
+			fatal("%s: a bare name here is ambiguous; narrow with --process %s", pos[0], pos[0])
 		}
+	}
+	// --process narrows any form. It replaced a trailing positional, which collided with an
+	// unquoted `-f defs/*.yaml`: the leftover files were read as a process name, matched
+	// nothing, and reported an empty comparison with exit 0.
+	if *processFlag != "" {
+		process = *processFlag
 	}
 
 	body := map[string]any{"from": from, "to": to}

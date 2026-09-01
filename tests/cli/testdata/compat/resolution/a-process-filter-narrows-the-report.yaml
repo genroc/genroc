@@ -60,7 +60,7 @@ apply:
           - id: ship
             action: {type: fetch, url: http://y/other}
             switch: end
-run: [--from, filter_a, --to, filter_b, filter_boss]
+run: [--from, filter_a, --to, filter_b, --process, filter_boss]
 expect: |
   filter_boss  v1 → v2  upgradable, compatible
   filter_kid   v1 → v2  upgradable, compatible

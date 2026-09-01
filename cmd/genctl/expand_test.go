@@ -120,9 +120,9 @@ func TestExpandPaths_LiteralNameWithGlobChars(t *testing.T) {
 	}
 }
 
-// `-f` is literal; positionals are patterns. The distinction earns itself on a filename that
-// looks like a pattern AND collides with a real one: globbing `a[1].yaml` finds `a1.yaml`, so
-// without a literal form the wrong file is applied silently.
+// `-f` is literal FIRST: an existing path wins over any pattern reading of it. The rule earns
+// itself on a filename that looks like a pattern AND collides with a real one — globbing
+// `a[1].yaml` finds `a1.yaml`, so without literal-first the wrong file is used silently.
 func TestDefinitionPaths_LiteralBeatsAnAmbiguousPattern(t *testing.T) {
 	root := t.TempDir()
 	odd := filepath.Join(root, "a[1].genroc.yaml")
@@ -133,8 +133,9 @@ func TestDefinitionPaths_LiteralBeatsAnAmbiguousPattern(t *testing.T) {
 		}
 	}
 
-	// As a pattern, it resolves to the decoy — which is exactly the trap.
-	viaPattern, err := definitionPaths(nil, []string{odd})
+	// Read as a pattern — what `definitions:` entries get — it resolves to the DECOY. That is
+	// the trap `-f`'s literal-first rule exists to avoid.
+	viaPattern, err := expandPaths([]string{odd})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +143,7 @@ func TestDefinitionPaths_LiteralBeatsAnAmbiguousPattern(t *testing.T) {
 		t.Fatalf("setup wrong: pattern gave %v, expected it to match the decoy %q", viaPattern, decoy)
 	}
 
-	viaLiteral, err := definitionPaths([]string{odd}, nil)
+	viaLiteral, err := definitionPaths([]string{odd})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,14 +160,107 @@ func TestDefinitionPaths_LiteralAndPatternTogether(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := definitionPaths(
-		[]string{filepath.Join(root, "a.genroc.yaml")},
-		[]string{filepath.Join(root, "b*.genroc.yaml")},
-	)
+	got, err := definitionPaths([]string{
+		filepath.Join(root, "a.genroc.yaml"),
+		filepath.Join(root, "b*.genroc.yaml"),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 2 {
 		t.Errorf("got %v, want the literal and the match", got)
+	}
+}
+
+// `compat --from <sel>` with no -f uses the project's own definitions: the "does what I have
+// here break what is running" question. Only when no other side was named, or it would hijack
+// a stored-versus-stored comparison.
+func TestCompatDefaultsToTheProject(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".genroc"),
+		[]byte("definitions: [\"./defs/**/*.genroc.yaml\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	defs := filepath.Join(root, "defs")
+	if err := os.MkdirAll(defs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(defs, "a.genroc.yaml"), []byte("name: a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := expandPaths(defaultDefinitionPaths(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || filepath.Base(got[0]) != "a.genroc.yaml" {
+		t.Errorf("got %v, want the project definition", got)
+	}
+}
+
+// ...and the same flag still globs when the value names no file, which is the only door in a
+// command whose positional arguments mean something else (compat).
+func TestDefinitionPaths_FileFlagGlobsWhenNotALiteral(t *testing.T) {
+	root := t.TempDir()
+	for _, n := range []string{"a.genroc.yaml", "b.genroc.yaml", "skip.txt"} {
+		if err := os.WriteFile(filepath.Join(root, n), []byte("name: x\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := definitionPaths([]string{filepath.Join(root, "*.genroc.yaml")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Errorf("-f with a pattern gave %v, want both definitions", got)
+	}
+}
+
+// An unquoted `-f defs/*.yaml` expands to `-f a b c`, and compat reads the leftovers as a
+// process name — matching nothing, reporting an empty comparison, exiting 0. A quiet wrong
+// answer is the worst outcome, so a path-shaped positional is refused instead.
+func TestLooksLikePath(t *testing.T) {
+	for in, want := range map[string]bool{
+		"definitions/a.genroc.yaml": true,
+		"a.genroc.yaml":             true, // suffix alone
+		"./x.json":                  true,
+		"definitions/order":         true, // separator alone — no suffix to fall back on
+		"order_pipeline":            false,
+		"order@2":                   false,
+		"latest":                    false,
+	} {
+		if got := looksLikePath(in); got != want {
+			t.Errorf("looksLikePath(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+// `-f` takes several values, stopping at the next flag — so an unquoted `-f defs/*.yaml` is one
+// flag with many values, while `-f a b --channel prod` leaves the flag to be parsed.
+func TestTakeFileValues(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		args  []string
+		files []string
+		rest  []string
+	}{
+		{"several in a row", []string{"-f", "a", "b", "c"}, []string{"a", "b", "c"}, nil},
+		{"stops at a flag", []string{"-f", "a", "b", "--channel", "prod"},
+			[]string{"a", "b"}, []string{"--channel", "prod"}},
+		{"repeats", []string{"-f", "a", "-f", "b"}, []string{"a", "b"}, nil},
+		{"equals form", []string{"-f=a", "--channel", "prod"}, []string{"a"}, []string{"--channel", "prod"}},
+		{"flag first", []string{"--channel", "prod", "-f", "a", "b"},
+			[]string{"a", "b"}, []string{"--channel", "prod"}},
+		{"none", []string{"x", "y"}, nil, []string{"x", "y"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files, rest := takeFileValues(tc.args)
+			if strings.Join(files, ",") != strings.Join(tc.files, ",") {
+				t.Errorf("files = %v, want %v", files, tc.files)
+			}
+			if strings.Join(rest, ",") != strings.Join(tc.rest, ",") {
+				t.Errorf("rest = %v, want %v", rest, tc.rest)
+			}
+		})
 	}
 }

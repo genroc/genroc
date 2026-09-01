@@ -59,6 +59,42 @@ Deliberate exceptions — special-purpose, not resource list/get. Leave them:
 - `channel list` prints plain `name -> vN` pointer lines (a projection, not a resource
   object), and `status` is a coherence report, not a listing.
 
+
+## Which files a command reads
+
+`definitionPaths` is the one place that answers it, for `apply`, `validate`, `types` and
+`compat` alike. Exactly two sources:
+
+- **`-f`**, which takes several values and stops at the next flag. It is literal FIRST: a value
+  naming an existing path is that path; only a value naming nothing is globbed. That is the
+  escape for a file called `a[1].genroc.yaml` when `a1.genroc.yaml` also exists — read as a
+  pattern it matches the wrong one, silently.
+- **`definitions:` in the nearest `.genroc`** when no `-f` was given. Entries are patterns
+  outright, and resolve against that file rather than the cwd, so a bare `genctl apply` behaves
+  the same from any directory.
+
+**Files are never positional.** They were, briefly, so an unquoted `defs/*.yaml` had somewhere
+to land — `-f` taking several values removed the need, and with it the last difference between
+these four commands. A positional now names the argument and the `-f` line that would work.
+
+A DIRECTORY is refused rather than walked. Implicit recursion hides both the depth and the
+filename filter, so `-f defs/` and `defs/**/*.genroc.yaml` would silently differ; the error names
+the pattern instead. `**` needs doublestar — `filepath.Glob` has none, and `.genroc` patterns
+never meet a shell that could expand them.
+
+
+
+`-f` takes SEVERAL values, stopping at the next flag: `takeFileValues` pre-scans argv, because
+the stdlib hands a `flag.Value` exactly one argument. That makes an unquoted `-f defs/*.yaml`
+one flag with many values, while `-f a b --channel prod` still leaves the flag to be parsed.
+`parseArgs` then parses flags appearing anywhere among the positionals, since `flag.Parse` stops
+at the first non-flag.
+
+`compat` has no positional for a process any more — `--process` replaced it. The trailing name
+collided with an unquoted glob: the leftover files were read as a process name, matched nothing,
+and reported an empty comparison with exit 0. A bare name there is now refused, and
+`looksLikePath` catches a path in any other position.
+
 ## Exactness is the whole path
 
 genctl was the last lossy hop for large numbers, in three places — YAML upload, response
