@@ -41,8 +41,13 @@ uninstall() {
 
   cfg=$(config_dir)
   if [ -d "$cfg" ]; then
-    if [ "${PURGE:-}" = 1 ]; then rm -rf "$cfg" && echo "removed $cfg"
-    else echo "config kept at $cfg (it holds an API token) — remove with --purge"
+    if [ "${PURGE:-}" = 1 ]; then
+      rm -rf "$cfg" && echo "removed $cfg"
+    else
+      echo
+      echo "  config kept at $cfg"
+      echo "  it holds an API token."
+      echo "  hint: remove it too by re-running with --purge"
     fi
   fi
   exit 0
@@ -156,10 +161,12 @@ chmod 0755 "$INSTALL_DIR/$BIN"
 # The version comes from the binary rather than the tag: it is the one check that what landed
 # is what was asked for, and on a rolling channel it carries the commit.
 got=$("$INSTALL_DIR/$BIN" --version 2>/dev/null || echo "$VERSION")
-echo "installed $BIN $got -> $INSTALL_DIR/$BIN"
+echo
+echo "$BIN $got installed successfully"
+echo "  $INSTALL_DIR/$BIN"
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
-  *) echo "note: $INSTALL_DIR is not on your PATH" ;;
+  *) echo "  warning: $INSTALL_DIR is not on your PATH" ;;
 esac
-echo "the server is a container: docker run ghcr.io/genroc/genroc:preview --help"
-echo "uninstall: curl -fsSL https://genroc.org/install.sh | sh -s -- --uninstall"
+echo
+echo "(uninstall: curl -fsSL https://genroc.org/install.sh | sh -s -- --uninstall)"
