@@ -56,16 +56,16 @@ jobs:
           node-version: "24"
       - name: Install test dependencies
         run: cd tests && npm ci
-      - name: Install evaluator dependencies
+      - name: Install eval-node dependencies
         # The import resolver shells out to typescript/bin/tsc and to rollup, resolved from
         # the evaluator's OWN node_modules (import.meta.resolve, relative to import.ts) —
         # which is gitignored, so without this every resolver test fails with "Cannot find
         # module".
-        run: cd evaluator && npm ci
-      - name: Typecheck the evaluator
+        run: cd eval-node && npm ci
+      - name: Typecheck eval-node
         # It is the shipped artefact and nothing else checks it: `make test` covers the Go
         # engine and the test suite, and the evaluator only ever gets RUN.
-        run: cd evaluator && npm run typecheck
+        run: cd eval-node && npm run typecheck
       - name: make test
         run: make test
 

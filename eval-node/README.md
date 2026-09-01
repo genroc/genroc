@@ -1,10 +1,40 @@
-# evaluator — the script-task runner
+# @genroc/eval-node
 
-A **worker** that claims `external` script tasks off genroc's queue, evaluates each
-TypeScript/JavaScript function body in its own realm, and answers with the return value. A
-**script task is a plain `external` task** whose input carries a code string: no new action
-type, no engine change. `timeout`, `on_error`, `retry` and `only_once` apply exactly as they do
-to any other external task.
+Script tasks for Node. Two halves with different jobs:
+
+* **the bundler** (`genroc-import`) — an author-time resolver genctl runs on every apply and
+  every edit, turning `$import: ./x.ts` into a bundled, typechecked string
+* **the worker** (`genroc-eval-node`) — claims parked `external` script tasks off genroc's queue
+  and evaluates each in its own realm
+
+## Setting up a project
+
+    npm i -D @genroc/eval-node
+
+Then register the resolver in a `genroc.yaml` beside your definitions — discovery walks up from
+the file, so nothing depends on the cwd:
+
+    resolvers:
+      import:
+        phase: code
+        ext: .ts
+        command: [npx, genroc-import]
+
+`genctl apply` and `genctl types` now resolve `$import` directives. Typechecking is the
+resolver's exit code, so a stored definition cannot hold code that failed to typecheck.
+
+## Running the worker
+
+    docker run -e GENROC_SERVER=http://host:8448 ghcr.io/genroc/eval-node:preview
+
+or locally, if you already have Node:
+
+    GENROC_SERVER=http://localhost:8448 npx genroc-eval-node
+
+Add `GENROC_TOKEN` once the server has auth on; `worker` is the only permission it needs.
+
+**The bundler cannot be the image.** It runs per edit and must resolve your project's own
+`node_modules`, so a container start per invocation would break the editor loop.
 
 Design record: [specs/external-task-queue.md](../specs/external-task-queue.md) for the queue,
 [specs/script-tasks.md](../specs/script-tasks.md) for the runtime.

@@ -1,8 +1,7 @@
 {
-  "name": "genroc-evaluator",
+  "name": "@genroc/eval-node",
   "version": "0.0.0",
   "type": "module",
-  "private": true,
   "engines": {
     "node": ">=24"
   },
@@ -19,5 +18,23 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.2"
-  }
+  },
+  "description": "genroc script tasks for Node: the author-time bundler and the queue worker",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/genroc/genroc.git",
+    "directory": "eval-node"
+  },
+  "homepage": "https://genroc.org",
+  "bin": {
+    "genroc-import": "bin/import.mjs",
+    "genroc-eval-node": "bin/worker.mjs"
+  },
+  "files": [
+    "bin",
+    "*.ts",
+    "tsconfig.json",
+    "README.md"
+  ]
 }
