@@ -1,9 +1,13 @@
 #!/bin/sh
 # Installs genctl. https://genroc.org/install.sh
 #
-#   curl -fsSL https://genroc.org/install.sh | sh
-#   curl -fsSL https://genroc.org/install.sh | GENROC_VERSION=v0.1.0-rc.1 sh
+#   curl -fsSL https://genroc.org/install.sh | sh                        newest stable
+#   curl -fsSL https://genroc.org/install.sh | sh -s -- --preview         newest prerelease
+#   curl -fsSL https://genroc.org/install.sh | sh -s -- --edge            tip of main
+#   curl -fsSL https://genroc.org/install.sh | sh -s -- --version 0.1.0
 #   curl -fsSL https://genroc.org/install.sh | sh -s -- --uninstall [--purge]
+#
+# $GENROC_VERSION does the same as --version, for environments that cannot pass arguments.
 #
 # The SERVER is a container (ghcr.io/genroc/genroc) — this installs the client only.
 set -eu
@@ -45,12 +49,18 @@ uninstall() {
 }
 
 PURGE=
-for arg in "$@"; do
-  case "$arg" in
-    --uninstall) DO_UNINSTALL=1 ;;
-    --purge)     PURGE=1 ;;
-    *) die "unknown option: $arg" ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --uninstall)   DO_UNINSTALL=1 ;;
+    --purge)       PURGE=1 ;;
+    --preview|--prerelease) VERSION=preview ;;
+    --edge)        VERSION=edge ;;
+    --version)     shift; [ $# -gt 0 ] || die "--version needs a value"; VERSION=$1 ;;
+    --version=*)   VERSION=${1#--version=} ;;
+    -h|--help)     sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) die "unknown option: $1" ;;
   esac
+  shift
 done
 [ "${DO_UNINSTALL:-}" = 1 ] && uninstall
 
@@ -69,14 +79,40 @@ case "$os" in
   *) die "unsupported OS: $os — Windows builds are attached to the GitHub release" ;;
 esac
 
+# grep -o, not sed: on a single-line JSON body a greedy `.*` captures the LAST tag_name rather
+# than the first, which silently picks the oldest release in a list.
+first_tag() { grep -o '"tag_name" *: *"[^"]*"' | head -1 | cut -d'"' -f4; }
+version_tag() { grep -o '"tag_name" *: *"v[^"]*"' | head -1 | cut -d'"' -f4; }
+
 # /releases/latest excludes prereleases, and during 0.x there may be nothing else. Fall back to
 # the newest release of any kind rather than reporting "not found" for a project that has them.
 api="https://api.github.com/repos/$REPO/releases"
-if [ -z "$VERSION" ]; then
-  VERSION=$(curl -fsSL "$api/latest" 2>/dev/null | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1) || true
-  [ -n "$VERSION" ] || VERSION=$(curl -fsSL "$api?per_page=1" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
-  [ -n "$VERSION" ] || die "no releases found for $REPO"
-fi
+prerelease=
+case "${VERSION:-latest}" in
+  latest|stable)
+    # Newest stable, falling back to any release: during 0.x there may be no stable at all,
+    # and refusing to install is a worse answer than installing what exists and saying so.
+    VERSION=$(curl -fsSL "$api/latest" 2>/dev/null | first_tag) || true
+    if [ -z "$VERSION" ]; then
+      VERSION=$(curl -fsSL "$api?per_page=1" | first_tag)
+      prerelease=1
+    fi
+    ;;
+  preview|prerelease|rc)
+    # A page, not one entry: `edge` is a rolling release and is always the newest, so the
+    # prerelease channel picks the newest VERSION tag instead of whatever was pushed last.
+    VERSION=$(curl -fsSL "$api?per_page=20" | version_tag)
+    ;;
+  edge|main|nightly)
+    VERSION=edge
+    ;;
+esac
+[ -n "$VERSION" ] || die "no releases found for $REPO"
+
+# `0.1.0` and `v0.1.0` both name the same tag; only one of them is the tag. `edge` is a tag in
+# its own right and takes no prefix.
+case "$VERSION" in v*|edge) ;; *) VERSION="v$VERSION" ;; esac
+case "$VERSION" in *-*) prerelease=1 ;; esac
 
 ver=${VERSION#v}
 archive="${BIN}_${ver}_${os}_${arch}.tar.gz"
@@ -85,6 +121,7 @@ base="https://github.com/$REPO/releases/download/$VERSION"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 echo "downloading $BIN $VERSION ($os/$arch)"
+[ -z "$prerelease" ] || echo "note: $VERSION is a prerelease"
 curl -fsSL -o "$tmp/$archive" "$base/$archive" 2>/dev/null || die "no build for $os/$arch in $VERSION"
 
 # Verified, because the point of piping a script to a shell is that you trusted the script and
