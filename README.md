@@ -67,8 +67,11 @@ no worker while it waits.
 The server ships as a container; the CLI as a binary. They are separate because `genroc` needs
 cgo for SQLite and `genctl` does not — merging them would drag the client into a C toolchain.
 
-    curl -fsSL https://genroc.org/install.sh | sh          # macOS, Linux
-    go install github.com/genroc/genroc/cmd/genctl@latest   # if you have Go
+    curl -fsSL https://genroc.org/install.sh | sh                    # newest stable
+    curl -fsSL https://genroc.org/install.sh | sh -s -- --preview    # newest prerelease
+    curl -fsSL https://genroc.org/install.sh | sh -s -- --edge       # tip of main
+    curl -fsSL https://genroc.org/install.sh | sh -s -- --version 0.1.0
+    go install github.com/genroc/genroc/cmd/genctl@latest            # if you have Go
 
     # genroc — the container carries both binaries
     docker run ghcr.io/genroc/genroc:preview --help

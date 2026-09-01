@@ -26,7 +26,7 @@ docker compose up
 |---|---|
 | `preview` | newest prerelease — the one to try |
 | `0.1.0-rc.1` | pinned and reproducible |
-| `edge` | every commit on main |
+| `edge` | every commit on main; binaries too, via the install script's `--edge` |
 
 ## Notes
 

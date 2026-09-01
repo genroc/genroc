@@ -219,3 +219,33 @@ jobs:
             *-*) npm publish --access public --tag preview ;;
             *)   npm publish --access public ;;
           esac
+
+  # Rolling `edge` binaries, to match the `edge` image tag. A prerelease so it never becomes
+  # GitHub's "latest"; tagged `edge` rather than a version so the install script can ask for it
+  # by name and so the prerelease channel (which looks for v-tags) ignores it.
+  edge:
+    name: edge binaries
+    needs: merge
+    if: ${{ github.ref == 'refs/heads/main' && github.repository == 'genroc/genroc' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+      - name: move the edge tag and refresh its release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git tag -f edge && git push -f origin edge
+          gh release view edge >/dev/null 2>&1 \
+            || gh release create edge --prerelease --title edge \
+                 --notes "Built from main. Moves on every push; not a release."
+          gh release upload edge dist/*.tar.gz dist/*.zip dist/checksums.txt --clobber

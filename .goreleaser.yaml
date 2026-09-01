@@ -25,6 +25,11 @@ archives:
         formats: [zip]
     name_template: "genctl_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+# A snapshot build is named `edge` rather than `0.0.0-SNAPSHOT-<sha>`, so the rolling edge
+# release carries archives the install script can address by channel name.
+snapshot:
+  version_template: edge
+
 checksum:
   name_template: checksums.txt
 
