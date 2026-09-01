@@ -20,12 +20,12 @@ INSTALL_DIR=${GENROC_INSTALL_DIR:-}
 die() { echo "install: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required"; }
 
-# genctl's own config directory, matching Go's os.UserConfigDir. It holds an API TOKEN, which
-# is why uninstall reports it rather than leaving a credential behind silently.
-config_dir() {
-  if [ "$(uname -s)" = Darwin ]; then echo "$HOME/Library/Application Support/genroc"
-  else echo "${XDG_CONFIG_HOME:-$HOME/.config}/genroc"
-  fi
+# genctl's config directory. It holds an API TOKEN, which is why uninstall reports it rather
+# than leaving a credential behind silently. The legacy path is what releases before the move
+# to ~/.config used, and is still cleaned up.
+config_dir() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/genroc"; }
+legacy_config_dir() {
+  [ "$(uname -s)" = Darwin ] && echo "$HOME/Library/Application Support/genroc"
 }
 
 uninstall() {
@@ -39,8 +39,8 @@ uninstall() {
   [ -z "$other" ] || echo "note: $BIN is still on your PATH at $other"
   [ -n "$found" ] || [ -n "$other" ] || echo "no $BIN found in the usual locations"
 
-  cfg=$(config_dir)
-  if [ -d "$cfg" ]; then
+  for cfg in "$(config_dir)" "$(legacy_config_dir)"; do
+    [ -n "$cfg" ] && [ -d "$cfg" ] || continue
     if [ "${PURGE:-}" = 1 ]; then
       rm -rf "$cfg" && echo "removed $cfg"
     else
@@ -49,7 +49,7 @@ uninstall() {
       echo "  it holds an API token."
       echo "  hint: remove it too by re-running with --purge"
     fi
-  fi
+  done
   exit 0
 }
 

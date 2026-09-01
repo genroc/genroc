@@ -103,7 +103,7 @@ func runInitCmd(args []string) {
 	}
 	if evalNode {
 		fmt.Println("npm install")
-		fmt.Println("       genctl apply -f hello.genroc.yaml     # bundles and typechecks greet.ts")
+		fmt.Println("       genctl apply -f script.genroc.yaml -f hello.genroc.yaml")
 	} else {
 		fmt.Println("genctl apply -f hello.genroc.yaml")
 	}

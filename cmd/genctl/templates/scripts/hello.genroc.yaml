@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=https://genroc.org/process-schema.json
 #
-# Calls a TypeScript script as a child. `script` is the process that knows the evaluator's
-# contract — apply it once from the genroc repo, or copy it beside this file.
+# Calls a TypeScript script as a child. `script.genroc.yaml` beside this file is the process
+# that knows the evaluator's contract; apply both.
 name: hello
 input_schema:
   type: object

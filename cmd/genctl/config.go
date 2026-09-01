@@ -14,7 +14,34 @@ type genrocConfig struct {
 	Token string `yaml:"token,omitempty"`
 }
 
+// configDir is $XDG_CONFIG_HOME/genroc, or ~/.config/genroc.
+//
+// NOT os.UserConfigDir: on macOS that returns ~/Library/Application Support, the GUI-app
+// location, and it ignores XDG_CONFIG_HOME entirely. A CLI's config belongs where every other
+// CLI keeps it and where an override works -- the surprise cost a config file once already.
+func configDir() (string, error) {
+	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		return filepath.Join(x, "genroc"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "genroc"), nil
+}
+
 func configFilePath() (string, error) {
+	dir, err := configDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.yaml"), nil
+}
+
+// legacyConfigFilePath is where releases before this change wrote. Read-only: a config found
+// there is used until the next `config set` rewrites it in the new location, so nobody loses a
+// token to an upgrade.
+func legacyConfigFilePath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -23,17 +50,30 @@ func configFilePath() (string, error) {
 }
 
 func loadConfig() genrocConfig {
-	path, err := configFilePath()
-	if err != nil {
-		return genrocConfig{}
-	}
-	data, err := os.ReadFile(path)
+	data, err := readFirst(configFilePath, legacyConfigFilePath)
 	if err != nil {
 		return genrocConfig{}
 	}
 	var cfg genrocConfig
 	yaml.Unmarshal(data, &cfg)
 	return cfg
+}
+
+func readFirst(paths ...func() (string, error)) ([]byte, error) {
+	var err error
+	for _, p := range paths {
+		path, perr := p()
+		if perr != nil {
+			err = perr
+			continue
+		}
+		data, rerr := os.ReadFile(path)
+		if rerr == nil {
+			return data, nil
+		}
+		err = rerr
+	}
+	return nil, err
 }
 
 func saveConfig(cfg genrocConfig) error {
@@ -55,11 +95,11 @@ func saveConfig(cfg genrocConfig) error {
 
 // lastInstanceFilePath is where `run` records the last started instance id for `@last`.
 func lastInstanceFilePath() (string, error) {
-	dir, err := os.UserConfigDir()
+	dir, err := configDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "genroc", "last"), nil
+	return filepath.Join(dir, "last"), nil
 }
 
 func saveLastInstance(id string) error {
