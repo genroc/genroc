@@ -22,7 +22,10 @@ import (
 )
 
 // Set at build time: -ldflags "-X main.version=0.1.0".
-var version = "dev"
+var (
+	version = "dev"
+	commit  = ""
+)
 
 func main() {
 	// Subcommands are dispatched before flag parsing, since `genroc token …` takes its own
@@ -61,7 +64,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "Print the version and exit.")
 	flag.Parse()
 	if *showVersion {
-		fmt.Println(version)
+		fmt.Println(versionString())
 		return
 	}
 

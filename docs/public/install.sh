@@ -153,9 +153,12 @@ chmod 0755 "$INSTALL_DIR/$BIN"
 
 # Checked rather than assumed: a failed copy inside an `||` chain still reports success.
 [ -x "$INSTALL_DIR/$BIN" ] || die "install failed: $INSTALL_DIR/$BIN is not executable"
-echo "installed $INSTALL_DIR/$BIN"
+# The version comes from the binary rather than the tag: it is the one check that what landed
+# is what was asked for, and on a rolling channel it carries the commit.
+got=$("$INSTALL_DIR/$BIN" --version 2>/dev/null || echo "$VERSION")
+echo "installed $BIN $got -> $INSTALL_DIR/$BIN"
 case ":$PATH:" in
-  *":$INSTALL_DIR:"*) "$INSTALL_DIR/$BIN" --version 2>/dev/null || true ;;
+  *":$INSTALL_DIR:"*) ;;
   *) echo "note: $INSTALL_DIR is not on your PATH" ;;
 esac
 echo "the server is a container: docker run ghcr.io/genroc/genroc:preview --help"

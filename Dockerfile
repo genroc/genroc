@@ -14,15 +14,16 @@ RUN npm run build
 # `-extldflags -static` links musl in so the result still runs on distroless/static.
 FROM golang:1.25-alpine AS build
 ARG VERSION=dev
+ARG COMMIT=
 RUN apk add --no-cache gcc musl-dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 go build -trimpath \
-      -ldflags="-s -w -extldflags '-static' -X main.version=${VERSION}" -o /out/genroc ./cmd/genroc \
+      -ldflags="-s -w -extldflags '-static' -X main.version=${VERSION} -X main.commit=${COMMIT}" -o /out/genroc ./cmd/genroc \
  && CGO_ENABLED=0 go build -trimpath \
-      -ldflags="-s -w -X main.version=${VERSION}" -o /out/genctl ./cmd/genctl \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" -o /out/genctl ./cmd/genctl \
  && mkdir -p /empty
 
 FROM gcr.io/distroless/static-debian12:nonroot AS genroc

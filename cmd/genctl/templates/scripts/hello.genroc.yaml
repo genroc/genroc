@@ -2,7 +2,7 @@
 #
 # Calls a TypeScript script as a child. `script` is the process that knows the evaluator's
 # contract — apply it once from the genroc repo, or copy it beside this file.
-name: {{.Name}}
+name: hello
 input_schema:
   type: object
   properties:

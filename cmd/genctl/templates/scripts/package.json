@@ -1,5 +1,4 @@
 {
-  "name": "{{.Name}}",
   "private": true,
   "type": "module",
   "devDependencies": {

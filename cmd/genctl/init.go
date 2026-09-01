@@ -43,29 +43,23 @@ func runInitCmd(args []string) {
 		}
 	}
 
-	name := sanitizeName(filepath.Base(mustAbs(dir)))
-
 	// Prompt only when someone is there to answer. A pipe, a CI job or `| head` gets the
 	// defaults instead of hanging on a read nobody will satisfy.
+	choices := options{dir: dir, evalNode: evalNode, compose: compose, postgres: postgres}
 	if !assumeYes && interactive() {
-		p := prompter{in: bufio.NewReader(os.Stdin), out: os.Stderr}
-		name = sanitizeName(p.ask("project name", name))
-		evalNode = p.askYesNo("TypeScript script tasks (@genroc/eval-node)", false)
-		compose = p.askYesNo("compose.yaml to run genroc locally", true)
-		if compose {
-			postgres = strings.HasPrefix(strings.ToLower(p.ask("database (sqlite/postgres)", "sqlite")), "p")
-		}
+		choices = choices.prompt(prompter{in: bufio.NewReader(os.Stdin), out: os.Stderr})
 	}
+	dir, evalNode, compose, postgres = choices.dir, choices.evalNode, choices.compose, choices.postgres
 
 	set := "base"
 	if evalNode {
 		set = "scripts"
 	}
 	data := struct {
-		Name, Dep, Image, WorkerImage string
-		EvalNode, Postgres            bool
+		Dep, Image, WorkerImage string
+		EvalNode, Postgres      bool
 	}{
-		Name: name, Dep: depRange(),
+		Dep:         depRange(),
 		Image:       "ghcr.io/genroc/genroc:" + imageTag(),
 		WorkerImage: "ghcr.io/genroc/eval-node:" + imageTag(),
 		EvalNode:    evalNode, Postgres: postgres,
@@ -100,6 +94,9 @@ func runInitCmd(args []string) {
 	}
 	fmt.Println()
 	fmt.Print("next:  ")
+	if clean := filepath.Clean(dir); clean != "." {
+		fmt.Printf("cd %s\n       ", clean)
+	}
 	if compose {
 		fmt.Println("docker compose up -d")
 		fmt.Print("       ")
@@ -110,7 +107,7 @@ func runInitCmd(args []string) {
 	} else {
 		fmt.Println("genctl apply -f hello.genroc.yaml")
 	}
-	fmt.Printf("       genctl run %s --set who=you\n", data.Name)
+	fmt.Println("       genctl run hello --set who=you")
 	if !evalNode {
 		fmt.Println("\nTypeScript tasks?  genctl init --eval-node  (adds @genroc/eval-node)")
 	}
@@ -132,6 +129,28 @@ func imageTag() string {
 		return "preview"
 	}
 	return version
+}
+
+// options is what init decides before it writes anything. Separated from the writing so the
+// answers can be tested without a terminal -- a pty harness proved unreliable, and the wiring
+// from an answer to a generated file is the part worth pinning.
+type options struct {
+	dir                         string
+	evalNode, compose, postgres bool
+}
+
+func (o options) prompt(p prompter) options {
+	// A DIRECTORY, said so plainly. The earlier wording ("project name") implied the answer
+	// became something inside the files; it is the folder this writes into.
+	if o.dir == "." {
+		o.dir = p.ask("folder to create (. for the current directory)", "genroc-app")
+	}
+	o.evalNode = p.askYesNo("TypeScript script tasks (@genroc/eval-node)", false)
+	o.compose = p.askYesNo("compose.yaml to run genroc locally", true)
+	if o.compose {
+		o.postgres = strings.HasPrefix(strings.ToLower(p.ask("database (sqlite/postgres)", "sqlite")), "p")
+	}
+	return o
 }
 
 // render writes one embedded template. It never overwrites: init runs in a directory someone
@@ -200,34 +219,4 @@ func (p prompter) askYesNo(label string, def bool) bool {
 	default:
 		return def
 	}
-}
-
-func mustAbs(p string) string {
-	a, err := filepath.Abs(p)
-	if err != nil {
-		fatal("init: %v", err)
-	}
-	return a
-}
-
-// A process name is an identifier in expressions, so a directory like "my app" cannot become
-// one verbatim.
-func sanitizeName(s string) string {
-	s = strings.ToLower(s)
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '-' || r == '_':
-			b.WriteRune('-')
-		case r == ' ' || r == '.':
-			b.WriteRune('-')
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return "my-process"
-	}
-	return out
 }

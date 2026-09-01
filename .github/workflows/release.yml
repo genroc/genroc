@@ -61,6 +61,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             VERSION=${{ github.ref_type == 'tag' && github.ref_name || 'edge' }}
+            COMMIT=${{ github.sha }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.platform }}
           cache-to: type=gha,scope=${{ matrix.image }}-${{ matrix.platform }},mode=max

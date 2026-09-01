@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://genroc.org/process-schema.json
-name: {{.Name}}
+name: hello
 input_schema:
   type: object
   properties:

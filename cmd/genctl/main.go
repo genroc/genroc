@@ -106,9 +106,13 @@ import (
 
 // Command conventions (naming, --server, table/--json output, the no---limit list
 // bounds rule) and the deliberate exceptions: cmd/genctl/CLAUDE.md.
-// Set at build time: -ldflags "-X main.version=0.1.0". A binary that cannot say what it is
-// makes every bug report start with a guess.
-var version = "dev"
+// Set at build time: -ldflags "-X main.version=0.1.0 -X main.commit=abc1234". A binary that
+// cannot say what it is makes every bug report start with a guess -- and on a rolling channel
+// the version alone is not enough, because "edge" names a moving target.
+var (
+	version = "dev"
+	commit  = ""
+)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -141,7 +145,7 @@ func main() {
 		usageTo(os.Stdout)
 		return
 	case "-v", "--version", "version":
-		fmt.Println(version)
+		fmt.Println(versionString())
 		return
 	}
 
@@ -357,7 +361,7 @@ func usageTo(w io.Writer) {
   genctl promote  --from <channel> --to <channel> [--process <name>]
   genctl status   --channel <channel>
   genctl token    create --perms <list> [--label <name>] [-q] | generate | list [--json] | revoke <id>...
-  genctl init     [dir] [--eval-node]
+  genctl init     [dir] [--name=N] [--eval-node] [--postgres] [--no-compose] [-y]
   genctl config   get <key> | set <key> <value> | unset <key>
 
 Flags:

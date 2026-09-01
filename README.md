@@ -85,12 +85,13 @@ GitHub release. To remove it:
 
 ## Starting a project
 
-    genctl init
+    genctl init             # asks which folder to create; `.` for the current one
+    genctl init orders      # skips that question
 
-Asks for a project name, whether you want TypeScript script tasks, whether to write a
-`compose.yaml`, and SQLite or PostgreSQL — then writes a project that applies and runs. Flags
-skip the questions (`--eval-node`, `--postgres`, `--no-compose`, `-y`), and a non-interactive
-stdin takes the defaults rather than hanging.
+It then asks whether you want TypeScript script tasks, whether to write a `compose.yaml`, and
+SQLite or PostgreSQL — and writes a project that applies and runs. Flags skip the questions
+(`--eval-node`, `--postgres`, `--no-compose`, `-y`); a non-interactive stdin takes the defaults
+rather than hanging.
 
 Templates are embedded in the binary, so a scaffold always matches the genctl that wrote it.
 
