@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // The queue worker: claims parked `external` script tasks from genroc, evaluates each in its
 // own realm, and answers. This is the whole genroc-facing half — eval.ts and realm.ts know
 // nothing about the queue, which is what keeps the containment strategy swappable.

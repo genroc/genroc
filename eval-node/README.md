@@ -24,6 +24,16 @@ on the cwd:
 `genctl apply` and `genctl types` now resolve `$import` directives. Typechecking is the
 resolver's exit code, so a stored definition cannot hold code that failed to typecheck.
 
+## Building
+
+    npm run build       # tsc -p tsconfig.build.json -> dist/
+
+The published package is JavaScript, not TypeScript. **Node refuses to strip types for files
+under `node_modules`**, so shipping `.ts` works from a checkout and fails for every consumer —
+which is why `prepublishOnly` builds and CI installs the packed tarball rather than only running
+from source. The source keeps its `.ts` import extensions; `rewriteRelativeImportExtensions`
+turns them into `.js` on the way out.
+
 ## Running the worker
 
     docker run -e GENROC_SERVER=http://host:8448 ghcr.io/genroc/eval-node:preview

@@ -6,6 +6,8 @@
     "node": ">=24"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build",
     "work": "node worker.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -28,11 +30,11 @@
   },
   "homepage": "https://genroc.org",
   "bin": {
-    "genroc-import": "bin/import.mjs",
-    "genroc-eval-node": "bin/worker.mjs"
+    "genroc-import": "dist/import.js",
+    "genroc-eval-node": "dist/worker.js"
   },
   "files": [
-    "bin",
+    "dist",
     "*.ts",
     "tsconfig.json",
     "README.md"

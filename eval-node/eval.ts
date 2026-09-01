@@ -38,7 +38,12 @@ export type WorkerRequest = { code: string; input?: unknown };
 export type WorkerReply = EvalResult;
 
 const DEFAULT_TIMEOUT_MS = 5_000;
-const REALM_URL = new URL("./realm.ts", import.meta.url);
+// Resolved from THIS file's own extension: run from a checkout it is `.ts`, and from the
+// published package `.js`, because Node will not strip types under node_modules.
+const REALM_URL = new URL(
+  import.meta.url.endsWith(".ts") ? "./realm.ts" : "./realm.js",
+  import.meta.url,
+);
 
 /** Thrown, not returned: a realm that fails to start is the RUNNER faulting, which worker.ts
  *  answers by releasing the claim rather than by reporting an outcome. A script fault is a

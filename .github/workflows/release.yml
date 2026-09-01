@@ -215,6 +215,7 @@ jobs:
         run: |
           tag=${GITHUB_REF_NAME#v}
           npm version "$tag" --no-git-tag-version --allow-same-version
+          npm run build          # prepublishOnly does this too; explicit so a failure is visible here
           # A prerelease must not become `latest` on npm either — same rule as the image tags.
           case "$tag" in
             *-*) npm publish --access public --tag preview ;;
@@ -264,4 +265,5 @@ jobs:
           # npm versions are immutable, so every edge publish needs its own. `0.0.0-edge.<sha>`
           # sorts below every real release, so it can never become `latest` by accident.
           npm version "0.0.0-edge.$(git rev-parse --short HEAD)" --no-git-tag-version
+          npm run build
           npm publish --access public --tag edge

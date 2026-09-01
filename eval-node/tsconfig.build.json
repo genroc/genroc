@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "declaration": false,
+    // Node refuses to strip types under node_modules, so the PUBLISHED package must be
+    // JavaScript. This rewrites `./eval.ts` imports to `./eval.js` on the way out, which is
+    // what lets the source keep the extensions Node needs when run from a checkout.
+    "allowImportingTsExtensions": false,
+    "rewriteRelativeImportExtensions": true
+  },
+  // include is inherited (**/*.ts): enumerating would silently leave a new file uncompiled.
+  // dist is excluded so a rebuild never reads its own output.
+  "exclude": ["dist", "node_modules"]
+}

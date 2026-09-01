@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // The code-phase resolver: manifest on stdin, `{"code": [...]}` on stdout, non-zero exit
 // with the diagnostic on stderr. genctl never parses TypeScript and this never parses YAML
 // — the manifest is the whole contract. See specs/source-resolution.md.

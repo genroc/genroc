@@ -62,6 +62,19 @@ jobs:
         # which is gitignored, so without this every resolver test fails with "Cannot find
         # module".
         run: cd eval-node && npm ci
+      - name: Build eval-node
+        # The published package must be JavaScript: Node refuses to strip types for files under
+        # node_modules, so shipping .ts works from a checkout and fails for every consumer.
+        run: cd eval-node && npm run build
+      - name: The package works when INSTALLED, not just from the repo
+        # The only shape that catches the above — every other test runs eval-node from source.
+        run: |
+          cd eval-node && npm pack --silent
+          tmp=$(mktemp -d) && cd "$tmp" && npm init -y >/dev/null
+          npm i "$GITHUB_WORKSPACE"/eval-node/genroc-eval-node-*.tgz
+          echo '{"sites":[],"schemas":{}}' | npx genroc-import 2>&1 \
+            | grep -q "NODE_MODULES_TYPE_STRIPPING" && { echo "package ships unrunnable .ts"; exit 1; }
+          echo "installed package runs"
       - name: Typecheck eval-node
         # It is the shipped artefact and nothing else checks it: `make test` covers the Go
         # engine and the test suite, and the evaluator only ever gets RUN.
