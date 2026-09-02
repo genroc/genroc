@@ -1,132 +1,107 @@
 package api
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
-// The auth config file. specs/api-auth.md §2.4, §4; specs/auth-two-credentials.md.
+// How jwt mode is configured. specs/api-auth.md §2.4; specs/ui-issued-tokens.md.
 
-func writeAuthConfig(t *testing.T, body string) string {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "auth.yaml")
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
+const testSecret = "a-shared-secret-long-enough-to-be-taken-seriously"
 
-// §2.4 refuses at LOAD, not at the first request: each of these is a way JWT deployments are
-// broken, and a server that starts and then accepts forged tokens is the failure being avoided.
-func TestLoadAuthConfig_RefusesAJWTConfigMissingAnyPin(t *testing.T) {
-	const keys = "  jwks_file: /etc/genroc/jwks.json\n"
-
+// Each of these is refused at STARTUP, not at the first request: a server that comes up and then
+// accepts forged tokens is the failure being avoided.
+func TestJWTConfig_RefusesAnythingUnusable(t *testing.T) {
 	cases := []struct {
 		name string
-		body string
+		cfg  JWTModeConfig
 		why  string
 	}{
-		{"no issuer", "mode: jwt\njwt:\n" + keys + "  audience: genroc\n  algorithms: [RS256]\n",
-			"a second issuer with a valid JWKS would be accepted"},
-		{"no audience", "mode: jwt\njwt:\n" + keys + "  issuer: https://i.test\n  algorithms: [RS256]\n",
-			"a token minted for another app in the same tenant would verify here"},
-		{"no algorithms", "mode: jwt\njwt:\n" + keys + "  issuer: https://i.test\n  audience: genroc\n",
-			"`alg: none` and RS256/HS256 confusion would both be accepted"},
-		{"algorithms containing none", "mode: jwt\njwt:\n" + keys +
-			"  issuer: https://i.test\n  audience: genroc\n  algorithms: [RS256, none]\n",
-			"`none` accepts unsigned tokens"},
-		{"no key source", "mode: jwt\njwt:\n  issuer: https://i.test\n  audience: genroc\n  algorithms: [RS256]\n",
+		{"no secret at all", JWTModeConfig{Issuer: "genroc-ui", Audience: "genroc"},
 			"nothing could verify a signature"},
-		{"both key sources", "mode: jwt\njwt:\n" + keys +
-			"  jwks_url: https://i.test/jwks\n  issuer: https://i.test\n  audience: genroc\n  algorithms: [RS256]\n",
+		{"both secret and secret_file", JWTModeConfig{Secret: testSecret, SecretFile: "/etc/x"},
 			"which one wins is not something an operator should have to guess"},
+		{"a short secret", JWTModeConfig{Secret: "hunter2"},
+			"HMAC is only as strong as its key, and forging one mints any identity"},
+		{"an unreadable secret file", JWTModeConfig{SecretFile: "/nonexistent/key"},
+			"a missing key must fail loudly, not start with none"},
+		{"a bad leeway", JWTModeConfig{Secret: testSecret, Leeway: "soon"},
+			"an unparseable duration is a typo, not a default"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if _, err := LoadAuthConfig(writeAuthConfig(t, c.body)); err == nil {
-				t.Fatalf("loaded a jwt config with %s — %s", c.name, c.why)
+			cfg := c.cfg
+			if err := cfg.Validate(); err == nil {
+				t.Fatalf("accepted a config with %s — %s", c.name, c.why)
 			}
 		})
 	}
+}
 
-	cfg, err := LoadAuthConfig(writeAuthConfig(t, `mode: jwt
-jwt:
-  jwks_file: /etc/genroc/jwks.json
-  issuer: https://accounts.example.com
-  audience: genroc
-  algorithms: [RS256]
-  subject_claim: email
-  roles_claim: groups
-  leeway: 30s
-roles:
-  genroc-admins: [admin]
-users:
-  alice@example.com: [admin]
-`))
+// Both pins default to what genroc-ui uses, so a deployment running the pair as shipped
+// configures neither — while still pinning them, which §2.4 is what requires.
+func TestJWTConfig_DefaultsToTheIssuerAndAudienceGenrocUIUses(t *testing.T) {
+	cfg := JWTModeConfig{Secret: testSecret}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("a secret alone should be enough: %v", err)
+	}
+	if cfg.Issuer != DefaultJWTIssuer || cfg.Audience != DefaultJWTAudience {
+		t.Fatalf("defaults = %q/%q, want %q/%q", cfg.Issuer, cfg.Audience,
+			DefaultJWTIssuer, DefaultJWTAudience)
+	}
+
+	explicit := JWTModeConfig{Secret: testSecret, Issuer: "mine", Audience: "yours"}
+	if err := explicit.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if explicit.Issuer != "mine" || explicit.Audience != "yours" {
+		t.Error("an explicit value was overwritten by a default")
+	}
+}
+
+// A secret delivered as a file — the k8s and /data shape — almost always arrives with a
+// trailing newline. A mismatch on an invisible byte is the worst kind to debug.
+func TestJWTConfig_ReadsASecretFromAFileAndTrimsIt(t *testing.T) {
+	sf := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(sf, []byte(testSecret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := JWTModeConfig{SecretFile: sf}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("secret_file was refused: %v", err)
+	}
+	got, err := cfg.resolveSecret()
 	if err != nil {
-		t.Fatalf("a complete jwt config was refused: %v", err)
+		t.Fatal(err)
 	}
-	if cfg.JWT.SubjectClaim != "email" || cfg.JWT.RolesClaim != "groups" || cfg.JWT.Leeway != "30s" {
-		t.Fatalf("jwt block decoded as %+v", cfg.JWT)
-	}
-	if got := cfg.Users["alice@example.com"]; len(got) != 1 || got[0] != "admin" {
-		t.Errorf("users decoded as %v; the YAML key must be `users`", cfg.Users)
+	if got != testSecret {
+		t.Fatalf("secret = %q; a trailing newline must not become part of the key", got)
 	}
 }
 
-// A `mode: header` file is a real thing that exists on disk somewhere, so it must fail loudly
-// and say what replaced it — not decode into an empty jwt block that authenticates nobody.
-// specs/auth-two-credentials.md §1.
-func TestLoadAuthConfig_RefusesTheRetiredHeaderMode(t *testing.T) {
-	_, err := LoadAuthConfig(writeAuthConfig(t, `mode: header
-header:
-  subject: X-Auth-Request-Email
-  trusted_proxies: [10.0.0.0/8]
-`))
-	if err == nil {
-		t.Fatal("a header-mode config loaded; genroc reads no identity headers, so this file " +
-			"would have started a server that silently authenticates nobody")
+// The server holds no role map: a token's permissions are whatever its issuer put in it, and
+// there is no configuration here that could add to them.
+func TestJWTAuth_GrantsOnlyWhatTheTokenCarries(t *testing.T) {
+	a, err := NewJWTAuth(JWTModeConfig{Secret: testSecret})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "jwt") {
-		t.Errorf("the error must name the replacement, got: %v", err)
-	}
-}
+	tok := mintTestToken(t, testSecret, DefaultJWTIssuer, DefaultJWTAudience,
+		"ada@example.com", nil, time.Hour)
 
-// An empty or absent mode is the same mistake by omission.
-func TestLoadAuthConfig_RefusesAConfigWithNoMode(t *testing.T) {
-	if _, err := LoadAuthConfig(writeAuthConfig(t, "roles:\n  admins: [admin]\n")); err == nil {
-		t.Fatal("a config with no mode loaded")
+	p, err := a.Authenticate(context.Background(), tok)
+	if err != nil || p == nil {
+		t.Fatalf("p=%v err=%v", p, err)
 	}
-}
-
-func TestGrantsFor_UnionsRolesSubjectAndTheWildcard(t *testing.T) {
-	roles := map[string][]string{"genroc-admins": {"admin"}, "*": {"read"}}
-	users := map[string][]string{"alice@example.com": {"deploy"}}
-
-	got := grantsFor(roles, users, "alice@example.com", nil)
-	if !hasPerm(got, PermDeploy) {
-		t.Error("a subject entry did not grant; `users` is what serves a provider carrying no groups")
+	if len(p.Grants) != 0 {
+		t.Fatalf("granted %v from a token carrying no perms; the map moved to genroc-ui and "+
+			"nothing here can add to what a token says", p.Grants)
 	}
-	if !hasPerm(got, PermRead) {
-		t.Error("the `*` rule did not apply to an authenticated caller")
+	if !strings.HasPrefix(p.Actor(), "jwt:") {
+		t.Errorf("Actor() = %q", p.Actor())
 	}
-	if hasPerm(got, PermAdmin) {
-		t.Error("a role the caller does not hold was granted")
-	}
-
-	withRole := grantsFor(roles, users, "bob@example.com", []string{"genroc-admins"})
-	if !hasPerm(withRole, PermAdmin) {
-		t.Error("a role the caller DOES hold was not granted")
-	}
-}
-
-func hasPerm(gs []Grant, want Perm) bool {
-	for _, g := range gs {
-		if g.Perm == want {
-			return true
-		}
-	}
-	return false
 }

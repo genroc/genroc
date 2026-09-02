@@ -20,14 +20,20 @@ run:
 		-log $(log) \
 		$(ARGS)
 
+# Two modules, three binaries. genroc-ui builds from ./ui, which is a separate module with
+# its own go.mod -- see go.work. It embeds whatever is in ui/web; a bare build gets the committed
+# placeholder, and the image build overwrites it with the compiled frontend.
 build: sqlc
 	$(BUILD_FLAGS) go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o genroc ./cmd/genroc
 	$(BUILD_FLAGS) go build -ldflags="-s -w" -o genctl ./cmd/genctl
+	$(BUILD_FLAGS) go build -ldflags="-s -w" -o genroc-ui ./ui
 
 test: test-unit test-int
 
+# `./...` matches the CURRENT module only, so each module is listed. Missing one here means its
+# tests silently stop running rather than failing.
 test-unit:
-	$(BUILD_FLAGS) go test ./...
+	$(BUILD_FLAGS) go test ./... ./ui/...
 
 test-stress:
 	$(BUILD_FLAGS) go test ./internal/db/... ./internal/engine/... -run TestStress -v --count=3
@@ -94,4 +100,4 @@ docs-build: docs-schema
 	cd docs && npm install && npm run build
 
 clean:
-	rm -f genroc genctl $(db)
+	rm -f genroc genctl genroc-ui $(db)

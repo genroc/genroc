@@ -2,6 +2,7 @@
 /genroc
 /genrocschema
 /genctl
+/genroc-ui
 
 # SQLite databases
 *.db
@@ -40,3 +41,5 @@ examples/proxy/.env
 .genroc-cache/
 eval-node/dist/
 *.tgz
+go.work.sum
+examples/ui/data/

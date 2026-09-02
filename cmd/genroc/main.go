@@ -34,19 +34,22 @@ func main() {
 		runTokenCmd(os.Args[2:])
 		return
 	}
-	dbPath := flag.String("db", "genroc.db", "SQLite database file path")
-	pgDSN := flag.String("pg", "", "PostgreSQL DSN (e.g. postgres://user:pass@host/db). When set, --db is ignored.")
+	dbPath := flag.String("db", envOr("GENROC_DB", "genroc.db"), "SQLite database file path ($GENROC_DB)")
+	pgDSN := flag.String("pg", os.Getenv("GENROC_PG"), "PostgreSQL DSN, e.g. postgres://user:pass@host/db ($GENROC_PG). When set, --db is ignored.")
 	pgMaxOpenConns := flag.Int("pg-max-open-conns", 50, "PostgreSQL connection pool size, and with it the group-commit batch-width ceiling: only transactions in flight together coalesce into one WAL flush, so the pool bounds how many ever do. Size a worker fleet so workers*pg-max-open-conns stays under the server's max_connections. Ignored for SQLite.")
 	pgCommitDelay := flag.Int("pg-commit-delay", 0, "Hold each PostgreSQL WAL flush back by this many microseconds so more commits coalesce into it (PostgreSQL commit_delay, set per session). Costs no durability - every commit is still flushed before it is acknowledged - and Postgres skips the delay unless commit_siblings (default 5) transactions are open, so narrow workloads are unaffected. Throughput peaks well below the flush latency and drops past it: on a 4ms F_FULLFSYNC disk 500us was the best value measured and 10000us was 26% worse than doing nothing. The gain itself is workload- and load-dependent (measured between +3% and +33% for the same 500us on the same machine), and shows up mainly as steadier throughput under contention rather than a higher ceiling. Measure on your own storage; 0 (the default) disables. Requires a superuser connection. Ignored for SQLite.")
 	sqliteSync := flag.String("sqlite-synchronous", "FULL", "SQLite durability (PRAGMA synchronous): FULL (default; fsync every commit for full power-loss durability, matching Postgres synchronous_commit=on) or NORMAL (faster; durable across a process crash but may lose the last commits on power loss). Note FULL is bounded by your disk's serial fsync rate - SQLite has one writer and no group commit, so unlike PostgreSQL it cannot trade latency for batch width. Ignored for PostgreSQL.")
 	sqliteFullFsync := flag.Bool("sqlite-fullfsync", false, "Use F_FULLFSYNC on macOS, where plain fsync(2) returns before the drive flushes its write cache — without this, --sqlite-synchronous=FULL is not actually power-loss durable on Apple hardware. Costs ~4ms/commit on an M1. No effect on other platforms or for PostgreSQL.")
 	durability := flag.String("durability", "only-once", "How much of the write path is flushed to disk before it is acknowledged. only-once (default) flushes what cannot be replayed - work handed in from outside, and only_once tasks - and lets ordinary task progress replay after a power cut, which the at-least-once contract already allows. terminal additionally flushes process ends, so a finished process cannot rewind to running. strict flushes every commit, so no completed task ever repeats. Below strict, a client polling an instance can see a state it already passed after an unclean shutdown. See specs/durability-levels.md.")
-	authMode := flag.String("auth", "none", "How callers are identified: none (default; every request is treated as an operator) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database). A unix socket is authorised by its file mode either way. See specs/api-auth.md.")
-	uiDir := flag.String("ui", "", "Serve a built frontend from this directory at `/`. Same origin as the API, which is what keeps CORS out of the picture entirely; see frontend/README.md.")
-	authConfig := flag.String("auth-config", "", "Path to an auth config file (YAML) enabling a human identity mode: `mode: jwt` verifies a signed token against a JWKS (jwks_url or jwks_file, with issuer, audience and algorithms all pinned), or `mode: header` trusts a proxy's forwarded headers from within trusted_proxies. Either way a role map turns the resulting roles into permissions. Combines with -auth token: a deployment runs one of these for people and tokens for machines. See specs/api-auth.md §2, §4.")
+	authMode := flag.String("auth", envOr("GENROC_AUTH", "none"), "How callers are identified ($GENROC_AUTH): none (default; every request is treated as an operator) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database). A unix socket is authorised by its file mode either way. See specs/api-auth.md.")
+	jwtSecretFile := flag.String("jwt-secret-file", os.Getenv("GENROC_JWT_SECRET_FILE"), "Path to the HMAC key genroc-ui signs with ($GENROC_JWT_SECRET_FILE); $GENROC_JWT_SECRET holds it inline instead. Setting either turns on jwt mode: people reach the API through genroc-ui, which resolves their permissions and mints a token carrying them. See specs/ui-issued-tokens.md.")
+	jwtIssuer := flag.String("jwt-issuer", os.Getenv("GENROC_JWT_ISSUER"), "The `iss` a token must carry ($GENROC_JWT_ISSUER); defaults to genroc-ui. Pinned: unpinned, any issuer holding the secret is accepted.")
+	jwtAudience := flag.String("jwt-audience", os.Getenv("GENROC_JWT_AUDIENCE"), "The `aud` a token must carry ($GENROC_JWT_AUDIENCE); defaults to genroc. Pinned: unpinned, a token minted for another application verifies here too.")
+	jwtLeeway := flag.String("jwt-leeway", os.Getenv("GENROC_JWT_LEEWAY"), "Clock skew allowed on exp/nbf ($GENROC_JWT_LEEWAY); default 30s. A fixed zero fails on real clusters.")
 	seedTokens := flag.String("seed-tokens", "", "Credentials the operator generated, as a comma-separated list of `label=perms=secret` (perms itself is +-separated), e.g. \"admin=admin=genroc_sk_...,evaluator=worker=genroc_sk_...\" ($GENROC_SEED_TOKENS). Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive. The secret never originates here, so it never reaches these logs.")
+	seedTokensFile := flag.String("seed-tokens-file", os.Getenv("GENROC_SEED_TOKENS_FILE"), "Read -seed-tokens from this file instead ($GENROC_SEED_TOKENS_FILE), one `label=perms=secret` per line or comma-separated. A file rather than a flag keeps a credential out of the process list and out of `docker inspect`, and is the shape a mounted secret already has.")
 	bootstrapToken := flag.String("bootstrap-token", "", "In token mode, the admin credential to create when the deployment has no live one ($GENROC_BOOTSTRAP_TOKEN). Idempotent: ignored once an admin token exists, so it doubles as declarative recovery. Omit it and one is generated and printed once, to stderr.")
-	httpAddr := flag.String("http", ":8448", "HTTP listen address (empty to disable)")
+	httpAddr := flag.String("http", envOr("GENROC_HTTP", ":8448"), "HTTP listen address ($GENROC_HTTP; empty to disable)")
 	tcpAddr := flag.String("tcp", "", "TCP listen address, e.g. 127.0.0.1:9090 (empty to disable)")
 	udsPath := flag.String("uds", "", "Unix socket path, e.g. /tmp/genroc.sock (empty to disable)")
 	pollMs := flag.Int("poll", 500, "Engine poll interval in milliseconds")
@@ -128,38 +131,34 @@ func main() {
 	handlers := api.NewHandlers(database, eng)
 	srv := api.NewServer(handlers, log)
 
-	if *uiDir != "" {
-		srv.SetUI(*uiDir)
-		log.Info("serving UI", "dir", *uiDir)
-	}
-
-	// The two credential types are independent and compose: an IdP's JWT identifies people
-	// (-auth-config), genroc's own tokens identify machines (-auth token), and both arrive on
-	// `Authorization: Bearer`. specs/auth-two-credentials.md.
+	// The two credential types are independent and compose: genroc-ui's JWT identifies people,
+	// genroc's own tokens identify machines, and both arrive on `Authorization: Bearer`.
+	// specs/ui-issued-tokens.md.
 	//
 	// humanAuthOn suppresses the unauthenticated-exposure warning and the bootstrap mint: either
 	// means an operator already has a way in that does not need a printed credential.
 	humanAuthOn := false
 	var auths []api.Authenticator
-	if *authConfig != "" {
-		cfg, err := api.LoadAuthConfig(*authConfig)
+	if secret := os.Getenv("GENROC_JWT_SECRET"); secret != "" || *jwtSecretFile != "" {
+		j, err := api.NewJWTAuth(api.JWTModeConfig{
+			Issuer: *jwtIssuer, Audience: *jwtAudience,
+			Secret: secret, SecretFile: *jwtSecretFile, Leeway: *jwtLeeway,
+		})
 		if err != nil {
-			log.Error("auth-config", "err", err)
-			os.Exit(1)
-		}
-		j, err := api.NewJWTAuth(cfg)
-		if err != nil {
-			log.Error("auth-config", "err", err)
+			log.Error("jwt auth", "err", err)
 			os.Exit(1)
 		}
 		auths = append(auths, j)
 		humanAuthOn = true
-		source := cfg.JWT.JWKSURL
-		if source == "" {
-			source = cfg.JWT.JWKSFile
+		issuer, audience := *jwtIssuer, *jwtAudience
+		if issuer == "" {
+			issuer = api.DefaultJWTIssuer
 		}
-		log.Info("API authentication enabled", "mode", "jwt", "issuer", cfg.JWT.Issuer,
-			"audience", cfg.JWT.Audience, "algorithms", cfg.JWT.Algorithms, "jwks", source)
+		if audience == "" {
+			audience = api.DefaultJWTAudience
+		}
+		log.Info("API authentication enabled", "mode", "jwt", "issuer", issuer,
+			"audience", audience, "alg", "HS256")
 	}
 
 	switch *authMode {
@@ -177,6 +176,16 @@ func main() {
 		seeds := *seedTokens
 		if seeds == "" {
 			seeds = os.Getenv("GENROC_SEED_TOKENS")
+		}
+		if seeds == "" && *seedTokensFile != "" {
+			raw, err := os.ReadFile(*seedTokensFile)
+			if err != nil {
+				log.Error("seed-tokens-file", "err", err)
+				os.Exit(1)
+			}
+			// Newlines are the natural shape for a generated file; the parser splits on commas,
+			// so they are normalised here rather than teaching it a second separator.
+			seeds = strings.Join(strings.Fields(string(raw)), ",")
 		}
 		if seeds != "" {
 			n, skipped, err := seedSuppliedTokens(database, seeds)
@@ -327,6 +336,16 @@ func newLogger(level string, mode logview.Mode) *slog.Logger {
 
 // exposedAddr reports whether a listen address can be reached from off-host. An empty host
 // (":8448") binds every interface, which is what a container publishes.
+// envOr is the fallback for the flags a container sets. A container passes environment, not
+// argv: an `environment:` block is one key per line and composes, where a `command:` array has
+// to restate every flag whenever one changes. The flag still wins when both are given.
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func exposedAddr(addr string) bool {
 	if addr == "" {
 		return false

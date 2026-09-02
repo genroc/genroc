@@ -5,6 +5,7 @@
 //
 // See README.md for the contract, and specs/external-task-queue.md for the queue itself.
 
+import { readFileSync } from "node:fs";
 import { evaluate, type EvalRequest, type FailureKind } from "./eval.ts";
 
 const SERVER = (process.env.GENROC_SERVER ?? "http://localhost:8448").replace(/\/$/, "");
@@ -17,7 +18,12 @@ const WORKER_ID = process.env.WORKER_ID ?? `evaluator-${process.pid}`;
 // Sent as a header rather than in the URL because Node's fetch REFUSES a URL carrying
 // credentials ("Request cannot be constructed from a URL that includes credentials"), so the
 // basic-auth-in-the-URL trick that works for genctl is not available here.
-const TOKEN = process.env.GENROC_TOKEN ?? "";
+// GENROC_TOKEN_FILE is the mounted-secret shape: a credential in a file rather than an
+// environment variable, so it stays out of `docker inspect` and out of the process environment
+// any child inherits. The inline variable wins when both are set.
+const TOKEN =
+  process.env.GENROC_TOKEN ??
+  (process.env.GENROC_TOKEN_FILE ? readFileSync(process.env.GENROC_TOKEN_FILE, "utf8").trim() : "");
 const authHeaders: Record<string, string> = TOKEN ? { authorization: `Bearer ${TOKEN}` } : {};
 // Concurrency is the worker's to set, and that is the point of pulling: under the old fetch
 // shape genroc decided how many scripts ran at once (--max-concurrent, default 200) and the

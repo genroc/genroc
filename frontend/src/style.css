@@ -52,3 +52,31 @@ nav { display: flex; gap: .25rem; }
 .status.revoked, .status.expired { opacity: .55; }
 .link { border: 0; background: none; padding: 0; text-decoration: underline; cursor: pointer; opacity: .7; }
 .link:hover { opacity: 1; }
+
+/* The login page (login.html / login.tsx). Its own bundle, so these rules travel with it and
+   the app does not carry them. */
+.login {
+  width: min(22rem, 90vw);
+  margin: 12vh auto;
+  display: grid;
+  gap: 0.75rem;
+}
+.login h1 { font-size: 1.1rem; margin: 0 0 0.5rem; letter-spacing: 0.02em; }
+.login .btn,
+.login button {
+  display: block; width: 100%; padding: 0.6rem 0.8rem;
+  border: 1px solid #444; background: #1b1b1b; color: #eee;
+  text-decoration: none; text-align: center; border-radius: 3px;
+  font: inherit; cursor: pointer;
+}
+.login .btn:hover,
+.login button:hover { background: #252525; }
+.login button[disabled] { opacity: 0.6; cursor: default; }
+.login input {
+  width: 100%; padding: 0.55rem 0.7rem; border: 1px solid #444;
+  background: #1b1b1b; color: #eee; border-radius: 3px; font: inherit;
+  box-sizing: border-box;
+}
+.login .err { color: #f88; border-left: 2px solid #f88; padding-left: 0.6rem; margin: 0; }
+.login .sep { color: #666; text-align: center; font-size: 0.85em; }
+.login form { display: grid; gap: 0.5rem; margin: 0; }

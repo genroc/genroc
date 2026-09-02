@@ -1,0 +1,47 @@
+# genroc-ui. specs/ui-issued-tokens.md §5.
+#
+# Everything omitted here has a default, and the defaults are the point: `listen` is :8448, the
+# token's issuer and audience match what the genroc server pins, its lifetime is 60s, the
+# callback URL is derived from the request, and cookies are Secure exactly when the request is
+# HTTPS. What is left is what a deployment actually has to decide.
+
+server: http://genroc:8448
+
+login:
+  # Passwords in a file: one config, no directory, no registration, no reset. The right trade for
+  # a demo and the wrong one for a deployment, where `providers:` is the answer.
+  #
+  # Hash with: htpasswd -bnBC 10 "" <password> | tr -d ':\n'
+  passwords:
+    - email: alice@genroc.test        # password: demo
+      hash: "$2a$10$QRz1D8GwpXluI19IzzkBmOHMMJDsfAKs3P9zCMOi6ElVbXybUD5Y2"
+      groups: [genroc-admins]
+    - email: carol@genroc.test        # password: s3cret
+      hash: "$2a$10$IFo0TlOV4hw/SMshxaV/5eWGLyZonbvy4qcKojEqgdIBru0hGfa3y"
+      groups: [genroc-operators]
+    - email: bob@genroc.test          # password: demo
+      hash: "$2a$10$QRz1D8GwpXluI19IzzkBmOHMMJDsfAKs3P9zCMOi6ElVbXybUD5Y2"
+      groups: []                      # no group: falls through to the "*" rule
+
+  # WHAT A DEPLOYMENT USES INSTEAD. Any OIDC provider connects directly -- Google, Okta, Entra,
+  # Auth0, Keycloak -- and genroc-ui shows one button per entry. With exactly one provider and no
+  # passwords it skips the screen and redirects straight there. A provider that is not OIDC
+  # (GitHub, LDAP, SAML) needs a broker such as Dex in front. specs/ui-component.md §5.1.
+  #
+  # providers:
+  #   - id: google
+  #     name: Google
+  #     issuer: https://accounts.google.com
+  #     client_id: ...
+  #     client_secret: ...
+
+token:
+  # The one thing both components must agree on. Everything else about the token defaults.
+  secret_file: /data/jwt-secret
+
+# THE ROLE MAP. It used to live in the genroc server; it is here because the token carries the
+# ANSWER (permissions) rather than the question (groups).
+roles:
+  genroc-admins:    [admin]
+  genroc-operators: [operate, read]
+  "*":              [read]        # anyone who signed in at all

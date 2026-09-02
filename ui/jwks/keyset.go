@@ -1,4 +1,4 @@
-package api
+package jwks
 
 import (
 	"context"
@@ -17,7 +17,10 @@ import (
 	"time"
 )
 
-// JWKS handling. specs/api-auth.md §2.1, §2.4.
+// JWKS handling: fetch an issuer's public keys and serve them by `kid`. The ONE thing the
+// genroc server and genroc-ui share -- the server verifies a caller's JWT, genroc-ui verifies the
+// one it holds in a session cookie. Everything else about the login lives in ui/.
+// specs/api-auth.md §2.1, §2.4; specs/ui-component.md.
 //
 // Parsed here with the standard library rather than by a second dependency: turning a JWK into
 // a *rsa.PublicKey is base64 and big.Int, not cryptography -- the cryptography is the signature
@@ -124,7 +127,7 @@ func b64uint(s string) (*big.Int, error) {
 // is what makes rotation work without a restart: an issuer publishes the new key before signing
 // with it, so a `kid` genroc has not seen is the signal to look again. Rate-limiting that is
 // what stops a stream of garbage `kid`s from turning into a stream of outbound requests.
-type keySet struct {
+type KeySet struct {
 	url    string
 	file   string
 	client *http.Client
@@ -140,25 +143,25 @@ type keySet struct {
 // refreshInterval bounds how often an unknown `kid` may trigger a fetch.
 const refreshInterval = 5 * time.Minute
 
-// jwksFetchTimeout bounds one JWKS fetch. The shared transport carries no Client.Timeout
+// FetchTimeout bounds one JWKS fetch. The shared transport carries no Client.Timeout
 // (internal/transport/CLAUDE.md), so this one is set here and applies per request.
-const jwksFetchTimeout = 10 * time.Second
+const FetchTimeout = 10 * time.Second
 
-func newKeySet(url, file string) *keySet {
-	return &keySet{
+func NewKeySet(url, file string) *KeySet {
+	return &KeySet{
 		url:    url,
 		file:   file,
-		client: &http.Client{Timeout: jwksFetchTimeout},
+		client: &http.Client{Timeout: FetchTimeout},
 		now:    time.Now,
 	}
 }
 
-// keyFor returns the verification key for a kid, refreshing at most once per refreshInterval.
+// KeyFor returns the verification key for a kid, refreshing at most once per refreshInterval.
 //
 // An empty kid is accepted only when the set holds exactly one key: a JWKS with several keys and
 // a token that names none is ambiguous, and picking one arbitrarily would mean a token verified
 // against a key the issuer did not sign it with, or not, depending on map iteration order.
-func (k *keySet) keyFor(ctx context.Context, kid string) (crypto.PublicKey, error) {
+func (k *KeySet) KeyFor(ctx context.Context, kid string) (crypto.PublicKey, error) {
 	if key, ok := k.lookup(kid); ok {
 		return key, nil
 	}
@@ -171,7 +174,7 @@ func (k *keySet) keyFor(ctx context.Context, kid string) (crypto.PublicKey, erro
 	return nil, fmt.Errorf("no key %q in JWKS", kid)
 }
 
-func (k *keySet) lookup(kid string) (crypto.PublicKey, bool) {
+func (k *KeySet) lookup(kid string) (crypto.PublicKey, bool) {
 	k.mu.RLock()
 	defer k.mu.RUnlock()
 	if kid == "" {
@@ -186,7 +189,7 @@ func (k *keySet) lookup(kid string) (crypto.PublicKey, bool) {
 	return key, ok
 }
 
-func (k *keySet) refresh(ctx context.Context) error {
+func (k *KeySet) refresh(ctx context.Context) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if !k.lastRefresh.IsZero() && k.now().Sub(k.lastRefresh) < refreshInterval {
@@ -207,7 +210,7 @@ func (k *keySet) refresh(ctx context.Context) error {
 	return nil
 }
 
-func (k *keySet) load(ctx context.Context) ([]byte, error) {
+func (k *KeySet) load(ctx context.Context) ([]byte, error) {
 	if k.file != "" {
 		return os.ReadFile(k.file)
 	}

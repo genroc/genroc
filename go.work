@@ -1,0 +1,15 @@
+// The repo is several Go modules, so that each states its own dependencies and cannot silently
+// acquire another's. specs/ui-component.md.
+//
+//	.    genroc      the server and genctl -- the engine, the database, the API
+//	ui   genroc/ui   genroc-ui: the web UI, the login, and the tokens it mints
+//
+// This file is what makes `go build`, `go test` and an editor resolve across them locally
+// without a version dance. Build commands still take explicit module paths -- `go test ./...`
+// matches the current module only, which is why the Makefile lists all three.
+go 1.25.0
+
+use (
+	.
+	./ui
+)

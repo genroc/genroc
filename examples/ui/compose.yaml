@@ -1,0 +1,112 @@
+# The genroc UI, with a login. specs/ui-component.md, specs/ui-issued-tokens.md.
+#
+#   docker compose -f examples/ui/compose.yaml up --build
+#   open http://localhost:8448                    -> alice / demo
+#
+# No setup step. Everything the stack needs that it cannot commit -- the signing key and the
+# worker's credential -- is generated into ./data on first run and left alone afterwards, so a
+# restart neither loses a run nor invalidates a session. Delete ./data to start over.
+#
+# What it demonstrates:
+#
+#   * TWO CREDENTIAL TYPES, one for each audience. A person signs in and genroc-ui mints them a
+#     short-lived JWT carrying permissions; the evaluator holds a `genroc_sk_*` and talks to the
+#     server directly. Neither can use the other's.
+#   * THE SERVER HAS NO ROLE MAP. It verifies one issuer and reads a `perms` claim. Groups,
+#     providers and passwords are all genroc-ui's problem, which is why the server binary carries
+#     none of it -- it is meant to be embedded.
+#   * ONE /data VOLUME holds the database and the shared signing key, so both persist together
+#     and a restart neither loses a run nor invalidates every session.
+#   * SQLite, so there is no database to wait for and nothing to provision. `-pg <dsn>` is the
+#     same image against PostgreSQL; examples/auth/ shows that.
+
+name: genroc-ui-demo
+
+services:
+  # Generates what cannot be committed, once, into ./data. Everything else mounts that folder,
+  # so the database, the signing key and the worker's credential persist together -- and a
+  # restart neither loses a run nor invalidates a session.
+  #
+  # FILES rather than environment variables: a credential in the environment shows up in
+  # `docker inspect` and is inherited by every child process.
+  init:
+    image: alpine:3
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        rand() { head -c 32 /dev/urandom | base64 | tr -d '=+/' | cut -c1-43; }
+        if [ ! -s /data/jwt-secret ]; then
+          rand > /data/jwt-secret
+          echo "generated /data/jwt-secret"
+        fi
+        if [ ! -s /data/worker-token ]; then
+          # The format genroc validates: the prefix makes a leaked credential greppable, and the
+          # body has to carry enough entropy to be worth having. Nothing about it needs genctl.
+          printf 'genroc_sk_%s' "$(rand)" > /data/worker-token
+          echo "generated /data/worker-token"
+        fi
+        # What -seed-tokens-file reads: label=perms=secret. Rewritten every start so it always
+        # matches the token file, which is the only thing that has to be preserved.
+        printf 'evaluator=worker=%s' "$(cat /data/worker-token)" > /data/seed-tokens
+        # 65532 is distroless's `nonroot`, which genroc and genroc-ui both run as. Written by
+        # root and left that way, a 0600 file is unreadable by the processes that need it --
+        # which fails as "permission denied" at startup, not as anything about auth.
+        chown 65532:65532 /data /data/jwt-secret /data/worker-token /data/seed-tokens
+        chmod 600 /data/jwt-secret /data/worker-token /data/seed-tokens
+    volumes: [./data:/data]
+
+  genroc:
+    build: { context: ../.., dockerfile: Dockerfile }
+    # Environment, not a command array: one key per line, and adding a setting does not mean
+    # restating the others. Everything not named here is a default -- the listen address, the
+    # token's issuer and audience, its lifetime.
+    environment:
+      GENROC_DB: /data/genroc.db
+      # BOTH credential types. The secret accepts what genroc-ui mints for people; token mode
+      # accepts the opaque credential the evaluator holds. They compose in one chain, each
+      # declining what is not its own.
+      GENROC_JWT_SECRET_FILE: /data/jwt-secret
+      GENROC_AUTH: token
+      # The evaluator's credential, generated in ./data rather than by genroc, so no secret
+      # originates inside the server or reaches its logs. Stored if absent and ignored if
+      # present, so a restart is a no-op.
+      GENROC_SEED_TOKENS_FILE: /data/seed-tokens
+    volumes:
+      - ./data:/data
+    # Unpublished: the only way in from the host is genroc-ui. A machine inside the network
+    # still reaches it directly, which is how the evaluator works.
+    depends_on:
+      init: { condition: service_completed_successfully }
+    restart: unless-stopped
+
+  genroc-ui:
+    build: { context: ../.., dockerfile: ui/Dockerfile }
+    environment:
+      GENROC_UI_CONFIG: /etc/genroc/ui.yaml
+    ports: ["8448:8448"]
+    volumes:
+      - ./ui.yaml:/etc/genroc/ui.yaml:ro
+      # Read-only: genroc-ui needs the key, it does not own it.
+      - ./data:/data:ro
+    depends_on:
+      init: { condition: service_completed_successfully }
+      genroc: { condition: service_started }
+    restart: unless-stopped
+
+  # The script-task worker, and the reason the UI has anything to show. It claims parked
+  # `external` tasks off genroc's queue -- genroc never calls it -- so it needs only outbound
+  # access and never touches genroc-ui.
+  evaluator:
+    build: { context: ../.., dockerfile: eval-node/Dockerfile }
+    environment:
+      GENROC_SERVER: http://genroc:8448
+      GENROC_TOKEN_FILE: /data/worker-token
+      CONCURRENCY: "2"
+    volumes: [./data:/data:ro]
+    restart: unless-stopped
+    depends_on:
+      init: { condition: service_completed_successfully }
+      genroc: { condition: service_started }
+

@@ -59,10 +59,33 @@ records failures that are silent, not compile errors.
 | [internal/delayspec/CLAUDE.md](internal/delayspec/CLAUDE.md) | `delay` and `timeout` syntax (`for` / `until` / `tz`), arity, calendar arithmetic |
 | [specs/CLAUDE.md](specs/CLAUDE.md) | which docs are **proposals, not current behavior** |
 
+## Two Go modules
+
+The repo is a Go workspace (`go.work`), and which module a package lives in is a statement about
+what it may depend on:
+
+| module | path | links |
+|---|---|---|
+| `.` | `genroc` | the server and `genctl` — engine, database, API. ~20 external modules |
+| `ui/` | `genroc/ui` | `golang-jwt`. **One**, and it cannot acquire the server's |
+
+`ui` is separate so the UI can grow without any of it reaching the binary people embed.
+specs/ui-component.md. It also owns the auth the server no longer does: it authenticates a
+person, resolves their groups to permissions, and mints the token the server verifies
+(specs/ui-issued-tokens.md) — which is why `jwks` lives there now and not in a shared module.
+
+**`./...` matches the current module only.** A command that does not name both silently skips
+one — which is why the Makefile and CI spell out `./... ./ui/...`.
+
+`genctl` shares the root module with the server because it shares its whole internal surface (the
+definition language, which it validates against before sending). Its boundary is therefore a test
+rather than a wall: `archtest.TestBinariesKeepTheirImportBoundaries` refuses `internal/db`,
+`api`, `engine` and `transport` there.
+
 ## Build / test
 
-    make build      # produces ./genroc and ./genctl
-    make test       # go test ./... + integration tests
+    make build      # produces ./genroc, ./genctl and ./genroc-ui
+    make test       # go test across all three modules + integration tests
 
     # Run with SQLite (default):
     ./genroc -db genroc.db

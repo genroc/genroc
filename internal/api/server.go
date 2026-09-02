@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"genroc/internal/model"
-	"path/filepath"
 )
 
 // HTTP listener limits. Deliberately no WriteTimeout: /tick blocks until its claimed
@@ -51,13 +50,7 @@ type Server struct {
 	// auth establishes identity. Nil is `mode: none` — every caller is anonymousAdmin, which
 	// is the pre-auth behaviour written down rather than a branch in the gate.
 	auth Authenticator
-
-	// uiDir serves a built single-page app at `/`. Empty means no UI, and `/` 404s.
-	uiDir string
 }
-
-// SetUI serves a built frontend at `/`. Called once at startup, before Listen*.
-func (s *Server) SetUI(dir string) { s.uiDir = dir }
 
 // guard authorizes a hand-written route, for the handful that cannot be registry actions
 // because they answer with something other than a Reply. Everything else goes through
@@ -149,24 +142,6 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 				return
 			}
 			writeReply(w, a.handle(h, env))
-		})
-	}
-
-	// The UI, at the root. Serving it from genroc is what keeps the browser on ONE origin, so
-	// `/api` is same-origin and no CORS exists anywhere in the system (§5.1). Unauthenticated
-	// on purpose: it is a static bundle that discloses nothing — what it can DO is decided by
-	// the credential it obtains, and a deployment behind an SSO proxy puts the login in front
-	// of this route anyway.
-	if s.uiDir != "" {
-		files := http.FileServer(http.Dir(s.uiDir))
-		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-			// A single-page app owns its own routing, so an unknown path serves index.html
-			// rather than 404 — otherwise a deep link only works when typed at the root.
-			if _, err := os.Stat(filepath.Join(s.uiDir, filepath.Clean(r.URL.Path))); err != nil {
-				http.ServeFile(w, r, filepath.Join(s.uiDir, "index.html"))
-				return
-			}
-			files.ServeHTTP(w, r)
 		})
 	}
 

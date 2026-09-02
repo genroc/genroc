@@ -23,10 +23,10 @@ services:
   genroc:
     image: {{.Image}}
 {{- if .Postgres}}
-    command: [-pg, "postgres://genroc:genroc@postgres:5432/genroc?sslmode=disable", -http, ":8448", -ui, /srv/ui]
+    command: [-pg, "postgres://genroc:genroc@postgres:5432/genroc?sslmode=disable", -http, ":8448"]
 {{- else}}
     # SQLite: nothing to provision. `-pg <dsn>` is the same image against PostgreSQL.
-    command: [-db, /data/genroc.db, -http, ":8448", -ui, /srv/ui]
+    command: [-db, /data/genroc.db, -http, ":8448"]
     volumes: [genroc-data:/data]
 {{- end}}
     ports: ["8448:8448"]

@@ -5,6 +5,12 @@ Status: **PROPOSAL 2026-09-02, nothing built.** Follows
 from a proxy sandwich. This replaces that sandwich with one component genroc ships, and moves the
 UI out of the server binary.
 
+> **§5.1 is reversed by [ui-issued-tokens.md](ui-issued-tokens.md) (proposal, 2026-09-02).**
+> That doc has genroc-ui MINT its own token rather than relay the provider's, which moves the
+> role map out of the server and makes the token format a published contract. The reasoning below
+> for keeping it a relay is kept because the distinction it draws still holds — what changed is
+> that a *local* issuer is not the same thing as rebuilding a broker's connectors.
+
 ## 0. The split
 
 **The genroc server is an API and nothing else.** No UI, no login flow, no cookie. It verifies a

@@ -101,6 +101,21 @@ per-definition field) and, since 2026-09-02, `api-auth` in full.
   edge cases testable at all — and testing them revealed that the algorithm pin was NOT actually
   covered by the obvious cases, since `alg: none` and HS256 confusion both fail on key typing
   anyway.
+- [ui-issued-tokens.md](ui-issued-tokens.md) — **PROPOSAL, nothing built.** Reverses
+  ui-component.md §5.1: genroc-ui stops relaying the provider's token and **mints its own**, so
+  the group→permission map moves out of the server and the server reads a `perms` claim it
+  already understands. Narrows api-auth.md §2.3 rather than contradicting it — "an IdP has no
+  idea what `deploy` means" is true of a THIRD-PARTY issuer and not of one we ship and version
+  together; §0's actual worry, the endpoint→permission mapping, never moves off `actionDef.Allow`.
+  The payoff is that the token format becomes a **published contract**: mint these claims, sign
+  with the shared secret, and a third-party UI is a first-class client. **HMAC, not RSA+JWKS**,
+  and the reason is recorded: an RSA key would have to persist, and a key regenerated on restart
+  is the exact failure this repo hit twice in one day through Dex's `storage: memory`. The cost
+  is stated rather than buried — a symmetric secret lets the server mint as well as verify, so
+  config read access becomes forge access, which is a short step from the database access that is
+  already full access (§5.3). Consequence: the server's jwt mode goes HS256-only and the `jwks`
+  package leaves the root module for `ui/`. Humans lose direct API access, deliberately.
+
 - [ui-component.md](ui-component.md) — **PROPOSAL, nothing built.** Moves the UI out of the
   server into its own image, which also owns the browser login. The server keeps no UI, no OIDC
   flow and no cookie, because it is meant to be EMBEDDED — and the real cost of `-ui` was never
