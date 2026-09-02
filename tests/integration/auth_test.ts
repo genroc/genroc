@@ -295,3 +295,34 @@ test("attribution — re-applying identical content re-stamps the pointer it tou
   expect(rows.length, "identical content must not create a second version").toBe(1);
   expect(rows[0].actor).toBe("token:alice2");
 });
+
+test("attribution — every response reports who genroc thinks you are, so a client never has to guess", async () => {
+  const ops = await mint(["read"], "reader-bot");
+
+  const withCred = await fetch(`${base}/api/definitions`, {
+    headers: { authorization: `Bearer ${ops}` },
+  });
+  expect(withCred.status).toBe(200);
+  expect(
+    withCred.headers.get("X-Genroc-Actor"),
+    "a client cannot infer its own identity — behind a proxy it sends nothing and still succeeds, " +
+      "which is indistinguishable from auth being off unless the server says",
+  ).toBe("token:reader-bot");
+
+  // A 403 still names you: "you are X and X may not" is the message worth having.
+  const forbidden = await fetch(`${base}/api/tokens`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${ops}`, "content-type": "application/json" },
+    body: JSON.stringify({ label: "nope", perms: ["read"] }),
+  });
+  expect(forbidden.status).toBe(403);
+  expect(forbidden.headers.get("X-Genroc-Actor")).toBe("token:reader-bot");
+
+  // A 401 must NOT, because its absence is what tells a UI to ask for a credential.
+  const anon = await fetch(`${base}/api/definitions`);
+  expect(anon.status).toBe(401);
+  expect(
+    anon.headers.get("X-Genroc-Actor"),
+    "an unauthenticated response named an actor; the header's absence is the signal to ask",
+  ).toBeNull();
+});

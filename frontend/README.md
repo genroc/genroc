@@ -17,24 +17,19 @@ dev and production, because in production genroc serves these assets itself at `
 That is worth preserving. The moment this app is served from an origin genroc does not own,
 CORS becomes a thing genroc has to configure and get right.
 
-## Two ways the credential arrives
+## Behind a proxy this app holds no credential at all
 
-Either way it ends up in `localStorage` under one key, so nothing outside `src/api.ts` cares
-which happened.
+**With an SSO proxy in front** (`examples/proxy/`), the proxy turns the browser's session cookie
+into `Authorization: Bearer <ID token>` on every request. So the app sends nothing of its own and
+that is correct — there is no token to mint, store, refresh or expire, and `localStorage` stays
+empty. This is less code than a session exchange, not more.
 
-**Behind an SSO proxy**, the app asks `GET /session/token` and gets a bearer token minted from
-the identity the proxy forwarded. It asks **only when it holds none**: the server stores just
-the hash, so the exchange cannot return a token it issued before and every call mints a new one
-— asking on each page load would leave a trail of live credentials. A 401 on a token it already
-holds is the ordinary end of a session rather than an error, so it re-exchanges once and
-retries; a second failure is real and surfaces. Needs `-auth-config` (`mode: header`) *and*
-`-auth token` on the server — the exchange mints a bearer token, so something has to be able to
-verify one.
-
-**Without a proxy**, the exchange answers 401 or 501 and the paste field is all there is. This
-is the default. A `read` token is enough for everything here:
+**Without a proxy**, a person pastes their own credential and it goes into `localStorage`. Either
+kind works, because genroc accepts either: a `genroc_sk_*` token, or a JWT from your IdP.
 
     genctl token create --perms read --label ui -q
+
+A `read` token is enough for everything here. specs/auth-two-credentials.md.
 
 ## Scope
 

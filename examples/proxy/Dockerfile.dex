@@ -7,5 +7,9 @@
 FROM dexidp/dex:v2.41.1
 USER root
 RUN cp -r /srv/dex/web/themes/light /srv/dex/web/themes/genroc
+# Dex's storage directory, created HERE rather than left to the volume mount. A named volume
+# mounted over a path that exists in the image inherits that path's ownership; mounted over one
+# that does not, it is created root-owned and Dex (uid 1001) cannot write its database.
+RUN mkdir -p /var/dex && chown 1001:1001 /var/dex
 COPY dex-theme/styles.css /srv/dex/web/themes/genroc/styles.css
 USER 1001

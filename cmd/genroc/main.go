@@ -133,12 +133,12 @@ func main() {
 		log.Info("serving UI", "dir", *uiDir)
 	}
 
-	// The identity modes are independent and compose: a deployment serving both people and
-	// machines runs one for humans (`header` or `jwt`, from -auth-config) and `token` for
-	// machines. specs/api-auth.md §2.
+	// The two credential types are independent and compose: an IdP's JWT identifies people
+	// (-auth-config), genroc's own tokens identify machines (-auth token), and both arrive on
+	// `Authorization: Bearer`. specs/auth-two-credentials.md.
 	//
-	// humanAuthOn covers both human modes. It suppresses the unauthenticated-exposure warning
-	// and the bootstrap mint, because either one means an operator already has a way in.
+	// humanAuthOn suppresses the unauthenticated-exposure warning and the bootstrap mint: either
+	// means an operator already has a way in that does not need a printed credential.
 	humanAuthOn := false
 	var auths []api.Authenticator
 	if *authConfig != "" {
@@ -147,39 +147,19 @@ func main() {
 			log.Error("auth-config", "err", err)
 			os.Exit(1)
 		}
-		switch {
-		case cfg.Mode == "header":
-			h, err := api.NewHeaderAuth(cfg)
-			if err != nil {
-				log.Error("auth-config", "err", err)
-				os.Exit(1)
-			}
-			srv.SetHeaderAuth(h)
-			humanAuthOn = true
-			log.Info("API authentication enabled", "mode", "header",
-				"subject_header", cfg.Header.Subject, "trusted_proxies", cfg.Header.TrustedProxies)
-		case cfg.Mode == "jwt":
-			j, err := api.NewJWTAuth(cfg)
-			if err != nil {
-				log.Error("auth-config", "err", err)
-				os.Exit(1)
-			}
-			srv.SetJWTAuth(j)
-			auths = append(auths, j)
-			humanAuthOn = true
-			source := cfg.JWT.JWKSURL
-			if source == "" {
-				source = cfg.JWT.JWKSFile
-			}
-			log.Info("API authentication enabled", "mode", "jwt", "issuer", cfg.JWT.Issuer,
-				"audience", cfg.JWT.Audience, "algorithms", cfg.JWT.Algorithms, "jwks", source)
-		case cfg.Header.Subject != "":
-			// Named but not trusted: attribution only, so a deployment that has not turned auth
-			// on yet still records who deployed. specs/api-auth.md §7.
-			srv.SetAssertedHeader(cfg.Header.Subject)
-			log.Info("recording asserted identity for attribution only",
-				"subject_header", cfg.Header.Subject, "grants", "none")
+		j, err := api.NewJWTAuth(cfg)
+		if err != nil {
+			log.Error("auth-config", "err", err)
+			os.Exit(1)
 		}
+		auths = append(auths, j)
+		humanAuthOn = true
+		source := cfg.JWT.JWKSURL
+		if source == "" {
+			source = cfg.JWT.JWKSFile
+		}
+		log.Info("API authentication enabled", "mode", "jwt", "issuer", cfg.JWT.Issuer,
+			"audience", cfg.JWT.Audience, "algorithms", cfg.JWT.Algorithms, "jwks", source)
 	}
 
 	switch *authMode {
@@ -222,7 +202,7 @@ func main() {
 		// for, and printing it to a log, is pure exposure. Skip it and let the proxy be the
 		// answer; `genroc token create` remains the break-glass path either way.
 		if humanAuthOn && secret == "" {
-			log.Info("skipping bootstrap token", "reason", "a human auth mode provides an operator path")
+			log.Info("skipping bootstrap token", "reason", "jwt mode provides an operator path")
 			auths = append(auths, api.NewTokenAuth(database))
 			log.Info("API authentication enabled", "mode", "token")
 			break

@@ -2,9 +2,12 @@
 // production genroc serves this app itself — so there is no base URL here and no CORS to
 // configure anywhere.
 //
-// The credential is a bearer token kept in localStorage. Behind a proxy it comes from the
-// session exchange (see sessionToken below); without one the user pastes it. Both end up in the
-// same place, so nothing else in this file cares which happened.
+// The credential, when this app holds one, is a bearer token in localStorage — a genroc token
+// or a JWT, since genroc accepts either (specs/auth-two-credentials.md).
+//
+// Behind an SSO proxy it holds NONE: the proxy turns the browser's session cookie into a JWT
+// and attaches it to every request, so sending nothing is correct there. The stored value is
+// the no-proxy case, where a person pastes their own credential.
 
 const TOKEN_KEY = "genroc.token";
 
@@ -40,11 +43,20 @@ export class ApiError extends Error {
   }
 }
 
+/** Who genroc says we are on the last response, as `source:subject` — or null when it did not
+ *  say, which is what a 401 looks like. The server reports it on every reply because a client
+ *  cannot infer it: behind a proxy this app sends no credential and still succeeds, which is
+ *  indistinguishable from `-auth none` unless someone says so. */
+let lastActor: string | null = null;
+export const actor = () => lastActor;
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const t = token();
   const headers: Record<string, string> = init?.body ? { "content-type": "application/json" } : {};
   if (t) headers.authorization = `Bearer ${t}`;
   const res = await fetch(path, { ...init, headers });
+  // Unconditional, so a 401 CLEARS a stale identity rather than leaving the last good one up.
+  lastActor = res.headers.get("X-Genroc-Actor");
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   if (!res.ok) throw new ApiError(res.status, body?.code ?? "", body?.error ?? `HTTP ${res.status}`);
@@ -101,23 +113,6 @@ export const createToken = (label: string, perms: string[]) =>
 
 export const revokeToken = (id: string) =>
   call<{ revoked: boolean }>(`/api/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
-
-/** Asks the proxy-backed session exchange for a token. Returns "" when there is no proxy, no
- *  identity, or the server has no header mode — all of which mean "fall back to a pasted
- *  token" rather than "fail". specs/api-auth.md §9.
- *
- *  This is a same-origin GET whose response must never be readable cross-origin: the browser
- *  authenticates it with the proxy's ambient cookie, so what stops a hostile page stealing the
- *  token is that it cannot read the reply. Do not add CORS headers to /session/token. */
-export async function sessionToken(): Promise<{ token: string; subject: string } | null> {
-  try {
-    const res = await fetch("/session/token", { cache: "no-store" });
-    if (!res.ok) return null;
-    return (await res.json()) as { token: string; subject: string };
-  } catch {
-    return null;
-  }
-}
 
 export const listDefinitions = () =>
   get<Page<{ name: string; version: number; created_at: string }>>("/api/definitions");

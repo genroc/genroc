@@ -1,18 +1,25 @@
 # API authentication and authorization
 
-Status: **§1, §3, §5 and §6 BUILT 2026-08-28; `header` mode and the session exchange BUILT
-2026-09-01.** In place: the path layout (it went first because paths stop being free the moment
-a config outside this repo names one), the permission model (`Allow` on every action, one
-`authorize` gate every transport passes through, 401/403 as separate codes), **`token` mode**
-— `genroc_sk_*` credentials hashed in `api_tokens`, four bootstrap paths, `genroc token` for
-break-glass and `genctl token` for everyday use — and **`header` mode**, which with
-`/session/token` (§5.1) turns a browser's proxy session into a bearer token. People are now
-served as well as machines.
+Status: **BUILT, and then narrowed.** The path layout (§1), the permission model (§3), `token`
+mode (§5) and the exposure warning (§6) landed 2026-08-28; attribution (§7) and `jwt` mode (§2.1,
+§2.4) on 2026-09-02.
 
-Attribution (§7) followed on 2026-09-02, and **`jwt` mode with it** — so every mode this spec
-designs now ships and nothing in it is left unbuilt. The default remains `none` — no
-`Authorization` handling, no actor recorded, every endpoint open and `PUT /definitions` arbitrary
-code execution — now with a startup warning when that is also bound beyond loopback (§6).
+**`header` mode and the `/session/token` exchange were built on 2026-09-01 and REMOVED on
+2026-09-02**, superseded by [auth-two-credentials.md](auth-two-credentials.md). genroc now
+accepts exactly two credentials, both on `Authorization: Bearer`: an opaque `genroc_sk_*` it
+issued, and a JWT it only verifies. It reads no identity headers and mints nothing on a proxy's
+behalf. Sections describing header mode below are kept because their reasoning is instructive,
+and are marked where they no longer describe behaviour.
+
+The default remains `none` — no `Authorization` handling, no actor recorded, every endpoint open
+and `PUT /definitions` arbitrary code execution — with a startup warning when that is also bound
+beyond loopback (§6).
+
+> **Superseded in part by [auth-two-credentials.md](auth-two-credentials.md) (proposal,
+> 2026-09-02).** That doc argues the mode set down to two — `token` and `jwt` — dropping `header`
+> mode (§2, §6) and the `/session/token` exchange (§5.1), and re-splitting §5.1's routing on
+> credential presence rather than by path. Everything below still describes SHIPPED behaviour;
+> read that doc before building on §2.2, §5.1 or §6.
 
 ## 0. The split that decides everything
 
@@ -62,7 +69,7 @@ Both are now resolved, and neither by the rename this section originally propose
 | **inbound** (low trust) | `POST /api/external-tasks/*` — claim, renew, release, resolve, signal | direct |
 | **shared** | `GET /api/objects/{ref}` | direct — workers fetch externalized inputs, operators read the same refs |
 | **control plane** | the rest of `/api/*` — definitions, instances, channels, tick | direct |
-| **human** | everything else — the UI (`-ui`), and `GET /session/token` | through the SSO proxy |
+| **human** | everything else — the UI (`-ui`) | through the SSO proxy |
 
 **A `/api/queue/*` prefix was proposed here and dropped.** Its whole justification was that the
 operator listing sat under the prefix a worker rule would open; deleting that listing did the
@@ -123,15 +130,15 @@ map resolves it; a genroc token carries permissions on its row and needs no map.
 one field out — so the check in front of every handler has exactly one input and cannot learn
 which mode ran. (`Perms []Perm` in the draft; it shipped as `[]Grant` for §3's reason.)
 
-- **`header`** [built] — a trusted proxy authenticated the caller and forwards the result as
-  plain headers. Weaker than `jwt` (§6 is the price) but **not legacy**: it is the compatibility
-  surface for setups that produce no verifiable token, and there are current, common ones — §2.2.
+- **`jwt`** [built] — a signed JWT arrives in `Authorization: Bearer` and genroc verifies it
+  against a configured JWKS. The only way a person authenticates. §2.1.
 - **`token`** [built] — genroc's own tokens, hashed in the database, for **machines**: CI,
   deployment pipelines, apps that start instances, and workers. §5.
 - **`none`** [built] — the default, and the pre-auth behaviour. Every request is an anonymous
   principal holding `admin`. Right for a laptop and for `make test`; §6 covers the hazard.
-- **`jwt`** [built] — the mode this design recommends where it is available: a signed JWT
-  arrives in `Authorization: Bearer` and genroc verifies it against a configured JWKS. §2.1.
+- ~~**`header`**~~ — **removed 2026-09-02.** A trusted proxy authenticated the caller and
+  forwarded the result as plain headers. §2.2 was its case and §6 its price; both are kept below
+  as record. [auth-two-credentials.md](auth-two-credentials.md) §1 is why it went.
 
 **These are not alternatives — a real deployment runs two at once**, because they serve
 audiences that cannot share a mechanism. A browser can do a redirect flow and cannot hold a
@@ -145,16 +152,9 @@ DECIDE stops it**, rather than falling through to the next. An unreachable datab
 must not be silently downgraded to "not authenticated" by the mode after it, which would turn an
 outage into 401s indistinguishable from a misconfigured client.
 
-**How they compose, as built.** `httpPrincipal` tries the forwarded identity first and falls
-back to the bearer token. The order is not a preference between them but the observation that
-they cannot collide: a browser behind the proxy has no token to send, and a machine bypasses the
-proxy and has no forwarded identity, so neither can shadow the other. Trying the header first
-also spares the token store a query for a credential the request does not carry.
-
-One consequence is worth stating because it looks like a bug: with `header` mode alone,
-`principalFor` returns no principal rather than an anonymous admin. A caller the proxy did not
-identify has no second way in — which is the intent, and is also why `/session/token` refuses to
-mint against header mode alone (§5.1).
+**How they compose, as built.** There is one place identity can come from — the bearer
+credential — and `Chain` tries each mode in turn. Each declines what is not its own: a
+`genroc_sk_*` is not three dot-separated segments, and a JWT does not carry the prefix.
 
 ### 2.1 Why the signature, and not the network position
 
@@ -196,7 +196,13 @@ are the two that mint their own (`Cf-Access-Jwt-Assertion`), which works identic
 JWKS configured instead. Kong, Traefik and nginx-ingress mostly need a plugin or an Enterprise
 tier to do either — which is why `header` mode stays.
 
-### 2.2 Where `header` mode is the only option
+### 2.2 Where `header` mode was the only option — and why that turned out to be false
+
+> **Historical.** This section made the case for `header` mode. It was answered on 2026-09-02 by
+> an observation it missed: "produces no verifiable token" is a property of the PROVIDER, not of
+> the deployment, and a broker converts one into the other. Dex's GitHub connector issues a real
+> OIDC token *and* carries `org:team` groups — more than header mode ever did.
+> [auth-two-credentials.md](auth-two-credentials.md) §1.
 
 `jwt` needs someone to have minted a verifiable token. Three common setups do not, which is why
 `header` mode is load-bearing rather than a wart to be removed later:
@@ -224,16 +230,12 @@ to permissions** (§4), unioned with whatever the roles produce. It is the degen
 one member per group — and it is what makes the mode work on the day someone stands up
 oauth2-proxy against GitHub with no group plumbing at all.
 
-The Google shape — a verifiable token for the subject, a trusted header for the roles — ships as
-an **overlay** rather than a fourth mode: `jwt` establishes the principal, and roles forwarded by
-a peer inside `trusted_proxies` are appended before the role map resolves. Two constraints fell
-out of building it. It needs the request, which `Authenticate(ctx, credential)` does not see, so
-it runs in the transport beside `attribute` rather than inside the authenticator — the concrete
-form of this section's "assemblable from more than one source per request". And it applies only
-to a principal `jwt` produced: overlaying onto a genroc token would let a header widen a machine
-credential, when the whole point of an opaque token is that its permissions live on its row.
-Configuring `header.roles` without `trusted_proxies` is refused at load, because a role list from
-an unbounded peer is a grant from one.
+The Google shape — a verifiable token for the subject, a trusted header for the roles — was
+built on 2026-09-02 as an **overlay** on `jwt`, and **removed the same day**. It was the last
+header-reading path, and it was solving a problem a broker does not have: Dex's Google connector
+fetches group membership itself, so the groups arrive in the token and the role map reads them
+from one place. The `users:` map above survives and is what covers a provider carrying no groups
+at all — which is what Dex's own `staticPasswords` does, so the example exercises it.
 
 ### 2.3 What the token does NOT decide
 
@@ -367,30 +369,7 @@ Roles are the deployment's words, not ours — `genroc-admins` is whatever their
 map from those words to permissions is configuration:
 
 ```yaml
-# -auth-config /etc/genroc/auth.yaml            # as built
-mode: header
-header:
-  subject: X-Auth-Request-Email                 # who
-  roles:   X-Auth-Request-Groups                # comma-separated; optional
-  trusted_proxies: [10.0.0.0/8]                 # REQUIRED in header mode; §6
-roles:
-  genroc-admins:    [admin]
-  genroc-deployers: [deploy, operate, read]
-  oncall:           [operate, read]
-  "*":              [read]                      # any authenticated caller
-users:                                          # for providers that supply no groups; §2.2
-  ada@example.com:  [admin]
-session_ttl: 12h                                # bounds a token from /session/token; §5.1
-```
-
-`trusted_proxies` accepts a bare address as well as a CIDR: an operator naming one proxy should
-not have to know the notation to say so. `session_ttl` refuses zero rather than reading it as
-"never" — that is the behaviour the field exists to remove, and spelling it as a duration would
-make it look deliberate.
-
-`mode: jwt` is the other human mode, and its block ships as designed:
-
-```yaml
+# -auth-config /etc/genroc/auth.yaml            # as built; `jwt` is the only valid mode
 mode: jwt
 jwt:
   jwks_url: https://accounts.example.com/.well-known/jwks.json
@@ -401,13 +380,18 @@ jwt:
   subject_claim: email                       # default `sub`
   roles_claim:   groups                      # default `groups`
   leeway: 30s                                # default 30s; zero fails on real clusters
-header:
-  roles: X-Auth-Request-Groups               # §2.2's hybrid, optional
-  trusted_proxies: [10.0.0.0/8]              # required WITH header.roles
+roles:
+  genroc-admins:    [admin]
+  genroc-deployers: [deploy, operate, read]
+  "*":              [read]                   # any authenticated caller
+users:                                       # for providers carrying no groups at all
+  ada@example.com:  [admin]
 ```
 
 `issuer`, `audience` and `algorithms` have no defaults and the server refuses to start without
-them (§2.4). `jwks_url` and `jwks_file` are exclusive.
+them (§2.4). `jwks_url` and `jwks_file` are exclusive. A file whose `mode` is anything but `jwt`
+is refused by name, so an old `mode: header` config fails loudly rather than decoding into an
+empty jwt block that authenticates nobody.
 
 **A file, not a table.** The policy governing an API must not be editable *through* that API —
 a `deploy` permission that can rewrite the role map is `admin` wearing a disguise. A file
@@ -464,7 +448,10 @@ Bootstrap is §5.3 — it is more than one line, and it is where designs of this
 
 ### 5.1 One host, split by path — the proxy sits in front of the UI, not the API
 
-**BUILT 2026-09-01**: `-ui` serves the SPA at `/`, `GET /session/token` performs the exchange.
+**PARTLY SUPERSEDED.** `-ui` serves the SPA at `/` and still does. The `/session/token` exchange
+described below was built 2026-09-01 and **removed 2026-09-02**: the routing split it worked
+around is gone, so the proxy attaches a JWT to every browser request and the SPA holds no
+credential at all. [auth-two-credentials.md](auth-two-credentials.md) §2, §3.
 
 An SSO proxy answers a request carrying no session cookie with a redirect to the login page, so a
 script presenting `Authorization: Bearer genroc_sk_…` receives HTML instead of a reply. The two
@@ -509,7 +496,12 @@ split: **no cookie is ever accepted on the control plane, so it carries no ambie
 A subject the role map resolves to nothing gets a 403 naming the fix (`add a roles entry for
 …`), not an empty token: minting one would produce 403s everywhere with no clue why.
 
-#### Session tokens expire; machine tokens do not
+#### ~~Session tokens expire; machine tokens do not~~ — removed 2026-09-02
+
+> Kept as the record of what the exchange cost. Every line below is a consequence of genroc
+> minting a credential for a browser, and all of it went when the browser stopped needing one.
+> `expires_at` remains on `api_tokens`, unused but harmless, and is the obvious place to hang a
+> `--expires` flag if a machine token ever wants one.
 
 The exchange cannot hand back a token it issued before — only the hash is stored, so the
 plaintext is gone the moment it is returned. Every call therefore MINTS, and a browser that asks
@@ -644,10 +636,11 @@ k8s, and it needs no new concepts here because it produces the same `Principal`.
 
 ## 6. The bypass hazard, stated once and loudly
 
-**This section is about `header` mode only. In `jwt` mode it does not arise** — that is §2.1's
-whole argument, and `jwt` now ships, so a deployment that can mint or forward a verifiable token
-can leave this section behind entirely. `header` remains because §2.2's three setups produce no
-such token, and for those the hazard below is live.
+**This section is about `header` mode only, and header mode is gone (2026-09-02).** It is kept
+because it is the argument that removed the mode: the hazard below is unfixable from inside
+genroc, and a design whose safety lives in a config file genroc cannot read is the thing §0
+exists to refuse. Only the third bullet still describes behaviour — the `none`-mode exposure
+warning, which has nothing to do with headers.
 
 **There are TWO ways header trust fails, and `trusted_proxies` only covers one.**
 
@@ -697,13 +690,12 @@ merely wrote down what a proxy asserted, and splitting them into two columns inv
 query that reads the subject and loses the distinction. `Principal.Actor()` is the only place it
 is spelled.
 
-**The cheap part does work in `none` mode**, as this section argued. If `-auth-config` names
-`header.subject`, genroc records it whatever the mode — and `trusted_proxies` is NOT required for
-that, because nothing is being trusted: the grants are unchanged, so a forged header buys exactly
-the admin an unauthenticated server already gives everyone. The source is **`asserted`**, never
-`header`, so the audit trail distinguishes a value genroc checked came from a trusted peer from
-one it merely wrote down. An authenticated principal is never renamed by a header, or a deploy
-could be credited to whoever set one.
+~~**The cheap part does work in `none` mode.**~~ Built 2026-09-02 as an `asserted:<subject>`
+source read from a configured header, and **removed the same day** with the rest of the
+header-reading paths: it was the last of them, and its premise — a deployment behind a proxy that
+has not configured auth — is a state the two-credential design says should not exist. Nothing is
+lost that matters: a deployment with an IdP configures `jwt` and gets `jwt:ada@example.com`,
+which is strictly better than an unverified `asserted:`.
 
 Three things the build settled that the draft did not raise:
 
@@ -768,9 +760,10 @@ describes is.)
   does not save a cookie-authenticated control plane from CSRF. A UI should exchange its session
   for a short-lived bearer token; the cookie then authenticates only the minting endpoint.
 
-  **Built as prescribed, 2026-09-01.** `GET /session/token` is that endpoint and the only route
-  in the system that reads an ambient credential; nothing under `/api/` accepts a cookie. §5.1
-  carries the three rules that keep it sound.
+  **Still true, and now absolute: genroc reads no cookie anywhere.** The exchange that once did
+  (`/session/token`) is gone. A browser's cookie is converted to a JWT by the proxy and genroc
+  sees only that, which means the CSRF surface belongs entirely to the proxy — `SameSite` is what
+  closes it. [auth-two-credentials.md](auth-two-credentials.md) §4.
 - **Scoped grants** — a permission narrowed by a filter rather than held over everything. The
   driver is concrete: a UI that renders forms for one process's approvals should hold something
   that resolves tasks *in that process*, not `worker` over the whole queue.
@@ -827,11 +820,11 @@ describes is.)
   conditional on exposure, so §6's startup warning fires exactly when `none` stops being a
   laptop default. Revisit if the warning proves ignorable; a warning nobody reads is the same
   as no default at all.
-- ~~**Where does the UI's short-lived token come from?**~~ **Settled 2026-09-01: a new
-  endpoint.** `GET /session/token`, outside `/api/` so it stays on the proxied route, minting a
-  real token row rather than a signed blob — so a session is listable, revocable and
-  attributable like any other credential, and `genctl token list` shows it as
-  `session:<subject>`. The cookie is never exchanged for anything but this. §5.1.
+- ~~**Where does the UI's short-lived token come from?**~~ **Answered twice.** Settled
+  2026-09-01 as a new endpoint (`GET /session/token`, minting a real token row). Re-answered
+  2026-09-02 by deleting the question: the proxy attaches a JWT to every browser request, so the
+  UI needs no token of its own and there is nothing to mint, store or expire.
+  [auth-two-credentials.md](auth-two-credentials.md) §2.
 - **Should genroc run the OIDC login flow itself?** §5.1 unifies onto one host but still needs a
   proxy in front of the browser zone (`/`, where `-ui` serves the SPA). The full unification is genroc implementing the authorization-code
   flow — what Grafana, Argo CD and Gitea all converged on — after which no component in the

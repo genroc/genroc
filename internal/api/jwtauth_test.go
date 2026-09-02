@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"math/big"
-	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -315,47 +314,4 @@ type stubAuth struct {
 
 func (s stubAuth) Authenticate(context.Context, string) (*Principal, error) {
 	return s.principal, s.err
-}
-
-// §2.2: Google verifies an ID token but omits groups, so the subject comes from the token and
-// the roles from a proxy header. The role map has to tolerate that split.
-func TestJWT_OverlaysRolesFromATrustedHeaderOnly(t *testing.T) {
-	s := newSigner(t)
-	a := s.auth(t, func(c *AuthConfig) {
-		c.JWT.RolesClaim = "groups_absent" // Google's ID token has no groups claim
-		c.Header.Roles = "X-Auth-Request-Groups"
-		c.Header.TrustedProxies = []string{"10.0.0.0/8"}
-	})
-
-	base, err := a.Authenticate(context.Background(), s.sign(t, nil))
-	if err != nil || base == nil {
-		t.Fatalf("Authenticate: p=%v err=%v", base, err)
-	}
-	if base.Allows([]Perm{PermRead}) {
-		t.Fatal("a token with no roles claim should map to nothing before the overlay")
-	}
-
-	from := func(addr string) *Principal {
-		r := httptest(http.MethodGet, "/api/definitions")
-		r.RemoteAddr = addr
-		r.Header.Set("X-Auth-Request-Groups", "genroc-admins")
-		return a.OverlayHeaderRoles(base, r)
-	}
-
-	if got := from("10.1.2.3:5555"); !got.Allows([]Perm{PermAdmin}) {
-		t.Fatal("roles forwarded by a trusted proxy were not applied; §2.2's hybrid is the only " +
-			"path a Google Workspace deployment has")
-	}
-	if got := from("203.0.113.9:5555"); got.Allows([]Perm{PermAdmin}) {
-		t.Fatal("roles from OUTSIDE trusted_proxies were applied — a role list from an " +
-			"unbounded peer is a grant from one")
-	}
-	// The overlay must not reach a credential genroc itself issued.
-	tokenPrincipal := &Principal{Subject: "ci", Source: "token", Grants: []Grant{{Perm: PermWorker}}}
-	r := httptest(http.MethodGet, "/api/definitions")
-	r.RemoteAddr = "10.1.2.3:5555"
-	r.Header.Set("X-Auth-Request-Groups", "genroc-admins")
-	if got := a.OverlayHeaderRoles(tokenPrincipal, r); got.Allows([]Perm{PermAdmin}) {
-		t.Fatal("a header widened a genroc token; permissions on a token live on its row")
-	}
 }

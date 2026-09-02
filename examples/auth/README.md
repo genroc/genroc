@@ -75,17 +75,10 @@ intent.
 
 ## What it does NOT show
 
-**SSO for humans.** Both human modes ship — `jwt` and `header` — and this example uses neither:
+**SSO for humans.** genroc verifies JWTs from whatever IdP you run, and this example uses none:
 everything here is a machine holding a token, which is what keeps an identity provider out of the
-stack entirely. Wiring one up means a proxy in front of `/` with the API left direct on `/api/*`
-(§5.1), the server given `-auth-config` and `-ui`, and the browser trading its session for a
-bearer token at `/session/token`. `examples/proxy/` is that stack. Prefer `jwt` where your
-provider can mint or forward a verifiable token; the paragraph below is why.
-
-Worth knowing before you add that proxy: it **must strip the identity headers on every route it
-does not set them on**. A forwarded client copy and a genuine assertion are byte-identical by the
-time genroc sees them, so `trusted_proxies` cannot tell them apart and a forgery becomes admin
-(§6).
+stack entirely. `examples/proxy/` is the other half — Dex, a login, and a proxy that turns the
+resulting session into a bearer token genroc verifies.
 
 **TLS.** Everything here is plain HTTP on a compose network. A bearer token in cleartext is as
 exposed as a password, so a real deployment terminates TLS at an ingress or a proxy (§9).

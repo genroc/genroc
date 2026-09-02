@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  ApiError, getInstance, listInstances, sessionToken, setToken, token, type Instance,
-} from "./api.ts";
+import { ApiError, actor, getInstance, listInstances, setToken, token, type Instance } from "./api.ts";
 import { Tokens } from "./Tokens.tsx";
 
 // Deliberately small: a list of instances and one detail view. genroc's own answer to "what is
@@ -12,49 +10,19 @@ const REFRESH_MS = 3000;
 
 export function App() {
   const [tok, setTok] = useState(token());
-  const [subject, setSubject] = useState<string | null>(null);
-  const [probing, setProbing] = useState(true);
   const [status, setStatus] = useState("");
   const [rows, setRows] = useState<Instance[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | Error | null>(null);
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<"instances" | "tokens">("instances");
-  // A request succeeding with no credential proves `-auth none`. Inferred rather than asked:
-  // an endpoint reporting the mode would publish the deployment's posture to anyone.
-  const [authOff, setAuthOff] = useState(false);
+  // Reported by the server on every response, never inferred: "it worked and I sent nothing"
+  // means `-auth none` OR a proxy that authenticated us, and those are opposite things.
+  const [who, setWho] = useState<string | null>(null);
 
-  // Behind an SSO proxy the browser has a session but no token, so ask the exchange for one
-  // before falling back to the paste field. A deployment without a proxy answers 401 or 501
-  // here and the field is all there is — which is the current default, not an error.
-  //
-  // ONLY when we hold none. The exchange cannot return a token it issued before — the server
-  // stores just the hash — so every call MINTS one, and asking on each page load left a trail
-  // of live credentials behind. A token we already hold is used until something rejects it,
-  // which is what `exchange` below is for.
-  const exchange = useCallback(async () => {
-    const s = await sessionToken();
-    if (s?.token) {
-      setToken(s.token);
-      setTok(s.token);
-      setSubject(s.subject);
-    }
-    return s?.token ?? "";
-  }, []);
-
-  useEffect(() => {
-    let live = true;
-    if (token()) {
-      setProbing(false);
-      return;
-    }
-    exchange().finally(() => {
-      if (live) setProbing(false);
-    });
-    return () => {
-      live = false;
-    };
-  }, [exchange]);
+  // No credential of its own behind a proxy: the proxy attaches the JWT. Requests simply go
+  // out, and a 401 means there is no proxy and nothing was pasted — which the header renders as
+  // the input rather than as an error.
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,47 +32,26 @@ export function App() {
       const page = await listInstances(q.toString());
       setRows(page.items ?? []);
       setError(null);
-      if (!token()) setAuthOff(true);
+      setWho(actor());
     } catch (e) {
-      // A session token expires, so a 401 on a token we hold is the ordinary end of a session
-      // rather than an error to show. Trade the proxy's identity for a fresh one and retry
-      // once; a second failure is real and surfaces.
-      if (e instanceof ApiError && e.isAuth && token()) {
-        setToken("");
-        if (await exchange()) {
-          try {
-            const q = new URLSearchParams();
-            if (status) q.set("status", status);
-            const page = await listInstances(q.toString());
-            setRows(page.items ?? []);
-            setError(null);
-            return;
-          } catch (retry) {
-            setError(retry as Error);
-            setRows([]);
-            return;
-          } finally {
-            setLoading(false);
-          }
-        }
-      }
+      setWho(actor());
       setError(e as Error);
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [status, exchange]);
+  }, [status]);
 
   // Polling rather than a stream: genroc has no change feed, and a 3s poll of one page is
   // cheaper to reason about than a reconnecting socket for a screen someone watches for a
   // minute. It pauses while a detail is open, which is where the reader's attention is.
   useEffect(() => {
-    if (probing || view !== "instances") return;
+    if (view !== "instances") return;
     void load();
     if (selected) return;
     const t = setInterval(() => void load(), REFRESH_MS);
     return () => clearInterval(t);
-  }, [load, selected, probing, view]);
+  }, [load, selected, view]);
 
   function saveToken(v: string) {
     setToken(v);
@@ -127,16 +74,18 @@ export function App() {
             </button>
           ))}
         </nav>
-        {subject ? (
-          <span className="muted" title="identity forwarded by the proxy">signed in as {subject}</span>
-        ) : authOff ? (
+        {who?.startsWith("none:") ? (
           <span className="muted" title="genroc was started with -auth none">
             authentication off — every caller is an operator
+          </span>
+        ) : who ? (
+          <span className="muted" title={`genroc attributes your writes to ${who}`}>
+            signed in as {who.slice(who.indexOf(":") + 1)}
           </span>
         ) : (
           <input
             type="password"
-            placeholder="genroc_sk_… (leave empty if auth is off)"
+            placeholder="genroc_sk_… or a JWT (empty behind a proxy, or if auth is off)"
             value={tok}
             onChange={(e) => saveToken(e.target.value)}
             spellCheck={false}

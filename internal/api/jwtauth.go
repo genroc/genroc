@@ -3,8 +3,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"net"
-	"net/http"
 	"strings"
 	"time"
 
@@ -24,13 +22,6 @@ type JWTAuth struct {
 	users  map[string][]string
 	parser *jwt.Parser
 	leeway time.Duration
-
-	// rolesHeader and trusted are §2.2's hybrid: Google verifies an ID token but omits groups,
-	// so the subject comes from the token and the role list from a proxy header. Empty unless
-	// the deployment configured one, and gated on the same boundary header mode uses -- a role
-	// list from an unbounded peer is a grant from one.
-	rolesHeader string
-	trusted     []*net.IPNet
 }
 
 func NewJWTAuth(cfg *AuthConfig) (*JWTAuth, error) {
@@ -48,45 +39,14 @@ func NewJWTAuth(cfg *AuthConfig) (*JWTAuth, error) {
 		jwt.WithLeeway(leeway),
 		jwt.WithExpirationRequired(),
 	}
-	trusted, err := parseTrustedProxies(cfg.Header.TrustedProxies)
-	if err != nil {
-		return nil, err
-	}
 	return &JWTAuth{
-		keys:        newKeySet(j.JWKSURL, j.JWKSFile),
-		cfg:         j,
-		roles:       cfg.Roles,
-		users:       cfg.Users,
-		parser:      jwt.NewParser(opts...),
-		leeway:      leeway,
-		rolesHeader: cfg.Header.Roles,
-		trusted:     trusted,
+		keys:   newKeySet(j.JWKSURL, j.JWKSFile),
+		cfg:    j,
+		roles:  cfg.Roles,
+		users:  cfg.Users,
+		parser: jwt.NewParser(opts...),
+		leeway: leeway,
 	}, nil
-}
-
-// OverlayHeaderRoles adds roles a trusted proxy forwarded to an identity the TOKEN established,
-// and re-resolves the grants. specs/api-auth.md §2.2 -- the ID token verifies but carries no
-// groups, so the role map has to tolerate reading its input from a different place than the
-// subject.
-//
-// It applies only to a principal this mode produced. Overlaying onto a genroc token would let a
-// header widen a machine credential, which is the opposite of what a token's permissions-on-the-
-// row design is for.
-func (a *JWTAuth) OverlayHeaderRoles(p *Principal, r *http.Request) *Principal {
-	if p == nil || p.Source != "jwt" || a.rolesHeader == "" {
-		return p
-	}
-	if !trustedPeer(a.trusted, r.RemoteAddr) {
-		return p
-	}
-	extra := splitList(r.Header.Get(a.rolesHeader))
-	if len(extra) == 0 {
-		return p
-	}
-	q := *p
-	q.Roles = append(append([]string{}, p.Roles...), extra...)
-	q.Grants = grantsFor(a.roles, a.users, q.Subject, q.Roles)
-	return &q
 }
 
 // Authenticate verifies a bearer token and resolves it to a Principal.

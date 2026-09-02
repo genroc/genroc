@@ -39,23 +39,20 @@ transport attaches it after establishing identity; `Handle` refuses an envelope 
 rather than defaulting to open, which is why in-process callers (tests) must supply their own.
 
 `none` is still the DEFAULT, and then the transports attach `anonymousAdmin()` and nothing is
-refused — but `token`, `header` and `jwt` all ship and a deployment runs two at once
-(specs/api-auth.md §2, §3). `httpPrincipal` tries the forwarded identity first and falls back to
-the bearer credential; those cannot collide, because a browser behind the proxy carries no token
-and a machine bypassing the proxy carries no forwarded identity.
+refused. Otherwise there are exactly **two credentials and one place to read them**: the bearer
+header. genroc issues `genroc_sk_*` for machines and only verifies JWTs for people; it reads no
+identity header and no cookie. specs/auth-two-credentials.md.
 
-**`jwt` and `token` DO collide — both read `Authorization: Bearer` — so they compose through
-`Chain`.** Each declines what is not its own (`JWTAuth` skips a `genroc_sk_` prefix and anything
+**Both credentials arrive on `Authorization: Bearer`, so they compose through `Chain`.** Each declines what is not its own (`JWTAuth` skips a `genroc_sk_` prefix and anything
 without three dot-separated segments) and the first to recognise the credential answers. The rule
 that breaks silently: **a link returning an error stops the chain.** Falling through would let an
 unreachable JWKS or database read as "not authenticated", turning an outage into 401s the
 operator cannot tell from a bad client. `(nil, nil)` means "not mine"; an error means "cannot
 decide", and only the first is a fall-through.
 
-Two things in jwt mode live outside the authenticator because `Authenticate(ctx, credential)`
-never sees the request: §2.2's roles-from-a-trusted-header overlay, and §7's attribution. Both
-run in `httpPrincipal`, and both are why `Server` keeps a `jwt` field even though the
-authenticator is already installed.
+`httpPrincipal` is therefore one line. It was three modes deep with a header path, a roles
+overlay and an attribution rewrite; all of that went with header mode, and the deletion is the
+feature.
 
 **Everything under `apiPrefix` requires a credential; `publicPrefix` (`/public`) is what does
 not.** The split exists so the zone is legible from the path — a deployment writes ingress rules
@@ -82,9 +79,17 @@ The rest of this file is the part that breaks silently.
 ## The actor is `source:subject`, and only operator-initiated rows carry one
 
 `Principal.Actor()` is the ONE place an audit identity is spelled (specs/api-auth.md §7). The
-source is inside the string rather than in a second column so that `ada@example.com` can never be
-read without knowing whether genroc authenticated it (`token:`, `header:`) or merely wrote down
-what a proxy claimed (`asserted:`, from `Server.attribute` in `none` mode, which grants nothing).
+source is inside the string rather than in a second column, so a reader always knows which mode
+established the identity: `token:ci`, `jwt:ada@example.com`, `none:anonymous`. Every source that
+can appear is one genroc verified — there is no unverified one left to distinguish.
+
+**`X-Genroc-Actor` reports that same string back on every HTTP response**, set in the route
+wrapper whenever a principal exists. A client cannot infer its own identity: behind a proxy the
+browser sends no credential of its own and still succeeds, which is indistinguishable from
+`-auth none` unless the server says which. Two rules, both pinned by an e2e test — a **403 carries
+it** ("you are alice and alice may not" is the useful message), and a **401 must not**, because
+its absence is the signal to ask for a credential. HTTP only, deliberately: TCP and UDS encode a
+`Reply` and this is a presentation affordance, not part of the contract they share.
 
 **Only what an operator asked for is attributed.** The engine advances instances on its own
 behalf, so `AuditCreated` takes an actor for a ROOT instance and `""` for a spawned child, and no

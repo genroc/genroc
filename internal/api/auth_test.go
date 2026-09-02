@@ -1,7 +1,6 @@
 package api
 
 import (
-	"net/http"
 	"strings"
 	"testing"
 )
@@ -178,48 +177,5 @@ func TestPrincipalActor_CarriesTheSourceBesideTheSubject(t *testing.T) {
 					"established an identity cannot distinguish an asserted one from a checked one", got, c.want)
 			}
 		})
-	}
-}
-
-func TestAttribute_NamesTheAnonymousCallerWithoutGrantingAnything(t *testing.T) {
-	s := &Server{assertedHeader: "X-Auth-Request-Email"}
-	r := httptest(http.MethodGet, "/api/definitions")
-	r.Header.Set("X-Auth-Request-Email", "ada@example.com")
-
-	got := s.attribute(anonymousAdmin(), r)
-	if got.Actor() != "asserted:ada@example.com" {
-		t.Fatalf("Actor() = %q, want %q", got.Actor(), "asserted:ada@example.com")
-	}
-	// The source must NOT read as `header`: nothing checked where this came from, and a
-	// reader who cannot tell the two apart has been told a stronger fact than is true.
-	if got.Source == "header" {
-		t.Fatal("an unverified header was recorded as `header`, which is the source reserved " +
-			"for a value that passed trusted_proxies")
-	}
-	if !got.Allows([]Perm{PermAdmin}) {
-		t.Fatal("attribution changed the grants; in `none` mode every caller is already admin " +
-			"and this must only rename them")
-	}
-}
-
-func TestAttribute_CannotRenameAnAuthenticatedPrincipal(t *testing.T) {
-	s := &Server{assertedHeader: "X-Auth-Request-Email"}
-	r := httptest(http.MethodGet, "/api/definitions")
-	r.Header.Set("X-Auth-Request-Email", "mallory@evil.test")
-
-	tok := &Principal{Subject: "ci", Source: "token", Grants: []Grant{{Perm: PermDeploy}}}
-	got := s.attribute(tok, r)
-	if got.Actor() != "token:ci" {
-		t.Fatalf("a header renamed an authenticated principal to %q — the audit trail would "+
-			"credit a deploy to whoever set a header", got.Actor())
-	}
-}
-
-func TestAttribute_IsInertWhenNoHeaderIsConfigured(t *testing.T) {
-	s := &Server{}
-	r := httptest(http.MethodGet, "/api/definitions")
-	r.Header.Set("X-Auth-Request-Email", "ada@example.com")
-	if got := s.attribute(anonymousAdmin(), r); got.Actor() != "none:anonymous" {
-		t.Fatalf("Actor() = %q; a header nobody configured must not be read", got.Actor())
 	}
 }

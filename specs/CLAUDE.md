@@ -101,6 +101,20 @@ per-definition field) and, since 2026-09-02, `api-auth` in full.
   edge cases testable at all — and testing them revealed that the algorithm pin was NOT actually
   covered by the obvious cases, since `alg: none` and HS256 confusion both fail on key typing
   anyway.
+- [auth-two-credentials.md](auth-two-credentials.md) — **PROPOSAL, nothing built.** Revises
+  api-auth.md's mode set down to two: genroc **issues** opaque `genroc_sk_*` tokens for machines
+  and **only verifies** JWTs for people, with no path by which a proxy obtains a genroc token.
+  Drops `header` mode on the ground that it is §0's own drift argument turned on authentication —
+  its safety is a strip rule in a config genroc cannot see or test — and that api-auth.md §2.2's
+  three "no verifiable token" setups are all answered by a broker, since that is a property of
+  the PROVIDER rather than the deployment (Dex's GitHub connector even emits `org:team` groups,
+  which is more than header mode carried). Drops `/session/token` with it: that exchange solves a
+  ROUTING problem, not an identity one, and this design changes the routing — `/api/*` splits on
+  **credential presence** rather than by path, so a browser's cookie is turned into a JWT by the
+  proxy and the SPA holds no credential at all. The risk it introduces, and the line to get right,
+  is that CSRF moves to the proxy's cookie: genroc's "no cookies" rule survives literally since no
+  cookie reaches it, and `SameSite` is what closes the gap.
+
 - [custom-tasks.md](custom-tasks.md) — north-star: extend genroc **without plugins** —
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the

@@ -2,16 +2,17 @@
 #
 #   ./examples/proxy/gen-env.sh                      # once -- the evaluator's worker token
 #   docker compose -f examples/proxy/compose.yaml up --build
-#   open http://localhost:8080     -> login as alice / demo
+#   open http://localhost:8448     -> login as alice / demo
 #
 # What it demonstrates:
 #
-#   * ONE hostname, two zones. A browser hits `/`, gets redirected through a real OIDC login,
-#     and the UI trades that session for a bearer token at /session/token. `/api/*` skips the
-#     login entirely, so a machine presenting a token never meets a redirect (§5.1).
-#   * The TRUST BOUNDARY. genroc believes a forwarded identity only from inside
-#     trusted_proxies, so reaching :8448 directly and asserting a header yourself is refused —
-#     which is the difference between this being security and being decoration (§6).
+#   * ONE hostname, two ways in, chosen by whether a request already carries a credential.
+#     A browser hits `/`, gets redirected through a real OIDC login, and oauth2-proxy turns its
+#     session cookie into `Authorization: Bearer <ID token>` on every call. A machine presenting
+#     its own token goes straight through and never meets a redirect.
+#   * A SIGNATURE, not a trusted header. genroc verifies the token Dex signed, so forging your
+#     way in means forging a signature — there is no header to strip and no network position to
+#     rely on. specs/auth-two-credentials.md.
 
 name: genroc-proxy-demo
 
@@ -35,13 +36,12 @@ services:
       - postgres://genroc:genroc@postgres:5432/genroc?sslmode=disable
       - -http
       - :8448
-      # BOTH modes. The proxy identifies people; tokens identify machines. The session
-      # exchange NEEDS `-auth token`, because it mints a bearer token and without a token
-      # authenticator nothing could verify what it issued — genroc says so rather than handing
-      # the browser a credential that 401s.
+      # BOTH credential types. Dex's JWT identifies people (-auth-config); genroc's own tokens
+      # identify machines (-auth token). Both arrive on `Authorization: Bearer` and compose in
+      # one chain — each declines what is not its own.
       #
       # No secret reaches the log: with an auth-config present genroc skips the bootstrap
-      # admin, since the proxy already provides an operator path.
+      # admin, since the IdP already provides an operator path.
       - -auth
       - token
       - -auth-config
@@ -61,6 +61,16 @@ services:
       - evaluator=worker=${WORKER_TOKEN:?run ./examples/proxy/gen-env.sh first}
     volumes:
       - ./auth.yaml:/etc/genroc/auth.yaml:ro
+    # genroc EXITS when it cannot open its database -- deliberately, because a server that
+    # cannot serve is worse than one that is gone, and main.go says "the supervisor then
+    # restarts it". In compose, this line is that supervisor.
+    #
+    # It is not redundant with depends_on: that condition is honoured on `up` and NOT on
+    # `docker compose restart`, which restarts everything at once. Without this, one restart
+    # races genroc against Postgres, genroc loses, and the stack comes back with no genroc at
+    # all -- which surfaces as Caddy answering 502 to everything, because the hostname stops
+    # resolving. That reads as "auth broke" and is nothing of the kind.
+    restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
 
@@ -69,7 +79,11 @@ services:
   dex:
     build: { context: ., dockerfile: Dockerfile.dex }
     ports: ["5556:5556"]
-    volumes: [./dex/config.yaml:/etc/dex/config.yaml:ro]
+    # dexdata holds Dex's signing keys. Without it a restart rotates them, which invalidates
+    # every session that was open and every key genroc had cached. See dex/config.yaml.
+    volumes:
+      - ./dex/config.yaml:/etc/dex/config.yaml:ro
+      - dexdata:/var/dex
     command: ["dex", "serve", "/etc/dex/config.yaml"]
 
   # Runs the OIDC flow and answers "is this session valid?" for Caddy's forward_auth. It
@@ -82,7 +96,7 @@ services:
       - --provider=oidc
       - --client-id=genroc
       - --client-secret=genroc-demo-secret
-      - --redirect-url=http://localhost:8080/oauth2/callback
+      - --redirect-url=http://localhost:8448/oauth2/callback
       # Exactly 32 characters. oauth2-proxy needs 16/24/32 BYTES for its AES key and
       # base64-decodes first, so `openssl rand -base64 32` fails twice over: 44 characters,
       # and the standard alphabet is not the urlsafe one it decodes with. Hex has neither
@@ -93,7 +107,24 @@ services:
       # `groups` is NOT optional here and is easy to miss: Dex only puts group membership in the
       # token when the scope asks for it. Without it every caller arrives with no roles and
       # falls through to the "*" rule in auth.yaml -- a 403 that looks like a role-map bug.
-      - --scope=openid email profile groups
+      # offline_access asks Dex for a REFRESH token. Without one, --cookie-refresh below cannot
+      # actually refresh and can only force a fresh login; with it the session renews silently,
+      # and a session that genuinely cannot be renewed fails over to the login page instead of
+      # serving a token genroc will reject.
+      - --scope=openid email profile groups offline_access
+      # THE LINE THIS WHOLE ARRANGEMENT RESTS ON: put the ID token on the /oauth2/auth response
+      # so Caddy can copy it upstream. Without it the proxy vouches for a session and forwards
+      # nothing genroc will accept, and every browser call 401s.
+      - --set-authorization-header=true
+      # The cookie is the ambient credential this design deliberately keeps OUTSIDE genroc —
+      # genroc only ever sees the JWT. That moves the CSRF surface here, and SameSite is what
+      # closes it: Lax refuses to attach the cookie to a cross-site state-changing request, so a
+      # hostile page cannot make the browser deploy a definition. Explicit because it is
+      # invisible when wrong. specs/auth-two-credentials.md §4.
+      - --cookie-samesite=lax
+      # The ID token expires (Dex: 24h by default) while the session may not. Refreshing well
+      # inside that window keeps a long session from 401ing mid-use.
+      - --cookie-refresh=1h
       - --reverse-proxy=true
       - --skip-provider-button=true
       # oauth2-proxy sends `approval_prompt=force` by default, a Google extension. Dex read it
@@ -104,9 +135,6 @@ services:
       # published under this claim. See README for why that is not simply a rename.
       - --oidc-groups-claim=groups
       - --upstream=static://202
-      # Emits X-Auth-Request-User/Email/Groups on the /oauth2/auth response, which is exactly
-      # what Caddy's copy_headers forwards and what genroc's auth.yaml reads.
-      - --set-xauthrequest=true
       #
       # THE ONE AWKWARD PART, and it is inherent to running an IdP in Docker: an OIDC issuer
       # is one URL, but it is resolved from two places. The browser must reach `localhost:8081`
@@ -142,7 +170,10 @@ services:
 
   proxy:
     image: caddy:2-alpine
-    ports: ["8080:8080"]
+    # genroc's own default port. The proxy occupies it so that everything outside this stack --
+    # genctl, a browser, a script -- addresses genroc the way it always would, and the proxy is
+    # invisible in every URL. genroc's container port is unpublished; this is the only way in.
+    ports: ["8448:8448"]
     volumes: [./Caddyfile:/etc/caddy/Caddyfile:ro]
     depends_on:
       genroc: { condition: service_started }
@@ -150,3 +181,4 @@ services:
 
 volumes:
   pgdata:
+  dexdata:

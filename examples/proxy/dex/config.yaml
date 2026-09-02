@@ -9,7 +9,19 @@
 # --skip-oidc-discovery breaks the tie -- see compose.yaml.
 issuer: http://localhost:5556/dex
 
-storage: { type: memory }
+# PERSISTENT, and the reason is not durability -- it is that Dex keeps its SIGNING KEYS in
+# storage. With `type: memory` every restart generates new ones, which silently invalidates two
+# things at once: tokens already issued (a browser session keeps presenting one genroc can no
+# longer verify, and only a fresh login clears it) and genroc's cached JWKS (which it re-fetches,
+# but not for up to five minutes). Both look like "auth randomly broke".
+#
+# sqlite3 rather than the Postgres beside it: Dex's tables have no business in genroc's database,
+# and this keeps the two examples independent. Dex's own docs call sqlite3 right for standing up
+# quickly and wrong for real workloads -- which is exactly this.
+storage:
+  type: sqlite3
+  config:
+    file: /var/dex/dex.db
 web: { http: 0.0.0.0:5556 }
 oauth2: { skipApprovalScreen: true }
 
@@ -25,7 +37,7 @@ staticClients:
   - id: genroc
     name: genroc
     secret: genroc-demo-secret
-    redirectURIs: [http://localhost:8080/oauth2/callback]
+    redirectURIs: [http://localhost:8448/oauth2/callback]
 
 enablePasswordDB: true
 staticPasswords:

@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"time"
-
-	"genroc/internal/db"
 )
 
 // Token management over the API. specs/api-auth.md §5.
@@ -87,28 +85,4 @@ func millisTime(ms int64) string {
 		return ""
 	}
 	return time.UnixMilli(ms).UTC().Format(time.RFC3339)
-}
-
-// mintSessionToken issues the browser a bearer token carrying exactly the permissions the
-// proxy's identity resolved to. specs/api-auth.md §9.
-//
-// A real token row, not a signed blob, so the everyday properties hold: it is listable,
-// revocable, and attributable like any other. It is labelled by subject so an operator reading
-// `genctl token list` can tell a person's session from a machine's credential.
-func (h *Handlers) mintSessionToken(ctx context.Context, p *Principal, ttl time.Duration) (db.APIToken, error) {
-	perms := make([]string, 0, len(p.Grants))
-	for _, g := range p.Grants {
-		perms = append(perms, string(g.Perm))
-	}
-	if len(perms) == 0 {
-		// The proxy authenticated them and the role map gives them nothing. Minting an empty
-		// token would produce 403s on every call with no clue why; saying so here names the
-		// actual fix, which is a `roles:` entry.
-		return db.APIToken{}, forbidden("%q maps to no permissions; add a roles entry for %v",
-			p.Subject, p.Roles)
-	}
-	// Expires, unlike a machine token. The exchange cannot return a token it issued before --
-	// only the hash is stored -- so every page load mints, and a permanent one would accumulate
-	// live admin credentials for the life of the deployment.
-	return h.db.MintToken(ctx, "session:"+p.Subject, perms, db.Now().Add(ttl).UnixMilli())
 }

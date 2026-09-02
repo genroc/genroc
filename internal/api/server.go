@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"genroc/internal/model"
@@ -20,6 +19,11 @@ import (
 // HTTP listener limits. Deliberately no WriteTimeout: /tick blocks until its claimed
 // instances finish, so any useful ceiling would sever legitimate long ticks.
 // readHeaderTimeout is what bounds a connection that opens and sends nothing.
+// actorHeader reports the calling principal's identity back to it, as `source:subject`.
+// HTTP only: TCP and UDS encode a Reply and have no header channel, which is right — this is a
+// presentation affordance, not part of the API contract those clients share.
+const actorHeader = "X-Genroc-Actor"
+
 const (
 	readHeaderTimeout = 10 * time.Second
 	readTimeout       = 60 * time.Second
@@ -50,39 +54,10 @@ type Server struct {
 
 	// uiDir serves a built single-page app at `/`. Empty means no UI, and `/` 404s.
 	uiDir string
-
-	// assertedHeader is `header.subject` read for ATTRIBUTION ONLY, with no trust attached and
-	// no permission granted. It is what makes specs/api-auth.md section 7 work in `mode: none`:
-	// a deployment behind a proxy it has not yet wired into authorization still records WHO
-	// deployed, and `Principal.Source` is "asserted" rather than "header" so a reader can tell
-	// a value genroc merely wrote down from one it checked came from a trusted peer.
-	assertedHeader string
-
-	// jwt, when configured, is also inside `auth` — held separately only so §2.2's roles-from-a-
-	// header overlay can run, which needs the request that `Authenticate` does not see.
-	jwt *JWTAuth
-
-	// header is `mode: header`, checked BEFORE auth: a request arriving through the trusted
-	// proxy is already identified, and asking the token store about a credential it does not
-	// carry would only cost a query. Both may be configured at once — a deployment runs an SSO
-	// proxy for people and tokens for machines, and each request is admitted by whichever
-	// recognises it. specs/api-auth.md §2.
-	header *HeaderAuth
 }
 
 // SetUI serves a built frontend at `/`. Called once at startup, before Listen*.
 func (s *Server) SetUI(dir string) { s.uiDir = dir }
-
-// SetHeaderAuth turns on `mode: header`. Called once at startup, before Listen*.
-func (s *Server) SetHeaderAuth(h *HeaderAuth) { s.header = h }
-
-// SetAssertedHeader records an identity header for attribution without granting anything by it.
-// Called once at startup, before Listen*.
-func (s *Server) SetAssertedHeader(name string) { s.assertedHeader = name }
-
-// SetJWTAuth records the jwt mode for the §2.2 overlay. The authenticator itself still has to be
-// installed with SetAuthenticator (chained with token mode where both run).
-func (s *Server) SetJWTAuth(j *JWTAuth) { s.jwt = j }
 
 // guard authorizes a hand-written route, for the handful that cannot be registry actions
 // because they answer with something other than a Reply. Everything else goes through
@@ -95,47 +70,11 @@ func (s *Server) guard(r *http.Request, allow ...Perm) *Error {
 	return authorize(actionDef{Name: r.URL.Path, Allow: allow}, p)
 }
 
-// httpPrincipal resolves who is asking over HTTP, which is the only transport carrying headers.
-// A forwarded identity is preferred over a bearer token because a browser behind the proxy has
-// no token to send; a machine bypasses the proxy and has no forwarded identity. Neither can
-// shadow the other.
+// httpPrincipal resolves who is asking over HTTP. There is exactly one place identity can come
+// from — the bearer credential — whether that is a genroc token or a JWT the deployment's IdP
+// signed. No header carries identity and no cookie is read. specs/auth-two-credentials.md §0.
 func (s *Server) httpPrincipal(r *http.Request) (*Principal, *Error) {
-	if s.header != nil {
-		if p := s.header.PrincipalFrom(r); p != nil {
-			return p, nil
-		}
-	}
-	p, err := s.principalFor(r.Context(), bearerToken(r.Header.Get("Authorization")))
-	if err != nil {
-		return nil, err
-	}
-	if s.jwt != nil {
-		p = s.jwt.OverlayHeaderRoles(p, r)
-	}
-	return s.attribute(p, r), nil
-}
-
-// attribute names the anonymous caller of an unauthenticated deployment from a header a proxy
-// set, WITHOUT believing it: nothing about the grants changes, so a forged header buys exactly
-// the admin an unauthenticated server already gives everyone. The gain is that "who deployed
-// v7?" stops being unanswerable while auth is still off -- and that answer is permanent, where
-// waiting for auth to land loses it forever. specs/api-auth.md section 7.
-//
-// Only `none` is rewritten. An authenticated principal keeps the subject its mode established,
-// or a header would be able to rename a token.
-func (s *Server) attribute(p *Principal, r *http.Request) *Principal {
-	if s.assertedHeader == "" || p == nil || p.Source != "none" {
-		return p
-	}
-	v := strings.TrimSpace(r.Header.Get(s.assertedHeader))
-	if v == "" {
-		return p
-	}
-	// A fresh value: anonymousAdmin returns a new struct per request, but saying so here is
-	// cheaper than depending on it.
-	q := *p
-	q.Subject, q.Source = v, "asserted"
-	return &q
+	return s.principalFor(r.Context(), bearerToken(r.Header.Get("Authorization")))
 }
 
 // SetAuthenticator turns on an identity mode. Called once at startup, before Listen*.
@@ -145,12 +84,8 @@ func (s *Server) SetAuthenticator(a Authenticator) { s.auth = a }
 // unreachable) fails the request rather than answering "unauthenticated": a valid credential
 // refused as invalid is a lie the operator never sees, and 503 is the honest answer.
 func (s *Server) principalFor(ctx context.Context, credential string) (*Principal, *Error) {
-	if s.auth == nil && s.header == nil {
-		return anonymousAdmin(), nil
-	}
 	if s.auth == nil {
-		// header mode alone: a caller the proxy did not identify has no other way in.
-		return nil, nil
+		return anonymousAdmin(), nil
 	}
 	p, err := s.auth.Authenticate(ctx, credential)
 	if err != nil {
@@ -188,6 +123,19 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 					return
 				}
 				env.principal = p
+				// Told, not inferred. A caller cannot work out its own identity from the
+				// responses it gets: behind a proxy the browser holds no credential of its
+				// own, so "it worked and I sent nothing" means either `-auth none` or "the
+				// proxy authenticated me", which are opposite things. The header is the same
+				// `source:subject` the audit trail records, so what a UI shows is what a
+				// deploy will be attributed to.
+				//
+				// Set before any body is written, and only when an identity exists — its
+				// absence on a 401 is what tells a client to ask for a credential. A 403
+				// carries it, because "you are alice and alice may not" is the useful message.
+				if p != nil {
+					w.Header().Set(actorHeader, p.Actor())
+				}
 			}
 			if err != nil {
 				// The envelope only fails on a body that is not JSON at all, or one
@@ -221,47 +169,6 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 			files.ServeHTTP(w, r)
 		})
 	}
-
-	// The session exchange: what turns a browser's proxy session into a bearer token.
-	//
-	// It lives OUTSIDE /api on purpose. A deployment routes /api/* around the SSO proxy so
-	// machine callers never meet a login redirect (§5.1) — so a route that needs the proxy's
-	// injected identity cannot be under it. The browser zone `/*` already goes through the
-	// proxy, and this falls under that rule with no new ingress config.
-	//
-	// **It must never permit a cross-origin READ.** It is authenticated by whatever ambient
-	// credential the browser holds (the proxy's cookie), so a malicious page can cause the
-	// request — what stops the token escaping is that the page cannot see the response. Adding
-	// `Access-Control-Allow-Origin` here hands every site on the internet a token.
-	mux.HandleFunc("GET /session/token", func(w http.ResponseWriter, r *http.Request) {
-		if s.header == nil {
-			writeReply(w, unsupported("session exchange needs `mode: header`; this server has none").reply())
-			return
-		}
-		// A minted token is only useful if something can verify it on the next request. Header
-		// mode alone cannot: it identifies a caller by a forwarded header, and a bearer token
-		// means nothing to it. Refusing here beats handing the browser a credential that 401s
-		// on every call it makes with it — which is what this did first.
-		if s.auth == nil {
-			writeReply(w, unsupported("session exchange mints a bearer token, so it needs "+
-				"`-auth token` as well as header mode — otherwise nothing can verify what it issues").reply())
-			return
-		}
-		p := s.header.PrincipalFrom(r)
-		if p == nil {
-			writeReply(w, apiErrf(CodeUnauthenticated,
-				"no identity was forwarded — this route must be reached THROUGH the proxy").reply())
-			return
-		}
-		tok, err := s.handlers.mintSessionToken(r.Context(), p, s.header.SessionTTL())
-		if err != nil {
-			writeReply(w, errReply(err))
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		json.NewEncoder(w).Encode(map[string]any{"token": tok.Secret, "subject": p.Subject})
-	})
 
 	// The generic API documentation is UNAUTHENTICATED, and lives under its own prefix so that
 	// is legible from a routing rule. Under /api/ it read as gated and was not — the exact

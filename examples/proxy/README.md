@@ -19,21 +19,27 @@ Measured on this stack:
     carol    200              200               403
     bob      200              403               403
 
-**The genroc-relevant part is `auth.yaml`, and it is 34 lines.** Everything else is one way of
-producing a header; yours will differ.
+**The genroc-relevant part is `auth.yaml`, and it is 30 lines.** Everything else is one way of
+producing a signed token; yours will differ.
 
 ## What happens
 
-    GET /                    302 → login → 200
-    GET /session/token       alice@genroc.test → genroc_sk_…
-    GET /api/instances       200 with that bearer, 401 without
+    GET /                                302 → Dex login → 200
+    GET /api/instances  (cookie only)    proxy attaches Bearer <ID token> → 200
+    GET /api/instances  (Bearer …)       straight to genroc, no proxy in the path
 
-oauth2-proxy runs the OIDC flow and forwards the result as a header; `auth.yaml` turns that
-identity into permissions; the exchange mints a real token row carrying exactly those. From
-there every call is an ordinary bearer call — the same path a worker uses.
+oauth2-proxy runs the OIDC flow and, on every browser request, turns the session cookie into
+`Authorization: Bearer <Dex ID token>`. genroc verifies that signature against Dex's JWKS and
+`auth.yaml` turns its claims into permissions. **The browser holds no genroc credential at all**
+— nothing in `localStorage`, nothing to mint, nothing to expire.
 
-`/api/*` skips the login, so a machine never meets a redirect. That is why the exchange lives at
-`/session/token` rather than under `/api/`.
+The API is reached two ways and the router picks on one thing: whether the request already
+carries a credential. A machine's `genroc_sk_*` goes straight through, so a script never meets a
+login redirect; everything else goes via the cookie. Bypassing the proxy on that branch costs
+nothing — genroc validates the credential itself and 401s a bad one.
+
+Verified against the running stack: a browser holding only a cookie deploys a definition, and
+genroc records the actor as `jwt:alice@genroc.test`.
 
 ## Adding people
 
@@ -41,20 +47,25 @@ Two edits: a `staticPasswords` entry in `dex/config.yaml` (bcrypt: `caddy hash-p
 a line under `users:` in `auth.yaml`. Both need a restart.
 
 **The second edit is the price of `staticPasswords`**, which carries no group membership — so
-nothing populates `X-Auth-Request-Groups` and `roles:` can grant nobody anything beyond `*`.
-Swap it for a `connectors:` entry (commented in `dex/config.yaml`) and that edit disappears:
-`auth.yaml` names groups, membership lives in the directory.
+the ID token has no `groups` claim and `roles:` can grant nobody anything beyond `*`. Swap it for
+a `connectors:` entry (commented in `dex/config.yaml`) and that edit disappears: `auth.yaml`
+names groups, membership lives in the directory.
 
-Not only a demo limit — GitHub is OAuth2 rather than OIDC and Google omits groups from the ID
-token (§2.4), so real deployments land on the allowlist too.
+**Dex is also the answer for a provider that is not OIDC at all.** GitHub speaks OAuth2 and
+issues no ID token, so genroc cannot verify it directly — but Dex's GitHub connector federates it
+and mints a proper OIDC token downstream, carrying the user's org and team membership as
+`groups` in `org:team` form. So the role map reads `"my-org:platform": [admin]`, and genroc's
+side is unchanged. That is the whole reason genroc needs no non-OIDC code path.
 
 ## Connecting genctl
 
 genctl uses a genroc token; it cannot use your browser session, which lives in a proxy cookie.
 **Mint one in the UI** — log in, tokens tab, tick permissions, name it:
 
-    export GENROC_SERVER=http://localhost:8080     # the proxy, not genroc's own port
     export GENROC_TOKEN=genroc_sk_...
+
+No `GENROC_SERVER`: the proxy listens on **8448**, genroc's own default, so genctl finds it
+without being told and the proxy is invisible in every URL.
 
 Nothing is seeded for people: the browser path produces an admin session and minting is an admin
 action. Break-glass, if the UI is unreachable:
@@ -83,37 +94,60 @@ template literal as its own interpolation — caught at apply, naming the task a
 
 ## The part that is actually security
 
-genroc believes a forwarded identity **only from inside `trusted_proxies`**. Without it, anyone
-who reaches the port asserts any identity; genroc refuses to start rather than default it.
+**The guarantee is in the request, not in the network position.** genroc verifies a signature it
+can check — issuer, audience and algorithm all pinned, refused at startup if unset — so reaching
+:8448 directly buys nothing. There is no identity header to forge:
 
-### The proxy must strip what it does not set
+    curl -X PUT -H 'X-Auth-Request-Email: mallory@evil.test' … /api/definitions  → 401
 
-`trusted_proxies` is necessary and not sufficient. genroc believes the header because it arrives
-from the proxy's address, so a proxy that **forwards a client's copy** launders a forgery into a
-trusted assertion. Measured before the strip existed:
+An earlier version of this example ran genroc in `header` mode, and that same request returned
+**200 with full admin**. The defence then was a strip rule in the Caddyfile, which genroc could
+neither see nor test — a forwarded header and a laundered one are byte-identical on arrival. That
+is why the mode is gone: its safety lived in a file genroc had no way to check.
+specs/auth-two-credentials.md §1.
 
-    curl -X PUT -H 'X-Auth-Request-Email: mallory@evil.test' … /api/definitions  → 200
+### What moved instead: the cookie
 
-**genroc cannot defend against this** — a forwarded header and a laundered one are byte-identical
-on arrival, so the strip below is load-bearing and no genroc setting substitutes for it.
-
-It is also the reason to prefer **`jwt` mode**, which ships (§2.1): a signature moves the
-guarantee into the request, so a bypassed or misconfigured proxy buys an attacker nothing and
-this whole class of mistake disappears. oauth2-proxy can forward the IdP's ID token with
-`--set-authorization-header`, which is the one-line change from this stack to that one.
+The browser's session cookie is now the ambient credential, and ambient credentials are what
+CSRF exploits. genroc never sees it — it only ever reads `Authorization` — so the risk sits
+entirely with oauth2-proxy, and `--cookie-samesite=lax` is what closes it: the browser refuses to
+attach the cookie to a cross-site state-changing request, so a hostile page cannot make you
+deploy. It is set explicitly in `compose.yaml` because it is invisible when wrong.
 
 ## The pieces
 
-    Caddy         routes by path, strips what it does not set
-    oauth2-proxy  runs the OIDC flow; answers forward_auth
+    Caddy         routes on whether a request already carries a credential
+    oauth2-proxy  runs the OIDC flow; turns the cookie into a Bearer ID token
     Dex           the identity provider, users in dex/config.yaml
-    genroc        header mode for people, token mode for machines
+    genroc        verifies JWTs for people, issues tokens for machines
 
-Caddy authenticates nothing itself — it asks oauth2-proxy, which returns 202 with identity
-headers or 401. That keeps routing and stripping in one file and OIDC in the component that
-specialises in it.
+Caddy authenticates nothing itself — it asks oauth2-proxy, which answers 202 carrying the ID
+token, or 401. That keeps routing in one file and OIDC in the component that specialises in it.
 
-### Three things that cost an hour each
+### Five things that cost an hour each
+
+**`docker compose restart` used to leave you with no genroc, and it looked like an auth bug.**
+`depends_on: condition: service_healthy` is honoured on `up` and NOT on `restart`, which restarts
+everything at once — so genroc raced Postgres, lost, and exited 1 the way it is designed to when
+it cannot open its database. Nothing brought it back, and Caddy then answered **502 to every
+request** because the hostname stopped resolving. `restart: unless-stopped` on the genroc service
+is the supervisor its own `main.go` assumes exists. If you see a blanket 502, check
+`docker compose ps` for a service that is simply not there before suspecting the login.
+
+**Dex's storage has to persist, and it is not about durability.** Dex keeps its SIGNING KEYS in
+storage, so `type: memory` regenerates them on every restart — which breaks authentication in two
+directions at once, both presenting as "it randomly stopped working":
+
+- *Your browser holds a token signed by a key that no longer exists.* genroc has since fetched
+  the new JWKS and cannot verify it, ever. oauth2-proxy keeps vouching for the session, so its
+  log shows a cheerful `202` with your email while every API call 401s. Only a fresh login clears
+  it — which is why deleting the cookie "fixes" it.
+- *genroc holds the old JWKS and the token is new.* It refreshes on an unknown `kid`, but
+  rate-limited to once per five minutes (which is what stops junk `kid`s becoming a fetch storm),
+  so there is a window where nothing works and nothing is wrong.
+
+`dex/config.yaml` therefore uses `sqlite3` on a named volume, and the keys survive restarts. If
+you ever swap it back to `memory`, expect both symptoms.
 
 **The `groups` scope fails silently.** Dex emits membership only when the scope asks. Without it
 every caller arrives role-less and falls to `"*"` — a 403 that looks like a broken role map.
@@ -131,4 +165,5 @@ costs group membership, an admin UI, self-service, password reset and MFA. When 
 fitting: a `connectors:` entry federates a directory you have; LLDAP + Dex adds a small one
 (~1.5 MB, its whole UI is users and groups); Keycloak covers MFA and custom flows at ~507 MB.
 
-**genroc does not change between any of them** — all it ever sees is a header.
+**genroc does not change between any of them** — all it ever sees is a signed token and a JWKS
+to check it against.
