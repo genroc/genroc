@@ -101,6 +101,29 @@ per-definition field) and, since 2026-09-02, `api-auth` in full.
   edge cases testable at all — and testing them revealed that the algorithm pin was NOT actually
   covered by the obvious cases, since `alg: none` and HS256 confusion both fail on key typing
   anyway.
+- [ui-component.md](ui-component.md) — **PROPOSAL, nothing built.** Moves the UI out of the
+  server into its own image, which also owns the browser login. The server keeps no UI, no OIDC
+  flow and no cookie, because it is meant to be EMBEDDED — and the real cost of `-ui` was never
+  the handler but the `node` build stage the server image carries to bake `/srv/ui` in. Answers
+  api-auth.md §10 ("should genroc run the login flow itself?") with *no, but something we ship
+  should*: the flow has to live somewhere, and in the server every embedded deployment would
+  carry redirect URIs and cookie handling it has no use for. Keeps §9 literally true (the server
+  still never sees a cookie) while closing the gap auth-two-credentials.md §4 left open — that
+  `SameSite` guards the browser path from inside oauth2-proxy's config, which is the same
+  "security in a file genroc cannot check" that retired `header` mode. Its sharpest structural
+  consequence: **the credential-presence matcher disappears rather than moving**, because browsers
+  and machines now arrive at different components and nothing has to route on what a request
+  carries. Takes Caddy AND oauth2-proxy out of `examples/proxy/`. §5.1 draws the boundary that
+  keeps it small: **it relays, it never issues.** Google and every other OIDC provider connect
+  directly and cost nothing; GitHub cannot, because with no ID token to forward genroc-ui would
+  have to MINT one — a signing key and a JWKS — and an issuer with connectors is Dex, which would
+  cost us the very argument §1 of auth-two-credentials rests on. **Embedding Dex** as a library is
+  possible and rejected there too: it brings back the signing-key storage that already bit the
+  example, puts SAML/LDAP/etcd in the module graph, turns a Dex advisory from an image-tag bump
+  into our release — and optimises the exception, since the default deployment is genroc +
+  genroc-ui with no Dex at all. Reopen if a single-BINARY deployment (VM, systemd, no
+  orchestrator) makes a second process the obstacle rather than a second line of YAML.
+
 - [auth-two-credentials.md](auth-two-credentials.md) — **PROPOSAL, nothing built.** Revises
   api-auth.md's mode set down to two: genroc **issues** opaque `genroc_sk_*` tokens for machines
   and **only verifies** JWTs for people, with no path by which a proxy obtains a genroc token.

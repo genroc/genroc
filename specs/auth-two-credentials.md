@@ -6,6 +6,11 @@ where they no longer describe behaviour. Verified end to end against `examples/p
 holding only a session cookie deploys a definition, and genroc records the actor as
 `jwt:alice@genroc.test`.
 
+> **Followed by [ui-component.md](ui-component.md) (proposal, 2026-09-02)**, which moves the
+> browser's half into a `genroc-ui` image: the UI leaves the server binary and takes the login
+> flow with it, so §3's credential-presence routing and §4's dependence on the proxy's `SameSite`
+> both go away. Everything below about what the SERVER accepts is unchanged by it.
+
 ## 0. The rule
 
 **genroc accepts exactly two kinds of credential, both on `Authorization: Bearer`:**
