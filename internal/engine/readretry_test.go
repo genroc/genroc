@@ -80,7 +80,7 @@ func TestRetryRead_DanglingReferenceFailsTheInstanceLoudly(t *testing.T) {
 	if err := database.SaveDefinition(&model.ProcessDefinition{
 		Name:  process,
 		Tasks: []*model.Task{{ID: "read", Output: &model.Shape{Raw: map[string]any{"got": "$: input.blob"}}, Switch: model.SwitchMap{{Goto: model.GotoEnd}}}},
-	}, 1, nil, process+"-hash", ""); err != nil {
+	}, 1, nil, process+"-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition: %v", err)
 	}
 

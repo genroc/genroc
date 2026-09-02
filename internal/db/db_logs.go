@@ -165,6 +165,7 @@ func buildLogParams(entry *model.LogEntry) (dbgen.InsertLogParams, error) {
 		Message:    entry.Message,
 		Code:       entry.Code,
 		Data:       entry.Data, // the payload as a value, with its cut pieces removed
+		Actor:      entry.Actor,
 		Objects:    marshalRefs(entry.Objects),
 		Meta:       meta,
 		CreatedAt:  createdAt,
@@ -229,14 +230,18 @@ func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 			end := min(start+logBatchRows, len(rows))
 			chunk := rows[start:end]
 			var sb strings.Builder
-			sb.WriteString(`INSERT INTO process_logs (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at) VALUES `)
-			args := make([]any, 0, len(chunk)*11)
+			// This column list is the SECOND place a log column is spelled -- InsertLog in
+			// queries.sql is the other, used by AppendLogValue for rows carrying objects. A
+			// column added to one and not the other is written on the rare path and dropped
+			// on the common one, which reads as the feature not working at all.
+			sb.WriteString(`INSERT INTO process_logs (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at, actor) VALUES `)
+			args := make([]any, 0, len(chunk)*12)
 			for i, r := range chunk {
 				if i > 0 {
 					sb.WriteByte(',')
 				}
-				sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?)")
-				args = append(args, r.ID, r.InstanceID, r.Level, r.Event, r.TaskID, r.Message, r.Code, r.Data, r.Objects, r.Meta, r.CreatedAt)
+				sb.WriteString("(?,?,?,?,?,?,?,?,?,?,?,?)")
+				args = append(args, r.ID, r.InstanceID, r.Level, r.Event, r.TaskID, r.Message, r.Code, r.Data, r.Objects, r.Meta, r.CreatedAt, r.Actor)
 			}
 			if _, err := exec.ExecContext(ctx, sb.String(), args...); err != nil {
 				return err
@@ -248,7 +253,7 @@ func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 
 // logColumns is the pl.-qualified SELECT list shared by both log queries (the
 // flat query aliases process_logs pl; the subtree query joins it as pl).
-const logColumns = `pl.id, pl.instance_id, pl.level, pl.event, pl.task_id, pl.message, pl.code, pl.data, pl.objects, pl.meta, pl.created_at`
+const logColumns = `pl.id, pl.instance_id, pl.level, pl.event, pl.task_id, pl.message, pl.code, pl.data, pl.objects, pl.meta, pl.created_at, pl.actor`
 
 // logSubtreeCTE walks parent_id from a seed, tagging depth. Hand-written (sqlc's SQLite
 // grammar can't parse WITH RECURSIVE; both drivers support it). treeLogsPrefix is the
@@ -307,7 +312,7 @@ func (db *DB) ListTreeLogs(rootID string, opts LogQuery) ([]*model.LogEntry, Pag
 func scanLogRow(s rowScanner, withDepth bool) (*model.LogEntry, error) {
 	var r dbgen.ProcessLog
 	var depth int64
-	dest := []any{&r.ID, &r.InstanceID, &r.Level, &r.Event, &r.TaskID, &r.Message, &r.Code, &r.Data, &r.Objects, &r.Meta, &r.CreatedAt}
+	dest := []any{&r.ID, &r.InstanceID, &r.Level, &r.Event, &r.TaskID, &r.Message, &r.Code, &r.Data, &r.Objects, &r.Meta, &r.CreatedAt, &r.Actor}
 	if withDepth {
 		dest = append(dest, &depth)
 	}
@@ -338,6 +343,7 @@ func toLogEntry(r dbgen.ProcessLog) (*model.LogEntry, error) {
 		TaskID:     r.TaskID,
 		Message:    r.Message,
 		Code:       r.Code,
+		Actor:      r.Actor,
 		Data:       r.Data,
 		Objects:    decodeRefs(r.Objects),
 		CreatedAt:  toTime(r.CreatedAt),

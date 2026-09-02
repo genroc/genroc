@@ -206,7 +206,7 @@ var registry = func() []actionDef {
 			},
 			Resp: map[string]any{"name": "order_pipeline", "version": 1, "saved": true},
 			handle: func(h *Handlers, env Envelope) Reply {
-				return h.putDefinition(env.Payload)
+				return h.putDefinition(env.Payload, env.principal.Actor())
 			},
 		},
 		{
@@ -251,7 +251,7 @@ var registry = func() []actionDef {
 				Version: 1, Status: model.StatusRunning,
 			},
 			handle: func(h *Handlers, env Envelope) Reply {
-				return h.startInstance(env.Payload)
+				return h.startInstance(env.Payload, env.principal.Actor())
 			},
 		},
 		{
@@ -311,7 +311,7 @@ var registry = func() []actionDef {
 			},
 			Resp: []BatchApplyResult{{Name: "child_process", Version: 1, Saved: true}},
 			handle: func(h *Handlers, env Envelope) Reply {
-				return h.putDefinitions(env.Payload)
+				return h.putDefinitions(env.Payload, env.principal.Actor())
 			},
 		},
 		{
@@ -580,7 +580,7 @@ var registry = func() []actionDef {
 				{Status: http.StatusNoContent},
 			},
 			handle: func(h *Handlers, env Envelope) Reply {
-				return h.pauseInstance(env.ID)
+				return h.pauseInstance(env.ID, env.principal.Actor())
 			},
 		},
 		{
@@ -598,7 +598,7 @@ var registry = func() []actionDef {
 			// No 202: a resume is atomic, nothing is left draining (pause-resume.md §7).
 			AltSuccess: []altResp{{Status: http.StatusNoContent}},
 			handle: func(h *Handlers, env Envelope) Reply {
-				return h.resumeInstance(env.ID)
+				return h.resumeInstance(env.ID, env.principal.Actor())
 			},
 		},
 		{
@@ -620,7 +620,7 @@ var registry = func() []actionDef {
 				return Envelope{Action: "retry_instance", ID: r.PathValue("id"), Payload: b}, nil
 			},
 			handle: func(h *Handlers, env Envelope) Reply {
-				return h.retryInstance(env.ID, env.Payload)
+				return h.retryInstance(env.ID, env.Payload, env.principal.Actor())
 			},
 		},
 		{
@@ -639,7 +639,7 @@ var registry = func() []actionDef {
 			// No fromHTTP: the default envelope already reads the body and takes {id} from
 			// the path, which is exactly this endpoint's shape.
 			handle: func(h *Handlers, env Envelope) Reply {
-				return h.upgradeInstance(env.ID, env.Payload)
+				return h.upgradeInstance(env.ID, env.Payload, env.principal.Actor())
 			},
 		},
 		{

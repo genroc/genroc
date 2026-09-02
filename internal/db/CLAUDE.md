@@ -107,6 +107,18 @@ task re-entered by a loop spawns a fresh batch under the same pair.
   `scanInstance` because of its trailing `prev_worker`). Missing the third fails only on
   Postgres, and only at runtime.
 
+### A log column is spelled TWICE, and the common path is the hand-written one
+
+`process_logs` has two insert paths and adding a column to one alone fails silently in the
+direction that looks like the feature never worked: `InsertLog` in `queries.sql` serves
+`AppendLogValue` (rows carrying objects, the rare case), while `writeLogBatch` builds a
+hand-written multi-row INSERT for the BUFFERED path, which is nearly every row. A column added
+to sqlc only is written by the rare path and dropped by the common one.
+
+Reading it back is a third and fourth place: `logColumns` (the shared `pl.`-qualified SELECT) and
+`scanLogRow`'s destination list, plus `toLogEntry` to copy it onto the model. The `actor` column
+(migration 038) cost three of these four before a test caught it.
+
 ### `engine_state` is a whitelist, and a missing key is dropped in silence
 
 `engineStateKeys` maps the engine-internal context keys (`_spawn_child_key`, `_spawn_index`,

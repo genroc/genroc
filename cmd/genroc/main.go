@@ -135,21 +135,30 @@ func main() {
 
 	// A forwarded identity and a bearer token are independent: either may be configured, and a
 	// deployment serving both people and machines configures both.
+	headerAuthOn := false
 	if *authConfig != "" {
 		cfg, err := api.LoadAuthConfig(*authConfig)
 		if err != nil {
 			log.Error("auth-config", "err", err)
 			os.Exit(1)
 		}
-		if cfg.Mode == "header" {
+		switch {
+		case cfg.Mode == "header":
 			h, err := api.NewHeaderAuth(cfg)
 			if err != nil {
 				log.Error("auth-config", "err", err)
 				os.Exit(1)
 			}
 			srv.SetHeaderAuth(h)
+			headerAuthOn = true
 			log.Info("API authentication enabled", "mode", "header",
 				"subject_header", cfg.Header.Subject, "trusted_proxies", cfg.Header.TrustedProxies)
+		case cfg.Header.Subject != "":
+			// Named but not trusted: attribution only, so a deployment that has not turned auth
+			// on yet still records who deployed. specs/api-auth.md §7.
+			srv.SetAssertedHeader(cfg.Header.Subject)
+			log.Info("recording asserted identity for attribution only",
+				"subject_header", cfg.Header.Subject, "grants", "none")
 		}
 	}
 
@@ -158,7 +167,9 @@ func main() {
 		// The pre-auth default. Loud rather than silent when it is also reachable off-host:
 		// `docker run -p` puts an unauthenticated PUT /definitions on the network, and that
 		// should be a decision. specs/api-auth.md §6.
-		if exposedAddr(*httpAddr) && *authConfig == "" {
+		// Keyed on header auth actually being ON, not on a config file existing: an
+		// attribution-only config leaves every endpoint as open as it was.
+		if exposedAddr(*httpAddr) && !headerAuthOn {
 			log.Warn("API is UNAUTHENTICATED and bound beyond loopback — anyone who reaches this port can register a definition, which is arbitrary code execution on this server. Use -auth token, or bind to localhost.",
 				"addr", *httpAddr)
 		}
@@ -190,7 +201,7 @@ func main() {
 		// and the role map gives them admin — so minting a bootstrap credential nobody asked
 		// for, and printing it to a log, is pure exposure. Skip it and let the proxy be the
 		// answer; `genroc token create` remains the break-glass path either way.
-		if *authConfig != "" && secret == "" {
+		if headerAuthOn && secret == "" {
 			log.Info("skipping bootstrap token", "reason", "header mode provides an operator path")
 			srv.SetAuthenticator(api.NewTokenAuth(database))
 			log.Info("API authentication enabled", "mode", "token")

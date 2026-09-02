@@ -506,7 +506,7 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 }
 
 const getDefinition = `-- name: GetDefinition :one
-SELECT name, version, definition, content_hash, created_at
+SELECT name, version, definition, content_hash, created_at, actor
 FROM process_definitions
 WHERE name = ?1 AND version = ?2
 `
@@ -525,6 +525,7 @@ func (q *Queries) GetDefinition(ctx context.Context, arg GetDefinitionParams) (P
 		&i.Definition,
 		&i.ContentHash,
 		&i.CreatedAt,
+		&i.Actor,
 	)
 	return i, err
 }
@@ -687,8 +688,8 @@ func (q *Queries) InsertAPIToken(ctx context.Context, arg InsertAPITokenParams) 
 }
 
 const insertDefinition = `-- name: InsertDefinition :exec
-INSERT INTO process_definitions (name, version, definition, content_hash, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5)
+INSERT INTO process_definitions (name, version, definition, content_hash, created_at, actor)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
 ON CONFLICT (name, version) DO UPDATE SET definition = EXCLUDED.definition
 `
 
@@ -698,8 +699,11 @@ type InsertDefinitionParams struct {
 	Definition  string
 	ContentHash string
 	CreatedAt   int64
+	Actor       string
 }
 
+// The conflict path leaves actor alone: re-applying identical content does not re-deploy it,
+// so the first deployer keeps the credit rather than the latest caller taking it.
 func (q *Queries) InsertDefinition(ctx context.Context, arg InsertDefinitionParams) error {
 	_, err := q.db.ExecContext(ctx, insertDefinition,
 		arg.Name,
@@ -707,6 +711,7 @@ func (q *Queries) InsertDefinition(ctx context.Context, arg InsertDefinitionPara
 		arg.Definition,
 		arg.ContentHash,
 		arg.CreatedAt,
+		arg.Actor,
 	)
 	return err
 }
@@ -818,10 +823,10 @@ func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) 
 
 const insertLog = `-- name: InsertLog :exec
 INSERT INTO process_logs
-    (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at)
+    (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at, actor)
 VALUES
     (?1, ?2, ?3, ?4,
-     ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+     ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
 `
 
 type InsertLogParams struct {
@@ -836,6 +841,7 @@ type InsertLogParams struct {
 	Objects    string
 	Meta       string
 	CreatedAt  int64
+	Actor      string
 }
 
 func (q *Queries) InsertLog(ctx context.Context, arg InsertLogParams) error {
@@ -851,6 +857,7 @@ func (q *Queries) InsertLog(ctx context.Context, arg InsertLogParams) error {
 		arg.Objects,
 		arg.Meta,
 		arg.CreatedAt,
+		arg.Actor,
 	)
 	return err
 }

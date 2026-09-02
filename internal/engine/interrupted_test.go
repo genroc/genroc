@@ -46,7 +46,7 @@ func interruptedFixture(t *testing.T, database *db.DB, name string, status model
 		},
 		{ID: "verify", Switch: model.SwitchMap{{Goto: model.GotoEnd}}},
 	}
-	if err := database.SaveDefinition(&model.ProcessDefinition{Name: process, Tasks: tasks}, 1, nil, process+"-hash", ""); err != nil {
+	if err := database.SaveDefinition(&model.ProcessDefinition{Name: process, Tasks: tasks}, 1, nil, process+"-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition: %v", err)
 	}
 
@@ -205,7 +205,7 @@ func TestInterrupted_PlainTaskStillReRuns(t *testing.T) {
 		Action: &model.Action{Type: model.ActionTypeFetch, URL: srv.URL},
 		Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 	}}
-	if err := database.SaveDefinition(&model.ProcessDefinition{Name: process, Tasks: tasks}, 1, nil, process+"-hash", ""); err != nil {
+	if err := database.SaveDefinition(&model.ProcessDefinition{Name: process, Tasks: tasks}, 1, nil, process+"-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition: %v", err)
 	}
 	id := fmt.Sprintf("plain-i-%d", time.Now().UnixNano())
@@ -290,7 +290,7 @@ func TestInterrupted_WhilePausing_PlainTaskJustPauses(t *testing.T) {
 		Action: &model.Action{Type: model.ActionTypeFetch, URL: "http://127.0.0.1:1/never"},
 		Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 	}}
-	if err := database.SaveDefinition(&model.ProcessDefinition{Name: process, Tasks: tasks}, 1, nil, process+"-hash", ""); err != nil {
+	if err := database.SaveDefinition(&model.ProcessDefinition{Name: process, Tasks: tasks}, 1, nil, process+"-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition: %v", err)
 	}
 	id := fmt.Sprintf("pausingplain-i-%d", time.Now().UnixNano())

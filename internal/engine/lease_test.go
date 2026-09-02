@@ -46,7 +46,7 @@ func TestGracefulShutdown_ReleasesLeases(t *testing.T) {
 		Action: &model.Action{Type: model.ActionTypeFetch, URL: srv.URL},
 		Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 	}}
-	if err := database.SaveDefinition(&model.ProcessDefinition{Name: processName, Tasks: tasks}, 1, nil, "graceful-hash", ""); err != nil {
+	if err := database.SaveDefinition(&model.ProcessDefinition{Name: processName, Tasks: tasks}, 1, nil, "graceful-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition: %v", err)
 	}
 
@@ -369,7 +369,7 @@ func seedInstance(t *testing.T, database *db.DB, prefix, url string) string {
 		Action: &model.Action{Type: model.ActionTypeFetch, URL: url},
 		Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 	}}
-	if err := database.SaveDefinition(&model.ProcessDefinition{Name: name, Tasks: tasks}, 1, nil, name+"-hash", ""); err != nil {
+	if err := database.SaveDefinition(&model.ProcessDefinition{Name: name, Tasks: tasks}, 1, nil, name+"-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition: %v", err)
 	}
 	id := fmt.Sprintf("%s-i-%d", prefix, time.Now().UnixNano())

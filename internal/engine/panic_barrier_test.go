@@ -62,7 +62,7 @@ func TestAdvancePanicFailsInstanceInsteadOfWorker(t *testing.T) {
 			Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 		}},
 	}
-	if err := database.SaveDefinition(def, 1, nil, "", "latest"); err != nil {
+	if err := database.SaveDefinition(def, 1, nil, "", "latest", ""); err != nil {
 		t.Fatalf("save definition: %v", err)
 	}
 	inst := saveInstance(t, database, "panics", nil)
@@ -113,7 +113,7 @@ func TestAdvancePanicSurvivesAPanicWhileRecordingIt(t *testing.T) {
 		Name:  "panics_twice",
 		Tasks: []*model.Task{nil}, // marshals to "tasks":[null]
 	}
-	if err := database.SaveDefinition(def, 1, nil, "", "latest"); err != nil {
+	if err := database.SaveDefinition(def, 1, nil, "", "latest", ""); err != nil {
 		t.Fatalf("save definition: %v", err)
 	}
 	inst := saveInstance(t, database, "panics_twice", map[string]any{"input": map[string]any{}})

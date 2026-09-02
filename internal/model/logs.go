@@ -73,9 +73,13 @@ type LogEntry struct {
 	Data       string   `json:"data,omitempty"`
 	// Objects lists this entry's externalized pieces, with paths rooted at Data. Beside the
 	// payload rather than inside it, the same as every other owner. specs/object-store.md.
-	Objects   []*ObjectRef   `json:"objects,omitempty"`
-	Meta      map[string]any `json:"meta,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
+	Objects []*ObjectRef   `json:"objects,omitempty"`
+	Meta    map[string]any `json:"meta,omitempty"`
+	// Actor is who caused this entry, as `source:subject`. Set only on operator-initiated
+	// events; the engine advances on its own behalf and leaves it empty rather than
+	// crediting whoever started the run. specs/api-auth.md section 7.
+	Actor     string    `json:"actor,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 	// Depth is the instance's distance from the queried subtree root; only set by
 	// ListTreeLogs (0 for single-instance queries). Not persisted.
 	Depth int `json:"-"`

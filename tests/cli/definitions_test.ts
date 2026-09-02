@@ -191,13 +191,13 @@ test("validate — exits non-zero for an invalid definition", () => {
 
 // ── definitions: displayed fields ───────────────────────────────────────────────
 
-test("definitions — the table commits to NAME, VERSION, REGISTERED and RAISES", () => {
+test("definitions — the table commits to NAME, VERSION, REGISTERED, BY and RAISES", () => {
   const code = uid("code");
   const name = uid("raiser");
   runCli(bin, ["apply", "-f", writeDefs([raisingDef(name, code)])]);
 
   const lines = runCli(bin, ["definitions", "--since", "1h"]).stdout.trim().split("\n");
-  expect(lines[0].split(/\s+/)).toEqual(["NAME", "VERSION", "REGISTERED", "RAISES"]);
+  expect(lines[0].split(/\s+/)).toEqual(["NAME", "VERSION", "REGISTERED", "BY", "RAISES"]);
 
   const row = lines.find((l) => l.startsWith(name))!;
   expect(row).toContain("v1");

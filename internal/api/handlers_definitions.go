@@ -14,7 +14,7 @@ import (
 	"genroc/internal/validation"
 )
 
-func (h *Handlers) putDefinition(raw json.RawMessage) Reply {
+func (h *Handlers) putDefinition(raw json.RawMessage, actor string) Reply {
 	req, err := decodeBody[PutDefinitionReq](raw)
 	if err != nil {
 		return errReply(err)
@@ -39,7 +39,7 @@ func (h *Handlers) putDefinition(raw json.RawMessage) Reply {
 	if _, err := req.ResolveConfig(os.LookupEnv); err != nil {
 		return errReply(err)
 	}
-	if err := h.db.SaveDefinition(&req.ProcessDefinition, version, nil, "", defaultChannel); err != nil {
+	if err := h.db.SaveDefinition(&req.ProcessDefinition, version, nil, "", defaultChannel, actor); err != nil {
 		return errReply(fmt.Errorf("save: %w", err))
 	}
 	return okReply(map[string]interface{}{"saved": true, "name": req.Name, "version": version})
@@ -62,6 +62,7 @@ func (h *Handlers) listDefinitions(raw json.RawMessage) Reply {
 			Version:   d.Version,
 			CreatedAt: d.CreatedAt.Format(time.RFC3339Nano),
 			Raises:    d.Def.Raises(),
+			Actor:     d.Actor,
 		}
 	}
 	return okReply(PageResp[DefinitionSummary]{Items: summaries, Page: info})
@@ -100,7 +101,7 @@ func (g *batchGetter) LatestVersion(name string) (int, error) {
 	return g.db.LatestVersion(name)
 }
 
-func (h *Handlers) putDefinitions(raw json.RawMessage) Reply {
+func (h *Handlers) putDefinitions(raw json.RawMessage, actor string) Reply {
 	req, err := decodeBody[PutDefinitionsBatchReq](raw)
 	if err != nil {
 		return errReply(err)
@@ -108,7 +109,7 @@ func (h *Handlers) putDefinitions(raw json.RawMessage) Reply {
 	if req.Channel == "" {
 		req.Channel = defaultChannel
 	}
-	results, err := h.applyBatch(req.Definitions, req.Channel)
+	results, err := h.applyBatch(req.Definitions, req.Channel, actor)
 	if err != nil {
 		return errReply(err)
 	}
@@ -118,7 +119,7 @@ func (h *Handlers) putDefinitions(raw json.RawMessage) Reply {
 // applyBatch validates every definition first (against its batch siblings' versions),
 // then commits the lot in one transaction. Nothing in planning may write, nothing in the
 // commit may judge — interleaving once left an apply half-landed. See CLAUDE.md.
-func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string) ([]BatchApplyResult, error) {
+func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor string) ([]BatchApplyResult, error) {
 	ptrs := make([]*model.ProcessDefinition, len(defs))
 	for i := range defs {
 		ptrs[i] = &defs[i]
@@ -190,7 +191,7 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel string) ([
 
 		plan = append(plan, db.DefinitionWrite{
 			Def: def, Name: def.Name, Version: newVersion, Deps: newDeps, Hash: hash,
-			Channels: h.channelsFor(def.Name, channel),
+			Channels: h.channelsFor(def.Name, channel), Actor: actor,
 		})
 		batchVersions[def.Name] = newVersion
 		results = append(results, BatchApplyResult{Name: def.Name, Version: newVersion, Saved: true})

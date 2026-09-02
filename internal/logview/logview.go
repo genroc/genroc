@@ -132,6 +132,7 @@ type Record struct {
 	Task  string
 	Msg   string // human note
 	Code  string
+	Actor string // who asked for this, on operator-initiated events only
 	Data  string // body (request/response/input/output/…)
 	Meta  map[string]any
 }
@@ -145,6 +146,11 @@ func (r Record) Detail(mode Mode) []Field {
 	}
 	if r.Code != "" {
 		fs = append(fs, Field{"code", r.Code})
+	}
+	// "by", not "actor": this sits among msg/code in a dense one-line trail, and the events
+	// carrying it are the ones an operator scans asking who did it.
+	if r.Actor != "" {
+		fs = append(fs, Field{"by", r.Actor})
 	}
 	for _, k := range sortedKeys(r.Meta) {
 		fs = append(fs, Field{k, r.Meta[k]})

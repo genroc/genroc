@@ -301,6 +301,10 @@ type DefinitionSummary struct {
 	// answer to "what can this process raise?" and therefore to "what may a parent write
 	// on_error rules against?". Panic codes are excluded: nothing can catch a panic.
 	Raises []string `json:"raises,omitempty"`
+	// Actor is who deployed this version, as `source:subject`. Absent for anything applied
+	// before attribution landed, which is permanent rather than pending -- the fact was never
+	// recorded. specs/api-auth.md section 7.
+	Actor string `json:"actor,omitempty"`
 }
 
 type BatchApplyResult struct {
@@ -437,8 +441,11 @@ type LogEntryResp struct {
 	Task     string         `json:"task,omitempty"`
 	Message  string         `json:"message,omitempty"`
 	Code     string         `json:"code,omitempty"`
-	Data     any            `json:"data,omitempty"` // payload (input/output/request/response body) as a value; parts the cut moved out are absent here and listed in Objects
-	Meta     map[string]any `json:"meta,omitempty"` // small, complete, parseable metadata (e.g. {"url":…}, {"status":200})
+	// Actor is who caused this entry, as `source:subject`; present only on operator-initiated
+	// events. specs/api-auth.md section 7.
+	Actor string         `json:"actor,omitempty"`
+	Data  any            `json:"data,omitempty"` // payload (input/output/request/response body) as a value; parts the cut moved out are absent here and listed in Objects
+	Meta  map[string]any `json:"meta,omitempty"` // small, complete, parseable metadata (e.g. {"url":…}, {"status":200})
 	// Objects lists this ENTRY's externalized values, with paths rooted at the entry —
 	// ["data"], not ["items", 3, "data"]. A section belongs to whatever object owns the values
 	// it names, which is what keeps it correct in a list: a path containing a position is valid

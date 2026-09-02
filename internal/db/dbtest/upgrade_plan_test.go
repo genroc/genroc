@@ -59,7 +59,7 @@ func parentPinning(t *testing.T, db *dbpkg.DB, version, kidVersion int) {
 		Action: &model.Action{Type: model.ActionTypeChild, Name: "kid", Version: kidVersion},
 		Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 	}}}
-	if err := db.SaveDefinition(def, version, nil, "par-h", ""); err != nil {
+	if err := db.SaveDefinition(def, version, nil, "par-h", "", ""); err != nil {
 		t.Fatalf("SaveDefinition par@%d: %v", version, err)
 	}
 }
@@ -69,7 +69,7 @@ func saveKidDef(t *testing.T, db *dbpkg.DB, version int) {
 	def := &model.ProcessDefinition{Name: "kid", Tasks: []*model.Task{
 		{ID: "run", Switch: model.SwitchMap{{Goto: model.GotoEnd}}},
 	}}
-	if err := db.SaveDefinition(def, version, nil, "kid-h", ""); err != nil {
+	if err := db.SaveDefinition(def, version, nil, "kid-h", "", ""); err != nil {
 		t.Fatalf("SaveDefinition kid@%d: %v", version, err)
 	}
 }

@@ -62,6 +62,23 @@ type Principal struct {
 	Source  string   // which mode admitted it; for the trail, never for a decision
 }
 
+// Actor renders this principal for an audit trail, as `source:subject` -- `token:ci`,
+// `header:ada@example.com`, `none:anonymous`.
+//
+// The source is IN the string rather than beside it because the two facts are only useful
+// together: `ada@example.com` alone cannot say whether genroc authenticated that identity or
+// merely wrote down what a proxy asserted, and a reader who has to join a second column to
+// find out is a reader who will not. specs/api-auth.md section 7.
+//
+// Nil yields "", so an Open action that reaches a write path records no actor rather than
+// panicking -- there is no identity to record and inventing one would be worse.
+func (p *Principal) Actor() string {
+	if p == nil {
+		return ""
+	}
+	return p.Source + ":" + p.Subject
+}
+
 // anonymousAdmin is the principal `mode: none` produces. It is the pre-auth behaviour written
 // down rather than a special case in the check: with auth off every caller is an operator, and
 // the startup warning (not this) is what says so out loud.
@@ -183,9 +200,11 @@ func (a *TokenAuth) Authenticate(ctx context.Context, credential string) (*Princ
 		grants = append(grants, Grant{Perm: Perm(p)})
 	}
 	a.touch(ctx, tok.ID)
+	// The id alone, not "token:"+id: Actor() prefixes the source, and a labelless token would
+	// otherwise be attributed as `token:token:<id>`.
 	subject := tok.Label
 	if subject == "" {
-		subject = "token:" + tok.ID
+		subject = tok.ID
 	}
 	return &Principal{Subject: subject, Grants: grants, Source: "token"}, nil
 }

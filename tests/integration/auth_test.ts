@@ -23,10 +23,10 @@ async function req(path: string, token: string | null, init: RequestInit = {}) {
 }
 
 /** Mints a token with the given permissions, using the bootstrap admin. */
-async function mint(perms: string[]): Promise<string> {
+async function mint(perms: string[], label = perms.join("-")): Promise<string> {
   const { status, body } = await req("/api/tokens", ADMIN, {
     method: "POST",
-    body: JSON.stringify({ label: perms.join("-"), perms }),
+    body: JSON.stringify({ label, perms }),
   });
   expect(status, `mint ${perms}: ${JSON.stringify(body)}`).toBe(200);
   return body.token as string;
@@ -135,4 +135,88 @@ test("auth — an unknown permission is refused at mint, not discovered from a l
   });
   expect(status).toBe(400);
   expect(body.error).toContain("deployy");
+});
+
+// ── attribution ──────────────────────────────────────────────────────────────
+// specs/api-auth.md §7. The actor is `source:subject`, so a reader can never mistake an
+// identity a proxy asserted for one genroc authenticated. These run here rather than in Go
+// because the value has to survive the whole path — principal, handler, column, response.
+
+test("attribution — a deployed version records who deployed it", async () => {
+  const deploy = await mint(["deploy"], "release-bot");
+  const name = `attrib_${crypto.randomUUID().slice(0, 8)}`;
+
+  expect(
+    (await req("/api/definitions", deploy, {
+      method: "PUT",
+      body: JSON.stringify({ name, tasks: [{ id: "a", switch: [{ goto: "end" }] }] }),
+    })).status,
+  ).toBe(200);
+
+  const listed = await req("/api/definitions?limit=100", ADMIN);
+  const row = (listed.body.items as { name: string; actor?: string }[]).find((d) => d.name === name);
+  expect(
+    row?.actor,
+    "a version was deployed with no actor recorded — 'who deployed v7?' is what §7 exists to answer",
+  ).toBe("token:release-bot");
+});
+
+test("attribution — the source is in the actor, so an asserted identity cannot pass as an authenticated one", async () => {
+  const deploy = await mint(["deploy"], "ada@example.com");
+  const name = `attrib_src_${crypto.randomUUID().slice(0, 8)}`;
+  await req("/api/definitions", deploy, {
+    method: "PUT",
+    body: JSON.stringify({ name, tasks: [{ id: "a", switch: [{ goto: "end" }] }] }),
+  });
+
+  const listed = await req("/api/definitions?limit=100", ADMIN);
+  const row = (listed.body.items as { name: string; actor?: string }[]).find((d) => d.name === name);
+  // The subject alone would be indistinguishable from a proxy-asserted `ada@example.com`,
+  // which is the whole reason the source is carried in the same string.
+  expect(row?.actor).toBe("token:ada@example.com");
+  expect(row?.actor?.startsWith("token:")).toBe(true);
+});
+
+test("attribution — an operator verb is recorded on the instance's trail, and the engine's own rows are not", async () => {
+  const op = await mint(["deploy", "operate", "read"], "oncall-kim");
+  const name = `attrib_pause_${crypto.randomUUID().slice(0, 8)}`;
+
+  expect(
+    (await req("/api/definitions", op, {
+      method: "PUT",
+      body: JSON.stringify({
+        name,
+        tasks: [{ id: "wait", action: { type: "delay", for: "1h" }, switch: [{ goto: "end" }] }],
+      }),
+    })).status,
+  ).toBe(200);
+
+  const started = await req("/api/instances", op, {
+    method: "POST",
+    body: JSON.stringify({ process: name }),
+  });
+  expect(started.status, JSON.stringify(started.body)).toBe(200);
+  const id = started.body.id as string;
+
+  expect((await req(`/api/instances/${id}/pause`, op, { method: "POST" })).status).toBeLessThan(300);
+
+  const logs = await req(`/api/instances/${id}/logs?limit=100`, op);
+  const rows = logs.body.items as { event: string; actor?: string }[];
+
+  const paused = rows.find((l) => l.event.startsWith("inst_paus"));
+  expect(paused, `no pause event in ${JSON.stringify(rows.map((l) => l.event))}`).toBeDefined();
+  expect(
+    paused!.actor,
+    "a pause landed with no actor — an audit trail that cannot say who paused a run is the gap §7 names",
+  ).toBe("token:oncall-kim");
+
+  // The engine advances on its own behalf. Crediting the operator who started the run would
+  // attribute rows nobody asked for, which is worse than leaving them blank.
+  const engineRow = rows.find((l) => l.event === "work_started" || l.event === "task_completed");
+  if (engineRow) {
+    expect(
+      engineRow.actor ?? "",
+      `the engine's ${engineRow.event} claimed an actor; only operator-initiated events carry one`,
+    ).toBe("");
+  }
 });

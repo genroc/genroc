@@ -14,7 +14,7 @@ import (
 	"genroc/internal/numeric"
 )
 
-func (h *Handlers) startInstance(raw json.RawMessage) Reply {
+func (h *Handlers) startInstance(raw json.RawMessage, actor string) Reply {
 	req, err := decodeBody[StartInstanceReq](raw)
 	if err != nil {
 		return errReply(err)
@@ -85,8 +85,8 @@ func (h *Handlers) startInstance(raw json.RawMessage) Reply {
 		return errReply(fmt.Errorf("save instance: %w", err))
 	}
 	if h.engine != nil {
-		h.engine.AuditCreated(inst) // bookend: instance_created with the process input
-		h.engine.NotifyWork()       // start advancing now instead of waiting for the next poll tick
+		h.engine.AuditCreated(inst, actor) // bookend: instance_created with the process input
+		h.engine.NotifyWork()              // start advancing now instead of waiting for the next poll tick
 	}
 
 	return okReply(StartInstanceResp{
@@ -262,29 +262,29 @@ func formatTimePtr(t *time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
-func (h *Handlers) pauseInstance(id string) Reply {
+func (h *Handlers) pauseInstance(id, actor string) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
 	}
-	res, err := h.db.PauseProcess(context.Background(), id)
+	res, err := h.db.PauseProcess(context.Background(), id, actor)
 	if err != nil {
 		return errReply(err)
 	}
 	return outcomeReply(res)
 }
 
-func (h *Handlers) resumeInstance(id string) Reply {
+func (h *Handlers) resumeInstance(id, actor string) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
 	}
-	res, err := h.db.ResumeProcess(context.Background(), id)
+	res, err := h.db.ResumeProcess(context.Background(), id, actor)
 	if err != nil {
 		return errReply(err)
 	}
 	return outcomeReply(res)
 }
 
-func (h *Handlers) retryInstance(id string, raw json.RawMessage) Reply {
+func (h *Handlers) retryInstance(id string, raw json.RawMessage, actor string) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
 	}
@@ -292,7 +292,7 @@ func (h *Handlers) retryInstance(id string, raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	res, err := h.db.RetryProcess(context.Background(), id, req.Force)
+	res, err := h.db.RetryProcess(context.Background(), id, req.Force, actor)
 	if err != nil {
 		return errReply(err)
 	}

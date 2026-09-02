@@ -19,7 +19,7 @@ Trust the entry, and the spec's own §0, over this heading. As of 2026-08-25 the
 here that are actually BUILT are `error-extensions` (X2 only), `script-tasks`,
 `source-resolution` (code phase), `external-task-queue`, `external-outcome-as-signal`,
 `lazy-context`, `object-store`, `compat-command`, `durability-levels` (all but the
-per-definition field) and, since 2026-09-01, `api-auth` (all but `jwt`, attribution and TLS).
+per-definition field) and, since 2026-09-02, `api-auth` (all but `jwt` and TLS).
 
 - [error-extensions.md](error-extensions.md) — three considered extensions to the child
   error model, of which **X2 (a payload on `raise`) is BUILT (2026-08-22)** — read its §X2-c
@@ -35,9 +35,9 @@ per-definition field) and, since 2026-09-01, `api-auth` (all but `jwt`, attribut
   narrows an **unknown child output** moved off `engine.collect` onto a catchable
   `output.invalid` — which is why a child task's catchable set is now
   `raises(D) ∪ {output.invalid}` (child-error-handling.md E6).
-- [api-auth.md](api-auth.md) — **BUILT except `jwt` (§2.1), attribution (§7) and TLS (§9)**;
-  path layout, permissions and `token` mode landed 2026-08-28, `header` mode and the session
-  exchange 2026-09-01. How genroc gets authenticated at all. The decision everything rests on is
+- [api-auth.md](api-auth.md) — **BUILT except `jwt` (§2.1) and TLS (§9)**; path layout,
+  permissions and `token` mode landed 2026-08-28, `header` mode and the session exchange
+  2026-09-01, attribution (§7) 2026-09-02. How genroc gets authenticated at all. The decision everything rests on is
   a split — **genroc owns authorization, the deployment owns identity** — because which
   endpoints a caller may reach is a statement about our own API surface, and pushing it into
   ingress rules means every user keeps a hand-copied list of our routes that goes stale the next
@@ -69,6 +69,18 @@ per-definition field) and, since 2026-09-01, `api-auth` (all but `jwt`, attribut
   a signed blob so a person's session is listable, revocable and attributable like any other
   credential; it must never permit a cross-origin read, which is why the UI is served from
   genroc's own origin and no CORS exists anywhere in the system.
+
+  **Attribution (§7) landed last and is the one to read before adding a column anywhere near
+  logs.** The actor is ONE value, `source:subject`, because the subject alone cannot say whether
+  genroc authenticated an identity or merely wrote down what a proxy asserted — and the
+  `none`-mode half the spec promised does work, on the rule that recording is not trusting: an
+  asserted header changes no grant, so it needs no `trusted_proxies`, and its source is
+  `asserted` rather than `header`. Only operator-initiated rows carry one; the engine advances on
+  its own behalf and crediting it to whoever started the run would attribute work nobody asked
+  for. The trap it paid for twice is that a `process_logs` column is spelled in FOUR places, and
+  the sqlc one (`InsertLog`) serves only the rare object-carrying path while the hand-written
+  `writeLogBatch` serves nearly every row — get one and not the other and the feature looks
+  entirely dead. internal/db/CLAUDE.md now says so.
 - [custom-tasks.md](custom-tasks.md) — north-star: extend genroc **without plugins** —
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the

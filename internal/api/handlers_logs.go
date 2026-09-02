@@ -79,6 +79,7 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 			Task:     l.TaskID,
 			Message:  l.Message,
 			Code:     l.Code,
+			Actor:    l.Actor,
 			Data:     data,
 			Meta:     l.Meta,
 			Objects:  objects,

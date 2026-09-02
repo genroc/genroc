@@ -52,6 +52,7 @@ type ProcessDefinition struct {
 	Definition  string
 	ContentHash string
 	CreatedAt   int64
+	Actor       string
 }
 
 type ProcessDependency struct {
@@ -111,6 +112,7 @@ type ProcessLog struct {
 	CreatedAt  int64
 	Meta       string
 	Objects    string
+	Actor      string
 }
 
 type ProcessSignal struct {

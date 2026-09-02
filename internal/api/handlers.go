@@ -20,7 +20,7 @@ const defaultChannel = "latest"
 type engineService interface {
 	Tick(ctx context.Context) (int, error)
 	ManualTick() bool
-	AuditCreated(inst *model.ProcessInstance)
+	AuditCreated(inst *model.ProcessInstance, actor string)
 	NotifyWork()
 	WorkerID() string
 	LeaseAge() time.Duration

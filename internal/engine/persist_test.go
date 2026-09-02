@@ -19,7 +19,7 @@ func spawnFixture(t *testing.T, database *db.DB, name string) string {
 	if err := database.SaveDefinition(&model.ProcessDefinition{
 		Name:  child,
 		Tasks: []*model.Task{{ID: "work", Switch: model.SwitchMap{{Goto: model.GotoEnd}}}},
-	}, 1, nil, child+"-hash", ""); err != nil {
+	}, 1, nil, child+"-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition (child): %v", err)
 	}
 
@@ -31,7 +31,7 @@ func spawnFixture(t *testing.T, database *db.DB, name string) string {
 			Action: &model.Action{Type: model.ActionTypeChild, Name: child},
 			Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 		}},
-	}, 1, nil, parent+"-hash", ""); err != nil {
+	}, 1, nil, parent+"-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition (parent): %v", err)
 	}
 
@@ -134,7 +134,7 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 			Action: &model.Action{Type: model.ActionTypeExternal},
 			Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 		}},
-	}, 1, nil, process+"-hash", ""); err != nil {
+	}, 1, nil, process+"-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition: %v", err)
 	}
 	id := fmt.Sprintf("arm-pure-i-%d", time.Now().UnixNano())
@@ -276,7 +276,7 @@ func TestExternal_BufferedAnswerIsConsumedWithoutParking(t *testing.T) {
 			Action: &model.Action{Type: model.ActionTypeExternal},
 			Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 		}},
-	}, 1, nil, process+"-hash", ""); err != nil {
+	}, 1, nil, process+"-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition: %v", err)
 	}
 	id := fmt.Sprintf("arm-buffered-i-%d", time.Now().UnixNano())

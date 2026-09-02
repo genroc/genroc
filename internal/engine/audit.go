@@ -27,8 +27,9 @@ type logEvent struct {
 	// is cut like any other value on the way to storage -- so a payload that repeats something
 	// the instance already externalized shares that object instead of copying it -- and rendered
 	// once for the console. specs/object-store.md.
-	Data any
-	Meta map[string]any
+	Data  any
+	Meta  map[string]any
+	Actor string // operator-initiated events only; see AuditCreated
 }
 
 // audit records an instance event to the console (slog) and the durable per-instance DB
@@ -60,6 +61,7 @@ func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 		TaskID:     ev.Task,
 		Message:    ev.Msg,
 		Code:       string(ev.Code),
+		Actor:      ev.Actor,
 		Meta:       ev.Meta,
 	}, ev.Data, int64(e.payloadCap())); err != nil {
 		e.logOnly(logEvent{Level: model.LogError, ID: ev.ID, Msg: "append audit log: " + err.Error()})
@@ -164,7 +166,7 @@ func (e *Engine) emitWithData(ev logEvent, data string) {
 	}
 	// audit: the event is the slog message; id/task become columns; the rest detail.
 	detail := logview.Record{
-		Event: ev.Event, Msg: ev.Msg, Code: string(ev.Code), Data: data, Meta: ev.Meta,
+		Event: ev.Event, Msg: ev.Msg, Code: string(ev.Code), Actor: ev.Actor, Data: data, Meta: ev.Meta,
 	}.Detail(e.logCfg.Mode)
 	attrs := make([]any, 0, 6+2*len(detail))
 	attrs = append(attrs, logview.AuditKey, true, "id", ev.ID, "task", ev.Task)
@@ -211,8 +213,13 @@ func statusMeta(status int) map[string]any {
 // AuditCreated records the instance_created milestone, capturing the instance's process
 // input (subject to payload-logging config). Called by the API for a root instance and by
 // the engine for each spawned child; it bookends the trail with instance_completed.
-func (e *Engine) AuditCreated(inst *model.ProcessInstance) {
-	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceCreated, Data: e.snippet(inst.State["input"])})
+//
+// actor is who asked for this run, and is empty for a child: the engine spawns it on the
+// parent's behalf, and crediting the operator who started the root would put an identity on
+// a row no one addressed. specs/api-auth.md section 7.
+func (e *Engine) AuditCreated(inst *model.ProcessInstance, actor string) {
+	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceCreated,
+		Actor: actor, Data: e.snippet(inst.State["input"])})
 }
 
 // outputData is the snippet of the process's final output (context_data["output"], set by

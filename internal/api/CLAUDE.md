@@ -38,9 +38,11 @@ for TCP/UDS, so a serialisable field there would let a client assert its own gra
 transport attaches it after establishing identity; `Handle` refuses an envelope without one
 rather than defaulting to open, which is why in-process callers (tests) must supply their own.
 
-Today every mode is `none`, so the transports attach `anonymousAdmin()` and nothing is refused.
-The gate is inert but load-bearing — the point is that a mode wires in at ONE place.
-specs/api-auth.md §2, §3.
+`none` is still the DEFAULT, and then the transports attach `anonymousAdmin()` and nothing is
+refused — but `token` and `header` both ship, and a deployment runs them together
+(specs/api-auth.md §2, §3). `httpPrincipal` tries the forwarded identity first and falls back to
+the bearer token; they cannot collide, because a browser behind the proxy carries no token and a
+machine bypassing the proxy carries no forwarded identity.
 
 **Everything under `apiPrefix` requires a credential; `publicPrefix` (`/public`) is what does
 not.** The split exists so the zone is legible from the path — a deployment writes ingress rules
@@ -63,6 +65,18 @@ spec routes only.
 
 Connection limits and readiness: [specs/resource-limits.md](../../specs/resource-limits.md).
 The rest of this file is the part that breaks silently.
+
+## The actor is `source:subject`, and only operator-initiated rows carry one
+
+`Principal.Actor()` is the ONE place an audit identity is spelled (specs/api-auth.md §7). The
+source is inside the string rather than in a second column so that `ada@example.com` can never be
+read without knowing whether genroc authenticated it (`token:`, `header:`) or merely wrote down
+what a proxy claimed (`asserted:`, from `Server.attribute` in `none` mode, which grants nothing).
+
+**Only what an operator asked for is attributed.** The engine advances instances on its own
+behalf, so `AuditCreated` takes an actor for a ROOT instance and `""` for a spawned child, and no
+engine event carries one. Crediting the operator who started a run for every row the engine then
+writes would put an identity on work nobody requested.
 
 ## A successful assertion carries its status too
 

@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 		// fixtures reference process "test" v1 — and the `stress` CI job runs -run TestStress, which
 		// skips every testBackends test that would otherwise register it.
 		def := &model.ProcessDefinition{Name: "test", Tasks: []*model.Task{{ID: "step1"}}}
-		if err := pg.SaveDefinition(def, 1, nil, "test-hash", ""); err != nil {
+		if err := pg.SaveDefinition(def, 1, nil, "test-hash", "", ""); err != nil {
 			log.Fatalf("register baseline definition for stress tests: %v", err)
 		}
 
@@ -102,7 +102,7 @@ func testBackends(t *testing.T) []backend {
 func saveDef(t *testing.T, db *dbpkg.DB, name string, version int, tasks []*model.Task) {
 	t.Helper()
 	def := &model.ProcessDefinition{Name: name, Tasks: tasks}
-	if err := db.SaveDefinition(def, version, nil, name+"-hash", ""); err != nil {
+	if err := db.SaveDefinition(def, version, nil, name+"-hash", "", ""); err != nil {
 		t.Fatalf("saveDef %q v%d: %v", name, version, err)
 	}
 }

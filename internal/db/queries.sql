@@ -1,10 +1,12 @@
 -- name: InsertDefinition :exec
-INSERT INTO process_definitions (name, version, definition, content_hash, created_at)
-VALUES (sqlc.arg(name), sqlc.arg(version), sqlc.arg(definition), sqlc.arg(content_hash), sqlc.arg(created_at))
+-- The conflict path leaves actor alone: re-applying identical content does not re-deploy it,
+-- so the first deployer keeps the credit rather than the latest caller taking it.
+INSERT INTO process_definitions (name, version, definition, content_hash, created_at, actor)
+VALUES (sqlc.arg(name), sqlc.arg(version), sqlc.arg(definition), sqlc.arg(content_hash), sqlc.arg(created_at), sqlc.arg(actor))
 ON CONFLICT (name, version) DO UPDATE SET definition = EXCLUDED.definition;
 
 -- name: GetDefinition :one
-SELECT name, version, definition, content_hash, created_at
+SELECT name, version, definition, content_hash, created_at, actor
 FROM process_definitions
 WHERE name = sqlc.arg(name) AND version = sqlc.arg(version);
 
@@ -282,10 +284,10 @@ ORDER BY pd.parent_name, pd.child_name, pd.task_id;
 
 -- name: InsertLog :exec
 INSERT INTO process_logs
-    (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at)
+    (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at, actor)
 VALUES
     (sqlc.arg(id), sqlc.arg(instance_id), sqlc.arg(level), sqlc.arg(event),
-     sqlc.arg(task_id), sqlc.arg(message), sqlc.arg(code), sqlc.arg(data), sqlc.arg(objects), sqlc.arg(meta), sqlc.arg(created_at));
+     sqlc.arg(task_id), sqlc.arg(message), sqlc.arg(code), sqlc.arg(data), sqlc.arg(objects), sqlc.arg(meta), sqlc.arg(created_at), sqlc.arg(actor));
 
 -- ListLogs (per-instance) and ListTreeLogs (subtree) are hand-written in
 -- db_logs.go: both take a dynamic ORDER BY + keyset cursor (see paginate.go), and

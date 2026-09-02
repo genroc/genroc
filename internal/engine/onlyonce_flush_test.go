@@ -168,7 +168,7 @@ func TestOnlyOnce_FlagIsRederivedOnEveryWrite(t *testing.T) {
 			Switch: model.SwitchMap{{Goto: model.GotoEnd}},
 		},
 	}}
-	if err := database.SaveDefinition(def, 1, nil, process+"-hash", ""); err != nil {
+	if err := database.SaveDefinition(def, 1, nil, process+"-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition: %v", err)
 	}
 	id := fmt.Sprintf("%s-i", process)
@@ -234,7 +234,7 @@ func TestOnlyOnce_FlagSurvivesSpawnAndRetry(t *testing.T) {
 	if err := database.UpdateInstance(failed); err != nil {
 		t.Fatalf("UpdateInstance: %v", err)
 	}
-	if _, err := database.RetryProcess(context.Background(), failed.ID, false); err != nil {
+	if _, err := database.RetryProcess(context.Background(), failed.ID, false, ""); err != nil {
 		t.Fatalf("RetryProcess: %v", err)
 	}
 	revived, err := database.GetInstance(failed.ID)
@@ -270,7 +270,7 @@ func onlyOnceBehindSwitch(t *testing.T, database *db.DB, name string) (string, *
 			Switch:   model.SwitchMap{{Goto: model.GotoEnd}},
 		},
 	}}
-	if err := database.SaveDefinition(def, 1, nil, process+"-h", ""); err != nil {
+	if err := database.SaveDefinition(def, 1, nil, process+"-h", "", ""); err != nil {
 		t.Fatalf("SaveDefinition: %v", err)
 	}
 	id := process + "-i"

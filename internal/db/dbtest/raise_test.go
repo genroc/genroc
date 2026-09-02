@@ -50,7 +50,7 @@ func TestRetryProcess_RaisedRootRejectedWithReason(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			insertRaised(t, b.db, "root", "", "", "insufficient_funds", nil)
 
-			_, err := b.db.RetryProcess(context.Background(), "root", false)
+			_, err := b.db.RetryProcess(context.Background(), "root", false, "")
 			if err == nil {
 				t.Fatal("expected raised root to be rejected")
 			}
@@ -79,7 +79,7 @@ func TestRetryProcess_RaisedChildIsKept(t *testing.T) {
 			insertInstW(t, b.db, "parent", model.StatusFailed, model.WaitStateNone, "", nil, "no rule matched")
 			insertRaised(t, b.db, "kid", "parent", "step1", "card_declined", []string{"parent"})
 
-			if _, err := b.db.RetryProcess(context.Background(), "parent", false); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "parent", false, ""); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 
@@ -108,7 +108,7 @@ func TestRetryProcess_RaisedChildDoesNotStrandParentInWaiting(t *testing.T) {
 			insertRaised(t, b.db, "kid-raised", "parent", "step1", "out_of_stock", []string{"parent"})
 			insertChild(t, b.db, "kid-done", model.StatusCompleted, "parent", "step1", []string{"parent"}, "")
 
-			if _, err := b.db.RetryProcess(context.Background(), "parent", false); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "parent", false, ""); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 
@@ -145,7 +145,7 @@ func TestRetryProcess_ClearsErrorCodeAndErrorData(t *testing.T) {
 				t.Fatalf("SaveInstance: %v", err)
 			}
 
-			if _, err := b.db.RetryProcess(context.Background(), "root", false); err != nil {
+			if _, err := b.db.RetryProcess(context.Background(), "root", false, ""); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 

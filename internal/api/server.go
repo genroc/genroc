@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"genroc/internal/model"
@@ -50,6 +51,13 @@ type Server struct {
 	// uiDir serves a built single-page app at `/`. Empty means no UI, and `/` 404s.
 	uiDir string
 
+	// assertedHeader is `header.subject` read for ATTRIBUTION ONLY, with no trust attached and
+	// no permission granted. It is what makes specs/api-auth.md section 7 work in `mode: none`:
+	// a deployment behind a proxy it has not yet wired into authorization still records WHO
+	// deployed, and `Principal.Source` is "asserted" rather than "header" so a reader can tell
+	// a value genroc merely wrote down from one it checked came from a trusted peer.
+	assertedHeader string
+
 	// header is `mode: header`, checked BEFORE auth: a request arriving through the trusted
 	// proxy is already identified, and asking the token store about a credential it does not
 	// carry would only cost a query. Both may be configured at once — a deployment runs an SSO
@@ -63,6 +71,10 @@ func (s *Server) SetUI(dir string) { s.uiDir = dir }
 
 // SetHeaderAuth turns on `mode: header`. Called once at startup, before Listen*.
 func (s *Server) SetHeaderAuth(h *HeaderAuth) { s.header = h }
+
+// SetAssertedHeader records an identity header for attribution without granting anything by it.
+// Called once at startup, before Listen*.
+func (s *Server) SetAssertedHeader(name string) { s.assertedHeader = name }
 
 // guard authorizes a hand-written route, for the handful that cannot be registry actions
 // because they answer with something other than a Reply. Everything else goes through
@@ -85,7 +97,34 @@ func (s *Server) httpPrincipal(r *http.Request) (*Principal, *Error) {
 			return p, nil
 		}
 	}
-	return s.principalFor(r.Context(), bearerToken(r.Header.Get("Authorization")))
+	p, err := s.principalFor(r.Context(), bearerToken(r.Header.Get("Authorization")))
+	if err != nil {
+		return nil, err
+	}
+	return s.attribute(p, r), nil
+}
+
+// attribute names the anonymous caller of an unauthenticated deployment from a header a proxy
+// set, WITHOUT believing it: nothing about the grants changes, so a forged header buys exactly
+// the admin an unauthenticated server already gives everyone. The gain is that "who deployed
+// v7?" stops being unanswerable while auth is still off -- and that answer is permanent, where
+// waiting for auth to land loses it forever. specs/api-auth.md section 7.
+//
+// Only `none` is rewritten. An authenticated principal keeps the subject its mode established,
+// or a header would be able to rename a token.
+func (s *Server) attribute(p *Principal, r *http.Request) *Principal {
+	if s.assertedHeader == "" || p == nil || p.Source != "none" {
+		return p
+	}
+	v := strings.TrimSpace(r.Header.Get(s.assertedHeader))
+	if v == "" {
+		return p
+	}
+	// A fresh value: anonymousAdmin returns a new struct per request, but saying so here is
+	// cheaper than depending on it.
+	q := *p
+	q.Subject, q.Source = v, "asserted"
+	return &q
 }
 
 // SetAuthenticator turns on an identity mode. Called once at startup, before Listen*.

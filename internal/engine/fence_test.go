@@ -161,7 +161,7 @@ func seedOnlyOnceInstance(t *testing.T, database *db.DB, prefix, url string) str
 		Action:   &model.Action{Type: model.ActionTypeFetch, URL: url},
 		Switch:   model.SwitchMap{{Goto: model.GotoEnd}},
 	}}
-	if err := database.SaveDefinition(&model.ProcessDefinition{Name: name, Tasks: tasks}, 1, nil, name+"-hash", ""); err != nil {
+	if err := database.SaveDefinition(&model.ProcessDefinition{Name: name, Tasks: tasks}, 1, nil, name+"-hash", "", ""); err != nil {
 		t.Fatalf("SaveDefinition: %v", err)
 	}
 	id := fmt.Sprintf("%s-i-%d", prefix, time.Now().UnixNano())

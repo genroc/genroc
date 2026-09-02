@@ -36,6 +36,9 @@ type VersionedDef struct {
 	Version   int
 	Def       *model.ProcessDefinition
 	CreatedAt time.Time // when this version was registered; the default listing sort
+	// Actor is who deployed this version, as `source:subject`. Empty for anything written
+	// before migration 038, which is permanent: the fact was never recorded.
+	Actor string
 }
 
 // ── Process Definitions ───────────────────────────────────────────────────────
@@ -54,6 +57,8 @@ type DefinitionWrite struct {
 	Deps     []DependencyRow
 	Hash     string
 	Channels []string
+	// Actor is who deployed this, as `source:subject`. specs/api-auth.md section 7.
+	Actor string
 }
 
 // ApplyDefinitions commits a whole planned batch in one transaction: either every
@@ -98,6 +103,7 @@ func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
 					Definition:  r.data,
 					ContentHash: r.w.Hash,
 					CreatedAt:   now,
+					Actor:       r.w.Actor,
 				}); err != nil {
 					return fmt.Errorf("insert %s@v%d: %w", r.w.Name, r.w.Version, err)
 				}
@@ -152,7 +158,7 @@ func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
 // SaveDefinition persists a new process definition version with its dependencies.
 // If channel is non-empty, the channel pointer is updated in the same transaction
 // so a crash cannot leave a definition saved without a channel pointing to it.
-func (db *DB) SaveDefinition(def *model.ProcessDefinition, version int, deps []DependencyRow, hash string, channel string) error {
+func (db *DB) SaveDefinition(def *model.ProcessDefinition, version int, deps []DependencyRow, hash string, channel string, actor string) error {
 	data, err := json.Marshal(def)
 	if err != nil {
 		return err
@@ -166,6 +172,7 @@ func (db *DB) SaveDefinition(def *model.ProcessDefinition, version int, deps []D
 			Definition:  string(data),
 			ContentHash: hash,
 			CreatedAt:   now,
+			Actor:       actor,
 		}); err != nil {
 			return err
 		}
@@ -244,7 +251,7 @@ func (db *DB) LatestVersion(name string) (int, error) {
 // keyset rides the PK index.
 var definitionPaginator = paginator{
 	table:      "process_definitions",
-	columns:    "name, version, definition, created_at",
+	columns:    "name, version, definition, created_at, actor",
 	filterCols: []string{"created_at"},
 	sorts: map[string]sortMode{
 		// created carries name+version too: created_at alone is not unique, and a keyset
@@ -278,16 +285,16 @@ func (db *DB) ListDefinitions(created Window, req PageReq) ([]VersionedDef, Page
 		return nil, PageInfo{}, err
 	}
 	return runPage(db, b, func(s rowScanner) (VersionedDef, error) {
-		var name, definition string
+		var name, definition, actor string
 		var version, createdAt int64
-		if err := s.Scan(&name, &version, &definition, &createdAt); err != nil {
+		if err := s.Scan(&name, &version, &definition, &createdAt, &actor); err != nil {
 			return VersionedDef{}, err
 		}
 		var def model.ProcessDefinition
 		if err := json.Unmarshal([]byte(definition), &def); err != nil {
 			return VersionedDef{}, err
 		}
-		return VersionedDef{Version: int(version), Def: &def, CreatedAt: toTime(createdAt)}, nil
+		return VersionedDef{Version: int(version), Def: &def, CreatedAt: toTime(createdAt), Actor: actor}, nil
 	}, definitionCursorVals)
 }
 

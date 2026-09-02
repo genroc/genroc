@@ -36,7 +36,7 @@ type UpgradeMove struct {
 	Reason      string `json:"reason,omitempty"`
 }
 
-func (h *Handlers) upgradeInstance(id string, raw json.RawMessage) Reply {
+func (h *Handlers) upgradeInstance(id string, raw json.RawMessage, actor string) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
 	}
@@ -135,7 +135,7 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage) Reply {
 	if err := h.db.UpgradeInstances(ctx, ups); err != nil {
 		return errReply(err)
 	}
-	h.auditUpgrades(ups)
+	h.auditUpgrades(ups, actor)
 	resp.Upgraded = true
 	return okReply(resp)
 }
@@ -143,10 +143,11 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage) Reply {
 // auditUpgrades records each move on its own instance's trail. Best-effort, like every
 // other audit write: the upgrade already committed, and losing the entry costs the story,
 // not the state.
-func (h *Handlers) auditUpgrades(ups []db.InstanceUpgrade) {
+func (h *Handlers) auditUpgrades(ups []db.InstanceUpgrade, actor string) {
 	for _, up := range ups {
 		h.db.AppendLog(&model.LogEntry{
 			ID:         idgen.New(),
+			Actor:      actor,
 			InstanceID: up.Instance.ID,
 			Level:      model.LogInfo,
 			Event:      model.EventInstanceUpgraded,

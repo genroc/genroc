@@ -99,7 +99,7 @@ func (e *Engine) persistSpawn(ctx context.Context, inst *model.ProcessInstance, 
 	// Each spawned child is its own process: record its creation + input so its subtree
 	// trail bookends the same way a root's does.
 	for _, c := range children {
-		e.AuditCreated(c)
+		e.AuditCreated(c, "")
 	}
 	return nil
 }

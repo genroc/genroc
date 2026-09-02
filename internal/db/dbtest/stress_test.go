@@ -51,7 +51,7 @@ func TestStress_PauseProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 		errs := make(chan error, 2)
 
 		wg.Add(2)
-		go func() { defer wg.Done(); _, err := db.PauseProcess(ctx, "parent"); errs <- err }()
+		go func() { defer wg.Done(); _, err := db.PauseProcess(ctx, "parent", ""); errs <- err }()
 		go func() { defer wg.Done(); errs <- db.FailInstanceAndAncestors(child) }()
 		wg.Wait()
 		close(errs)
@@ -267,7 +267,7 @@ func TestStress_PauseProcess_vs_FinishChild(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := db.PauseProcess(ctx, "parent"); err != nil && !pgDeadlock(err) {
+			if _, err := db.PauseProcess(ctx, "parent", ""); err != nil && !pgDeadlock(err) {
 				t.Errorf("iteration %d: PauseProcess: %v", i, err)
 			}
 		}()
@@ -323,13 +323,13 @@ func TestStress_RetryProcess_vs_PauseProcess(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			if _, err := db.RetryProcess(ctx, "root", false); err != nil && !pgDeadlock(err) {
+			if _, err := db.RetryProcess(ctx, "root", false, ""); err != nil && !pgDeadlock(err) {
 				t.Errorf("iteration %d: RetryProcess: %v", i, err)
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			_, err := db.PauseProcess(ctx, "root")
+			_, err := db.PauseProcess(ctx, "root", "")
 			// "nothing to pause" is the expected outcome of the pause → retry
 			// ordering: the tree was still failed when the pause ran.
 			if err != nil && !pgDeadlock(err) && !strings.Contains(err.Error(), "no running instances to pause") {
@@ -389,7 +389,7 @@ func TestStress_ConcurrentRetry(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, err := db.RetryProcess(ctx, "root", false)
+				_, err := db.RetryProcess(ctx, "root", false, "")
 				switch {
 				case err == nil:
 					successes.Add(1)

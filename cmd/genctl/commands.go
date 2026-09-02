@@ -712,6 +712,7 @@ func runDefinitionsCmd(server string, args []string) {
 		Version   int      `json:"version"`
 		CreatedAt string   `json:"created_at"`
 		Raises    []string `json:"raises"`
+		Actor     string   `json:"actor"`
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -719,11 +720,14 @@ func runDefinitionsCmd(server string, args []string) {
 	capped, err := fetchOrdered(u, limit, dir, func(page []defRow) error {
 		for _, r := range page {
 			if rows == 0 {
-				fmt.Fprintln(w, "NAME\tVERSION\tREGISTERED\tRAISES")
+				fmt.Fprintln(w, "NAME\tVERSION\tREGISTERED\tBY\tRAISES")
 			}
 			rows++
-			fmt.Fprintf(w, "%s\tv%d\t%s\t%s\n",
-				r.Name, r.Version, shortTime(r.CreatedAt), strings.Join(r.Raises, ", "))
+			// A dash for a version deployed before attribution landed, so an absent actor
+			// reads as "never recorded" rather than as an empty column.
+			fmt.Fprintf(w, "%s\tv%d\t%s\t%s\t%s\n",
+				r.Name, r.Version, shortTime(r.CreatedAt), dashIfEmpty(r.Actor),
+				strings.Join(r.Raises, ", "))
 		}
 		return nil
 	})
@@ -859,6 +863,7 @@ func runLogsCmd(server string, args []string) {
 		Task     string          `json:"task"`
 		Message  string          `json:"message"`
 		Code     string          `json:"code"`
+		Actor    string          `json:"actor"`
 		Data     json.RawMessage `json:"data"`
 		Meta     map[string]any  `json:"meta"`
 		Objects  []objectEntry   `json:"objects"`
@@ -878,7 +883,7 @@ func runLogsCmd(server string, args []string) {
 				fmt.Fprintln(out, logview.DateBreak(t))
 				day = d
 			}
-			rec := logview.Record{Event: l.Event, Task: l.Task, Msg: l.Message, Code: l.Code, Data: logData(l.Data, l.Objects), Meta: l.Meta}
+			rec := logview.Record{Event: l.Event, Task: l.Task, Msg: l.Message, Code: l.Code, Actor: l.Actor, Data: logData(l.Data, l.Objects), Meta: l.Meta}
 			idTag := ""
 			if *recursiveFlag {
 				idTag = shortID(l.Instance)

@@ -146,10 +146,10 @@ func TestLeaseEpoch_OperatorVerbsDoNotBump(t *testing.T) {
 			ctx := context.Background()
 
 			insertRunning(t, b.db, "verbs-pause")
-			if _, err := b.db.PauseProcess(ctx, "verbs-pause"); err != nil {
+			if _, err := b.db.PauseProcess(ctx, "verbs-pause", ""); err != nil {
 				t.Fatalf("PauseProcess: %v", err)
 			}
-			if _, err := b.db.ResumeProcess(ctx, "verbs-pause"); err != nil {
+			if _, err := b.db.ResumeProcess(ctx, "verbs-pause", ""); err != nil {
 				t.Fatalf("ResumeProcess: %v", err)
 			}
 			if got := mustEpoch(t, b.db, "verbs-pause"); got != 0 {
@@ -157,7 +157,7 @@ func TestLeaseEpoch_OperatorVerbsDoNotBump(t *testing.T) {
 			}
 
 			insertInst(t, b.db, "verbs-retry", model.StatusFailed, "", nil, "boom")
-			if _, err := b.db.RetryProcess(ctx, "verbs-retry", false); err != nil {
+			if _, err := b.db.RetryProcess(ctx, "verbs-retry", false, ""); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
 			}
 			if got := mustEpoch(t, b.db, "verbs-retry"); got != 0 {

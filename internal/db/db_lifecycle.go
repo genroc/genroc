@@ -209,7 +209,7 @@ func (db *DB) forUpdate() string {
 // write releases the lease. Anything parked (on children, a delay, an external task) must
 // go straight to 'paused', because a parked row is excluded from ClaimInstances and would
 // otherwise hang in the draining state forever.
-func (db *DB) PauseProcess(ctx context.Context, id string) (LifecycleResult, error) {
+func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
 		return LifecycleResult{}, err
@@ -296,10 +296,10 @@ func (db *DB) PauseProcess(ctx context.Context, id string) (LifecycleResult, err
 		}
 		return db.lifecycleResult(ctx, id, model.OutcomeUnchanged, 0)
 	}
-	db.logTreeAction(id, model.EventPauseRequested, "pause requested",
+	db.logTreeAction(id, model.EventPauseRequested, "pause requested", actor,
 		int64(written), map[string]any{"pausing": len(leased)})
-	db.logInstances(settled, model.EventPaused, "paused")
-	db.logInstances(leased, model.EventPausing, "pause requested while a task was in flight")
+	db.logInstances(settled, model.EventPaused, "paused", actor)
+	db.logInstances(leased, model.EventPausing, "pause requested while a task was in flight", actor)
 
 	// A leased row is not paused, only asked to stop: the tree still has a task running
 	// until that worker's write lands. Reporting it as applied would claim the tree had
@@ -352,12 +352,13 @@ func updateStatusIn(ctx context.Context, exec dbgen.DBTX, ids []string, status s
 // logTreeAction records an operator's pause on the root at info level — the counts are
 // the value (how much was live, how much could not stop mid-task). Written after commit,
 // so a rejected call leaves no trace; best-effort like every audit write.
-func (db *DB) logTreeAction(rootID, event, msg string, instances int64, extra map[string]any) {
+func (db *DB) logTreeAction(rootID, event, msg, actor string, instances int64, extra map[string]any) {
 	meta := map[string]any{"instances": instances}
 	for k, v := range extra {
 		meta[k] = v
 	}
 	_ = db.AppendLog(&model.LogEntry{
+		Actor:      actor,
 		InstanceID: rootID,
 		Level:      model.LogInfo,
 		Event:      event,
@@ -369,9 +370,10 @@ func (db *DB) logTreeAction(rootID, event, msg string, instances int64, extra ma
 // logInstances records the per-instance consequence of a tree-wide pause/resume, at debug
 // level: one call fans out over the whole subtree, so this is high-volume detail in the
 // same class as the action_* events, filtered out of the default view.
-func (db *DB) logInstances(ids []string, event, msg string) {
+func (db *DB) logInstances(ids []string, event, msg, actor string) {
 	for _, instID := range ids {
 		_ = db.AppendLog(&model.LogEntry{
+			Actor:      actor,
 			InstanceID: instID,
 			Level:      model.LogDebug,
 			Event:      event,
@@ -387,7 +389,7 @@ func (db *DB) logInstances(ids []string, event, msg string) {
 // The precondition is on the subtree, not the root's own status: a branch that dies while
 // the tree is paused leaves a failing root over paused descendants, and resuming is how
 // the operator unblocks it. See specs/pause-resume.md.
-func (db *DB) ResumeProcess(ctx context.Context, id string) (LifecycleResult, error) {
+func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
 		return LifecycleResult{}, err
@@ -452,7 +454,7 @@ func (db *DB) ResumeProcess(ctx context.Context, id string) (LifecycleResult, er
 	}
 	// No root-level entry to match PauseProcess's: a resume is atomic, so the
 	// per-instance events already say everything a tree-level one would.
-	db.logInstances(resumed, model.EventResumed, "resumed")
+	db.logInstances(resumed, model.EventResumed, "resumed", actor)
 	// Never OutcomeAccepted: a resume is a plain status flip with nothing left in flight.
 	return db.lifecycleResult(ctx, id, model.OutcomeApplied, len(resumed))
 }
@@ -490,7 +492,7 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 // waiting or collecting), and completed work is never redone. force overrides only_once
 // protection. Root-only, failed-only — it is an override of the definition's on_error
 // budget, which is why it must not merge with ResumeProcess. See specs/pause-resume.md.
-func (db *DB) RetryProcess(ctx context.Context, id string, force bool) (LifecycleResult, error) {
+func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor string) (LifecycleResult, error) {
 	rootRow, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
 		return LifecycleResult{}, err

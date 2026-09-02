@@ -9,7 +9,7 @@ break-glass and `genctl token` for everyday use — and **`header` mode**, which
 `/session/token` (§5.1) turns a browser's proxy session into a bearer token. People are now
 served as well as machines.
 
-Still unbuilt: **`jwt` mode** (§2.1), **attribution** (§7) and **TLS** (§9). The default remains
+Attribution (§7) followed on 2026-09-02. Still unbuilt: **`jwt` mode** (§2.1) and **TLS** (§9). The default remains
 `none` — no `Authorization` handling, no actor recorded, every endpoint open and
 `PUT /definitions` arbitrary code execution — now with a startup warning when that is also bound
 beyond loopback (§6).
@@ -629,22 +629,40 @@ guards are **BUILT 2026-09-01**:
 
 ## 7. Attribution is the half that pays for itself
 
-`process_definitions` has no actor column and the audit log has no actor field, so *"who
-deployed v7?"* is unanswerable today and stays unanswerable for everything written before this
-lands.
+**BUILT 2026-09-02** (migration 038). `process_definitions.actor` answers *"who deployed v7?"*;
+`process_logs.actor` answers it for a pause, resume, retry, upgrade and an instance's creation.
+Everything written before the migration stays anonymous permanently, which was the argument for
+landing it early rather than when it was next asked for.
 
-The `Principal` fixes that, and **the cheap part works even in `none` mode**: if an identity
-header is present, record it, without validating anything. Genroc writes down what the proxy
-already decided. `Principal.Source` rides along so a reader can tell an asserted identity from
-an authenticated one.
+**One column, holding `source:subject`** — `token:ci`, `header:ada@example.com`,
+`none:anonymous`. The source is IN the value rather than beside it because the two facts are only
+useful together: `ada@example.com` alone cannot say whether genroc authenticated that identity or
+merely wrote down what a proxy asserted, and splitting them into two columns invites exactly the
+query that reads the subject and loses the distinction. `Principal.Actor()` is the only place it
+is spelled.
 
-**Still unbuilt, and now the largest remaining gap in this spec** — larger than `jwt`, because
-`jwt` improves a path that exists while this one does not exist at all. What changed is that the
-hard half is done: every request now carries a `Principal` with a `Subject` (a token's label, or
-`session:<subject>` for a person behind the proxy) and a `Source`. What is missing is only the
-recording — a column on `process_definitions`, a field on the audit log. Every deploy written
-before it lands stays anonymous forever, which is the whole reason this was argued as the half
-that pays for itself.
+**The cheap part does work in `none` mode**, as this section argued. If `-auth-config` names
+`header.subject`, genroc records it whatever the mode — and `trusted_proxies` is NOT required for
+that, because nothing is being trusted: the grants are unchanged, so a forged header buys exactly
+the admin an unauthenticated server already gives everyone. The source is **`asserted`**, never
+`header`, so the audit trail distinguishes a value genroc checked came from a trusted peer from
+one it merely wrote down. An authenticated principal is never renamed by a header, or a deploy
+could be credited to whoever set one.
+
+Three things the build settled that the draft did not raise:
+
+- **Only operator-initiated rows carry an actor.** The engine advances on its own behalf, so
+  `AuditCreated` takes the actor for a ROOT instance and `""` for a spawned child, and no engine
+  event carries one. Attributing every row the engine then writes to whoever started the run puts
+  an identity on work nobody requested.
+- **Re-applying identical content does not re-attribute it.** `InsertDefinition`'s conflict path
+  leaves `actor` alone, so the first deployer keeps the credit rather than the latest caller
+  taking it — and the batch path's "content already exists, only the channel pointer moves"
+  entry carries no actor at all, because it writes no definition row.
+- **A log column is spelled twice** and the common path is the hand-written one
+  (`writeLogBatch`, for buffered rows) rather than sqlc's `InsertLog` (only for rows carrying
+  objects). Writing one and not the other fails in the direction that reads as the feature never
+  working. Recorded in internal/db/CLAUDE.md because the next column pays it again.
 
 ## 8. Two new codes, not one
 
