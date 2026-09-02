@@ -190,3 +190,67 @@ users:
 		t.Errorf("users decoded as %v; the YAML key must be `users`", cfg.Users)
 	}
 }
+
+// §2.4 refuses at LOAD, not at the first request: each of these is a way JWT deployments are
+// broken, and a server that starts and then accepts forged tokens is the failure being avoided.
+func TestLoadAuthConfig_RefusesAJWTConfigMissingAnyPin(t *testing.T) {
+	write := func(body string) string {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "auth.yaml")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	const keys = "  jwks_file: /etc/genroc/jwks.json\n"
+
+	cases := []struct {
+		name string
+		body string
+		why  string
+	}{
+		{"no issuer", "mode: jwt\njwt:\n" + keys + "  audience: genroc\n  algorithms: [RS256]\n",
+			"a second issuer with a valid JWKS would be accepted"},
+		{"no audience", "mode: jwt\njwt:\n" + keys + "  issuer: https://i.test\n  algorithms: [RS256]\n",
+			"a token minted for another app in the same tenant would verify here"},
+		{"no algorithms", "mode: jwt\njwt:\n" + keys + "  issuer: https://i.test\n  audience: genroc\n",
+			"`alg: none` and RS256/HS256 confusion would both be accepted"},
+		{"algorithms containing none", "mode: jwt\njwt:\n" + keys +
+			"  issuer: https://i.test\n  audience: genroc\n  algorithms: [RS256, none]\n",
+			"`none` accepts unsigned tokens"},
+		{"no key source", "mode: jwt\njwt:\n  issuer: https://i.test\n  audience: genroc\n  algorithms: [RS256]\n",
+			"nothing could verify a signature"},
+		{"both key sources", "mode: jwt\njwt:\n" + keys +
+			"  jwks_url: https://i.test/jwks\n  issuer: https://i.test\n  audience: genroc\n  algorithms: [RS256]\n",
+			"which one wins is not something an operator should have to guess"},
+		{"roles header with no trust boundary", "mode: jwt\njwt:\n" + keys +
+			"  issuer: https://i.test\n  audience: genroc\n  algorithms: [RS256]\nheader:\n  roles: X-Groups\n",
+			"a role list from an unbounded peer is a grant from one"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := LoadAuthConfig(write(c.body)); err == nil {
+				t.Fatalf("loaded a jwt config with %s — %s", c.name, c.why)
+			}
+		})
+	}
+
+	cfg, err := LoadAuthConfig(write(`mode: jwt
+jwt:
+  jwks_file: /etc/genroc/jwks.json
+  issuer: https://accounts.example.com
+  audience: genroc
+  algorithms: [RS256]
+  subject_claim: email
+  roles_claim: groups
+  leeway: 30s
+roles:
+  genroc-admins: [admin]
+`))
+	if err != nil {
+		t.Fatalf("a complete jwt config was refused: %v", err)
+	}
+	if cfg.JWT.SubjectClaim != "email" || cfg.JWT.RolesClaim != "groups" || cfg.JWT.Leeway != "30s" {
+		t.Fatalf("jwt block decoded as %+v", cfg.JWT)
+	}
+}

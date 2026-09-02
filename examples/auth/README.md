@@ -75,11 +75,12 @@ intent.
 
 ## What it does NOT show
 
-**SSO for humans.** `header` mode ships and this example does not use it — everything here is a
-machine holding a token, which is what keeps an identity provider out of the stack entirely.
-Wiring it up means a proxy in front of `/` with the API left direct on `/api/*` (§5.1), the
-server given `-auth-config` and `-ui`, and the browser trading its session for a bearer token at
-`/session/token`. `jwt` mode is genuinely unbuilt (§2.1).
+**SSO for humans.** Both human modes ship — `jwt` and `header` — and this example uses neither:
+everything here is a machine holding a token, which is what keeps an identity provider out of the
+stack entirely. Wiring one up means a proxy in front of `/` with the API left direct on `/api/*`
+(§5.1), the server given `-auth-config` and `-ui`, and the browser trading its session for a
+bearer token at `/session/token`. `examples/proxy/` is that stack. Prefer `jwt` where your
+provider can mint or forward a verifiable token; the paragraph below is why.
 
 Worth knowing before you add that proxy: it **must strip the identity headers on every route it
 does not set them on**. A forwarded client copy and a genuine assertion are byte-identical by the

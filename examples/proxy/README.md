@@ -95,8 +95,12 @@ trusted assertion. Measured before the strip existed:
     curl -X PUT -H 'X-Auth-Request-Email: mallory@evil.test' … /api/definitions  → 200
 
 **genroc cannot defend against this** — a forwarded header and a laundered one are byte-identical
-on arrival. It is the sharpest argument for `jwt` mode (§2.1), where a signature makes the
-difference visible.
+on arrival, so the strip below is load-bearing and no genroc setting substitutes for it.
+
+It is also the reason to prefer **`jwt` mode**, which ships (§2.1): a signature moves the
+guarantee into the request, so a bypassed or misconfigured proxy buys an attacker nothing and
+this whole class of mistake disappears. oauth2-proxy can forward the IdP's ID token with
+`--set-authorization-header`, which is the one-line change from this stack to that one.
 
 ## The pieces
 

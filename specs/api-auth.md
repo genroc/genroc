@@ -9,10 +9,10 @@ break-glass and `genctl token` for everyday use — and **`header` mode**, which
 `/session/token` (§5.1) turns a browser's proxy session into a bearer token. People are now
 served as well as machines.
 
-Attribution (§7) followed on 2026-09-02. Still unbuilt: **`jwt` mode** (§2.1) and **TLS** (§9). The default remains
-`none` — no `Authorization` handling, no actor recorded, every endpoint open and
-`PUT /definitions` arbitrary code execution — now with a startup warning when that is also bound
-beyond loopback (§6).
+Attribution (§7) followed on 2026-09-02, and **`jwt` mode with it** — so every mode this spec
+designs now ships and nothing in it is left unbuilt. The default remains `none` — no
+`Authorization` handling, no actor recorded, every endpoint open and `PUT /definitions` arbitrary
+code execution — now with a startup warning when that is also bound beyond loopback (§6).
 
 ## 0. The split that decides everything
 
@@ -130,12 +130,20 @@ which mode ran. (`Perms []Perm` in the draft; it shipped as `[]Grant` for §3's 
   deployment pipelines, apps that start instances, and workers. §5.
 - **`none`** [built] — the default, and the pre-auth behaviour. Every request is an anonymous
   principal holding `admin`. Right for a laptop and for `make test`; §6 covers the hazard.
-- **`jwt`** — unbuilt, and still the mode this design recommends where it is available: a signed
-  JWT arrives in `Authorization: Bearer` and genroc verifies it against a configured JWKS. §2.1.
+- **`jwt`** [built] — the mode this design recommends where it is available: a signed JWT
+  arrives in `Authorization: Bearer` and genroc verifies it against a configured JWKS. §2.1.
 
 **These are not alternatives — a real deployment runs two at once**, because they serve
 audiences that cannot share a mechanism. A browser can do a redirect flow and cannot hold a
 secret; a CI job can hold a secret and cannot do a redirect flow.
+
+**`jwt` and `token` both read the bearer header**, so they compose through a chain rather than
+by the request picking one: each mode declines a credential that is not its own — a
+`genroc_sk_*` is not three dot-separated segments, and a JWT does not carry the prefix — and the
+first to recognise it answers. One rule in that chain is load-bearing: **a mode that cannot
+DECIDE stops it**, rather than falling through to the next. An unreachable database or JWKS
+must not be silently downgraded to "not authenticated" by the mode after it, which would turn an
+outage into 401s indistinguishable from a misconfigured client.
 
 **How they compose, as built.** `httpPrincipal` tries the forwarded identity first and falls
 back to the bearer token. The order is not a preference between them but the observation that
@@ -149,6 +157,9 @@ identify has no second way in — which is the intent, and is also why `/session
 mint against header mode alone (§5.1).
 
 ### 2.1 Why the signature, and not the network position
+
+**BUILT 2026-09-02.** The argument below is why, and it held: this is the mode that removes §6's
+hazard rather than documenting it.
 
 `header` mode is only sound while genroc is unreachable except through the proxy, so its
 security rests on a **network fact** — a CIDR allowlist, a NetworkPolicy, a Service that is not
@@ -167,6 +178,15 @@ Three further gains, none decisive alone: `exp` bounds replay, which a plain hea
 to express; claims are structured, so there is no per-proxy convention about how a group list is
 comma-separated; and verification is offline against a cached JWKS, so there is no per-request
 callout the way forward-auth has.
+
+**The dependency came in at one, as budgeted.** `github.com/golang-jwt/jwt/v5` does the
+signature; the JWKS is parsed with the standard library, because turning a JWK into an
+`*rsa.PublicKey` is base64 and `big.Int` rather than cryptography, and a second dependency to do
+that is not worth it against a deliberately small list. Key rotation needs no restart and no
+timer: an unknown `kid` is the signal to re-read, rate-limited to once per five minutes so a
+stream of garbage `kid`s cannot become a stream of outbound fetches. An empty `kid` resolves
+only when the set holds exactly one key — otherwise which key verified a token would depend on
+map iteration order.
 
 **Most proxies forward rather than mint, and that is the better shape anyway.** oauth2-proxy can
 put the IdP's ID token in `Authorization` (`--set-authorization-header`); Istio's
@@ -195,13 +215,25 @@ The lesson for the implementation: `Principal` must be assemblable from **more t
 per request** — subject from a verified token, roles from a trusted header — rather than each
 mode owning a request outright.
 
-**Built 2026-09-01, and one case turned out to be commoner than "roles from elsewhere".** Two of
+**Built 2026-09-01 (`header`) and 2026-09-02 (the hybrid), and one case turned out to be
+commoner than "roles from elsewhere".** Two of
 the three setups above supply no usable group list at all: oauth2-proxy's GitHub provider is
 OAuth2 with no ID token, and Google omits groups unless someone wires the Directory API. A role
 map alone has nothing to key on there, so `header` mode also takes a **`users:` map from subject
 to permissions** (§4), unioned with whatever the roles produce. It is the degenerate role map —
 one member per group — and it is what makes the mode work on the day someone stands up
 oauth2-proxy against GitHub with no group plumbing at all.
+
+The Google shape — a verifiable token for the subject, a trusted header for the roles — ships as
+an **overlay** rather than a fourth mode: `jwt` establishes the principal, and roles forwarded by
+a peer inside `trusted_proxies` are appended before the role map resolves. Two constraints fell
+out of building it. It needs the request, which `Authenticate(ctx, credential)` does not see, so
+it runs in the transport beside `attribute` rather than inside the authenticator — the concrete
+form of this section's "assemblable from more than one source per request". And it applies only
+to a principal `jwt` produced: overlaying onto a genroc token would let a header widen a machine
+credential, when the whole point of an opaque token is that its permissions live on its row.
+Configuring `header.roles` without `trusted_proxies` is refused at load, because a role list from
+an unbounded peer is a grant from one.
 
 ### 2.3 What the token does NOT decide
 
@@ -211,9 +243,12 @@ prevent. So §4's role map is unchanged by this mode: the token says *who and wh
 map says *what that may do*.
 
 The exception is a proxy minting a genroc-specific token, which could carry permissions
-directly. Supported by reading them if present, but never required, and never the documented
-path: a deployment that puts genroc's permission vocabulary into its proxy config has taken on
-the drift problem §0 describes.
+directly. **Not built, deliberately, and this is a reversal of the draft's "supported by reading
+them if present".** Reading a permissions claim means either a hardcoded claim name — surprising,
+and a claim an unrelated IdP might already emit — or a config knob for a path this same paragraph
+says nobody should take. Both spend surface on the thing §0 exists to prevent, with no demand
+behind it. The role map is the documented path and now the only one; add the knob when someone
+asks, and the signal to reopen is a deployment that genuinely cannot express its policy as roles.
 
 ### 2.4 Three validations that are not optional
 
@@ -228,13 +263,26 @@ Each is a known way JWT deployments are broken, and none is the default in most 
   RS256→HS256 confusion are both live vulnerability classes, and both are configuration, not
   cryptography.
 
-`exp`/`nbf` need a small configurable skew; a fixed zero fails on real clusters.
+`exp`/`nbf` need a small configurable skew; a fixed zero fails on real clusters. Built as a
+30s default, and `exp` is additionally REQUIRED — a verified token with no expiry is a permanent
+credential with no revocation path, since genroc holds no denylist for tokens it did not mint.
+
+**All four are parser options, not checks written beside the parse**, so there is no code path
+that verifies without them. Each is refused at config LOAD when unset, rather than defaulted:
+every default available here is one that accepts more than the operator meant.
 
 **A static `jwks_file` must be supported beside `jwks_url`.** It is what makes the mode testable
 without standing up an IdP — mint against a fixed key in the suite and hit genroc directly, no
 proxy in the loop — and it is also the answer for an air-gapped deployment and for pinning a key
 rather than trusting a fetch. A mode that can only be exercised end-to-end is a mode whose
 edge cases (`aud` mismatch, expired token, wrong `alg`) never get a test.
+
+That paid off immediately, and with a lesson attached. Removing each pin in turn and re-running
+showed **the algorithm pin was the one not actually under test**: the `alg: none` and
+RS256→HS256 cases both fail anyway on golang-jwt's key typing, so they pass with
+`WithValidMethods` deleted. Only a token signed with the RIGHT key and the WRONG algorithm
+(RS512 against an RS256-only config) isolates the pin. A test that passes for a reason other
+than the one it names is worse than no test: it reports coverage of a guard nothing is holding.
 
 ## 3. Permissions live on the action registry
 
@@ -340,7 +388,7 @@ not have to know the notation to say so. `session_ttl` refuses zero rather than 
 "never" — that is the behaviour the field exists to remove, and spelling it as a duration would
 make it look deliberate.
 
-`jwt` is unbuilt and its block is the design, not a shipped schema:
+`mode: jwt` is the other human mode, and its block ships as designed:
 
 ```yaml
 mode: jwt
@@ -350,10 +398,16 @@ jwt:
   issuer:   https://accounts.example.com     # pinned; §2.4
   audience: genroc                           # pinned; §2.4
   algorithms: [RS256]                        # pinned; §2.4
-  subject_claim: email
-  roles_claim:   groups
-  leeway: 30s
+  subject_claim: email                       # default `sub`
+  roles_claim:   groups                      # default `groups`
+  leeway: 30s                                # default 30s; zero fails on real clusters
+header:
+  roles: X-Auth-Request-Groups               # §2.2's hybrid, optional
+  trusted_proxies: [10.0.0.0/8]              # required WITH header.roles
 ```
+
+`issuer`, `audience` and `algorithms` have no defaults and the server refuses to start without
+them (§2.4). `jwks_url` and `jwks_file` are exclusive.
 
 **A file, not a table.** The policy governing an API must not be editable *through* that API —
 a `deploy` permission that can rewrite the role map is `admin` wearing a disguise. A file
@@ -506,8 +560,9 @@ Grafana), and it stops scaling at roughly the size where an organisation already
 which is the point at which `jwt` mode is added *beside* it, not instead of it.
 
 This is the deployment that makes genroc evaluable in ten minutes, so it should stay first in
-the documentation. It is also the one that needs TLS in-process (§9), because it is the only
-configuration with nothing in front.
+the documentation. **"No proxy" means no IDENTITY proxy** — no IdP, no SSO flow, nothing that
+establishes who the caller is, because the token already answers that. TLS is still terminated in
+front, as for any service.
 
 ### 5.3 Bootstrap: four paths, ranked by root of trust
 
@@ -590,9 +645,9 @@ k8s, and it needs no new concepts here because it produces the same `Principal`.
 ## 6. The bypass hazard, stated once and loudly
 
 **This section is about `header` mode only. In `jwt` mode it does not arise** — that is §2.1's
-whole argument. `header` shipped first because it is what the common proxies can actually do
-(§2.2), which means the hazard below is live for every deployment running it, and `jwt` is worth
-building precisely to retire this section.
+whole argument, and `jwt` now ships, so a deployment that can mint or forward a verifiable token
+can leave this section behind entirely. `header` remains because §2.2's three setups produce no
+such token, and for those the hazard below is live.
 
 **There are TWO ways header trust fails, and `trusted_proxies` only covers one.**
 
@@ -705,13 +760,8 @@ describes is.)
 
 - **Genroc as a user directory.** No users, no passwords, no sessions, no password reset. Every
   mode consumes an identity someone else established.
-- ~~**TLS in genroc.**~~ **Qualified 2026-08-27.** The original reasoning — *"in k8s it is
-  terminated at the ingress essentially always, so a proxy is in the picture regardless"* — is
-  true of k8s and false as a general rule. §5.2's token-only deployment is exactly the one with
-  no ingress, and there a bearer token crosses the wire in the clear. `--tls-cert` / `--tls-key`
-  is roughly ten lines of `ListenAndServeTLS` and is what makes "no proxy" a real configuration
-  rather than "no proxy except the one terminating TLS". Certificate *management* — issuance,
-  renewal, ACME — stays out: that is what the proxy or the platform is for.
+- **TLS.** Terminated in front of genroc — an ingress, a load balancer, a reverse proxy — as it
+  is for any other service. Nothing about it is genroc's to configure.
 - **Cookies.** The API accepts `Authorization` and configured headers only. A cookie is an
   *ambient* credential: a malicious page makes the browser issue a cross-site request, the
   cookie rides along, and the proxy dutifully forwards the identity header — so header trust
@@ -784,8 +834,8 @@ describes is.)
   `session:<subject>`. The cookie is never exchanged for anything but this. §5.1.
 - **Should genroc run the OIDC login flow itself?** §5.1 unifies onto one host but still needs a
   proxy in front of the browser zone (`/`, where `-ui` serves the SPA). The full unification is genroc implementing the authorization-code
-  flow — what Grafana, Argo CD and Gitea all converged on — after which a deployment needs no
-  proxy for anything, only TLS (§9). It is a real feature, not a config change, and it is the
+  flow — what Grafana, Argo CD and Gitea all converged on — after which no component in the
+  deployment exists to establish identity. It is a real feature, not a config change, and it is the
   direction the "why is there a second component" instinct points; recorded so it is a decision
   rather than a rediscovery. The cost is that genroc then owns redirect URIs, state/nonce, cookie
   handling and refresh — the surface §9 says it is not in the business of.

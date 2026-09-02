@@ -17,8 +17,9 @@ import (
 // the k8s-idiomatic shape, and it needs no bootstrapping story.
 
 type AuthConfig struct {
-	Mode   string              `yaml:"mode"` // none | token | header
+	Mode   string              `yaml:"mode"` // none | token | header | jwt
 	Header HeaderModeConfig    `yaml:"header"`
+	JWT    JWTModeConfig       `yaml:"jwt"`
 	Roles  map[string][]string `yaml:"roles"` // asserted role -> permissions
 	// Users maps a SUBJECT to permissions, unioned with its roles. Groups are the better axis;
 	// this is for providers that supply none (GitHub is OAuth2, Google omits them). §4.
@@ -32,6 +33,32 @@ type AuthConfig struct {
 // A working day plus slack: no re-auth mid-task, dead by morning.
 const defaultSessionTTL = 12 * time.Hour
 
+// JWTModeConfig is `mode: jwt`. Issuer, Audience and Algorithms have no defaults and are
+// refused when empty: each is a known way JWT deployments are broken and none is the default in
+// most libraries. specs/api-auth.md §2.4.
+type JWTModeConfig struct {
+	// Exactly one of JWKSURL / JWKSFile. The file is not a lesser option: it is what makes this
+	// mode testable without standing up an IdP, and the answer for an air-gapped deployment or
+	// for pinning a key rather than trusting a fetch. A mode that can only be exercised
+	// end-to-end is one whose edge cases never get a test. specs/api-auth.md §2.4.
+	JWKSURL  string `yaml:"jwks_url"`
+	JWKSFile string `yaml:"jwks_file"`
+	// Issuer is pinned so a second, attacker-chosen issuer with a valid JWKS is not accepted.
+	Issuer string `yaml:"issuer"`
+	// Audience is pinned because without it a token the IdP minted for a DIFFERENT application
+	// verifies here too -- the same signature, a different intended audience. This is the most
+	// common real-world JWT bug and it turns any other app in the tenant into a genroc credential.
+	Audience string `yaml:"audience"`
+	// Algorithms is pinned to what the issuer actually uses. `alg: none` and RS256->HS256
+	// confusion are both live vulnerability classes, and both are configuration, not cryptography.
+	Algorithms []string `yaml:"algorithms"`
+	// SubjectClaim / RolesClaim default to `sub` and `groups`.
+	SubjectClaim string `yaml:"subject_claim"`
+	RolesClaim   string `yaml:"roles_claim"`
+	// Leeway absorbs clock skew on exp/nbf; empty means 30s. A fixed zero fails on real clusters.
+	Leeway string `yaml:"leeway"`
+}
+
 type HeaderModeConfig struct {
 	Subject string `yaml:"subject"` // header carrying who the caller is
 	Roles   string `yaml:"roles"`   // header carrying their roles, comma-separated
@@ -40,6 +67,32 @@ type HeaderModeConfig struct {
 	// asserts any identity — so refusing to start without it is the only guard that cannot be
 	// forgotten. specs/api-auth.md §6.
 	TrustedProxies []string `yaml:"trusted_proxies"`
+}
+
+// validate enforces §2.4. These are refused at load rather than defaulted, because every
+// default that could be chosen here is one that silently accepts more than the operator meant.
+func (j JWTModeConfig) validate(path string) error {
+	switch {
+	case j.JWKSURL == "" && j.JWKSFile == "":
+		return fmt.Errorf("%s: jwt needs jwks_url or jwks_file", path)
+	case j.JWKSURL != "" && j.JWKSFile != "":
+		return fmt.Errorf("%s: jwt takes jwks_url or jwks_file, not both", path)
+	case j.Issuer == "":
+		return fmt.Errorf("%s: jwt.issuer is required — unpinned, a second issuer with a "+
+			"valid JWKS is accepted too", path)
+	case j.Audience == "":
+		return fmt.Errorf("%s: jwt.audience is required — unpinned, a token your IdP minted "+
+			"for a different application verifies here too", path)
+	case len(j.Algorithms) == 0:
+		return fmt.Errorf("%s: jwt.algorithms is required (e.g. [RS256]) — unpinned, "+
+			"`alg: none` and RS256/HS256 confusion are both accepted", path)
+	}
+	for _, alg := range j.Algorithms {
+		if strings.EqualFold(alg, "none") {
+			return fmt.Errorf("%s: jwt.algorithms must not contain %q: it accepts unsigned tokens", path, alg)
+		}
+	}
+	return nil
 }
 
 func LoadAuthConfig(path string) (*AuthConfig, error) {
@@ -58,6 +111,18 @@ func LoadAuthConfig(path string) (*AuthConfig, error) {
 		if len(cfg.Header.TrustedProxies) == 0 {
 			return nil, fmt.Errorf("%s: header.trusted_proxies is required in header mode — "+
 				"without it any caller that reaches this port can assert any identity", path)
+		}
+	}
+	if cfg.Mode == "jwt" {
+		if err := cfg.JWT.validate(path); err != nil {
+			return nil, err
+		}
+		// §2.2's hybrid: Google verifies an ID token but omits groups, so roles arrive as a
+		// header beside a token-borne subject. That header is trusted, so it needs the same
+		// boundary header mode does -- a role list from an unbounded peer is a grant from one.
+		if cfg.Header.Roles != "" && len(cfg.Header.TrustedProxies) == 0 {
+			return nil, fmt.Errorf("%s: header.roles is read in jwt mode (roles from a proxy "+
+				"beside a subject from the token), so header.trusted_proxies is required with it", path)
 		}
 	}
 	if cfg.SessionTTL != "" {
@@ -104,23 +169,11 @@ func NewHeaderAuth(cfg *AuthConfig) (*HeaderAuth, error) {
 		}
 		h.sessionTTL = d
 	}
-	for _, c := range cfg.Header.TrustedProxies {
-		_, n, err := net.ParseCIDR(c)
-		if err != nil {
-			// A bare address is accepted as a /32 or /128: an operator naming one proxy should
-			// not have to know CIDR notation to say so.
-			if ip := net.ParseIP(c); ip != nil {
-				bits := 32
-				if ip.To4() == nil {
-					bits = 128
-				}
-				n = &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)}
-			} else {
-				return nil, fmt.Errorf("trusted_proxies: %q is not an address or CIDR", c)
-			}
-		}
-		h.trusted = append(h.trusted, n)
+	trusted, err := parseTrustedProxies(cfg.Header.TrustedProxies)
+	if err != nil {
+		return nil, err
 	}
+	h.trusted = trusted
 	return h, nil
 }
 
@@ -143,12 +196,16 @@ func (h *HeaderAuth) PrincipalFrom(r *http.Request) *Principal {
 			}
 		}
 	}
-	return &Principal{Subject: subject, Roles: roles, Grants: h.grantsFor(subject, roles), Source: "header"}
+	return &Principal{Subject: subject, Roles: roles,
+		Grants: grantsFor(h.roles, h.users, subject, roles), Source: "header"}
 }
 
-// grantsFor maps asserted roles to permissions. `*` applies to any authenticated caller, which
-// is how a deployment says "everyone who gets past the proxy may read".
-func (h *HeaderAuth) grantsFor(subject string, roles []string) []Grant {
+// grantsFor maps a caller's roles and subject to permissions. `*` applies to any authenticated
+// caller, which is how a deployment says "everyone who gets past the proxy may read".
+//
+// Shared by every mode that resolves a role map, which is the point of §2.3: the token says who
+// and what group, this says what that may do. A mode with its own copy would drift.
+func grantsFor(roleMap, userMap map[string][]string, subject string, roles []string) []Grant {
 	seen := map[Perm]bool{}
 	var out []Grant
 	add := func(perms []string) {
@@ -160,14 +217,21 @@ func (h *HeaderAuth) grantsFor(subject string, roles []string) []Grant {
 		}
 	}
 	for _, r := range roles {
-		add(h.roles[r])
+		add(roleMap[r])
 	}
-	add(h.users[subject])
-	add(h.roles["*"])
+	add(userMap[subject])
+	add(roleMap["*"])
 	return out
 }
 
 func (h *HeaderAuth) trustedPeer(remoteAddr string) bool {
+	return trustedPeer(h.trusted, remoteAddr)
+}
+
+// trustedPeer reports whether a connection came from inside the configured boundary. Shared,
+// because jwt mode reads a roles header too (§2.2) and a second copy of this check is a second
+// place for it to be wrong.
+func trustedPeer(nets []*net.IPNet, remoteAddr string) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
 		host = remoteAddr
@@ -176,10 +240,32 @@ func (h *HeaderAuth) trustedPeer(remoteAddr string) bool {
 	if ip == nil {
 		return false
 	}
-	for _, n := range h.trusted {
+	for _, n := range nets {
 		if n.Contains(ip) {
 			return true
 		}
 	}
 	return false
+}
+
+// parseTrustedProxies accepts CIDRs and bare addresses, the latter as a /32 or /128: an operator
+// naming one proxy should not have to know the notation to say so.
+func parseTrustedProxies(in []string) ([]*net.IPNet, error) {
+	var out []*net.IPNet
+	for _, c := range in {
+		_, n, err := net.ParseCIDR(c)
+		if err != nil {
+			ip := net.ParseIP(c)
+			if ip == nil {
+				return nil, fmt.Errorf("trusted_proxies: %q is not an address or CIDR", c)
+			}
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			n = &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)}
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }

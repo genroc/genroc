@@ -157,6 +157,39 @@ type Authenticator interface {
 	Authenticate(ctx context.Context, credential string) (*Principal, error)
 }
 
+// chainAuth tries each authenticator in order and takes the first that recognises the
+// credential. This is what lets §2's "a real deployment runs two at once" be true of the bearer
+// header specifically: a browser presents a JWT and a CI job presents a `genroc_sk_*`, both
+// arrive in `Authorization`, and only one mode can answer for either.
+//
+// An error from any link stops the chain rather than falling through. A mode that cannot DECIDE
+// (its database or JWKS is unreachable) must not be silently downgraded to "not authenticated" by
+// the next one — that turns an outage into a 401 storm the operator cannot distinguish from a
+// misconfigured client.
+type chainAuth []Authenticator
+
+// Chain combines identity modes that all read the same bearer credential. One authenticator is
+// returned unwrapped, so the common single-mode case carries no indirection.
+func Chain(auths ...Authenticator) Authenticator {
+	if len(auths) == 1 {
+		return auths[0]
+	}
+	return chainAuth(auths)
+}
+
+func (c chainAuth) Authenticate(ctx context.Context, credential string) (*Principal, error) {
+	for _, a := range c {
+		p, err := a.Authenticate(ctx, credential)
+		if err != nil {
+			return nil, err
+		}
+		if p != nil {
+			return p, nil
+		}
+	}
+	return nil, nil
+}
+
 // TokenLookup is the half of the database token mode needs, kept narrow so the authenticator
 // can be tested without one.
 type TokenLookup interface {

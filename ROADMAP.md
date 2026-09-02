@@ -7,10 +7,6 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **attribution history** — every actor is on a current-state row, so "who promoted v7 to
   prod" is gone once v8 replaces it; needs an audit table not keyed by an instance
   (specs/api-auth.md §7)
-- [] **auth: `jwt` mode** — a proxy that forwards a signed token is the one shape `header` mode
-  cannot verify, and its trust rests on a network fact genroc cannot test (specs/api-auth.md §2.1)
-- [] **TLS in genroc** — `--tls-cert`/`--tls-key`, which is what makes the token-only deployment
-  "no proxy" rather than "no proxy except the one terminating TLS" (specs/api-auth.md §9)
 - [] **metrics** — `/healthz` is binary; nothing reports backlog depth or the age of the
   oldest due `wake_at` (specs/resource-limits.md)
 - [] **renew as a heartbeat** — the response is a count, so a worker holding several claims
@@ -43,8 +39,8 @@ One line per item. The argument lives in `specs/`; this is the index.
 
 ## Shipped
 
-- [x] auth — permissions on every action, `token` and `header` modes, the session exchange, and
-      a default that warns when it is exposed (specs/api-auth.md; `jwt` remains open)
+- [x] auth — permissions on every action, `token` / `header` / `jwt` modes composing in one
+      chain, the session exchange, and a default that warns when it is exposed (specs/api-auth.md)
 - [x] attribution — `actor` as `source:subject` on definitions, channels and operator-initiated
       audit rows, recorded even with auth off (specs/api-auth.md §7)
 - [x] CLI mirroring the API, YAML, config file

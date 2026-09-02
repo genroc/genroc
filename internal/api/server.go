@@ -58,6 +58,10 @@ type Server struct {
 	// a value genroc merely wrote down from one it checked came from a trusted peer.
 	assertedHeader string
 
+	// jwt, when configured, is also inside `auth` — held separately only so §2.2's roles-from-a-
+	// header overlay can run, which needs the request that `Authenticate` does not see.
+	jwt *JWTAuth
+
 	// header is `mode: header`, checked BEFORE auth: a request arriving through the trusted
 	// proxy is already identified, and asking the token store about a credential it does not
 	// carry would only cost a query. Both may be configured at once — a deployment runs an SSO
@@ -75,6 +79,10 @@ func (s *Server) SetHeaderAuth(h *HeaderAuth) { s.header = h }
 // SetAssertedHeader records an identity header for attribution without granting anything by it.
 // Called once at startup, before Listen*.
 func (s *Server) SetAssertedHeader(name string) { s.assertedHeader = name }
+
+// SetJWTAuth records the jwt mode for the §2.2 overlay. The authenticator itself still has to be
+// installed with SetAuthenticator (chained with token mode where both run).
+func (s *Server) SetJWTAuth(j *JWTAuth) { s.jwt = j }
 
 // guard authorizes a hand-written route, for the handful that cannot be registry actions
 // because they answer with something other than a Reply. Everything else goes through
@@ -100,6 +108,9 @@ func (s *Server) httpPrincipal(r *http.Request) (*Principal, *Error) {
 	p, err := s.principalFor(r.Context(), bearerToken(r.Header.Get("Authorization")))
 	if err != nil {
 		return nil, err
+	}
+	if s.jwt != nil {
+		p = s.jwt.OverlayHeaderRoles(p, r)
 	}
 	return s.attribute(p, r), nil
 }

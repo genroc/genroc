@@ -39,10 +39,23 @@ transport attaches it after establishing identity; `Handle` refuses an envelope 
 rather than defaulting to open, which is why in-process callers (tests) must supply their own.
 
 `none` is still the DEFAULT, and then the transports attach `anonymousAdmin()` and nothing is
-refused — but `token` and `header` both ship, and a deployment runs them together
+refused — but `token`, `header` and `jwt` all ship and a deployment runs two at once
 (specs/api-auth.md §2, §3). `httpPrincipal` tries the forwarded identity first and falls back to
-the bearer token; they cannot collide, because a browser behind the proxy carries no token and a
-machine bypassing the proxy carries no forwarded identity.
+the bearer credential; those cannot collide, because a browser behind the proxy carries no token
+and a machine bypassing the proxy carries no forwarded identity.
+
+**`jwt` and `token` DO collide — both read `Authorization: Bearer` — so they compose through
+`Chain`.** Each declines what is not its own (`JWTAuth` skips a `genroc_sk_` prefix and anything
+without three dot-separated segments) and the first to recognise the credential answers. The rule
+that breaks silently: **a link returning an error stops the chain.** Falling through would let an
+unreachable JWKS or database read as "not authenticated", turning an outage into 401s the
+operator cannot tell from a bad client. `(nil, nil)` means "not mine"; an error means "cannot
+decide", and only the first is a fall-through.
+
+Two things in jwt mode live outside the authenticator because `Authenticate(ctx, credential)`
+never sees the request: §2.2's roles-from-a-trusted-header overlay, and §7's attribution. Both
+run in `httpPrincipal`, and both are why `Server` keeps a `jwt` field even though the
+authenticator is already installed.
 
 **Everything under `apiPrefix` requires a credential; `publicPrefix` (`/public`) is what does
 not.** The split exists so the zone is legible from the path — a deployment writes ingress rules

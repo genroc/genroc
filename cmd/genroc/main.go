@@ -43,7 +43,7 @@ func main() {
 	durability := flag.String("durability", "only-once", "How much of the write path is flushed to disk before it is acknowledged. only-once (default) flushes what cannot be replayed - work handed in from outside, and only_once tasks - and lets ordinary task progress replay after a power cut, which the at-least-once contract already allows. terminal additionally flushes process ends, so a finished process cannot rewind to running. strict flushes every commit, so no completed task ever repeats. Below strict, a client polling an instance can see a state it already passed after an unclean shutdown. See specs/durability-levels.md.")
 	authMode := flag.String("auth", "none", "How callers are identified: none (default; every request is treated as an operator) or token (a genroc_sk_* credential in Authorization: Bearer, hashed in the database). A unix socket is authorised by its file mode either way. See specs/api-auth.md.")
 	uiDir := flag.String("ui", "", "Serve a built frontend from this directory at `/`. Same origin as the API, which is what keeps CORS out of the picture entirely; see frontend/README.md.")
-	authConfig := flag.String("auth-config", "", "Path to an auth config file (YAML) enabling `mode: header` — a proxy authenticates the caller and forwards the result, and a role map turns the asserted roles into permissions. Combines with -auth token: a deployment runs a proxy for people and tokens for machines. See specs/api-auth.md §2, §4.")
+	authConfig := flag.String("auth-config", "", "Path to an auth config file (YAML) enabling a human identity mode: `mode: jwt` verifies a signed token against a JWKS (jwks_url or jwks_file, with issuer, audience and algorithms all pinned), or `mode: header` trusts a proxy's forwarded headers from within trusted_proxies. Either way a role map turns the resulting roles into permissions. Combines with -auth token: a deployment runs one of these for people and tokens for machines. See specs/api-auth.md §2, §4.")
 	seedTokens := flag.String("seed-tokens", "", "Credentials the operator generated, as a comma-separated list of `label=perms=secret` (perms itself is +-separated), e.g. \"admin=admin=genroc_sk_...,evaluator=worker=genroc_sk_...\" ($GENROC_SEED_TOKENS). Each is stored if absent and ignored if present, so a restart is a no-op and rotation is additive. The secret never originates here, so it never reaches these logs.")
 	bootstrapToken := flag.String("bootstrap-token", "", "In token mode, the admin credential to create when the deployment has no live one ($GENROC_BOOTSTRAP_TOKEN). Idempotent: ignored once an admin token exists, so it doubles as declarative recovery. Omit it and one is generated and printed once, to stderr.")
 	httpAddr := flag.String("http", ":8448", "HTTP listen address (empty to disable)")
@@ -133,9 +133,14 @@ func main() {
 		log.Info("serving UI", "dir", *uiDir)
 	}
 
-	// A forwarded identity and a bearer token are independent: either may be configured, and a
-	// deployment serving both people and machines configures both.
-	headerAuthOn := false
+	// The identity modes are independent and compose: a deployment serving both people and
+	// machines runs one for humans (`header` or `jwt`, from -auth-config) and `token` for
+	// machines. specs/api-auth.md §2.
+	//
+	// humanAuthOn covers both human modes. It suppresses the unauthenticated-exposure warning
+	// and the bootstrap mint, because either one means an operator already has a way in.
+	humanAuthOn := false
+	var auths []api.Authenticator
 	if *authConfig != "" {
 		cfg, err := api.LoadAuthConfig(*authConfig)
 		if err != nil {
@@ -150,9 +155,24 @@ func main() {
 				os.Exit(1)
 			}
 			srv.SetHeaderAuth(h)
-			headerAuthOn = true
+			humanAuthOn = true
 			log.Info("API authentication enabled", "mode", "header",
 				"subject_header", cfg.Header.Subject, "trusted_proxies", cfg.Header.TrustedProxies)
+		case cfg.Mode == "jwt":
+			j, err := api.NewJWTAuth(cfg)
+			if err != nil {
+				log.Error("auth-config", "err", err)
+				os.Exit(1)
+			}
+			srv.SetJWTAuth(j)
+			auths = append(auths, j)
+			humanAuthOn = true
+			source := cfg.JWT.JWKSURL
+			if source == "" {
+				source = cfg.JWT.JWKSFile
+			}
+			log.Info("API authentication enabled", "mode", "jwt", "issuer", cfg.JWT.Issuer,
+				"audience", cfg.JWT.Audience, "algorithms", cfg.JWT.Algorithms, "jwks", source)
 		case cfg.Header.Subject != "":
 			// Named but not trusted: attribution only, so a deployment that has not turned auth
 			// on yet still records who deployed. specs/api-auth.md §7.
@@ -167,9 +187,9 @@ func main() {
 		// The pre-auth default. Loud rather than silent when it is also reachable off-host:
 		// `docker run -p` puts an unauthenticated PUT /definitions on the network, and that
 		// should be a decision. specs/api-auth.md §6.
-		// Keyed on header auth actually being ON, not on a config file existing: an
+		// Keyed on a human mode actually being ON, not on a config file existing: an
 		// attribution-only config leaves every endpoint as open as it was.
-		if exposedAddr(*httpAddr) && !headerAuthOn {
+		if exposedAddr(*httpAddr) && !humanAuthOn {
 			log.Warn("API is UNAUTHENTICATED and bound beyond loopback — anyone who reaches this port can register a definition, which is arbitrary code execution on this server. Use -auth token, or bind to localhost.",
 				"addr", *httpAddr)
 		}
@@ -201,9 +221,9 @@ func main() {
 		// and the role map gives them admin — so minting a bootstrap credential nobody asked
 		// for, and printing it to a log, is pure exposure. Skip it and let the proxy be the
 		// answer; `genroc token create` remains the break-glass path either way.
-		if headerAuthOn && secret == "" {
-			log.Info("skipping bootstrap token", "reason", "header mode provides an operator path")
-			srv.SetAuthenticator(api.NewTokenAuth(database))
+		if humanAuthOn && secret == "" {
+			log.Info("skipping bootstrap token", "reason", "a human auth mode provides an operator path")
+			auths = append(auths, api.NewTokenAuth(database))
 			log.Info("API authentication enabled", "mode", "token")
 			break
 		}
@@ -218,11 +238,17 @@ func main() {
 			fmt.Fprintf(os.Stderr, "genroc: created bootstrap admin token %s\n  %s\n"+
 				"  This is the only time it is shown, and it is now in your logs — rotate it.\n", tok.ID, tok.Secret)
 		}
-		srv.SetAuthenticator(api.NewTokenAuth(database))
+		auths = append(auths, api.NewTokenAuth(database))
 		log.Info("API authentication enabled", "mode", "token")
 	default:
 		log.Error("unknown -auth mode", "mode", *authMode, "valid", "none, token")
 		os.Exit(1)
+	}
+
+	// Installed once, after both switches: jwt and token both read the bearer credential, so a
+	// deployment running each for its own audience needs them behind one authenticator.
+	if len(auths) > 0 {
+		srv.SetAuthenticator(api.Chain(auths...))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
