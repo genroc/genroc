@@ -5,8 +5,8 @@
 # else. A leaked worker credential here cannot read a definition, list an instance, or mint
 # another token, which is the whole point of the split.
 #
-# What this does NOT show: SSO for humans. `jwt` and `header` modes are not built yet, so there
-# is no path for a browser behind an identity provider. Machines are served; people are not.
+# What this does NOT show: SSO for humans. `header` mode ships but this example does not run a
+# proxy — every caller here is a machine holding a token. See the README for the shape it takes.
 #
 #   ./examples/auth/gen-env.sh                      # once: mints the WORKER credential
 #   docker compose -f examples/auth/compose.yaml up --build

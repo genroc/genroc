@@ -18,8 +18,8 @@ here once and then gets built, and the entry says so in its own text rather than
 Trust the entry, and the spec's own §0, over this heading. As of 2026-08-25 the ones listed
 here that are actually BUILT are `error-extensions` (X2 only), `script-tasks`,
 `source-resolution` (code phase), `external-task-queue`, `external-outcome-as-signal`,
-`lazy-context`, `object-store`, `compat-command` and `durability-levels` (all but the
-per-definition field).
+`lazy-context`, `object-store`, `compat-command`, `durability-levels` (all but the
+per-definition field) and, since 2026-09-01, `api-auth` (all but `jwt`, attribution and TLS).
 
 - [error-extensions.md](error-extensions.md) — three considered extensions to the child
   error model, of which **X2 (a payload on `raise`) is BUILT (2026-08-22)** — read its §X2-c
@@ -35,25 +35,40 @@ per-definition field).
   narrows an **unknown child output** moved off `engine.collect` onto a catchable
   `output.invalid` — which is why a child task's catchable set is now
   `raises(D) ∪ {output.invalid}` (child-error-handling.md E6).
-- [api-auth.md](api-auth.md) — **proposal, nothing built.** How genroc gets authenticated at
-  all: today every endpoint is open and `PUT /definitions` is arbitrary code execution. The
-  decision it rests on is a split — **genroc owns authorization, the deployment owns identity**
-  — because which endpoints a caller may reach is a statement about our own API surface, and
-  pushing it into ingress rules means every user keeps a hand-copied list of our routes that
-  goes stale the next time `actions.go` grows one. So a `Perm` field sits on `actionDef` beside
-  `Method` and `Path`, zero value closed, and identity arrives as a **signed JWT** the proxy
-  forwards (§2.1: the signature moves the guarantee into the request, so a bypassed proxy buys
-  nothing — plain-header trust rests on a network fact genroc cannot see or test), with plain
-  headers kept as the fallback. **Two modes ship together and are not alternatives** (§5): a
-  proxy authenticates humans, and says nothing about how a CI job or a worker authenticates, so
-  genroc mints opaque `genroc_sk_*` tokens — SHA-256 in the table, permissions on the row,
-  revocable individually — for machines. §9 keeps the reasoning that deferred them, because the
-  error is instructive: "everyone who needs tokens also has a proxy" is a non-sequitur. Two things in it are worth acting on
-  regardless of when the rest lands: the **path layout does not currently separate trust zones**
-  (§1 — the queue listing sits under the worker prefix, `signal` sits under the admin one), and
-  that is cheap to fix only until someone's ingress config depends on it; and **attribution**
-  (§7) works even with auth off, since recording an asserted identity header costs nothing and
-  "who deployed v7?" is unanswerable forever for anything written before it lands.
+- [api-auth.md](api-auth.md) — **BUILT except `jwt` (§2.1), attribution (§7) and TLS (§9)**;
+  path layout, permissions and `token` mode landed 2026-08-28, `header` mode and the session
+  exchange 2026-09-01. How genroc gets authenticated at all. The decision everything rests on is
+  a split — **genroc owns authorization, the deployment owns identity** — because which
+  endpoints a caller may reach is a statement about our own API surface, and pushing it into
+  ingress rules means every user keeps a hand-copied list of our routes that goes stale the next
+  time `actions.go` grows one. So `Allow` sits on `actionDef` beside `Method` and `Path`, **zero
+  value admin-only**, and one `authorize` gate serves every transport — which the transports
+  forced, since a middleware on the HTTP mux would have left TCP and UDS open (a unix socket is
+  authorized by its file mode instead, the one deliberate exception). **Modes are not
+  alternatives**: a proxy authenticates humans and says nothing about how a CI job authenticates,
+  so `header` and `token` compose per request, header first — not a preference but the
+  observation that a browser has no token and a machine has no forwarded identity, so neither can
+  shadow the other. §9 keeps the reasoning that once deferred tokens, because the error is
+  instructive: "everyone who needs tokens also has a proxy" is a non-sequitur.
+
+  Four things moved during the build. **Bootstrap grew a fourth path that outranks the other
+  three** (§5.3): the operator generates offline with `genctl token generate` and genroc stores
+  only hashes, so a secret never originates inside genroc, never reaches its logs and never rests
+  in its container — and its auto-mint condition **reversed** from "empty table" to "no live
+  admin token", accepting that a revoke-all is undone by a restart, because a deployment holding
+  only worker tokens is locked out and the path that exists to let it back in must fire. The race
+  the draft predicted was real and its **prescribed fix was insufficient**: `INSERT … WHERE NOT
+  EXISTS` does not stop it, because under READ COMMITTED a COUNT takes no lock on rows that do
+  not exist — measured at 8 replicas minting 8 admin tokens, and 1 under SERIALIZABLE, which
+  SQLite's single writer hides entirely so the test proves nothing without `POSTGRES_DSN`.
+  **`header` mode's second failure mode was found by building the example** (§6) and is the
+  nastier one: a proxy that FORWARDS a client's copy of the identity header launders a forgery,
+  byte-identical on arrival, so `trusted_proxies` cannot see it and only the proxy stripping can
+  — the sharpest argument for `jwt` there is. And the **session exchange** (§5.1) settled §10's
+  open question in favour of a new endpoint outside `/api/`, minting a real token row rather than
+  a signed blob so a person's session is listable, revocable and attributable like any other
+  credential; it must never permit a cross-origin read, which is why the UI is served from
+  genroc's own origin and no CORS exists anywhere in the system.
 - [custom-tasks.md](custom-tasks.md) — north-star: extend genroc **without plugins** —
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the

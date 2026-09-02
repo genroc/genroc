@@ -75,10 +75,16 @@ intent.
 
 ## What it does NOT show
 
-**SSO for humans.** `jwt` and `header` modes are not built, so there is no path for a browser
-behind an identity provider — machines are served, people are not. When they land, the shape is
-oauth2-proxy in front of `/` with the API left on `/api/*` (§5.1), and this file grows a proxy
-service.
+**SSO for humans.** `header` mode ships and this example does not use it — everything here is a
+machine holding a token, which is what keeps an identity provider out of the stack entirely.
+Wiring it up means a proxy in front of `/` with the API left direct on `/api/*` (§5.1), the
+server given `-auth-config` and `-ui`, and the browser trading its session for a bearer token at
+`/session/token`. `jwt` mode is genuinely unbuilt (§2.1).
+
+Worth knowing before you add that proxy: it **must strip the identity headers on every route it
+does not set them on**. A forwarded client copy and a genuine assertion are byte-identical by the
+time genroc sees them, so `trusted_proxies` cannot tell them apart and a forgery becomes admin
+(§6).
 
 **TLS.** Everything here is plain HTTP on a compose network. A bearer token in cleartext is as
 exposed as a password, so a real deployment terminates TLS at an ingress or a proxy (§9).

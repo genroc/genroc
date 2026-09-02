@@ -4,8 +4,13 @@ One line per item. The argument lives in `specs/`; this is the index.
 
 ## Open
 
-- [] **auth** — there is none; anyone who reaches the port can register a definition and
-  exfiltrate every `GENROC_GLOBAL_*` value through a templated `fetch` (specs/api-auth.md)
+- [] **auth: `jwt` mode** — a proxy that forwards a signed token is the one shape `header` mode
+  cannot verify, and its trust rests on a network fact genroc cannot test (specs/api-auth.md §2.1)
+- [] **attribution** — no actor column and no actor on the audit log, so "who deployed v7?" is
+  unanswerable forever for anything written before it lands; the `Principal` already exists
+  (specs/api-auth.md §7)
+- [] **TLS in genroc** — `--tls-cert`/`--tls-key`, which is what makes the token-only deployment
+  "no proxy" rather than "no proxy except the one terminating TLS" (specs/api-auth.md §9)
 - [] **metrics** — `/healthz` is binary; nothing reports backlog depth or the age of the
   oldest due `wake_at` (specs/resource-limits.md)
 - [] **renew as a heartbeat** — the response is a count, so a worker holding several claims
@@ -38,6 +43,8 @@ One line per item. The argument lives in `specs/`; this is the index.
 
 ## Shipped
 
+- [x] auth — permissions on every action, `token` and `header` modes, the session exchange, and
+      a default that warns when it is exposed (specs/api-auth.md; `jwt` and attribution remain open)
 - [x] CLI mirroring the API, YAML, config file
 - [x] versioning channels, and version compatibility as a check (`genctl compat`)
 - [x] instance upgrade, gated on that check, one column, tree-closed

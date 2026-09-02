@@ -17,15 +17,24 @@ dev and production, because in production genroc serves these assets itself at `
 That is worth preserving. The moment this app is served from an origin genroc does not own,
 CORS becomes a thing genroc has to configure and get right.
 
-## The credential is pasted, for now
+## Two ways the credential arrives
 
-genroc has no browser login: `jwt` and `header` modes are unbuilt, so there is nothing that
-turns a session into a token. The header field takes a `genroc_sk_…` value and keeps it in
-`localStorage`. A `read` token is enough for everything here:
+Either way it ends up in `localStorage` under one key, so nothing outside `src/api.ts` cares
+which happened.
+
+**Behind an SSO proxy**, the app asks `GET /session/token` and gets a bearer token minted from
+the identity the proxy forwarded. It asks **only when it holds none**: the server stores just
+the hash, so the exchange cannot return a token it issued before and every call mints a new one
+— asking on each page load would leave a trail of live credentials. A 401 on a token it already
+holds is the ordinary end of a session rather than an error, so it re-exchanges once and
+retries; a second failure is real and surfaces. Needs `-auth-config` (`mode: header`) *and*
+`-auth token` on the server — the exchange mints a bearer token, so something has to be able to
+verify one.
+
+**Without a proxy**, the exchange answers 401 or 501 and the paste field is all there is. This
+is the default. A `read` token is enough for everything here:
 
     genctl token create --perms read --label ui -q
-
-When a session exchange exists it replaces `token()` in `src/api.ts`, and nothing else changes.
 
 ## Scope
 
