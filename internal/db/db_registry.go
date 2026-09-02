@@ -135,6 +135,7 @@ func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
 					Channel:   channel,
 					Version:   int64(r.w.Version),
 					UpdatedAt: now,
+					Actor:     r.w.Actor,
 				}); err != nil {
 					return fmt.Errorf("channel %s@%s: %w", r.w.Name, channel, err)
 				}
@@ -200,6 +201,7 @@ func (db *DB) SaveDefinition(def *model.ProcessDefinition, version int, deps []D
 				Channel:   channel,
 				Version:   int64(version),
 				UpdatedAt: now,
+				Actor:     actor,
 			}); err != nil {
 				return err
 			}
@@ -398,12 +400,13 @@ func (db *DB) FindStaleRefs(channel string) ([]StaleRefRow, error) {
 
 // ── Channels ──────────────────────────────────────────────────────────────────
 
-func (db *DB) SaveChannel(name, channel string, version int) error {
+func (db *DB) SaveChannel(name, channel string, version int, actor string) error {
 	return db.q.UpsertChannel(context.Background(), dbgen.UpsertChannelParams{
 		Name:      name,
 		Channel:   channel,
 		Version:   int64(version),
 		UpdatedAt: nowMillis(),
+		Actor:     actor,
 	})
 }
 
@@ -424,6 +427,10 @@ func (db *DB) DeleteChannel(name, channel string) error {
 type ChannelRow struct {
 	Channel string
 	Version int
+	// UpdatedAt and Actor are when this pointer last moved and who moved it. Current state,
+	// not history: once the pointer moves again the previous answer is gone. specs/api-auth.md §7.
+	UpdatedAt time.Time
+	Actor     string
 }
 
 // channelPaginator is the pagination policy for ListChannels. It is always scoped
@@ -432,7 +439,7 @@ type ChannelRow struct {
 // PRIMARY KEY, so the keyset rides the PK index.
 var channelPaginator = paginator{
 	table:      "process_channels",
-	columns:    "channel, version",
+	columns:    "channel, version, updated_at, actor",
 	filterCols: []string{"name"},
 	sorts: map[string]sortMode{
 		"channel": {{"channel", kindText}},
@@ -454,11 +461,12 @@ func (db *DB) ListChannels(name string, req PageReq) ([]ChannelRow, PageInfo, er
 	}
 	return runPage(db, b, func(s rowScanner) (ChannelRow, error) {
 		var r ChannelRow
-		var version int64
-		if err := s.Scan(&r.Channel, &version); err != nil {
+		var version, updatedAt int64
+		if err := s.Scan(&r.Channel, &version, &updatedAt, &r.Actor); err != nil {
 			return ChannelRow{}, err
 		}
 		r.Version = int(version)
+		r.UpdatedAt = toTime(updatedAt)
 		return r, nil
 	}, channelCursorVals)
 }

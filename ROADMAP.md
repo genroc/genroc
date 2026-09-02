@@ -4,6 +4,9 @@ One line per item. The argument lives in `specs/`; this is the index.
 
 ## Open
 
+- [] **attribution history** — every actor is on a current-state row, so "who promoted v7 to
+  prod" is gone once v8 replaces it; needs an audit table not keyed by an instance
+  (specs/api-auth.md §7)
 - [] **auth: `jwt` mode** — a proxy that forwards a signed token is the one shape `header` mode
   cannot verify, and its trust rests on a network fact genroc cannot test (specs/api-auth.md §2.1)
 - [] **TLS in genroc** — `--tls-cert`/`--tls-key`, which is what makes the token-only deployment
@@ -42,8 +45,8 @@ One line per item. The argument lives in `specs/`; this is the index.
 
 - [x] auth — permissions on every action, `token` and `header` modes, the session exchange, and
       a default that warns when it is exposed (specs/api-auth.md; `jwt` remains open)
-- [x] attribution — `actor` as `source:subject` on definitions and operator-initiated audit rows,
-      recorded even with auth off (specs/api-auth.md §7)
+- [x] attribution — `actor` as `source:subject` on definitions, channels and operator-initiated
+      audit rows, recorded even with auth off (specs/api-auth.md §7)
 - [x] CLI mirroring the API, YAML, config file
 - [x] versioning channels, and version compatibility as a check (`genctl compat`)
 - [x] instance upgrade, gated on that check, one column, tree-closed

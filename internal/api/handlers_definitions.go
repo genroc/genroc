@@ -160,8 +160,11 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 		rawNew, _ := json.Marshal(def)
 		hash := contentHash(rawNew, newDeps)
 		if v, err := h.db.FindVersionByHash(def.Name, hash); err == nil {
+			// Actor, even though no definition row is written: ApplyDefinitions upserts the
+			// channel pointer for this branch too, stamping updated_at. Leaving it unset would
+			// make the row read "moved just now" by whoever set it LAST time.
 			plan = append(plan, db.DefinitionWrite{
-				Name: def.Name, Version: v, Channels: h.channelsFor(def.Name, channel),
+				Name: def.Name, Version: v, Channels: h.channelsFor(def.Name, channel), Actor: actor,
 			})
 			batchVersions[def.Name] = v
 			results = append(results, BatchApplyResult{Name: def.Name, Version: v, Saved: false})

@@ -146,6 +146,10 @@ Two things follow, and both are silent when broken:
 - **Channel pointers are decided during planning** (`channelsFor`), not derived mid-commit.
   Whether the default channel needs setting is a question about state *before* the batch,
   and asking it inside the transaction would read rows that transaction is writing.
+- **`DefinitionWrite.Actor` is needed on the `Def == nil` entry too.** `ApplyDefinitions` upserts
+  the channel pointer OUTSIDE its `Def != nil` block, so the "content already exists, only the
+  pointer moves" entry still writes a row — stamping `updated_at` and `actor` together. Omitting
+  the actor there blanks whoever set the pointer while claiming it moved just now.
 
 `db.ApplyDefinitions` judges nothing — it writes what it is given. Validation belongs to the
 planning pass alone.

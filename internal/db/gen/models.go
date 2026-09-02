@@ -44,6 +44,7 @@ type ProcessChannel struct {
 	Channel   string
 	Version   int64
 	UpdatedAt int64
+	Actor     string
 }
 
 type ProcessDefinition struct {

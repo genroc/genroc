@@ -3,9 +3,10 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
-func (h *Handlers) putChannel(raw json.RawMessage) Reply {
+func (h *Handlers) putChannel(raw json.RawMessage, actor string) Reply {
 	req, err := decodeBody[PutChannelReq](raw)
 	if err != nil {
 		return errReply(err)
@@ -18,7 +19,7 @@ func (h *Handlers) putChannel(raw json.RawMessage) Reply {
 	if _, err := h.db.GetDefinition(req.Name, req.Version); err != nil {
 		return errReply(err)
 	}
-	if err := h.db.SaveChannel(req.Name, req.Channel, req.Version); err != nil {
+	if err := h.db.SaveChannel(req.Name, req.Channel, req.Version, actor); err != nil {
 		return errReply(err)
 	}
 	return okReply(map[string]any{"name": req.Name, "channel": req.Channel, "version": req.Version})
@@ -52,12 +53,15 @@ func (h *Handlers) listChannels(raw json.RawMessage) Reply {
 	}
 	entries := make([]ChannelEntry, len(channels))
 	for i, c := range channels {
-		entries[i] = ChannelEntry{Channel: c.Channel, Version: c.Version}
+		entries[i] = ChannelEntry{
+			Channel: c.Channel, Version: c.Version,
+			UpdatedAt: c.UpdatedAt.Format(time.RFC3339Nano), Actor: c.Actor,
+		}
 	}
 	return okReply(PageResp[ChannelEntry]{Items: entries, Page: info})
 }
 
-func (h *Handlers) promoteChannel(raw json.RawMessage) Reply {
+func (h *Handlers) promoteChannel(raw json.RawMessage, actor string) Reply {
 	req, err := decodeBody[PromoteChannelReq](raw)
 	if err != nil {
 		return errReply(err)
@@ -84,7 +88,7 @@ func (h *Handlers) promoteChannel(raw json.RawMessage) Reply {
 
 	promoted := make([]map[string]any, 0, len(defs))
 	for _, vd := range defs {
-		if err := h.db.SaveChannel(vd.Def.Name, req.To, vd.Version); err != nil {
+		if err := h.db.SaveChannel(vd.Def.Name, req.To, vd.Version, actor); err != nil {
 			return errReply(fmt.Errorf("promote %s: %w", vd.Def.Name, err))
 		}
 		promoted = append(promoted, map[string]any{"name": vd.Def.Name, "version": vd.Version})

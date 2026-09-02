@@ -163,8 +163,10 @@ func runChannelCmd(server string, args []string) {
 			fatal("usage: genctl channel list <process>")
 		}
 		type channelRow struct {
-			Channel string `json:"channel"`
-			Version int    `json:"version"`
+			Channel   string `json:"channel"`
+			Version   int    `json:"version"`
+			UpdatedAt string `json:"updated_at"`
+			Actor     string `json:"actor"`
 		}
 		listURL := *serverFlag + "/api/channels?name=" + url.QueryEscape(rest[0])
 		resp, err := listAll[channelRow](listURL)
@@ -172,7 +174,17 @@ func runChannelCmd(server string, args []string) {
 			fatal("%v", err)
 		}
 		for _, e := range resp {
-			fmt.Printf("%s -> v%d\n", e.Channel, e.Version)
+			// A pointer moved before attribution landed has no actor, and one moved by an
+			// unauthenticated caller has none either -- both print the move without a name
+			// rather than an empty "by".
+			trail := ""
+			if e.UpdatedAt != "" {
+				trail = "   moved " + shortTime(e.UpdatedAt)
+			}
+			if e.Actor != "" {
+				trail += " by " + e.Actor
+			}
+			fmt.Printf("%s -> v%d%s\n", e.Channel, e.Version, trail)
 		}
 
 	case "set":

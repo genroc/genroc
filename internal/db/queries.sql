@@ -45,9 +45,12 @@ WHERE parent_name = sqlc.arg(parent_name)
 ORDER BY child_name;
 
 -- name: UpsertChannel :exec
-INSERT INTO process_channels (name, channel, version, updated_at)
-VALUES (sqlc.arg(name), sqlc.arg(channel), sqlc.arg(version), sqlc.arg(updated_at))
-ON CONFLICT (name, channel) DO UPDATE SET version = EXCLUDED.version, updated_at = EXCLUDED.updated_at;
+-- The conflict path overwrites actor, unlike InsertDefinition's: a channel is a mutable
+-- pointer, so the useful actor is whoever moved it last, not whoever created it.
+INSERT INTO process_channels (name, channel, version, updated_at, actor)
+VALUES (sqlc.arg(name), sqlc.arg(channel), sqlc.arg(version), sqlc.arg(updated_at), sqlc.arg(actor))
+ON CONFLICT (name, channel) DO UPDATE SET
+    version = EXCLUDED.version, updated_at = EXCLUDED.updated_at, actor = EXCLUDED.actor;
 
 -- name: GetChannel :one
 SELECT version FROM process_channels

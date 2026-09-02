@@ -66,6 +66,10 @@ type PutDefinitionsBatchReq struct {
 type ChannelEntry struct {
 	Channel string `json:"channel"`
 	Version int    `json:"version"`
+	// UpdatedAt and Actor are when this pointer last moved and who moved it — current state,
+	// not history: the previous answer is gone once it moves again. specs/api-auth.md §7.
+	UpdatedAt string `json:"updated_at,omitempty"`
+	Actor     string `json:"actor,omitempty"`
 }
 
 type PutChannelReq struct {

@@ -325,7 +325,7 @@ var registry = func() []actionDef {
 			Req:     PutChannelReq{Name: "order_pipeline", Channel: "stable", Version: 3},
 			Resp:    map[string]any{"name": "order_pipeline", "channel": "stable", "version": 3},
 			handle: func(h *Handlers, env Envelope) Reply {
-				return h.putChannel(env.Payload)
+				return h.putChannel(env.Payload, env.principal.Actor())
 			},
 		},
 		{
@@ -375,7 +375,7 @@ var registry = func() []actionDef {
 			Req:     PromoteChannelReq{From: "staging", To: "latest"},
 			Resp:    map[string]any{"from": "staging", "to": "latest", "promoted": []any{}},
 			handle: func(h *Handlers, env Envelope) Reply {
-				return h.promoteChannel(env.Payload)
+				return h.promoteChannel(env.Payload, env.principal.Actor())
 			},
 		},
 		{

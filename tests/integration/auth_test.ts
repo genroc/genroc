@@ -220,3 +220,78 @@ test("attribution — an operator verb is recorded on the instance's trail, and 
     ).toBe("");
   }
 });
+
+test("attribution — a channel records who moved it last, while a definition keeps who deployed it first", async () => {
+  const alice = await mint(["deploy", "read"], "alice");
+  const bob = await mint(["deploy", "read"], "bob");
+  const name = `attrib_chan_${crypto.randomUUID().slice(0, 8)}`;
+  const def = (v: string) => ({
+    name,
+    tasks: [{ id: v, switch: [{ goto: "end" }] }],
+  });
+
+  // alice deploys v1; the default channel follows the deploy, so both name her.
+  expect((await req("/api/definitions", alice, { method: "PUT", body: JSON.stringify(def("a")) })).status).toBe(200);
+
+  const afterAlice = await req(`/api/channels?name=${name}`, alice);
+  const latest = (afterAlice.body.items as { channel: string; actor?: string }[]).find((c) => c.channel === "latest");
+  expect(latest?.actor, "a channel pointer moved by a deploy is attributed to the deployer").toBe("token:alice");
+
+  // bob moves the pointer back to v1 explicitly. The pointer is mutable, so the useful
+  // actor is the last mover — bob — even though alice created the version it points at.
+  expect(
+    (await req("/api/channels", bob, {
+      method: "PUT",
+      body: JSON.stringify({ name, channel: "prod", version: 1 }),
+    })).status,
+  ).toBe(200);
+
+  const chans = await req(`/api/channels?name=${name}`, bob);
+  const prod = (chans.body.items as { channel: string; actor?: string; updated_at?: string }[])
+    .find((c) => c.channel === "prod");
+  expect(prod?.actor, "'who promoted v7 to prod?' is the question this column exists for").toBe("token:bob");
+  expect(prod?.updated_at, "when the pointer moved was equally unanswerable before").toBeTruthy();
+
+  // Moving a pointer must not reach into the definitions table at all.
+  const defs = await req("/api/definitions?limit=100", alice);
+  const row = (defs.body.items as { name: string; version: number; actor?: string }[])
+    .find((d) => d.name === name && d.version === 1);
+  expect(
+    row?.actor,
+    "a channel promotion re-attributed the version it points at; the two are separate records",
+  ).toBe("token:alice");
+});
+
+test("attribution — re-applying identical content re-stamps the pointer it touches, and only that", async () => {
+  const alice = await mint(["deploy", "read"], "alice2");
+  const bob = await mint(["deploy", "read"], "bob2");
+  const name = `attrib_reapply_${crypto.randomUUID().slice(0, 8)}`;
+  const body = JSON.stringify({
+    channel: "latest",
+    definitions: [{ name, tasks: [{ id: "a", switch: [{ goto: "end" }] }] }],
+  });
+
+  expect((await req("/api/definitions/batch", alice, { method: "PUT", body })).status).toBe(200);
+
+  // Identical content: no new version is created, so this takes the "only the channel
+  // pointer moves" branch — which still stamps updated_at, and so must stamp the actor with
+  // it. Leaving it behind makes the row say "moved just now" by someone who did nothing now.
+  const again = await req("/api/definitions/batch", bob, { method: "PUT", body });
+  expect(again.status, JSON.stringify(again.body)).toBe(200);
+  expect((again.body as { saved: boolean }[])[0].saved, "identical content should not save a version").toBe(false);
+
+  const chans = await req(`/api/channels?name=${name}`, bob);
+  const latest = (chans.body.items as { channel: string; actor?: string }[]).find((c) => c.channel === "latest");
+  expect(
+    latest?.actor,
+    "a no-op re-apply left the pointer's actor stale while moving its timestamp — the row then " +
+      "attributes a move to someone who did not make it",
+  ).toBe("token:bob2");
+
+  // ...but no second version, and v1 still belongs to whoever actually wrote it.
+  const defs = await req("/api/definitions?limit=100", bob);
+  const rows = (defs.body.items as { name: string; version: number; actor?: string }[])
+    .filter((d) => d.name === name);
+  expect(rows.length, "identical content must not create a second version").toBe(1);
+  expect(rows[0].actor).toBe("token:alice2");
+});

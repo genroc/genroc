@@ -629,10 +629,11 @@ guards are **BUILT 2026-09-01**:
 
 ## 7. Attribution is the half that pays for itself
 
-**BUILT 2026-09-02** (migration 038). `process_definitions.actor` answers *"who deployed v7?"*;
-`process_logs.actor` answers it for a pause, resume, retry, upgrade and an instance's creation.
-Everything written before the migration stays anonymous permanently, which was the argument for
-landing it early rather than when it was next asked for.
+**BUILT 2026-09-02** (migrations 038, 039). `process_definitions.actor` answers *"who deployed
+v7?"*; `process_channels.actor` (with `updated_at`, which was also unexposed) answers *"who
+promoted v7 to prod, and when?"*; `process_logs.actor` answers it for a pause, resume, retry,
+upgrade and an instance's creation. Everything written before the migrations stays anonymous
+permanently, which was the argument for landing this early rather than when it was next asked for.
 
 **One column, holding `source:subject`** — `token:ci`, `header:ada@example.com`,
 `none:anonymous`. The source is IN the value rather than beside it because the two facts are only
@@ -655,14 +656,33 @@ Three things the build settled that the draft did not raise:
   `AuditCreated` takes the actor for a ROOT instance and `""` for a spawned child, and no engine
   event carries one. Attributing every row the engine then writes to whoever started the run puts
   an identity on work nobody requested.
-- **Re-applying identical content does not re-attribute it.** `InsertDefinition`'s conflict path
-  leaves `actor` alone, so the first deployer keeps the credit rather than the latest caller
-  taking it — and the batch path's "content already exists, only the channel pointer moves"
-  entry carries no actor at all, because it writes no definition row.
+- **A version and a pointer want opposite rules, and getting that backwards is a real bug that
+  was made and caught here.** A definition version is immutable, so its actor is whoever
+  deployed it and `InsertDefinition`'s conflict path leaves it alone (a safety net more than a
+  path: the batch skips unchanged content entirely and `PUT /definitions` always bumps the
+  version, so the conflict is reached only by a re-registration). A channel is a *mutable
+  pointer*, so `UpsertChannel`'s conflict path DOES overwrite it — the useful actor is the last
+  mover, not the creator.
+
+  The bug was on the seam. `ApplyDefinitions` upserts the channel pointer **outside** its
+  `Def != nil` block, so the "content already exists, only the pointer moves" entry reaches it
+  too — and that entry carried no actor, which silently blanked whoever set the pointer while
+  still stamping `updated_at`. The row then reads *"moved just now"* by nobody, or worse by the
+  previous mover. `actor` and `updated_at` describe the same write and have to be set together;
+  an e2e test now pins it, because nothing about the types says so.
 - **A log column is spelled twice** and the common path is the hand-written one
   (`writeLogBatch`, for buffered rows) rather than sqlc's `InsertLog` (only for rows carrying
   objects). Writing one and not the other fails in the direction that reads as the feature never
   working. Recorded in internal/db/CLAUDE.md because the next column pays it again.
+
+**What this does NOT give you is history.** Every actor here is on a current-state row, so
+*"who promoted v7 to prod"* is answerable while v7 is on prod and gone the moment v8 replaces it.
+A definition version is immutable so its actor is permanent; a channel's is not. The audit log
+would be the natural home for the history, and it cannot be: `process_logs.instance_id` is NOT
+NULL and a channel move belongs to no instance. So this needs a second audit table keyed by
+something other than an instance — deliberately not built, because the column answers the
+question that was actually being asked and a table nobody has asked for yet would fix its shape
+before anyone knows what it should hold.
 
 ## 8. Two new codes, not one
 

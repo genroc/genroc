@@ -1,0 +1,11 @@
+-- Who last moved this pointer, and when. specs/api-auth.md section 7.
+--
+-- A channel is the answer to "which version runs", so moving one is a deploy-class act and
+-- was the one such act left unattributed. Unlike process_definitions, the conflict path DOES
+-- overwrite this: a definition version is immutable and its first deployer keeps the credit,
+-- while a channel is a mutable pointer whose only interesting actor is the last one to move it.
+--
+-- This records CURRENT state, not history: "who promoted v7" is answerable while v7 is on the
+-- channel and gone once v8 replaces it. A history needs an audit table keyed by something other
+-- than an instance, which process_logs cannot be -- recorded in the spec rather than half-built.
+ALTER TABLE process_channels ADD COLUMN actor TEXT NOT NULL DEFAULT '';

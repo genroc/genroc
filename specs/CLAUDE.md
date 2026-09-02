@@ -80,7 +80,13 @@ per-definition field) and, since 2026-09-02, `api-auth` (all but `jwt` and TLS).
   for. The trap it paid for twice is that a `process_logs` column is spelled in FOUR places, and
   the sqlc one (`InsertLog`) serves only the rare object-carrying path while the hand-written
   `writeLogBatch` serves nearly every row — get one and not the other and the feature looks
-  entirely dead. internal/db/CLAUDE.md now says so.
+  entirely dead. internal/db/CLAUDE.md now says so. The other trap is a seam: a **version and a
+  pointer want opposite conflict rules** (a definition version is immutable and keeps its first
+  deployer; a channel is mutable and takes its last mover), and `ApplyDefinitions` upserts the
+  channel OUTSIDE its `Def != nil` block — so the "content already exists, only the pointer
+  moves" entry blanked the pointer's actor while still stamping `updated_at`. What the column
+  does NOT give is history: it is current state, and a channel's previous mover is gone the
+  moment it moves again.
 - [custom-tasks.md](custom-tasks.md) — north-star: extend genroc **without plugins** —
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three
   tiers (engine / child process / sidecar), the poller & K8s-handler use cases, and the

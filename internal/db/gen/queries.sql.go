@@ -1596,9 +1596,10 @@ func (q *Queries) UpgradeInstanceVersion(ctx context.Context, arg UpgradeInstanc
 }
 
 const upsertChannel = `-- name: UpsertChannel :exec
-INSERT INTO process_channels (name, channel, version, updated_at)
-VALUES (?1, ?2, ?3, ?4)
-ON CONFLICT (name, channel) DO UPDATE SET version = EXCLUDED.version, updated_at = EXCLUDED.updated_at
+INSERT INTO process_channels (name, channel, version, updated_at, actor)
+VALUES (?1, ?2, ?3, ?4, ?5)
+ON CONFLICT (name, channel) DO UPDATE SET
+    version = EXCLUDED.version, updated_at = EXCLUDED.updated_at, actor = EXCLUDED.actor
 `
 
 type UpsertChannelParams struct {
@@ -1606,14 +1607,18 @@ type UpsertChannelParams struct {
 	Channel   string
 	Version   int64
 	UpdatedAt int64
+	Actor     string
 }
 
+// The conflict path overwrites actor, unlike InsertDefinition's: a channel is a mutable
+// pointer, so the useful actor is whoever moved it last, not whoever created it.
 func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) error {
 	_, err := q.db.ExecContext(ctx, upsertChannel,
 		arg.Name,
 		arg.Channel,
 		arg.Version,
 		arg.UpdatedAt,
+		arg.Actor,
 	)
 	return err
 }
