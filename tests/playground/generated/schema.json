@@ -3,9 +3,6 @@
   "process_input": {
     "$ref": "#/$defs/input"
   },
-  "process_output": {
-    "$ref": "#/$defs/output"
-  },
   "tasks": {
     "location": {
       "action_type": "child",
@@ -23,6 +20,19 @@
       },
       "output": {
         "$ref": "#/$defs/reading_output"
+      }
+    },
+    "wait": {
+      "action_type": "delay",
+      "error": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/script_throw"
+          },
+          {
+            "type": "null"
+          }
+        ]
       }
     }
   },
@@ -55,11 +65,6 @@
         "place": {
           "type": "string",
           "default": "Praha"
-        },
-        "ticks": {
-          "type": "integer",
-          "description": "how many measurements to do; 0 = run forever",
-          "default": 0
         }
       }
     },
@@ -89,25 +94,6 @@
     },
     "location_output": {
       "$ref": "#/$defs/geo_response"
-    },
-    "output": {
-      "type": "object",
-      "properties": {
-        "last": {
-          "$ref": "#/$defs/reading"
-        },
-        "place": {
-          "type": "string"
-        },
-        "readings": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "last",
-        "place",
-        "readings"
-      ]
     },
     "reading": {
       "type": "object",
@@ -172,6 +158,24 @@
       "required": [
         "count",
         "last"
+      ]
+    },
+    "script_throw": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "stack": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "stack"
       ]
     }
   }

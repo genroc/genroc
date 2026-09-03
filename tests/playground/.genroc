@@ -1,0 +1,8 @@
+# The playground runs against the REPO's evaluator, not a published package: `npx genroc-import`
+# would resolve @genroc/eval-node from npm, so a change to import.ts would not be exercised here.
+# The scaffold (cmd/genctl/templates/scripts/.genroc) uses npx, which is right for a user.
+resolvers:
+  import:
+    phase: code
+    ext: .ts
+    command: [node, ../../eval-node/import.ts]

@@ -3,22 +3,6 @@
 
 export interface ProcessInput {
   place?: string;
-  /**
-   * how many measurements to do; 0 = run forever
-   */
-  ticks?: number;
-}
-
-export interface ProcessOutput {
-  last: Reading;
-  place: string;
-  readings: number;
-}
-export interface Reading {
-  condition: string;
-  summary: string;
-  temperature_c: number;
-  time: string;
 }
 
 export interface LocationInput {
@@ -45,4 +29,10 @@ export interface GeoResponse {
 export interface ReadingOutput {
   count: number;
   last: Reading;
+}
+export interface Reading {
+  condition: string;
+  summary: string;
+  temperature_c: number;
+  time: string;
 }

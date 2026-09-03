@@ -22,9 +22,9 @@ const dir = join(import.meta.dirname, "generated");
 const opts = { bannerComment: "", additionalProperties: false };
 const repoRoot = join(import.meta.dirname, "../..");
 const PROCESS = "weather-logger";
-// script.yaml travels along because weather-logger names it: validation resolves the child
+// script-node.yaml travels along because weather-logger names it: validation resolves the child
 // against the files on the command line before it falls back to the server.
-const yamls = ["script.yaml", "process.yaml"].map((f) => join(import.meta.dirname, f));
+const yamls = ["script-node.yaml", "process.yaml"].map((f) => join(import.meta.dirname, f));
 
 function toPascalCase(s: string): string {
   return s
