@@ -247,3 +247,31 @@ func assertChildRefsOK(t *testing.T, child *model.ProcessDefinition, defJSON str
 		t.Errorf("the child pass must see the inferred output types, not placeholders: %v", err)
 	}
 }
+
+// A migration layer is the shape of the stored ROW, and `self` is never in it: previous,
+// result and output are transient scopes the engine builds per slot. If contextSchema ever
+// grew a `self`, MigrateState would try to conform a value no row carries — and compat would
+// report a difference in something that is not stored. specs/version-compatibility.md.
+func TestScopes_MigrationLayersCarryNoSelf(t *testing.T) {
+	var def model.ProcessDefinition
+	if err := json.Unmarshal([]byte(`{"name":"p","tasks":[
+		{"id":"t","action":{"type":"external","input":{"v":"$: (self.previous.n ?? 0) + 1"}},
+		 "output":{"n":"$: 1"},"switch":[{"case":"self.output.n < 2","goto":"$t"},{"goto":"end"}]}
+	]}`), &def); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	layers, err := validation.TaskContexts(&def)
+	if err != nil {
+		t.Fatalf("TaskContexts: %v", err)
+	}
+	for task, layer := range layers {
+		if _, ok := layer.Properties()["self"]; ok {
+			t.Errorf("task %q migration layer carries `self`; it is transient and no row holds it", task)
+		}
+		// The row's real slots must still be there, so the assertion above cannot pass by
+		// the layer being empty.
+		if _, ok := layer.Properties()["outputs"]; !ok {
+			t.Errorf("task %q migration layer lost `outputs`", task)
+		}
+	}
+}

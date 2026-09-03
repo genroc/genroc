@@ -1,0 +1,80 @@
+# The coupling `self.previous` in an ACTION slot creates: a task's own output is now what the
+# NEXT call is built from, not only the next output map. A migration that reshapes
+# outputs.<id> used to surface one tick later, in a projection; here it surfaces immediately,
+# in the payload a child is spawned with.
+#
+# `acc` reads self.previous.i to build the child's input, and the child hands the number back,
+# so the counter can only climb if each spawn read the output the run before it produced. A
+# migration that dropped or reshaped outputs.acc leaves self.previous.i null, `?? 0` sends 1
+# again, and the loop never reaches 3 — it times out rather than quietly finishing wrong.
+#
+# v2 adds an optional-to-nullable slot on that same output, so the migration has real work to
+# do on exactly the value the next input reads.
+apply:
+  - definitions:
+      - name: echo
+        input_schema:
+          type: object
+          properties: {x: {type: number}}
+          required: [x]
+        tasks:
+          - id: e
+            output: '$: input.x'
+            switch: end
+        output: '$: outputs.e'
+      - name: acc
+        tasks:
+          - id: step
+            action:
+              type: child
+              name: echo
+              # The slot under test. Before self.previous reached a pre-action scope this
+              # could only be written in `output`, one tick too late to drive the call.
+              input: {x: '$: (self.previous.i ?? 0) + 1'}
+              result_schema: {type: number}
+            output: {i: '$: self.result'}
+            switch:
+              - case: 'self.output.i < 3'
+                goto: $step
+              - goto: end
+        output: {i: '$: outputs.step.i'}
+  - definitions:
+      - name: echo
+        input_schema:
+          type: object
+          properties: {x: {type: number}}
+          required: [x]
+        tasks:
+          - id: e
+            output: '$: input.x'
+            switch: end
+        output: '$: outputs.e'
+      - name: acc
+        tasks:
+          - id: step
+            action:
+              type: child
+              name: echo
+              input: {x: '$: (self.previous.i ?? 0) + 1'}
+              result_schema: {type: number}
+            # `note` is absent on every row v1 wrote and nullable on v2, so the migration has
+            # to fill it — on the very output the input above reads.
+            output: {i: '$: self.result', note: '$: null'}
+            switch:
+              - case: 'self.output.i < 3'
+                goto: $step
+              - goto: end
+        output: {i: '$: outputs.step.i'}
+start: {process: acc, input: {}, ticks: 6}
+run: [acc, --from, "1", --to, "2"]
+# Every position the loop passes through: before the first spawn, and mid-loop with an output
+# the next input will read (i is 2 of 3, so a whole iteration still runs on v2). The move must
+# be correct from both.
+at:
+  - ticks: 0
+    resting: {task: step, status: running, outputs: []}
+    after: {task: step, status: running, version: 2}
+  - ticks: 6
+    resting: {task: step, status: running, outputs: [step], values: {"outputs.step.i": 2}}
+    after: {task: step, status: running, version: 2, values: {"outputs.step.note": null}}
+finish: {status: completed, output: {i: 3}, ticks: 60}
