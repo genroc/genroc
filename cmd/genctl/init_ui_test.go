@@ -243,10 +243,10 @@ func TestParseInitArgs(t *testing.T) {
 			options{dir: ".", auth: true}, "0.1.0"},
 		// The value is consumed, so what follows is still parsed as a flag rather than a folder.
 		{"--version does not swallow the next flag", []string{"--version", "edge", "--no-auth"},
-			options{dir: ".", auth: false}, "edge"},
-		{"--no-auth", []string{"--no-auth"}, options{dir: ".", auth: false}, releaseTag()},
+			options{dir: ".", setAuth: true}, "edge"},
+		{"--no-auth", []string{"--no-auth"}, options{dir: ".", setAuth: true}, releaseTag()},
 		{"--eval-node", []string{"--eval-node"},
-			options{dir: ".", evalNode: true, auth: true}, releaseTag()},
+			options{dir: ".", evalNode: true, auth: true, setEvalNode: true}, releaseTag()},
 		{"--postgres", []string{"--postgres"},
 			options{dir: ".", postgres: true, auth: true, setPostgres: true}, releaseTag()},
 	} {

@@ -169,17 +169,21 @@ func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 	// A login is the default: the alternative is a port on which anyone can register a
 	// definition, and `PUT /definitions` stores code the engine runs.
 	auth := true
-	var setPostgres bool
+	var setEvalNode, setPostgres, setAuth bool
 	dir, tag := ".", ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		// A flag answers ITS OWN question and no others. Making one imply -y meant
+		// `--no-auth` chose the folder, the database and the script tasks too, silently.
 		switch {
 		case a == "--eval-node":
-			evalNode, assumeYes = true, true
+			evalNode, setEvalNode = true, true
 		case a == "--postgres":
 			postgres, setPostgres = true, true
 		case a == "--no-auth":
-			auth, assumeYes = false, true
+			auth, setAuth = false, true
+		case a == "--auth":
+			auth, setAuth = true, true
 		case a == "-y", a == "--yes":
 			assumeYes = true
 		case a == "--version", a == "-version":
@@ -203,7 +207,7 @@ func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 	}
 	return options{
 		dir: dir, evalNode: evalNode, postgres: postgres, auth: auth,
-		setPostgres: setPostgres,
+		setEvalNode: setEvalNode, setPostgres: setPostgres, setAuth: setAuth,
 	}, tag, assumeYes
 }
 
@@ -255,10 +259,10 @@ func isSemver(v string) bool {
 type options struct {
 	dir, email               string
 	evalNode, postgres, auth bool
-	// setPostgres records that the database came from the command line, so the prompt does not
-	// ask a question already answered -- and cannot then override it with its own default,
-	// which is how `--postgres` used to come back as SQLite.
-	setPostgres bool
+	// set* records which answers came from the command line, so the prompt does not ask a
+	// question already answered -- and cannot then override it with its own default, which is
+	// how `--postgres` used to come back as SQLite.
+	setEvalNode, setPostgres, setAuth bool
 }
 
 func (o options) prompt(p prompter) options {
@@ -267,12 +271,17 @@ func (o options) prompt(p prompter) options {
 	if o.dir == "." {
 		o.dir = p.ask("folder to create (. for the current directory)", "genroc-app")
 	}
-	o.evalNode = p.askYesNo("TypeScript script tasks (@genroc/eval-node)", false)
+	if !o.setEvalNode {
+		o.evalNode = p.askYesNo("TypeScript script tasks (@genroc/eval-node)", false)
+	}
 	if !o.setPostgres {
 		o.postgres = strings.HasPrefix(strings.ToLower(p.ask("database (sqlite/postgres)", "sqlite")), "p")
 	}
-	// The login is not a question. It is the default, and `--no-auth` is the answer for someone
-	// who has decided otherwise -- which is not a decision to walk a newcomer through.
+	if !o.setAuth {
+		// Defaulted yes: the alternative is a port on which anyone can register a definition,
+		// and `PUT /definitions` stores code the engine runs.
+		o.auth = p.askYesNo("a login in front of the UI", true)
+	}
 	if o.auth {
 		o.email = p.ask("your sign-in email", defaultEmail)
 	}

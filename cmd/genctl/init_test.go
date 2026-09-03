@@ -46,15 +46,25 @@ func TestInitPrompt_EOFTakesDefaults(t *testing.T) {
 // The wiring from an answer to what gets written. A pty harness could not drive this
 // reliably, and "did the eval-node answer reach the file set and the next steps" is exactly
 // the part that silently regresses.
-// A flag is an answer, so the prompt must not ask the question again — and must not then
-// override it with its own default, which is how `genctl init --postgres` used to come back
-// as SQLite. The answers below all say "sqlite" to everything.
+// A flag answers its own question and the prompt must not reopen it — nor override it with its
+// own default, which is how `genctl init --postgres` used to come back as SQLite. Each case
+// presses enter through every prompt, so only the flag can survive.
 func TestInitOptions_AFlagIsNotReopenedByThePrompt(t *testing.T) {
-	sqlite := "\n\n\n\n\n"
-	got := (options{dir: ".", auth: true, postgres: true, setPostgres: true}).
-		prompt(newPrompter(sqlite))
-	if !got.postgres {
+	enter := "\n\n\n\n\n\n"
+	if got := (options{dir: ".", postgres: true, setPostgres: true}).prompt(newPrompter(enter)); !got.postgres {
 		t.Error("--postgres was overridden by the prompt's sqlite default")
+	}
+	// These two used to imply -y, which answered every OTHER question silently as well.
+	if got := (options{dir: ".", auth: false, setAuth: true}).prompt(newPrompter(enter)); got.auth {
+		t.Error("--no-auth was overridden by the prompt's default")
+	}
+	if got := (options{dir: ".", evalNode: true, setEvalNode: true}).prompt(newPrompter(enter)); !got.evalNode {
+		t.Error("--eval-node was overridden by the prompt's default")
+	}
+	// And a flag answering one question must not consume the answer meant for the next.
+	got := (options{dir: ".", auth: false, setAuth: true}).prompt(newPrompter("proj\ny\npostgres\n"))
+	if got.dir != "proj" || !got.evalNode || !got.postgres {
+		t.Errorf("--no-auth desynchronised the remaining prompts: %+v", got)
 	}
 }
 
@@ -63,24 +73,19 @@ func TestInitOptions_AnswersReachTheDecision(t *testing.T) {
 		name, input string
 		want        options
 	}{
-		// Three questions now: the folder, script tasks, and the database. The login is NOT
-		// asked — it is the default, and `--no-auth` is the answer for someone who has already
-		// decided otherwise.
-		{"all defaults", "\n\n\n", options{dir: "genroc-app", auth: true, email: defaultEmail}},
-		{"eval-node", "proj\ny\n\n", options{dir: "proj", evalNode: true, auth: true, email: defaultEmail}},
-		{"postgres", "proj\nn\npostgres\n",
+		// Four questions: the folder, script tasks, the database, and the login — then the
+		// email, but only when there is an account to name.
+		{"all defaults", "\n\n\n\n\n", options{dir: "genroc-app", auth: true, email: defaultEmail}},
+		{"eval-node", "proj\ny\n\n\n", options{dir: "proj", evalNode: true, auth: true, email: defaultEmail}},
+		{"postgres", "proj\nn\npostgres\n\n",
 			options{dir: "proj", postgres: true, auth: true, email: defaultEmail}},
-		{"an email of one's own", ".\ny\n\nada@example.com\n",
+		{"an email of one's own", ".\ny\n\n\nada@example.com\n",
 			options{dir: ".", evalNode: true, auth: true, email: "ada@example.com"}},
-		// With --no-auth there is no account to name, so the email is never asked for.
-		{"no auth asks no email", "proj\nn\n\n", options{dir: "proj"}},
+		// Declining the login means there is no account, so the email is never asked for.
+		{"declining the login", "proj\nn\n\nn\n", options{dir: "proj"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			seed := options{dir: ".", auth: true}
-			if tc.name == "no auth asks no email" {
-				seed.auth = false
-			}
-			got := seed.prompt(newPrompter(tc.input))
+			got := options{dir: "."}.prompt(newPrompter(tc.input))
 			if got != tc.want {
 				t.Errorf("answers %q gave %+v, want %+v", tc.input, got, tc.want)
 			}
