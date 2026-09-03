@@ -1,6 +1,7 @@
-// Evaluation core: run a code string in its OWN realm and classify every outcome into one of
-// the failure kinds in README.md. Nothing here knows about genroc — worker.ts is the only
-// thing that talks to the queue — so this stays testable and the containment stays swappable.
+// Evaluation core: import a script module in its OWN realm, call its default export, and
+// classify every outcome into one of the failure kinds in README.md. Nothing here knows about
+// genroc — worker.ts is the only thing that talks to the queue — so this stays testable and
+// the containment stays swappable.
 //
 // The containment is a Worker per execution (realm.ts). It is what makes the budget real:
 // a synchronous busy loop never yields, so no in-process timer can interrupt it, and only a
@@ -9,6 +10,7 @@
 import { Worker } from "node:worker_threads";
 
 export type EvalRequest = {
+  /** An ES module whose default export is the function to run; `input` is its argument. */
   code: string;
   input?: unknown;
   timeout_ms?: number;

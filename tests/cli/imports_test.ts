@@ -481,7 +481,7 @@ test("evaluator importer — a type error is a failed import, so nothing is stor
   expect(rows.some((row) => row.name === name)).toBe(false);
 }, 60_000);
 
-test("evaluator importer — a checked script applies as a self-contained function body", () => {
+test("evaluator importer — a checked script applies as a self-contained module", () => {
   const p = tsProject();
   p.write("rate.ts", "export const RATE = 0.1;\n");
   p.write(
@@ -509,6 +509,34 @@ test("evaluator importer — a checked script applies as a self-contained functi
   );
 
   expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
+}, 60_000);
+
+// The one thing the typecheck cannot see: `Input`/`Output` say nothing about HOW the module
+// exports, and the evaluator has only the file's own default export to call. Refused here, where
+// the path names a file on this machine, rather than against a running instance.
+test("evaluator importer — a script with no default export is a failed apply", () => {
+  const p = tsProject();
+  p.write(
+    "fee.ts",
+    [
+      'import type { Input, Output } from "./fee.genroc";',
+      "",
+      "export async function fee(input: Input): Promise<Output> {",
+      "  return { fee: input.amount * 0.1 };",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const name = uid("script");
+  const def = p.write("proc.yaml", scriptDef(name, "./fee.ts"));
+
+  const r = runCli(bin, ["apply", "-f", def]);
+  expect(r.ok, `a module with nothing to call must not be stored:\n${r.stdout}${r.stderr}`).toBe(false);
+  expect(r.stderr).toContain("fee.ts");
+  expect(r.stderr).toContain("export default");
+
+  const rows = JSON.parse(runCli(bin, ["definitions", "--json"]).stdout) as { name: string }[];
+  expect(rows.some((row) => row.name === name)).toBe(false);
 }, 60_000);
 
 test("evaluator importer — the sandbox is a worker realm, not the host one", () => {

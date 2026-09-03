@@ -52,7 +52,8 @@ const ALL_KINDS = {
   exited: SCRIPT_ERROR,
 };
 
-/** A task handing `code` to an evaluator. `code` is passed through verbatim — mind `$${`. */
+/** A task handing `code` to an evaluator: an ES module whose default export the realm calls
+ *  with `input`. Passed through verbatim — mind `$${`. */
 function scriptTask(code: string, extra: Record<string, unknown> = {}) {
   return {
     id: "run",
@@ -91,7 +92,7 @@ async function run(name: string, tasks: unknown[], input?: unknown, inputSchema?
 // self.result and a script task reads like a typed function call. An envelope here would cost
 // every definition a `self.result.result`.
 test("script task — the return value is self.result, typed by result_schema", async () => {
-  const t = withInput(scriptTask("return { fee: input.amount * 0.1 };"));
+  const t = withInput(scriptTask("export default (input) => ({ fee: input.amount * 0.1 });"));
   t.action.result_schema = { type: "object", properties: { fee: { type: "number" } }, required: ["fee"] };
 
   const { status, data } = await run(
@@ -112,12 +113,14 @@ test("script task — a throw is caught by its own code, and the definition rais
   const t = withInput(
     scriptTask(
       [
-        "if (input.amount > 100) {",
-        "  const e = new Error('amount over the limit');",
-        "  e.name = 'LimitExceeded';",
-        "  throw e;",
+        "export default function (input) {",
+        "  if (input.amount > 100) {",
+        "    const e = new Error('amount over the limit');",
+        "    e.name = 'LimitExceeded';",
+        "    throw e;",
+        "  }",
+        "  return { fee: input.amount * 0.1 };",
         "}",
-        "return { fee: input.amount * 0.1 };",
       ].join("\n"),
     ),
   );
@@ -142,12 +145,14 @@ test("script task — a throw is caught by its own code, and the definition rais
 });
 
 // Three kinds that are all "the script is broken", each with its own code — so one arm can
-// cover them without any of them being indistinguishable from a throw.
+// cover them without any of them being indistinguishable from a throw. A module that exports
+// no function is the same class of mistake: nothing ran, and only editing the script helps.
 test("script task — compile_error, nonserializable and exited are distinct codes", async () => {
   for (const [label, code, want] of [
-    ["a syntax error", "return {", "compile_error"],
-    ["a cyclic return", "const a = {}; a.self = a; return a;", "nonserializable"],
-    ["ending its own realm", "process.exit(7); return 1;", "exited"],
+    ["a syntax error", "export default () => {", "compile_error"],
+    ["no default export", "export const fee = () => 1;", "compile_error"],
+    ["a cyclic return", "export default () => { const a = {}; a.self = a; return a; };", "nonserializable"],
+    ["ending its own realm", "export default () => process.exit(7);", "exited"],
   ] as const) {
     const t = scriptTask(code);
     const tasks = [
@@ -163,7 +168,7 @@ test("script task — compile_error, nonserializable and exited are distinct cod
 // The evaluator's own budget, enforced by killing the realm. It must come back as the
 // classified `timeout` code, not as the task's external.timeout.
 test("script task — a script over its budget reports `timeout`, not external.timeout", async () => {
-  const t = scriptTask("while (true) {}", { timeout_ms: 400 });
+  const t = scriptTask("export default () => { while (true) {} };", { timeout_ms: 400 });
   const tasks = [
     { ...t, on_error: [{ code: ["timeout"], goto: "$slow" }], switch: [{ goto: "end" }] },
     { id: "slow", output: { code: "$: error.code" }, switch: [{ goto: "end" }] },
@@ -179,7 +184,12 @@ test("script task — a script over its budget reports `timeout`, not external.t
 // The interpolated binding is the SCRIPT's, not the task context's — which is the case that
 // actually bites, since a template literal usually reads a local.
 const TEMPLATE_SCRIPT = (dollars: string) =>
-  ["const who = input.name;", "return { greeting: `hi " + dollars + "{who}` };"].join("\n");
+  [
+    "export default function (input) {",
+    "  const who = input.name;",
+    "  return { greeting: `hi " + dollars + "{who}` };",
+    "}",
+  ].join("\n");
 
 test("script task — a template literal in the code escapes ${ as $${", async () => {
   const t = withInput(scriptTask(TEMPLATE_SCRIPT("$$")));
@@ -211,7 +221,7 @@ test("script task — the unescaped ${ is read by genroc and refused at registra
 // run at once, so a backlog forms rather than overwhelming the evaluator.
 test("script task — a backlog drains", async () => {
   const name = `script_backlog_${crypto.randomUUID()}`;
-  const t = withInput(scriptTask("return { doubled: input.n * 2 };"));
+  const t = withInput(scriptTask("export default (input) => ({ doubled: input.n * 2 });"));
   await client.PUT("/definitions", {
     body: {
       name,
@@ -240,7 +250,7 @@ test("script task — a backlog drains", async () => {
 // kept free of any genroc knowledge precisely so it can be driven like this.
 
 test("evaluator — a return value JSON cannot represent is the script's fault", async () => {
-  const r = await evaluate({ code: "const a = {}; a.self = a; return a;" });
+  const r = await evaluate({ code: "export default () => { const a = {}; a.self = a; return a; };" });
   // Serialising INSIDE the realm is what makes this a classified failure rather than an
   // exception thrown out of the answer path.
   expect(r.ok).toBe(false);
@@ -248,43 +258,43 @@ test("evaluator — a return value JSON cannot represent is the script's fault",
 });
 
 test("evaluator — Math and Date are the realm's own, and die with it", async () => {
-  const patched = await evaluate({ code: "Math.random = () => 0.5; return Math.random();" });
+  const patched = await evaluate({ code: "export default () => { Math.random = () => 0.5; return Math.random(); };" });
   expect(patched.ok, "a script owns its realm — patching a global in it is not a fault").toBe(true);
   expect(patched.ok === true && JSON.parse(patched.body)).toBe(0.5);
 
-  const next = await evaluate({ code: "return Math.random();" });
+  const next = await evaluate({ code: "export default () => Math.random();" });
   const nextValue = next.ok === true ? JSON.parse(next.body) : null;
   expect(nextValue, "the patch must have died with the realm that made it").not.toBe(0.5);
 
-  const again = await evaluate({ code: "return Math.random();" });
+  const again = await evaluate({ code: "export default () => Math.random();" });
   expect(again.ok === true && JSON.parse(again.body), "two executions must draw differently — the RNG is not seeded per request").not.toBe(nextValue);
 
-  const clock = await evaluate({ code: "return Date.now();" });
+  const clock = await evaluate({ code: "export default () => Date.now();" });
   expect(Math.abs((clock.ok === true ? JSON.parse(clock.body) : 0) - Date.now()), "the script reads the wall clock").toBeLessThan(5_000);
 });
 
-// `stack` is renumbered to the lines the AUTHOR wrote. The compiled body sits under a wrapper
-// whose preamble is ENGINE-specific, so the offset is measured at startup rather than assumed
-// (eval-node/realm.ts) — a stack pointing confidently at the wrong line is worse than none.
+// `stack` carries the lines the AUTHOR wrote. The script is imported as a module rather than
+// compiled from a string, so the engine numbers its frames from the source itself and there is
+// no wrapper preamble to correct for (eval-node/realm.ts).
 test("stack — a throw reports the author's line, and the function that threw", async () => {
   const code = [
-    "const rate = 0.1;", //          1
-    "function fee(amount) {", //     2
-    "  throw new Error('nope');", // 3
-    "}", //                          4
-    "return fee(10);", //            5
+    "const rate = 0.1;", //             1
+    "function fee(amount) {", //        2
+    "  throw new Error('nope');", //    3
+    "}", //                             4
+    "export default () => fee(10);", // 5
   ].join("\n");
 
   const r = await evaluate({ code });
   const stack = (r.ok === false && r.failure.stack) || "";
-  expect(stack, `the throw is on line 3 of what the author wrote:\n${stack}`).toContain("at fee (script:3:");
-  expect(stack, `the call is on line 5, and the top-level frame carries no name:\n${stack}`).toContain("at (script:5:");
+  expect(stack, `the throw is on line 3 of what the author wrote:\n${stack}`).toContain("at fee (script:main:3:");
+  expect(stack, `the call is on line 5:\n${stack}`).toContain("(script:main:5:");
 });
 
 test("stack — the runner's own frames and file path stay out of it", async () => {
-  const r = await evaluate({ code: "\n\nthrow new Error('boom');" });
+  const r = await evaluate({ code: "\n\nexport default () => { throw new Error('boom'); };" });
   const stack = (r.ok === false && r.failure.stack) || "";
-  expect(stack, `line 3, and nothing above it:\n${stack}`).toContain("(script:3:");
+  expect(stack, `line 3, and nothing above it:\n${stack}`).toContain("(script:main:3:");
   expect(stack, `a script's author cannot act on the runner's plumbing:\n${stack}`).not.toMatch(
     /realm\.ts|node:internal|MessagePort|evaluator\//,
   );
@@ -292,7 +302,7 @@ test("stack — the runner's own frames and file path stay out of it", async () 
 
 test("realm — a synchronous busy loop is bounded and the evaluator keeps working", async () => {
   const t0 = Date.now();
-  const r = await evaluate({ code: "while (true) {}", timeout_ms: 400 });
+  const r = await evaluate({ code: "export default () => { while (true) {} };", timeout_ms: 400 });
   const elapsed = Date.now() - t0;
 
   // The whole reason the realm is a thread: no in-process timer can interrupt a loop that
@@ -301,12 +311,12 @@ test("realm — a synchronous busy loop is bounded and the evaluator keeps worki
   expect(r.ok === false && r.failure.kind).toBe("timeout");
   expect(elapsed, "the budget must be enforced, not merely reported").toBeLessThan(3_000);
 
-  const next = await evaluate({ code: "return { alive: true };" });
+  const next = await evaluate({ code: "export default () => ({ alive: true });" });
   expect(next.ok, "the killed thread must not have taken the process with it").toBe(true);
 });
 
 test("realm — a script that ends its own realm faults instead of hanging", async () => {
-  const r = await evaluate({ code: "process.exit(7); return 1;", timeout_ms: 5_000 });
+  const r = await evaluate({ code: "export default () => process.exit(7);", timeout_ms: 5_000 });
   // Without the close event this returned nothing at all and the caller waited out the full
   // budget for an answer that was never coming.
   expect(r.ok).toBe(false);
@@ -314,18 +324,20 @@ test("realm — a script that ends its own realm faults instead of hanging", asy
 });
 
 test("realm — one execution cannot leave state behind for the next", async () => {
-  const wrote = await evaluate({ code: "globalThis.__leak = 'poison'; return { wrote: true };" });
+  const wrote = await evaluate({ code: "export default () => { globalThis.__leak = 'poison'; return { wrote: true }; };" });
   expect(wrote.ok, "the write itself is allowed — it is the realm's own global").toBe(true);
 
-  const read = await evaluate({ code: "return { leak: globalThis.__leak ?? null };" });
+  const read = await evaluate({ code: "export default () => ({ leak: globalThis.__leak ?? null });" });
   expect(read.ok === true && JSON.parse(read.body), "a fresh realm per execution is what stops one script configuring another").toEqual({ leak: null });
 });
 
-test("realm — a script can require a node builtin", async () => {
-  // What the bundler emits for `import { platform } from "node:os"`: builtins are externalised
-  // as `require`, and the realm binds one. Under the old browser target this was rewritten to
-  // `{}` and failed at runtime with no diagnostic.
-  const r = await evaluate({ code: 'const os = require("node:os"); return { platform: os.platform() };' });
+test("realm — a script can import a node builtin", async () => {
+  // What the bundler emits for a builtin: it is externalised rather than inlined, and the realm
+  // resolves it as an ordinary import. Under the old browser target this was rewritten to `{}`
+  // and failed at runtime with no diagnostic.
+  const r = await evaluate({
+    code: 'import { platform } from "node:os";\nexport default () => ({ platform: platform() });',
+  });
   expect(r.ok, JSON.stringify(r)).toBe(true);
   expect(typeof (r.ok === true && JSON.parse(r.body).platform)).toBe("string");
 });
@@ -338,7 +350,7 @@ test("script task — a large script is shared, not copied, and still runs", asy
   // Well past the 2 KiB cutoff, and identical across instances — which is what makes it one
   // object with many claims instead of one copy each.
   const pad = Array.from({ length: 400 }, (_, i) => `const pad_${i} = "${"x".repeat(64)}";`).join("\n");
-  const t = withInput(scriptTask(`${pad}\nreturn { doubled: input.n * 2 };`));
+  const t = withInput(scriptTask(`${pad}\nexport default (input) => ({ doubled: input.n * 2 });`));
 
   await client.PUT("/definitions", {
     body: {
@@ -371,7 +383,7 @@ test("script task — a large script is shared, not copied, and still runs", asy
 test("script task — a large script leaves the instance and is listed, not carried", async () => {
   const name = `script_shared_${crypto.randomUUID()}`;
   const pad = Array.from({ length: 400 }, (_, i) => `const pad_${i} = "${"x".repeat(64)}";`).join("\n");
-  const code = `${pad}\nreturn { ok: true };`;
+  const code = `${pad}\nexport default () => ({ ok: true });`;
 
   await client.PUT("/definitions", {
     body: {

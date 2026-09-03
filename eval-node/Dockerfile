@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
 # genroc/eval-node — the script-task worker. Claims `external` tasks off genroc's queue and
-# evaluates each function body in its own realm. Node runs .ts directly, so there is no build.
+# evaluates each script module in its own realm. Node runs .ts directly, so there is no build.
 #
 # Named for the runtime because a script task is an ordinary external task: another evaluator
 # in another language claims the same queue.

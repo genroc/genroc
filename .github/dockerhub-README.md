@@ -38,7 +38,7 @@ docker compose up
 ## The worker
 
 Script tasks need `genroc/eval-node`, which claims them off genroc's queue and evaluates each
-function body in its own realm. It needs only `GENROC_SERVER` — and `GENROC_TOKEN` once auth is
+script module in its own realm. It needs only `GENROC_SERVER` — and `GENROC_TOKEN` once auth is
 on. See the quickstart compose above.
 
 The CLI installs separately: `curl -fsSL https://genroc.org/install.sh | sh`

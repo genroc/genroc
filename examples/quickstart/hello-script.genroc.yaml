@@ -14,19 +14,21 @@ tasks:
       type: child
       name: script-node
       input:
-        # A FUNCTION BODY, not a module: the evaluator builds an AsyncFunction with `input`
-        # and `require` in scope, so you `return` rather than `export default`. Getting this
-        # wrong comes back as a classified `compile_error`, routed by script-node.genroc.yaml to
-        # `script_broken` — a panic, because no caller can fix someone else's syntax.
+        # A MODULE: the evaluator imports the code and calls its default export with `input`.
+        # A script that exports something else comes back as a classified `compile_error`,
+        # routed by script-node.genroc.yaml to `script_broken` — a panic, because no caller can
+        # fix someone else's script.
         #
         # `$${input.name}` is a TypeScript template literal, ESCAPED. genroc's value layer
         # reads `${...}` as an interpolation of its own context and would resolve `input.name`
         # against this task's input before the script ever runs. Caught at apply, not at run.
         code: |
-          return {
-            greeting: `hello, $${input.name}`,
-            at: new Date().toISOString(),
-          };
+          export default function (input) {
+            return {
+              greeting: `hello, $${input.name}`,
+              at: new Date().toISOString(),
+            };
+          }
         input:
           name: "$: input.name"
       # The child forwards the top type, so the CALLER says what it expects and the collect

@@ -96,15 +96,18 @@ The `input` of the external task IS the evaluation request:
 
 ```jsonc
 {
-  "code": "return { fee: input.amount * 0.1 };",  // required — an async function body
-  "input": { "amount": 250 },                     // optional — bound as `input`
-  "timeout_ms": 5000                              // optional — default 5000
+  "code": "export default (input) => ({ fee: input.amount * 0.1 });",  // required — a module
+  "input": { "amount": 250 },                                         // optional — its argument
+  "timeout_ms": 5000                                                  // optional — default 5000
 }
 ```
 
-`code` is the **body of an async function**, so `await` works and the value reaches genroc
-through `return`. It is compiled with `input` and `require` as parameters, under
-`"use strict"` — `require` is what a bundled `import` of a node builtin lands on.
+`code` is an **ES module**, and the evaluator imports it and calls its **default export** with
+`input`. The value it returns reaches genroc; the function may be async, and so may the module's
+top level. A module exporting anything else — or nothing — is a `compile_error`: there is
+nothing to call, and so is one that will not parse; a throw from its top level is a `threw`
+like any other. `import` of a node builtin resolves as it does anywhere else, and that is what
+a bundled builtin lands on.
 
 ## The answer — the failure kind IS the error code
 
@@ -140,12 +143,14 @@ no retry policy to write.
     type: external
     input:
       code: |
-        if (input.amount > 100) {
-          const e = new Error('amount over the limit');
-          e.name = 'LimitExceeded';
-          throw e;
+        export default function (input) {
+          if (input.amount > 100) {
+            const e = new Error('amount over the limit');
+            e.name = 'LimitExceeded';
+            throw e;
+          }
+          return { fee: input.amount * 0.1 };
         }
-        return { fee: input.amount * 0.1 };
       input: "$: input"
     result_schema: { type: object, properties: { fee: { type: number } }, required: [fee] }
     raises:
@@ -227,12 +232,14 @@ the inferred type of what the definition passes; `Output` is what it declares
 `tsc --noEmit`, and bundles — so **a type error is a failed apply**, and a stored definition
 cannot hold code that failed to typecheck.
 
-The bundle is emitted as CJS and wrapped as a function body, so the evaluator needs to know
-nothing about modules. Imports resolve through TypeScript under the same config the check
-ran with, so a `paths` alias that typechecks also bundles. They are inlined at build time, so the string a
-definition version stores is self-contained forever — with one exception: **node builtins
-stay as `require` calls**, which the realm satisfies. A package is frozen into the
-definition; `node:fs` is resolved by whatever runner executes it.
+The bundle is one self-contained ES module whose default export is the author's own — nothing
+wraps or rewrites it, so what the editor checks and what the realm runs are the same module, and
+**a missing default export is a failed apply** rather than a fault at run time. Imports resolve
+through TypeScript under the same config the check ran with, so a `paths` alias that typechecks
+also bundles. They are inlined at build time, so the string a definition version stores is
+self-contained forever — with one exception: **node builtins stay as imports**, which the realm
+resolves. A package is frozen into the definition; `node:fs` is resolved by whatever runner
+executes it.
 
 ### Your tsconfig, your types
 
@@ -258,8 +265,9 @@ never read by genroc, because genctl doubles every `$` on splice.
 
 ## The realm — one Worker per execution
 
-`evaluate()` starts a Worker (`realm.ts`), posts the code into it, and races the reply against the budget;
-`terminate()` runs on every path. That thread is what the contract rests on, and it buys
+`evaluate()` starts a Worker (`realm.ts`), posts the code into it — where a module loader hook
+serves it to `import()`, so the engine numbers the script's frames from the author's own source —
+and races the reply against the budget; `terminate()` runs on every path. That thread is what the contract rests on, and it buys
 exactly three things the previous in-process evaluator could not:
 
 - **The budget is enforced, not merely reported.** A synchronous `while(true){}` never
@@ -271,16 +279,15 @@ exactly three things the previous in-process evaluator could not:
 - **The script's mistakes stay the script's.** An uncaught throw, and `process.exit()`, end
   the realm and come back as a `422` — neither reaches the runner.
 
-It costs about **50ms per execution** end to end for a trivial script (Node 24, M-series
-laptop), a 200 KiB body about 63ms. Roughly 19ms of that is Node re-stripping `worker.ts`'s
-types on every realm — precompiling it to JavaScript would buy that back, and is deliberately
-not done: a build artefact that goes stale against its source fails silently, and this file
-is the one where a wrong line number is invisible.
+It costs about **27ms per execution** end to end for a trivial script (Node 24, M-series
+laptop), a 200 KiB body about 30ms. Roughly 11ms of that is Node re-stripping `realm.ts`'s
+types on every realm — precompiling it to JavaScript measures 17ms and would buy that back, and
+is deliberately not done: a build artefact that goes stale against its source fails silently,
+and this file is the one where a wrong line number is invisible.
 
-That also changes an old trade-off. A subprocess per execution measures ~48ms here — within
-noise of the thread — where on the previous runtime it was ten times the thread's cost. The
-thread no longer wins on price, and a subprocess contains the two things a thread cannot
-(below), so it is the live upgrade path rather than a theoretical one.
+A subprocess per execution measures ~55ms here, twice the thread rather than the ten times it
+cost on the previous runtime. It contains the two things a thread cannot (below), so the upgrade
+path is a live one at a price worth naming rather than a theoretical one.
 
 ## What this is not
 
@@ -291,7 +298,7 @@ thread no longer wins on price, and a subprocess contains the two things a threa
   it needed was surface with nothing behind it. A value that must survive a retry belongs in
   the definition, passed through `input`.
 - **Not a sandbox.** The realm isolates *execution*, not *authority*: a script gets the
-  worker's filesystem, network and environment, and `require` of any node builtin. That is
+  worker's filesystem, network and environment, and any node builtin it imports. That is
   deliberate — a script task is meant to do real work — but the trust boundary stays the
   same-trust-domain one (your genroc, your worker host). It is not the multi-tenant story, and
   nothing here should be mistaken for one. Pulling does move the boundary in one useful way:
@@ -305,9 +312,9 @@ thread no longer wins on price, and a subprocess contains the two things a threa
 - **Concurrency is capped by this worker, not by genroc.** Each evaluation is a thread, and
   `CONCURRENCY` is how many it will claim at once. Raising it past what the host can run turns
   a queue back into threads fighting over a core.
-- **Not where imports and type checking happen.** The evaluator still takes one
-  self-contained function body and knows nothing about TypeScript; `import.ts` is what turns
-  a module into that body, at author time. See above.
+- **Not where imports and type checking happen.** The evaluator takes one self-contained
+  module and knows nothing about TypeScript; `import.ts` is what bundles an author's script and
+  its dependencies into that module, at author time. See above.
 - **`eval.ts` and `realm.ts` know nothing about genroc.** `worker.ts` is the entire
   queue-facing half, which is what keeps the containment strategy swappable — and what lets
   the realm's own properties be tested by calling `evaluate()` directly.

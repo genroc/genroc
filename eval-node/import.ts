@@ -309,12 +309,12 @@ function tsResolve(configPath: string | null): Plugin {
   };
 }
 
-/** Bundles to CJS and wraps it as an async function BODY, which is what /eval compiles.
- *  The runtime stays unchanged: bundling is entirely the importer's job, and the string it
- *  produces is self-contained, so a definition version pins its code forever. */
+/** Bundles to a self-contained ES module, which is what the evaluator imports: the default
+ *  export it calls is the author's own, so nothing wraps or rewrites the code between the two.
+ *  Bundling is entirely the importer's job, so a definition version pins its code forever. */
 async function bundle(site: Site, root: string): Promise<string> {
-  // Builtins are EXTERNALISED as `require` calls that worker.ts satisfies. Anything else
-  // unresolved is a REFUSAL, not an external: rollup's default is to leave it as a require
+  // Builtins are EXTERNALISED as imports the realm resolves natively. Anything else
+  // unresolved is a REFUSAL, not an external: rollup's default is to leave it as an import
   // of a module that will not be there, which bundles clean and fails at runtime.
   const built = await rollup({
     input: site.path,
@@ -335,18 +335,14 @@ async function bundle(site: Site, root: string): Promise<string> {
     },
   }).catch((e: unknown) => die(`${site.path}: ${e instanceof Error ? e.message : String(e)}`));
 
-  const { output } = await built.generate({ format: "cjs", exports: "auto", inlineDynamicImports: true });
+  const { output } = await built.generate({ format: "es", inlineDynamicImports: true });
   await built.close();
-  const cjs = output[0].code;
-  return [
-    "var module = { exports: {} }, exports = module.exports;",
-    cjs,
-    "var __genroc_main = module.exports.default ?? module.exports;",
-    'if (typeof __genroc_main !== "function") {',
-    `  throw new Error(${JSON.stringify(`${site.path} has no default export function`)});`,
-    "}",
-    "return await __genroc_main(input);",
-  ].join("\n");
+  // Refused here rather than in the realm: the evaluator can only report it against a running
+  // instance, and the file it names is on this machine.
+  if (!output[0].exports.includes("default")) {
+    die(`${site.path}: a script must \`export default\` the function to run`);
+  }
+  return output[0].code;
 }
 
 // ── main ───────────────────────────────────────────────────────────────────────

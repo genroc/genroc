@@ -74,7 +74,7 @@ async function callScript(name: string, code: string, caller: Record<string, unk
 test("script child — a return value comes back through the wrapper, narrowed by result_schema", async () => {
   const { status, data } = await callScript(
     `script_child_ok_${crypto.randomUUID()}`,
-    "return { fee: 25, extra: 'dropped' };",
+    "export default () => ({ fee: 25, extra: 'dropped' });",
     { result_schema: { type: "object", properties: { fee: { type: "number" } }, required: ["fee"] } },
   );
   expect(status).toBe("completed");
@@ -90,7 +90,7 @@ test("script child — a return value comes back through the wrapper, narrowed b
 test("script child — script_threw's name and text both reach a caller that declares it", async () => {
   const { status, data } = await callScript(
     `script_child_threw_${crypto.randomUUID()}`,
-    "const e = new Error('the sky is closed'); e.name = 'UpstreamError'; throw e;",
+    "export default () => { const e = new Error('the sky is closed'); e.name = 'UpstreamError'; throw e; };",
     {
       result_schema: {},
       raises: {
@@ -123,7 +123,7 @@ test("script child — a caller declaring a slot script_threw never sets is refu
           action: {
             type: "child" as const,
             name: script.name,
-            input: { code: "throw new Error('x');", input: {} },
+            input: { code: "export default () => { throw new Error('x'); };", input: {} },
             raises: {
               script_threw: {
                 type: "object",
@@ -146,7 +146,7 @@ test("script child — a caller declaring a slot script_threw never sets is refu
 test("script child — a broken script panics rather than raising something catchable", async () => {
   const { status, data } = await callScript(
     `script_child_broken_${crypto.randomUUID()}`,
-    "return {",
+    "export default () => {",
     { result_schema: {} },
   );
   // A panic is uncatchable by design: a script that will not compile is not a condition a
