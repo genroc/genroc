@@ -31,14 +31,19 @@ type node struct {
 // over a per-piece threshold. Leaves first is what preserves sharing: a task input holding a
 // bundle beside per-instance data must cut the bundle alone, or every instance hashes a
 // different value and stores its own copy.
+//
+// The selection is SPLICED AND MEASURED before any ref is made. Node sizes drive the search --
+// measuring at every step is quadratic in the value's bytes -- but they are an estimate, and the
+// one that decides is the encoded size of the value that will actually be stored.
 func cutForSize(v any, target int64) (any, []*model.ObjectRef, []*pendingObject, error) {
 	root, err := buildTree(v, nil, 0, nil)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	nodes := collect(root)
 	chosen := map[*node]bool{}
 	var data, objects int64 = root.size, 0
-	for _, n := range collect(root) {
+	for _, n := range nodes {
 		if n.already {
 			chosen[n] = true
 			data -= n.size
@@ -48,17 +53,39 @@ func cutForSize(v any, target int64) (any, []*model.ObjectRef, []*pendingObject,
 
 	byDepth := map[int][]*node{}
 	maxDepth := 0
-	for _, n := range collect(root) {
+	for _, n := range nodes {
 		byDepth[n.depth] = append(byDepth[n.depth], n)
 		if n.depth > maxDepth {
 			maxDepth = n.depth
 		}
 	}
 
-	// Deepest first, so leaves are taken before the parents that contain them. Only when a whole
-	// level is exhausted does the cut coarsen, and choosing a parent then un-chooses everything
-	// under it: an object's content is opaque, so a ref nested inside one would never resolve.
-	for depth := maxDepth; depth >= 0 && data+objects > target; depth-- {
+	// Rounds, not one pass: the search runs on the estimate, then the candidate is spliced and
+	// measured, and a measurement still over target re-seeds the estimate from the truth and
+	// selects again. One round is the normal case; a second happens where the estimate was
+	// optimistic, which is exactly where being wrong would have mattered.
+	for {
+		before := len(chosen)
+		selectNodes(byDepth, maxDepth, chosen, &data, &objects, target)
+		if len(chosen) == 0 {
+			return v, nil, nil, nil
+		}
+		size, err := storedSize(v, chosen)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if size <= target || len(chosen) == before {
+			break // under target, or nothing left to choose
+		}
+		data = size - objects
+	}
+	return applyCut(deepCopy(v), root, chosen)
+}
+
+// selectNodes takes candidates deepest-first until the estimate fits. Only when a whole level is
+// exhausted does the cut coarsen, and choosing a parent then un-chooses everything under it.
+func selectNodes(byDepth map[int][]*node, maxDepth int, chosen map[*node]bool, data, objects *int64, target int64) {
+	for depth := maxDepth; depth >= 0 && *data+*objects > target; depth-- {
 		level := byDepth[depth]
 		// Size descending, then path ascending. The tie-break is not cosmetic: two instances
 		// must choose the SAME cut or identical content produces different objects and shares
@@ -70,10 +97,18 @@ func cutForSize(v any, target int64) (any, []*model.ObjectRef, []*pendingObject,
 			return pathLess(level[i].path, level[j].path)
 		})
 		for _, n := range level {
-			if data+objects <= target {
+			if *data+*objects <= target {
 				break
 			}
 			if n.already || chosen[n] || coveredByAncestor(n, chosen) {
+				continue
+			}
+			// An already-external descendant is a MARKER, not content: marshalling this node
+			// would bake it into an object whose content is opaque, so nothing could ever
+			// resolve it — and it would drop out of the referenced set the next write diffs
+			// against, releasing the claim while the content still points at it. Go finer
+			// instead; the descendant stays its own ref, which is also what shares it.
+			if holdsAlready(n) {
 				continue
 			}
 			if n.size < minExternalizeBytes {
@@ -82,29 +117,52 @@ func cutForSize(v any, target int64) (any, []*model.ObjectRef, []*pendingObject,
 			for _, d := range collect(n)[1:] { // drop descendants this node now contains
 				if chosen[d] {
 					delete(chosen, d)
-					data += d.size
-					objects -= entrySize(d.path)
+					*data += d.size
+					*objects -= entrySize(d.path)
 				}
 			}
 			chosen[n] = true
-			data -= n.size
-			objects += entrySize(n.path)
+			*data -= n.size
+			*objects += entrySize(n.path)
 		}
 	}
-
-	if len(chosen) == 0 {
-		return v, nil, nil, nil
-	}
-	// On a COPY. Encoding produces the column strings; it must not reach back into the value the
-	// caller is still using. Cutting in place gutted the live context -- the instance carried on
-	// with the leaves removed, and the first thing to notice was a log line reading "{}" where
-	// an input should have been.
-	return applyCut(deepCopy(v), root, chosen)
 }
 
-// applyCut removes the chosen nodes from the value and turns each into a ref plus the object to
-// write. Deepest first, so removing a child cannot disturb a path still to be walked.
-func applyCut(v any, root *node, chosen map[*node]bool) (any, []*model.ObjectRef, []*pendingObject, error) {
+// holdsAlready reports whether anything under n was already external when the value was read.
+func holdsAlready(n *node) bool {
+	for _, d := range collect(n)[1:] {
+		if d.already {
+			return true
+		}
+	}
+	return false
+}
+
+// storedSize is what this selection actually costs the row: the spliced value's encoded bytes
+// plus one objects-list entry per ref. Spliced in memory and thrown away — no hashing, no
+// object content, nothing written until the selection is settled.
+func storedSize(v any, chosen map[*node]bool) (int64, error) {
+	stripped := deepCopy(v)
+	picked := pickedInCutOrder(chosen)
+	var entries int64
+	for _, n := range picked {
+		entries += entrySize(n.path)
+		if len(n.path) == 0 {
+			stripped = nil
+			continue
+		}
+		removeAt(stripped, n.path)
+	}
+	b, err := json.Marshal(stripped)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(b)) + entries, nil
+}
+
+// pickedInCutOrder is the chosen set deepest-first, so removing a child cannot disturb a path
+// still to be walked. Shared by the measurement and the cut so the two cannot diverge.
+func pickedInCutOrder(chosen map[*node]bool) []*node {
 	picked := make([]*node, 0, len(chosen))
 	for n := range chosen {
 		picked = append(picked, n)
@@ -115,6 +173,13 @@ func applyCut(v any, root *node, chosen map[*node]bool) (any, []*model.ObjectRef
 		}
 		return pathLess(picked[i].path, picked[j].path)
 	})
+	return picked
+}
+
+// applyCut removes the chosen nodes from the value and turns each into a ref plus the object to
+// write. Deepest first, so removing a child cannot disturb a path still to be walked.
+func applyCut(v any, root *node, chosen map[*node]bool) (any, []*model.ObjectRef, []*pendingObject, error) {
+	picked := pickedInCutOrder(chosen)
 
 	var refs []*model.ObjectRef
 	var objs []*pendingObject

@@ -198,3 +198,116 @@ func TestCut_DoesNotMutateTheCallerValue(t *testing.T) {
 		t.Fatal("the returned value still carries the leaf that was externalized")
 	}
 }
+
+// A ref must never end up inside an object's CONTENT. Content is opaque — nothing walks into it
+// to resolve a marker, and the marker also drops out of the referenced set the next write diffs
+// against, so its claim is released while the content still points at it. The cut therefore may
+// not coarsen over a value that was already external when it was read.
+//
+// This is the shape an accumulator reaches: each element externalized on an earlier write, one
+// new element inline, and a slot still over target. specs/object-store.md.
+func TestCutForSize_NeverBuriesAnAlreadyExternalRefInsideAnObject(t *testing.T) {
+	arr := make([]any, 0, 25)
+	for i := 0; i < 24; i++ {
+		arr = append(arr, &model.ObjectRef{
+			Ref:  fmt.Sprintf("%032x", i),
+			Size: 130,
+			Path: []any{"outputs", "acc", "items", i}, // the path it was cut at, one write ago
+		})
+	}
+	arr = append(arr, map[string]any{"pad": strings.Repeat("p", 300)})
+	v := map[string]any{"items": arr, "count": 25}
+
+	stripped, refs, pending, err := cutForSize(v, contextObjectThreshold)
+	if err != nil {
+		t.Fatalf("cutForSize: %v", err)
+	}
+
+	for _, p := range pending {
+		var parsed any
+		if err := json.Unmarshal([]byte(p.Content), &parsed); err != nil {
+			t.Fatalf("object content is not JSON: %v", err)
+		}
+		if buried := findRefMarker(parsed); buried != nil {
+			t.Errorf("object %s carries a reference in its content, which nothing can resolve: %v",
+				p.Hash[:8], buried)
+		}
+	}
+
+	// Every one of them still has an entry, so the write still claims it. Losing an entry is how
+	// the content gets swept out from under a value that still points at it.
+	kept := map[string]bool{}
+	for _, r := range refs {
+		kept[r.Ref] = true
+	}
+	for i := 0; i < 24; i++ {
+		if !kept[fmt.Sprintf("%032x", i)] {
+			t.Errorf("element %d's reference was dropped from the objects list; its claim would be released", i)
+		}
+	}
+
+	// And the refs are re-pathed to where they sit now, not where they were cut from.
+	for _, r := range refs {
+		if len(r.Path) > 0 && r.Path[0] == "outputs" {
+			t.Errorf("ref %s kept its old context path %v instead of its path in this value", r.Ref[:8], r.Path)
+		}
+	}
+	if stripped == nil {
+		t.Fatal("the whole slot moved out; the elements were meant to stay addressable")
+	}
+}
+
+// findRefMarker returns the first decoded value that looks like a serialized *model.ObjectRef.
+func findRefMarker(v any) map[string]any {
+	switch t := v.(type) {
+	case map[string]any:
+		_, hasRef := t["ref"]
+		_, hasSize := t["size"]
+		if hasRef && hasSize {
+			return t
+		}
+		for _, val := range t {
+			if got := findRefMarker(val); got != nil {
+				return got
+			}
+		}
+	case []any:
+		for _, val := range t {
+			if got := findRefMarker(val); got != nil {
+				return got
+			}
+		}
+	}
+	return nil
+}
+
+// The search runs on node sizes, which are an ESTIMATE: removing an array element leaves a null
+// behind that no node accounts for, so a selection the arithmetic calls done can still be over.
+// The value that gets stored is the one that has to fit, so the selection is spliced and measured
+// before any ref is made — and only then hashed.
+func TestCutForSize_TheStoredValueActuallyFitsTheTarget(t *testing.T) {
+	items := make([]any, 0, 100)
+	for i := 0; i < 100; i++ {
+		items = append(items, strings.Repeat("i", 130))
+	}
+	v := map[string]any{"items": items, "blob": strings.Repeat("b", 500)}
+
+	for _, target := range []int64{9000, 9300, 9700} {
+		stripped, refs, _, err := cutForSize(v, target)
+		if err != nil {
+			t.Fatalf("target %d: %v", target, err)
+		}
+		encoded, err := json.Marshal(stripped)
+		if err != nil {
+			t.Fatalf("target %d: %v", target, err)
+		}
+		stored := int64(len(encoded))
+		for _, r := range refs {
+			stored += entrySize(r.Path)
+		}
+		if stored > target {
+			t.Errorf("target %d: the row would hold %d bytes (%d encoded + %d of objects list) — "+
+				"the arithmetic said this fit, the encoding disagrees", target, stored, len(encoded), stored-int64(len(encoded)))
+		}
+	}
+}
