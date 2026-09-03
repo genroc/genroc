@@ -99,8 +99,18 @@ async function run(req: WorkerRequest): Promise<WorkerReply> {
   }
 }
 
+// The realm's stdio is a pipe to the host thread, and eval.ts terminates this thread the moment
+// the reply lands — so whatever a script wrote last is still in the pipe when it dies. An empty
+// write's callback fires once the queue ahead of it has drained, which makes the reply a barrier
+// for `console` and a direct process.stdout.write alike: both are this stream.
+function flush(stream: NodeJS.WriteStream): Promise<void> {
+  return new Promise((resolve) => stream.write("", () => resolve()));
+}
+
 // Non-null because this module only ever runs as a worker entry point; a null port here
 // would mean eval.ts loaded it as a plain module, which nothing does.
 parentPort!.on("message", async (req: WorkerRequest) => {
-  parentPort!.postMessage(await run(req));
+  const reply = await run(req);
+  await Promise.all([flush(process.stdout), flush(process.stderr)]);
+  parentPort!.postMessage(reply);
 });

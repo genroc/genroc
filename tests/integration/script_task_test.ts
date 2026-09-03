@@ -1,6 +1,8 @@
 import { claimInProcess, parkedInProcess } from "../helpers/external.ts";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { spawn, type ChildProcess } from "child_process";
+import { rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "path";
 import { client, waitForInstance } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
@@ -256,6 +258,55 @@ test("evaluator — a return value JSON cannot represent is the script's fault",
   expect(r.ok).toBe(false);
   expect(r.ok === false && r.failure.kind).toBe("nonserializable");
 });
+
+// A script's output has to survive the realm being torn down. eval.ts terminates the Worker the
+// moment the reply lands, so anything still in the realm's stdio pipe dies with the thread —
+// which loses precisely what a script printed LAST, the lines someone adds to find out what a
+// run was doing. Both channels are the same stream, so both are covered: `console` and a direct
+// process.stdout.write. Asserted from a child process because stdout itself is under test.
+test("output — everything a script prints survives the realm's termination", async () => {
+  const script = [
+    "export default () => {",
+    "  console.log('CONSOLE-FIRST');",
+    // Big enough that the pipe is still draining it when the thread is killed. The small write
+    // before it lands either way, which is what made the loss look like "logging stopped".
+    "  console.log(new Array(200).fill({ k: 'v'.repeat(30) }));",
+    "  process.stdout.write('DIRECT-BIG:' + 'x'.repeat(20000) + '\\n');",
+    "  process.stderr.write('DIRECT-ERR\\n');",
+    "  process.stdout.write('DIRECT-LAST\\n');",
+    "  console.log('CONSOLE-LAST');",
+    "  return 1;",
+    "};",
+  ].join("\n");
+  const runner = [
+    `import { evaluate } from ${JSON.stringify(new URL("../../eval-node/eval.ts", import.meta.url).href)};`,
+    `const r = await evaluate({ code: ${JSON.stringify(script)} });`,
+    "if (!r.ok) throw new Error('evaluate failed: ' + JSON.stringify(r));",
+  ].join("\n");
+
+  // A file rather than `-e`: --input-type is inherited by the Worker eval.ts starts, and a
+  // Worker loading a URL refuses to run under it.
+  const runnerPath = join(tmpdir(), `genroc-output-${process.pid}-${Date.now()}.mjs`);
+  writeFileSync(runnerPath, runner);
+  const { out, err } = await new Promise<{ out: string; err: string }>((resolve, reject) => {
+    const child = spawn("node", [runnerPath], { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (c: Buffer) => (out += c.toString()));
+    child.stderr.on("data", (c: Buffer) => (err += c.toString()));
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve({ out, err }) : reject(new Error(`runner exited ${code}: ${err}`))));
+  }).finally(() => rmSync(runnerPath, { force: true }));
+
+  expect(out, "the first write always landed — its survival was never the question").toContain("CONSOLE-FIRST");
+  expect(out, "an object keeps console's own formatting").toContain("k: 'vvv");
+  expect(out, "a direct stream write is the author's output too, not just console").toContain("DIRECT-BIG:");
+  expect(out, "the last direct write is the one the pipe loses when the realm is killed").toContain("DIRECT-LAST");
+  expect(out, "and the last console line with it").toContain("CONSOLE-LAST");
+  expect(err, "stderr stays stderr rather than folding into stdout").toContain("DIRECT-ERR");
+  // Both channels are the same stream, so a fix that rescued only one would reorder them.
+  expect(out.indexOf("DIRECT-LAST"), "order is the stream's own").toBeLessThan(out.indexOf("CONSOLE-LAST"));
+}, 30_000);
 
 test("evaluator — Math and Date are the realm's own, and die with it", async () => {
   const patched = await evaluate({ code: "export default () => { Math.random = () => 0.5; return Math.random(); };" });
