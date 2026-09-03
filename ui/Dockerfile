@@ -17,6 +17,8 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM golang:1.25-alpine AS build
+ARG VERSION=dev
+ARG COMMIT=
 WORKDIR /src
 # GOWORK=off is the point of the split, not a detail: it resolves ui/go.mod ALONE, so the
 # server's twenty modules are not merely unused here, they are never downloaded. The whole graph
@@ -32,7 +34,8 @@ RUN rm -rf ./ui/web
 COPY --from=assets /spa/dist ./ui/web
 # No cgo: nothing here touches SQLite, which is half of why this image is a fraction of the
 # server's and can be built for any architecture without a cross toolchain.
-RUN cd ui && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/genroc-ui .
+RUN cd ui && CGO_ENABLED=0 go build -trimpath \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" -o /out/genroc-ui .
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/genroc-ui /usr/local/bin/

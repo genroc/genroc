@@ -108,9 +108,19 @@ docker compose -f examples/quickstart/compose.yaml up --build
 open http://localhost:8448
 ```
 
-See [examples/quickstart](examples/quickstart) for what it starts and what to run next. The
-published image is `ghcr.io/genroc/genroc` (also `genroc/genroc` on Docker Hub); during the
-prototype phase the moving tag is `:preview` and there is deliberately no `:latest`.
+See [examples/quickstart](examples/quickstart) for what it starts and what to run next.
+
+Three images are published, each doing one job:
+
+| image | what it is |
+|---|---|
+| `ghcr.io/genroc/genroc` | the engine and the API. No UI and no login — it is meant to be embedded |
+| `ghcr.io/genroc/ui` | the web UI, and the login that gets a person into it |
+| `ghcr.io/genroc/eval-node` | the script-task worker |
+
+`genroc` is also on Docker Hub as `genroc/genroc`. During the prototype phase the moving tag is
+`:preview` and there is deliberately no `:latest`. See [examples/ui](examples/ui) for the two
+running together.
 
 From source:
 

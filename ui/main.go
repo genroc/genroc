@@ -44,7 +44,13 @@ func main() {
 	server := flag.String("server", envOr("GENROC_SERVER", "http://localhost:8449"),
 		"The genroc API to proxy to, when no -config is given ($GENROC_SERVER).")
 	listen := flag.String("http", "", "Listen address; overrides the config.")
+	showVersion := flag.Bool("version", false, "Print the version and exit.")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(versionString())
+		return
+	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
@@ -65,7 +71,7 @@ func main() {
 		log.Error("startup", "err", err)
 		os.Exit(1)
 	}
-	log.Info("genroc-ui listening", "addr", cfg.Listen, "upstream", cfg.Server,
+	log.Info("genroc-ui listening", "version", versionString(), "addr", cfg.Listen, "upstream", cfg.Server,
 		"providers", len(cfg.Login.Providers), "passwords", len(cfg.Login.Passwords))
 	if err := http.ListenAndServe(cfg.Listen, s.routes()); err != nil {
 		log.Error("listen", "err", err)

@@ -39,8 +39,14 @@ changelog:
     exclude: ["^docs:", "^test:", "^chore:"]
 
 release:
-  # The server is released as an image by the same tag; this is the client half of it.
+  # The images are released under the same tag; this is the client half of it.
   footer: |
     ## Server
 
         docker run -p 8448:8448 -v genroc:/data ghcr.io/genroc/genroc:{{ .Tag }} -db /data/genroc.db
+
+    ## Web UI
+
+    Serves the UI and the login, and proxies to the server. See examples/ui for the pair.
+
+        docker run -p 8448:8448 ghcr.io/genroc/ui:{{ .Tag }} -config /etc/genroc/ui.yaml
