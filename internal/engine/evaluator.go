@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"fmt"
 	"maps"
 
@@ -19,12 +18,12 @@ func (e *Engine) context(inst *model.ProcessInstance) *model.Context {
 	if inst.ResolvedObjects == nil {
 		inst.ResolvedObjects = map[string]any{}
 	}
+	load := e.db.ObjectLoader()
 	return model.NewContext(inst.State, func(hash string) (any, error) {
-		// One closure, every object load in the engine: a dropped connection is ridden out here
-		// rather than becoming a terminal failure for an instance that could have retried.
-		return retryRead(func() (any, error) {
-			return e.db.ResolveObject(context.Background(), &model.ObjectRef{Ref: hash})
-		})
+		// The retry is the engine's, not the loader's: a dropped connection mid-advance is
+		// ridden out here rather than becoming a terminal failure for an instance that could
+		// have retried. A one-shot reader wants the plain loader and the error.
+		return retryRead(func() (any, error) { return load(hash) })
 	}, inst.ResolvedObjects)
 }
 

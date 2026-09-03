@@ -30,10 +30,23 @@ import (
 // complete, which is what prunes the output of a task the target version no longer has: nothing
 // on the new version can read it (an expression naming it is refused at registration), so
 // carrying it forward stores weight that only grows and pins whatever it references.
-func MigrateState(to *model.ProcessDefinition, task string, state map[string]any) (map[string]any, error) {
+// load resolves an externalized value by content hash. It is a PARAMETER rather than a
+// contract on the caller because the conform below is what makes it necessary, and a caller
+// that forgot got a type error naming *model.ObjectRef instead of an answer.
+func MigrateState(to *model.ProcessDefinition, task string, state map[string]any, load func(hash string) (any, error)) (map[string]any, error) {
 	if task == "" {
 		return nil, fmt.Errorf("instance holds no task to resume at")
 	}
+	// The whole context, markers resolved: the conform inspects and normalizes a value --
+	// strips undeclared keys, fills defaults -- and can do neither inside an object it would
+	// have to load to see. The write re-cuts what it produces, and identical content hashes to
+	// the same objects, so nothing churns. specs/lazy-context.md.
+	materialized, err := model.NewContext(state, load, nil).Materialize(state)
+	if err != nil {
+		return nil, fmt.Errorf("resolve the externalized values at task %q: %w", task, err)
+	}
+	state, _ = materialized.(map[string]any)
+
 	layers, err := TaskContexts(to)
 	if err != nil {
 		return nil, fmt.Errorf("analyse %q: %w", to.Name, err)

@@ -79,6 +79,16 @@ func (db *DB) loadObjectValue(ctx context.Context, hash string) (any, error) {
 	return v, nil
 }
 
+// ObjectLoader is the hash -> value function model.NewContext takes, so every reader of a
+// context resolves through the same call rather than each rebuilding the closure. Callers that
+// need a read retried wrap this; the engine does, because a blip inside an advance is expensive
+// there in a way it is not to a one-shot reader (internal/engine/readretry.go).
+func (db *DB) ObjectLoader() func(hash string) (any, error) {
+	return func(hash string) (any, error) {
+		return db.ResolveObject(context.Background(), &model.ObjectRef{Ref: hash})
+	}
+}
+
 // ResolveObject loads an externalized value. Addressed by content hash and nothing else: the
 // owner is not a parameter because it would not be consulted, and a signature that accepts one
 // it ignores is a lie the next reader has to disprove. specs/object-store.md.

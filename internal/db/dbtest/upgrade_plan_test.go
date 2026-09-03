@@ -41,7 +41,9 @@ func upgradeTree(t *testing.T, db *dbpkg.DB, rootID string, from, to int) error 
 		if err != nil {
 			return err
 		}
-		state, err := validation.MigrateState(def, m.Instance.Task, m.Instance.State)
+		// The same loader the API passes: a migration conforms the value, so it resolves the
+		// row's references first.
+		state, err := validation.MigrateState(def, m.Instance.Task, m.Instance.State, db.ObjectLoader())
 		if err != nil {
 			return fmt.Errorf("%q: %w", m.Instance.ID, err)
 		}
