@@ -22,7 +22,7 @@ run:
 
 # Two modules, three binaries. genroc-ui builds from ./ui, which is a separate module with
 # its own go.mod -- see go.work. It embeds whatever is in ui/web; a bare build gets the committed
-# placeholder, and the image build overwrites it with the compiled frontend.
+# placeholder, and the image build overwrites it with ui/frontend compiled.
 build: sqlc
 	$(BUILD_FLAGS) go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o genroc ./cmd/genroc
 	$(BUILD_FLAGS) go build -ldflags="-s -w" -o genctl ./cmd/genctl

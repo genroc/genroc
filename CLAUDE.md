@@ -74,6 +74,10 @@ specs/ui-component.md. It also owns the auth the server no longer does: it authe
 person, resolves their groups to permissions, and mints the token the server verifies
 (specs/ui-issued-tokens.md) — which is why `jwks` lives there now and not in a shared module.
 
+`ui/frontend/` is the React SPA, a Node project inside the Go module — `ui/web/` holds the
+committed placeholder `go:embed` compiles in, and only the image build swaps the built SPA over it.
+The `golang-jwt` claim above is about the Go module; npm is a separate graph that reaches no binary.
+
 **`./...` matches the current module only.** A command that does not name both silently skips
 one — which is why the Makefile and CI spell out `./... ./ui/...`.
 

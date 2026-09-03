@@ -2,18 +2,15 @@
 #
 # genroc-ui: the web UI and the OIDC login that gets a person into it. specs/ui-component.md.
 #
-# Build from the REPO ROOT, because the context needs three directories:
+# Build from the REPO ROOT -- ui/ is a module of the workspace, and the context is rooted there:
 #
 #     docker build -f ui/Dockerfile -t genroc-ui .
-#
-#   ui/        this component, jwks and all
-#   frontend/  the SPA it embeds
 
 FROM --platform=$BUILDPLATFORM node:24-alpine AS assets
 WORKDIR /spa
-COPY frontend/package*.json ./
+COPY ui/frontend/package*.json ./
 RUN npm ci
-COPY frontend/ ./
+COPY ui/frontend/ ./
 RUN npm run build
 
 FROM golang:1.25-alpine AS build

@@ -1,8 +1,8 @@
 .git
-# Beyond context size: the ui stage runs `npm ci` and THEN `COPY frontend/ ./`, so an
+# Beyond context size: the ui stage runs `npm ci` and THEN `COPY ui/frontend/ ./`, so an
 # un-ignored node_modules would overwrite the clean install.
 **/node_modules
-frontend/dist
+ui/frontend/dist
 docs/dist
 # `COPY . .` would put a live token in a build layer — cached and exportable, though not shipped.
 **/.env

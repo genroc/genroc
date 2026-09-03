@@ -519,7 +519,7 @@ already is — a check that only some call sites make is the hole that survives 
   last admin credential lapsed.
 
 The client half is not optional: a UI that exchanges on every load re-creates the pile-up with a
-shorter fuse. `frontend/` asks only when it holds no token, and re-exchanges once on a 401.
+shorter fuse. `ui/frontend/` asks only when it holds no token, and re-exchanges once on a 401.
 
 Session rows are labelled `session:<subject>`, which is what lets an operator reading
 `genctl token list` tell a person's session from a machine's credential.

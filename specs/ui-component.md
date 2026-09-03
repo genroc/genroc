@@ -167,7 +167,7 @@ single binary and there is no path to misconfigure.
 
 ## 8. Open
 
-- **The dev loop.** `frontend/`'s Vite dev server proxies to genroc today and can keep doing so
+- **The dev loop.** `ui/frontend/`'s Vite dev server proxies to genroc today and can keep doing so
   with auth off. Whether `npm run dev` should instead point at a local genroc-ui, so the login
   path is exercised in development, is unsettled.
 - **Does genroc-ui proxy or redirect for `/public/*` and `/healthz`?** They are unauthenticated on

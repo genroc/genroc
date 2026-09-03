@@ -2,7 +2,7 @@
 
 A small React app for watching instances. Vite dev server, no styling framework.
 
-    cd frontend && npm install && npm run dev      # http://localhost:5173
+    cd ui/frontend && npm install && npm run dev   # http://localhost:5173
 
 It expects genroc on `http://localhost:8448`; override with `GENROC_SERVER=… npm run dev`.
 

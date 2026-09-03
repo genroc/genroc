@@ -11,7 +11,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// The login endpoints. The PAGE is a React bundle built alongside the app (frontend/login.html);
+// The login endpoints. The PAGE is a React bundle built alongside the app (ui/frontend/login.html);
 // this serves it and answers the two calls it makes. specs/ui-issued-tokens.md §5.
 
 // options tells the login page which ways in exist. Unauthenticated, and has to be: nothing has

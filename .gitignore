@@ -35,8 +35,8 @@ docs/node_modules/
 /p.json
 tests/weather.log
 examples/auth/.env
-frontend/node_modules
-frontend/dist
+ui/frontend/node_modules
+ui/frontend/dist
 .genroc-cache/
 eval-node/dist/
 *.tgz
