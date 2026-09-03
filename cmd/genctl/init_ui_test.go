@@ -13,7 +13,11 @@ import (
 // `genctl init --ui` generates credentials, which is the whole reason it exists as a mode: the
 // compose file it replaces ran a container as root purely to mint them.
 
-func renderCompose(t *testing.T, ui, evalNode bool) string {
+func renderCompose(t *testing.T, auth, evalNode bool) string {
+	return renderComposeDB(t, auth, evalNode, false)
+}
+
+func renderComposeDB(t *testing.T, auth, evalNode, postgres bool) string {
 	t.Helper()
 	body, err := templates.ReadFile("templates/compose.yaml")
 	if err != nil {
@@ -26,7 +30,7 @@ func renderCompose(t *testing.T, ui, evalNode bool) string {
 	var out strings.Builder
 	if err := tmpl.Execute(&out, map[string]any{
 		"Image": "i", "UIImage": "u", "WorkerImage": "w",
-		"UI": ui, "EvalNode": evalNode, "Postgres": false,
+		"Auth": auth, "EvalNode": evalNode, "Postgres": postgres,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -50,13 +54,27 @@ func TestInitUI_ReadsASeedFileOnlyWhenAWorkerNeedsOne(t *testing.T) {
 	}
 }
 
-// Without --ui nothing is generated, so a seed file would name a path that does not exist.
-func TestInitWithoutUI_ReadsNoCredentialFiles(t *testing.T) {
+// Under --no-auth nothing is generated, so any credential file would name a path that does not
+// exist -- and the worker would hold a token the server has never heard of.
+func TestInitNoAuth_ReadsNoCredentialFilesButKeepsTheUI(t *testing.T) {
 	out := renderCompose(t, false, true)
-	for _, env := range []string{"GENROC_SEED_TOKENS_FILE", "GENROC_JWT_SECRET_FILE", "GENROC_AUTH"} {
+	// ./data itself stays — it is where the database lives either way. What must not appear is
+	// anything naming a credential, since --no-auth generates none.
+	for _, env := range []string{
+		"GENROC_SEED_TOKENS_FILE", "GENROC_JWT_SECRET_FILE", "GENROC_AUTH", "GENROC_TOKEN_FILE",
+		"jwt-secret", "worker-token", "seed-tokens",
+	} {
 		if strings.Contains(out, env) {
-			t.Errorf("compose sets %s without --ui, but nothing generates the file it names", env)
+			t.Errorf("compose references %s under --no-auth, but nothing generates it", env)
 		}
+	}
+	// The UI is NOT what --no-auth removes: it is how anyone sees a run at all, and the server
+	// has carried no UI since it became its own image.
+	if !strings.Contains(out, "genroc-ui:") {
+		t.Error("--no-auth dropped genroc-ui; it turns the login off, not the UI")
+	}
+	if !strings.Contains(out, `command: [-server, "http://genroc:8448"]`) {
+		t.Error("genroc-ui has neither a config nor a -server, so it proxies nowhere")
 	}
 }
 
@@ -76,6 +94,22 @@ func TestInitUI_MountsTheKeyAndTheTokenSeparately(t *testing.T) {
 	if strings.Count(out, "./data:/data") != 1 {
 		t.Error("only the genroc service may mount the whole data folder; it is the one that " +
 			"writes the database, and the others need one file each")
+	}
+}
+
+// Everything that persists lives under ./data, so `rm -rf data` is the whole reset. A named
+// volume would outlive the project folder and survive that, which is the shape people delete a
+// directory and then wonder why their old definitions are still there.
+func TestInitCompose_NothingPersistsOutsideTheDataFolder(t *testing.T) {
+	for _, postgres := range []bool{false, true} {
+		out := renderComposeDB(t, true, true, postgres)
+		if strings.Contains(out, "genroc-data") {
+			t.Errorf("postgres=%v: a named volume survives `rm -rf data` and a `compose down -v`, "+
+				"so the reset the header documents does not reset", postgres)
+		}
+		if got := strings.Contains(out, "./data/postgres:/var/lib/postgresql/data"); got != postgres {
+			t.Errorf("postgres=%v: cluster bind-mounted under ./data = %v", postgres, got)
+		}
 	}
 }
 
@@ -201,21 +235,20 @@ func TestParseInitArgs(t *testing.T) {
 		want options
 		tag  string
 	}{
-		{"defaults", nil, options{dir: ".", compose: true, ui: true}, releaseTag()},
-		{"a directory", []string{"orders"}, options{dir: "orders", compose: true, ui: true}, releaseTag()},
+		{"defaults", nil, options{dir: ".", auth: true}, releaseTag()},
+		{"a directory", []string{"orders"}, options{dir: "orders", auth: true}, releaseTag()},
 		{"--version takes the next argument", []string{"--version", "edge"},
-			options{dir: ".", compose: true, ui: true}, "edge"},
+			options{dir: ".", auth: true}, "edge"},
 		{"--version= is the same flag", []string{"--version=0.1.0"},
-			options{dir: ".", compose: true, ui: true}, "0.1.0"},
+			options{dir: ".", auth: true}, "0.1.0"},
 		// The value is consumed, so what follows is still parsed as a flag rather than a folder.
-		{"--version does not swallow the next flag", []string{"--version", "edge", "--no-ui"},
-			options{dir: ".", compose: true, setUI: true}, "edge"},
-		{"--no-ui", []string{"--no-ui"}, options{dir: ".", compose: true, setUI: true}, releaseTag()},
-		// Declining the compose file declines the UI with it: the UI is a second container.
-		{"--no-compose takes the UI with it", []string{"--no-compose"},
-			options{dir: ".", setCompose: true, setUI: true}, releaseTag()},
+		{"--version does not swallow the next flag", []string{"--version", "edge", "--no-auth"},
+			options{dir: ".", auth: false}, "edge"},
+		{"--no-auth", []string{"--no-auth"}, options{dir: ".", auth: false}, releaseTag()},
 		{"--eval-node", []string{"--eval-node"},
-			options{dir: ".", evalNode: true, compose: true, ui: true}, releaseTag()},
+			options{dir: ".", evalNode: true, auth: true}, releaseTag()},
+		{"--postgres", []string{"--postgres"},
+			options{dir: ".", postgres: true, auth: true, setPostgres: true}, releaseTag()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, tag, _ := parseInitArgs(tc.args)

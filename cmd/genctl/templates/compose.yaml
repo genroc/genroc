@@ -1,16 +1,16 @@
 # A genroc to develop against.
 #
 #   docker compose up -d
-{{if .UI}}#   open http://localhost:8448, sign in, and mint a token in the tokens tab
+{{if .Auth}}#   open http://localhost:8448, sign in, and mint a token in the tokens tab
 #   genctl config set token genroc_sk_...   &&   genctl apply
 #
-# The signing key and the worker's credential were generated into ./data by `genctl init`, so
-# there is no setup step and no container running as root to mint them. Delete ./data and re-run
-# `genctl init` to start over -- which invalidates every session signed with the old key.
+# The signing key was generated into ./data by `genctl init`, so there is no setup step and no
+# container running as root to mint it. Delete ./data and re-run `genctl init` to start over --
+# which invalidates every session signed with the old key.
 {{else}}#   genctl apply
 #
-# NO AUTHENTICATION: every caller is an operator, and `PUT /definitions` stores code the engine
-# runs. Fine on a laptop, not on anything anyone else can reach.
+# NO AUTHENTICATION (--no-auth): every caller is an operator, and `PUT /definitions` stores code
+# the engine runs. Fine on a laptop, not on anything anyone else can reach.
 {{end -}}
 services:
 {{- if .Postgres}}
@@ -24,7 +24,9 @@ services:
       test: ["CMD-SHELL", "pg_isready -U genroc -d genroc"]
       interval: 2s
       retries: 15
-    volumes: [genroc-data:/var/lib/postgresql/data]
+    # Under ./data like everything else that persists, so "delete ./data to start over" is the
+    # whole reset and no named volume outlives the project folder.
+    volumes: [./data/postgres:/var/lib/postgresql/data]
 {{- end}}
 
   genroc:
@@ -35,7 +37,7 @@ services:
     # SQLite: nothing to provision. `-pg <dsn>` is the same image against PostgreSQL.
     command: [-db, /data/genroc.db, -http, ":8448"]
 {{- end}}
-{{- if .UI}}
+{{- if .Auth}}
     environment:
       # BOTH credential types. The secret verifies what genroc-ui mints for a person; token mode
       # accepts the opaque credential a machine holds. They compose in one chain, each declining
@@ -48,49 +50,54 @@ services:
       # it, so no secret originates inside the server and none reaches these logs.
       GENROC_SEED_TOKENS_FILE: /data/seed-tokens
 {{- end}}
+{{- end}}
+    # Everything that persists lives here, whichever database and whether or not there is a
+    # login: the SQLite file, and the signing key when there is one.
     volumes: [./data:/data]
-    # Unpublished: the only way in from the host is genroc-ui. A container on this network still
-    # reaches genroc directly, which is how the worker does it.
-{{- else}}
-    ports: ["8448:8448"]
-{{- if not .Postgres}}
-    volumes: [genroc-data:/data]
-{{- end}}
-{{- end}}
+    # Unpublished either way: the only way in from the host is genroc-ui. A container on this
+    # network still reaches genroc directly, which is how the worker does it.
 {{- if .Postgres}}
     depends_on:
       postgres: { condition: service_healthy }
 {{- end}}
-{{- if .UI}}
 
   # The UI is its own image: the server is meant to be EMBEDDED, and a deployment that embeds it
-  # has no use for a login flow or a monitoring UI in its address space. It authenticates the
-  # person, resolves their groups through ui.yaml's role map, and mints a short-lived token
-  # carrying the resulting permissions.
+  # has no use for a login flow or a monitoring UI in its address space.
+{{- if .Auth}}
+  # It authenticates the person, resolves their groups through ui.yaml's role map, and mints a
+  # short-lived token carrying the resulting permissions.
+{{- else}}
+  # With no config it runs without a login, proxying requests as they arrive.
+{{- end}}
   genroc-ui:
     image: {{.UIImage}}
+{{- if .Auth}}
     environment:
       GENROC_UI_CONFIG: /etc/genroc/ui.yaml
+{{- else}}
+    command: [-server, "http://genroc:8448"]
+{{- end}}
     ports: ["8448:8448"]
+{{- if .Auth}}
     volumes:
       - ./ui.yaml:/etc/genroc/ui.yaml:ro
       # The key alone, not the folder: genroc-ui has no business reading the database or the
       # worker's credential.
       - ./data/jwt-secret:/data/jwt-secret:ro
+{{- end}}
     restart: unless-stopped
     depends_on: [genroc]
-{{- end}}
 {{- if .EvalNode}}
 
   # Claims parked script tasks off the queue. genroc never calls it, so it needs only outbound
-  # access{{if .UI}} and never touches genroc-ui{{end}}.
+  # access and never touches genroc-ui.
   eval-node:
     image: {{.WorkerImage}}
     environment:
       GENROC_SERVER: http://genroc:8448
       # Without a filter a worker claims EVERY external task, including another runtime's.
       TASK: eval_node
-{{- if .UI}}
+{{- if .Auth}}
       # A file rather than an environment variable: a credential in the environment shows up in
       # `docker inspect` and is inherited by every child process.
       GENROC_TOKEN_FILE: /data/worker-token
@@ -99,11 +106,4 @@ services:
 {{- end}}
     restart: unless-stopped
     depends_on: [genroc]
-{{- end}}
-{{if and (not .UI) (not .Postgres)}}
-volumes:
-  genroc-data:
-{{- else if .Postgres}}
-volumes:
-  genroc-data:
 {{- end}}

@@ -47,19 +47,12 @@ func TestInitPrompt_EOFTakesDefaults(t *testing.T) {
 // reliably, and "did the eval-node answer reach the file set and the next steps" is exactly
 // the part that silently regresses.
 // A flag is an answer, so the prompt must not ask the question again — and must not then
-// override it with its own default, which is how `genctl init --no-compose` used to write a
-// compose file anyway. The answers below all say "yes" to everything.
+// override it with its own default, which is how `genctl init --postgres` used to come back
+// as SQLite. The answers below all say "sqlite" to everything.
 func TestInitOptions_AFlagIsNotReopenedByThePrompt(t *testing.T) {
-	yes := "\n\ny\ny\ny\ny\n"
-	if got := (options{dir: ".", setCompose: true}).prompt(newPrompter(yes)); got.compose {
-		t.Error("--no-compose was overridden by the prompt's default")
-	}
-	if got := (options{dir: ".", compose: true, setUI: true}).prompt(newPrompter(yes)); got.ui {
-		t.Error("--no-ui was overridden by the prompt's default")
-	}
-	// And the postgres question is a free-text default, which overrode it the same way.
-	got := (options{dir: ".", compose: true, postgres: true, setPostgres: true, setUI: true}).
-		prompt(newPrompter(yes))
+	sqlite := "\n\n\n\n\n"
+	got := (options{dir: ".", auth: true, postgres: true, setPostgres: true}).
+		prompt(newPrompter(sqlite))
 	if !got.postgres {
 		t.Error("--postgres was overridden by the prompt's sqlite default")
 	}
@@ -70,30 +63,28 @@ func TestInitOptions_AnswersReachTheDecision(t *testing.T) {
 		name, input string
 		want        options
 	}{
-		// A login is the DEFAULT, so pressing enter through the prompts produces an
-		// authenticated stack, not an open one.
-		{"all defaults", "\n\n\n\n\n", options{dir: "genroc-app", compose: true, ui: true, email: defaultEmail}},
-		{"declining the login", "\n\n\n\nn\n", options{dir: "genroc-app", compose: true}},
-		{"eval-node, no compose", "proj\ny\nn\n", options{dir: "proj", evalNode: true, compose: false}},
-		{"postgres", "proj\nn\ny\npostgres\nn\n", options{dir: "proj", compose: true, postgres: true}},
-		{"an email of one's own", ".\ny\ny\n\ny\nada@example.com\n",
-			options{dir: ".", evalNode: true, compose: true, ui: true, email: "ada@example.com"}},
+		// Three questions now: the folder, script tasks, and the database. The login is NOT
+		// asked — it is the default, and `--no-auth` is the answer for someone who has already
+		// decided otherwise.
+		{"all defaults", "\n\n\n", options{dir: "genroc-app", auth: true, email: defaultEmail}},
+		{"eval-node", "proj\ny\n\n", options{dir: "proj", evalNode: true, auth: true, email: defaultEmail}},
+		{"postgres", "proj\nn\npostgres\n",
+			options{dir: "proj", postgres: true, auth: true, email: defaultEmail}},
+		{"an email of one's own", ".\ny\n\nada@example.com\n",
+			options{dir: ".", evalNode: true, auth: true, email: "ada@example.com"}},
+		// With --no-auth there is no account to name, so the email is never asked for.
+		{"no auth asks no email", "proj\nn\n\n", options{dir: "proj"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := options{dir: ".", compose: true, ui: true}.prompt(newPrompter(tc.input))
+			seed := options{dir: ".", auth: true}
+			if tc.name == "no auth asks no email" {
+				seed.auth = false
+			}
+			got := seed.prompt(newPrompter(tc.input))
 			if got != tc.want {
 				t.Errorf("answers %q gave %+v, want %+v", tc.input, got, tc.want)
 			}
 		})
-	}
-}
-
-// The database question is only asked when a compose file is being written; asking otherwise
-// consumes an answer meant for nothing and desynchronises every prompt after it.
-func TestInitOptions_NoDatabaseQuestionWithoutCompose(t *testing.T) {
-	got := options{dir: "x", compose: true}.prompt(newPrompter("n\nn\npostgres\n"))
-	if got.postgres {
-		t.Error("postgres was selected although no compose.yaml was requested")
 	}
 }
 

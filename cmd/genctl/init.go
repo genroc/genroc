@@ -39,7 +39,7 @@ func runInitCmd(args []string) {
 	if !assumeYes && interactive() {
 		choices = choices.prompt(prompter{in: bufio.NewReader(os.Stdin), out: os.Stderr})
 	}
-	dir, evalNode, compose, postgres, ui := choices.dir, choices.evalNode, choices.compose, choices.postgres, choices.ui
+	dir, evalNode, postgres, auth := choices.dir, choices.evalNode, choices.postgres, choices.auth
 
 	set := "base"
 	if evalNode {
@@ -48,19 +48,19 @@ func runInitCmd(args []string) {
 	data := struct {
 		Dep, Image, WorkerImage, UIImage string
 		Email, Hash                      string
-		EvalNode, Postgres, UI           bool
+		EvalNode, Postgres, Auth         bool
 	}{
 		Dep:         tag,
 		Image:       "ghcr.io/genroc/genroc:" + tag,
 		WorkerImage: "ghcr.io/genroc/eval-node:" + tag,
 		UIImage:     "ghcr.io/genroc/ui:" + tag,
-		EvalNode:    evalNode, Postgres: postgres, UI: ui,
+		EvalNode:    evalNode, Postgres: postgres, Auth: auth,
 	}
 
 	// The login is generated BEFORE anything is written, so a failure to hash leaves no
 	// half-built project holding a config that names a user nobody can sign in as.
 	var login *login
-	if ui {
+	if auth {
 		var err error
 		if login, err = newLogin(choices.email); err != nil {
 			fatal("init: %v", err)
@@ -88,14 +88,13 @@ func runInitCmd(args []string) {
 	if err != nil {
 		fatal("init: %v", err)
 	}
-	if compose {
-		out, err := render("templates/compose.yaml", filepath.Join(dir, "compose.yaml"), data)
-		if err != nil {
-			fatal("init: %v", err)
-		}
-		written = append(written, out)
+	out, err := render("templates/compose.yaml", filepath.Join(dir, "compose.yaml"), data)
+	if err != nil {
+		fatal("init: %v", err)
 	}
-	if ui {
+	written = append(written, out)
+
+	if auth {
 		out, err := render("templates/ui/ui.yaml", filepath.Join(dir, "ui.yaml"), data)
 		if err != nil {
 			fatal("init: %v", err)
@@ -106,57 +105,57 @@ func runInitCmd(args []string) {
 			fatal("init: %v", err)
 		}
 		written = append(written, secrets...)
-		// Appended rather than written: every template set already ships a .gitignore, and the
-		// one thing that must never be committed is the folder just generated.
-		if err := ignoreData(filepath.Join(dir, ".gitignore")); err != nil {
-			fatal("init: %v", err)
-		}
+	}
+	// Unconditional: ./data holds the database whether or not there is a login, and a Postgres
+	// cluster or a SQLite file in `git status` is the same mistake as a committed signing key.
+	// Appended rather than written, because every template set already ships a .gitignore.
+	if err := ignoreData(filepath.Join(dir, ".gitignore")); err != nil {
+		fatal("init: %v", err)
 	}
 
 	for _, w := range written {
 		fmt.Println("created", w)
 	}
-	if login != nil {
-		// Printed once and stored only as a bcrypt hash, so this is the only time the password
-		// exists in readable form. Changing it means replacing the hash in ui.yaml.
-		fmt.Printf("\nsign in as  %s\npassword    %s   (shown once — only its hash is stored)\n",
-			login.email, login.password)
-		fmt.Println("\ndata/ holds the signing key and is world-readable, which is why it is " +
-			"gitignored.\nIt is a development default: anyone with an account on this machine " +
-			"can read it,\nand whoever holds that key can mint any identity genroc will accept.")
-	}
+	// The steps, credentials included. The password used to be printed above this list, which
+	// put the one thing that cannot be recovered in the place people scroll past.
+	const indent = "       "
 	fmt.Println()
 	fmt.Print("next:  ")
 	if clean := filepath.Clean(dir); clean != "." {
-		fmt.Printf("cd %s\n       ", clean)
+		fmt.Printf("cd %s\n%s", clean, indent)
 	}
-	if compose {
-		fmt.Println("docker compose up -d")
-		fmt.Print("       ")
-	}
+	fmt.Println("docker compose up -d")
 	if evalNode {
-		fmt.Println("npm install")
-		fmt.Print("       ")
+		fmt.Println(indent + "npm install")
 	}
-	if ui {
+	if login != nil {
 		// genctl needs a credential of its own: a browser session is a cookie, and genroc
-		// accepts only `Authorization`. Minting one is an admin action, which the password above
-		// is what grants.
-		fmt.Println("open http://localhost:8448 and sign in")
-		fmt.Println("       then mint a token in the tokens tab:")
-		fmt.Println("       genctl config set token genroc_sk_...")
-		fmt.Print("       ")
+		// accepts only `Authorization`. Minting one is an admin action, which this password
+		// grants -- so the sign-in and the token belong to one step, not two.
+		fmt.Println(indent + "open http://localhost:8448 and sign in")
+		fmt.Printf("%s    email     %s\n", indent, login.email)
+		fmt.Printf("%s    password  %s\n", indent, login.password)
+		fmt.Println(indent + "mint a token in the tokens tab, then")
+		fmt.Println(indent + "genctl config set token genroc_sk_...")
 	}
-	fmt.Println("genctl apply")
-	fmt.Println("       genctl run hello --set who=you")
-	if ui {
-		fmt.Println("\n`config set` keeps the token in ~/.config/genroc/config.yaml (0600) rather " +
-			"than in the\nenvironment, where it is inherited by every process you start and shows " +
-			"up in `ps`.\n\ngenroc itself is not published — genctl reaches it through genroc-ui, " +
+	fmt.Println(indent + "genctl apply")
+	fmt.Println(indent + "genctl run hello --set who=you")
+	if auth {
+		// Stored only as a bcrypt hash, so the line above is the only time it exists in
+		// readable form -- which is why the replacement command is named here rather than
+		// left to be searched for.
+		fmt.Println("\nThe password is shown once; `genctl init password` mints a replacement.\n" +
+			"`config set` keeps the token in ~/.config/genroc/config.yaml (0600) rather than in " +
+			"the\nenvironment, where it is inherited by every process you start and shows up in " +
+			"`ps`.\n\ngenroc itself is not published — genctl reaches it through genroc-ui, " +
 			"which passes a\nrequest that already carries a token straight through.")
-	}
-	if ui {
-		fmt.Println("\nLost the password?  genctl init password")
+		fmt.Println("\ndata/ holds the signing key and is world-readable, which is why it is " +
+			"gitignored.\nIt is a development default: anyone with an account on this machine " +
+			"can read it,\nand whoever holds that key can mint any identity genroc will accept.")
+	} else {
+		fmt.Println("\nNO AUTHENTICATION: every caller is an operator, and `PUT /definitions` " +
+			"stores code the\nengine runs. Right on a laptop, wrong on anything anyone else " +
+			"can reach.")
 	}
 	if !evalNode {
 		fmt.Println("\nTypeScript tasks?  genctl init --eval-node  (adds @genroc/eval-node)")
@@ -166,26 +165,21 @@ func runInitCmd(args []string) {
 // parseInitArgs turns the command line into the decisions init makes, so the flag surface --
 // six flags with interactions -- is testable without writing a project.
 func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
-	evalNode := false
-	compose, postgres := true, false
+	evalNode, postgres := false, false
 	// A login is the default: the alternative is a port on which anyone can register a
-	// definition, and `PUT /definitions` stores code the engine runs. `--no-ui` opts out.
-	ui := true
-	var setCompose, setPostgres, setUI bool
+	// definition, and `PUT /definitions` stores code the engine runs.
+	auth := true
+	var setPostgres bool
 	dir, tag := ".", ""
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case a == "--eval-node":
 			evalNode, assumeYes = true, true
-		case a == "--no-compose":
-			compose, setCompose = false, true
 		case a == "--postgres":
 			postgres, setPostgres = true, true
-		case a == "--ui":
-			ui, setUI = true, true
-		case a == "--no-ui":
-			ui, setUI = false, true
+		case a == "--no-auth":
+			auth, assumeYes = false, true
 		case a == "-y", a == "--yes":
 			assumeYes = true
 		case a == "--version", a == "-version":
@@ -198,7 +192,7 @@ func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 			tag = strings.TrimPrefix(a, "--version=")
 		case strings.HasPrefix(a, "-"):
 			fatal("init: unknown option %q\n"+
-				"usage: genctl init [dir] [--no-ui] [--eval-node] [--postgres] [--no-compose] "+
+				"usage: genctl init [dir] [--eval-node] [--no-auth] [--postgres] "+
 				"[--version <tag>] [-y]", a)
 		default:
 			dir = a
@@ -207,18 +201,9 @@ func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 	if tag == "" {
 		tag = releaseTag()
 	}
-	if setCompose && !compose {
-		// The UI is a second container, so without a compose file there is nothing to run it.
-		// Silent when the default put it there; an error only when someone asked for both.
-		if ui && setUI {
-			fatal("init: --ui and --no-compose contradict — what --ui adds is entirely inside " +
-				"the compose file")
-		}
-		ui, setUI = false, true
-	}
 	return options{
-		dir: dir, evalNode: evalNode, compose: compose, postgres: postgres, ui: ui,
-		setCompose: setCompose, setPostgres: setPostgres, setUI: setUI,
+		dir: dir, evalNode: evalNode, postgres: postgres, auth: auth,
+		setPostgres: setPostgres,
 	}, tag, assumeYes
 }
 
@@ -268,12 +253,12 @@ func isSemver(v string) bool {
 // answers can be tested without a terminal -- a pty harness proved unreliable, and the wiring
 // from an answer to a generated file is the part worth pinning.
 type options struct {
-	dir, email                      string
-	evalNode, compose, postgres, ui bool
-	// set* records which answers came from the command line, so the prompt does not ask a
-	// question already answered -- and cannot then override it with its own default, which is
-	// how `genctl init --no-compose` used to write a compose file anyway.
-	setCompose, setPostgres, setUI bool
+	dir, email               string
+	evalNode, postgres, auth bool
+	// setPostgres records that the database came from the command line, so the prompt does not
+	// ask a question already answered -- and cannot then override it with its own default,
+	// which is how `--postgres` used to come back as SQLite.
+	setPostgres bool
 }
 
 func (o options) prompt(p prompter) options {
@@ -283,22 +268,12 @@ func (o options) prompt(p prompter) options {
 		o.dir = p.ask("folder to create (. for the current directory)", "genroc-app")
 	}
 	o.evalNode = p.askYesNo("TypeScript script tasks (@genroc/eval-node)", false)
-	if !o.setCompose {
-		o.compose = p.askYesNo("compose.yaml to run genroc locally", true)
-	}
-	if !o.compose {
-		// The UI is a second container, so declining the compose file declines it too --
-		// including when it was on by default and never asked about.
-		o.ui = false
-		return o
-	}
 	if !o.setPostgres {
 		o.postgres = strings.HasPrefix(strings.ToLower(p.ask("database (sqlite/postgres)", "sqlite")), "p")
 	}
-	if !o.setUI {
-		o.ui = p.askYesNo("a web UI behind a login (genroc-ui)", true)
-	}
-	if o.ui {
+	// The login is not a question. It is the default, and `--no-auth` is the answer for someone
+	// who has decided otherwise -- which is not a decision to walk a newcomer through.
+	if o.auth {
 		o.email = p.ask("your sign-in email", defaultEmail)
 	}
 	return o
@@ -409,8 +384,9 @@ func ignoreData(path string) error {
 			return nil
 		}
 	}
-	add := "\n# The signing key, and the worker's credential. Whoever holds that key can mint\n" +
-		"# any identity genroc will accept.\n" + entry + "\n"
+	add := "\n# Everything that persists: the database, and — with a login — the signing key and\n" +
+		"# the worker's credential. Whoever holds that key can mint any identity genroc accepts.\n" +
+		entry + "\n"
 	if len(body) > 0 && !strings.HasSuffix(string(body), "\n") {
 		add = "\n" + add
 	}

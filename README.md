@@ -94,7 +94,7 @@ Definitions land in `definitions/`, and `.genroc` records the pattern that finds
 
 It then asks whether you want TypeScript script tasks, whether to write a `compose.yaml`, and
 SQLite or PostgreSQL — and writes a project that applies and runs. Flags answer the questions
-rather than reopening them (`--no-ui`, `--eval-node`, `--postgres`, `--no-compose`, `-y`); a
+rather than reopening them (`--eval-node`, `--no-auth`, `--postgres`, `-y`); a
 non-interactive stdin takes the defaults rather than hanging.
 
 The project pulls `:latest` images and the matching npm package. `--version <tag>` picks another —
@@ -115,8 +115,12 @@ outside the project, rather than putting a credential in the environment — whe
 you start inherits it and `ps` can show it. The variable still wins when set, for CI.
 
 There is no admin credential on disk: you sign in and mint your own, which is why the password is
-the only thing `init` prints — and `genctl init password` mints a replacement if you lose it. `--no-ui` gives the open, credential-free stack instead — right on a
-laptop, and `PUT /definitions` stores code the engine runs, so wrong anywhere else.
+the only thing `init` prints — and `genctl init password` mints a replacement if you lose it.
+
+`--no-auth` drops the login. The UI stays — it is how you see a run at all, and the server has
+carried no UI since it became its own image — but every caller is then an operator, and `PUT
+/definitions` stores code the engine runs. Right on a laptop, wrong on anything anyone else can
+reach.
 
 `data/` is world-readable because the containers must read it. That is a development default, not
 a deployment one: whoever holds that key can mint any identity genroc will accept.
