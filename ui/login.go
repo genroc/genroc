@@ -82,8 +82,10 @@ func (s *uiServer) passwordLogin(w http.ResponseWriter, r *http.Request) {
 			s.log.Warn("password login throttled", "email", email, "addr", addr,
 				"retry_after", retry.Round(time.Second))
 			w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
+			// Named, not "later". Someone locked out with no idea for how long retries, which
+			// is both the worse experience and more load than telling them.
 			writeJSONError(w, http.StatusTooManyRequests,
-				"Too many failed attempts. Try again later.")
+				"Too many failed attempts. Try again in "+waitFor(retry)+".")
 			return
 		}
 	}
@@ -124,6 +126,16 @@ func (s *uiServer) passwordLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	// 204: the cookie is the whole answer, and the page navigates itself.
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// waitFor phrases a delay for someone locked out. Rounded UP: sending them back before the
+// limiter will have them earns a second refusal.
+func waitFor(d time.Duration) string {
+	m := int((d + time.Minute - 1) / time.Minute)
+	if m <= 1 {
+		return "a minute"
+	}
+	return strconv.Itoa(m) + " minutes"
 }
 
 func writeJSONError(w http.ResponseWriter, code int, msg string) {

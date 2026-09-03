@@ -82,8 +82,8 @@ the shared secret.
 genctl uses a genroc token; it cannot use your browser session. Sign in as alice, mint one in the
 tokens tab, then:
 
-    export GENROC_SERVER=http://localhost:8448
-    export GENROC_TOKEN=genroc_sk_...
+    genctl config set server http://localhost:8448
+    genctl config set token genroc_sk_...
     genctl apply -f examples/quickstart/hello-script.genroc.yaml \
                  -f examples/quickstart/script-node.genroc.yaml
     genctl run hello-script --set name=genroc      → { "greeting": "hello, genroc" }

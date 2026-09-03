@@ -15,8 +15,12 @@ because the evaluator reads it at every start.
 
 You drive the stack from the host, so no container ever holds an admin credential:
 
-    GENROC_TOKEN=… genctl token list
-    GENROC_TOKEN=… genctl definitions
+    genctl config set token genroc_sk_…      # ~/.config/genroc/config.yaml, 0600
+    genctl token list
+    genctl definitions
+
+`config set` rather than `$GENROC_TOKEN`, which every process you start inherits and `ps` can
+show. The variable still wins where a file is the wrong shape, which is CI.
 
 ## What it shows
 

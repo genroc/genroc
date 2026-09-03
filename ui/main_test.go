@@ -682,6 +682,57 @@ func TestPasswordLogin_ThrottlesFailures(t *testing.T) {
 	}
 }
 
+// A refusal that does not say for how long is retried, which is both the worse experience and
+// more load than answering the question.
+func TestPasswordLogin_TheRefusalSaysHowLongToWait(t *testing.T) {
+	h := newHarnessWithPasswords(t)
+	var last *http.Response
+	for i := 0; i <= maxEmailFailures; i++ {
+		body := `{"email":"ada@example.test","password":"wrong"}`
+		resp, err := h.client.Post(h.ui.URL+"/auth/password", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if last != nil {
+			last.Body.Close()
+		}
+		last = resp
+	}
+	defer last.Body.Close()
+	if last.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("final attempt = %d, want 429", last.StatusCode)
+	}
+	var got struct{ Error string }
+	if err := json.NewDecoder(last.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.Error, "minute") {
+		t.Errorf("message %q does not name the wait", got.Error)
+	}
+	if last.Header.Get("Retry-After") == "" {
+		t.Error("no Retry-After header; a client cannot back off on prose")
+	}
+}
+
+func TestWaitFor_RoundsUpSoTheAnswerIsNeverTooEarly(t *testing.T) {
+	for _, tc := range []struct {
+		in   time.Duration
+		want string
+	}{
+		{time.Second, "a minute"},
+		{time.Minute, "a minute"},
+		// The rounding direction is the point: 61s must not say "a minute", or someone told to
+		// wait one minute comes back to a second refusal.
+		{61 * time.Second, "2 minutes"},
+		{5 * time.Minute, "5 minutes"},
+		{4*time.Minute + time.Millisecond, "5 minutes"},
+	} {
+		if got := waitFor(tc.in); got != tc.want {
+			t.Errorf("waitFor(%s) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // A success clears the email's budget — those were a person mistyping — but not the address's,
 // or one correct login would buy a fresh budget for every other account being worked through.
 func TestLimiter_SuccessClearsTheEmailNotTheAddress(t *testing.T) {

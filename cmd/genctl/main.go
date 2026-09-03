@@ -367,7 +367,8 @@ func usageTo(w io.Writer) {
   genctl promote  --from <channel> --to <channel> [--process <name>]
   genctl status   --channel <channel>
   genctl token    create --perms <list> [--label <name>] [-q] | generate | list [--json] | revoke <id>...
-  genctl init     [dir] [--name=N] [--eval-node] [--postgres] [--no-compose] [-y]
+  genctl init     [dir] [--no-ui] [--eval-node] [--postgres] [--no-compose] [--version <tag>] [-y]
+  genctl init password [email]
   genctl config   get <key> | set <key> <value> | unset <key>
 
 Flags:

@@ -93,9 +93,33 @@ Definitions land in `definitions/`, and `.genroc` records the pattern that finds
 `-f` takes any number of paths or globs.
 
 It then asks whether you want TypeScript script tasks, whether to write a `compose.yaml`, and
-SQLite or PostgreSQL — and writes a project that applies and runs. Flags skip the questions
-(`--eval-node`, `--postgres`, `--no-compose`, `-y`); a non-interactive stdin takes the defaults
-rather than hanging.
+SQLite or PostgreSQL — and writes a project that applies and runs. Flags answer the questions
+rather than reopening them (`--no-ui`, `--eval-node`, `--postgres`, `--no-compose`, `-y`); a
+non-interactive stdin takes the defaults rather than hanging.
+
+The project pulls `:latest` images and the matching npm package. `--version <tag>` picks another —
+`--version edge` tracks `main`, and a released `genctl` pins its own version, because genctl and
+the script-task bundler speak a protocol and must match.
+
+**A login is the default.** The project gets genroc-ui in front, authentication on, and a
+generated signing key in a gitignored `data/` folder. Your password is printed once:
+
+    genctl init orders
+    cd orders && docker compose up -d
+    # open http://localhost:8448, sign in, mint a token in the tokens tab
+    genctl config set token genroc_sk_...
+    genctl apply
+
+Prefer `config set` over `$GENROC_TOKEN`: it writes `~/.config/genroc/config.yaml` at `0600`,
+outside the project, rather than putting a credential in the environment — where every process
+you start inherits it and `ps` can show it. The variable still wins when set, for CI.
+
+There is no admin credential on disk: you sign in and mint your own, which is why the password is
+the only thing `init` prints — and `genctl init password` mints a replacement if you lose it. `--no-ui` gives the open, credential-free stack instead — right on a
+laptop, and `PUT /definitions` stores code the engine runs, so wrong anywhere else.
+
+`data/` is world-readable because the containers must read it. That is a development default, not
+a deployment one: whoever holds that key can mint any identity genroc will accept.
 
 Templates are embedded in the binary, so a scaffold always matches the genctl that wrote it.
 

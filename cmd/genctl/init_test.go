@@ -46,18 +46,41 @@ func TestInitPrompt_EOFTakesDefaults(t *testing.T) {
 // The wiring from an answer to what gets written. A pty harness could not drive this
 // reliably, and "did the eval-node answer reach the file set and the next steps" is exactly
 // the part that silently regresses.
+// A flag is an answer, so the prompt must not ask the question again — and must not then
+// override it with its own default, which is how `genctl init --no-compose` used to write a
+// compose file anyway. The answers below all say "yes" to everything.
+func TestInitOptions_AFlagIsNotReopenedByThePrompt(t *testing.T) {
+	yes := "\n\ny\ny\ny\ny\n"
+	if got := (options{dir: ".", setCompose: true}).prompt(newPrompter(yes)); got.compose {
+		t.Error("--no-compose was overridden by the prompt's default")
+	}
+	if got := (options{dir: ".", compose: true, setUI: true}).prompt(newPrompter(yes)); got.ui {
+		t.Error("--no-ui was overridden by the prompt's default")
+	}
+	// And the postgres question is a free-text default, which overrode it the same way.
+	got := (options{dir: ".", compose: true, postgres: true, setPostgres: true, setUI: true}).
+		prompt(newPrompter(yes))
+	if !got.postgres {
+		t.Error("--postgres was overridden by the prompt's sqlite default")
+	}
+}
+
 func TestInitOptions_AnswersReachTheDecision(t *testing.T) {
 	for _, tc := range []struct {
 		name, input string
 		want        options
 	}{
-		{"all defaults", "\n\n\n\n", options{dir: "genroc-app", evalNode: false, compose: true, postgres: false}},
-		{"eval-node, no compose", "proj\ny\nn\n", options{dir: "proj", evalNode: true, compose: false, postgres: false}},
-		{"postgres", "proj\nn\ny\npostgres\n", options{dir: "proj", evalNode: false, compose: true, postgres: true}},
-		{"current directory", ".\ny\ny\n\n", options{dir: ".", evalNode: true, compose: true, postgres: false}},
+		// A login is the DEFAULT, so pressing enter through the prompts produces an
+		// authenticated stack, not an open one.
+		{"all defaults", "\n\n\n\n\n", options{dir: "genroc-app", compose: true, ui: true, email: defaultEmail}},
+		{"declining the login", "\n\n\n\nn\n", options{dir: "genroc-app", compose: true}},
+		{"eval-node, no compose", "proj\ny\nn\n", options{dir: "proj", evalNode: true, compose: false}},
+		{"postgres", "proj\nn\ny\npostgres\nn\n", options{dir: "proj", compose: true, postgres: true}},
+		{"an email of one's own", ".\ny\ny\n\ny\nada@example.com\n",
+			options{dir: ".", evalNode: true, compose: true, ui: true, email: "ada@example.com"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := options{dir: ".", compose: true}.prompt(newPrompter(tc.input))
+			got := options{dir: ".", compose: true, ui: true}.prompt(newPrompter(tc.input))
 			if got != tc.want {
 				t.Errorf("answers %q gave %+v, want %+v", tc.input, got, tc.want)
 			}
@@ -78,33 +101,23 @@ func TestInitOptions_NoDatabaseQuestionWithoutCompose(t *testing.T) {
 // exist. A channel name is not a version, and the scaffold has to tell them apart or
 // `npm install` fails on a fresh project. The version case is EXACT: the resolver speaks a
 // protocol with this binary, so a range could pull one the binary does not expect.
-func TestDepRange(t *testing.T) {
+func TestReleaseTag(t *testing.T) {
 	saved := version
 	t.Cleanup(func() { version = saved })
 	for in, want := range map[string]string{
 		"0.1.0":      "0.1.0",
 		"0.1.0-rc.1": "0.1.0-rc.1",
-		"dev":        "latest",
-		"edge":       "edge", // an npm dist-tag published from main
-		"":           "latest",
-		"v0.1.0":     "latest", // the tag, not the version — genctl never sets this, but a `v` is not a number
+		"edge":       "edge", // published from main, as both an image tag and an npm dist-tag
+		// A local build takes `latest`, not `preview` (published only from a prerelease tag, so
+		// it named an image that does not exist) and not `edge` (main, which is not what someone
+		// scaffolding a project wants by default). `--version edge` is how to ask for main.
+		"dev":    "latest",
+		"":       "latest",
+		"v0.1.0": "latest", // the tag, not the version — a `v` is not a number
 	} {
 		version = in
-		if got := depRange(); got != want {
-			t.Errorf("version %q gave dependency %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestImageTag(t *testing.T) {
-	saved := version
-	t.Cleanup(func() { version = saved })
-	for in, want := range map[string]string{
-		"0.1.0": "0.1.0", "edge": "edge", "dev": "preview", "": "preview",
-	} {
-		version = in
-		if got := imageTag(); got != want {
-			t.Errorf("version %q gave image tag %q, want %q", in, got, want)
+		if got := releaseTag(); got != want {
+			t.Errorf("version %q gave release tag %q, want %q", in, got, want)
 		}
 	}
 }

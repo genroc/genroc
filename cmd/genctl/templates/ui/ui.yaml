@@ -1,0 +1,38 @@
+# genroc-ui: the login, the UI, and the proxy that turns a session into a token.
+#
+# Everything omitted has a default: the listen address, the token's issuer and audience, its
+# 60-second lifetime, the callback URL, and whether cookies are Secure. What is left is what a
+# deployment actually has to decide.
+
+server: http://genroc:8448
+
+login:
+  # Passwords in a file: no directory, no registration, no reset, no MFA. Right for a laptop and
+  # wrong for anything else -- `providers:` below is the answer there.
+  #
+  # Add a user, or replace a lost password, with:  genctl init password <email>
+  passwords:
+    - email: {{.Email}}
+      hash: "{{.Hash}}"
+      groups: [admins]
+
+  # WHAT A DEPLOYMENT USES INSTEAD. Any OIDC provider connects directly -- Google, Okta, Entra,
+  # Auth0, Keycloak -- and one button appears per entry. A provider that is not OIDC (GitHub,
+  # LDAP, SAML) needs a broker such as Dex in front; genroc-ui's side is unchanged either way.
+  #
+  # providers:
+  #   - id: google
+  #     name: Google
+  #     issuer: https://accounts.google.com
+  #     client_id: ...
+  #     client_secret: ...
+
+token:
+  # The one thing genroc and genroc-ui must agree on. Everything else about the token defaults.
+  secret_file: /data/jwt-secret
+
+# THE ROLE MAP: groups in, permissions out. It lives here because the token genroc-ui mints
+# carries the ANSWER -- the server has no role map and never learns what a group is.
+roles:
+  admins: [admin]
+  # "*": [read]      # anyone who signed in at all

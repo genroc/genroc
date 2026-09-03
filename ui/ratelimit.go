@@ -18,14 +18,18 @@ import (
 // per-ADDRESS stops one attacker spraying many accounts, which per-email counting never sees.
 
 const (
-	// Deliberately small. A person who has mistyped five times in a quarter of an hour is not
-	// having a better experience on the sixth attempt, and every extra attempt is free for an
-	// attacker but not for the account.
-	maxEmailFailures = 5
+	// Ten rather than five, and five minutes rather than fifteen. A person typing a generated
+	// 16-character password gets it wrong more than twice, and locking them out for a quarter of
+	// an hour is a worse outcome than the guesses it prevents -- which bcrypt has already made
+	// expensive. 10 per 5 minutes is 120 an hour: far too slow to search anything but a list of
+	// the most common passwords, which is not what a rate limit is the defence against.
+	maxEmailFailures = 10
 	// Higher, because one address is legitimately many people behind NAT -- and because behind
 	// a proxy this counts everyone at once (see clientIP).
-	maxAddrFailures = 30
-	failureWindow   = 15 * time.Minute
+	maxAddrFailures = 60
+	// Both the memory and the penalty: failures older than this are forgotten, and a key over
+	// its budget stays refused until they are.
+	failureWindow = 5 * time.Minute
 	// Above this many tracked keys, expired ones are swept. Without a bound an attacker sending
 	// a fresh address each time turns the limiter into the memory leak.
 	sweepAbove = 4096
