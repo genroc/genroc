@@ -23,17 +23,28 @@ login:
       hash: "$2a$10$QRz1D8GwpXluI19IzzkBmOHMMJDsfAKs3P9zCMOi6ElVbXybUD5Y2"
       groups: []                      # no group: falls through to the "*" rule
 
-  # WHAT A DEPLOYMENT USES INSTEAD. Any OIDC provider connects directly -- Google, Okta, Entra,
-  # Auth0, Keycloak -- and genroc-ui shows one button per entry. With exactly one provider and no
-  # passwords it skips the screen and redirects straight there. A provider that is not OIDC
-  # (GitHub, LDAP, SAML) needs a broker such as Dex in front. specs/ui-component.md §5.1.
+  # WHAT A DEPLOYMENT USES INSTEAD. `type` names an IdP whose quirks genroc-ui already knows, so
+  # `google` needs nothing but a client. Anything else is a generic `oidc` entry with an issuer.
   #
   # providers:
   #   - id: google
+  #     type: google
   #     name: Google
-  #     issuer: https://accounts.google.com
   #     client_id: ...
   #     client_secret: ...
+  #
+  # A Google ID token carries no groups, so genroc-ui reads Workspace membership from Cloud
+  # Identity at login, with the person's own token -- no service account, nothing stored. Grant
+  # the OAuth client `cloud-identity.groups.readonly` and key `roles:` on the group's EMAIL:
+  #
+  #   roles:
+  #     platform@example.com: [admin]
+  #
+  # A provider that is not OIDC at all (GitHub, LDAP, SAML) still needs a broker such as Dex in
+  # front, which genroc-ui then treats as a plain `oidc` entry.
+  #
+  # With exactly one provider and no passwords the chooser is skipped and the browser is sent
+  # straight there. specs/ui-component.md §5.1.
 
 token:
   # The one thing both components must agree on. Everything else about the token defaults.

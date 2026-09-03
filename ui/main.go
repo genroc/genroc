@@ -89,6 +89,9 @@ type uiServer struct {
 	order     []Provider // config order, for a stable button list
 	assets    fs.FS      // the built bundles: the app, the login page, and their assets
 	limiter   *limiter   // failed-password throttling
+	// directory reads Workspace membership, which a Google ID token does not carry. Nil unless
+	// a `type: google` provider is configured.
+	directory *googleDirectory
 }
 
 func newServer(cfg *Config, log *slog.Logger) (*uiServer, error) {
@@ -132,22 +135,21 @@ func newServer(cfg *Config, log *slog.Logger) (*uiServer, error) {
 	}
 
 	for _, p := range cfg.Login.Providers {
-		scopes := p.Scopes
-		if len(scopes) == 0 {
-			scopes = []string{"openid", "email", "profile", "groups"}
-		}
 		// Discovery happens at STARTUP, so a provider that cannot be reached or names a
 		// different issuer fails here rather than at somebody's first login.
 		prov, err := oidc.Discover(context.Background(), oidc.Config{
 			Issuer: p.Issuer, DiscoveryURL: p.DiscoveryURL, TokenURL: p.TokenURL,
 			JWKSURL: p.JWKSURL, ClientID: p.ClientID, ClientSecret: p.ClientSecret,
-			Scopes: scopes,
+			Scopes: p.scopes(),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", p.ID, err)
 		}
 		s.providers[p.ID] = prov
 		s.order = append(s.order, p)
+		if p.Type == "google" {
+			s.directory = newGoogleDirectory()
+		}
 		log.Info("provider ready", "id", p.ID, "issuer", p.Issuer)
 	}
 	return s, nil
@@ -334,21 +336,42 @@ func (s *uiServer) callback(w http.ResponseWriter, r *http.Request) {
 		nonceVal = n.Value
 	}
 
-	raw, err := prov.Exchange(r.Context(), r.URL.Query().Get("code"), s.callbackURL(r), nonceVal)
+	tok, err := prov.Exchange(r.Context(), r.URL.Query().Get("code"), s.callbackURL(r), nonceVal)
 	if err != nil {
 		s.log.Warn("token exchange failed", "provider", pc.Value, "err", err)
 		http.Error(w, "login failed", http.StatusForbidden)
 		return
 	}
 	subClaim, grpClaim := s.claimNames(pc.Value)
-	claims, err := prov.Claims(r.Context(), raw, nonceVal, subClaim, grpClaim)
+	claims, err := prov.Claims(r.Context(), tok.ID, nonceVal, subClaim, grpClaim)
 	if err != nil {
 		s.log.Warn("verify id token", "provider", pc.Value, "err", err)
 		http.Error(w, "login failed", http.StatusForbidden)
 		return
 	}
-	// The provider's token has now done its whole job. It is not stored anywhere.
-	s.establish(w, r, identity{Subject: claims.Subject, Groups: claims.Groups})
+	groups := claims.Groups
+	if s.directory != nil && s.providerType(pc.Value) == "google" {
+		// The login FAILS if this does not answer. Signing someone in with fewer permissions
+		// than they have looks like a broken role map and is diagnosed as one, where a refused
+		// login says what went wrong once, in the log. Same rule the server's jwt mode follows
+		// for an unreachable JWKS.
+		if groups, err = s.directory.groups(r.Context(), tok.Access, claims.Subject); err != nil {
+			s.log.Error("google groups", "subject", claims.Subject, "err", err)
+			http.Error(w, "login failed: could not read your Google groups", http.StatusBadGateway)
+			return
+		}
+	}
+	// The provider's tokens have now done their whole job. Neither is stored anywhere.
+	s.establish(w, r, identity{Subject: claims.Subject, Groups: groups})
+}
+
+func (s *uiServer) providerType(providerID string) string {
+	for _, p := range s.cfg.Login.Providers {
+		if p.ID == providerID {
+			return p.Type
+		}
+	}
+	return ""
 }
 
 func (s *uiServer) claimNames(providerID string) (string, string) {

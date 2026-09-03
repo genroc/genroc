@@ -16,16 +16,25 @@ login:
       hash: "{{.Hash}}"
       groups: [admins]
 
-  # WHAT A DEPLOYMENT USES INSTEAD. Any OIDC provider connects directly -- Google, Okta, Entra,
-  # Auth0, Keycloak -- and one button appears per entry. A provider that is not OIDC (GitHub,
-  # LDAP, SAML) needs a broker such as Dex in front; genroc-ui's side is unchanged either way.
+  # WHAT A DEPLOYMENT USES INSTEAD. `type` names an IdP whose quirks genroc-ui already knows, so
+  # `google` needs nothing but a client. Anything else is a generic `oidc` entry with an issuer.
   #
   # providers:
   #   - id: google
+  #     type: google
   #     name: Google
-  #     issuer: https://accounts.google.com
   #     client_id: ...
   #     client_secret: ...
+  #
+  # A Google ID token carries no groups, so genroc-ui reads Workspace membership from Cloud
+  # Identity at login, with the person's own token -- no service account, nothing stored. Grant
+  # the OAuth client `cloud-identity.groups.readonly` and key `roles:` on the group's EMAIL:
+  #
+  #   roles:
+  #     platform@example.com: [admin]
+  #
+  # A provider that is not OIDC at all (GitHub, LDAP, SAML) still needs a broker such as Dex in
+  # front, which genroc-ui then treats as a plain `oidc` entry.
 
 token:
   # The one thing genroc and genroc-ui must agree on. Everything else about the token defaults.
@@ -36,3 +45,8 @@ token:
 roles:
   admins: [admin]
   # "*": [read]      # anyone who signed in at all
+
+# A subject, for a provider that carries no groups -- which is every Google deployment without a
+# broker in front. Unioned on top of whatever `roles` granted.
+# users:
+#   ada@example.com: [admin]

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -64,7 +65,11 @@ func newIdP(t *testing.T) *fakeIdP {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id_token": idp.mint(t, idp.nonce, time.Hour)})
+		// An access token too, as every provider returns: it is what the Cloud Identity call
+		// for a `type: google` provider goes out as.
+		json.NewEncoder(w).Encode(map[string]any{
+			"id_token": idp.mint(t, idp.nonce, time.Hour), "access_token": "ya29.test",
+		})
 	})
 	t.Cleanup(idp.Close)
 	return idp
@@ -92,6 +97,7 @@ func (f *fakeIdP) mint(t *testing.T, nonce string, ttl time.Duration) string {
 // harness wires genroc-ui to a fake IdP and a fake upstream that reports what it received.
 type harness struct {
 	ui       *httptest.Server
+	srv      *uiServer
 	idp      *fakeIdP
 	client   *http.Client
 	lastAuth chan string
@@ -129,6 +135,7 @@ func newHarnessWithPasswords(t *testing.T) *harness {
 	if err != nil {
 		t.Fatalf("newServer: %v", err)
 	}
+	h.srv = s
 	h.ui.Config.Handler = s.routes()
 	h.ui.Start()
 	t.Cleanup(h.ui.Close)
@@ -170,6 +177,7 @@ func newHarness(t *testing.T, withOIDC bool) *harness {
 	if err != nil {
 		t.Fatalf("newServer: %v", err)
 	}
+	h.srv = s
 	h.ui.Config.Handler = s.routes()
 	h.ui.Start()
 	t.Cleanup(h.ui.Close)
@@ -827,4 +835,82 @@ func TestLogout_ClearsTheSessionAndIsNotAGET(t *testing.T) {
 	if after.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("still authenticated after signing out (%d)", after.StatusCode)
 	}
+}
+
+// The whole point of `type: google`: membership comes from the API, not from the ID token. The
+// fake IdP here asserts `groups: [admins]` the way any OIDC provider would; Google never does,
+// so what the directory says has to win outright rather than being merged.
+func TestGoogleType_TheFetchedGroupsReplaceTheTokensOwn(t *testing.T) {
+	h := newHarness(t, true)
+	h.srv.cfg.Login.Providers[0].Type = "google"
+	h.srv.cfg.Roles = map[string][]string{
+		"admins":               {"admin"}, // what the ID token claims, and must not be honoured
+		"platform@example.com": {"deploy"},
+		"*":                    {"read"},
+	}
+	h.srv.directory = stubDirectory(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"memberships": []map[string]any{
+			{"groupKey": map[string]string{"id": "platform@example.com"}},
+		}})
+	})
+
+	h.login(t)
+	resp, err := h.client.Get(h.ui.URL + "/api/instances")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	perms := permsOf(t, <-h.lastAuth)
+	if !slices.Contains(perms, "deploy") {
+		t.Errorf("perms %v: the group Cloud Identity reported granted nothing", perms)
+	}
+	if slices.Contains(perms, "admin") {
+		t.Errorf("perms %v: a `groups` claim in the ID token was honoured for a google provider, "+
+			"so anyone whose IdP can mint that claim picks up whatever it maps to", perms)
+	}
+}
+
+// A directory that cannot answer must not sign the person in with fewer permissions than they
+// have: that reads as a broken role map and is debugged as one.
+func TestGoogleType_AFailedFetchRefusesTheLogin(t *testing.T) {
+	h := newHarness(t, true)
+	h.srv.cfg.Login.Providers[0].Type = "google"
+	h.srv.directory = stubDirectory(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	})
+
+	resp, err := h.client.Get(h.ui.URL + "/auth/login?rd=/instances")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	authURL, _ := url.Parse(resp.Header.Get("Location"))
+	h.idp.nonce = authURL.Query().Get("nonce")
+	cb, err := h.client.Get(h.ui.URL + "/auth/callback?code=abc&state=" +
+		url.QueryEscape(authURL.Query().Get("state")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cb.Body.Close()
+	if cb.StatusCode == http.StatusFound {
+		t.Fatal("the login succeeded although the groups could not be read")
+	}
+	// And no session was set, so the next request is not quietly a read-only one.
+	api, err := h.client.Get(h.ui.URL + "/api/instances")
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.Body.Close()
+	if api.StatusCode != http.StatusUnauthorized {
+		t.Errorf("API after a failed login = %d, want 401", api.StatusCode)
+	}
+}
+
+func permsOf(t *testing.T, auth string) []string {
+	t.Helper()
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(strings.TrimPrefix(auth, "Bearer "), claims); err != nil {
+		t.Fatalf("minted token: %v", err)
+	}
+	return stringList(claims["perms"])
 }

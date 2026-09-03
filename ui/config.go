@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -47,8 +48,11 @@ type Login struct {
 }
 
 type Provider struct {
-	ID     string `yaml:"id"`   // stable, used in URLs and the state cookie
-	Name   string `yaml:"name"` // what the button says
+	ID   string `yaml:"id"`   // stable, used in URLs and the state cookie
+	Name string `yaml:"name"` // what the button says
+	// Type names a known IdP whose quirks are encoded rather than documented -- `google` today.
+	// Empty (or `oidc`) is the generic entry, which guesses nothing.
+	Type   string `yaml:"type"`
 	Issuer string `yaml:"issuer"`
 	// DiscoveryURL, TokenURL and JWKSURL override the discovered endpoints, for an issuer whose
 	// URL resolves differently from the browser than from this process -- an IdP in Docker, or
@@ -121,7 +125,11 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	seen := map[string]bool{}
-	for i, p := range c.Login.Providers {
+	for i := range c.Login.Providers {
+		if err := c.Login.Providers[i].applyType(path); err != nil {
+			return nil, err
+		}
+		p := c.Login.Providers[i]
 		switch {
 		case p.ID == "":
 			return nil, fmt.Errorf("%s: login.providers[%d] needs an id", path, i)
@@ -129,7 +137,8 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, fmt.Errorf("%s: two providers share the id %q; it addresses them in URLs "+
 				"and in the state cookie, so it has to be unique", path, p.ID)
 		case p.Issuer == "":
-			return nil, fmt.Errorf("%s: provider %q needs an issuer", path, p.ID)
+			return nil, fmt.Errorf("%s: provider %q needs an issuer, or a `type` that supplies "+
+				"one (%s)", path, p.ID, knownProviderTypes())
 		case p.ClientID == "" || p.ClientSecret == "":
 			return nil, fmt.Errorf("%s: provider %q needs client_id and client_secret", path, p.ID)
 		}
@@ -202,4 +211,79 @@ func dur(s string, def time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("must be positive; got %q", s)
 	}
 	return d, nil
+}
+
+// A `type` is what a named IdP needs that a generic OIDC entry cannot guess. Only VERIFIED
+// quirks belong here: Google's discovery document publishes `openid email profile` and no groups
+// claim, so asking for `groups` -- which the generic default does -- is refused by Google rather
+// than ignored, and membership has to be fetched afterwards (google.go).
+type providerType struct {
+	issuer       string
+	scopes       []string
+	subjectClaim string
+	// groupsClaim is the claim membership arrives in. Empty means the ID token carries none and
+	// the type fetches them another way, which is why setting `groups_claim` on such a provider
+	// is refused: it would name a claim that never arrives.
+	groupsFetched bool
+}
+
+var providerTypes = map[string]providerType{
+	"google": {
+		issuer: "https://accounts.google.com",
+		// The groups scope is requested at login because the membership call is made with the
+		// person's OWN access token -- no service account, no stored Google credential.
+		scopes:        []string{"openid", "email", "profile", googleGroupsScope},
+		subjectClaim:  "email",
+		groupsFetched: true,
+	},
+}
+
+// defaultScopes is what a generic provider asks for. `groups` is in it because the IdPs that
+// have groups only emit them when the scope asks -- silently otherwise, which reads as a broken
+// role map rather than a missing scope.
+var defaultScopes = []string{"openid", "email", "profile", "groups"}
+
+// applyType fills in what the type knows and refuses what it knows cannot work. Anything set
+// explicitly wins, so a type is a set of defaults rather than a cage.
+func (p *Provider) applyType(path string) error {
+	if p.Type == "" || p.Type == "oidc" {
+		return nil
+	}
+	t, ok := providerTypes[p.Type]
+	if !ok {
+		return fmt.Errorf("%s: provider %q has unknown type %q; known types are %s (omit it, or "+
+			"use `oidc`, for a provider configured by hand)", path, p.ID, p.Type, knownProviderTypes())
+	}
+	if t.groupsFetched && p.GroupsClaim != "" {
+		return fmt.Errorf("%s: provider %q is %s, whose ID token carries no groups — genroc-ui "+
+			"reads them from the provider's API instead, so `groups_claim` names a claim that "+
+			"never arrives", path, p.ID, p.Type)
+	}
+	if p.Issuer == "" {
+		p.Issuer = t.issuer
+	}
+	if p.SubjectClaim == "" {
+		p.SubjectClaim = t.subjectClaim
+	}
+	return nil
+}
+
+// scopes is what this provider is asked for: its own, else its type's, else the generic set.
+func (p Provider) scopes() []string {
+	if len(p.Scopes) > 0 {
+		return p.Scopes
+	}
+	if t, ok := providerTypes[p.Type]; ok {
+		return t.scopes
+	}
+	return defaultScopes
+}
+
+func knownProviderTypes() string {
+	names := make([]string, 0, len(providerTypes))
+	for n := range providerTypes {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
