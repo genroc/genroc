@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -66,7 +68,25 @@ func (s *uiServer) passwordLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "bad request")
 		return
 	}
-	email := strings.TrimSpace(req.Email)
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	addr := clientIP(r)
+
+	// Checked BEFORE the hash comparison, so a throttled attacker costs nothing to refuse. The
+	// message does not say which limit tripped: telling an attacker whether they hit the
+	// per-email or per-address budget tells them whether the address exists.
+	for _, c := range []struct {
+		key string
+		max int
+	}{{"email:" + email, maxEmailFailures}, {"addr:" + addr, maxAddrFailures}} {
+		if ok, retry := s.limiter.allow(c.key, c.max); !ok {
+			s.log.Warn("password login throttled", "email", email, "addr", addr,
+				"retry_after", retry.Round(time.Second))
+			w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
+			writeJSONError(w, http.StatusTooManyRequests,
+				"Too many failed attempts. Try again later.")
+			return
+		}
+	}
 
 	// One message for every failure, and the hash is compared even when no such user exists:
 	// distinguishing "no such account" from "wrong password" tells an attacker which addresses
@@ -84,10 +104,18 @@ func (s *uiServer) passwordLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password))
 	if found == nil || err != nil {
-		s.log.Warn("password login failed", "email", email)
+		// Both keys, always: counting only the email lets an attacker spray many accounts from
+		// one address and never trip anything.
+		s.limiter.fail("email:" + email)
+		s.limiter.fail("addr:" + addr)
+		s.log.Warn("password login failed", "email", email, "addr", addr)
 		writeJSONError(w, http.StatusUnauthorized, "That email and password did not match.")
 		return
 	}
+	// A correct password says the earlier misses were a person mistyping. The ADDRESS budget is
+	// deliberately not cleared: one success must not buy an attacker a fresh budget for the
+	// other accounts they are working through.
+	s.limiter.succeed("email:" + email)
 	s.log.Info("password login", "email", found.Email)
 	if err := s.setSession(w, r, identity{Subject: found.Email, Groups: found.Groups}); err != nil {
 		s.log.Error("mint session", "err", err)

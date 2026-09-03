@@ -5,7 +5,7 @@
 #
 # NO AUTHENTICATION — every caller is an operator, and genroc warns about it on startup. Right
 # for a laptop, wrong for anything anyone else can reach. examples/auth adds tokens,
-# examples/proxy adds SSO; same image throughout.
+# examples/ui adds a login; same image throughout.
 
 name: genroc-quickstart
 
@@ -13,9 +13,20 @@ services:
   # SQLite, so there is no database to configure. `-pg <dsn>` is the same image against Postgres.
   genroc:
     build: { context: ../.., dockerfile: Dockerfile }
-    command: [-db, /data/genroc.db, -http, ":8448", -ui, /srv/ui]
-    ports: ["8448:8448"]
+    command: [-db, /data/genroc.db, -http, ":8448"]
     volumes: [data:/data]
+
+  # The UI is its own image: the server is meant to be embedded, and a deployment that embeds it
+  # has no use for a monitoring UI in its address space. specs/ui-component.md §1.
+  #
+  # No config, so no login -- requests are proxied as they arrive, which is the right shape here
+  # and the wrong one anywhere else. examples/ui/ adds the login.
+  genroc-ui:
+    build: { context: ../.., dockerfile: ui/Dockerfile }
+    command: [-server, "http://genroc:8448"]
+    ports: ["8448:8448"]
+    depends_on:
+      genroc: { condition: service_started }
 
   # With auth off the worker needs no credential — the first thing that changes when you turn
   # auth on.
@@ -42,7 +53,7 @@ services:
       - -f
       - /examples/quickstart/script-node.genroc.yaml
       - -f
-      - /examples/quickstart/hello-script-node.genroc.yaml
+      - /examples/quickstart/hello-script.genroc.yaml
       - -f
       - /examples/expense-approval/approval.genroc.yaml
     # The whole tree, so definitions stay beside their own READMEs.

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, actor, getInstance, listInstances, setToken, token, type Instance } from "./api.ts";
+import { ApiError, actor, getInstance, listInstances, setToken, signOut, token, type Instance } from "./api.ts";
 import { Tokens } from "./Tokens.tsx";
 
 // Deliberately small: a list of instances and one detail view. genroc's own answer to "what is
@@ -81,6 +81,16 @@ export function App() {
         ) : who ? (
           <span className="muted" title={`genroc attributes your writes to ${who}`}>
             signed in as {who.slice(who.indexOf(":") + 1)}
+            {who.startsWith("jwt:") && (
+              // Only for a session this app can end. A pasted token is not a session, and
+              // signing out of one would clear a credential the person typed in.
+              <>
+                {" "}
+                <button className="link" onClick={() => void signOut()} title="Sign out. Also how you pick up a change to your own groups.">
+                  sign out
+                </button>
+              </>
+            )}
           </span>
         ) : (
           <input

@@ -1,6 +1,6 @@
 # genroc-ui issues the token; the server only checks permissions
 
-Status: **PROPOSAL 2026-09-02, nothing built.** Revises [ui-component.md](ui-component.md) §5.1
+Status: **BUILT 2026-09-02.** Revises [ui-component.md](ui-component.md) §5.1
 (which forbade genroc-ui from issuing) and [api-auth.md](api-auth.md) §2.3 (which put the role
 map in the server). The two-credential rule of
 [auth-two-credentials.md](auth-two-credentials.md) §0 is unchanged.
@@ -98,6 +98,27 @@ Nothing is stored server-side, so there is no session table and no restart to su
 means the two identity sources converge immediately: OIDC and a config password both produce
 `{sub, groups}`, and every step after that is identical.
 
+**Staleness, and why there is no refresh clock.** `groups` are captured at login, so a change at
+the provider is invisible until the next one. A periodic re-derivation was built and reverted
+(2026-09-03): only the provider knows a person's groups, and re-asking it means sending the
+browser back through it — a redirect every few minutes, and `session_ttl` quietly stops bounding
+an OIDC session once each refresh mints a fresh one. `offline_access` would avoid the redirect,
+but Dex rotates refresh tokens, so concurrent requests race for the one valid copy. Until groups
+can be re-fetched *without* a redirect, the clock buys a bounded window at the price of a worse
+session, and `POST /auth/logout` — sign out, sign in — is the lever instead.
+
+What is worth building in its place is **revocation by subject**: a list genroc-ui refuses
+sessions against, which re-triggers the login flow for that person alone. It spends one action by
+the operator, where a clock spends a round trip on every session in every window.
+
+Revoking **everyone** needs nothing built: the session cookie is signed with the shared secret,
+so rotating it and restarting both components invalidates every cookie and every outstanding
+access token at once. Two properties make it the right break-glass and the wrong routine tool —
+it is all-or-nothing, and both components must take the new secret together, since genroc-ui
+alone would mint tokens the server rejects. Machine tokens are untouched: `genroc_sk_*` is hashed
+in `api_tokens` and has nothing to do with this key, so signing every person out does not stop
+the workers.
+
 ## 5. Where the role map goes
 
 Out of the server's `auth.yaml` and into genroc-ui's, unchanged in shape:
@@ -149,7 +170,23 @@ first-class client, including a UI somebody else writes.
 - **Does genroc-ui need a `perms` claim namespace?** `perms` is unqualified and could collide if
   a token ever came from elsewhere. `aud: genroc` plus a pinned issuer already scopes it; a
   namespaced claim would be belt and braces.
-- **Per-request minting cost.** HMAC signing is microseconds, so caching is probably premature;
-  worth measuring before adding a cache with an invalidation story.
+- ~~**Per-request minting cost.**~~ **Measured, and the answer is no cache.** Verifying the
+  session cookie, resolving the role map and signing the token together cost **~6 us**
+  (`ui/token_bench_test.go`), against a proxy hop and a genroc round trip measured in
+  milliseconds. Caching would buy 0.1% of a request in exchange for an invalidation story.
+
+  Minting AT USE is also what makes a role-map edit take effect on the next request rather than
+  when a session expires, so the cheap option is the correct one twice over.
+
+  **A second cookie holding the access token was considered and rejected**, and the reason is
+  not the microseconds. The OAuth access/refresh split exists because the access token goes to a
+  THIRD PARTY; here it is created and consumed inside one request and never reaches the browser
+  at all. The split already exists -- the session cookie is the refresh half -- and putting the
+  access half in a cookie would move it into the browser, adding something to steal and a window
+  where the two disagree, while saving nothing: an HttpOnly cookie still has to be copied into
+  the header by this process.
+
+  **The signal to revisit is RSA.** Signing goes from ~2 us to ~1 ms (§3 records why HMAC was
+  chosen), and at 400x the cost per-request minting stops being free.
 - **Multiple providers and the same person.** Two providers can assert the same email. Whether
   that is one identity or two is a policy question this design does not answer.

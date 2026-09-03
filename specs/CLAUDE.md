@@ -15,11 +15,12 @@ behavior while the spec stays put, answering a different question. See
 
 **This heading is approximate and several entries below contradict it** — a doc is listed
 here once and then gets built, and the entry says so in its own text rather than moving.
-Trust the entry, and the spec's own §0, over this heading. As of 2026-08-25 the ones listed
+Trust the entry, and the spec's own §0, over this heading. As of 2026-09-03 the ones listed
 here that are actually BUILT are `error-extensions` (X2 only), `script-tasks`,
 `source-resolution` (code phase), `external-task-queue`, `external-outcome-as-signal`,
 `lazy-context`, `object-store`, `compat-command`, `durability-levels` (all but the
-per-definition field) and, since 2026-09-02, `api-auth` in full.
+per-definition field) and, since 2026-09-02, `api-auth` in full plus the three auth documents
+that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`.
 
 - [error-extensions.md](error-extensions.md) — three considered extensions to the child
   error model, of which **X2 (a payload on `raise`) is BUILT (2026-08-22)** — read its §X2-c
@@ -101,7 +102,7 @@ per-definition field) and, since 2026-09-02, `api-auth` in full.
   edge cases testable at all — and testing them revealed that the algorithm pin was NOT actually
   covered by the obvious cases, since `alg: none` and HS256 confusion both fail on key typing
   anyway.
-- [ui-issued-tokens.md](ui-issued-tokens.md) — **PROPOSAL, nothing built.** Reverses
+- [ui-issued-tokens.md](ui-issued-tokens.md) — **BUILT 2026-09-02.** Reverses
   ui-component.md §5.1: genroc-ui stops relaying the provider's token and **mints its own**, so
   the group→permission map moves out of the server and the server reads a `perms` claim it
   already understands. Narrows api-auth.md §2.3 rather than contradicting it — "an IdP has no
@@ -116,7 +117,17 @@ per-definition field) and, since 2026-09-02, `api-auth` in full.
   already full access (§5.3). Consequence: the server's jwt mode goes HS256-only and the `jwks`
   package leaves the root module for `ui/`. Humans lose direct API access, deliberately.
 
-- [ui-component.md](ui-component.md) — **PROPOSAL, nothing built.** Moves the UI out of the
+  Two things settled after the build. **Per-request minting is not worth caching** — verify,
+  resolve and sign together cost ~6 us (`ui/token_bench_test.go`), and minting at use is also
+  what makes a role-map edit take effect on the next request; a second cookie holding the access
+  token was rejected because the OAuth split exists for a token that goes to a THIRD party, and
+  this one never reaches the browser. And **§4 now records the staleness gap**: a periodic
+  re-derivation of groups was built and reverted (2026-09-03) because only the provider knows
+  them, so re-asking means bouncing the browser through it. `POST /auth/logout` is the lever,
+  rotating the shared secret is the break-glass for everyone at once, and revocation by subject
+  is the mechanism worth building instead.
+
+- [ui-component.md](ui-component.md) — **BUILT 2026-09-02.** Moves the UI out of the
   server into its own image, which also owns the browser login. The server keeps no UI, no OIDC
   flow and no cookie, because it is meant to be EMBEDDED — and the real cost of `-ui` was never
   the handler but the `node` build stage the server image carries to bake `/srv/ui` in. Answers
@@ -139,7 +150,14 @@ per-definition field) and, since 2026-09-02, `api-auth` in full.
   genroc-ui with no Dex at all. Reopen if a single-BINARY deployment (VM, systemd, no
   orchestrator) makes a second process the obstacle rather than a second line of YAML.
 
-- [auth-two-credentials.md](auth-two-credentials.md) — **PROPOSAL, nothing built.** Revises
+  The build made the boundary a **module** rather than a convention: `ui/` is its own Go module
+  with one external dependency, which is what stops the UI's growth reaching the binary people
+  embed, and `archtest.TestBinariesKeepTheirImportBoundaries` does the same job for `genctl`
+  inside the root module. The repo is a `go.work` workspace as a result, and **`./...` matches one
+  module only** — the Makefile and CI spell out `./... ./ui/...` because a command that names one
+  silently skips the other.
+
+- [auth-two-credentials.md](auth-two-credentials.md) — **BUILT 2026-09-02.** Revises
   api-auth.md's mode set down to two: genroc **issues** opaque `genroc_sk_*` tokens for machines
   and **only verifies** JWTs for people, with no path by which a proxy obtains a genroc token.
   Drops `header` mode on the ground that it is §0's own drift argument turned on authentication —
@@ -151,7 +169,9 @@ per-definition field) and, since 2026-09-02, `api-auth` in full.
   **credential presence** rather than by path, so a browser's cookie is turned into a JWT by the
   proxy and the SPA holds no credential at all. The risk it introduces, and the line to get right,
   is that CSRF moves to the proxy's cookie: genroc's "no cookies" rule survives literally since no
-  cookie reaches it, and `SameSite` is what closes the gap.
+  cookie reaches it, and `SameSite` is what closes the gap. **ui-component.md then closed that
+  gap properly** by moving the cookie into a component we ship, so `SameSite` is set in our code
+  rather than in someone else's config — which was the whole objection to `header` mode.
 
 - [custom-tasks.md](custom-tasks.md) — north-star: extend genroc **without plugins** —
   custom tasks are child processes, complex logic lives in an HTTP sidecar they call. Three

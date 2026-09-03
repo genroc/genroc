@@ -7,8 +7,8 @@
     docker compose -f examples/quickstart/compose.yaml up --build
     open http://localhost:8448
 
-Two containers, no credentials, nothing to build first. The engine, the UI, a script worker, and
-three processes already registered:
+No credentials, nothing to build first. The engine, the UI, a script worker, and three processes
+already registered:
 
     NAME              VERSION  RAISES
     expense-approval  v1       expense_rejected
@@ -33,6 +33,11 @@ To use the published image instead of building, swap `build:` for
 once anyone else can reach it. The UI says the same in its header rather than showing a
 credential field you do not need.
 
+**The UI is a separate image** (`ghcr.io/genroc/ui`), because the server is meant to be embedded
+and a deployment that embeds it has no use for a monitoring UI in its address space. Here it runs
+with no config, which means no login: it proxies requests as they arrive. `examples/ui/` adds
+the login.
+
 ## The ladder
 
 Same image throughout — only flags change.
@@ -41,7 +46,7 @@ Same image throughout — only flags change.
 |---|---|---|
 | this example | — | a laptop |
 | [examples/auth](../auth) | `-auth token` | machines: CI, workers, scripts |
-| [examples/proxy](../proxy) | SSO through a proxy | people, with real login |
+| [examples/ui](../ui) | genroc-ui, and a login | people, with real login |
 
 ## The image
 

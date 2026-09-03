@@ -80,3 +80,10 @@ nav { display: flex; gap: .25rem; }
 .login .err { color: #f88; border-left: 2px solid #f88; padding-left: 0.6rem; margin: 0; }
 .login .sep { color: #666; text-align: center; font-size: 0.85em; }
 .login form { display: grid; gap: 0.5rem; margin: 0; }
+
+/* A button that reads as a link: used for sign out, which must be a POST rather than an <a>. */
+button.link {
+  background: none; border: 0; padding: 0; font: inherit; color: inherit;
+  text-decoration: underline; cursor: pointer; opacity: 0.8;
+}
+button.link:hover { opacity: 1; }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -647,5 +648,132 @@ func TestDerived_CallbackURLAndCookieSecurityFollowTheRequest(t *testing.T) {
 	}
 	if pinned.secure(fwd) {
 		t.Error("an explicit secure_cookie=false was ignored")
+	}
+}
+
+// A password is the only guessable secret reachable from outside, so failures are throttled.
+// bcrypt slows a guess; it does not limit one, and an attacker parallelises the constant factor
+// away.
+func TestPasswordLogin_ThrottlesFailures(t *testing.T) {
+	h := newHarnessWithPasswords(t)
+	post := func(email, pw string) int {
+		body := `{"email":` + jsonStr(email) + `,"password":` + jsonStr(pw) + `}`
+		resp, err := h.client.Post(h.ui.URL+"/auth/password", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	for i := 0; i < maxEmailFailures; i++ {
+		if got := post("ada@example.test", "wrong"); got != http.StatusUnauthorized {
+			t.Fatalf("attempt %d = %d, want 401", i+1, got)
+		}
+	}
+	if got := post("ada@example.test", "wrong"); got != http.StatusTooManyRequests {
+		t.Fatalf("attempt %d = %d, want 429 — without a limit bcrypt is a constant factor, "+
+			"not a defence", maxEmailFailures+1, got)
+	}
+	// Throttled means throttled: the CORRECT password is refused too, or an attacker simply
+	// keeps going until they find it.
+	if got := post("ada@example.test", "demo"); got != http.StatusTooManyRequests {
+		t.Fatalf("the right password was accepted while throttled (%d)", got)
+	}
+}
+
+// A success clears the email's budget — those were a person mistyping — but not the address's,
+// or one correct login would buy a fresh budget for every other account being worked through.
+func TestLimiter_SuccessClearsTheEmailNotTheAddress(t *testing.T) {
+	l := newLimiter()
+	for i := 0; i < maxEmailFailures; i++ {
+		l.fail("email:ada@example.test")
+		l.fail("addr:10.0.0.1")
+	}
+	if ok, _ := l.allow("email:ada@example.test", maxEmailFailures); ok {
+		t.Fatal("the email budget did not trip")
+	}
+	l.succeed("email:ada@example.test")
+	if ok, _ := l.allow("email:ada@example.test", maxEmailFailures); !ok {
+		t.Error("a correct password did not clear the email's history")
+	}
+	// The address keeps its count.
+	for i := maxEmailFailures; i < maxAddrFailures; i++ {
+		l.fail("addr:10.0.0.1")
+	}
+	if ok, _ := l.allow("addr:10.0.0.1", maxAddrFailures); ok {
+		t.Error("the address budget was reset by an unrelated success")
+	}
+}
+
+// The window expires, or a mistyped password would lock an account out forever.
+func TestLimiter_ForgetsAfterTheWindow(t *testing.T) {
+	now := time.Now()
+	l := newLimiter()
+	l.now = func() time.Time { return now }
+	for i := 0; i < maxEmailFailures; i++ {
+		l.fail("email:ada@example.test")
+	}
+	if ok, retry := l.allow("email:ada@example.test", maxEmailFailures); ok || retry <= 0 {
+		t.Fatalf("expected a throttle with a retry hint, got ok=%v retry=%v", ok, retry)
+	}
+	now = now.Add(failureWindow + time.Second)
+	if ok, _ := l.allow("email:ada@example.test", maxEmailFailures); !ok {
+		t.Error("still throttled after the window; a typo would lock the account out for good")
+	}
+}
+
+// Unbounded tracking is itself the attack: a fresh address per request would grow the map until
+// the process dies.
+func TestLimiter_SweepsExpiredKeys(t *testing.T) {
+	now := time.Now()
+	l := newLimiter()
+	l.now = func() time.Time { return now }
+	for i := 0; i < sweepAbove+10; i++ {
+		l.fail("addr:" + strconv.Itoa(i))
+	}
+	grown := len(l.windows)
+	now = now.Add(failureWindow + time.Second)
+	l.fail("addr:trigger-the-sweep")
+	if len(l.windows) >= grown {
+		t.Fatalf("expired keys were not swept: %d before, %d after", grown, len(l.windows))
+	}
+}
+
+// Sign-out clears the session, and is a POST because its whole job is changing state.
+func TestLogout_ClearsTheSessionAndIsNotAGET(t *testing.T) {
+	h := newHarnessWithPasswords(t)
+	body := `{"email":"ada@example.test","password":"demo"}`
+	resp, err := h.client.Post(h.ui.URL+"/auth/password", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got, _ := h.client.Get(h.ui.URL + "/api/instances"); got.StatusCode != http.StatusOK {
+		t.Fatalf("signed in but API = %d", got.StatusCode)
+	}
+
+	if got, err := h.client.Get(h.ui.URL + "/auth/logout"); err != nil {
+		t.Fatal(err)
+	} else if got.StatusCode == http.StatusNoContent {
+		t.Error("GET /auth/logout signed the user out; any page that can make the browser " +
+			"follow a link could then do it")
+	}
+
+	out, err := h.client.Post(h.ui.URL+"/auth/logout", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Body.Close()
+	if out.StatusCode != http.StatusNoContent {
+		t.Fatalf("POST /auth/logout = %d, want 204", out.StatusCode)
+	}
+	after, err := h.client.Get(h.ui.URL + "/api/instances")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after.Body.Close()
+	if after.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("still authenticated after signing out (%d)", after.StatusCode)
 	}
 }

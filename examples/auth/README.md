@@ -77,8 +77,8 @@ intent.
 
 **SSO for humans.** genroc verifies JWTs from whatever IdP you run, and this example uses none:
 everything here is a machine holding a token, which is what keeps an identity provider out of the
-stack entirely. `examples/proxy/` is the other half — Dex, a login, and a proxy that turns the
-resulting session into a bearer token genroc verifies.
+stack entirely. `examples/ui/` is the other half — genroc-ui, which authenticates a person and
+mints the token genroc verifies.
 
 **TLS.** Everything here is plain HTTP on a compose network. A bearer token in cleartext is as
 exposed as a password, so a real deployment terminates TLS at an ingress or a proxy (§9).

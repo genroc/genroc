@@ -2,11 +2,12 @@
 
 Status: **BUILT 2026-09-02.** Revises [api-auth.md](api-auth.md) §2, §5.1 and §6, which has been
 reconciled against it — the sections describing `header` mode are kept there as record and marked
-where they no longer describe behaviour. Verified end to end against `examples/proxy/`: a browser
-holding only a session cookie deploys a definition, and genroc records the actor as
-`jwt:alice@genroc.test`.
+where they no longer describe behaviour. Verified end to end: a browser holding only a session
+cookie deploys a definition, and genroc records the actor as `jwt:alice@genroc.test`. The example
+it was verified against has since been replaced by `examples/ui/`, which demonstrates the same
+two credentials without the proxy sandwich.
 
-> **Followed by [ui-component.md](ui-component.md) (proposal, 2026-09-02)**, which moves the
+> **Followed by [ui-component.md](ui-component.md) (built, 2026-09-02)**, which moves the
 > browser's half into a `genroc-ui` image: the UI leaves the server binary and takes the login
 > flow with it, so §3's credential-presence routing and §4's dependence on the proxy's `SameSite`
 > both go away. Everything below about what the SERVER accepts is unchanged by it.

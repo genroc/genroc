@@ -37,7 +37,6 @@ tests/weather.log
 examples/auth/.env
 frontend/node_modules
 frontend/dist
-examples/proxy/.env
 .genroc-cache/
 eval-node/dist/
 *.tgz

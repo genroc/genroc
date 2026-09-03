@@ -114,5 +114,18 @@ export const createToken = (label: string, perms: string[]) =>
 export const revokeToken = (id: string) =>
   call<{ revoked: boolean }>(`/api/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
 
+/** Signs out: clears the session cookie and reloads into the login.
+ *
+ *  A POST, because it changes state — a GET would be reachable from any page that can make the
+ *  browser follow a link. It is also how someone picks up a change to their own GROUPS, which
+ *  are captured at login and carried in the cookie; the role map is read per request and needs
+ *  no sign-out. */
+export async function signOut(): Promise<void> {
+  await fetch("/auth/logout", { method: "POST" });
+  lastActor = null;
+  setToken("");
+  location.href = "/";
+}
+
 export const listDefinitions = () =>
   get<Page<{ name: string; version: number; created_at: string }>>("/api/definitions");

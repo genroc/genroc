@@ -19,8 +19,8 @@ CORS becomes a thing genroc has to configure and get right.
 
 ## Behind a proxy this app holds no credential at all
 
-**With an SSO proxy in front** (`examples/proxy/`), the proxy turns the browser's session cookie
-into `Authorization: Bearer <ID token>` on every request. So the app sends nothing of its own and
+**Behind genroc-ui** (`examples/ui/`), it turns the browser's session cookie into
+`Authorization: Bearer <minted token>` on every request. So the app sends nothing of its own and
 that is correct — there is no token to mint, store, refresh or expire, and `localStorage` stays
 empty. This is less code than a session exchange, not more.
 

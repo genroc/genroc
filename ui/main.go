@@ -88,6 +88,7 @@ type uiServer struct {
 	providers map[string]*oidc.Provider
 	order     []Provider // config order, for a stable button list
 	assets    fs.FS      // the built bundles: the app, the login page, and their assets
+	limiter   *limiter   // failed-password throttling
 }
 
 func newServer(cfg *Config, log *slog.Logger) (*uiServer, error) {
@@ -104,6 +105,7 @@ func newServer(cfg *Config, log *slog.Logger) (*uiServer, error) {
 		proxy:     httputil.NewSingleHostReverseProxy(target),
 		providers: map[string]*oidc.Provider{},
 		assets:    assets,
+		limiter:   newLimiter(),
 	}
 	if !cfg.loginConfigured() {
 		// Loud, because in a deployment it is a mistake; not fatal, because on a laptop it is
@@ -157,7 +159,7 @@ func (s *uiServer) routes() http.Handler {
 	mux.HandleFunc("GET /auth/options", s.options)
 	mux.HandleFunc("POST /auth/password", s.passwordLogin)
 	mux.HandleFunc("GET /auth/callback", s.callback)
-	mux.HandleFunc("GET /auth/logout", s.logout)
+	mux.HandleFunc("POST /auth/logout", s.logout)
 
 	files := http.FileServer(http.FS(s.assets))
 
@@ -393,9 +395,15 @@ func (s *uiServer) establish(w http.ResponseWriter, r *http.Request, id identity
 	http.Redirect(w, r, rd, http.StatusFound)
 }
 
+// logout clears the session. POST, not GET: its whole job is changing state, and a GET would be
+// reachable from any page that can make the browser follow a link.
+//
+// It is also how a person picks up a change to their own GROUPS. Those are captured at login and
+// carried in the cookie, so an edit at the identity provider is invisible until a new one --
+// unlike the role map, which is read from config on every request. specs/ui-issued-tokens.md §4.
 func (s *uiServer) logout(w http.ResponseWriter, r *http.Request) {
 	s.clearTemp(w, r, sessionCookie)
-	http.Redirect(w, r, "/", http.StatusFound)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // safeReturn sanitises where a login lands, and refuses two things: an ABSOLUTE target would be
