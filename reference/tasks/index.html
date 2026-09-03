@@ -192,6 +192,63 @@ everything else is optional. A task with no <code>action</code> is a pure routin
 
 
 <table><thead><tr><th>Field</th><th>Type</th><th>Meaning</th></tr></thead><tbody><tr><td><code>id</code></td><td>string</td><td>Unique task identifier. <code>end</code> and <code>next</code> are reserved and cannot be used.</td></tr><tr><td><code>action</code></td><td>object</td><td>The action to perform. Omit for switch-only (routing) tasks.</td></tr><tr><td><code>timeout</code></td><td>duration | object</td><td>Maximum execution time, honoured by <code>fetch</code> and <code>external</code> tasks.</td></tr><tr><td><code>only_once</code></td><td>boolean</td><td>At-most-once execution. Defaults to <code>false</code>.</td></tr><tr><td><code>on_error</code></td><td>list</td><td>Ordered error-routing rules evaluated when the action fails. First match wins.</td></tr><tr><td><code>output</code></td><td>value</td><td>Templated value that remaps this task’s output.</td></tr><tr><td><code>switch</code></td><td>string | list</td><td><strong>Required.</strong> Where control goes next.</td></tr></tbody></table>
+<h2 id="what-a-tasks-expressions-can-see">What a task’s expressions can see<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-a-tasks-expressions-can-see"><span></span></a></h2>
+<p><code>self</code> names the task itself, and its members appear at different points along the task’s own
+timeline — so a slot may only read the ones that already exist where it sits.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>slot</th><th><code>self.previous</code></th><th><code>self.result</code></th><th><code>self.output</code></th></tr></thead><tbody><tr><td>the action’s slots — <code>input</code>, <code>body</code>, <code>url</code>, <code>query</code>, <code>over</code>, <code>for</code>, <code>timeout</code>, …</td><td>✓</td><td></td><td></td></tr><tr><td><code>on_error</code> — <code>case</code>, <code>retry</code>, <code>raise</code>, <code>panic</code></td><td>✓</td><td></td><td></td></tr><tr><td><code>output</code></td><td>✓</td><td>✓</td><td></td></tr><tr><td><code>switch</code> — <code>case</code>, <code>raise</code>, <code>panic</code></td><td>✓</td><td>✓</td><td>✓</td></tr></tbody></table>
+<p><code>self.previous</code> is this task’s own prior output. <code>self.result</code> is what the action answered, so
+nothing that <em>builds</em> the action can read it — including <code>on_error</code>, where the action answered
+with a failure and produced no result. <code>self.output</code> is the projection the <code>output</code> map just
+made, so not even that map can read it.</p>
+<p><strong>Inside task <code>t</code>, <code>outputs.t</code> is <code>self.previous</code></strong> — the previous output, in every slot, the
+<code>switch</code> included. <code>self.output</code> is the name for what this run produced, and a loop that counts
+its own iterations routes on that:</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="yaml"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">-</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> poll</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> fetch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">https://api.example.com/jobs/${ input.job }</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    attempt</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">$: (self.previous.attempt ?? 0) + 1</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> case</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">self.output.attempt &gt;= 5</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">   # not outputs.poll.attempt — that is the run before</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> end</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">    -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $poll</span></span></code></pre>
+<p>Where nothing routes back to a task there is never a previous output, and both <code>self.previous</code>
+and <code>outputs.&lt;own id&gt;</code> are refused when the definition is applied. An <code>on_error</code> edge back to
+the task does not count: a task that failed wrote no output.</p>
 <h3 id="timeout"><code>timeout</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#timeout"><span></span></a></h3>
 <p>Either a duration shorthand — <code>&quot;30s&quot;</code>, <code>&quot;2h30m&quot;</code>, a bare number of milliseconds, or a <code>$:</code>
 expression evaluating to milliseconds, all resolved in UTC — or an object naming exactly one
@@ -214,7 +271,7 @@ asserted about it.</li>
 typically to ask the system of record what happened and then carry on.</p>
 <h3 id="output"><code>output</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#output"><span></span></a></h3>
 <p>Evaluated against the context plus <code>self.result</code> (the action’s raw result) and
-<code>self.previous</code> (this task’s prior output — non-empty when a loop re-enters the task).</p>
+<code>self.previous</code> (this task’s prior output — the value <code>outputs.&lt;taskID&gt;</code> still holds here).</p>
 <p>When <code>output</code> is set, its value is stored as <code>outputs.&lt;taskID&gt;</code> and seen by the switch as
 <code>self.output</code>; the raw result is <strong>not</strong> exported. It is computed only when the action
 succeeds.</p>
@@ -932,4 +989,4 @@ work the caller has already done — and on an <code>only_once</code> task the <
 followed could never be retried.</p>
 <p>An answer that reports a failure means the work was reached, so on an <code>only_once</code> task a
 retry needs <code>not_reached: true</code> naming the exact code — the same rule every other
-potentially-reached error follows.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#fields">Fields</a></li><li class="depth-3"><a href="#timeout">timeout</a></li><li class="depth-3"><a href="#only_once">only_once</a></li><li class="depth-3"><a href="#output">output</a></li><li class="depth-2"><a href="#switch">switch</a></li><li class="depth-2"><a href="#on_error">on_error</a></li><li class="depth-3"><a href="#code-patterns">Code patterns</a></li><li class="depth-3"><a href="#the-error-value">The error value</a></li><li class="depth-3"><a href="#retry">retry</a></li><li class="depth-3"><a href="#raise-and-panic">raise and panic</a></li><li class="depth-2"><a href="#action-types">Action types</a></li><li class="depth-3"><a href="#fetch">fetch</a></li><li class="depth-3"><a href="#child-child_map-child_list">child, child_map, child_list</a></li><li class="depth-3"><a href="#delay">delay</a></li><li class="depth-3"><a href="#external">external</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
+potentially-reached error follows.</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#fields">Fields</a></li><li class="depth-2"><a href="#what-a-tasks-expressions-can-see">What a task’s expressions can see</a></li><li class="depth-3"><a href="#timeout">timeout</a></li><li class="depth-3"><a href="#only_once">only_once</a></li><li class="depth-3"><a href="#output">output</a></li><li class="depth-2"><a href="#switch">switch</a></li><li class="depth-2"><a href="#on_error">on_error</a></li><li class="depth-3"><a href="#code-patterns">Code patterns</a></li><li class="depth-3"><a href="#the-error-value">The error value</a></li><li class="depth-3"><a href="#retry">retry</a></li><li class="depth-3"><a href="#raise-and-panic">raise and panic</a></li><li class="depth-2"><a href="#action-types">Action types</a></li><li class="depth-3"><a href="#fetch">fetch</a></li><li class="depth-3"><a href="#child-child_map-child_list">child, child_map, child_list</a></li><li class="depth-3"><a href="#delay">delay</a></li><li class="depth-3"><a href="#external">external</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
