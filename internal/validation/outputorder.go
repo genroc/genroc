@@ -38,15 +38,12 @@ func inferOutputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proce
 		// An untyped result (fetch/external with no result_schema) cannot be exported: the
 		// Roots hook turns a reference to the unavailable self.result into a clear message
 		// rather than an opaque navigation failure.
-		hooks := shape.CheckHooks{}
-		if !typed {
-			hooks.Roots = func(refs expression.Roots) error {
-				if refs.SelfResult {
-					return fmt.Errorf("task %q: output references self.result, but %s", id, untypedResultAdvice(s.Action))
-				}
-				return nil
+		hooks := shape.CheckHooks{Roots: func(refs expression.Roots) error {
+			if !typed && refs.SelfResult {
+				return fmt.Errorf("task %q: output references self.result, but %s", id, untypedResultAdvice(s.Action))
 			}
-		}
+			return checkSelfScope(s, label, loops, afterAction, refs)
+		}}
 		solver.Declare(id+"_output", func() (schema.Schema, error) {
 			shp := shape.Shape{Raw: node, Name: label}
 			return shp.CheckWith(ctx, hooks)

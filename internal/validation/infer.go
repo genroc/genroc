@@ -29,6 +29,12 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 
 	// Phase 2: action inputs and switch type-checks.
 	for _, s := range tasks {
+		loops := taskLoops(s, required, optional)
+		// Ahead of the per-slot checks, so a member that does not exist here is reported as
+		// the rule it breaks rather than as the schema's "field not found".
+		if err := checkPreOutputScopes(s, loops); err != nil {
+			return err
+		}
 		if s.Action != nil {
 			ts, inMap := taskSchemas[s.ID]
 			isFetch := s.Action.Type == model.ActionTypeFetch
@@ -49,7 +55,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				hasRetry = hasRetry || !ec.Retry.IsZero()
 			}
 			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout || hasRetry {
-				ctx := contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID]).WithDefs(defs)
+				ctx := addPreviousOnly(contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID]), s, loops).WithDefs(defs)
 				// The child_list `over` expression must be a non-null array; each
 				// element becomes one child's input. Type-check it here so a malformed or
 				// non-array expression is rejected at registration.
@@ -136,7 +142,6 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 		if len(s.Switch) > 0 {
 			switchCtx := contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID])
 			if s.Action != nil || s.Output.Present() {
-				loops := slices.Contains(optional[s.ID], s.ID) || slices.Contains(required[s.ID], s.ID)
 				withSelf, err := addSelfSchema(switchCtx, s, loops, defs)
 				if err != nil {
 					return fmt.Errorf("task %q: %w", s.ID, err)
@@ -166,13 +171,12 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 						return fmt.Errorf("task %q switch case %q: expression must evaluate to boolean, got %q", s.ID, c.Case, inferred.TypeName())
 					},
 				}
-				if untypedResult {
-					hooks.Roots = func(refs expression.Roots) error {
-						if refs.SelfResult {
-							return fmt.Errorf("task %q switch case %q: references self.result, but %s", s.ID, c.Case, untypedResultAdvice(s.Action))
-						}
-						return nil
+				label := fmt.Sprintf("task %q switch case %q", s.ID, c.Case)
+				hooks.Roots = func(refs expression.Roots) error {
+					if untypedResult && refs.SelfResult {
+						return fmt.Errorf("%s: references self.result, but %s", label, untypedResultAdvice(s.Action))
 					}
+					return checkSelfScope(s, label, loops, afterOutput, refs)
 				}
 				shp := shape.Shape{Raw: c.Case, Schema: &boolSchema, Name: fmt.Sprintf("task %q switch case %q", s.ID, c.Case), Expr: true}
 				if _, err := shp.CheckWith(switchCtx, hooks); err != nil {
@@ -196,13 +200,13 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			if ec.Raise == nil && ec.Panic == nil && ec.Case == "" {
 				continue
 			}
-			ruleCtx := contextSchema(required[s.ID], optional[s.ID], taskSchemas,
-				processInput, configSchema, ruleErrAt(s, ec, defs)).WithDefs(defs)
+			ruleCtx := addPreviousOnly(contextSchema(required[s.ID], optional[s.ID], taskSchemas,
+				processInput, configSchema, ruleErrAt(s, ec, defs)), s, loops).WithDefs(defs)
 			where := fmt.Sprintf("on_error[%d]", i)
 			// The case is checked in the SAME per-rule scope as the clauses: `code` has
 			// already said which error this is, so `error.data` here is that code's declared
-			// shape rather than the union a routed task sees. No `self` — the task produced
-			// no result. specs/child-error-handling.md M2.
+			// shape rather than the union a routed task sees. `self` is previous-only: the
+			// task failed, so it has no result. specs/child-error-handling.md M2.
 			if ec.Case != "" {
 				hooks := shape.CheckHooks{
 					Result: func(inferred, _ schema.Schema) error {
@@ -666,6 +670,25 @@ func contextSchemaAbsent(preceding, optional, absent []string, tasks map[string]
 		}
 	}
 	return ctx
+}
+
+// addPreActionSelf adds the half of the self scope that exists BEFORE the action runs:
+// addPreviousOnly is the self scope for every slot evaluated before this task's own output
+// is written — the action's own slots, and the on_error rules a failure routes through.
+// `previous` is the only member that exists there; specs/task-scopes.md has the table.
+func addPreviousOnly(ctx schema.Schema, s *model.Task, loops bool) schema.Schema {
+	if !s.Output.Present() || !loops {
+		return ctx
+	}
+	self := schema.Object().WithProperty("previous", schema.Ref(s.ID+"_output"), false)
+	return ctx.WithProperty("self", self, true)
+}
+
+// taskLoops reports whether control can re-enter s, which is what makes a previous output
+// exist. Both sets are the entry sets computeContextSets derived, so s's own id appears in
+// one of them exactly when some path returns to it.
+func taskLoops(s *model.Task, required, optional map[string][]string) bool {
+	return slices.Contains(optional[s.ID], s.ID) || slices.Contains(required[s.ID], s.ID)
 }
 
 // addSelfSchema adds the transient self scope: self.result only when typed (no

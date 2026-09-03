@@ -33,7 +33,7 @@ const (
 type ChildEntry struct {
 	Name         string         `json:"name"                    description:"Name of the child process to invoke."`
 	Version      int            `json:"version,omitempty"       description:"Version to run; 0 means latest published version."`
-	Input        *Shape         `json:"input,omitempty"         description:"Templated value (a string expression or nested object of expressions) evaluated against the current context to build the child's input payload."`
+	Input        *Shape         `json:"input,omitempty"         description:"Templated value (a string expression or nested object of expressions) evaluated against the current context to build the child's input payload. Of self only self.previous is in scope here — the action has not run, so there is no result yet."`
 	ResultSchema *schema.Schema `json:"result_schema,omitempty" description:"JSON Schema to validate and expose this child's output. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it — the output is conformed against this schema when collected."`
 	Raises       Raises         `json:"raises,omitempty"        description:"Shapes this child's raised faults carry, keyed by raise code — the error channel's counterpart to result_schema. A declared code makes the fault's data readable as error.data in an on_error rule that catches it; an undeclared one leaves error.data absent. Use {} to expose it opaquely for a rule to narrow. The payload is conformed against this schema when the batch resolves; a mismatch reports output.invalid instead of the raised code."`
 }
@@ -252,7 +252,7 @@ var actionSchemaTemplate = `{
 					"headers":         __HEADERS_SCHEMA__,
 					"query":           __QUERY_SCHEMA__,
 					"accepted_status": __ACCEPTED_STATUS_SCHEMA__,
-					"body":            {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the request body. An object is sent as JSON."},
+					"body":            {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the request body. An object is sent as JSON. Of self only self.previous is in scope here — the action has not run, so there is no result yet."},
 					"responses": {
 						"type": "object",
 						"description": "Status pattern -> JSON Schema for the body that status carries. A key is a comma-separated list of exact codes and hundred-ranges (\"200\", \"400, 401\", \"5xx\"). A 2xx key types self.result AND makes that status accepted; a non-2xx key types error.data and still routes through on_error. null declares that the status carries no body; {} declares a body of unknown shape.",
@@ -270,7 +270,7 @@ var actionSchemaTemplate = `{
 					"type":          {"type": "string", "const": "child"},
 					"name":          {"type": "string", "description": "Name of the child process to invoke."},
 					"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
-					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the child's input payload."},
+					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the child's input payload. Of self only self.previous is in scope here — the action has not run, so there is no result yet."},
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose the child's output. Without it the output is available only as self.result in this task's switch. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it, making it readable here; the collected output is conformed against this schema."},
 					"raises": {
 						"type": "object",
@@ -295,7 +295,7 @@ var actionSchemaTemplate = `{
 							"properties": {
 								"name":          {"type": "string", "description": "Name of the child process to invoke."},
 								"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
-								"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the child's input payload."},
+								"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value (string expression or nested object) evaluated against the current context to build the child's input payload. Of self only self.previous is in scope here — the action has not run, so there is no result yet."},
 								"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema to validate and expose this child's output. Declaring a shape where the child leaves a value untyped ({}, the top type) narrows it; the collected output is conformed against this schema."},
 								"raises": {
 									"type": "object",
@@ -353,7 +353,7 @@ var actionSchemaTemplate = `{
 				"description": "External task — parks the instance until an outside caller submits a result via the external-tasks API; no worker is held while waiting. An optional task timeout (absent = wait forever) raises a catchable external.timeout error, and is the one place an absolute 'until' deadline is accepted.",
 				"properties": {
 					"type":          {"type": "string", "const": "external"},
-					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value evaluated against the current context, snapshotted and exposed to the resolver via the queue (the only context the resolver sees)."},
+					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value evaluated against the current context, snapshotted and exposed to the resolver via the queue (the only context the resolver sees). Of self only self.previous is in scope here — the action has not run, so there is no result yet."},
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema the submitted result is validated against before the instance resumes. Without it any JSON result is accepted, available as self.result."},
 					"raises": {
 						"type": "object",
@@ -387,7 +387,7 @@ type Task struct {
 	Timeout  Timeout     `json:"timeout,omitempty,omitzero"            description:"Maximum execution time, honoured by fetch and external tasks. Either a duration shorthand (\"30s\", \"2h30m\", a bare number of milliseconds, or a $: expression evaluating to milliseconds) resolved in UTC, or an object naming exactly one of 'for' / 'until' plus an optional 'tz'. 'until' is an absolute deadline and is accepted only on an external task. Omit for no timeout of its own: a fetch falls back to the engine default, an external waits indefinitely."`
 	OnlyOnce *bool       `json:"only_once,omitempty"                   description:"When true, the engine guarantees at-most-once execution: retries are only allowed for pre.* errors (remote never reached) or on_error rules with not_reached:true. A rule that is not restricted to pre.* needs not_reached:true and must name exact codes; errors where the request left and nothing came back (http.timeout, http.disconnected, external.timeout, external.lost, only_once.interrupted) can never be retried at all. An attempt cut short by a crash raises only_once.interrupted, which on_error can catch to check the system of record and then continue. Defaults to false (retryable)."`
 	OnError  []ErrorCase `json:"on_error,omitempty"                    description:"Ordered error-routing rules evaluated when the call fails. First match wins."`
-	Output   *Shape      `json:"output,omitempty"                      description:"Templated value that remaps this task's output. Evaluated against the context plus self.result (the action's raw result) and self.previous (this task's prior output). When set, this value is stored as outputs.taskID and seen by the switch as self.output; the raw result is not exported."`
+	Output   *Shape      `json:"output,omitempty"                      description:"Templated value that remaps this task's output. Evaluated against the context plus self.result (the action's raw result) and self.previous (this task's prior output — the same value outputs.taskID still holds here). When set, this value is stored as outputs.taskID and seen by the switch as self.output; the raw result is not exported."`
 	Switch   SwitchMap   `json:"switch"                                description:"Required. Routing declaration: scalar shorthand (\"next\", \"end\", \"$task-id\") or an ordered list of conditional cases. The last case must be a catch-all (omit 'case')."`
 }
 

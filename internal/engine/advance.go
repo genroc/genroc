@@ -479,6 +479,19 @@ func (e *Engine) evalTaskOutput(inst *model.ProcessInstance, task *model.Task, r
 	return e.evalShape(inst, shape.Shape{Raw: task.Output.Raw}, taskSelf(result, previous, meta))
 }
 
+// selfBeforeOutput is the self scope for every slot evaluated before this task writes its own
+// output — the action's slots and the on_error rules a failure routes through. `previous` is
+// the only member that exists there; it reads outputs[inst.Task], which setTaskOutput has not
+// overwritten yet, so it is the same value advance captures as priorOutput.
+// specs/task-scopes.md has the slot table; internal/validation/scope.go is its other half.
+func (e *Engine) selfBeforeOutput(inst *model.ProcessInstance) map[string]any {
+	var prev any
+	if outs, ok := inst.State["outputs"].(map[string]any); ok {
+		prev = outs[inst.Task]
+	}
+	return map[string]any{"previous": prev}
+}
+
 // taskSelf builds the transient self scope. status/headers appear ONLY where a fetch
 // answered, which is the same gate inference applies — a slot present at runtime but absent
 // from the schema is unreadable, and one present in the schema but absent at runtime reads

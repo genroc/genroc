@@ -115,7 +115,7 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 	var policy model.ResolvedRetry
 	if matched != nil && !matched.Retry.IsZero() {
 		resolved, err := matched.Retry.Resolve(func(expr string) (any, error) {
-			return e.evalShape(inst, shape.Shape{Raw: expr}, nil)
+			return e.evalShape(inst, shape.Shape{Raw: expr}, e.selfBeforeOutput(inst))
 		})
 		if err != nil {
 			return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q on_error: %v", task.ID, err))
@@ -151,10 +151,10 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 	// `error` (above) so the underlying cause stays visible on the instance detail, while
 	// error_code becomes the authored one -- the code an operator filters and alerts on.
 	if matched != nil && matched.Raise != nil {
-		return e.raiseInstance(inst, task, matched.Raise, nil)
+		return e.raiseInstance(inst, task, matched.Raise, e.selfBeforeOutput(inst))
 	}
 	if matched != nil && matched.Panic != nil {
-		return e.panicInstance(inst, task, matched.Panic, nil)
+		return e.panicInstance(inst, task, matched.Panic, e.selfBeforeOutput(inst))
 	}
 
 	if matched != nil && matched.Goto != "" {

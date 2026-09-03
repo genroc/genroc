@@ -27,7 +27,9 @@ function makeDef(name: string, actionPort?: number) {
       i: "$: (self.previous.i ?? 0) + 1",
     },
     switch: [
-      { case: "(outputs.append.i ?? 0) < input.n", goto: "$append" },
+      // self.output, not outputs.append: inside its own task, outputs.<id> is the PREVIOUS
+      // output in every slot, the switch included. Reading it here would loop n+1 times.
+      { case: "self.output.i < input.n", goto: "$append" },
       { goto: "end" },
     ],
   };

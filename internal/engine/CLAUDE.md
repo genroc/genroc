@@ -238,3 +238,18 @@ Three things that break silently if it goes back:
   [internal/delayspec/CLAUDE.md](../delayspec/CLAUDE.md).
 - Pause settlement, `SpawnChildrenAndWait`, `FailAncestors`, `CountActiveSiblings` —
   [internal/db/CLAUDE.md](../db/CLAUDE.md).
+
+## `self` before the output exists
+
+Every slot evaluated before a task writes its own output — the action's slots, and the
+`on_error` rules a failure routes through — gets `selfBeforeOutput`, which carries `previous`
+and nothing else. `taskSelf` carries the full scope, and only the output map and the switch
+see it. [specs/task-scopes.md](../../specs/task-scopes.md) has the table; the registration-time
+half is `internal/validation/scope.go`, and a slot present in one and not the other either
+reads `null` against a schema that promised a value or is unreadable.
+
+**`outputs.<current task>` is the PREVIOUS output everywhere, and the switch is where that
+costs something.** `setTaskOutput` has already overwritten the stored value by then, so
+`buildEnv` shadows the entry with `self.previous`. Do not drop the shadow to "read what is
+stored": both readings type-check, so a definition written against the other one is wrong with
+nothing able to report it. `self.output` is the name for what this run produced.

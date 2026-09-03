@@ -69,9 +69,9 @@ func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInst
 			"task %q: child %q (%s) raised %q: %s; no on_error rule matches",
 			task.ID, first.ProcessName, childSlotLabel(task, first), first.ErrorCode, first.ErrorMessage))
 	case rule.Raise != nil:
-		return e.raiseInstance(inst, task, rule.Raise, nil)
+		return e.raiseInstance(inst, task, rule.Raise, e.selfBeforeOutput(inst))
 	case rule.Panic != nil:
-		return e.panicInstance(inst, task, rule.Panic, nil)
+		return e.panicInstance(inst, task, rule.Panic, e.selfBeforeOutput(inst))
 	case rule.Goto == model.GotoEnd:
 		return e.completeViaErrorHandler(inst, task, first.ErrorMessage, raisedCode)
 	default: // goto $id
@@ -123,7 +123,7 @@ func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, 
 				continue
 			}
 			resolved, resErr := rule.Retry.Resolve(func(expr string) (any, error) {
-				return e.evalShape(inst, shape.Shape{Raw: expr}, nil)
+				return e.evalShape(inst, shape.Shape{Raw: expr}, e.selfBeforeOutput(inst))
 			})
 			if resErr != nil {
 				// Same reading as the action path: a policy that quietly became "no retries"
@@ -295,7 +295,7 @@ func (e *Engine) caseEvaluator(inst *model.ProcessInstance, errVal map[string]an
 		}()
 		// Expr: true — a case is a bare boolean expression, not a template. Without it the
 		// text is rendered as a string and never compares as anything.
-		v, err := e.evalShape(inst, shape.Shape{Raw: expr, Expr: true}, nil)
+		v, err := e.evalShape(inst, shape.Shape{Raw: expr, Expr: true}, e.selfBeforeOutput(inst))
 		if err != nil {
 			return false, fmt.Errorf("on_error case %q: %w", expr, err)
 		}

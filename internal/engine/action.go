@@ -76,7 +76,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	resolvedHeaders[transport.HeaderTaskID] = task.ID
 	var body any
 	if task.Action.Body.Present() {
-		body, err = e.evalShape(inst, shape.Shape{Raw: task.Action.Body.Raw}, nil)
+		body, err = e.evalShape(inst, shape.Shape{Raw: task.Action.Body.Raw}, e.selfBeforeOutput(inst))
 		if err == nil {
 			// A fetch body always resolves: its reader is a remote server that cannot fetch an
 			// object from genroc, so a reference reaching it is a value that never arrives.
@@ -164,7 +164,7 @@ func (e *Engine) buildTaskData(inst *model.ProcessInstance, task *model.Task) (a
 	if !task.Action.Input.Present() {
 		return map[string]any{}, nil
 	}
-	return e.evalShape(inst, shape.Shape{Raw: task.Action.Input.Raw}, nil)
+	return e.evalShape(inst, shape.Shape{Raw: task.Action.Input.Raw}, e.selfBeforeOutput(inst))
 }
 
 // runDelay: first entry (WakeAt nil, reset per task transition) evaluates and parks by
@@ -330,7 +330,7 @@ func (e *Engine) delayNumber(inst *model.ProcessInstance, raw any) (int64, error
 	v := raw
 	if src, ok := raw.(string); ok {
 		var err error
-		if v, err = e.evalShape(inst, shape.Shape{Raw: src}, nil); err != nil {
+		if v, err = e.evalShape(inst, shape.Shape{Raw: src}, e.selfBeforeOutput(inst)); err != nil {
 			return 0, err
 		}
 	}
@@ -490,7 +490,7 @@ func (e *Engine) resolveURL(inst *model.ProcessInstance, call *model.Action) (st
 	if call.URL == "" {
 		return "", nil
 	}
-	val, err := e.evalShape(inst, shape.Shape{Raw: call.URL}, nil)
+	val, err := e.evalShape(inst, shape.Shape{Raw: call.URL}, e.selfBeforeOutput(inst))
 	if err != nil {
 		return "", err
 	}
@@ -502,7 +502,7 @@ func (e *Engine) resolveMethod(inst *model.ProcessInstance, call *model.Action) 
 	if call.Method == "" {
 		return "POST", nil
 	}
-	val, err := e.evalShape(inst, shape.Shape{Raw: call.Method}, nil)
+	val, err := e.evalShape(inst, shape.Shape{Raw: call.Method}, e.selfBeforeOutput(inst))
 	if err != nil {
 		return "", err
 	}
@@ -521,7 +521,7 @@ func (e *Engine) resolveHeaders(inst *model.ProcessInstance, call *model.Action)
 	if !call.Headers.Present() {
 		return nil, nil
 	}
-	val, err := e.evalShape(inst, shape.Shape{Raw: call.Headers.Raw}, nil)
+	val, err := e.evalShape(inst, shape.Shape{Raw: call.Headers.Raw}, e.selfBeforeOutput(inst))
 	if err != nil {
 		return nil, err
 	}
@@ -553,7 +553,7 @@ func (e *Engine) appendQuery(inst *model.ProcessInstance, call *model.Action, ra
 	if !call.Query.Present() {
 		return rawURL, nil
 	}
-	val, err := e.evalShape(inst, shape.Shape{Raw: call.Query.Raw}, nil)
+	val, err := e.evalShape(inst, shape.Shape{Raw: call.Query.Raw}, e.selfBeforeOutput(inst))
 	if err != nil {
 		return "", err
 	}
@@ -603,7 +603,7 @@ func (e *Engine) resolveAcceptedStatus(inst *model.ProcessInstance, call *model.
 	if !call.AcceptedStatus.Present() {
 		return nil, nil
 	}
-	val, err := e.evalShape(inst, shape.Shape{Raw: call.AcceptedStatus.Raw}, nil)
+	val, err := e.evalShape(inst, shape.Shape{Raw: call.AcceptedStatus.Raw}, e.selfBeforeOutput(inst))
 	if err != nil {
 		return nil, err
 	}

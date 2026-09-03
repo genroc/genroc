@@ -178,9 +178,28 @@ clause has no equivalent; the remedy is the one every other read in that context
 (`?? ""`, or declaring the slot nullable), and the break names the slot and both types.
 `TestChildRaises_JoinedBranchPayloadTypesNullable` is there so nobody reads it as a bug.
 
+## The task scope is enforced twice and must agree
+
+`self` has three members and they exist at different points along a task's own timeline, so a
+slot may name only those that already exist where it sits — the table is in
+[specs/task-scopes.md](../../specs/task-scopes.md). `scope.go` is this side: `preOutputSlots`
+lists every slot evaluated before the task's output does, `checkSelfScope` refuses a member
+missing there, and `internal/engine`'s `selfBeforeOutput` is the runtime counterpart.
+
+**The two lists disagreeing is silent in both directions.** A slot typed with a member the
+engine never populates reads `null` where the schema promised a value; one populated but not
+typed is simply unreadable. `TestPreOutputSlotsCoversEveryActionSlot` reflects over
+`model.Action` so a new slot fails here rather than acquiring the wrong scope quietly.
+
+**`outputs.<own id>` is `self.previous`, in every slot.** Free everywhere except the switch,
+where the engine has already written the new output — `engine.buildEnv` shadows the entry so
+the name means one thing. Both are refused where the task has no output or nothing routes back
+to it, and the two get different messages because they are different mistakes.
+
 ## Pointers
 
 - `NarrowsTo` vs `IsSubset`, and why only what a child hands back may narrow —
   [internal/schema/CLAUDE.md](../schema/CLAUDE.md).
+- The task scope's runtime half — [internal/engine/CLAUDE.md](../engine/CLAUDE.md).
 - The collapse that makes `outputs.a.v ?? outputs.b.v` imprecise, and the per-terminal walk
   that recovers it — [specs/path-sensitive-output.md](../../specs/path-sensitive-output.md).

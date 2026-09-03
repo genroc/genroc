@@ -31,6 +31,9 @@ type Roots struct {
 	SelfPrevious bool     // reads self.previous (this task's own prior output — an alias
 	//                      for outputs[<this task>], so it can be an externalized ref too)
 	SelfResult bool // reads self.result (the task's raw action result)
+	// SelfOutput carries no laziness consequence -- the projection was just computed and is
+	// always inline. It is tracked so a slot evaluated before it exists can say so by name.
+	SelfOutput bool
 	// ErrorData pins `error.data` specifically. The rest of `error` is small and always
 	// inline, but the body can be as large as any response, so it is externalized like a task
 	// output — and a handler reading only error.code must not pay to load one.
@@ -61,6 +64,7 @@ func (r *Roots) Union(o Roots) {
 	r.Outputs = append(r.Outputs, o.Outputs...)
 	r.SelfPrevious = r.SelfPrevious || o.SelfPrevious
 	r.SelfResult = r.SelfResult || o.SelfResult
+	r.SelfOutput = r.SelfOutput || o.SelfOutput
 	r.ErrorData = r.ErrorData || o.ErrorData
 	r.Through.Input = r.Through.Input || o.Through.Input
 	r.Through.Error = r.Through.Error || o.Through.Error
@@ -165,6 +169,10 @@ func collectRoots(node syntax.Node, bound map[string]bool, r *Roots, through boo
 			r.SelfResult = true
 			r.Through.SelfResult = r.Through.SelfResult || through
 			return // consumed self.result; don't descend into the "self" identifier
+		}
+		if isSelfField(n, bound, "output") {
+			r.SelfOutput = true
+			return // consumed self.output; don't descend into the "self" identifier
 		}
 		// A field access on `error` is consumed here so the bare-identifier case below does
 		// not also run: only `error.data` wants the body loaded, while `error.code` and its

@@ -36,9 +36,12 @@ tasks:
         # arrives here as script_timeout rather than an unknowable http.timeout.
         timeout_ms: 20000
         input:
+          prev: "$: self.previous.array ?? []"
           geo: "$: outputs.location"
       result_schema:
-        $ref: "#/$defs/reading"
+        type: array
+        items:
+          $ref: "#/$defs/reading"
       # What this caller needs of a throw. `script` is generic and cannot mint a code for
       # reading.ts's refusals (R2), so `name` would die at the process boundary; declaring the
       # shape here is what carries it across, exactly as result_schema carries the output.
@@ -47,7 +50,7 @@ tasks:
           $ref: "#/$defs/script_throw"
     output:
       count: "$: (self.previous.count ?? 0) + 1"
-      last: "$: self.result"
+      array: "$: self.result"
     on_error:
       # A reading that may or may not have happened is a reason to look again at the next
       # window — reading.ts pins nothing, so a rerun is free. There is no "evaluator down"

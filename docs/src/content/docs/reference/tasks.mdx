@@ -23,6 +23,42 @@ everything else is optional. A task with no `action` is a pure routing task.
 | `output` | value | Templated value that remaps this task's output. |
 | `switch` | string \| list | **Required.** Where control goes next. |
 
+## What a task's expressions can see
+
+`self` names the task itself, and its members appear at different points along the task's own
+timeline — so a slot may only read the ones that already exist where it sits.
+
+| slot | `self.previous` | `self.result` | `self.output` |
+|---|---|---|---|
+| the action's slots — `input`, `body`, `url`, `query`, `over`, `for`, `timeout`, … | ✓ | | |
+| `on_error` — `case`, `retry`, `raise`, `panic` | ✓ | | |
+| `output` | ✓ | ✓ | |
+| `switch` — `case`, `raise`, `panic` | ✓ | ✓ | ✓ |
+
+`self.previous` is this task's own prior output. `self.result` is what the action answered, so
+nothing that *builds* the action can read it — including `on_error`, where the action answered
+with a failure and produced no result. `self.output` is the projection the `output` map just
+made, so not even that map can read it.
+
+**Inside task `t`, `outputs.t` is `self.previous`** — the previous output, in every slot, the
+`switch` included. `self.output` is the name for what this run produced, and a loop that counts
+its own iterations routes on that:
+
+```yaml
+- id: poll
+  action: { type: fetch, url: "https://api.example.com/jobs/${ input.job }" }
+  output:
+    attempt: "$: (self.previous.attempt ?? 0) + 1"
+  switch:
+    - case: "self.output.attempt >= 5"   # not outputs.poll.attempt — that is the run before
+      goto: end
+    - goto: $poll
+```
+
+Where nothing routes back to a task there is never a previous output, and both `self.previous`
+and `outputs.<own id>` are refused when the definition is applied. An `on_error` edge back to
+the task does not count: a task that failed wrote no output.
+
 ### `timeout`
 
 Either a duration shorthand — `"30s"`, `"2h30m"`, a bare number of milliseconds, or a `$:`
@@ -52,7 +88,7 @@ typically to ask the system of record what happened and then carry on.
 ### `output`
 
 Evaluated against the context plus `self.result` (the action's raw result) and
-`self.previous` (this task's prior output — non-empty when a loop re-enters the task).
+`self.previous` (this task's prior output — the value `outputs.<taskID>` still holds here).
 
 When `output` is set, its value is stored as `outputs.<taskID>` and seen by the switch as
 `self.output`; the raw result is **not** exported. It is computed only when the action

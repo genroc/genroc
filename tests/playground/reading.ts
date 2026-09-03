@@ -41,7 +41,7 @@ type Forecast = {
 };
 
 export default async function (input: Input): Promise<Output> {
-  const { geo } = input;
+  const { geo, prev } = input;
 
   if (!geo) {
     throw new Error("No geolocation provided");
@@ -71,7 +71,7 @@ export default async function (input: Input): Promise<Output> {
 
   console.log(new Date().toISOString(), summary);
 
-  await appendFile("weather.log", `${new Date().toISOString()} ${summary}\n`);
-
-  return { time: current.time, condition, temperature_c, summary };
+  // The whole history, not just the latest: process.yaml feeds the last run's array back in
+  // as `prev`, so the accumulation lives here rather than in an output map.
+  return [...prev, { time: current.time, condition, temperature_c, summary }];
 }

@@ -31,12 +31,15 @@ func ValidateChildProcessRefs(def *model.ProcessDefinition, currentVersion int, 
 
 	required, optional, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
 	errs := errContexts(def.Tasks, mustErr, mayErr, errSrc, defs)
+	if err := inferOutputs(def.Tasks, tasks, processInput, configSchema, defs, required, optional, errs); err != nil {
+		return err
+	}
 
 	for _, s := range def.Tasks {
 		if s.Action == nil {
 			continue
 		}
-		ctx := contextSchema(required[s.ID], optional[s.ID], tasks, processInput, configSchema, errs[s.ID]).WithDefs(defs)
+		ctx := addPreviousOnly(contextSchema(required[s.ID], optional[s.ID], tasks, processInput, configSchema, errs[s.ID]), s, taskLoops(s, required, optional)).WithDefs(defs)
 
 		switch s.Action.Type {
 		case model.ActionTypeChild:

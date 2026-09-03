@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"genroc/internal/expression"
 	"genroc/internal/model"
@@ -117,6 +118,17 @@ func (e *Engine) buildEnv(inst *model.ProcessInstance, self any, roots expressio
 		return nil, err
 	}
 	outs, _ := outsVal.(map[string]any)
+	// outputs.<this task> is the PREVIOUS output in every slot, including the switch — where
+	// setTaskOutput has already overwritten the stored value. A task is not complete until its
+	// switch has routed, and self.output is the name for what this run just produced.
+	if sm, ok := self.(map[string]any); ok {
+		if prev, has := sm["previous"]; has {
+			shadowed := make(map[string]any, len(outs))
+			maps.Copy(shadowed, outs)
+			shadowed[inst.Task] = prev
+			outs = shadowed
+		}
+	}
 	refSet := make(map[string]struct{}, len(roots.Outputs))
 	for _, id := range roots.Outputs {
 		refSet[id] = struct{}{}
