@@ -146,3 +146,103 @@ for (const c of PARITY) {
     expect(direct, "…and the type itself is not what either route claims").toEqual(resolve(c.want, {}));
   });
 }
+
+// ── the two VIEWS have to agree too ──────────────────────────────────────────────
+//
+// `type` projects a finished SchemaFile; `context` builds scopes through the checker's own
+// constructors. Two documents, two code paths, and one value in both — so every row below reads
+// the same thing twice: once as a type, once at the path an expression would read it by. The Go
+// side pins the library (TestTypeSlotsAreTheCheckersOwn); this pins the COMMAND, where a bug in
+// how an answer is narrowed or its pool rewritten would show and the library test could not see
+// it.
+
+/** A definition reaching every slot both views name. */
+function bothViewsFile(): string {
+  const def = {
+    name: "probe",
+    input_schema: INPUT,
+    tasks: [
+      {
+        id: "probe",
+        action: {
+          type: "fetch",
+          url: "http://x",
+          method: "GET",
+          responses: {
+            200: { type: "object", properties: { fee: { type: "number" } }, required: ["fee"] },
+            429: { type: "object", properties: { wait: { type: "number" } }, required: ["wait"] },
+          },
+        },
+        output: { v: "$: self.result.fee" },
+        on_error: [{ code: ["http.429"], goto: "$handler" }],
+        switch: [{ goto: "end" }],
+      },
+      { id: "handler", output: { why: "$: last_error.code" }, switch: [{ goto: "end" }] },
+    ],
+    output: { fee: "$: outputs.probe.v ?? 0" },
+  };
+  const dir = mkdtempSync(join(tmpdir(), "genroc_parity_"));
+  const path = join(dir, "proc.yaml");
+  writeFileSync(path, JSON.stringify(def));
+  return path;
+}
+
+function view(kind: "type" | "context", path: string, address: string, expr?: string) {
+  const args = ["schema", kind, "probe", address, ...(expr ? ["-e", expr] : []), "-f", path];
+  const r = runCli(bin, args, OFFLINE);
+  expect(r.ok, `${args.join(" ")}: ${r.stdout}${r.stderr}`).toBe(true);
+  const doc = JSON.parse(r.stdout);
+  return resolve(doc, doc.$defs ?? {});
+}
+
+const CROSS: { name: string; type: string; context: string; path: string }[] = [
+  { name: "the process input", type: "input", context: "tasks.probe.action", path: "input" },
+  {
+    name: "what the action hands back",
+    type: "tasks.probe.result",
+    context: "tasks.probe.output",
+    path: "self.result",
+  },
+  {
+    name: "what the output map produces",
+    type: "tasks.probe.output",
+    context: "tasks.probe.switch",
+    path: "self.output",
+  },
+  {
+    name: "an output as a later reader sees it",
+    type: "tasks.handler.output",
+    context: "tasks.handler.switch",
+    path: "self.output",
+  },
+  // One route reaches the handler, so the payload it carries is guaranteed and the read is not
+  // nullable. Where two routes with different payloads meet, `data` is optional and the read
+  // adds a null the declaration does not have — pinned on the Go side, where it arises.
+  {
+    name: "the routed failure's payload",
+    type: "tasks.handler.last_error",
+    context: "tasks.handler.action",
+    path: "last_error.data",
+  },
+];
+
+for (const c of CROSS) {
+  test(`schema type and schema context agree on ${c.name}`, () => {
+    const path = bothViewsFile();
+    expect(view("type", path, c.type)).toEqual(view("context", path, c.context, c.path));
+  });
+}
+
+// The other half: an expression rooted at a navigated schema is the same answer as the same
+// expression rooted at the slot and walked there. Navigation and `-e` compose, in both views.
+test("an expression rooted at a navigated type is rooted at the slot in the other view", () => {
+  const path = bothViewsFile();
+
+  const onTheType = view("type", path, "tasks.probe.result", "fee > 0");
+  const onTheContext = view("context", path, "tasks.probe.output", "self.result.fee > 0");
+  const walkedThere = view("context", path, "tasks.probe.output.self.result", "fee > 0");
+
+  expect(onTheType).toEqual({ type: "boolean" });
+  expect(onTheContext).toEqual(onTheType);
+  expect(walkedThere).toEqual(onTheType);
+});

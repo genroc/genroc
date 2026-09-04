@@ -297,3 +297,66 @@ func marshal(t *testing.T, v any) string {
 	}
 	return string(b)
 }
+
+// The type view reports what the checker CHECKED. Nothing guarantees that by construction the
+// way taskScopes does for contexts — TypeSlots reads a finished SchemaFile — so what could drift
+// is a second computation of a value the checker already made. Every pair below is one value
+// read twice: once as a type, once out of the context the checker built and typed expressions
+// against. A `result` computed beside `self.result`, an `output` beside `outputs.<id>`, and this
+// fails rather than an author generating a client from a shape nothing checked.
+func TestTypeSlotsAreTheCheckersOwn(t *testing.T) {
+	var def model.ProcessDefinition
+	if err := json.Unmarshal([]byte(slotFixture), &def); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if err := def.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+
+	types, err := TypeSlots(&def)
+	if err != nil {
+		t.Fatalf("TypeSlots: %v", err)
+	}
+	contexts, err := SlotContexts(&def)
+	if err != nil {
+		t.Fatalf("SlotContexts: %v", err)
+	}
+
+	// A type is the same value the context shows at the path an expression would read it by.
+	same := func(typeAddress, contextAddress, path string) {
+		t.Helper()
+		reported, ok := types[typeAddress]
+		if !ok {
+			t.Fatalf("%s is not addressable, so nothing reports the type there", typeAddress)
+		}
+		ctx, ok := contexts[contextAddress]
+		if !ok {
+			t.Fatalf("%s is not addressable", contextAddress)
+		}
+		checked, err := ctx.At(path)
+		if err != nil {
+			t.Fatalf("%s: %s is not readable there: %v", contextAddress, path, err)
+		}
+		sameContext(t, typeAddress+" vs "+contextAddress+"."+path, reported, checked)
+	}
+
+	// What the action hands back, as the output map reads it.
+	same("tasks.call.result", "tasks.call.output", "self.result")
+	// What the output map produces, as the switch reads it back.
+	same("tasks.call.output", "tasks.call.switch", "self.output")
+	same("tasks.handler.output", "tasks.handler.switch", "self.output")
+	// The process input, as every expression reads it.
+	same("input", "tasks.call.action", "input")
+	// The payload of the failure that routed here. Read through the context it comes back
+	// NULLABLE — `data` is optional there, because a failure may carry none — so the null the
+	// read adds is stripped before comparing. What is being pinned is the payload either way.
+	reportedErr, ok := types["tasks.handler.last_error"]
+	if !ok {
+		t.Fatal("tasks.handler.last_error is not addressable")
+	}
+	checkedErr, err := contexts["tasks.handler.action"].At("last_error.data")
+	if err != nil {
+		t.Fatalf("last_error.data is not readable at the handler: %v", err)
+	}
+	sameContext(t, "tasks.handler.last_error vs last_error.data", reportedErr, checkedErr.StripNull())
+}

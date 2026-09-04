@@ -19,7 +19,11 @@ type TaskSchemas struct {
 	// action types none. A contract boundary — the shape a worker implementing this task
 	// returns — so it is filled for every task, output map or not.
 	Result schema.Schema `json:"result,omitzero"`
-	Output schema.Schema `json:"output,omitzero"`
+	// resultTyped is Result's "declared at all" bit, which its zero value cannot carry: an
+	// untyped child_map types as an empty object rather than as nothing. Unexported because it
+	// is scope-construction state, not part of the answer.
+	resultTyped bool
+	Output      schema.Schema `json:"output,omitzero"`
 	// Error is what `last_error.data` carries at this task: the payload of the failure that
 	// ROUTED here — a declared fetch response body, a child's declared raise — unioned over
 	// every path that can reach it. Not the one an `on_error` rule catches, which is per rule
@@ -60,6 +64,9 @@ func buildSchemaContext(def *model.ProcessDefinition) (defs schema.Defs, tasks m
 	// definitions never arrive.
 	tasks = make(map[string]TaskSchemas)
 	collectTaskRefs(def.Tasks, tasks)
+	if err = collectResults(def.Tasks, tasks, defs); err != nil {
+		return
+	}
 	if _, ok := named["input"]; ok {
 		processInput = schema.Ref("input")
 	}
@@ -158,25 +165,6 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 		tasks[t.ID] = ts
 	}
 
-	for _, t := range def.Tasks {
-		if t.Action == nil {
-			continue // a routing task hands nothing back; `null` is not a contract
-		}
-		res, typed, err := actionResultType(t, defs)
-		if err != nil {
-			return SchemaFile{}, err
-		}
-		if !typed || res.IsZero() {
-			continue
-		}
-		ts := tasks[t.ID]
-		if ts.ActionType == "" {
-			ts.ActionType = t.Action.Type
-		}
-		ts.Result = res
-		tasks[t.ID] = ts
-	}
-
 	if len(tasks) > 0 {
 		result.Tasks = tasks
 	}
@@ -207,6 +195,31 @@ func collectNamedOutputs(tasks []*model.Task, named map[string]schema.Schema) {
 		// placeholder holds the $defs slot until then.
 		named[s.ID+"_output"] = schema.Object()
 	}
+}
+
+// collectResults types what each action hands back, ONCE. Every scope that shows `self.result`,
+// the switch's availability rule and `TaskSchemas.Result` read it from here: the type a slot
+// reports and the type the checker checked against cannot be two computations that agree today.
+func collectResults(tasks []*model.Task, out map[string]TaskSchemas, defs schema.Defs) error {
+	for _, s := range tasks {
+		ts, described := out[s.ID]
+		if !described && s.Action == nil {
+			continue // a routing task describes nothing: no action to type, no output to export
+		}
+		res, typed, err := actionResultType(s, defs)
+		if err != nil {
+			return err
+		}
+		if !typed && !described {
+			continue // an untyped result is not a schema, so it puts nothing in the map
+		}
+		if ts.ActionType == "" && s.Action != nil {
+			ts.ActionType = s.Action.Type
+		}
+		ts.Result, ts.resultTyped = res, typed
+		out[s.ID] = ts
+	}
+	return nil
 }
 
 func collectTaskRefs(tasks []*model.Task, out map[string]TaskSchemas) {

@@ -139,14 +139,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			// An untyped action result cannot be read in a case any more than it can be
 			// exported through an output, so a case that touches self.result gets the same
 			// actionable message the output slot gives.
-			untypedResult := false
-			if s.Action != nil {
-				if _, typed, err := actionResultType(s, defs); err != nil {
-					return fmt.Errorf("task %q: %w", s.ID, err)
-				} else {
-					untypedResult = !typed
-				}
-			}
+			untypedResult := s.Action != nil && !taskSchemas[s.ID].resultTyped
 			for _, c := range s.Switch {
 				if c.Case == "" {
 					continue
@@ -688,11 +681,7 @@ func taskLoops(s *model.Task, required, optional map[string][]string) bool {
 // result_schema ⇒ no self.result at all — undeclared data is never accessible),
 // self.output only when the task projects one, self.previous only when it loops. The
 // latter two resolve through $defs[<id>_output].
-func addSelfSchema(ctx schema.Schema, s *model.Task, loops bool, defs schema.Defs) (schema.Schema, error) {
-	resultType, typed, err := actionResultType(s, defs)
-	if err != nil {
-		return schema.Schema{}, err
-	}
+func addSelfSchema(ctx schema.Schema, s *model.Task, loops bool, resultType schema.Schema, typed bool) schema.Schema {
 	self := schema.Object()
 	if typed {
 		self = self.WithProperty("result", resultType, true)
@@ -704,7 +693,7 @@ func addSelfSchema(ctx schema.Schema, s *model.Task, loops bool, defs schema.Def
 			self = self.WithProperty("previous", schema.Ref(s.ID+"_output"), false)
 		}
 	}
-	return ctx.WithProperty("self", self, true), nil
+	return ctx.WithProperty("self", self, true)
 }
 
 // actionResultType types self.result; the bool is "typed" — true for delay/no-action

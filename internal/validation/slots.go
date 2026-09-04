@@ -98,7 +98,11 @@ func TypeSlots(def *model.ProcessDefinition) (map[string]schema.Schema, error) {
 	}
 	for id, ts := range sf.Tasks {
 		put(taskSlot(id, slotInput), ts.Input)
-		put(taskSlot(id, slotResult), ts.Result)
+		// A routing task's result is `null` — what `self.result` reads there — and that is a
+		// fact about the scope, not a contract a caller generates from.
+		if ts.ActionType != "" {
+			put(taskSlot(id, slotResult), ts.Result)
+		}
 		put(taskSlot(id, slotOutput), ts.Output)
 		put(taskSlot(id, slotLastErr), ts.Error)
 	}

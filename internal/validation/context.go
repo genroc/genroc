@@ -77,11 +77,8 @@ func (sc taskScopes) action(t *model.Task) schema.Schema {
 // whether the result is typed at all — an untyped one is absent rather than unknown, so a
 // reference to it can be reported as the rule it breaks.
 func (sc taskScopes) outputMap(t *model.Task) (schema.Schema, bool, error) {
-	resultType, typed, err := actionResultType(t, sc.defs)
-	if err != nil {
-		return schema.Schema{}, false, err
-	}
-	return outputMapContext(sc.base(t), resultType, typed, t.ID, sc.loops(t), t.Action).WithDefs(sc.defs), typed, nil
+	ts := sc.tasks[t.ID]
+	return outputMapContext(sc.base(t), ts.Result, ts.resultTyped, t.ID, sc.loops(t), t.Action).WithDefs(sc.defs), ts.resultTyped, nil
 }
 
 // switchScope is the scope of every switch clause: the output map has run, so `self.output` is
@@ -91,11 +88,8 @@ func (sc taskScopes) switchScope(t *model.Task) (schema.Schema, error) {
 	if t.Action == nil && !t.Output.Present() {
 		return ctx.WithDefs(sc.defs), nil
 	}
-	withSelf, err := addSelfSchema(ctx, t, sc.loops(t), sc.defs)
-	if err != nil {
-		return schema.Schema{}, err
-	}
-	return withSelf.WithDefs(sc.defs), nil
+	ts := sc.tasks[t.ID]
+	return addSelfSchema(ctx, t, sc.loops(t), ts.Result, ts.resultTyped).WithDefs(sc.defs), nil
 }
 
 // processOutput is the scope of the process-level `output` expression: the join over terminal
