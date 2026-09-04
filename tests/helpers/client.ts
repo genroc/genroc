@@ -96,7 +96,17 @@ export async function waitForInstance(
       return status!;
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error(`instance ${id} did not complete within ${timeoutMs}ms`);
+  // The state at the deadline, in the message: a timeout says only that the instance did not
+  // settle, and the three answers to WHY are distinguishable from the row. `wait_state:external`
+  // means an answer never un-parked it; a moving `updated_at` means the engine is advancing it
+  // and something else is slow; a still one means it was never claimed.
+  const { data } = await apiClient.GET("/instances/{id}/detail", { params: { path: { id } } });
+  const at = data as { status?: string; wait_state?: string; task?: string; updated_at?: string };
+  throw new Error(
+    `instance ${id} did not complete within ${timeoutMs}ms ` +
+      `(status ${at?.status ?? "?"}, wait_state ${at?.wait_state || "-"}, ` +
+      `task ${at?.task ?? "?"}, updated_at ${at?.updated_at ?? "?"})`,
+  );
 }
 
 // Trigger one engine poll cycle. Returns the number of instances processed.
