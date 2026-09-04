@@ -51,7 +51,7 @@ function defFile(body = DEF): string {
 }
 
 function typeAt(path: string, address?: string) {
-  const args = ["schema", "type", "pricing", ...(address ? [address] : []), "-f", path];
+  const args = ["schema", "type", "pricing", ...(address ? [address, "--json"] : []), "-f", path];
   return runCli(bin, args, OFFLINE);
 }
 
@@ -162,7 +162,7 @@ test("schema type — an address the other view answers names that view", () => 
   // The reverse, from the other side.
   const inContext = runCli(
     bin,
-    ["schema", "context", "pricing", "tasks.price.result", "-f", path],
+    ["schema", "context", "pricing", "tasks.price.result", "--json", "-f", path],
     OFFLINE,
   );
   expect(inContext.ok).toBe(false);
@@ -182,7 +182,7 @@ test("schema type -e — an expression is typed against the selected schema", ()
 
   const expr = runCli(
     bin,
-    ["schema", "type", "pricing", "tasks.price.result", "-e", 'fee > 0', "-f", path],
+    ["schema", "type", "pricing", "tasks.price.result", "-e", "fee > 0", "--json", "-f", path],
     OFFLINE,
   );
   expect(expr.ok, expr.stderr).toBe(true);
@@ -200,7 +200,8 @@ test("schema type and schema context answer about the same slot", () => {
 
   const produced = JSON.parse(typeAt(path, "tasks.price.output").stdout);
   const context = JSON.parse(
-    runCli(bin, ["schema", "context", "pricing", "tasks.price.output", "-f", path], OFFLINE).stdout,
+    runCli(bin, ["schema", "context", "pricing", "tasks.price.output", "--json", "-f", path], OFFLINE)
+      .stdout,
   );
 
   // What the output map PRODUCES. An inferred output is a $ref into the pool that travels with

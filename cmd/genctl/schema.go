@@ -6,6 +6,7 @@ package main
 // string it is. specs/schema-command.md.
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"genroc/internal/model"
 	"genroc/internal/schema"
@@ -58,7 +61,7 @@ var contextView = schemaView{
 	render:   printInScope,
 	exprHelp: "type this expression against the schema the address selected, bare: self.result.fee",
 	example:  "tasks.price.output",
-	jsonHelp: "print the schemas rather than a summary of what is in scope",
+	jsonHelp: "print JSON: the documents rather than a summary of what is in scope, and a schema as JSON rather than YAML",
 }
 
 var typeView = schemaView{
@@ -68,7 +71,7 @@ var typeView = schemaView{
 	render:   printTypes,
 	exprHelp: "type this expression against the schema the address selected, bare: items[0].sku",
 	example:  "tasks.price.result",
-	jsonHelp: "print the schemas rather than a summary of what each is",
+	jsonHelp: "print JSON: the documents rather than a summary of what each is, and a schema as JSON rather than YAML",
 }
 
 // runSchemaViewCmd is both subcommands: an address answers with one document, no address lists
@@ -115,7 +118,7 @@ func runSchemaViewCmd(v schemaView, args []string) {
 			}
 			s = inferExpr(s, *expr)
 		}
-		printJSON(selfContained(schemaDoc(s)))
+		printDoc(*asJSON, selfContained(schemaDoc(s)))
 		return
 	}
 
@@ -441,10 +444,124 @@ func requiredSet(s schema.Schema) map[string]bool {
 	return out
 }
 
+// A schema reads in a fixed order — what it IS, then what it holds, then the pool it resolves
+// against — which neither encoding/json nor yaml.v3 will do for a map: both sort keys, so
+// `properties` lands before `type` and `$defs` before either. The order below is the order the
+// keywords are usually read in; anything unrecognised follows, sorted, so a new keyword shows up
+// rather than disappearing.
+var keywordOrder = []string{
+	"description", "$ref", "type", "oneOf", "anyOf", "allOf", "enum", "default",
+	"properties", "required", "additionalProperties", "items",
+	"minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems",
+	"secret", "$anchor", "$id", "$defs",
+}
+
+// pair is one key and its value, in the order it is printed.
+type pair struct {
+	key string
+	val any
+}
+
+// document is an ordered object, and the only reason it exists is that both encoders sort.
+type document []pair
+
+func (d document) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	b.WriteByte('{')
+	for i, p := range d {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		key, err := json.Marshal(p.key)
+		if err != nil {
+			return nil, err
+		}
+		val, err := json.Marshal(p.val)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(key)
+		b.WriteByte(':')
+		b.Write(val)
+	}
+	b.WriteByte('}')
+	return b.Bytes(), nil
+}
+
+func (d document) MarshalYAML() (any, error) {
+	out := &yaml.Node{Kind: yaml.MappingNode}
+	for _, p := range d {
+		key, val := &yaml.Node{}, &yaml.Node{}
+		if err := key.Encode(p.key); err != nil {
+			return nil, err
+		}
+		if err := val.Encode(p.val); err != nil {
+			return nil, err
+		}
+		out.Content = append(out.Content, key, val)
+	}
+	return out, nil
+}
+
+// ordered rebuilds a decoded document with its keys in reading order, recursively. A map whose
+// keys are not keywords — `properties`, `$defs`, an address listing — keeps them sorted, which
+// is the order they are looked up in.
+func ordered(v any) any {
+	switch node := v.(type) {
+	case map[string]any:
+		out := make(document, 0, len(node))
+		seen := make(map[string]bool, len(node))
+		for _, key := range keywordOrder {
+			if val, ok := node[key]; ok {
+				out = append(out, pair{key, ordered(val)})
+				seen[key] = true
+			}
+		}
+		for _, key := range slices.Sorted(maps.Keys(node)) {
+			if !seen[key] {
+				out = append(out, pair{key, ordered(val(node, key))})
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, len(node))
+		for i, item := range node {
+			out[i] = ordered(item)
+		}
+		return out
+	}
+	return v
+}
+
+func val(m map[string]any, key string) any { return m[key] }
+
+// printDoc: a schema is YAML unless JSON was asked for. stdout still carries the document and
+// nothing else — the choice is which surface syntax, not whether to decorate it.
+func printDoc(asJSON bool, v any) {
+	if asJSON {
+		printJSON(v)
+		return
+	}
+	printYAML(v)
+}
+
 func printJSON(v any) {
-	b, err := json.MarshalIndent(v, "", "  ")
+	b, err := json.MarshalIndent(ordered(v), "", "  ")
 	if err != nil {
 		fatal("render: %v", err)
 	}
 	fmt.Println(string(b))
+}
+
+// printYAML is the default for a schema: it is the language definitions are written in, so an
+// answer can be pasted into one, and it spends no lines on punctuation.
+func printYAML(v any) {
+	var b bytes.Buffer
+	enc := yaml.NewEncoder(&b)
+	enc.SetIndent(2)
+	if err := enc.Encode(ordered(v)); err != nil {
+		fatal("render: %v", err)
+	}
+	enc.Close()
+	fmt.Print(b.String())
 }

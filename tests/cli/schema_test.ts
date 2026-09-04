@@ -1,6 +1,7 @@
 import { mkdtempSync, writeFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { load } from "js-yaml";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 
@@ -55,7 +56,9 @@ function defFile(body = DEF): string {
 
 /** The command's stdout as JSON — the document, with the resolved-phase note left on stderr. */
 function schemaOf(path: string, address?: string) {
-  const args = ["schema", "context", "pricing", ...(address ? [address] : []), "-f", path];
+  // --json for the machine form: the tests assert on documents, and the YAML default has
+  // its own test below.
+  const args = ["schema", "context", "pricing", ...(address ? [address, "--json"] : []), "-f", path];
   const r = runCli(bin, args, OFFLINE);
   expect(r.ok, `${r.stdout}${r.stderr}`).toBe(true);
   return { doc: JSON.parse(r.stdout), stderr: r.stderr };
@@ -198,18 +201,40 @@ test("schema context -e — an expression is rooted where the address stopped", 
 
   const fromSlot = runCli(
     bin,
-    ["schema", "context", "pricing", "tasks.price.output", "-e", "self.result.fee", "-f", path],
+    ["schema", "context", "pricing", "tasks.price.output", "-e", "self.result.fee", "--json", "-f", path], // eslint-disable-line
     OFFLINE,
   );
   const fromInside = runCli(
     bin,
-    ["schema", "context", "pricing", "tasks.price.output.self", "-e", "result.fee", "-f", path],
+    ["schema", "context", "pricing", "tasks.price.output.self", "-e", "result.fee", "--json", "-f", path], // eslint-disable-line
     OFFLINE,
   );
   expect(fromSlot.ok, fromSlot.stderr).toBe(true);
   expect(fromInside.ok, fromInside.stderr).toBe(true);
   expect(JSON.parse(fromInside.stdout)).toEqual(JSON.parse(fromSlot.stdout));
   expect(JSON.parse(fromSlot.stdout)).toEqual({ type: "number" });
+});
+
+// A schema prints as YAML unless JSON is asked for: it is the language definitions are written
+// in, so an answer can be pasted into one, and the keys come out in the order they are read —
+// what it IS before what it holds, with the pool last. Both forms are the same document.
+test("schema context — a document is YAML by default, and JSON on request", () => {
+  const path = defFile();
+  const args = ["schema", "context", "pricing", "tasks.price.output", "-f", path];
+
+  const asYAML = runCli(bin, args, OFFLINE);
+  const asJSON = runCli(bin, [...args, "--json"], OFFLINE);
+  expect(asYAML.ok, asYAML.stderr).toBe(true);
+  expect(asJSON.ok, asJSON.stderr).toBe(true);
+
+  expect(load(asYAML.stdout), "the two surfaces carry one document").toEqual(
+    JSON.parse(asJSON.stdout),
+  );
+
+  // Reading order, not alphabetical: `type` before `properties`, and the pool it resolves
+  // against after both.
+  const keys = asYAML.stdout.split("\n").filter((l) => /^\S/.test(l)).map((l) => l.split(":")[0]);
+  expect(keys).toEqual(["type", "properties", "required", "$defs"]);
 });
 
 test("schema context --json — the listing is the same addresses, as documents over one pool", () => {
@@ -352,7 +377,7 @@ test("schema context — an id no identifier can spell is addressed, and printed
 test("schema context — a dotted id names the task it splits into, and the error says so", () => {
   const path = defFile(WEIRD);
   const at = (address: string) =>
-    runCli(bin, ["schema", "context", "pricing", address, "-f", path], OFFLINE);
+    runCli(bin, ["schema", "context", "pricing", address, "--json", "-f", path], OFFLINE);
 
   const dotted = at("tasks.step.one.output");
   expect(dotted.ok, "`tasks.step.one` names the task `step`, which does not exist").toBe(false);
@@ -370,7 +395,7 @@ test("schema context — a dotted id names the task it splits into, and the erro
 
 /** `-e` at a slot: the raw run, so a refusal can be read the same way as an answer. */
 function typeOf(path: string, address: string, expr: string) {
-  return runCli(bin, ["schema", "context", "pricing", address, "-e", expr, "-f", path], OFFLINE);
+  return runCli(bin, ["schema", "context", "pricing", address, "-e", expr, "--json", "-f", path], OFFLINE);
 }
 
 test("schema context -e — types one expression, and the slot is what decides", () => {

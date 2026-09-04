@@ -89,7 +89,7 @@ function resolve(node: unknown, defs: Record<string, unknown>): unknown {
 }
 
 function schemaAt(path: string, address: string, expr?: string) {
-  const args = ["schema", "context", "probe", address, ...(expr ? ["-e", expr] : []), "-f", path];
+  const args = ["schema", "context", "probe", address, ...(expr ? ["-e", expr] : []), "--json", "-f", path];
   const r = runCli(bin, args, OFFLINE);
   expect(r.ok, `${args.join(" ")}: ${r.stdout}${r.stderr}`).toBe(true);
   const doc = JSON.parse(r.stdout);
@@ -188,7 +188,7 @@ function bothViewsFile(): string {
 }
 
 function view(kind: "type" | "context", path: string, address: string, expr?: string) {
-  const args = ["schema", kind, "probe", address, ...(expr ? ["-e", expr] : []), "-f", path];
+  const args = ["schema", kind, "probe", address, ...(expr ? ["-e", expr] : []), "--json", "-f", path];
   const r = runCli(bin, args, OFFLINE);
   expect(r.ok, `${args.join(" ")}: ${r.stdout}${r.stderr}`).toBe(true);
   const doc = JSON.parse(r.stdout);

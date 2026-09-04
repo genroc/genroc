@@ -178,8 +178,14 @@ is not what an expression can read. specs/compat-command.md §2a.
 ## 4. Output
 
 **stdout is the schema and nothing else**, so a piece of a definition pipes into a generator
-without a `jq` in between. The resolved phase and canonical address are human-mode output or
-stderr; they never land in the document.
+without a `jq` in between. Diagnostics go to stderr; they never land in the document.
+
+**A schema prints as YAML, and as JSON with `--json`.** YAML is the language definitions are
+written in, so an answer can be pasted into one, and it spends no lines on punctuation. Either
+way the keys come out in **reading order** — `description`, `$ref`, `type`, the composition
+keywords, `properties`, `required`, `items`, the constraints, and `$defs` last — because both
+encoders sort a map, which puts `properties` before `type` and the pool before either. An
+unrecognised keyword follows, sorted, so a new one shows up rather than disappearing.
 
 The document is **self-contained**: the reachable subset of `$defs`, with `$ref`s rewritten
 against the returned root. Inlining is not the alternative — a task output may reference
