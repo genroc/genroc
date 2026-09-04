@@ -13,7 +13,7 @@ tasks:
     output: { ok: true,  reason: "" }
     switch: end
   - id: unsendable                # the error branch → ends
-    output: { ok: false, reason: "$: error.code" }
+    output: { ok: false, reason: "$: last_error.code" }
     switch: end
 
 output:

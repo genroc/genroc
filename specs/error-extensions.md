@@ -236,7 +236,7 @@ An instance holds at most two errors and they are stored apart:
 
 | | storage | is | read by |
 |---|---|---|---|
-| **inbound** | `error_internal` (context slot `error`) | the error it CAUGHT | its own expressions, on tasks where the layer admits it |
+| **inbound** | `error_internal` (context slot `last_error`) | the failure that ROUTED it to the task it sits on | its own expressions, on tasks where the layer admits it |
 | **outbound** | `error_code`, `error_message`, `error_data` | the error it CONCLUDED with | its parent, where the call declares the code in `raises`; an operator |
 
 Both are whole errors: a clause authors `code`, `message` and `data`, so the outbound one is
@@ -249,8 +249,8 @@ cut, because only the payload is arbitrarily large; the other two are short scal
 to be columns anyway. `error_data` is ABSENT rather than null where the clause carried none,
 and that absence is what tells a parent's collect there is nothing to conform.
 
-The resemblance between the two is the trap. On a task reached through `on_error`, `error` is
-that task's INPUT — part of the state a layer describes and an upgrade validates against — so
+The resemblance between the two is the trap. On a task reached through `on_error`, `last_error`
+is that task's INPUT — part of the state a layer describes and an upgrade validates against — so
 a concluding fault editing it leaves an instance holding a context no layer admits.
 
 That is not hypothetical. A `panic` carrying no `data` used to CLEAR `error.data`, so a
@@ -263,9 +263,9 @@ the difference, because a parent reads the reported one through `raises` either 
 `error_data` is completion-only for the same reason `output_data` is, so the mid-process
 checkpoint does not write it, and `RetryProcess` clears it — a revived instance reports no
 error. Its context key keeps an underscore: nothing an author writes reads it, since the
-instance has concluded by the time it exists, and `error` is the name authors already use for
-the inbound one in `on_error` and `${error.data.name}`. Reusing that name for the outbound
-direction would invert an existing meaning silently.
+instance has concluded by the time it exists, and `error` and `last_error` are the names authors
+already use for the inbound direction. Reusing either for the outbound one would invert an
+existing meaning silently.
 
 **The wire keeps the columns apart too.** Both endpoints return `error_code` and
 `error_message` under those names, and the single-instance one adds `error_data`; a list row
@@ -275,8 +275,8 @@ and one name means one type at every endpoint. An earlier shape returned an `err
 from the single-instance endpoint while the list returned an `error` STRING, which is two
 types for one name and the reason this is written down.
 
-The caught error is not a field at either endpoint — it stays inside `context` under `error`,
-where the definition reads it.
+The inbound error is not a field at either endpoint — it stays inside `context` under
+`last_error`, where the definition reads it.
 
 Its motivating case is the one X2-a always had. `script.yaml` panics `script_broken` with
 `message: "the script is broken (${error.data.kind}) - ${error.data.message}"` and drops

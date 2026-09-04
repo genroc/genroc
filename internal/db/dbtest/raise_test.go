@@ -135,7 +135,7 @@ func TestRetryProcess_ClearsErrorCodeAndErrorData(t *testing.T) {
 				ProcessVersion: 1,
 				Task:           "step1",
 				State: map[string]any{
-					"error": map[string]any{"task": "step1", "code": "http.500", "message": "boom"},
+					model.StateLastError: map[string]any{"task": "step1", "code": "http.500", "message": "boom"},
 				},
 				Status:       model.StatusFailed,
 				ErrorMessage: "task \"step1\": http.500: boom",
@@ -159,11 +159,11 @@ func TestRetryProcess_ClearsErrorCodeAndErrorData(t *testing.T) {
 			if revived.ErrorMessage != "" {
 				t.Errorf("error should be cleared, got %q", revived.ErrorMessage)
 			}
-			// The CAUGHT error is kept: it is this instance's state at the task it stopped on
-			// (migration 034), and a revived node can stand on a task reachable only through
-			// on_error, where mustErr/mayErr promises an `error` exists.
-			if got := revived.State["error"]; got == nil {
-				t.Error("`error` should survive: clearing it hands a revived handler task a null the analysis says it can never see")
+			// The ROUTED-IN error is kept: it is this instance's state at the task it stopped
+			// on (migration 034), and a revived node can stand on a task reachable only through
+			// on_error, where mustErr/mayErr promises a `last_error` exists.
+			if got := revived.State[model.StateLastError]; got == nil {
+				t.Error("`last_error` should survive: clearing it hands a revived handler task a null the analysis says it can never see")
 			}
 		})
 	}

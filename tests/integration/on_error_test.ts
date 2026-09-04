@@ -83,7 +83,7 @@ test("on_error — error context available in recovery task input", async () => 
           action: {
             type: "fetch" as const,
             url: `http://localhost:${recoveryMock.port}/action`,
-            body: { error_code: "$: error.code" },
+            body: { error_code: "$: last_error.code" },
             responses: { 200: {
               type: "object",
               properties: { done: { type: "boolean" } },

@@ -35,7 +35,7 @@ apply:
 # which is what `_external` appearing between them says.
 start: {process: parkedproc, input: {n: 3}}
 at:
-  - {ticks: 0, resting: {task: hold, wait_state: ""},         after: {wait_state: "", state_keys: [error, input, outputs]}}
-  - {ticks: 1, resting: {task: hold, wait_state: external},   after: {wait_state: external, state_keys: [_external, error, input, outputs]}}
+  - {ticks: 0, resting: {task: hold, wait_state: ""},         after: {wait_state: "", state_keys: [input, last_error, outputs]}}
+  - {ticks: 1, resting: {task: hold, wait_state: external},   after: {wait_state: external, state_keys: [_external, input, last_error, outputs]}}
 after: {task: hold, status: running, version: 2}
 run: [parkedproc, --from, "1", --to, "2"]

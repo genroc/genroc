@@ -1,7 +1,7 @@
 # Task scopes
 
-**Status: implemented, except §"The error axis" — PROPOSED 2026-09-04.** Which names a task's
-expressions may use, and what each one holds.
+**Status: implemented**, the error axis since 2026-09-04. Which names a task's expressions may
+use, and what each one holds.
 
 A task's slots are not evaluated at one moment. The action's slots are built first, the action
 answers, the output map runs, the switch routes. `self` names the task itself, and its members
@@ -36,14 +36,14 @@ A process-level `output` is not a task slot and has no `self` at all.
 
 ## The error axis: `error` and `last_error`
 
-**PROPOSED 2026-09-04.** Today `error` names two different failures depending on which line it
-sits on. Inside an `on_error` rule it is the error that rule **caught**; anywhere else in a task
+**BUILT 2026-09-04.** `error` used to name two different failures depending on which line it
+sat on. Inside an `on_error` rule it is the error that rule **caught**; anywhere else in a task
 it is the error that **routed control here** from some other task's `on_error`. Both are useful
 and both are needed; sharing one name is what makes them impossible to tell apart.
 
 | name | is | in scope |
 |---|---|---|
-| `error` | the failure the rule at hand caught | inside an `on_error` rule only |
+| `error` | the failure the rule at hand caught | inside an `on_error` rule — `case`, `retry`, `raise`, `panic` |
 | `last_error` | the failure that routed control into this task | every slot of a task an error edge enters |
 
 The name is `last_error` and not `prev_error` because `previous` is already spoken for by
@@ -60,20 +60,26 @@ duplicate what the audit trail already records.
 
 ### What it dissolves
 
-`retry.*` currently reads the routed-in error while `case` / `raise` / `panic` two lines above it
-read the caught one — the same word, two failures, and no way to see which. Under the split that
-is not a defect to fix but a distinction to spell: `retry.*` reads `last_error` like every other
-action-phase slot, and `error` is simply not in its scope. **No engine change** — the rename is
-the whole of it.
+`retry.*` used to read the routed-in error while `case` / `raise` / `panic` two lines above it
+read the caught one — the same word, two failures, and no way to see which. Now all four read
+`error`, the failure the rule caught: **a policy is measured against the failure it is
+retrying**, which is what a `case` two lines above already does.
 
-That is [retry-policy.md](retry-policy.md)'s decision, not a new one: a policy answers "how long
-do we wait for this dependency", a property of the deployment rather than of the individual
-failure. What that doc could not say, while one name covered both, is that a retry slot on a
-routed task can read *an* error — just never the one being retried. `last_error` is what makes
-that sentence writable.
+[retry-policy.md](retry-policy.md) recorded the opposite — that a policy answers "how long do we
+wait for this dependency", a property of the deployment rather than of the individual failure.
+That sentence and the placement that produced it landed in one commit (`70dca11`), and nothing
+else argued for it: the engine resolved the policy before the failure was written, so the
+restriction was what the code did, described. A body that says when to come back is the obvious
+case against it.
 
 The shape that falls out: **the persisted slot is only ever written for the next task; what a
 rule reads is bound for the rule and nothing else.**
+
+That makes the write's ORDER load-bearing, which it never was while one name covered both.
+`last_error` must not be overwritten until the rule has been evaluated — otherwise a rule
+naming both reads the same failure twice. So the engine binds `error` for the clause and defers
+the write past it (`error.go`, `collect.go`); a granted retry still returns before either,
+leaving nothing behind.
 
 ### What it costs
 

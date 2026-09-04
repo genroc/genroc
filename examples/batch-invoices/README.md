@@ -82,9 +82,9 @@ A rule of thumb: **raise only when the remaining siblings are pointless.**
 ```yaml
 - id: halted
   output:
-    halted_at: "$: error.child_index"   # integer, child_list.  child_key (string) for child_map
-    code: "$: error.code"
-    detail: "$: error.message"
+    halted_at: "$: last_error.child_index"   # integer, child_list.  child_key (string) for child_map
+    code: "$: last_error.code"
+    detail: "$: last_error.message"
 ```
 
 Two consequences worth knowing:

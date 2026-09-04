@@ -84,9 +84,9 @@ tasks:
   # else of the run to read here.
   - id: halted
     output:
-      halted_at: "$: error.child_index"
-      code: "$: error.code"
-      detail: "$: error.message"
+      halted_at: "$: last_error.child_index"
+      code: "$: last_error.code"
+      detail: "$: last_error.message"
     switch: end
 
 output:

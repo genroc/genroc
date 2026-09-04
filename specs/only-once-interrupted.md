@@ -47,7 +47,7 @@ router, ignoring the pausing status: unmatched → terminal failure (a failure o
 pause); `raise`/`panic`/`goto: end` → terminal; `goto: <task>` → parks at the handler,
 **paused**, and runs it on resume — no new Go branch, because the routed checkpoint
 writes status `running` and the `UpdateInstance` CASE lands the pause (the "pause lands
-in SQL" invariant, applied to a path that used to opt out). `error` survives the wait
+in SQL" invariant, applied to a path that used to opt out). `last_error` survives the wait
 as ordinary persisted context. `settlePausing` keeps only its original job, and a
 non-`only_once` interrupted task still just parks and re-runs on resume.
 

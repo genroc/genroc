@@ -109,10 +109,14 @@ Three consequences, each of which is a way this goes silently wrong:
   unknown at registration and the conservative reading is the one that keeps the tiers in
   force; the runtime half (`isRetryAllowed`) gates by code regardless.
 
-A retry expression is evaluated *before* `error` is written to the context, so it cannot
-read the error it is retrying — only `input`, `outputs`, and `config`. This is not a
-restriction anyone asked to lift: the policy answers "how long do we wait for this
-dependency", which is a property of the deployment, not of the individual failure.
+A retry expression reads **`error`** — the failure it is retrying — beside `input`, `outputs`
+and `config`, in the same scope the rule's `case` is matched in. It did not, until 2026-09-04:
+the engine resolved the policy before the failure was written to the context, and this
+paragraph recorded that as a design ("the policy is a property of the deployment, not of the
+individual failure"). Both landed in one commit, and the restriction was the placement
+described rather than a decision the placement served. A `Retry-After` in a response body —
+`delay: "$: error.data.retry_after"` — is the case it cost, and the one below still wants the
+header. specs/task-scopes.md §The error axis.
 
 ## What was deliberately left out
 

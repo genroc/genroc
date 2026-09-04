@@ -62,7 +62,7 @@ func SchemaFileContext(sf SchemaFile) schema.Schema {
 		ctx = ctx.WithProperty("output", sf.ProcessOutput, false)
 	}
 	if data := ErrorDataSchema(sf); !data.IsZero() {
-		ctx = ctx.WithProperty("error", schema.Object().WithProperty("data", data, false), false)
+		ctx = ctx.WithProperty(model.StateLastError, schema.Object().WithProperty("data", data, false), false)
 	}
 	return ctx.WithDefs(sf.Defs)
 }

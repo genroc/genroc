@@ -261,7 +261,7 @@ that rejected `false`. Runtime conform is per status and never touches the union
 damage would land where it is hardest to see — in the generated `<taskID>_output` schema a
 consumer reads, and in `IsSubset` during a compat check.
 
-**`error` is scoped to the task its rule routes to.** It used to persist on the instance
+**`last_error` is scoped to the task its rule routes to.** It used to persist on the instance
 until another failure overwrote it, so a task three hops past a handler could still read a
 failure it was never written for. Now the engine drops it on every ordinary transition, and
 inference types it only on tasks an error edge enters. A handler that wants the failure to

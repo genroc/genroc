@@ -32,7 +32,7 @@ apply:
                 goto: $classify
             switch: end
           - id: classify
-            output: {saw: '$: error.data.name'}
+            output: {saw: '$: last_error.data.name'}
             switch:
               - goto: $wait
           - id: wait
@@ -67,7 +67,7 @@ apply:
                 goto: $classify
             switch: end
           - id: classify
-            output: {saw: '$: error.data.name'}
+            output: {saw: '$: last_error.data.name'}
             switch:
               - goto: $wait
           - id: wait

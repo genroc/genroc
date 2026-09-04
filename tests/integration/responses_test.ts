@@ -50,7 +50,7 @@ function definition(name: string, port: number, responses: unknown, output?: unk
   if (output) call.output = output;
   return {
     name,
-    tasks: [call, { id: "caught", output: { code: "$: error.code" }, switch: [{ goto: "end" }] }],
+    tasks: [call, { id: "caught", output: { code: "$: last_error.code" }, switch: [{ goto: "end" }] }],
   };
 }
 
@@ -157,7 +157,7 @@ test("responses — a lone error declaration types the failure without accepting
           switch: [{ goto: "end" }],
         },
         // error.data is non-nullable here: the rule catches exactly the one declared status.
-        { id: "missing", output: { reason: "$: error.data.detail" }, switch: [{ goto: "end" }] },
+        { id: "missing", output: { reason: "$: last_error.data.detail" }, switch: [{ goto: "end" }] },
       ],
     },
   });

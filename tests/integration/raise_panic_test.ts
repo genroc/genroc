@@ -113,7 +113,7 @@ test("raise — on_error rule raises instead of routing", async () => {
   expect(data?.error_message).toBe("the issuer declined the charge");
   // The engine's own code stays visible in `error`, so the underlying cause is not lost
   // when error_code becomes the authored one.
-  expect((data?.state?.error as Record<string, unknown>)?.code).toBe(
+  expect((data?.state?.last_error as Record<string, unknown>)?.code).toBe(
     "http.402",
   );
 
@@ -215,7 +215,7 @@ test("panic — an on_error rule panics on an action task", async () => {
   expect(data?.error_code).toBe("upstream_contract_broken");
   expect(data?.error_message).toBe("the upstream returned an unusable 5xx");
   // The engine's own code stays in `error` underneath the authored one.
-  expect((data?.state?.error as Record<string, unknown>)?.code).toBe(
+  expect((data?.state?.last_error as Record<string, unknown>)?.code).toBe(
     "http.500",
   );
 

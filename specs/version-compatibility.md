@@ -16,7 +16,7 @@ lives in [internal/api/CLAUDE.md](../internal/api/CLAUDE.md), not here.
 ## 1. The gate refines the comparison with the row
 
 Same comparison, with the old side's **presence** taken from the instance: stored output
-keys required, `input`/`error` required iff non-empty, types still the old definition's
+keys required, `input`/`last_error` required iff non-empty, types still the old definition's
 inferred ones. It loads no values — presence is a map key, and big values live out of line.
 
 The assumption, stated plainly: a stored value conforms to the type the old version inferred.

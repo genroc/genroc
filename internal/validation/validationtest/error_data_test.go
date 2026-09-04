@@ -23,7 +23,7 @@ func TestGenerate_ErrorData_TypedByTheRuleThatCaughtIt(t *testing.T) {
 	out := runGenerate(t, errDataDef(
 		`{"200":{"type":"object"},"404":`+problemSchema+`}`,
 		`["http.404"]`,
-		`{"d":"$: error.data.detail"}`,
+		`{"d":"$: last_error.data.detail"}`,
 	))
 	handler, ok := out.Defs.Get("handler_output")
 	if !ok {
@@ -34,7 +34,7 @@ func TestGenerate_ErrorData_TypedByTheRuleThatCaughtIt(t *testing.T) {
 
 // Widening the rule widens the type. The union is computed from the on_error patterns, not
 // from the responses map, so the moment a pattern can also catch a status nobody described —
-// or a code that carries no body at all — error.data admits null. That is the narrowing
+// or a code that carries no body at all — last_error.data admits null. That is the narrowing
 // story the design rests on: done by the rules, with no discriminated-union machinery.
 func TestGenerate_ErrorData_WidensWithTheRule(t *testing.T) {
 	problem := `{"type":"object","properties":{"detail":{"type":"string"}},"required":["detail"]}`
@@ -59,7 +59,7 @@ func TestGenerate_ErrorData_WidensWithTheRule(t *testing.T) {
 			out := runGenerate(t, errDataDef(
 				`{"200":{"type":"object"},"404":`+problem+`}`,
 				tc.codes,
-				`{"d":"$: error.data"}`,
+				`{"d":"$: last_error.data"}`,
 			))
 			handler, ok := out.Defs.Get("handler_output")
 			if !ok {
@@ -71,48 +71,48 @@ func TestGenerate_ErrorData_WidensWithTheRule(t *testing.T) {
 	}
 }
 
-// A task no error edge reaches has no `error` at all, so error.data is not merely null there
+// A task no error edge reaches has no `last_error` at all, so last_error.data is not merely null there
 // — it does not exist, and reading it is the same "not in schema" error every undeclared
 // value gets.
 func TestGenerate_ErrorData_AbsentWhereNoRuleReaches(t *testing.T) {
 	err := runGenerateErr(t, `{"name":"p","tasks":[
 		{"id":"call","action":{"type":"fetch","url":"http://x","responses":{"200":{"type":"object"}}},
-		 "output":{"d":"$: error.data"},"switch":"end"}
+		 "output":{"d":"$: last_error.data"},"switch":"end"}
 	]}`)
 	if err == nil {
-		t.Fatal("error.data must not exist on a task no on_error rule routes to")
+		t.Fatal("last_error.data must not exist on a task no on_error rule routes to")
 	}
 }
 
-// A fetch that declares no error status leaves error.data absent even at a handler its rules
+// A fetch that declares no error status leaves last_error.data absent even at a handler its rules
 // reach: undeclared data is never accessible, and a body nobody described is undeclared.
 func TestGenerate_ErrorData_AbsentWithoutAnErrorDeclaration(t *testing.T) {
 	err := runGenerateErr(t, errDataDef(
 		`{"200":{"type":"object"}}`,
 		`["http.404"]`,
-		`{"d":"$: error.data"}`,
+		`{"d":"$: last_error.data"}`,
 	))
 	if err == nil {
-		t.Fatal("error.data must be absent when no reaching rule declares a body")
+		t.Fatal("last_error.data must be absent when no reaching rule declares a body")
 	}
 	if !strings.Contains(err.Error(), "data") {
 		t.Errorf("the error should name the slot that is missing, got: %v", err)
 	}
 }
 
-// `error` is scoped to the task its rule routes to. A task reached from the handler by an
-// ordinary transition is not an error handler, so `error` does not exist there at all — the
+// `last_error` is scoped to the task its rule routes to. A task reached from the handler by an
+// ordinary transition is not an error handler, so `last_error` does not exist there at all — the
 // engine drops it on that transition, and typing it would promise a value the context no
 // longer holds. A handler that wants the failure to travel projects it into its output.
 func TestGenerate_ErrorScope_EndsAtTheHandler(t *testing.T) {
 	err := runGenerateErr(t, `{"name":"p","tasks":[
 		{"id":"call","action":{"type":"fetch","url":"http://x","responses":{"200":{"type":"object"}}},
 		 "on_error":[{"code":["http.%"],"goto":"$handler"}],"switch":"next"},
-		{"id":"handler","output":{"c":"$: error.code"},"switch":"next"},
-		{"id":"after","output":{"c":"$: error.code"},"switch":"end"}
+		{"id":"handler","output":{"c":"$: last_error.code"},"switch":"next"},
+		{"id":"after","output":{"c":"$: last_error.code"},"switch":"end"}
 	]}`)
 	if err == nil {
-		t.Fatal("error.code must not resolve one transition past the handler")
+		t.Fatal("last_error.code must not resolve one transition past the handler")
 	}
 	if !strings.Contains(err.Error(), "after") {
 		t.Fatalf("the failure should name the downstream task, not the handler: %v", err)
@@ -122,7 +122,7 @@ func TestGenerate_ErrorScope_EndsAtTheHandler(t *testing.T) {
 	if err := runGenerateErr(t, `{"name":"p","tasks":[
 		{"id":"call","action":{"type":"fetch","url":"http://x","responses":{"200":{"type":"object"}}},
 		 "on_error":[{"code":["http.%"],"goto":"$handler"}],"switch":"next"},
-		{"id":"handler","output":{"c":"$: error.code"},"switch":"next"},
+		{"id":"handler","output":{"c":"$: last_error.code"},"switch":"next"},
 		{"id":"after","output":{"c":"$: outputs.handler.c"},"switch":"end"}
 	]}`); err != nil {
 		t.Errorf("projecting the failure into an output must carry it forward: %v", err)

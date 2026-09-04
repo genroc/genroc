@@ -52,7 +52,7 @@ its consumers include parents outside the bundle.
 
 ### 2a. What is compared
 
-Persisted state is `input`, `outputs.<id>` and `error`; `config` is stripped, being
+Persisted state is `input`, `outputs.<id>` and `last_error`; `config` is stripped, being
 re-resolved every tick. `contextSchema` folds the must/may dataflow into one object per task,
 so the check at a task is `ctxOld(T) ⊆ ctxNew(T)`.
 
@@ -101,7 +101,7 @@ is filed **upgrade-only** — what a call accepts back on the error channel is n
 its own callers, since registration already refuses a declaration the callee could overflow.
 It was reported for a while as a slot that had merely CHANGED, which read as `compatible`
 while naming the slot that was not; a `child` call escaped that only because its handler task
-reads `error.data`, so the layer comparison caught the narrowing indirectly and coverage
+reads `last_error.data`, so the layer comparison caught the narrowing indirectly and coverage
 depended on a handler happening to exist.
 
 **A parked parent is holding a child instance, and the result schema is the whole check —

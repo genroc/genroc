@@ -160,9 +160,9 @@ its reach. Deciding at the rule leaves the instance on the task that failed, whi
 permanent by observation, which works but spends attempts on failures already known to be
 permanent.
 
-**The prefilter is what makes the predicate worth writing.** At a routed task `error` is the
-union over every rule that routes there, so `error.data` is whatever any of them could carry.
-Inside a rule naming `code: ["x"]` it is exactly `raises.x` — one declared shape. The case is
+**The prefilter is what makes the predicate worth writing.** At a routed task `last_error` is
+the union over every rule that routes there, so its `data` is whatever any of them could carry.
+Inside a rule naming `code: ["x"]`, `error` is exactly `raises.x` — one declared shape. The case is
 therefore *better* typed than the handler it replaces, and needs no new inference: the union
 across a rule's patterns is already computed for the routed task, applied one step earlier.
 A rule naming a code the call never declared under `raises` has no readable `error.data`, and
@@ -181,10 +181,10 @@ Five things the design has to say:
   is dynamic — so this is the hazard the feature buys, and an unmatched raise still degrades
   to a defect (§5.2).
 - **The error is bound, not written.** The case evaluates in the scope the routed task would
-  see — the process context plus `error`, no `self`, since the task produced no result. The
-  payload conform runs first (it can replace the code, which decides the rule), but nothing is
-  persisted: a rule that does not match leaves no trace, and since §5.5 a retrying parent
-  writes no `error` at all.
+  see, plus `error` — the failure this rule caught — and no `self`, since the task produced no
+  result. The payload conform runs first (it can replace the code, which decides the rule), but
+  nothing is persisted: a rule that does not match leaves no trace, and since §5.5 a retrying
+  parent writes no `last_error` at all.
 - **A failed evaluation fails the instance.** It is type-checked at registration, so a runtime
   failure means that guarantee did not hold — `engine.expression`, not a silent non-match.
   Same reading as fault `data`: a contract, not prose.
@@ -226,12 +226,12 @@ E := raised children in slot order
 E = ∅        → collect outputs, continue          (happy path)
 otherwise    → admit retries (§5.5)
                any slot re-spawned → park on 'waiting'; no error, no route
-               else f := E[0]; write `error` from f (§5.3); match f's rule:
+               else f := E[0]; write `last_error` from f (§5.3); match f's rule:
                     nil or verb-less → fail P   ·  goto:end → complete P
                     raise/panic      → as §5.1  ·  goto:$id → P.task := id
 ```
 
-**`error` is written only when the batch is done retrying** — a parent on a backoff carries
+**`last_error` is written only when the batch is done retrying** — a parent on a backoff carries
 none, matching the action path, where `handleCallError` returns from its retry branch before
 writing. What reaches an operator is the raise that *ended* the batch: a slot that raised and
 recovered contributes nothing, and the reported slot may differ between rounds. Only the write
@@ -247,7 +247,7 @@ with the action-task path so the two cannot drift.
 
 ### 5.3 What the routed task sees
 
-`error` = `{task, code, message, data?, child_key | child_index}`, with `data` present only
+The failure value is `{task, code, message, data?, child_key | child_index}`, with `data` present only
 where the call declared that code's shape (I6). The slot is two single-typed fields rather
 than one `string|integer`, so a handler never type-switches; exactly one is present, and both
 are optional in the schema because a plain action-task `on_error` leaves them absent. **One
@@ -486,8 +486,8 @@ the missing rule lives in a version-pinned definition retry does not re-read. §
 All four columns clear together — the three reported (`error_code`, `error_message`,
 `error_data`) and the caught `error_internal`. A kept `error_code` corrupts the very column
 it exists for (a revived-then-completed instance still reports its old death); a kept
-`error_internal` survives into `error` reads. Clearing cannot break a valid definition:
-mustErr/mayErr admits an `error` read only where an error is present on every path.
+`error_internal` survives into `last_error` reads. Clearing cannot break a valid definition:
+mustErr/mayErr admits a `last_error` read only where an error is present on every path.
 
 ### 11.4 `Status.Terminal()` must include `raised` — a live bug if missed
 

@@ -1,4 +1,4 @@
-# The declaration is what makes error.data readable, so DROPPING it takes the slot away from
+# The declaration is what makes last_error.data readable, so DROPPING it takes the slot away from
 # the handler. A definition that still read it could not register at all — the read is a
 # registration error without the declaration — so the edit that reaches compat is the one that
 # drops both, and the question is whether an instance parked in the child call can continue.
@@ -25,7 +25,7 @@ apply:
                 goto: $explain
             switch: end
           - id: explain
-            output: {why: '$: error.data.why'}
+            output: {why: '$: last_error.data.why'}
             switch: end
         output: {why: '$: outputs.explain.why'}
   - channel: dropped_b
@@ -48,7 +48,7 @@ apply:
                 goto: $explain
             switch: end
           - id: explain
-            output: {why: '$: error.message'}
+            output: {why: '$: last_error.message'}
             switch: end
         output: {why: '$: outputs.explain.why'}
 run: [--from, dropped_a, --to, dropped_b]

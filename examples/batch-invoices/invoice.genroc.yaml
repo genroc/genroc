@@ -64,7 +64,7 @@ tasks:
     output:
       ok: false
       delivery_id: ""
-      reason: "$: error.code"
+      reason: "$: last_error.code"
     switch: end
 
 # Exactly one of `send` / `unsendable` ran, so each slot reads both. These infer as

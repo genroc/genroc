@@ -170,7 +170,7 @@ func TestGenerate_MixedTemplate_NullableExpressionRejected(t *testing.T) {
 	// Using it in a mixed template would silently produce "null_null" at runtime.
 	err := runGenerateErr(t, inferDef("",
 		inferTask{id: "start", fetch: true, onError: `[{"goto":"$finale"}]`, sw: inferNext},
-		inferTask{id: "finale", body: `{"msg":"${ error.code }_${ error.message }"}`, sw: inferEnd},
+		inferTask{id: "finale", body: `{"msg":"${ last_error.code }_${ last_error.message }"}`, sw: inferEnd},
 	))
 	if err == nil {
 		t.Fatal("expected error for nullable expression in mixed template, got nil")
@@ -184,7 +184,7 @@ func TestGenerate_MixedTemplate_NonNullableExpressionAccepted(t *testing.T) {
 	// error is required (exclusive error path), so using it in a mixed template is fine.
 	runGenerate(t, inferDef("",
 		inferTask{id: "worker", fetch: true, sw: inferEnd, onError: `[{"goto":"$handler"}]`},
-		inferTask{id: "handler", body: `{"msg":"${ error.code }_${ error.message }"}`, sw: inferEnd},
+		inferTask{id: "handler", body: `{"msg":"${ last_error.code }_${ last_error.message }"}`, sw: inferEnd},
 	))
 }
 

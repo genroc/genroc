@@ -123,7 +123,7 @@ test("a panic's data stays on the instance that authored it — ancestors inheri
 
 // A raise fires with whatever the rule CAUGHT still in scope, so forwarding that body is one
 // line — and a raise that says nothing carries nothing. The two slots are what keep those
-// apart: the context's `error` still holds the cause either way, and only the reported error
+// apart: the context's `last_error` still holds the cause either way, and only the reported error
 // says what the raise chose to send on.
 test("a raise forwards the caught body only when it asks to; a silent one sends nothing", async () => {
   const failing = await startMockService(0, {
@@ -199,7 +199,7 @@ test("a raise forwards the caught body only when it asks to; a silent one sends 
 
   // And the cause is not lost with it: it stays in the context, untouched, because the raise's
   // silence is about what it SENDS, not about what the instance caught.
-  const caught = quiet?.state?.error as any;
+  const caught = quiet?.state?.last_error as any;
   expect(caught?.code).toBe("http.404");
   expect(caught?.data, "the caught body stays where it was caught").toEqual({
     detail: "no such order",

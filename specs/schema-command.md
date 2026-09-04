@@ -10,10 +10,10 @@ code generator, for a client, a consumer, or a worker implementing an `external`
 
 **PROPOSAL 2026-09-04.** Three steps, in order:
 
-1. **The `error` / `last_error` split** ([task-scopes.md](task-scopes.md) §The error axis).
-   Not part of this command, and first anyway: `error` names two different failures today, so a
-   command that reports the scope at a slot would have to document the ambiguity instead of
-   answering. It also decides §3's table.
+1. **The `error` / `last_error` split** — ✅ **BUILT 2026-09-04**
+   ([task-scopes.md](task-scopes.md) §The error axis). Not part of this command, and first
+   anyway: `error` named two different failures, so a command that reports the scope at a slot
+   would have had to document the ambiguity instead of answering. It also decided §3's table.
 2. **`context`**, specced here.
 3. **`type`**, §7 — deferred behind a slot the inferred view does not carry, which is a change
    to `validation` rather than to this command.
@@ -83,10 +83,11 @@ The three `self` values are `beforeOutput` / `afterAction` / `afterOutput`, alre
 first, and is an address rather than a phase name for one reason: `error` is per rule, because
 each rule catches a different set of codes.
 
-Before step 1 there is no such table — `error` in the first three rows is the failure that routed
-into the task, in the fourth it is the one that rule caught, and `retry.*` sits in the fourth row
-reading the first row's value. Reporting that is the alternative to fixing it, which is why the
-split is step 1 and not a follow-up.
+Before step 1 there was no such table — `error` in the first three rows was the failure that
+routed into the task, in the fourth the one that rule caught, and `retry.*` sat in the fourth row
+reading the first row's value. Reporting that would have been the alternative to fixing it,
+which is why the split was step 1 and not a follow-up. `retry` now reads the fourth row like
+every other slot of a rule, so the fourth row is one context and not two.
 
 ## 4. Output
 

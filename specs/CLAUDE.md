@@ -432,9 +432,10 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   `result_schema` out of the raw YAML to fill the resolver manifest. **Step 1 is not the command
   at all**: writing it turned up `error` naming two different failures — the one an `on_error`
   rule caught, and the one that routed control into the task — with `retry.*` sitting in the
-  first and reading the second. A command reporting the scope at a slot would have to document
-  that instead of answering it, so the split lands first, as `error` / `last_error` in
-  [task-scopes.md](task-scopes.md) §The error axis.
+  first and reading the second, on a restriction that turned out to be its own implementation
+  described back (both landed in `70dca11`); a policy now reads the failure it is retrying. A command reporting the scope at a slot would have to document
+  that instead of answering it, so the split landed first — `error` / `last_error`, BUILT
+  2026-09-04, in [task-scopes.md](task-scopes.md) §The error axis.
 - [id-list-commands.md](id-list-commands.md) — **BUILT (2026-08-26).** `genctl pause`,
   `resume` and `retry` take several instance ids, iterating client-side like `upgrade`'s id
   form and adding no endpoint. Its premise is that these three verbs **refuse a no-op** by

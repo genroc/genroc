@@ -73,7 +73,7 @@ test("a declared code makes the payload readable as error.data at the routed tas
           // The rule catches one declared code, so error.data is that shape and non-null —
           // a bare member access must type-check without a narrowing or a `??`.
           id: "backoff",
-          output: { wait: "$: error.data.retry_after", why: "$: error.data.decline_code" },
+          output: { wait: "$: last_error.data.retry_after", why: "$: last_error.data.decline_code" },
           switch: [{ goto: "end" }],
         },
       ],
@@ -107,7 +107,7 @@ test("an undeclared code leaves error.data absent — the read is a registration
           on_error: [{ code: ["card_declined"], goto: "$backoff" }],
           switch: [{ goto: "end" }],
         },
-        { id: "backoff", output: { wait: "$: error.data.retry_after" }, switch: [{ goto: "end" }] },
+        { id: "backoff", output: { wait: "$: last_error.data.retry_after" }, switch: [{ goto: "end" }] },
       ],
     },
   });
@@ -145,7 +145,7 @@ test("a payload that does not fit the declaration replaces the raised code with 
           switch: [{ goto: "end" }],
         },
         { id: "by_code", output: { via: "code" }, switch: [{ goto: "end" }] },
-        { id: "by_mismatch", output: { via: "mismatch", code: "$: error.code" }, switch: [{ goto: "end" }] },
+        { id: "by_mismatch", output: { via: "mismatch", code: "$: last_error.code" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.by_mismatch ?? outputs.by_code",
     },
@@ -188,7 +188,7 @@ test("a payload the child can never produce is refused where it is declared", as
         on_error: [{ code: ["card_declined"], goto: "$backoff" }],
         switch: [{ goto: "end" }],
       },
-      { id: "backoff", output: { wait: "$: error.data.retry_after" }, switch: [{ goto: "end" }] },
+      { id: "backoff", output: { wait: "$: last_error.data.retry_after" }, switch: [{ goto: "end" }] },
     ],
   });
 
@@ -287,7 +287,7 @@ test("a child_map declares per entry, and the action-level slot is refused", asy
           on_error: [{ code: ["card_declined"], goto: "$backoff" }],
           switch: [{ goto: "end" }],
         },
-        { id: "backoff", output: { wait: "$: error.data.retry_after" }, switch: [{ goto: "end" }] },
+        { id: "backoff", output: { wait: "$: last_error.data.retry_after" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.backoff",
     },
@@ -372,7 +372,7 @@ test("a code only some child_map entries declare is nullable; declared by all, i
         switch: [
           {
             case: "true",
-            raise: { code: "gave_up", message: "retry after ${error.data.retry_after}s" },
+            raise: { code: "gave_up", message: "retry after ${last_error.data.retry_after}s" },
           },
           { goto: "end" },
         ],
@@ -452,14 +452,14 @@ test("{} exposes the payload opaquely: forwardable, but a field read is refused"
   });
 
   const { error: fieldErr } = await client.PUT("/definitions", {
-    body: def(`raises_open_field_${uid}`, { why: "$: error.data.decline_code" }),
+    body: def(`raises_open_field_${uid}`, { why: "$: last_error.data.decline_code" }),
   });
   expect(JSON.stringify(fieldErr), "the top type is carried, never read").toBeTruthy();
   expect(fieldErr).toBeDefined();
 
   const whole = `raises_open_whole_${uid}`;
   const { error: wholeErr } = await client.PUT("/definitions", {
-    body: def(whole, { payload: "$: error.data" }),
+    body: def(whole, { payload: "$: last_error.data" }),
   });
   expect(wholeErr).toBeUndefined();
 
@@ -501,7 +501,7 @@ test("the payload is conformed, not passed through: extras dropped, defaults fil
           on_error: [{ code: ["card_declined"], goto: "$carry" }],
           switch: [{ goto: "end" }],
         },
-        { id: "carry", output: { seen: "$: error.data" }, switch: [{ goto: "end" }] },
+        { id: "carry", output: { seen: "$: last_error.data" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.carry",
     },
@@ -539,7 +539,7 @@ test("child_list declares on the action, and the first raised slot's payload cro
         },
         {
           id: "backoff",
-          output: { slot: "$: error.child_index", why: "$: error.data.decline_code" },
+          output: { slot: "$: last_error.child_index", why: "$: last_error.data.decline_code" },
           switch: [{ goto: "end" }],
         },
       ],
@@ -577,7 +577,7 @@ test("a raises schema may be a $ref into the process $defs", async () => {
           on_error: [{ code: ["card_declined"], goto: "$backoff" }],
           switch: [{ goto: "end" }],
         },
-        { id: "backoff", output: { wait: "$: error.data.retry_after" }, switch: [{ goto: "end" }] },
+        { id: "backoff", output: { wait: "$: last_error.data.retry_after" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.backoff",
     },
@@ -615,7 +615,7 @@ test("a payload past the inline cutoff externalizes and still crosses whole", as
           on_error: [{ code: ["card_declined"], goto: "$keep" }],
           switch: [{ goto: "end" }],
         },
-        { id: "keep", output: { trace: "$: error.data.trace" }, switch: [{ goto: "end" }] },
+        { id: "keep", output: { trace: "$: last_error.data.trace" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.keep",
     },
@@ -661,7 +661,7 @@ test("a wildcard rule widens the type to admit null; the literal does not", asyn
       {
         id: "explain",
         switch: [
-          { case: "true", raise: { code: "gave_up", message: "declined: ${error.data.decline_code}" } },
+          { case: "true", raise: { code: "gave_up", message: "declined: ${last_error.data.decline_code}" } },
           { goto: "end" },
         ],
       },
@@ -842,10 +842,10 @@ test("a % rule unions every declared shape it can reach, and the raised code dec
           // Both arms' own fields are read here: neither reads unless BOTH declarations are
           // in the union, which is what makes this a test of combining rather than of one arm.
           output: {
-            seen: "$: error.data",
-            kind: "$: error.data.kind",
-            declined: "$: error.data.decline_code",
-            expired: "$: error.data.expired_on",
+            seen: "$: last_error.data",
+            kind: "$: last_error.data.kind",
+            declined: "$: last_error.data.decline_code",
+            expired: "$: last_error.data.expired_on",
           },
           switch: [{ goto: "end" }],
         },
@@ -896,7 +896,7 @@ test("a field only one arm of the union declares reads as null when the other ar
         },
         // decline_code exists in one arm only. The read is legal — the union admits it — and
         // it is null on the run where the other arm arrived.
-        { id: "handle", output: { code: "$: error.data.decline_code" }, switch: [{ goto: "end" }] },
+        { id: "handle", output: { code: "$: last_error.data.decline_code" }, switch: [{ goto: "end" }] },
       ],
       output: "$: outputs.handle",
     } as never,

@@ -112,12 +112,12 @@ func TestInterrupted_RoutesToHandler(t *testing.T) {
 	}
 
 	// `error` is what the handler reads to know what it is recovering from.
-	errCtx, _ := inst.State["error"].(map[string]any)
+	errCtx, _ := inst.State[model.StateLastError].(map[string]any)
 	if errCtx == nil {
-		t.Fatalf("no `error` in context, got %#v", inst.State)
+		t.Fatalf("no `last_error` in context, got %#v", inst.State)
 	}
 	if errCtx["code"] != string(errcode.OnlyOnceInterrupted) {
-		t.Errorf("`error.code` = %v, want %s", errCtx["code"], errcode.OnlyOnceInterrupted)
+		t.Errorf("`last_error.code` = %v, want %s", errCtx["code"], errcode.OnlyOnceInterrupted)
 	}
 	if errCtx["task"] != "charge" {
 		t.Errorf("`error.task` = %v, want the interrupted task", errCtx["task"])

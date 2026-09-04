@@ -50,11 +50,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			hasFor := isDelay && s.Action.For != nil
 			hasUntil := isDelay && s.Action.Until != nil
 			hasTimeout := !s.Timeout.IsZero()
-			hasRetry := false
-			for _, ec := range s.OnError {
-				hasRetry = hasRetry || !ec.Retry.IsZero()
-			}
-			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout || hasRetry {
+			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout {
 				ctx := addPreviousOnly(contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID]), s, loops).WithDefs(defs)
 				// The child_list `over` expression must be a non-null array; each
 				// element becomes one child's input. Type-check it here so a malformed or
@@ -82,13 +78,6 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				// same way — a literal against the grammar, a $: expression to a number.
 				if hasTimeout {
 					if err := checkTimeout(&s.Timeout, ctx, s.ID); err != nil {
-						return err
-					}
-				}
-				// A retry policy's slots are the same syntactic split as a delay's: a literal
-				// was checked by the decoder, a $: expression is type-checked here.
-				if hasRetry {
-					if err := checkRetrySlots(s, ctx); err != nil {
 						return err
 					}
 				}
@@ -197,11 +186,14 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 		// An on_error rule sees the error it CAUGHT, not the one that reaches a task it
 		// routes to — so its context is built per rule rather than from errs[s.ID].
 		for i, ec := range s.OnError {
-			if ec.Raise == nil && ec.Panic == nil && ec.Case == "" {
+			if ec.Raise == nil && ec.Panic == nil && ec.Case == "" && ec.Retry.IsZero() {
 				continue
 			}
-			ruleCtx := addPreviousOnly(contextSchema(required[s.ID], optional[s.ID], taskSchemas,
-				processInput, configSchema, ruleErrAt(s, ec, defs)), s, loops).WithDefs(defs)
+			// The task's own context — `last_error` and all — plus `error`, the failure THIS
+			// rule caught. Both are readable here and they are different errors.
+			ruleCtx := addPreviousOnly(withErrorProperty(
+				contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID]),
+				model.StateError, ruleErrAt(s, ec, defs)), s, loops).WithDefs(defs)
 			where := fmt.Sprintf("on_error[%d]", i)
 			// The case is checked in the SAME per-rule scope as the clauses: `code` has
 			// already said which error this is, so `error.data` here is that code's declared
@@ -219,6 +211,12 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				}
 			}
 			if err := checkFaultClauses(ec.Raise, ec.Panic, ruleCtx, s.ID, where, rd); err != nil {
+				return err
+			}
+			// A retry policy's slots are the same syntactic split as a delay's: a literal was
+			// checked by the decoder, a $: expression is type-checked here — in the rule's own
+			// scope, like the case above it.
+			if err := checkRetrySlots(s.ID, i, ec, ruleCtx); err != nil {
 				return err
 			}
 		}
@@ -466,28 +464,26 @@ func checkTimeout(t *model.Timeout, ctx schema.Schema, taskID string) error {
 // reduces the whole policy to numbers when the rule fires, so every slot must infer to one;
 // the bounds (attempts whole and non-negative, factor >= 1, max_delay >= delay) can only be
 // judged then, and Retry.Resolve judges them.
-func checkRetrySlots(s *model.Task, ctx schema.Schema) error {
-	for i, ec := range s.OnError {
-		slots := []struct{ name, expr string }{
-			{"attempts", ec.Retry.Attempts.Expr()},
-			{"delay", ec.Retry.Delay.Expr()},
-			{"factor", ec.Retry.Factor.Expr()},
-			{"max_delay", ec.Retry.MaxDelay.Expr()},
+func checkRetrySlots(taskID string, i int, ec model.ErrorCase, ctx schema.Schema) error {
+	slots := []struct{ name, expr string }{
+		{"attempts", ec.Retry.Attempts.Expr()},
+		{"delay", ec.Retry.Delay.Expr()},
+		{"factor", ec.Retry.Factor.Expr()},
+		{"max_delay", ec.Retry.MaxDelay.Expr()},
+	}
+	for _, slot := range slots {
+		if slot.expr == "" {
+			continue
 		}
-		for _, slot := range slots {
-			if slot.expr == "" {
-				continue
-			}
-			label := fmt.Sprintf("task %q on_error[%d] retry.%s", s.ID, i, slot.name)
-			shp := shape.Shape{Raw: slot.expr, Schema: &delaySchema, Name: label}
-			_, err := shp.CheckWith(ctx, shape.CheckHooks{
-				Result: func(inferred, _ schema.Schema) error {
-					return fmt.Errorf("%s must evaluate to a number, got %q", label, inferred.TypeName())
-				},
-			})
-			if err != nil {
-				return err
-			}
+		label := fmt.Sprintf("task %q on_error[%d] retry.%s", taskID, i, slot.name)
+		shp := shape.Shape{Raw: slot.expr, Schema: &delaySchema, Name: label}
+		_, err := shp.CheckWith(ctx, shape.CheckHooks{
+			Result: func(inferred, _ schema.Schema) error {
+				return fmt.Errorf("%s must evaluate to a number, got %q", label, inferred.TypeName())
+			},
+		})
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -647,29 +643,35 @@ func contextSchemaAbsent(preceding, optional, absent []string, tasks map[string]
 	}
 	ctx = ctx.WithProperty("outputs", outputs, true)
 
-	if e.must || e.may {
-		// child_key/child_index populate only from batch resolution (child-error-handling §5.3);
-		// an action task's on_error leaves them absent, and the schema cannot tell which produced
-		// a given `error` — so both are optional, and separate single-typed fields (no type-switch).
-		errSchema := schema.Object().
-			WithProperty("task", schema.Type("string"), true).
-			WithProperty("message", schema.Type("string"), true).
-			WithProperty("code", schema.Type("string"), true).
-			WithProperty("child_key", schema.Type("string"), false).
-			WithProperty("child_index", schema.Type("integer"), false)
-		// `data` is present exactly where a reaching rule declared a body for the status it
-		// catches; where sources disagree the union already carries the null arm, so the
-		// property is required and nullable rather than optional.
-		if !e.data.IsZero() {
-			errSchema = errSchema.WithProperty("data", e.data, true)
-		}
-		if e.must {
-			ctx = ctx.WithProperty("error", errSchema, true)
-		} else {
-			ctx = ctx.WithProperty("error", errSchema.WithNull(), false)
-		}
+	return withErrorProperty(ctx, model.StateLastError, e)
+}
+
+// withErrorProperty adds one error namespace under name: `last_error` for the failure that
+// routed control into the task, `error` for the one a rule is handling. Same shape, and the
+// two differ only in which failure fills it. specs/task-scopes.md.
+func withErrorProperty(ctx schema.Schema, name string, e errAt) schema.Schema {
+	if !e.must && !e.may {
+		return ctx
 	}
-	return ctx
+	// child_key/child_index populate only from batch resolution (child-error-handling §5.3);
+	// an action task's on_error leaves them absent, and the schema cannot tell which produced
+	// a given failure — so both are optional, and separate single-typed fields (no type-switch).
+	errSchema := schema.Object().
+		WithProperty("task", schema.Type("string"), true).
+		WithProperty("message", schema.Type("string"), true).
+		WithProperty("code", schema.Type("string"), true).
+		WithProperty("child_key", schema.Type("string"), false).
+		WithProperty("child_index", schema.Type("integer"), false)
+	// `data` is present exactly where a reaching rule declared a body for the status it
+	// catches; where sources disagree the union already carries the null arm, so the
+	// property is required and nullable rather than optional.
+	if !e.data.IsZero() {
+		errSchema = errSchema.WithProperty("data", e.data, true)
+	}
+	if e.must {
+		return ctx.WithProperty(name, errSchema, true)
+	}
+	return ctx.WithProperty(name, errSchema.WithNull(), false)
 }
 
 // addPreActionSelf adds the half of the self scope that exists BEFORE the action runs:

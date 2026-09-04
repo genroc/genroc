@@ -36,9 +36,9 @@ apply:
             switch: end
           - id: classify
             switch:
-              - case: 'error.data.name == "Transient"'
+              - case: 'last_error.data.name == "Transient"'
                 goto: end
-              - panic: {code: upstream_broken, message: 'upstream said ${error.data.name}'}
+              - panic: {code: upstream_broken, message: 'upstream said ${last_error.data.name}'}
         $defs:
           payload:
             type: object
@@ -68,9 +68,9 @@ apply:
             switch: end
           - id: classify
             switch:
-              - case: 'error.data.name == "Transient"'
+              - case: 'last_error.data.name == "Transient"'
                 goto: end
-              - panic: {code: upstream_broken, message: 'upstream said ${error.data.name}'}
+              - panic: {code: upstream_broken, message: 'upstream said ${last_error.data.name}'}
         $defs:
           payload:
             type: object

@@ -55,6 +55,6 @@ tasks:
 
   - id: report
     output:
-      outcome: "$: error.code"
-      detail: "$: error.message"
+      outcome: "$: last_error.code"
+      detail: "$: last_error.message"
     switch: end

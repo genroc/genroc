@@ -33,14 +33,14 @@ apply:
             switch: end
           - id: handle
             action: {type: fetch, url: http://x/handle}
-            output: {n: '$: 1', code: '$: error.code'}
+            output: {n: '$: 1', code: '$: last_error.code'}
             switch: end
 run: [--from, errctx_a, --to, errctx_b]
 
 expect: |
   errctx_proc  v1 → v2  breaking: upgrade; compatible
     handle         (breaking: upgrade)
-      error: newly required field
+      last_error: newly required field
     go:switch      (not judged)
     go:on_error    (not judged)
     handle:output  (ok)

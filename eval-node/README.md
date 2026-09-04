@@ -169,7 +169,7 @@ no retry policy to write.
 
 - id: script_failed
   switch:
-    - case: 'error.data.name == "LimitExceeded"'
+    - case: 'last_error.data.name == "LimitExceeded"'
       raise: { code: limit_exceeded, message: "the script rejected the amount" }
     - raise: { code: script_failed, message: "the script failed" }
 ```

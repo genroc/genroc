@@ -158,27 +158,31 @@ satisfy the `result_schema` this task narrowed it with. Each pattern is checked 
 registration against that set. A child that *failed* rather than raised is never catchable;
 convert the failure into a raise inside the child.
 
-### The `error` value
+### `error` and `last_error`
 
-A rule that routes with `goto` makes the failure readable at the task it routes to, as
-`error`:
+Two different failures, so two names. Inside an `on_error` rule — its `case`, `raise` and
+`panic` — **`error`** is the failure that rule just caught. A rule that routes with `goto`
+makes that failure readable at the task it routes to, under **`last_error`**:
 
 | Field | Meaning |
 |---|---|
-| `error.code` | The code that matched. |
-| `error.message` | Human-readable detail. |
-| `error.task` | The task that failed. |
-| `error.data` | The response body, where the failing fetch declared a schema for that status. |
-| `error.child_key`, `error.child_index` | Which child raised, on a batch route. |
+| `.code` | The code that matched. |
+| `.message` | Human-readable detail. |
+| `.task` | The task that failed. |
+| `.data` | The response body, where the failing fetch declared a schema for that status. |
+| `.child_key`, `.child_index` | Which child raised, on a batch route. |
 
-**`error` exists only in the task the rule routes to.** The next ordinary transition drops
-it, so a task further downstream cannot read it — carry what you need forward by projecting
-it into the handler's `output`, the same way every other value travels.
+**`last_error` exists only in the task the rule routes to.** The next ordinary transition
+drops it, so a task further downstream cannot read it — carry what you need forward by
+projecting it into the handler's `output`, the same way every other value travels.
 
-`error.data` is present only where a reaching rule declared a body for the status it catches,
-and its type comes from the rule's own `code` patterns. A rule naming one declared status
-gets exactly that schema; widening the patterns to statuses nobody described, or to a code
-that carries no body at all, widens the type to admit `null`.
+Every slot of a rule reads `error` the same way — `case`, `raise`, `panic`, and the `retry`
+policy, which is measured against the failure it is retrying.
+
+`.data` is present only where a reaching rule declared a body for the status it catches, and
+its type comes from the rule's own `code` patterns. A rule naming one declared status gets
+exactly that schema; widening the patterns to statuses nobody described, or to a code that
+carries no body at all, widens the type to admit `null`.
 
 ```yaml
 - id: call
@@ -195,7 +199,7 @@ that carries no body at all, widens the type to admit `null`.
   switch: end
 
 - id: missing
-  output: { reason: "$: error.data.detail" }
+  output: { reason: "$: last_error.data.detail" }
   switch: end
 ```
 
@@ -482,7 +486,7 @@ An `error` is routed through the task's `on_error` rules exactly like a call err
       worker_crashed:            # declared, carries no data (null)
   on_error:
     - code: [limit_exceeded]
-      goto: $over_limit          # error.data.limit is readable here
+      goto: $over_limit          # readable there as last_error.data.limit
     - code: ["%"]
       raise: { code: worker_failed, message: "the worker could not price it" }
   switch: [{ goto: end }]

@@ -133,7 +133,7 @@ test("script task — a throw is caught by its own code, and the definition rais
       id: "failed",
       switch: [
         {
-          case: 'error.data.name == "LimitExceeded"',
+          case: 'last_error.data.name == "LimitExceeded"',
           raise: { code: "limit_exceeded", message: "the script rejected the amount" },
         },
         { raise: { code: "script_failed", message: "the script failed" } },
@@ -159,7 +159,7 @@ test("script task — compile_error, nonserializable and exited are distinct cod
     const t = scriptTask(code);
     const tasks = [
       { ...t, on_error: [{ code: ["compile_error", "nonserializable", "exited"], goto: "$broken" }], switch: [{ goto: "end" }] },
-      { id: "broken", output: { code: "$: error.code" }, switch: [{ goto: "end" }] },
+      { id: "broken", output: { code: "$: last_error.code" }, switch: [{ goto: "end" }] },
     ];
     const { status, data } = await run(`script_${want}_${crypto.randomUUID()}`, tasks);
     expect(status, `${label} should complete via the handler`).toBe("completed");
@@ -173,7 +173,7 @@ test("script task — a script over its budget reports `timeout`, not external.t
   const t = scriptTask("export default () => { while (true) {} };", { timeout_ms: 400 });
   const tasks = [
     { ...t, on_error: [{ code: ["timeout"], goto: "$slow" }], switch: [{ goto: "end" }] },
-    { id: "slow", output: { code: "$: error.code" }, switch: [{ goto: "end" }] },
+    { id: "slow", output: { code: "$: last_error.code" }, switch: [{ goto: "end" }] },
   ];
   const { status, data } = await run(`script_timeout_${crypto.randomUUID()}`, tasks);
   expect(status).toBe("completed");

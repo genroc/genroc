@@ -29,7 +29,7 @@ effect on termination, not just expressiveness.
 
 **Frame translation.** A guard is written in the guarding task's frame and read in the
 target's: `self.output.v` → `outputs.<task>.v` (only if exported); `outputs.*`/`input.*`
-unchanged; `self.result`, `self.previous`, `error` **dropped** (not carried across).
+unchanged; `self.result`, `self.previous`, `last_error` **dropped** (not carried across).
 **`config` is dropped, and this is soundness trap #1:** it is frame-invariant in name
 but re-resolved from the environment every tick and never persisted, so a guard on it
 proves nothing about the value the next task reads.
@@ -89,7 +89,7 @@ no-regression over the examples.
   different problem — genroc's pain is across tasks. Eventually worth having.
 - **Author assertion** (`non_null:`): a claim, not a proof — the same reason
   `not_reached` had to be restricted; teaches reflexive assertion.
-- **Infer from `on_error` structure**: error routing already carries `error`; the
+- **Infer from `on_error` structure**: error routing already carries `last_error`; the
   case that hurts is a `switch`.
 
 ## Decided, and open

@@ -28,7 +28,7 @@ loads what that path needs and nothing else.
 
 ## What blocks each wish
 
-1. Five on-disk shapes for one idea (`Envelope`, the `outputs` wrapper, `error.data`,
+1. Five on-disk shapes for one idea (`Envelope`, the `outputs` wrapper, `last_error.data`,
    `external_data`'s sibling `objects` key, `engine_state`), and `loaded` collected by hand at
    five sites in `decodeState`. [fixed -- see §1]
 2. `Roots` is name-level (`Outputs []string`), and `buildEnv` resolves whole slots before eval.
@@ -45,7 +45,7 @@ tidiness rather than a prerequisite, once a wipe was acceptable (one user, no de
 JSON-restructuring migration it would otherwise have needed evaporated.
 
 What the accessor changed is which differences were still earning anything. `error_internal` had a
-shape of its own for one reason: reading `error.code` must not load the body. That is
+shape of its own for one reason: reading `last_error.code` must not load the body. That is
 `model.Context`'s job now — it walks to a path and loads only what the walk passes through — so
 the column stopped needing to express it, and folded onto `Envelope` like the rest.
 
@@ -96,9 +96,9 @@ through (it stringifies); a `$:` expression does not (it hands the value on).
 through are materialized exactly as before, so nothing regresses. It is a strictly coarser
 analysis than wish 2 and needs none of its machinery.
 
-A side effect worth recording: `error.data` laziness had never worked. The `ErrorData` root
+A side effect worth recording: `last_error.data` laziness had never worked. The `ErrorData` root
 existed and was correct, and `resolveNested` defeated it by materializing every child of the map
-it walked, so `error.code` always paid for the body. `Through.ErrorData` restores the intent.
+it walked, so `last_error.code` always paid for the body. `Through.ErrorData` restores the intent.
 
 ### 4. Resolution is a view, never a write-back
 
@@ -185,7 +185,7 @@ laziness deliberately broken. The load count only exists in memory, so the test 
 
 - `At` loads nothing on a disjoint path, keeps the marker when the walk stops above one, loads
   once when it steps through, and never writes back (`internal/model/context_test.go`).
-- `Through` separates copy from read-through per output id, and `error.code` does not pull the
+- `Through` separates copy from read-through per output id, and `last_error.code` does not pull the
   body (`roots_through_test.go`).
 - Copying a marker evaluates; indexing, comparing, interpolating or passing one to a function
   fails and names the object (`external_marker_test.go`).

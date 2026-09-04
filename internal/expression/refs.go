@@ -25,7 +25,7 @@ func OutputRefsNode(node syntax.Node) []string {
 // (slot-level lazy loading) instead of materializing every big value every tick.
 type Roots struct {
 	Input        bool     // reads the process input
-	Error        bool     // reads the error namespace
+	Error        bool     // reads the `error` namespace — the failure a rule is handling
 	Outputs      []string // reads outputs.<id> for these specific task ids
 	AllOutputs   bool     // reads the outputs map in a way we can't pin to static ids
 	SelfPrevious bool     // reads self.previous (this task's own prior output — an alias
@@ -38,6 +38,10 @@ type Roots struct {
 	// inline, but the body can be as large as any response, so it is externalized like a task
 	// output — and a handler reading only error.code must not pay to load one.
 	ErrorData bool
+	// The same pair for `last_error`, the failure that routed control into this task. Two
+	// namespaces because they are two different errors, and a slot may name either.
+	// specs/task-scopes.md.
+	LastError, LastErrorData bool
 
 	// Through marks the roots the expression reads INTO or operates on, as against the ones it
 	// merely COPIES. A copied root can stay an *ObjectRef: the value flows into the result and
@@ -52,6 +56,7 @@ type Roots struct {
 // Through is the subset of Roots that must be materialized rather than left as references.
 type Through struct {
 	Input, Error, ErrorData, AllOutputs, SelfPrevious, SelfResult bool
+	LastError, LastErrorData                                      bool
 	Outputs                                                       []string
 }
 
@@ -66,6 +71,8 @@ func (r *Roots) Union(o Roots) {
 	r.SelfResult = r.SelfResult || o.SelfResult
 	r.SelfOutput = r.SelfOutput || o.SelfOutput
 	r.ErrorData = r.ErrorData || o.ErrorData
+	r.LastError = r.LastError || o.LastError
+	r.LastErrorData = r.LastErrorData || o.LastErrorData
 	r.Through.Input = r.Through.Input || o.Through.Input
 	r.Through.Error = r.Through.Error || o.Through.Error
 	r.Through.AllOutputs = r.Through.AllOutputs || o.Through.AllOutputs
@@ -73,6 +80,8 @@ func (r *Roots) Union(o Roots) {
 	r.Through.SelfPrevious = r.Through.SelfPrevious || o.Through.SelfPrevious
 	r.Through.SelfResult = r.Through.SelfResult || o.Through.SelfResult
 	r.Through.ErrorData = r.Through.ErrorData || o.Through.ErrorData
+	r.Through.LastError = r.Through.LastError || o.Through.LastError
+	r.Through.LastErrorData = r.Through.LastErrorData || o.Through.LastErrorData
 }
 
 func RootRefs(expr string) (Roots, error) {
@@ -174,18 +183,29 @@ func collectRoots(node syntax.Node, bound map[string]bool, r *Roots, through boo
 			r.SelfOutput = true
 			return // consumed self.output; don't descend into the "self" identifier
 		}
-		// A field access on `error` is consumed here so the bare-identifier case below does
-		// not also run: only `error.data` wants the body loaded, while `error.code` and its
+		// A field access on an error namespace is consumed here so the bare-identifier case
+		// below does not also run: only `.data` wants the body loaded, while `.code` and its
 		// siblings are inline. A BARE `error` falls through to the identifier case, which
 		// takes the whole namespace — under-reporting there would export a marker.
-		if base, ok := n.Base.(*syntax.IdentNode); ok && base.Name == "error" && !bound["error"] {
-			r.Error = true
-			r.Through.Error = true // the namespace itself is navigated: `error.<field>`
-			if n.Name == "data" {
-				r.ErrorData = true
-				r.Through.ErrorData = r.Through.ErrorData || through
+		if base, ok := n.Base.(*syntax.IdentNode); ok && !bound[base.Name] {
+			switch base.Name {
+			case "error":
+				r.Error = true
+				r.Through.Error = true // the namespace itself is navigated: `error.<field>`
+				if n.Name == "data" {
+					r.ErrorData = true
+					r.Through.ErrorData = r.Through.ErrorData || through
+				}
+				return
+			case "last_error":
+				r.LastError = true
+				r.Through.LastError = true
+				if n.Name == "data" {
+					r.LastErrorData = true
+					r.Through.LastErrorData = r.Through.LastErrorData || through
+				}
+				return
 			}
-			return
 		}
 		// Navigating into the base reads THROUGH it, whatever position this node is in.
 		collectRoots(n.Base, bound, r, true)
@@ -211,6 +231,10 @@ func collectRoots(node syntax.Node, bound map[string]bool, r *Roots, through boo
 			r.Error, r.ErrorData = true, true
 			r.Through.Error = r.Through.Error || through
 			r.Through.ErrorData = r.Through.ErrorData || through
+		case "last_error":
+			r.LastError, r.LastErrorData = true, true
+			r.Through.LastError = r.Through.LastError || through
+			r.Through.LastErrorData = r.Through.LastErrorData || through
 		case "outputs":
 			r.AllOutputs = true // bare/dynamic outputs reference
 			r.Through.AllOutputs = r.Through.AllOutputs || through

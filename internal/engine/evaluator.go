@@ -89,27 +89,34 @@ func (e *Engine) buildEnv(inst *model.ProcessInstance, self any, roots expressio
 	if err := include("input", roots.Input, roots.Through.Input); err != nil {
 		return nil, err
 	}
-	// `error` itself is always inline; only its `data` can be externalized, and Through.ErrorData
-	// is what says the expression reads INTO the body rather than past it. Reading error.code
-	// must not pay for a body it never asked for -- which resolveNested used to defeat by
-	// materializing every child of the map it walked.
-	if err := include("error", roots.Error, false); err != nil {
-		return nil, err
-	}
-	if m, ok := env["error"].(map[string]any); ok && roots.Through.ErrorData {
-		// Through the accessor, so a walk that has to step through `error` itself -- a whole
-		// slot that was externalized -- resolves it rather than finding a marker where the map
-		// should be. Direct map indexing cannot do that.
-		d, err := ctx.MaterializeAt("error", "data")
+	// Either error namespace is itself always inline; only its `data` can be externalized, and
+	// the Through flag is what says the expression reads INTO the body rather than past it.
+	// Reading a code must not pay for a body it never asked for -- which resolveNested used to
+	// defeat by materializing every child of the map it walked.
+	for _, ns := range []struct {
+		key           string
+		read, through bool
+	}{
+		{model.StateError, roots.Error, roots.Through.ErrorData},
+		{model.StateLastError, roots.LastError, roots.Through.LastErrorData},
+	} {
+		if err := include(ns.key, ns.read, false); err != nil {
+			return nil, err
+		}
+		m, ok := env[ns.key].(map[string]any)
+		if !ok || !ns.through {
+			continue
+		}
+		// Through the accessor, so a walk that has to step through the namespace itself -- a
+		// whole slot that was externalized -- resolves it rather than finding a marker where
+		// the map should be. Direct map indexing cannot do that.
+		d, err := ctx.MaterializeAt(ns.key, "data")
 		if err != nil {
 			return nil, err
 		}
-		withData := make(map[string]any, len(m))
-		for k, v := range m {
-			withData[k] = v
-		}
+		withData := maps.Clone(m)
 		withData["data"] = d
-		env["error"] = withData
+		env[ns.key] = withData
 	}
 
 	outsVal, err := ctx.At("outputs")
@@ -182,11 +189,12 @@ func evalEnv(contextData, config map[string]any, self any) map[string]any {
 		config = map[string]any{}
 	}
 	env := map[string]any{
-		"input":   contextData["input"],
-		"outputs": outputs,
-		"self":    self,
-		"error":   contextData["error"],
-		"config":  config,
+		"input":              contextData["input"],
+		"outputs":            outputs,
+		"self":               self,
+		model.StateError:     contextData[model.StateError],
+		model.StateLastError: contextData[model.StateLastError],
+		"config":             config,
 	}
 	return env
 }

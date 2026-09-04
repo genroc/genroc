@@ -79,7 +79,7 @@ test("catch — a matching rule routes the parent to a recovery task", async () 
         },
         {
           id: "recover",
-          output: "$: error.code",
+          output: "$: last_error.code",
           switch: "end",
         },
       ],
@@ -221,7 +221,7 @@ test("catch — a rule re-raises, so the error propagates one named level up", a
   expect(data?.status).toBe("raised");
   expect(data?.error_code).toBe("payment_failed");
   // Underneath, `error` still mirrors the child that caused it.
-  const err = data?.state?.error as Record<string, unknown>;
+  const err = data?.state?.last_error as Record<string, unknown>;
   expect(err?.code).toBe("declined");
   expect(err?.child_key).toBe("a");
 });
@@ -344,7 +344,7 @@ test("batch — the first raised child (by child_index) routes the parent", asyn
           on_error: [{ code: ["bad_item"], goto: "$report" }],
           switch: "end",
         },
-        { id: "report", output: "$: error", switch: "end" },
+        { id: "report", output: "$: last_error", switch: "end" },
       ],
     },
   });

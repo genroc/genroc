@@ -39,7 +39,7 @@ test("error.data — a declared 4xx body reaches the handler that catches it", a
           id: "handler",
           // Read a field, not the whole value: the rule catches exactly one declared status,
           // so error.data is non-nullable here and a bare member access must type-check.
-          output: { reason: "$: error.data.detail", code: "$: error.code" },
+          output: { reason: "$: last_error.data.detail", code: "$: last_error.code" },
           switch: [{ goto: "end" }],
         },
       ],
@@ -98,7 +98,7 @@ test("error.data — a declared 4xx body that does not conform replaces the stat
           switch: [{ goto: "end" }],
         },
         { id: "wrong", output: { took: "$: 'http404'" }, switch: [{ goto: "end" }] },
-        { id: "handler", output: { took: "$: error.code" }, switch: [{ goto: "end" }] },
+        { id: "handler", output: { took: "$: last_error.code" }, switch: [{ goto: "end" }] },
       ],
     },
   });
@@ -135,7 +135,7 @@ test("error — dropped from the context once the handler routes onward", async 
           switch: [{ goto: "end" }],
         },
         // Carries what it needs forward explicitly, which is the supported way.
-        { id: "handler", output: { code: "$: error.code" }, switch: [{ goto: "next" }] },
+        { id: "handler", output: { code: "$: last_error.code" }, switch: [{ goto: "next" }] },
         { id: "after", output: { seen: "$: outputs.handler.code" }, switch: [{ goto: "end" }] },
       ],
     },
@@ -187,7 +187,7 @@ test("error.data — a large error body externalizes and is still readable", asy
         },
         // A small verdict derived from the big body: if the marker were handed to the
         // expression unresolved, error.data.detail would read null and this would be false.
-        { id: "handler", output: { readable: "$: error.data.detail != null" }, switch: [{ goto: "end" }] },
+        { id: "handler", output: { readable: "$: last_error.data.detail != null" }, switch: [{ goto: "end" }] },
       ],
     },
   });
@@ -204,10 +204,10 @@ test("error.data — a large error body externalizes and is still readable", asy
   // swelling the instance row. The cut takes the big LEAF inside error.data, so the wrapper
   // stays inline and the listing names the leaf.
   const listed = (data!.objects ?? []).find(
-    (o: any) => o.path[0] === "state" && o.path[1] === "error" && o.path[2] === "data",
+    (o: any) => o.path[0] === "state" && o.path[1] === "last_error" && o.path[2] === "data",
   );
   expect(listed, "a body past the cutoff must externalize").toBeDefined();
-  expect(ctx.error?.code).toBe("http.422");
+  expect(ctx.last_error?.code).toBe("http.422");
 
   failing.stop();
 });

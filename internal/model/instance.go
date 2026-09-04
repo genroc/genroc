@@ -78,10 +78,20 @@ func (s Status) AcceptsExternalOutcome() bool {
 // message are plain columns beside it (error_code, error_message) so a code can be filtered on;
 // only the payload needs a slot, because only the payload is arbitrarily large.
 //
-// It is never the `error` slot, which is the error the instance CAUGHT: that one belongs to the
-// instance's state at the task it stopped on, so a concluding fault editing it leaves a context
-// no layer describes. specs/error-extensions.md.
+// It is never the `last_error` slot, which is the failure that routed the instance to the task
+// it stopped on: that one belongs to the instance's state, so a concluding fault editing it
+// leaves a context no layer describes. specs/error-extensions.md.
 const StateErrorData = "_error_data"
+
+// The two failures a task's expressions can name, kept apart because they are different
+// errors: one routed control here, the other is being handled right now. specs/task-scopes.md.
+const (
+	// StateLastError is persisted, and dropped on the next ordinary transition.
+	StateLastError = "last_error"
+	// StateError is bound for the evaluation of the rule handling it and never written —
+	// engineStateKeys drops it, so a binding that outlives its rule cannot reach a column.
+	StateError = "error"
+)
 
 // WaitState tracks where a parent instance is in the child-process lifecycle.
 type WaitState string

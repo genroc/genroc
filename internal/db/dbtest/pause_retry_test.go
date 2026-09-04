@@ -1249,7 +1249,7 @@ func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 				State: map[string]any{
 					// Both slots hold a value past the externalization threshold, so each one
 					// takes an object claim this retry has to drop.
-					"error":              map[string]any{"code": "http.500", "data": bigString("caught")},
+					model.StateLastError: map[string]any{"code": "http.500", "data": bigString("caught")},
 					model.StateErrorData: map[string]any{"trace": bigString("reported")},
 				},
 			}
@@ -1270,7 +1270,7 @@ func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 				return m.Ref
 			}
 			// refs[0] is the CAUGHT error's payload (kept), refs[1] the REPORTED one (cleared).
-			refs := []string{marker("error", "data"), marker(model.StateErrorData, "trace")}
+			refs := []string{marker(model.StateLastError, "data"), marker(model.StateErrorData, "trace")}
 
 			if _, err := b.db.RetryProcess(context.Background(), "root", false, ""); err != nil {
 				t.Fatalf("RetryProcess: %v", err)
@@ -1286,7 +1286,7 @@ func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 			if _, ok := revived.State[model.StateErrorData]; ok {
 				t.Errorf("the reported error's payload survived: %v", revived.State[model.StateErrorData])
 			}
-			if _, ok := revived.State["error"]; !ok {
+			if _, ok := revived.State[model.StateLastError]; !ok {
 				t.Error("the caught error was cleared: it is state at the task being revived, not part of the conclusion being undone")
 			}
 			// The revived instance is running, so a write always follows -- and it is that write

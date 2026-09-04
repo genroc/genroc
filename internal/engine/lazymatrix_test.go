@@ -25,7 +25,7 @@ const (
 	bigBlob   = "BLOB" // input.blob
 	bigCode   = "CODE" // outputs.a.code
 	bigWhole  = "WHOLE"
-	bigDetail = "DETAIL" // error.data.detail
+	bigDetail = "DETAIL" // last_error.data.detail
 	bigItem   = "ITEM"   // outputs.list[0]
 )
 
@@ -52,7 +52,7 @@ func newFixture(t *testing.T) *fixture {
 			"whole": padded(bigWhole),
 			"list":  []any{padded(bigItem), "small"},
 		},
-		"error": map[string]any{
+		"last_error": map[string]any{
 			"code": "http.500", "message": "boom",
 			"data": map[string]any{"detail": padded(bigDetail)},
 		},
@@ -64,7 +64,7 @@ func newFixture(t *testing.T) *fixture {
 		"code":   {"outputs", "a", "code"},
 		"whole":  {"outputs", "whole"},
 		"item":   {"outputs", "list", 0},
-		"detail": {"error", "data", "detail"},
+		"detail": {"last_error", "data", "detail"},
 	} {
 		ref, ok := valueAt(seed.State, path).(*model.ObjectRef)
 		if !ok {
@@ -97,7 +97,7 @@ func (f *fixture) instance() *model.ProcessInstance {
 				"whole": r["whole"],
 				"list":  []any{r["item"], "small"},
 			},
-			"error": map[string]any{
+			"last_error": map[string]any{
 				"code": "http.500", "message": "boom",
 				"data": map[string]any{"detail": r["detail"]},
 			},
@@ -191,8 +191,8 @@ func TestLazyMatrix(t *testing.T) {
 			want: r["whole"],
 		},
 		{
-			name: "reading error.code does not pull the body",
-			expr: "$: error.code",
+			name: "reading last_error.code does not pull the body",
+			expr: "$: last_error.code",
 			want: "http.500",
 		},
 
@@ -211,7 +211,7 @@ func TestLazyMatrix(t *testing.T) {
 		},
 		{
 			name:  "reading into the error body loads it",
-			expr:  "$: error.data.detail",
+			expr:  "$: last_error.data.detail",
 			want:  padded(bigDetail),
 			loads: []string{"detail"},
 		},

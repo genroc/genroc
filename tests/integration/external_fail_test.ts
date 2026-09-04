@@ -52,10 +52,10 @@ async function define(name: string, extra: Record<string, unknown> = {}) {
         },
         {
           id: "over_limit",
-          output: { route: "limit", limit: "$: error.data.limit", msg: "$: error.message" },
+          output: { route: "limit", limit: "$: last_error.data.limit", msg: "$: last_error.message" },
           switch: [{ goto: "end" }],
         },
-        { id: "other", output: { route: "other", code: "$: error.code" }, switch: [{ goto: "end" }] },
+        { id: "other", output: { route: "other", code: "$: last_error.code" }, switch: [{ goto: "end" }] },
       ],
     },
   });
@@ -166,7 +166,7 @@ test("`raises: {code: null}` accepts a failure with no payload and leaves error.
   // validator infers for the code, and a context richer than its type is how an expression
   // comes to read a slot the next reader cannot.
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  const err = (data as any)?.state?.error;
+  const err = (data as any)?.state?.last_error;
   expect(err?.code).toBe("worker_crashed");
   expect(Object.keys(err ?? {})).not.toContain("data");
 });
@@ -405,7 +405,7 @@ test("a failure signalled BEFORE the task arms is buffered, then routed when it 
           on_error: [{ code: ["upstream_failed"], goto: "$handled" }],
           switch: [{ goto: "end" }],
         },
-        { id: "handled", output: { why: "$: error.data.why" }, switch: [{ goto: "end" }] },
+        { id: "handled", output: { why: "$: last_error.data.why" }, switch: [{ goto: "end" }] },
       ],
     },
   });

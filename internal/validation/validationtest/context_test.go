@@ -277,7 +277,7 @@ func TestGenerate_OnError_MixedPath_FailingStepOutputNullable(t *testing.T) {
         "url": "http://x",
         "body": {
           "val": "$: outputs.start.ok",
-          "errCode": "$: error.code"
+          "errCode": "$: last_error.code"
         }
       },
       "switch": "end"
@@ -333,7 +333,7 @@ func TestGenerate_OnError_ExclusivePath_ErrorRequiredOutputAbsent(t *testing.T) 
         "type": "fetch",
         "url": "http://x",
         "body": {
-          "code": "$: error.code"
+          "code": "$: last_error.code"
         }
       },
       "switch": "end"
@@ -344,7 +344,7 @@ func TestGenerate_OnError_ExclusivePath_ErrorRequiredOutputAbsent(t *testing.T) 
 	if handlerInput.IsZero() || !handlerInput.HasProperties() {
 		t.Fatal("handler input should have properties")
 	}
-	// Every path to handler is an error path, so error.code is always a string.
+	// Every path to handler is an error path, so last_error.code is always a string.
 	assertJSON(t, handlerInput.Properties()["code"], `{"type": "string"}`)
 }
 

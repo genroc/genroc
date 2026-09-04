@@ -114,9 +114,7 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 	// vanishing with nothing reporting it.
 	var policy model.ResolvedRetry
 	if matched != nil && !matched.Retry.IsZero() {
-		resolved, err := matched.Retry.Resolve(func(expr string) (any, error) {
-			return e.evalShape(inst, shape.Shape{Raw: expr}, e.selfBeforeOutput(inst))
-		})
+		resolved, err := e.resolveRetry(inst, matched.Retry, caseErr)
 		if err != nil {
 			return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q on_error: %v", task.ID, err))
 		}
@@ -145,10 +143,19 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 	for k, v := range extra {
 		errCtx[k] = v
 	}
-	inst.State["error"] = errCtx
+	// Bound for the clause about to be evaluated, and written for whoever reads the instance
+	// after it — the task a goto routes to, or an operator looking at where it stopped. The
+	// write is deferred because until this rule is done, `last_error` is still the failure that
+	// routed control INTO this task, which a rule may name beside the one it caught.
+	// specs/task-scopes.md.
+	release := bindCaught(inst, errCtx)
+	defer func() {
+		release()
+		inst.State[model.StateLastError] = errCtx
+	}()
 
 	// An authored terminal clause outranks routing. Both keep the engine's own code in
-	// `error` (above) so the underlying cause stays visible on the instance detail, while
+	// `last_error` (above) so the underlying cause stays visible on the instance detail, while
 	// error_code becomes the authored one -- the code an operator filters and alerts on.
 	if matched != nil && matched.Raise != nil {
 		return e.raiseInstance(inst, task, matched.Raise, e.selfBeforeOutput(inst))

@@ -40,7 +40,7 @@ async function runToCompletion(name: string, task: Record<string, unknown>) {
   const id = started!.id;
   const status = await waitForInstance(id);
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  return { status, error: (data?.state?.error ?? {}) as Record<string, unknown> };
+  return { status, error: (data?.state?.last_error ?? {}) as Record<string, unknown> };
 }
 
 test("transport — a remote that vanishes mid-call reports http.disconnected, not pre.error", async () => {

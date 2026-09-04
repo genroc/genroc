@@ -639,7 +639,7 @@ func TestState_RoundTripsWhole(t *testing.T) {
 	  "input":   {"n": 9007199254740993, "amount": 123456789.123456789, "nested": {"deep": [1, null, "x"]}},
 	  "outputs": {"first": {"v": 1}, "huge": {"blob": %q}, "nothing": null},
 	  "output":  {"done": true},
-	  "error":   {"task": "t", "code": "boom", "message": "m", "data": {"why": "x"}, "child_index": 2},
+	  "last_error":   {"task": "t", "code": "boom", "message": "m", "data": {"why": "x"}, "child_index": 2},
 	  "_error_data": {"retry_after": 3600},
 	  "_external": {"input": {"k": 1}},
 	  "_spawn_child_key": "out",

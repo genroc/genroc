@@ -168,9 +168,9 @@ func (e *Engine) resolveChildVersion(inst *model.ProcessInstance, taskID, name s
 // _spawn_index) — what SHAPE the batch is lives on the parent's definition, not here.
 func newChildInstance(parent *model.ProcessInstance, task *model.Task, def *model.ProcessDefinition, version int, input any, callStack []string, id string, spawnCtx map[string]any) *model.ProcessInstance {
 	childCtx := map[string]any{
-		"input":   input,
-		"outputs": map[string]any{},
-		"error":   nil,
+		"input":              input,
+		"outputs":            map[string]any{},
+		model.StateLastError: nil,
 	}
 	for k, v := range spawnCtx {
 		childCtx[k] = v

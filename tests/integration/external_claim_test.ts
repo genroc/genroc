@@ -222,7 +222,7 @@ async function defineOnlyOnce(name: string, extra: Record<string, unknown> = {})
           ...extra,
           switch: [{ goto: "end" }],
         },
-        { id: "checked", output: { route: "checked", code: "$: error.code" }, switch: [{ goto: "end" }] },
+        { id: "checked", output: { route: "checked", code: "$: last_error.code" }, switch: [{ goto: "end" }] },
       ] as never,
     },
   });

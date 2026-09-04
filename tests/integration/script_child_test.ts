@@ -59,7 +59,7 @@ async function callScript(name: string, code: string, caller: Record<string, unk
       id: "caught",
       // The name comes off the PAYLOAD and the text off error.MESSAGE — script.yaml
       // recomposes the refusal that way, and registration now holds it to it.
-      output: { name: "$: error.data.name", message: "$: error.message" },
+      output: { name: "$: last_error.data.name", message: "$: last_error.message" },
       switch: [{ goto: "end" }],
     });
   }

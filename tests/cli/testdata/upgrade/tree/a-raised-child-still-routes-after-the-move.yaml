@@ -33,7 +33,7 @@ apply:
             output: {v: '$: self.result'}
             switch: end
           - id: explain
-            output: {saw: '$: error.data.why'}
+            output: {saw: '$: last_error.data.why'}
             switch: end
         output: {got: '$: outputs.explain.saw'}
   - definitions:
@@ -61,7 +61,7 @@ apply:
             output: {v: '$: self.result'}
             switch: end
           - id: explain
-            output: {saw: '$: error.data.why'}
+            output: {saw: '$: last_error.data.why'}
             switch: end
         output: {got: '$: outputs.explain.saw'}
 start: {process: boss, input: {n: 1}}

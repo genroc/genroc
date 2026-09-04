@@ -52,10 +52,17 @@ func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInst
 		// the collect path reports rather than a shape the caller got wrong.
 		return e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %s", task.ID, msg))
 	}
-	// Written before matching here, unlike in admission: this path routes or fails whatever
-	// the rules say, so the error is the instance's state either way.
-	e.setBatchError(inst, task, first, data, declared)
-	rule, matchErr := matchOnErrorWith(task, raisedCode, e.caseEvaluator(inst, batchErrorValue(task, first, data, declared)))
+	// Written on every path out, unlike in admission: this path routes or fails whatever the
+	// rules say, so the failure is the instance's state either way. Deferred past the clause
+	// though, because until then `last_error` is still the failure that routed control INTO
+	// this task, which a rule may name beside the one it caught. specs/task-scopes.md.
+	errVal := batchErrorValue(task, first, data, declared)
+	release := bindCaught(inst, errVal)
+	defer func() {
+		release()
+		e.setBatchError(inst, task, first, data, declared)
+	}()
+	rule, matchErr := matchOnErrorWith(task, raisedCode, e.caseEvaluator(inst, errVal))
 	if matchErr != nil {
 		return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q: %v", task.ID, matchErr))
 	}
@@ -122,9 +129,8 @@ func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, 
 			if rule == nil || rule.Retry.IsZero() {
 				continue
 			}
-			resolved, resErr := rule.Retry.Resolve(func(expr string) (any, error) {
-				return e.evalShape(inst, shape.Shape{Raw: expr}, e.selfBeforeOutput(inst))
-			})
+			// This slot's own failure, the same one the case above was matched against.
+			resolved, resErr := e.resolveRetry(inst, rule.Retry, errVal)
 			if resErr != nil {
 				// Same reading as the action path: a policy that quietly became "no retries"
 				// is an author's budget vanishing with nothing reporting it.
@@ -261,10 +267,37 @@ func raisedInSlotOrder(siblings []*model.ProcessInstance, task *model.Task) []*m
 // null (I6 as amended). child_key (string) and child_index (integer) are separate
 // single-typed fields so an expression never type-switches.
 func (e *Engine) setBatchError(inst *model.ProcessInstance, task *model.Task, first *model.ProcessInstance, data any, declared bool) {
-	inst.State["error"] = batchErrorValue(task, first, data, declared)
+	inst.State[model.StateLastError] = batchErrorValue(task, first, data, declared)
 }
 
-// batchErrorValue is what a routed task reads as `error` (§5.3). Separated from the write so
+// resolveRetry resolves a policy with the failure it is retrying bound as `error` — the rule's
+// own scope, the same one its case was matched in. Bound, never written: a granted retry must
+// leave nothing behind. specs/task-scopes.md.
+func (e *Engine) resolveRetry(inst *model.ProcessInstance, r model.Retry, errVal map[string]any) (model.ResolvedRetry, error) {
+	defer bindCaught(inst, errVal)()
+	return r.Resolve(func(expr string) (any, error) {
+		return e.evalShape(inst, shape.Shape{Raw: expr}, e.selfBeforeOutput(inst))
+	})
+}
+
+// bindCaught binds errVal as `error` — the failure the rule at hand is handling, which is not
+// the `last_error` persisted for whatever task the rule routes to. Deferred-call shaped so it
+// wraps a return: `defer bindCaught(inst, v)()`. It RESTORES rather than deletes because the
+// binds nest: a case evaluated inside an outer bind must not unbind the clause that follows it.
+// specs/task-scopes.md.
+func bindCaught(inst *model.ProcessInstance, errVal map[string]any) func() {
+	prev, had := inst.State[model.StateError]
+	inst.State[model.StateError] = errVal
+	return func() {
+		if had {
+			inst.State[model.StateError] = prev
+			return
+		}
+		delete(inst.State, model.StateError)
+	}
+}
+
+// batchErrorValue is what a routed task reads as `last_error` (§5.3). Separated from the write so
 // admission can BIND it for an M2 case without persisting it: a rule that declines must leave
 // nothing behind, and a retrying parent carries no `error` at all (§5.5).
 func batchErrorValue(task *model.Task, child *model.ProcessInstance, data any, declared bool) map[string]any {
@@ -281,18 +314,10 @@ func batchErrorValue(task *model.Task, child *model.ProcessInstance, data any, d
 }
 
 // caseEvaluator returns the predicate hook matchOnErrorWith needs, with errVal bound as
-// `error` for the evaluation and restored afterwards — bound, never written (M2).
+// `error` for the evaluation and unbound afterwards — bound, never written (M2).
 func (e *Engine) caseEvaluator(inst *model.ProcessInstance, errVal map[string]any) func(string) (bool, error) {
 	return func(expr string) (bool, error) {
-		prev, had := inst.State["error"]
-		inst.State["error"] = errVal
-		defer func() {
-			if had {
-				inst.State["error"] = prev
-			} else {
-				delete(inst.State, "error")
-			}
-		}()
+		defer bindCaught(inst, errVal)()
 		// Expr: true — a case is a bare boolean expression, not a template. Without it the
 		// text is rendered as a string and never compares as anything.
 		v, err := e.evalShape(inst, shape.Shape{Raw: expr, Expr: true}, e.selfBeforeOutput(inst))

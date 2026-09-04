@@ -204,10 +204,10 @@ func encodeState(inst *model.ProcessInstance) (cols stateCols, pending []*pendin
 			return
 		}
 	}
-	if v, ok := cd["error"]; ok {
-		// An ordinary slot. `error.code` staying cheap to read is the ACCESSOR's job now
+	if v, ok := cd[model.StateLastError]; ok {
+		// An ordinary slot. `last_error.code` staying cheap to read is the ACCESSOR's job now
 		// (model.Context walks to the path and loads nothing else), not the column's.
-		if cols.ErrorInternal, err = cut(v, "error"); err != nil {
+		if cols.ErrorInternal, err = cut(v, model.StateLastError); err != nil {
 			return
 		}
 	}
@@ -664,7 +664,7 @@ func decodeState(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}, 
 	if err := into(r.OutputData, "output"); err != nil {
 		return nil, nil, err
 	}
-	if err := into(r.ErrorInternal, "error"); err != nil {
+	if err := into(r.ErrorInternal, model.StateLastError); err != nil {
 		return nil, nil, err
 	}
 	if err := into(r.ErrorData, model.StateErrorData); err != nil {

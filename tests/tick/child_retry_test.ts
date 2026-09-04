@@ -432,11 +432,11 @@ test("a handler task revived by retry still has the error it was reached through
       switch: [{ goto: "end" }],
     },
     {
-      // Reachable ONLY through on_error, so mustErr/mayErr promises `error` exists here.
+      // Reachable ONLY through on_error, so mustErr/mayErr promises `last_error` exists here.
       id: "classify",
       switch: [
-        { case: 'error.data.name == "Transient"', goto: "$call" },
-        { panic: { code: "broken", message: "threw ${error.data.name}" } },
+        { case: 'last_error.data.name == "Transient"', goto: "$call" },
+        { panic: { code: "broken", message: "threw ${last_error.data.name}" } },
       ],
     },
   ]);
