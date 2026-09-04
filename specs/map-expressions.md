@@ -54,8 +54,9 @@ shadowing included), so the test suite keeps the three-way check via translation
 ## Two places this could have leaked
 
 - **Secret taint:** a secret on the *element* type has no path from the root, so the
-  walk resolves lambda-rooted paths against the parameter's schema; a failed source
-  inference taints (over-tainting costs log verbosity; under-tainting is a leak).
+  walk resolved lambda-rooted paths against the parameter's schema; a failed source
+  inference tainted (over-tainting costs log verbosity; under-tainting is a leak). The walk
+  itself was deleted 2026-09-04 — object-store.md §Redaction.
 - **Root refs:** had the walkers not descended into call arguments and lambda bodies,
   `map` over an externalized output would evaluate against `nil` — a wrong answer, not
   an error, and only for values big enough to have been externalized. Fixed in

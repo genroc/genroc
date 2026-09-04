@@ -35,17 +35,6 @@ type SchemaFile struct {
 	Defs   schema.Defs              `json:"$defs,omitzero"`
 }
 
-// RedactContext returns a copy of an instance's context_data with secret-derived
-// values replaced by "***", using the schemas inferred for the process: input is
-// scrubbed against ProcessInput, each outputs.<task> against that task's output
-// schema, and output against ProcessOutput. Keys with no inferred schema (unknown
-// tasks, `error`, bookkeeping) pass through unchanged. It runs the whole scrub as a
-// single walk of the composed context schema.
-func RedactContext(ctxData map[string]any, sf SchemaFile) map[string]any {
-	out, _ := SchemaFileContext(sf).Redact(ctxData).(map[string]any)
-	return out
-}
-
 // buildSchemaContext derives the shared defs, tasks, and processInput from a definition.
 // Both Generate and ValidateChildProcessRefs use it to avoid duplicating setup.
 func buildSchemaContext(def *model.ProcessDefinition) (defs schema.Defs, tasks map[string]TaskSchemas, processInput schema.Schema, configSchema schema.Schema, err error) {

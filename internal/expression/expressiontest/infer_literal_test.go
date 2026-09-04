@@ -570,34 +570,6 @@ func TestInferLiteral_ComparisonAgainstNullOrScalarStillBoolean(t *testing.T) {
 
 // ─── Secret taint ───────────────────────────────────────────────────────────────
 
-// Reading a secret anywhere inside a literal must taint the whole expression:
-// inferShape turns ReferencesSecret into a Taint() on the produced leaf, so a
-// false here is a value printed to the logs in the clear.
-func TestInferLiteral_ReferencesSecret(t *testing.T) {
-	c := ctx(t, literalCtxJSON)
-	for _, tc := range []struct {
-		name string
-		expr string
-		want bool
-	}{
-		{"direct_value", `{k: input.apiKey}`, true},
-		{"one_level_deep", `{outer: {inner: input.apiKey}}`, true},
-		{"array_literal_member", `[input.apiKey]`, true},
-		{"array_object_array", `[1, {deep: [input.apiKey]}]`, true},
-		{"transformed_before_storing", `{k: "Bearer " + input.apiKey}`, true},
-		{"only_one_ternary_branch", `{k: input.flag ? input.apiKey : "none"}`, true},
-		{"secret_on_map_element", `{ts: map(input.items, x => x.token)}`, true},
-		{"secret_inside_nested_literal", `{ts: map(input.items, x => {t: x.token})}`, true},
-		{"nothing_secret", `{a: input.name, b: [1, 2], c: {d: input.count}}`, false},
-		{"plain_array_literal", `[input.name, "x"]`, false},
-		{"non_secret_sibling_of_a_secret", `{ids: map(input.items, x => x.id)}`, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			assertSecretCase(t, c, tc.expr, tc.want)
-		})
-	}
-}
-
 // A secret field copied into a literal keeps its structural `secret` flag on the
 // property, so redaction of the produced value works field-wise even without the
 // expression-level taint.
@@ -631,20 +603,6 @@ func TestInferLiteral_Array_JoinDropsStructuralSecretFlag(t *testing.T) {
 		"type": "array",
 		"items": { "type": "string" }
 	}`)
-}
-
-// Dropping the flag is not a leak today — validation taints the whole leaf via
-// ReferencesSecret — but the structural flag alone cannot be relied on after a
-// join. If both went missing the value would reach the logs in the clear.
-func TestInferLiteral_Array_JoinStillTaintsViaSecretWalk(t *testing.T) {
-	c := ctx(t, literalCtxJSON)
-	got, err := c.ReferencesSecret(`[input.apiKey, "x"]`)
-	if err != nil {
-		t.Fatalf("ReferencesSecret: %v", err)
-	}
-	if !got {
-		t.Error("ReferencesSecret = false: the join dropped the flag AND the walk missed it — this is a leak")
-	}
 }
 
 // ─── Determinism ────────────────────────────────────────────────────────────────

@@ -179,17 +179,3 @@ func TestMap_InferCoalescedSourceKeepsElementType(t *testing.T) {
 		"items": {"type": "string"}
 	}`)
 }
-
-// A secret on the element type is reachable only through the lambda parameter —
-// there is no path from the root context to it — so the taint walk has to follow
-// the binding or the value leaks into logs unredacted.
-func TestMap_ReferencesSecretOnElement(t *testing.T) {
-	c := ctx(t, mapCtxJSON)
-	secretRefAll(t, c, true, []secretCase{
-		{"secret_element_field", `map(input.items, x => x.token)`},
-		{"secret_element_field_in_object_body", `map(input.items, x => {t: x.token})`},
-	})
-	secretRefAll(t, c, false, []secretCase{
-		{"non_secret_element_field", `map(input.items, x => x.id)`},
-	})
-}

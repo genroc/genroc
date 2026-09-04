@@ -159,23 +159,6 @@ func TestComputedKeyEdge_GuardDroppedByEitherRoot(t *testing.T) {
 
 // ─── secrets ───────────────────────────────────────────────────────────────────
 
-// The taint may sit on an array's items rather than a map's values, and it may sit
-// on the element type of a container the expression only reaches through a lambda
-// parameter — a path from the root never names it.
-func TestComputedKeyEdge_SecretPositions(t *testing.T) {
-	c := ctx(t, computedKeyEdgeJSON)
-	secretRefAll(t, c, true, []secretCase{
-		{"array_items_computed", `secretItems[i]`},
-		{"array_items_literal", `secretItems[0]`},
-		{"element_map_via_lambda", `map(rows, r => r[k])`},
-		{"element_map_key_from_param", `map(rows, r => r[k] ?? "")`},
-	})
-	secretRefAll(t, c, false, []secretCase{
-		{"plain_element_map_via_lambda", `map(plainRows, r => r[k])`},
-		{"plain_nested_map", `map(xs, x => mapOfMaps[x])`},
-	})
-}
-
 // ─── evaluation ────────────────────────────────────────────────────────────────
 
 func TestComputedKeyEdge_EvalContainerShapes(t *testing.T) {

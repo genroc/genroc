@@ -14,7 +14,6 @@ import (
 	"genroc/internal/db"
 	"genroc/internal/logview"
 	"genroc/internal/model"
-	"genroc/internal/validation"
 )
 
 const (
@@ -60,9 +59,6 @@ type Engine struct {
 	// lease expires at lastRenewMs+leaseDuration or later, the invariant leaseGate rests on
 	// (renewLeases has the fragile half).
 	lastRenewMs atomic.Int64
-	// schemaCache memoises inference so logged payloads can be schema-redacted (secret
-	// fields → "***") without re-running the solver on every log line.
-	schemaCache validation.SchemaCache
 }
 
 // definition loads a process definition for an advance, riding out a dropped connection. Every
@@ -71,14 +67,6 @@ type Engine struct {
 func (e *Engine) definition(name string, version int) (*model.ProcessDefinition, error) {
 	return retryRead(func() (*model.ProcessDefinition, error) {
 		return e.db.GetDefinition(name, version)
-	})
-}
-
-// schemaFile returns the inferred schemas for the instance's process (cached),
-// used to redact secret-derived fields from logged payloads.
-func (e *Engine) schemaFile(inst *model.ProcessInstance) (validation.SchemaFile, bool) {
-	return e.schemaCache.Get(inst.ProcessName, inst.ProcessVersion, func() (*model.ProcessDefinition, error) {
-		return e.definition(inst.ProcessName, inst.ProcessVersion)
 	})
 }
 

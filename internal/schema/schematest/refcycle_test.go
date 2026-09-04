@@ -208,58 +208,6 @@ func TestJoinDistinctRefsUnions(t *testing.T) {
 
 // ---- secret taint on $ref nodes ----
 
-// taintedRefJSON marks the *reference* to t as secret; the shared definition
-// itself stays clean (tainting it would over-taint other users).
-const taintedRefJSON = `{
-	"type": "object",
-	"properties": {
-		"token": {"$ref": "#/$defs/t", "secret": true},
-		"plain": {"$ref": "#/$defs/t"}
-	},
-	"required": ["token", "plain"],
-	"$defs": {
-		"t": {"type": "string"}
-	}
-}`
-
-func TestSecretOnRefNode(t *testing.T) {
-	sc := mustParse(t, taintedRefJSON)
-
-	if !sc.SecretAt("token") {
-		t.Error("SecretAt(token) = false, want true (taint on the $ref node)")
-	}
-	if sc.SecretAt("plain") {
-		t.Error("SecretAt(plain) = true; the shared definition must stay clean")
-	}
-
-	data := map[string]any{"token": "s3cret", "plain": "visible"}
-	redacted, ok := sc.Redact(data).(map[string]any)
-	if !ok {
-		t.Fatalf("Redact returned %T", sc.Redact(data))
-	}
-	if redacted["token"] != "***" {
-		t.Errorf("token = %v, want ***", redacted["token"])
-	}
-	if redacted["plain"] != "visible" {
-		t.Errorf("plain = %v, want untouched", redacted["plain"])
-	}
-
-	secrets := sc.CollectSecrets(data)
-	if len(secrets) != 1 || secrets[0] != "s3cret" {
-		t.Errorf("CollectSecrets = %v, want [s3cret]", secrets)
-	}
-}
-
-func TestTaintOnRefSchema(t *testing.T) {
-	tainted := schema.Ref("t").Taint()
-	if !tainted.IsSecret() {
-		t.Error("Taint on a $ref schema is not reported secret")
-	}
-	if !tainted.HasRef() {
-		t.Error("Taint dropped the $ref")
-	}
-}
-
 func mustJSON(t *testing.T, s schema.Schema) string {
 	t.Helper()
 	b, err := s.MarshalJSON()

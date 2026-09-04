@@ -3,7 +3,6 @@ package model
 import (
 	"encoding/json"
 	"reflect"
-	"sort"
 	"testing"
 )
 
@@ -59,13 +58,10 @@ func TestShape_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestShape_StringsAndPresent(t *testing.T) {
+func TestShape_Present(t *testing.T) {
 	var nilShape *Shape
 	if nilShape.Present() {
 		t.Error("nil shape should not be Present")
-	}
-	if nilShape.Strings() != nil {
-		t.Error("nil shape Strings should be nil")
 	}
 
 	var s Shape
@@ -74,24 +70,5 @@ func TestShape_StringsAndPresent(t *testing.T) {
 	}
 	if !s.Present() {
 		t.Error("shape should be Present")
-	}
-	got := s.Strings()
-	sort.Strings(got)
-	want := []string{"$: x", "$: y"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Strings: got %v want %v", got, want)
-	}
-
-	// Strings must descend into arrays (scalars/null contribute no strings), or
-	// output-dependency and secret-taint analysis would silently miss array leaves.
-	var arr Shape
-	if err := json.Unmarshal([]byte(`{"a":"$: x","b":["$: y",5,"$: z",null],"c":[{"d":"$: w"}]}`), &arr); err != nil {
-		t.Fatal(err)
-	}
-	gotArr := arr.Strings()
-	sort.Strings(gotArr)
-	wantArr := []string{"$: w", "$: x", "$: y", "$: z"}
-	if !reflect.DeepEqual(gotArr, wantArr) {
-		t.Errorf("Strings over arrays: got %v want %v", gotArr, wantArr)
 	}
 }

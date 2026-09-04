@@ -3,8 +3,6 @@ package validationtest
 import (
 	"slices"
 	"testing"
-
-	"genroc/internal/validation"
 )
 
 // A process-level $defs definition shared by two result_schemas: output maps read
@@ -123,22 +121,4 @@ func TestGenerate_GeneratedNamesTakePrecedenceByRenaming(t *testing.T) {
 		t.Fatalf("renamed user def s1_output_1 missing: %v", out.Defs.Names())
 	}
 	assertJSON(t, userDef, `{"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]}`)
-}
-
-func TestContextSchema_SecretThroughSharedDef(t *testing.T) {
-	// A secret marked inside the shared definition is detected through the $ref
-	// on any path that reaches it — the reuse case for sensitive shapes.
-	out := runGenerate(t, `{
-		"name": "p",
-		"$defs": {"Cred": {"type":"object","properties":{"token":{"type":"string","secret":true},"host":{"type":"string"}},"required":["token","host"]}},
-		"input_schema": {"type":"object","properties":{"cred":{"$ref":"#/$defs/Cred"}},"required":["cred"]},
-		"tasks": [{"id":"s1","action":{"type":"fetch","url":"http://x"}}]
-	}`)
-	ctx := validation.SchemaFileContext(out)
-	if !ctx.SecretAt("input.cred.token") {
-		t.Error("SecretAt(input.cred.token) = false, want true (secret inside shared def)")
-	}
-	if ctx.SecretAt("input.cred.host") {
-		t.Error("SecretAt(input.cred.host) = true, want false")
-	}
 }

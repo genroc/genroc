@@ -37,7 +37,7 @@ func keyStep(key []pathStep) pathStep {
 }
 
 // parsePath reads the syntax renderPath emits, so an error-message path can be handed
-// straight back to At/SecretAt. Bare segments run to '.'/'['; the quoted form is the only
+// straight back to At. Bare segments run to '.'/'['; the quoted form is the only
 // way to name a key containing them.
 func parsePath(path string) ([]pathStep, error) {
 	if path == "" {
@@ -401,28 +401,6 @@ func isSecret(s *node) bool {
 	return false
 }
 
-// taintNode returns a copy of s marked secret:true — used to taint (conservatively, as
-// a whole) the result of an expression that reads a secret value.
-func taintNode(s *node) *node {
-	if s == nil {
-		return &node{Secret: true}
-	}
-	if s.Secret {
-		return s
-	}
-	n := *s
-	n.Secret = true
-	return &n
-}
-
-// A taint on a $ref marks the pointer, not the shared target (that would over-taint its
-// other users), so BOTH sides are consulted — and at every union position: items and
-// additionalProperties values arrive as oneOf[{$ref}, null], where a missed arm's taint
-// sends the value out unredacted.
-func nodeOrTargetSecret(n *node, defs map[string]*node) bool {
-	return secretThroughRefs(n, defs, nil)
-}
-
 // secretThroughRefs walks a node's union variants and $ref targets. visiting guards
 // the union walk against a reference cycle; deref carries its own guard for chains.
 func secretThroughRefs(n *node, defs map[string]*node, visiting map[*node]bool) bool {
@@ -450,117 +428,6 @@ func secretThroughRefs(n *node, defs map[string]*node, visiting map[*node]bool) 
 		}
 	}
 	return false
-}
-
-// pathHitsSecret reports whether navigating path from s passes through (or ends at) a
-// secret node — reading from inside a secret object is itself secret. False if the path
-// cannot be resolved.
-func pathHitsSecret(s *node, defs map[string]*node, path string) bool {
-	steps, err := parsePath(path)
-	if err != nil {
-		return false
-	}
-	return stepsHitSecret(s, defs, steps)
-}
-
-// stepsHitSecret is pathHitsSecret over already-parsed steps. Callers that derive a
-// path from an expression tree use this: a property key there is an arbitrary string
-// which the dot-path syntax cannot round-trip (a key containing "." or "[" would
-// re-split into the wrong steps, and silently miss the secret).
-func stepsHitSecret(s *node, defs map[string]*node, steps []pathStep) bool {
-	if nodeOrTargetSecret(s, defs) {
-		return true
-	}
-	cur, err := deref(s, defs)
-	if err != nil {
-		return false
-	}
-	for _, step := range steps {
-		cur, err = navigateStep(cur, defs, step)
-		if err != nil {
-			return false
-		}
-		if nodeOrTargetSecret(cur, defs) {
-			return true
-		}
-	}
-	return false
-}
-
-// collectSecrets appends to *out the string form of every secret-marked value in value.
-// It descends via lookupProperty / inferIndex — the same primitives type inference uses
-// — so the walk cannot drift from schema navigation. Gather half of log redaction: the
-// collected values are then scrubbed from free-form log text.
-func collectSecrets(value any, node *node, defs map[string]*node, out *[]string) {
-	if node == nil || value == nil {
-		return
-	}
-	if nodeOrTargetSecret(node, defs) {
-		if s := SecretString(value); s != "" {
-			*out = append(*out, s)
-		}
-		return
-	}
-	resolved, err := deref(node, defs)
-	if err != nil {
-		return
-	}
-	switch v := value.(type) {
-	case map[string]any:
-		for k, val := range v {
-			if child, err := lookupProperty(resolved, k, defs); err == nil {
-				collectSecrets(val, child, defs, out)
-			}
-		}
-	case []any:
-		child, err := inferIndex(resolved, defs)
-		if err != nil {
-			return
-		}
-		for _, el := range v {
-			collectSecrets(el, child, defs, out)
-		}
-	}
-}
-
-// redact returns value with every secret-marked field replaced by "***", descending via
-// lookupProperty / inferIndex like collectSecrets. Non-secret values pass through
-// unchanged. Used to scrub secret-derived values before they cross a public boundary.
-func redact(value any, node *node, defs map[string]*node) any {
-	if node == nil || value == nil {
-		return value
-	}
-	if nodeOrTargetSecret(node, defs) {
-		return "***"
-	}
-	resolved, err := deref(node, defs)
-	if err != nil {
-		return value
-	}
-	switch v := value.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(v))
-		for k, val := range v {
-			if child, err := lookupProperty(resolved, k, defs); err == nil {
-				out[k] = redact(val, child, defs)
-			} else {
-				out[k] = val // key not in schema — leave untouched
-			}
-		}
-		return out
-	case []any:
-		child, err := inferIndex(resolved, defs)
-		if err != nil {
-			return value
-		}
-		out := make([]any, len(v))
-		for i, el := range v {
-			out[i] = redact(el, child, defs)
-		}
-		return out
-	default:
-		return value
-	}
 }
 
 // SecretString renders a secret value as it appears in logs so the substring scrub

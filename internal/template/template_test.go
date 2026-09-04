@@ -203,29 +203,7 @@ func TestInferType_AllowsNullableAsExpr(t *testing.T) {
 	assertInferAccepts(t, `$: input.opt`)
 }
 
-// --- ReferencesSecret ---
-
-func TestReferencesSecret_PlainText(t *testing.T) {
-	assertReferencesSecret(t, `plain`, false)
-}
-
-func TestReferencesSecret_NonSecretField(t *testing.T) {
-	assertReferencesSecret(t, `${ input.name }`, false)
-}
-
-func TestReferencesSecret_SecretField(t *testing.T) {
-	assertReferencesSecret(t, `${ input.token }`, true)
-}
-
-func TestReferencesSecret_SecretInMixedTemplate(t *testing.T) {
-	assertReferencesSecret(t, `prefix-${ input.token }`, true)
-}
-
-func TestReferencesSecret_SecretInSecondBlock(t *testing.T) {
-	assertReferencesSecret(t, `${ input.name }${ input.token }`, true)
-}
-
-// --- RootRefs / OutputRefs ---
+// --- RootRefs ---
 
 func TestRootRefs_DetectsInputAndErrorRoots(t *testing.T) {
 	r := mustParse(t, `${ input.a }-${ outputs.fetch.b }-${ error.code }`).RootRefs()
@@ -262,21 +240,6 @@ func TestRootRefs_MergesSelfRootsAcrossBlocks(t *testing.T) {
 		t.Errorf("merged self roots = %+v, want both", r)
 	}
 }
-
-func TestOutputRefs_DedupesAndSorts(t *testing.T) {
-	got := mustParse(t, `${ outputs.b.x }-${ outputs.a.y }-${ outputs.b.z }`).OutputRefs()
-	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
-		t.Errorf("OutputRefs = %v, want [a b] (deduped, sorted)", got)
-	}
-}
-
-func TestOutputRefs_EmptyForLiteralTemplate(t *testing.T) {
-	if got := mustParse(t, `plain`).OutputRefs(); len(got) != 0 {
-		t.Errorf("OutputRefs on a literal = %v, want empty", got)
-	}
-}
-
-// --- Get memoisation ---
 
 func TestGetMemoisesParsedTemplate(t *testing.T) {
 	const src = `${ input.memo_probe }`
@@ -367,21 +330,6 @@ func TestInterpolationAllowsScalars(t *testing.T) {
 	}
 }
 
-// A secret reached only through a lambda parameter has no path from the root
-// context, so the taint walk must follow the binding or the value reaches logs
-// unredacted.
-func TestExprSecretThroughMapBodyTaints(t *testing.T) {
-	if !mustParse(t, `$: map(input.people, p => p.secret)`).ReferencesSecret(ctxSchema(t)) {
-		t.Error("a secret on the element type must taint the expression")
-	}
-}
-
-func TestExprNonSecretThroughMapBodyDoesNotTaint(t *testing.T) {
-	if mustParse(t, `$: map(input.people, p => p.name)`).ReferencesSecret(ctxSchema(t)) {
-		t.Error("a non-secret element field must not taint")
-	}
-}
-
 // A lambda parameter shadows a context root, so it must not be reported as a
 // read of that root — buildEnv would otherwise load a slot nothing references.
 func TestRootRefs_LambdaParamShadowingInputRoot(t *testing.T) {
@@ -394,12 +342,6 @@ func TestRootRefs_LambdaParamShadowingInputRoot(t *testing.T) {
 func TestRootRefs_GenuineInputReadInsideMapSource(t *testing.T) {
 	if r := mustParse(t, `$: map(input.rows, r => r.x)`).RootRefs(); !r.Input {
 		t.Error("a genuine input read inside a map source must still be reported")
-	}
-}
-
-func TestOutputRefs_InsideMapSource(t *testing.T) {
-	if got := mustParse(t, `$: map(outputs.a.items, x => x.y)`).OutputRefs(); len(got) != 1 || got[0] != "a" {
-		t.Errorf("OutputRefs = %v, want [a]", got)
 	}
 }
 

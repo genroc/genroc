@@ -31,14 +31,7 @@ func Infer(node any, ctx schema.Schema, label string) (schema.Schema, error) {
 		// The inferred sub-schema carries the context's root $defs for its own
 		// resolvability; the leaf is embedded into a structure whose root owns the
 		// defs, so re-root it bare.
-		out := inferred.WithoutDefs()
-		// Taint the leaf if its expression reads a secret. Structural secrets (a
-		// passed-through secret node) are already carried on `out`; this adds the
-		// reference-taint that survives any transformation the expression applies.
-		if t.ReferencesSecret(ctx) {
-			out = out.Taint()
-		}
-		return out, nil
+		return inferred.WithoutDefs(), nil
 	case []any:
 		elems := make([]schema.Schema, len(n))
 		for i, item := range n {

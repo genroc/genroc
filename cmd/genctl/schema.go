@@ -95,11 +95,6 @@ func inferExpr(ctx schema.Schema, expr string) schema.Schema {
 	if err != nil {
 		fatal("%v%s", err, unwrapHint(expr))
 	}
-	// Same taint a `$:` leaf would carry, so the answer is the one the checker computes.
-	// Parsing already succeeded above, which is the only error this returns.
-	if secret, _ := ctx.ReferencesSecret(expr); secret {
-		t = t.Taint()
-	}
 	return t
 }
 

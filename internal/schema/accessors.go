@@ -174,11 +174,6 @@ func (s Schema) StripNull() Schema {
 	return wrap(stripNull(s.n), s.rootDefs())
 }
 
-// Taint marks the whole value secret, conservatively.
-func (s Schema) Taint() Schema {
-	return wrap(taintNode(s.n), s.rootDefs())
-}
-
 // IsNull reports whether s is exactly {type:"null"} (cf. HasNull).
 func (s Schema) IsNull() bool {
 	return isNullType(s.n)
@@ -264,27 +259,6 @@ func (s Schema) ExplainNarrowsTo(super Schema) []*SubsetBreak {
 // IsSecret looks through nullable / single-variant union wrappers.
 func (s Schema) IsSecret() bool {
 	return isSecret(s.n)
-}
-
-// SecretAt reports whether the value at path is secret — the path either passes
-// through or ends at a secret node (reading from inside a secret object is itself
-// secret). False when path cannot be resolved.
-func (s Schema) SecretAt(path string) bool {
-	return pathHitsSecret(s.n, s.rootDefs(), path)
-}
-
-// Redact replaces every secret-marked field in data with "***", descending via the
-// same navigation type inference uses.
-func (s Schema) Redact(data any) any {
-	return redact(data, s.n, s.rootDefs())
-}
-
-// CollectSecrets returns the string form of every secret-marked value in data —
-// the gather half of log redaction.
-func (s Schema) CollectSecrets(data any) []string {
-	var out []string
-	collectSecrets(data, s.n, s.rootDefs(), &out)
-	return out
 }
 
 // ContainsSecret reports whether `secret: true` appears anywhere in the document, at any depth.

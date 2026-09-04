@@ -11,26 +11,6 @@ import (
 // each individual case can stay a one-line test body; anything reused by the wider
 // package lives in helpers_test.go instead.
 
-// assertSecretCase asserts that ReferencesSecret(expr) matches want. The two
-// failure directions are reported differently on purpose: a missing taint is a
-// value that reaches the logs in the clear, while a spurious one only costs log
-// verbosity.
-func assertSecretCase(t *testing.T, c schema.Schema, expr string, want bool) {
-	t.Helper()
-	got, err := c.ReferencesSecret(expr)
-	if err != nil {
-		t.Fatalf("ReferencesSecret(%q): %v", expr, err)
-	}
-	if got == want {
-		return
-	}
-	if want {
-		t.Errorf("ReferencesSecret(%q) = false, want true (secret leak!)", expr)
-	} else {
-		t.Errorf("ReferencesSecret(%q) = true, want false (over-redaction)", expr)
-	}
-}
-
 // inferredJSON marshals the schema inferred for expr. Generated schemas are
 // compared by bytes elsewhere (the recursive-inference fixpoint, the checked-in
 // spec files), so the JSON encoding is the thing determinism is about.

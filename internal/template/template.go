@@ -33,7 +33,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 
@@ -258,17 +257,6 @@ func (t *Template) InferType(sc schema.Schema) (schema.Schema, error) {
 	return schema.Type("string"), nil
 }
 
-// ReferencesSecret reports whether any embedded expression reads a secret value
-// (see schema.Schema.ReferencesSecret); a plain string is never secret.
-func (t *Template) ReferencesSecret(sc schema.Schema) bool {
-	for _, c := range t.chunks {
-		if c.node != nil && sc.ReferencesSecretNode(c.node) {
-			return true
-		}
-	}
-	return false
-}
-
 // RootRefs reports which context roots the embedded expressions read, merged across
 // every block, so the engine lazily resolves only the value-slots a template needs.
 // RootRefs unions the root references of every block. A ${ } interpolation STRINGIFIES its
@@ -283,26 +271,6 @@ func (t *Template) RootRefs() expression.Roots {
 		out.Union(expression.RootRefsNode(c.node, !t.expr))
 	}
 	return out
-}
-
-// OutputRefs returns the distinct outputs.<id> task ids across every block, for the
-// output-dependency graph.
-func (t *Template) OutputRefs() []string {
-	set := map[string]struct{}{}
-	for _, c := range t.chunks {
-		if c.node == nil {
-			continue
-		}
-		for _, id := range expression.OutputRefsNode(c.node) {
-			set[id] = struct{}{}
-		}
-	}
-	ids := make([]string, 0, len(set))
-	for id := range set {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
 }
 
 // cache memoises Parse: template strings are static definition content, so the key set is

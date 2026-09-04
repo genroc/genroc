@@ -1,8 +1,8 @@
 # The object store: content, and who holds it
 
-Status: **BUILT 2026-08-24** — the store, the wire, definition objects and worker caching. What
-remains proposal is the config-only narrowing of `secret: true` (§Redaction), which is mostly
-deletion. Re-architecting `process_objects` from a
+Status: **BUILT 2026-08-24** — the store, the wire, definition objects and worker caching; the
+config-only narrowing of `secret: true` (§Redaction) landed with it, and the taint system it
+made dead was deleted 2026-09-04. Re-architecting `process_objects` from a
 per-instance blob table into a global content-addressed store with explicit ownership. The
 trigger is script tasks — a bundle that carries a library is copied into every instance and
 re-shipped on every claim — but the fix is the ownership model, not a special case for code.
@@ -137,12 +137,13 @@ What that leaves is one mechanism, in one place, on one sink: `redactSecrets` ov
 copy, with `contextSecrets` collapsing to `def.SecretConfigValues(inst.Config)` — no schema walk
 at all.
 
-**The larger prize is the taint system.** `Taint()`, `ReferencesSecret`, `SecretAt`,
-`pathHitsSecret`, `nodeOrTargetSecret` and `Schema.Redact` exist to propagate secretness through
-inference so that a redactor can find derived values later. Their only consumers are the three
-redaction paths above, every one of which goes — leaving `IsSecret()` on a config property, used
-for coercion and for collecting the values to replace. Verify that during implementation rather
-than trusting this paragraph, but the shape of the change is a deletion, not a refactor.
+**The larger prize is the taint system** — ✅ **deleted 2026-09-04**, and it was a deletion
+rather than a refactor as predicted. `Taint()`, `ReferencesSecret`, `SecretAt`, `pathHitsSecret`,
+`nodeOrTargetSecret` and `Schema.Redact` propagated secretness through inference so a redactor
+could find derived values later; every consumer had already gone, and `RedactContext` took
+`ContextSchema` / `SchemaFileContext` / `ErrorDataSchema` with it — that composition existed to
+be redacted. What is left is `IsSecret()` on a config property, for coercion and for collecting
+the values `redactSecrets` replaces.
 
 **The consequence, stated rather than discovered:** a secret passed as process *input* is no
 longer protected anywhere, including stdout. The answer if that ever matters is to put it in

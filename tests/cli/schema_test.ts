@@ -338,9 +338,10 @@ test("schema context -e — a bad path is refused, and a pasted leaf is named as
   expect(noAddress.stderr).toContain("needs an address");
 });
 
-// The answer is the one the checker computes for a `$:` leaf, taint included — otherwise `-e`
-// would say a slot accepts what an apply then rejects for reading a secret.
-test("schema context -e — an expression that reads a secret stays secret", () => {
+// `secret: true` is declared on a config property and nothing else (registration refuses it
+// elsewhere), and the answer carries it — which is what tells an author the slot they are
+// writing reads one.
+test("schema context -e — a config secret is reported as secret", () => {
   const path = defFile(
     [
       "name: pricing",
@@ -356,9 +357,7 @@ test("schema context -e — an expression that reads a secret stays secret", () 
     ].join("\n"),
   );
 
-  const derived = typeOf(path, "tasks.price.action", 'config.api_key == "x"');
-  expect(derived.ok, derived.stderr).toBe(true);
-  // Conservative on purpose: any path through a secret taints, whatever the expression then
-  // does with the value — here a boolean that never carries the key itself.
-  expect(JSON.parse(derived.stdout)).toEqual({ type: "boolean", secret: true });
+  const read = typeOf(path, "tasks.price.action", "config.api_key");
+  expect(read.ok, read.stderr).toBe(true);
+  expect(JSON.parse(read.stdout)).toEqual({ type: "string", secret: true });
 });

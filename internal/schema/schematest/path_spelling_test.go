@@ -60,7 +60,7 @@ func TestValidateErrorPathIsAnAccessor(t *testing.T) {
 }
 
 // The path in a message is only useful if it resolves back to the value it named,
-// so the rendering and At/SecretAt must agree on the syntax.
+// so the rendering and At must agree on the syntax.
 func TestErrorPathResolvesBack(t *testing.T) {
 	sc := mustParse(t, pathSpellingSchema)
 	cases := []struct{ path, want string }{
@@ -111,27 +111,6 @@ func TestDottedPathStillNests(t *testing.T) {
 	}
 	if got := flat.TypeName(); got != "integer" {
 		t.Errorf(`At(["a.b"]) type = %q, want integer (the flat key)`, got)
-	}
-}
-
-func TestSecretAtDistinguishesQuotedKey(t *testing.T) {
-	sc := mustParse(t, `{
-		"type": "object",
-		"properties": {
-			"a": {
-				"type": "object",
-				"properties": {"b": {"type": "string"}},
-				"required": ["b"]
-			},
-			"a.b": {"type": "string", "secret": true}
-		},
-		"required": ["a", "a.b"]
-	}`)
-	if !sc.SecretAt(`["a.b"]`) {
-		t.Error(`SecretAt(["a.b"]) = false, want true (the flat key is the secret)`)
-	}
-	if sc.SecretAt("a.b") {
-		t.Error(`SecretAt("a.b") = true, want false (the nested a → b is not secret)`)
 	}
 }
 

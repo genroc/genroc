@@ -79,48 +79,6 @@ func TestValidateAtRejectsBadSubpathValue(t *testing.T) {
 	}
 }
 
-func TestSecretAtPath(t *testing.T) {
-	sc := mustParse(t, nestedSchema)
-	cases := []struct {
-		path string
-		want bool
-	}{
-		{"input.password", true},
-		{"input.user", false},
-		{"outputs.charge.token", true},
-		{"outputs.charge.amount", false},
-		{"outputs.charge", false}, // the object itself is not secret
-	}
-	for _, c := range cases {
-		if got := sc.SecretAt(c.path); got != c.want {
-			t.Errorf("SecretAt(%q) = %v, want %v", c.path, got, c.want)
-		}
-	}
-}
-
-func TestRedactAndCollectSecretsWholeContext(t *testing.T) {
-	sc := mustParse(t, nestedSchema)
-	data := mustData(t, `{
-		"input":{"user":"al","password":"hunter2","retries":3},
-		"outputs":{"charge":{"amount":10,"token":"sk-live-xyz"}}
-	}`)
-
-	secrets := sc.CollectSecrets(data)
-	if !contains(secrets, "hunter2") || !contains(secrets, "sk-live-xyz") {
-		t.Errorf("CollectSecrets missed a secret: %v", secrets)
-	}
-
-	red := sc.Redact(data).(map[string]any)
-	in := red["input"].(map[string]any)
-	if in["password"] != "***" || in["user"] != "al" {
-		t.Errorf("Redact input wrong: %v", in)
-	}
-	charge := red["outputs"].(map[string]any)["charge"].(map[string]any)
-	if charge["token"] != "***" || !numeric.Equal(charge["amount"], 10) {
-		t.Errorf("Redact charge wrong: %v", charge)
-	}
-}
-
 // A property that is optional but has a default is guaranteed present after
 // validation (conformObject fills the default), so navigation and inference must
 // treat it as non-nullable — usable directly in a comparison. An optional property

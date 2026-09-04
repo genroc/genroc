@@ -73,36 +73,6 @@ func TestComputedKey_KeyTypeMustMatchTheBase(t *testing.T) {
 	assertSchema(t, infer(t, `headers[maybeKey ?? ""]`, c), `{"type": ["string", "null"]}`)
 }
 
-// The hole a path-based secret walk cannot see: the taint sits on
-// additionalProperties, never on the map itself, so a computed key has to read it
-// off the resolved type. `vault` alone is not secret — that is what makes this a
-// leak rather than a redundancy.
-func TestComputedKey_SecretsOnTheValueSchema(t *testing.T) {
-	c := ctx(t, computedKeyJSON)
-	secretRefAll(t, c, true, []secretCase{
-		{"computed_key_into_a_secret_map", `vault[k]`},
-		{"computed_key_with_an_operator", `vault[k + "x"]`},
-		{"tainted_result_used", `vault[k] ?? "none"`},
-	})
-	secretRefAll(t, c, false, []secretCase{
-		{"the_map_itself_is_not_secret", `vault`},
-		{"a_plain_map", `headers[k]`},
-	})
-}
-
-// Building the key can read a secret in its own right.
-func TestComputedKey_SecretInTheKeyExpression(t *testing.T) {
-	c := ctx(t, `{
-		"type": "object",
-		"properties": {
-			"headers": { "type": "object", "additionalProperties": { "type": "string" } },
-			"which": { "type": "string", "secret": true }
-		},
-		"required": ["headers", "which"]
-	}`)
-	secretRefAll(t, c, true, []secretCase{{"secret_key", `headers[which]`}})
-}
-
 // Narrowing keys on the key expression, so two reads of the same a[k] share a
 // guard. Sound because expressions are pure: the second read cannot see a
 // different key than the first.

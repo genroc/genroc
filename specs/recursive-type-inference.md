@@ -126,11 +126,9 @@ input alike.
   and is correct because of this rule.
 - `conform` gets a same-value-position cycle guard (defense in depth — stored
   schemas decode without CheckDoc).
-- `SecretAt`/`Redact`/`CollectSecrets` deref with visited sets.
-- `Taint($ref X)` sets `secret` on the *ref node itself*; all secret machinery
-  checks the flag before following the ref. Never mutate the shared def
-  (over-tainting other users of X would be a redaction correctness bug), and
-  materialization is impossible for recursive targets anyway.
+- ~~`SecretAt`/`Redact`/`CollectSecrets` and `Taint($ref X)` and their visited sets~~ — the
+  taint system was deleted 2026-09-04 with the redactor it fed (object-store.md §Redaction),
+  so nothing here follows a ref for secrecy any more.
 - `IsSubset` is already coinductive; `MergeInto`'s rename-normalized dedup
   already handles self-referencing defs. Both stay.
 

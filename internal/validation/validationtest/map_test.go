@@ -357,38 +357,3 @@ func TestGenerateMap_OutputMapErrorNamesTask(t *testing.T) {
 	mapErrMentions(t, got, "nope", "name the unknown field")
 	mapErrMentions(t, got, "shape", `name the offending task "shape"`)
 }
-
-// A secret living on the *element* type has no dot-path from the context root
-// (`input.creds` is not secret, `input.creds[].token` is), so the taint walk has
-// to resolve paths rooted at the lambda parameter. If it did not, a mapped
-// secret would be written to logs and to the public output in the clear.
-func TestGenerateMap_SecretOnElementTaintsMappedOutput(t *testing.T) {
-	credsInput := `{
-		"type": "object",
-		"properties": {
-			"creds": {
-				"type": "array",
-				"items": {
-					"type": "object",
-					"properties": {"host": {"type": "string"}, "token": {"type": "string", "secret": true}},
-					"required": ["host", "token"]
-				}
-			}
-		},
-		"required": ["creds"]
-	}`
-	out := runGenerate(t, mapProcessOutputDef("map-secret", credsInput, `{
-		"tokens": "$: map(input.creds, c => c.token)",
-		"hosts": "$: map(input.creds, c => c.host)"
-	}`))
-	def := defOf(out, "output")
-	if def.IsZero() {
-		t.Fatalf("no \"output\" def; have %v", defKeys(out))
-	}
-	if !def.Properties()["tokens"].IsSecret() {
-		t.Errorf("output.tokens should be marked secret, got %+v", def.Properties()["tokens"])
-	}
-	if def.Properties()["hosts"].IsSecret() {
-		t.Errorf("output.hosts maps a non-secret field and must not be tainted")
-	}
-}

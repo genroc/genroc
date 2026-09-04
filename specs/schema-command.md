@@ -85,11 +85,12 @@ interpolated string is `string`; the grammar is unambiguous without it — `tota
 `"total"` a literal. A pasted leaf therefore fails to parse, and the error hands the expression
 back unwrapped rather than pointing at the `$`.
 
-It is the checker's own inference, so two things come free: at `output` the expression is typed
-under every arm and the results joined (§6), so `outputs.price.fee` is `number|null` and
-`?? 0` is not; and a path through a secret taints the answer exactly as a `$:` leaf would. The
-refusal is half the value — a wrong path gets the checker's diagnostic with no apply, no server
-and no resolver.
+It is the checker's own inference, so at `output` the expression is typed under every arm and the
+results joined (§6): `outputs.price.fee` is `number|null` and `?? 0` is not. A declared
+`secret: true` travels with the type it sits on — structurally, since the taint that once
+followed a secret through a transformation is gone with the redactor it fed
+(object-store.md §Redaction). The refusal is half the value: a wrong path gets the checker's
+diagnostic with no apply, no server and no resolver.
 
 ## 3. The phases
 

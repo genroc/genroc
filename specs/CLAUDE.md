@@ -316,7 +316,8 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   copied reference and a re-hashed one identical on the wire, so only the in-memory load count
   can see the difference.
 
-- [object-store.md](object-store.md) — **BUILT (2026-08-24)**; only the config-only narrowing of `secret: true` remains proposal. Re-architects `process_objects` from a per-instance blob
+- [object-store.md](object-store.md) — **BUILT (2026-08-24)**, config-only `secret: true`
+  included; the taint system it made dead was deleted 2026-09-04. Re-architects `process_objects` from a per-instance blob
   table into a global content-addressed store (`objects`) with explicit ownership
   (`object_refs`: instance / log / definition). Opens with a measurement rather than a design:
   a 221 KB script is copied verbatim into every instance's `external_data` (ten instances =

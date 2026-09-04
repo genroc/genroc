@@ -273,7 +273,7 @@ func TestShape_ExprMode(t *testing.T) {
 	}
 }
 
-func TestShape_PresentAndStrings(t *testing.T) {
+func TestShape_Present(t *testing.T) {
 	var absent *shape.Shape
 	if absent.Present() {
 		t.Error("nil shape should not be Present")
@@ -284,14 +284,5 @@ func TestShape_PresentAndStrings(t *testing.T) {
 	}
 	if !sh.Present() {
 		t.Error("shape should be Present")
-	}
-	got := map[string]bool{}
-	for _, s := range sh.Strings() {
-		got[s] = true
-	}
-	for _, want := range []string{"$: x", "$: y", "$: z"} {
-		if !got[want] {
-			t.Errorf("Strings missing %q; got %v", want, sh.Strings())
-		}
 	}
 }

@@ -126,10 +126,3 @@ func assertInferAccepts(t *testing.T, src string) {
 		t.Errorf("InferType(%q): unexpected rejection: %v", src, err)
 	}
 }
-
-func assertReferencesSecret(t *testing.T, src string, want bool) {
-	t.Helper()
-	if got := mustParse(t, src).ReferencesSecret(ctxSchema(t)); got != want {
-		t.Errorf("ReferencesSecret(%q) = %v, want %v", src, got, want)
-	}
-}

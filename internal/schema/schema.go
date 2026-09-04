@@ -20,7 +20,7 @@
 // document that may carry nested $defs and unresolved anchors; the only thing to
 // do with it is Normalize (or marshal it back out). Normalize yields a Schema —
 // the operating type: $defs live only at its root and every operation (Validate,
-// At/Infer, SecretAt, Redact, …) is a method. The underlying node tree is not
+// At/Infer, IsSubset, …) is a method. The underlying node tree is not
 // exported; sub-schemas returned by navigation are full Schemas carrying the root
 // $defs, so they stay resolvable at any depth.
 //

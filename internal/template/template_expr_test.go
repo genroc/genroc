@@ -27,11 +27,6 @@ func TestExprMarker_InferPreservesType(t *testing.T) {
 	assertInferType(t, `$: input.tags`, "array")
 }
 
-func TestExprMarker_SecretTaintThreads(t *testing.T) {
-	assertReferencesSecret(t, `$: input.token`, true)
-	assertReferencesSecret(t, `$: input.name`, false)
-}
-
 func TestExprMarker_ParseErrorNamesExpression(t *testing.T) {
 	assertParseError(t, `$: input.`, "expression")
 }

@@ -32,8 +32,6 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **source resolution**: the structural phase and `$infer` (specs/source-resolution.md)
 - [] **long-poll** on the external-task queue (specs/external-task-queue.md)
 - [] **per-definition durability field** (specs/durability-levels.md §8)
-- [] **delete the taint system** — dead since `secret: true` narrowed to config;
-  `RedactContext` and `SecretAt` have no callers
 - [] **pause as a debugging tool** — start an instance paused, step it with `tick`
 - [] **docs** — the site ships four pages; the reference gap it was written to close is open
 

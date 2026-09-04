@@ -67,32 +67,6 @@ func (s *Shape) Present() bool {
 	return s != nil && s.Raw != nil
 }
 
-// Strings returns every string leaf in the shape (descending into arrays and objects),
-// used to collect outputs.<id> references for the output-dependency graph.
-func (s *Shape) Strings() []string {
-	if s == nil {
-		return nil
-	}
-	var out []string
-	var walk func(any)
-	walk = func(n any) {
-		switch v := n.(type) {
-		case string:
-			out = append(out, v)
-		case []any:
-			for _, c := range v {
-				walk(c)
-			}
-		case map[string]any:
-			for _, c := range v {
-				walk(c)
-			}
-		}
-	}
-	walk(s.Raw)
-	return out
-}
-
 // checkShape recursively enforces the value grammar:
 // string | number | boolean | null | Shape[] | Record<string, Shape>. A string leaf is a
 // template or a $: expression; scalars and null are literals; arrays and objects are

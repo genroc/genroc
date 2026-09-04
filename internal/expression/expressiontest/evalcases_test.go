@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"genroc/internal/expression"
-	"genroc/internal/schema"
 
 	exprlib "github.com/expr-lang/expr"
 )
@@ -226,28 +225,3 @@ func edgeJSONAll(t *testing.T, cases []edgeJSONCase) {
 }
 
 // ---- secret taint sweeps ----
-
-// secretCase is one expression under a behaviour name, for ReferencesSecret
-// sweeps where every case in the list shares the same expected verdict.
-type secretCase struct{ name, expr string }
-
-// secretRefAll asserts ReferencesSecret(expr) == want for every case. A false
-// negative is a secret leak; a false positive is over-redaction.
-func secretRefAll(t *testing.T, c schema.Schema, want bool, cases []secretCase) {
-	t.Helper()
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := c.ReferencesSecret(tc.expr)
-			if err != nil {
-				t.Fatalf("ReferencesSecret(%q): %v", tc.expr, err)
-			}
-			if got != want {
-				if want {
-					t.Errorf("ReferencesSecret(%q) = false, want true (secret leak!)", tc.expr)
-				} else {
-					t.Errorf("ReferencesSecret(%q) = true, want false (over-redaction)", tc.expr)
-				}
-			}
-		})
-	}
-}

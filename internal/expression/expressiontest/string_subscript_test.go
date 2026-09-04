@@ -71,23 +71,6 @@ func TestStringSubscript_Evaluates(t *testing.T) {
 	assertEq(t, evalOK(t, `leaky.x.token`, context), "nested")
 }
 
-// The regression the steps refactor exists for. Under a dot-path key, reading
-// leaky["x.token"] navigated leaky → x → token — a different, non-secret value —
-// and the secret went out unredacted.
-func TestStringSubscript_DottedKeyTaints(t *testing.T) {
-	c := ctx(t, subscriptContextJSON)
-	secretRefAll(t, c, true, []secretCase{
-		{"flat_dotted_key_is_the_secret", `leaky["x.token"]`},
-		{"nested_path_is_the_secret", `over.x.token`},
-		{"nested_path_spelled_with_subscripts", `over["x"]["token"]`},
-	})
-	secretRefAll(t, c, false, []secretCase{
-		// The non-secret half of each pair: neither may borrow the other's taint.
-		{"nested_sibling_of_a_flat_secret", `leaky.x.token`},
-		{"flat_sibling_of_a_nested_secret", `over["x.token"]`},
-	})
-}
-
 // "" is a legal JSON key, and a["") is the only way to reach it. It is also the
 // case that made a path step need an explicit index/property discriminator: an
 // empty prop is indistinguishable from index 0 under the prop != "" test.
@@ -109,8 +92,6 @@ func TestStringSubscript_EmptyKey(t *testing.T) {
 	inferErr(t, `m[0]`, c, "")
 	// …and the converse, so the discriminator is exercised both ways.
 	inferErr(t, `arr[""]`, c, "")
-
-	secretRefAll(t, c, true, []secretCase{{"empty_key_secret", `m[""]`}})
 }
 
 // Narrowing keys off the same access path, so the same collision applies: a
