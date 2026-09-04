@@ -15,6 +15,10 @@ import (
 	"strconv"
 	"strings"
 
+	"genroc/internal/model"
+	"genroc/internal/numeric"
+	"genroc/internal/validation"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -83,10 +87,10 @@ type site struct {
 }
 
 type manifest struct {
-	Mode    string         `json:"mode"`
-	Root    string         `json:"root"`
-	Schemas map[string]any `json:"schemas"`
-	Sites   []site         `json:"sites"`
+	Mode    string                           `json:"mode"`
+	Root    string                           `json:"root"`
+	Schemas map[string]validation.SchemaFile `json:"schemas"`
+	Sites   []site                           `json:"sites"`
 }
 
 type resolverReply struct {
@@ -353,8 +357,8 @@ func runResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]string, er
 // its declarations, which is what `genctl types` runs between applies.
 //
 // It returns the number of sites resolved; zero means nothing was imported and — the point
-// of the check — no extra roundtrip was spent.
-func resolveDocs(docs []sourceDoc, server, mode string) (int, error) {
+// of the check — no work was done.
+func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 	if len(docs) == 0 {
 		return 0, nil
 	}
@@ -377,7 +381,7 @@ func resolveDocs(docs []sourceDoc, server, mode string) (int, error) {
 			return 0, err
 		}
 	}
-	schemas, err := fetchSchemas(docs, server)
+	schemas, err := inferSchemas(docs, sites)
 	if err != nil {
 		return 0, err
 	}
@@ -414,47 +418,52 @@ func resolveDocs(docs []sourceDoc, server, mode string) (int, error) {
 	return len(sites), nil
 }
 
-// fetchSchemas asks the server for the inferred schemas. This is a TYPE QUERY, not a
-// verdict: the apply that follows revalidates, so what is checked for real is what is
-// stored. See specs/source-resolution.md.
-func fetchSchemas(docs []sourceDoc, server string) (map[string]any, error) {
-	payload := make([]any, len(docs))
-	for i, sd := range docs {
-		payload[i] = sd.doc
+// inferSchemas types the definitions that carry a directive. genctl computes the types and
+// the server decides validity, which is why neither the strict decode, nor Validate, nor the
+// child-reference check the endpoint ran is reproduced here. specs/source-resolution.md.
+func inferSchemas(docs []sourceDoc, sites []site) (map[string]validation.SchemaFile, error) {
+	needed := make(map[string]bool, len(sites))
+	for _, s := range sites {
+		needed[s.Process] = true
 	}
-	var files []map[string]any
-	if err := call(server+"/api/definitions/validate", "POST", payload, &files); err != nil {
-		return nil, err
-	}
-	out := make(map[string]any, len(files))
-	for _, f := range files {
-		name, _ := f["process"].(string)
+	out := make(map[string]validation.SchemaFile, len(needed))
+	for _, sd := range docs {
+		// Keyed off the raw document, like the sites this answers. A definition with no
+		// directive is never typed: one broken file must not stop a project-wide `types`.
+		name, _ := sd.doc.(map[string]any)["name"].(string)
+		if !needed[name] {
+			continue
+		}
 		if _, dup := out[name]; dup {
 			return nil, fmt.Errorf("two definitions named %q in one apply - schemas are keyed by process name", name)
 		}
-		out[name] = f
+		raw, err := json.Marshal(sd.doc)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", sd.file, err)
+		}
+		var def model.ProcessDefinition
+		if err := numeric.Decode(raw, &def); err != nil {
+			return nil, fmt.Errorf("%s: %w", sd.file, err)
+		}
+		sf, err := validation.Generate(&def)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %s: %w", sd.file, name, err)
+		}
+		out[name] = sf
 	}
 	return out, nil
 }
 
 // taskInput is the inferred type of the task's action input, which validation already
-// computed (validation.buildInputs) and the endpoint already returns. It may be a $ref into
-// that process's own $defs pool.
-func taskInput(schemas map[string]any, process, task string) any {
+// computed (validation.buildInputs). It may be a $ref into that process's own $defs pool.
+// A zero schema returns nil so the manifest omits the key rather than carrying `null`.
+func taskInput(schemas map[string]validation.SchemaFile, process, task string) any {
 	if task == "" {
 		return nil
 	}
-	f, ok := schemas[process].(map[string]any)
-	if !ok {
+	ts, ok := schemas[process].Tasks[task]
+	if !ok || ts.Input.IsZero() {
 		return nil
 	}
-	tasks, ok := f["tasks"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	ts, ok := tasks[task].(map[string]any)
-	if !ok {
-		return nil
-	}
-	return ts["input"]
+	return ts.Input
 }

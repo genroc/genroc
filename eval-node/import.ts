@@ -72,13 +72,16 @@ function tsType(s: Schema | undefined, used: Set<string>): string {
   if (Array.isArray(s.enum)) {
     return s.enum.map((v: unknown) => JSON.stringify(v)).join(" | ") || "never";
   }
-  if (Array.isArray(s.anyOf)) return union(s.anyOf.map((a: Schema) => tsType(a, used)));
-  if (Array.isArray(s.oneOf)) return union(s.oneOf.map((a: Schema) => tsType(a, used)));
+  if (Array.isArray(s.anyOf))
+    return union(s.anyOf.map((a: Schema) => tsType(a, used)));
+  if (Array.isArray(s.oneOf))
+    return union(s.oneOf.map((a: Schema) => tsType(a, used)));
   if (Array.isArray(s.allOf)) {
     return s.allOf.map((a: Schema) => tsType(a, used)).join(" & ") || "unknown";
   }
 
-  const types: string[] = s.type === undefined ? [] : Array.isArray(s.type) ? s.type : [s.type];
+  const types: string[] =
+    s.type === undefined ? [] : Array.isArray(s.type) ? s.type : [s.type];
   if (types.length === 0) {
     // The top type: `{}` means unknown, not "an empty object". specs/unknown-type.md.
     return s.properties ? objectType(s, used) : "unknown";
@@ -111,8 +114,13 @@ function objectType(s: Schema, used: Set<string>): string {
   const required = new Set<string>(s.required ?? []);
   const lines: string[] = [];
   for (const [key, sub] of Object.entries(props)) {
-    const doc = typeof sub.description === "string" ? `  /** ${sub.description} */\n` : "";
-    lines.push(`${doc}  ${propKey(key)}${required.has(key) ? "" : "?"}: ${tsType(sub, used)};`);
+    const doc =
+      typeof sub.description === "string"
+        ? `  /** ${sub.description} */\n`
+        : "";
+    lines.push(
+      `${doc}  ${propKey(key)}${required.has(key) ? "" : "?"}: ${tsType(sub, used)};`,
+    );
   }
   if (s.additionalProperties && typeof s.additionalProperties === "object") {
     lines.push(`  [key: string]: ${tsType(s.additionalProperties, used)};`);
@@ -128,9 +136,13 @@ function union(parts: string[]): string {
 
 const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const propKey = (k: string) => (IDENT.test(k) ? k : JSON.stringify(k));
-const identifier = (n: string) => (IDENT.test(n) ? n : `Def_${n.replace(/[^A-Za-z0-9_$]/g, "_")}`);
+const identifier = (n: string) =>
+  IDENT.test(n) ? n : `Def_${n.replace(/[^A-Za-z0-9_$]/g, "_")}`;
 
-function deref(s: Schema | undefined, defs: Record<string, Schema>): Schema | undefined {
+function deref(
+  s: Schema | undefined,
+  defs: Record<string, Schema>,
+): Schema | undefined {
   let cur = s;
   for (let i = 0; cur && typeof cur.$ref === "string" && i < 16; i++) {
     cur = defs[cur.$ref.replace(/^#\/\$defs\//, "")];
@@ -142,7 +154,10 @@ function deref(s: Schema | undefined, defs: Record<string, Schema>): Schema | un
  *  `{code, input, timeout_ms, …}`, and only its `input` field is bound as the script's
  *  parameter. genroc cannot know that; this file owns the evaluator's wire contract, so
  *  the navigation belongs here rather than in genctl. */
-function scriptInput(site: Site, defs: Record<string, Schema>): Schema | undefined {
+function scriptInput(
+  site: Site,
+  defs: Record<string, Schema>,
+): Schema | undefined {
   const action = deref(site.input, defs);
   const bound = action?.properties?.input;
   return bound ?? site.input;
@@ -189,7 +204,10 @@ function typesPathFor(scriptPath: string): string {
 /** The nearest tsconfig above the script — the one the author's editor already reads. Two
  *  different configs mean a red editor over a clean apply, or the reverse. The walk stops at
  *  the project root: above it is not this project. */
-async function nearestTsconfig(from: string, root: string): Promise<string | null> {
+async function nearestTsconfig(
+  from: string,
+  root: string,
+): Promise<string | null> {
   for (let dir = from; ; dir = dirname(dir)) {
     const candidate = join(dir, "tsconfig.json");
     if (await exists(candidate)) return candidate;
@@ -232,12 +250,18 @@ async function typecheck(root: string, sites: Site[]): Promise<void> {
         // base config there is nothing to opt in with, so the default stays none.
         ...(base ? {} : { types: [] }),
       },
-      files: group.flatMap((s) => [relative(dir, s.path), relative(dir, typesPathFor(s.path))]),
+      files: group.flatMap((s) => [
+        relative(dir, s.path),
+        relative(dir, typesPathFor(s.path)),
+      ]),
       // `files` overrides the base's, but a base `include` survives beside it and would
       // drag the author's whole tree in, to be checked under the worker lib.
       include: [],
     };
-    const configPath = join(dir, groups.size === 1 ? "tsconfig.json" : `tsconfig.${n++}.json`);
+    const configPath = join(
+      dir,
+      groups.size === 1 ? "tsconfig.json" : `tsconfig.${n++}.json`,
+    );
     await write(configPath, JSON.stringify(config, null, 2));
     await runTsc(root, configPath);
   }
@@ -285,7 +309,10 @@ const transpile: Plugin = {
   },
 };
 
-const BUILTIN = new Set([...builtinModules, ...builtinModules.map((m) => `node:${m}`)]);
+const BUILTIN = new Set([
+  ...builtinModules,
+  ...builtinModules.map((m) => `node:${m}`),
+]);
 
 /** Resolves imports through TYPESCRIPT, using the same config the typecheck ran under, so a
  *  `paths` alias that compiles also bundles. Reimplementing `paths` here would be a second
@@ -296,15 +323,27 @@ function tsResolve(configPath: string | null): Plugin {
   let options: ts.CompilerOptions = {};
   if (configPath) {
     const read = ts.readConfigFile(configPath, ts.sys.readFile);
-    options = ts.parseJsonConfigFileContent(read.config ?? {}, ts.sys, dirname(configPath)).options;
+    options = ts.parseJsonConfigFileContent(
+      read.config ?? {},
+      ts.sys,
+      dirname(configPath),
+    ).options;
   }
   return {
     name: "genroc-ts-resolve",
     resolveId(source, importer) {
       if (!importer || BUILTIN.has(source)) return null;
-      const { resolvedModule } = ts.resolveModuleName(source, importer, options, ts.sys);
-      if (!resolvedModule || resolvedModule.isExternalLibraryImport) return null;
-      return resolvedModule.resolvedFileName.endsWith(".d.ts") ? null : resolvedModule.resolvedFileName;
+      const { resolvedModule } = ts.resolveModuleName(
+        source,
+        importer,
+        options,
+        ts.sys,
+      );
+      if (!resolvedModule || resolvedModule.isExternalLibraryImport)
+        return null;
+      return resolvedModule.resolvedFileName.endsWith(".d.ts")
+        ? null
+        : resolvedModule.resolvedFileName;
     },
   };
 }
@@ -330,12 +369,19 @@ async function bundle(site: Site, root: string): Promise<string> {
     ],
     onwarn(warning) {
       if (warning.code === "UNRESOLVED_IMPORT") {
-        die(`${site.path}: cannot resolve ${warning.exporter ?? "an import"} — is it installed?`);
+        die(
+          `${site.path}: cannot resolve ${warning.exporter ?? "an import"} — is it installed?`,
+        );
       }
     },
-  }).catch((e: unknown) => die(`${site.path}: ${e instanceof Error ? e.message : String(e)}`));
+  }).catch((e: unknown) =>
+    die(`${site.path}: ${e instanceof Error ? e.message : String(e)}`),
+  );
 
-  const { output } = await built.generate({ format: "es", inlineDynamicImports: true });
+  const { output } = await built.generate({
+    format: "es",
+    inlineDynamicImports: true,
+  });
   await built.close();
   // Refused here rather than in the realm: the evaluator can only report it against a running
   // instance, and the file it names is on this machine.
@@ -355,14 +401,16 @@ const stdin: string = await new Promise((resolve, reject) => {
   process.stdin.on("error", reject);
 });
 const manifest = JSON.parse(stdin) as Manifest;
-if (!manifest || !Array.isArray(manifest.sites)) die("stdin is not a genroc resolver manifest");
+if (!manifest || !Array.isArray(manifest.sites))
+  die("stdin is not a genroc resolver manifest");
 
 // One script at two sites with different input types is a refusal, not a union: the union
 // is sound and would typecheck a body that is wrong at one of the sites.
 const byPath = new Map<string, Site>();
 for (const site of manifest.sites) {
   const seen = byPath.get(site.path);
-  const defsOf = (x: Site) => (manifest.schemas[x.process]?.$defs ?? {}) as Record<string, Schema>;
+  const defsOf = (x: Site) =>
+    (manifest.schemas[x.process]?.$defs ?? {}) as Record<string, Schema>;
   if (
     seen &&
     JSON.stringify(scriptInput(seen, defsOf(seen))) !==
@@ -377,7 +425,10 @@ for (const site of manifest.sites) {
 }
 
 for (const site of byPath.values()) {
-  const defs = (manifest.schemas[site.process]?.$defs ?? {}) as Record<string, Schema>;
+  const defs = (manifest.schemas[site.process]?.$defs ?? {}) as Record<
+    string,
+    Schema
+  >;
   await write(typesPathFor(site.path), declarations(site, defs));
 }
 

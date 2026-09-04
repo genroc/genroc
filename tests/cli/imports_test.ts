@@ -195,6 +195,78 @@ test("types — writes declarations and applies nothing", () => {
   expect(rows.some((r) => r.name === name)).toBe(false);
 });
 
+// The reason the types are inferred in genctl rather than fetched: `genctl types` runs on
+// every edit, and an editor loop that stops working when the server is down is a worse
+// property than a genctl that links the inference. specs/source-resolution.md.
+test("types — needs no server, and the types are still inferred", () => {
+  const p = echoProject();
+  p.write("body.txt", "x");
+  const def = p.write(
+    "proc.yaml",
+    [
+      `name: ${uid("import")}`,
+      "input_schema:",
+      "  type: object",
+      "  properties: { amount: { type: number } }",
+      "  required: [amount]",
+      "tasks:",
+      "  - id: t",
+      "    action:",
+      "      type: fetch",
+      "      url: https://example.test/x",
+      "      method: POST",
+      "      body:",
+      '        code: "$import: ./body.txt"',
+      '        amount: "$: input.amount"',
+      "    switch: [{ goto: end }]",
+      "",
+    ].join("\n"),
+  );
+
+  // Nothing listens on port 1, so any roundtrip here fails the command.
+  const r = runCli(bin, ["types", "-f", def], { GENROC_SERVER: "http://127.0.0.1:1" });
+  expect(r.ok, `types must not need a server:\n${r.stdout}${r.stderr}`).toBe(true);
+
+  // …and the manifest still carries the INFERRED input, which is the half a roundtrip used
+  // to buy: `amount` is typed from the process input schema, not from the source text.
+  const m = p.manifest();
+  const site = m.sites[0];
+  const defs = m.schemas[site.process].$defs ?? {};
+  const input = site.input.$ref ? defs[site.input.$ref.replace("#/$defs/", "")] : site.input;
+  expect(input.properties.amount).toEqual({ type: "number" });
+});
+
+// genctl computes the types; the server decides validity. A definition carrying no directive
+// is never inferred at all, so one broken file cannot stop the generation for every other
+// script in a project-wide `genctl types` — and the apply still refuses it.
+test("types — a definition with no directive is the server's to judge, not genctl's", () => {
+  const p = echoProject();
+  p.write("body.txt", "x");
+  const good = p.write(
+    "good.yaml",
+    [
+      `name: ${uid("import")}`,
+      "tasks:",
+      "  - id: t",
+      "    output:",
+      '      code: "$import: ./body.txt"',
+      "    switch: [{ goto: end }]",
+      "",
+    ].join("\n"),
+  );
+  // Invalid — a task must route somewhere — and it imports nothing.
+  const bad = p.write("bad.yaml", `name: ${uid("import")}\ntasks:\n  - id: t\n`);
+
+  const types = runCli(bin, ["types", "-f", good, bad]);
+  expect(types.ok, `a broken sibling must not stop type generation:\n${types.stdout}${types.stderr}`).toBe(true);
+  expect(types.stdout).toContain("generated types for 1 import");
+
+  // …and the judgement genctl skipped still happens, with the server's own message.
+  const applied = runCli(bin, ["apply", "-f", good, bad]);
+  expect(applied.ok).toBe(false);
+  expect(applied.stderr).toContain("switch");
+});
+
 test("types — says so when a definition imports nothing", () => {
   const p = echoProject();
   const def = p.write(

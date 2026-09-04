@@ -15,9 +15,10 @@ import (
 // shares a module with the server, so its boundary is a rule rather than a wall, and this is the
 // wall. specs/ui-component.md.
 //
-// The rule: genctl is a CLIENT. It speaks HTTP to a genroc server and validates definitions
-// before sending them, which is why it legitimately depends on the definition language --
-// model, schema, expression, shape, template. It has no business linking the engine, the
+// The rule: genctl is a CLIENT. It speaks HTTP to a genroc server, and it infers the types a
+// source resolver typechecks against before sending anything, which is why it legitimately
+// depends on the definition language -- model, schema, expression, shape, template, and the
+// inference over them in validation. It has no business linking the engine, the
 // database, the API server or the outbound transport, and every one of those would arrive with
 // dependencies (drivers, migrations, OpenAPI generation) that a CLI has no use for.
 //

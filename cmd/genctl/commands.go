@@ -50,7 +50,7 @@ func runApplyCmd(server string, args []string) {
 		os.Exit(1)
 	}
 
-	defs, err := resolvedDefs(files, *serverFlag)
+	defs, err := resolvedDefs(files)
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -96,7 +96,7 @@ func runValidateCmd(server string, args []string) {
 		os.Exit(1)
 	}
 
-	defs, err := resolvedDefs(files, *serverFlag)
+	defs, err := resolvedDefs(files)
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -111,11 +111,13 @@ func runValidateCmd(server string, args []string) {
 // runTypesCmd generates the declarations a resolver's authoring layer needs, without
 // building or applying anything. It exists because the editor needs them to exist BEFORE an
 // apply ever runs - without it an author's file is red until they apply once.
-func runTypesCmd(server string, args []string) {
+//
+// It contacts no server: the types are inferred locally (inferSchemas), so this runs on every
+// edit whether or not one is reachable.
+func runTypesCmd(args []string) {
 	fs := flag.NewFlagSet("types", flag.ExitOnError)
 	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
 		"and repeats")
-	serverFlag := addServerFlag(fs, server)
 	files, rest := takeFileValues(args)
 	if pos := parseArgs(fs, rest); len(pos) > 0 {
 		fatal("%s: unexpected argument. Definitions are named with -f, which takes several:\n"+
@@ -134,7 +136,7 @@ func runTypesCmd(server string, args []string) {
 	if err != nil {
 		fatal("%v", err)
 	}
-	n, err := resolveDocs(docs, *serverFlag, "types")
+	n, err := resolveDocs(docs, "types")
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -1075,12 +1077,12 @@ func expandPaths(paths []string) ([]string, error) {
 
 // resolvedDefs loads, resolves every import directive, and hands back the plain documents
 // the API takes. By this point no directive remains — the server has no resolver.
-func resolvedDefs(files []string, server string) ([]any, error) {
+func resolvedDefs(files []string) ([]any, error) {
 	docs, err := loadSourceDocs(files)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := resolveDocs(docs, server, "build"); err != nil {
+	if _, err := resolveDocs(docs, "build"); err != nil {
 		return nil, err
 	}
 	out := make([]any, len(docs))
@@ -1338,7 +1340,7 @@ func compatSidesForInstance(server, id string, fromFlag, toFlag, files multiFlag
 	from := map[string]any{"versions": map[string]any{row.Process: row.Version}}
 	switch {
 	case len(files) > 0:
-		defs, err := resolvedDefs(files, server)
+		defs, err := resolvedDefs(files)
 		if err != nil {
 			fatal("%v", err)
 		}
@@ -1422,7 +1424,7 @@ func runCompatCmd(server string, args []string) {
 		// Resolved, exactly as apply resolves: an unresolved `$import:` leaf is a literal
 		// string next to the code a stored version holds, so every site that has one compares
 		// changed and the row can never read `unchanged`.
-		defs, err := resolvedDefs(files, *serverFlag)
+		defs, err := resolvedDefs(files)
 		if err != nil {
 			fatal("%v", err)
 		}

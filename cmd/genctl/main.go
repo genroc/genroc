@@ -92,7 +92,8 @@
 // the project's .genroc produces, before anything is sent. Every command that reads a
 // source file resolves first — apply, validate, and compat's -f, which compares what an
 // apply WOULD store; types generates the resolver's declarations without building or
-// applying. See specs/source-resolution.md.
+// applying, and without a server: the types a resolver checks against are inferred here.
+// See specs/source-resolution.md.
 //
 // Environment:
 //
@@ -161,7 +162,7 @@ func main() {
 	case "validate":
 		runValidateCmd(server, args)
 	case "types":
-		runTypesCmd(server, args)
+		runTypesCmd(args)
 	case "run":
 		runRunCmd(server, args)
 	case "token":

@@ -1,9 +1,9 @@
 # Source resolution: a definition source file is not a definition
 
-Status: **PROPOSAL 2026-08-20; the code phase BUILT 2026-08-21.** What ships is the
-project config, value-position `$<resolver>: <path>` directives, the batched manifest,
-`genctl types`, and `eval-node/import.ts` as the first resolver
-(`cmd/genctl/sources.go`, `tests/cli/imports_test.ts`). **Unbuilt: the structural phase**
+Status: **PROPOSAL 2026-08-20; the code phase BUILT 2026-08-21; the types moved into genctl
+2026-09-04.** What ships is the project config, value-position `$<resolver>: <path>`
+directives, the batched manifest, `genctl types`, and `eval-node/import.ts` as the first
+resolver (`cmd/genctl/sources.go`, `tests/cli/imports_test.ts`). **Unbuilt: the structural phase**
 — no phase-1 resolver exists, `$infer` is not implemented, and `phase: structural` in a
 config is refused rather than ignored. The key-position merge form (§Directive syntax
 mentions only the value position) is also unbuilt.
@@ -57,7 +57,7 @@ Named by permission, never by content — what a resolver *may do* is what decid
 The sequence, per `genctl apply`:
 
 1. Parse the source files. Phase-1 directives resolve; phase-2 sites hold a placeholder.
-2. `POST /definitions/validate` → a `SchemaFile` per definition.
+2. `validation.Generate` **in genctl** → a `SchemaFile` per definition that carries a site.
 3. Phase 2, batched — manifest in, code strings out. One call per registered phase-2
    resolver, carrying every site that named it.
 4. Splice each string into its slot, `$`-escaped (below).
@@ -68,12 +68,24 @@ compat -f` runs 1–4 and then compares instead of storing: a stored version hol
 string, so an unresolved directive would compare as a literal against it and every imported
 site would read as changed.
 
-### Two roundtrips, and why it is not "validate then apply"
+### One roundtrip: genctl computes the types, the server decides validity
 
-The first call is a **type query**, not a verdict: apply revalidates, so the definition that
-is checked for real is the one that is stored. Stating it the other way — validate, then
-mutate, then apply — describes a system where what you checked is not what you shipped, and
-invites someone to "optimise" the second validation away.
+**Built 2026-09-04**, replacing a `POST /definitions/validate` at step 2 — the shape the
+Open question below argued for, and the reason is the one it named: `genctl types` runs on
+every edit, and an editor loop that stops when the server is down is a worse property than a
+genctl that links `internal/validation`. `Generate` is pure over a definition, so the query
+was never a query.
+
+The division that falls out is the one to keep: **step 2 produces types, step 5 is the
+verdict.** Step 2 therefore runs neither the strict decode, nor `Validate`, nor
+`ValidateChildProcessRefs` — a definition that is invalid for a reason inference does not
+care about is refused by the apply, with the server's message, and a second gatekeeper in
+genctl only creates a pair to keep in agreement. It types **only the definitions that carry
+a directive**, so one broken file cannot stop the generation for every other script.
+
+What this trades: the types now follow genctl's build rather than the server's. A genctl
+older than its server infers from older rules — and the apply that follows is what refuses
+the result, so the failure is loud rather than a script typechecked against a lie.
 
 ### Why the placeholder is sound
 
@@ -187,8 +199,11 @@ Exact rules, each removing a convention someone would otherwise have to guess:
 - **`$ref` in `input`/`output` points into `schemas[<process>].$defs`**, that process's pool
   and no other.
 - **`input` is `SchemaFile.Tasks[<task>].Input`** — the inferred type of the action's input
-  shape, already computed by `buildInputs` ([infer.go:16](../internal/validation/infer.go#L16))
-  and already returned by `/definitions/validate`. **No server change was required.**
+  shape, computed by `buildInputs` ([infer.go:16](../internal/validation/infer.go#L16)).
+  **No server change was required**, and since the local pass it is no longer a server's
+  answer at all.
+- **`schemas` carries the definitions that have sites**, not every definition in the apply.
+  A `$ref` only ever points into the pool of a process a site named.
 - **`input` is the whole action input, not the resolver's parameter type.** For `/eval` that
   is `{code, input, timeout_ms, …}`, of which only `input` is bound as the script's
   argument. genroc cannot know which slot a resolver's runtime binds, so **the resolver
@@ -211,7 +226,8 @@ what it found.
 
 Writes the type files and returns no code. `genctl types -f process.yaml` is that call, and
 it exists because **the editor needs the declarations to exist before an apply ever runs** —
-without it the author's file is red until they apply once, which is the wrong order.
+without it the author's file is red until they apply once, which is the wrong order. It
+reaches no server, which is what lets it run on every edit.
 
 Same binary, same manifest, two modes: a separate types *hook* would mean a second
 subprocess and a second `tsc` over the same project.
@@ -269,13 +285,8 @@ Stated explicitly because unstated it reads as a violation the first time someon
 
 ## Open questions
 
-- **Where the types are computed.** The server, because `/definitions/validate` already
-  returns them and genctl stays a thin gateway. But `Generate` and `TaskContexts` are pure
-  over `*model.ProcessDefinition` — only `ValidateChildProcessRefs` needs the DB — so genctl
-  could compute them locally and drop to one roundtrip. **The signal to flip is the editor
-  loop**, not apply: `genctl types` on every edit, against a server that may be down, is a
-  worse property than a genctl that links `internal/validation`. Deferred because the phase
-  design is identical either way and the swap is a refactor, not a redesign.
+- ~~**Where the types are computed.**~~ **Settled 2026-09-04: in genctl.** See §One
+  roundtrip above; the phase design was identical either way, as this question predicted.
 - **Stale generated files.** Nothing removes a `.d.ts` whose script was deleted. Cheapest
   fix if it matters: the resolver prints what it wrote and genctl reports it.
 - **Caching.** Resolvers run on every apply. Content-hash the manifest if it becomes slow —
