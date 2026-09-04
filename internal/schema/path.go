@@ -59,3 +59,31 @@ func renderPath(steps []pathStep) string {
 	}
 	return path
 }
+
+// Segment is one step of a static path: a property name, or an array index when IsIndex.
+type Segment struct {
+	Name    string
+	Index   int
+	IsIndex bool
+}
+
+// ParsePath reads back the syntax JoinPath and JoinIndex emit, for a caller addressing
+// something that is NOT a schema — a slot address is this same path grammar over a definition
+// (specs/schema-command.md). One parser for one syntax: a second reader of it is a drift that
+// shows up the day the two disagree.
+func ParsePath(path string) ([]Segment, error) {
+	steps, err := parsePath(path)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Segment, len(steps))
+	for i, st := range steps {
+		// A bracket holds a quoted key or an integer, so no computed step can arrive here.
+		if st.kind == stepIndex {
+			out[i] = Segment{Index: st.index, IsIndex: true}
+			continue
+		}
+		out[i] = Segment{Name: st.prop}
+	}
+	return out, nil
+}

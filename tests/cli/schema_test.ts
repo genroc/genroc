@@ -204,3 +204,161 @@ test("schema context — an address that names nothing says what the task has", 
   expect(noSwitch.ok).toBe(false);
   expect(noSwitch.stderr, "and a wrong process name lists the ones read").toContain("pricing");
 });
+
+// A task id is `validate:"required"` and nothing else, so it may hold a dot — and an address is
+// a path in the expression language's own accessor syntax, where a dot is a step. Quoting is how
+// such an id is named, and it is what the listing prints back.
+const WEIRD = [
+  "name: pricing",
+  "tasks:",
+  "  - id: step.one",
+  "    action:",
+  "      type: fetch",
+  "      url: http://x/price",
+  "      method: GET",
+  "      responses:",
+  "        200: { type: object, properties: { fee: { type: number } }, required: [fee] }",
+  "    output: { fee: '$: self.result.fee' }",
+  "    on_error:",
+  "      - code: ['http.%']",
+  "        goto: end",
+  "    switch: [{ goto: next }]",
+  "  - id: my task",
+  "    output: { n: '$: 1' }",
+  "    switch: [{ goto: end }]",
+  "",
+].join("\n");
+
+test("schema context — an id no identifier can spell is addressed, and printed, quoted", () => {
+  const path = defFile(WEIRD);
+  const r = runCli(bin, ["schema", "context", "pricing", "-f", path], OFFLINE);
+  expect(r.ok, `${r.stdout}${r.stderr}`).toBe(true);
+  const addresses = r.stdout
+    .trim()
+    .split("\n")
+    .filter((l) => !l.startsWith(" "))
+    .map((l) => l.split(/\s{2,}/)[0]);
+
+  // The rendering quotes anything that is not a plain identifier, which is wider than what the
+  // grammar strictly needs — dotting a key that needed brackets is wrong, quoting one that did
+  // not is merely verbose.
+  expect(addresses).toContain('tasks["step.one"].output');
+  expect(addresses).toContain('tasks["my task"].action');
+
+  // The parser is the looser half: only a dot is a step, so an id with a space still resolves
+  // bare — and the note says which address it landed on.
+  const bare = runCli(bin, ["schema", "context", "pricing", "tasks.my task.output", "-f", path], OFFLINE);
+  expect(bare.ok, bare.stderr).toBe(true);
+  expect(bare.stderr).toContain('tasks.my task.output → tasks["my task"].output');
+
+  // What the listing prints IS an address: every key it emitted resolves, and to itself.
+  for (const a of addresses) {
+    const back = runCli(bin, ["schema", "context", "pricing", a, "-f", path], OFFLINE);
+    expect(back.ok, `${a}: ${back.stderr}`).toBe(true);
+    expect(back.stderr, `${a} is already canonical, so nothing resolved`).not.toContain("→");
+  }
+});
+
+test("schema context — a dotted id names the task it splits into, and the error says so", () => {
+  const path = defFile(WEIRD);
+  const at = (address: string) =>
+    runCli(bin, ["schema", "context", "pricing", address, "-f", path], OFFLINE);
+
+  const dotted = at("tasks.step.one.output");
+  expect(dotted.ok, "`tasks.step.one` names the task `step`, which does not exist").toBe(false);
+  expect(dotted.stderr, "the fix is the quoted form, named in the error").toContain('tasks["step.one"]');
+
+  // Under a quoted id every finer address still resolves to its phase, index form included.
+  const rule = at('tasks["step.one"].on_error[0]');
+  expect(rule.ok, rule.stderr).toBe(true);
+  expect(Object.keys(JSON.parse(rule.stdout).properties)).toContain("error");
+
+  const url = at('tasks["step.one"].url');
+  expect(url.ok, url.stderr).toBe(true);
+  expect(url.stderr).toContain('tasks["step.one"].url → tasks["step.one"].action');
+});
+
+/** `-e` at a slot: the raw run, so a refusal can be read the same way as an answer. */
+function typeOf(path: string, address: string, expr: string) {
+  return runCli(bin, ["schema", "context", "pricing", address, "-e", expr, "-f", path], OFFLINE);
+}
+
+test("schema context -e — types one expression, and the slot is what decides", () => {
+  const path = defFile();
+
+  const ok = typeOf(path, "tasks.price.output", "self.result.fee");
+  expect(ok.ok, `${ok.stdout}${ok.stderr}`).toBe(true);
+  expect(JSON.parse(ok.stdout)).toEqual({ type: "number" });
+
+  // The same expression one phase earlier: the action has not answered, so there is no
+  // `self.result` to read — which is the whole reason the answer is per slot.
+  const early = typeOf(path, "tasks.price.action", "self.result.fee");
+  expect(early.ok, "self.result must not be readable from the action slots").toBe(false);
+
+  // A finer slot still resolves to its phase, and still says so on stderr.
+  const url = typeOf(path, "tasks.price.url", "input.amount");
+  expect(url.ok, url.stderr).toBe(true);
+  expect(url.stderr).toContain("tasks.price.url → tasks.price.action");
+  expect(JSON.parse(url.stdout)).toEqual({ type: "number" });
+});
+
+// The arms are not decoration: an expression is typed under each ending and the results joined,
+// so `??` recovering from the branch that did not run is visible in the type it produces.
+test("schema context -e — an expression at `output` is typed under every ending", () => {
+  const path = defFile();
+
+  const bare = typeOf(path, "output", "outputs.price.fee");
+  expect(bare.ok, bare.stderr).toBe(true);
+  const type = JSON.parse(bare.stdout).type.sort();
+  expect(type, "null on the ending that ran `explain` instead").toEqual(["null", "number"]);
+
+  const coalesced = typeOf(path, "output", "outputs.price.fee ?? 0");
+  expect(coalesced.ok, coalesced.stderr).toBe(true);
+  const recovered = JSON.parse(coalesced.stdout).type;
+  expect(recovered, "?? removes the null under every arm").not.toContain("null");
+});
+
+test("schema context -e — a bad path is refused, and a pasted leaf is named as one", () => {
+  const path = defFile();
+
+  const bad = typeOf(path, "tasks.price.output", "self.result.nope");
+  expect(bad.ok).toBe(false);
+  expect(bad.stderr, "the checker's own diagnostic, with no apply and no server").toContain("nope");
+
+  // The likely paste. Its parse error points at a `$`, which says nothing about the wrapper it
+  // came from — so the hint carries the expression back, ready to run.
+  const wrapped = typeOf(path, "tasks.price.output", "${self.result.fee}");
+  expect(wrapped.ok).toBe(false);
+  expect(wrapped.stderr).toContain("-e takes the expression itself: -e 'self.result.fee'");
+
+  // An expression is evaluated somewhere; there is no such thing as one typed at the process.
+  const args = ["schema", "context", "pricing", "-e", "input.amount", "-f", path];
+  const noAddress = runCli(bin, args, OFFLINE);
+  expect(noAddress.ok).toBe(false);
+  expect(noAddress.stderr).toContain("needs an address");
+});
+
+// The answer is the one the checker computes for a `$:` leaf, taint included — otherwise `-e`
+// would say a slot accepts what an apply then rejects for reading a secret.
+test("schema context -e — an expression that reads a secret stays secret", () => {
+  const path = defFile(
+    [
+      "name: pricing",
+      "config_schema:",
+      "  type: object",
+      "  properties: { api_key: { type: string, secret: true } }",
+      "  required: [api_key]",
+      "tasks:",
+      "  - id: price",
+      "    action: { type: fetch, url: http://x, method: GET, responses: { 200: {} } }",
+      "    switch: [{ goto: end }]",
+      "",
+    ].join("\n"),
+  );
+
+  const derived = typeOf(path, "tasks.price.action", 'config.api_key == "x"');
+  expect(derived.ok, derived.stderr).toBe(true);
+  // Conservative on purpose: any path through a secret taints, whatever the expression then
+  // does with the value — here a boolean that never carries the key itself.
+  expect(JSON.parse(derived.stdout)).toEqual({ type: "boolean", secret: true });
+});

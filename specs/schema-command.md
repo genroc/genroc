@@ -14,7 +14,7 @@ code generator, for a client, a consumer, or a worker implementing an `external`
    ([task-scopes.md](task-scopes.md) §The error axis). Not part of this command, and first
    anyway: `error` named two different failures, so a command that reports the scope at a slot
    would have had to document the ambiguity instead of answering. It also decided §3's table.
-2. **`context`** — ✅ **BUILT 2026-09-04**, as specced here
+2. **`context`**, `-e` included — ✅ **BUILT 2026-09-04**, as specced here
    (`internal/validation/slots.go`, `cmd/genctl/schema.go`, `tests/cli/schema_test.ts`).
 3. **`type`**, §7 — deferred behind a slot the inferred view does not carry, which is a change
    to `validation` rather than to this command.
@@ -35,7 +35,7 @@ have been a roundtrip per question, which is not a thing anyone runs while writi
 
 ## 2. The address
 
-    genctl schema context <process> [address] [-f <path|glob> ...]
+    genctl schema context <process> [address] [-e <expression>] [-f <path|glob> ...]
 
 **The process is a mandatory positional.** Making it optional when the file set holds one
 definition was rejected: the single positional then means two things, and which one is decided
@@ -44,8 +44,9 @@ named `output`. Process names are unconstrained (`validate:"required"` and nothi
 `config` names have a charset), so there is no lexical rule that separates the two spellings.
 One less rule beats one less word.
 
-The address is dotted, addresses tasks by **id** rather than index, and indexes only what has
-no name:
+The address is a **path in the expression language's own accessor syntax** — what `JoinPath`
+renders and `schema.ParsePath` reads — addressing tasks by **id** rather than index, and indexing
+only what has no name:
 
 | address | the context |
 |---|---|
@@ -60,10 +61,35 @@ Five forms, and they are the YAML's own keys, so there is nothing to learn. `act
 `switch` takes no index because one context serves every clause; `on_error` takes one because
 the error axis is per rule (§3).
 
+**A task id that is not an identifier is quoted** — `tasks["step.one"].output` — because an id is
+`required` and nothing else, so a dot in one is otherwise read as a step. It is the same grammar
+as the `outputs["step.one"].fee` it addresses, and the rendering is injective, so every address a
+listing prints resolves back to itself. It replaced a longest-prefix match over the ids, which
+chose between a task `a` and a task `a.b` without saying so.
+
 **Any finer slot resolves to its phase, and the answer names the phase it landed in.** That
 resolution is most of the command's value: `tasks.price.url`, `tasks.price.children["a"].input`
 and `tasks.price.timeout` are one context, and nothing in the document says so.
 [scope.go](../internal/validation/scope.go) `preOutputSlots` is already that enumeration.
+
+### `-e`: the type of one expression there
+
+    genctl schema context <process> <address> -e 'outputs.price.fee ?? 0'
+
+The query with its last step taken: the address says what is in scope, `-e` what an expression
+written there produces. A flag and not a third positional, because the address is optional and
+telling one from the other needs the rule this section already refused.
+
+**Bare, not the leaf it is written in.** `${…}` belongs to the template layer, where every
+interpolated string is `string`; the grammar is unambiguous without it — `total` is a path,
+`"total"` a literal. A pasted leaf therefore fails to parse, and the error hands the expression
+back unwrapped rather than pointing at the `$`.
+
+It is the checker's own inference, so two things come free: at `output` the expression is typed
+under every arm and the results joined (§6), so `outputs.price.fee` is `number|null` and
+`?? 0` is not; and a path through a secret taints the answer exactly as a `$:` leaf would. The
+refusal is half the value — a wrong path gets the checker's diagnostic with no apply, no server
+and no resolver.
 
 ## 3. The phases
 

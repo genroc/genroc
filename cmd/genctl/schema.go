@@ -21,7 +21,7 @@ import (
 
 func runSchemaCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: genctl schema context <process> [address] [-f <path|glob> ...]")
+		fmt.Fprintln(os.Stderr, "Usage: genctl schema context <process> [address] [-e <expression>] [-f <path|glob> ...]")
 		os.Exit(1)
 	}
 	switch args[0] {
@@ -39,6 +39,8 @@ func runSchemaContextCmd(args []string) {
 	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
 		"and repeats")
 	asJSON := fs.Bool("json", false, "print the schemas rather than a summary of what is in scope")
+	expr := fs.String("e", "", "type this expression against the addressed slot's context, "+
+		"bare: self.result.fee")
 	files, rest := takeFileValues(args)
 	pos := parseArgs(fs, rest)
 	if len(pos) == 0 {
@@ -46,6 +48,10 @@ func runSchemaContextCmd(args []string) {
 	}
 	if len(pos) > 2 {
 		fatal("%s: unexpected argument. A slot is one address, e.g. tasks.price.output", pos[2])
+	}
+	if *expr != "" && len(pos) < 2 {
+		fatal("-e types an expression at one slot, so it needs an address:\n"+
+			"  genctl schema context %s <address> -e '%s'", pos[0], *expr)
 	}
 
 	def := loadDefinition(files, pos[0])
@@ -67,6 +73,9 @@ func runSchemaContextCmd(args []string) {
 			// The phase it landed in, on stderr: stdout carries the document and nothing else.
 			fmt.Fprintf(os.Stderr, "%s → %s\n", pos[1], address)
 		}
+		if *expr != "" {
+			ctx = inferExpr(ctx, *expr)
+		}
 		printJSON(selfContained(schemaDoc(ctx)))
 		return
 	}
@@ -76,6 +85,41 @@ func runSchemaContextCmd(args []string) {
 		return
 	}
 	printInScope(slots)
+}
+
+// inferExpr types one expression against a slot's context: the context query with its last
+// step taken. The expression is BARE — the `${…}` a leaf wraps it in belongs to the template
+// layer, which types every interpolated string as `string` and so answers nothing.
+func inferExpr(ctx schema.Schema, expr string) schema.Schema {
+	t, err := ctx.Infer(expr)
+	if err != nil {
+		fatal("%v%s", err, unwrapHint(expr))
+	}
+	// Same taint a `$:` leaf would carry, so the answer is the one the checker computes.
+	// Parsing already succeeded above, which is the only error this returns.
+	if secret, _ := ctx.ReferencesSecret(expr); secret {
+		t = t.Taint()
+	}
+	return t
+}
+
+// unwrapHint catches the likely paste — a leaf copied out of the YAML — whose parse error
+// otherwise names a `$` and not the wrapper it came from.
+func unwrapHint(expr string) string {
+	trimmed := strings.TrimSpace(expr)
+	inner, ok := strings.CutPrefix(trimmed, "$:")
+	if !ok {
+		if body, isBlock := strings.CutPrefix(trimmed, "${"); isBlock {
+			inner, ok = strings.CutSuffix(body, "}")
+		}
+	}
+	if !ok {
+		if strings.Contains(trimmed, "${") {
+			return "\n-e takes one expression, without the ${…} a leaf wraps it in"
+		}
+		return ""
+	}
+	return fmt.Sprintf("\n-e takes the expression itself: -e '%s'", strings.TrimSpace(inner))
 }
 
 // loadDefinition reads the named process out of the file set, leaving directives where they

@@ -210,6 +210,11 @@ grows (`uniqueDefName` renames the newcomer) — and `TestSlotContextsAreTheChec
 them: identical bodies, and every definition the check resolved still resolving to the same
 thing. A context reported to an author that nothing checked is the failure it exists to catch.
 
+**An address is `schema`'s path grammar, not a dotted split.** `CanonicalSlot` parses with
+`schema.ParsePath` and `taskSlot` renders with `JoinPath` / `JoinIndex`, so a task id holding a
+dot is quoted in both directions and a printed address resolves back to itself. It replaced a
+longest-prefix match over the ids, which picked between a task `a` and a task `a.b` in silence.
+
 **The process `output` slot has no exception left.** Its context is one `anyOf` arm per way the
 process can end, built by `processOutputContext` and used by the checker itself, so what is
 reported is what typed the expression. The arms are what carry the correlation between

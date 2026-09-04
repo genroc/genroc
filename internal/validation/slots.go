@@ -17,6 +17,7 @@ import (
 // them — `tasks.<id>.url` and `tasks.<id>.timeout` are both the action phase.
 const (
 	SlotProcessOutput = "output"
+	slotTasks         = "tasks"
 	slotAction        = "action"
 	slotOutput        = "output"
 	slotSwitch        = "switch"
@@ -74,9 +75,15 @@ func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 	return out, nil
 }
 
-func taskSlot(id, phase string) string { return "tasks." + id + "." + phase }
+// An address is a path in the expression language's own accessor syntax, so a task id that no
+// identifier can spell is quoted — `tasks["step.one"].output` — and the address a listing
+// prints can be pasted straight back. schema.JoinPath decides which form a name needs.
+func taskSlot(id, phase string) string {
+	return schema.JoinPath(schema.JoinPath(slotTasks, id), phase)
+}
+
 func ruleSlot(id string, i int) string {
-	return fmt.Sprintf("tasks.%s.%s[%d]", id, slotOnError, i)
+	return schema.JoinIndex(taskSlot(id, slotOnError), i)
 }
 
 // CanonicalSlot maps any slot address onto the phase whose context it is evaluated in:
@@ -84,22 +91,29 @@ func ruleSlot(id string, i int) string {
 // table it implements is specs/task-scopes.md's, which is why it lives beside the contexts
 // rather than in the CLI that parses the address.
 func CanonicalSlot(def *model.ProcessDefinition, address string) (string, error) {
-	if address == SlotProcessOutput {
+	segs, err := schema.ParsePath(address)
+	if err != nil {
+		return "", err
+	}
+	if len(segs) == 1 && segs[0].Name == SlotProcessOutput {
 		if !def.Output.Present() {
 			return "", fmt.Errorf("%s: this process declares no output", address)
 		}
 		return SlotProcessOutput, nil
 	}
-	rest, ok := strings.CutPrefix(address, "tasks.")
-	if !ok {
+	if segs[0].Name != slotTasks || len(segs) < 2 {
 		return "", fmt.Errorf("%q is not a slot address: expected `output` or `tasks.<id>.<slot>`", address)
 	}
-	task, rest, ok := splitTaskID(def, rest)
-	if !ok {
-		return "", fmt.Errorf("%q names no task in %q", address, def.Name)
+	task := findTask(def, segs[1])
+	if task == nil {
+		return "", unknownTask(def, address, segs[1])
 	}
-	// `action.` is optional: the phase is named by what follows it either way.
-	rest = strings.TrimPrefix(rest, slotAction+".")
+	rest := segs[2:]
+	// `action.` is optional: the phase is named by what follows it either way. A lone `action`
+	// stays — it is the phase's own canonical address, and stripping it would name no slot.
+	if len(rest) > 1 && rest[0].Name == slotAction {
+		rest = rest[1:]
+	}
 
 	switch head := headSegment(rest); head {
 	case "":
@@ -128,42 +142,44 @@ func CanonicalSlot(def *model.ProcessDefinition, address string) (string, error)
 	}
 }
 
-// splitTaskID takes the longest task id that prefixes rest, because a task id is unconstrained
-// and may itself contain a dot — matching up to the first one would name the wrong task.
-func splitTaskID(def *model.ProcessDefinition, rest string) (*model.Task, string, bool) {
-	var best *model.Task
-	var tail string
+func findTask(def *model.ProcessDefinition, seg schema.Segment) *model.Task {
+	if seg.IsIndex {
+		return nil
+	}
 	for _, t := range def.Tasks {
-		switch {
-		case rest == t.ID:
-			if best == nil || len(t.ID) > len(best.ID) {
-				best, tail = t, ""
-			}
-		case strings.HasPrefix(rest, t.ID+"."), strings.HasPrefix(rest, t.ID+"["):
-			if best == nil || len(t.ID) > len(best.ID) {
-				best, tail = t, strings.TrimPrefix(rest[len(t.ID):], ".")
-			}
+		if t.ID == seg.Name {
+			return t
 		}
 	}
-	return best, tail, best != nil
+	return nil
 }
 
-func headSegment(rest string) string {
-	if i := strings.IndexAny(rest, ".["); i >= 0 {
-		return rest[:i]
+// unknownTask names the quoted form when the id looks split rather than absent: a dot is the
+// one character an id may hold that the grammar reads as a step, so `tasks.step.one` names the
+// task "step" and never "step.one".
+func unknownTask(def *model.ProcessDefinition, address string, seg schema.Segment) error {
+	for _, t := range def.Tasks {
+		if strings.HasPrefix(t.ID, seg.Name+".") {
+			return fmt.Errorf("%q names no task in %q: an id holding a dot is quoted, tasks[%s]",
+				address, def.Name, strconv.Quote(t.ID))
+		}
 	}
-	return rest
+	return fmt.Errorf("%q names no task in %q", address, def.Name)
 }
 
-func ruleIndex(rest string, task *model.Task, address string) (int, error) {
-	open := strings.Index(rest, "[")
-	closing := strings.Index(rest, "]")
-	if open < 0 || closing < open {
+func headSegment(rest []schema.Segment) string {
+	if len(rest) == 0 {
+		return ""
+	}
+	return rest[0].Name
+}
+
+func ruleIndex(rest []schema.Segment, task *model.Task, address string) (int, error) {
+	if len(rest) < 2 || !rest[1].IsIndex {
 		return 0, fmt.Errorf("%s: an on_error rule is addressed by index, e.g. %s[0]", address, slotOnError)
 	}
-	i, err := strconv.Atoi(rest[open+1 : closing])
-	if err != nil || i < 0 || i >= len(task.OnError) {
-		return 0, fmt.Errorf("%s: task %q has %d on_error rule(s)", address, task.ID, len(task.OnError))
+	if i := rest[1].Index; i >= 0 && i < len(task.OnError) {
+		return i, nil
 	}
-	return i, nil
+	return 0, fmt.Errorf("%s: task %q has %d on_error rule(s)", address, task.ID, len(task.OnError))
 }
