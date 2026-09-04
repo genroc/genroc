@@ -176,85 +176,13 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 // when one is always set. Per terminal, ?? resolves as at runtime; uncovered terminals
 // still contribute null. specs/path-sensitive-output.md.
 func inferProcessOutput(def *model.ProcessDefinition, tasks map[string]TaskSchemas, processInput, configSchema schema.Schema, defs schema.Defs) (schema.Schema, error) {
-	shp := shape.Shape{Raw: def.Output.Raw, Name: "output"}
-	terminals := outputTerminals(def)
-	// The process output reads `error` at whichever terminal ran, so its `data` is the union
-	// over the terminals rather than any one task's.
+	// The process output reads `error` at whichever terminal ran, so its `data` is that
+	// terminal's — one arm of the context below per ending.
 	_, _, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
 	errs := errContexts(def.Tasks, mustErr, mayErr, errSrc, defs)
-	termIDs := make([]string, 0, len(terminals))
-	for _, t := range terminals {
-		termIDs = append(termIDs, t.task)
-	}
-	errData := unionErrData(errs, termIDs)
-	if len(terminals) < 2 {
-		req, opt, errReq, errOpt := outputContextSets(def)
-		ctx := contextSchema(req, opt, tasks, processInput, configSchema,
-			errAt{must: errReq, may: errOpt, data: errData}).WithDefs(defs)
-		return shp.Check(ctx)
-	}
-
-	// Task outputs reachable on at least one terminal. A reference to anything outside
-	// this set is absent everywhere, so it is left out of every per-terminal context and
-	// still reported as an access error instead of silently typing null.
-	everMay := make(map[string]bool)
-	for _, t := range terminals {
-		for id := range t.may {
-			everMay[id] = true
-		}
-	}
-
-	var (
-		joined      schema.Schema
-		ok          int
-		firstErr    error
-		firstErrTsk string
-	)
-	for _, t := range terminals {
-		var must, opt, absent []string
-		for id := range t.must {
-			must = append(must, id)
-		}
-		for id := range t.may {
-			if !t.must[id] {
-				opt = append(opt, id)
-			}
-		}
-		for id := range everMay {
-			if !t.may[id] {
-				absent = append(absent, id)
-			}
-		}
-		sort.Strings(must)
-		sort.Strings(opt)
-		sort.Strings(absent)
-
-		ctx := contextSchemaAbsent(must, opt, absent, tasks, processInput, configSchema,
-			errAt{must: t.errMin, may: t.errMax, data: errs[t.task].data}).WithDefs(defs)
-		s, err := shp.Check(ctx)
-		if err != nil {
-			if firstErr == nil {
-				firstErr, firstErrTsk = err, t.task
-			}
-			continue
-		}
-		if ok == 0 {
-			joined = s
-		} else {
-			joined = joined.Join(s)
-		}
-		ok++
-	}
-
-	if firstErr != nil {
-		// Name the path only when another one type-checked: an expression that is simply
-		// wrong fails on every terminal and deserves its plain message, unprefixed.
-		if ok > 0 {
-			return schema.Schema{}, fmt.Errorf("on the path ending at task %q: %w", firstErrTsk, firstErr)
-		}
-		return schema.Schema{}, firstErr
-	}
-	return joined.Canonicalize(), nil
+	scopes := taskScopes{tasks: tasks, processInput: processInput, configSchema: configSchema, defs: defs, errs: errs}
+	shp := shape.Shape{Raw: def.Output.Raw, Name: "output"}
+	return shp.Check(scopes.processOutputContext(def))
 }
 
 func collectNamedOutputs(tasks []*model.Task, named map[string]schema.Schema) {

@@ -7,9 +7,11 @@ Keep new list/get commands consistent so the surface stays predictable.
 - **Naming.** A collection is the plural noun (`instances`, `external-tasks`); a single
   item takes its id/key as the first positional (`get <id>`). Add a `get` only when there
   is something to show beyond the row.
-- **Server & errors.** Every command takes `--server` (overrides `$GENROC_SERVER` and the
-  config file). All failures go through `fatal()` ("genctl: …"); surface a server-side
-  validation message via `serverErrorDetail` / `resultValidationError`.
+- **Server & errors.** Every command that TALKS to one takes `--server` (overrides
+  `$GENROC_SERVER` and the config file). `types` and `schema` do not: genctl infers the types
+  itself, so they answer offline, and a flag that reaches nothing would only imply otherwise.
+  All failures go through `fatal()` ("genctl: …"); surface a server-side validation message via
+  `serverErrorDetail` / `resultValidationError`.
 - **List output.** A tabwriter table with an UPPERCASE header and `shortTime()`
   timestamps; print "no \<things\>" when empty. Filters are `--<field>` flags mapped 1:1
   to the endpoint's query params.
@@ -62,8 +64,8 @@ Deliberate exceptions — special-purpose, not resource list/get. Leave them:
 
 ## Which files a command reads
 
-`definitionPaths` is the one place that answers it, for `apply`, `validate`, `types` and
-`compat` alike. Exactly two sources:
+`definitionPaths` is the one place that answers it, for `apply`, `validate`, `types`, `schema`
+and `compat` alike. Exactly two sources:
 
 - **`-f`**, which takes several values and stops at the next flag. It is literal FIRST: a value
   naming an existing path is that path; only a value naming nothing is globbed. That is the

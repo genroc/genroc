@@ -14,7 +14,8 @@ code generator, for a client, a consumer, or a worker implementing an `external`
    ([task-scopes.md](task-scopes.md) §The error axis). Not part of this command, and first
    anyway: `error` named two different failures, so a command that reports the scope at a slot
    would have had to document the ambiguity instead of answering. It also decided §3's table.
-2. **`context`**, specced here.
+2. **`context`** — ✅ **BUILT 2026-09-04**, as specced here
+   (`internal/validation/slots.go`, `cmd/genctl/schema.go`, `tests/cli/schema_test.ts`).
 3. **`type`**, §7 — deferred behind a slot the inferred view does not carry, which is a change
    to `validation` rather than to this command.
 
@@ -89,6 +90,22 @@ reading the first row's value. Reporting that would have been the alternative to
 which is why the split was step 1 and not a follow-up. `retry` now reads the fourth row like
 every other slot of a rule, so the fourth row is one context and not two.
 
+### What is guaranteed
+
+Every task slot's context is the one the checker built, and not by agreement: **there is one
+constructor**. `taskScopes` (`internal/validation/context.go`) holds what a context is built
+from and has one method per phase; the checker, `Compare`'s per-task view and `SlotContexts`
+all call those, so `contextSchema` has no other caller. Two things make feeding it from a
+finished `SchemaFile` sound: inference infers every output in phase 1 before it builds any
+phase-2 context, so nothing it used was still being solved, and the pool only ever GROWS
+(`uniqueDefName` renames the newcomer), so a ref that resolved during the check resolves the
+same way after. `TestSlotContextsAreTheCheckersOwn` pins both — bodies identical, and every
+definition the check resolved still resolving to the same thing.
+
+That now covers the process `output` too, whose context is the union the checker types
+against. `compat` is a different question entirely: it compares `taskContexts` — the DURABLE row, `config` stripped and no `self` — which
+is not what an expression can read. specs/compat-command.md §2a.
+
 ## 4. Output
 
 **stdout is the schema and nothing else**, so a piece of a definition pipes into a generator
@@ -116,9 +133,26 @@ The keys are the addresses, so the listing is the map of what can be asked. One 
 phase and not per slot: the per-slot listing repeats identical contexts dozens of times and
 buries the four that differ.
 
-The human rendering prints the **delta** — `tasks.price.on_error[0]  input, config,
-outputs.{lookup} +error(limit_exceeded)` — because the fixed part is identical at every row
-and the delta is the answer.
+The human rendering names what each slot can READ, rather than printing nine schemas:
+
+```
+tasks.price.action       input, outputs
+tasks.price.output       input, outputs, self{headers, result, status}
+tasks.price.switch       input, outputs, self{headers, output, result, status}
+tasks.price.on_error[0]  error, input, outputs
+```
+
+`self` and `outputs` are spelled out, `?` marks what a path may not set and `=null` what one
+state says an ending did not produce, because those are what move; the rest is a root name. A
+slot whose context has ARMS — the process output — prints one line per arm, named by it:
+
+```
+output   on the path ending at task "left":  input, outputs{left, right=null}
+         on the path ending at task "right": input, outputs{left=null, right}
+```
+ An earlier draft printed a DELTA against the fixed
+part (`… +error(limit_exceeded)`), which needs a baseline to diff against and a code name the
+schema does not carry — the members are the same information without either.
 
 ## 5. No resolver runs
 
@@ -129,11 +163,12 @@ placeholder `apply` splices types as, by the argument [source-resolution.md](sou
 
 ## 6. Open
 
-- **The process `output` context is joined** across terminal paths — what is safe to write on
-  every path. Inference itself types that slot per terminal path and joins
-  ([generate.go](../internal/validation/generate.go) `inferProcessOutput`), so the per-path
-  breakdown exists and is exactly what someone wants when the join surprises them. Deferred:
-  one more thing to address, no evidence yet that the join misleads.
+- ~~**The process `output` context is a floor.**~~ **Settled 2026-09-04 by making the partition
+  part of the context**: it is one `anyOf` arm per way the process can end, each naming its
+  ending, and inference distributes over the arms. Before that the checker walked the paths
+  itself and handed out a flattened context, so `(outputs.a ?? outputs.b) + 1` was refused by a
+  reader of the answer and accepted by the checker — the precision existed but was not in the
+  artefact. specs/path-sensitive-output.md §2.
 - **`child_map` entries** (`children["a"].input`) are per-entry slots sharing the action
   phase. Covered by the resolution rule, so they need no address of their own — until an entry
   gets a scope the others do not.

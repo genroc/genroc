@@ -120,8 +120,65 @@ func (s Schema) Infer(expression string) (Schema, error) {
 
 // InferNode is Infer over an already-parsed expression. Callers that hold a
 // parsed tree — internal/template — use this to avoid re-parsing the source.
+//
+// A context that is a UNION is one of several possible states, so the expression is typed
+// under each and the results joined. That is what keeps a CORRELATION between two properties
+// — `a` is null exactly where `b` is not — which flattening the arms destroys: `a ?? b` types
+// nullable against the flattened view and non-null under every arm. The process output's
+// context is such a union, one arm per way the process can end
+// (specs/path-sensitive-output.md). Every arm must type: the expression runs in one of the
+// states and nothing says which.
 func (s Schema) InferNode(node syntax.Node) (Schema, error) {
-	return inferNode(node, inferCtx{s: s})
+	arms := s.contextStates()
+	if len(arms) < 2 {
+		return inferNode(node, inferCtx{s: s})
+	}
+	var (
+		joined   Schema
+		ok       int
+		firstErr error
+		failedIn string
+	)
+	for _, arm := range arms {
+		t, err := inferNode(node, inferCtx{s: arm})
+		if err != nil {
+			if firstErr == nil {
+				firstErr, failedIn = err, arm.Description()
+			}
+			continue
+		}
+		if ok == 0 {
+			joined = t
+		} else {
+			joined = joined.Join(t)
+		}
+		ok++
+	}
+	if firstErr != nil {
+		// Name the state only when another one typed: an expression that is simply wrong fails
+		// under every arm and deserves its plain message, unprefixed. The name comes off the
+		// arm's own description, so nothing outside the schema has to carry it.
+		if ok > 0 && failedIn != "" {
+			return Schema{}, fmt.Errorf("%s: %w", failedIn, firstErr)
+		}
+		return Schema{}, firstErr
+	}
+	return joined, nil
+}
+
+// contextStates returns the alternative states a union context describes, each carrying the
+// pool so a `$ref` inside an arm still resolves. A context that is not a union has one state,
+// itself, and the caller takes the fast path.
+func (s Schema) contextStates() []Schema {
+	if s.n == nil || len(s.n.AnyOf) == 0 {
+		return nil
+	}
+	defs := s.rootDefs()
+	out := make([]Schema, 0, len(s.n.AnyOf))
+	for _, arm := range s.n.AnyOf {
+		out = append(out, wrap(arm, defs))
+	}
+	return out
 }
 
 // ReferencesSecret reports whether expression reads any value whose schema — or an

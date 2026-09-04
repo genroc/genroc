@@ -1,7 +1,7 @@
 # Path-sensitive process-output inference
 
-**Status: implemented** for the process output boundary. The mid-process case (§5) is
-deliberately deferred.
+**Status: implemented** for the process output boundary; the partition moved INTO the context
+as a union on 2026-09-04 (§2). The mid-process case (§5) is deliberately deferred.
 
 A process that reconverges from several branches writes its output by coalescing across
 them:
@@ -49,10 +49,19 @@ Both come out as "a: optional, b: optional". The inferencer never had a chance: 
 
 ## 2. The fix: partition, don't teach the operator
 
-`inferProcessOutput` ([internal/validation/generate.go](../internal/validation/generate.go))
-type-checks the output expression **once per terminal** and joins the results. On each
-terminal a task output is either its real type or, if that terminal cannot produce it,
-exactly `{"type":"null"}`.
+The output expression is type-checked **once per terminal** and the results joined. On each
+terminal a task output is either its real type or, if that terminal cannot produce it, exactly
+`{"type":"null"}`.
+
+**The partition is the context, not a walk.** `taskScopes.processOutputContext`
+([internal/validation/context.go](../internal/validation/context.go)) builds one schema with an
+arm per terminal — `anyOf`, each arm carrying its own ending in `description` — and
+`Schema.InferNode` ([internal/schema/infer.go](../internal/schema/infer.go)) types an expression
+under each arm and joins. It was a loop in `inferProcessOutput` until 2026-09-04, which typed
+the same expressions but kept the precision inside the checker: the context handed to anything
+else — `genctl schema context`, and whatever generates from it — had been flattened, so an
+outside reader could not reproduce a verdict genroc had reached. A context is a schema, and a
+schema that omits what the checker knew is the wrong artefact.
 
 | | `outputs.send.ok` | `outputs.unsendable.ok` | `a ?? b` |
 |---|---|---|---|
@@ -112,7 +121,9 @@ with a cycle guard for recursive types.
 
 ## 4. Error messages
 
-An expression is now checked several times, so a failure needs to say *where*:
+An expression is checked once per arm, so a failure needs to say *where*. The arm's own
+`description` is what names it — the fact rides on the schema rather than beside it, so the
+same message is available to anyone holding the context:
 
 - Fails on **every** terminal — an ordinary type error, reported plainly. Prefixing it with a
   path would be misdirection; the path is not what is wrong.
@@ -125,9 +136,11 @@ An expression is now checked several times, so a failure needs to say *where*:
 The same idiom appears inside a task reachable from two branches, and there it is **still
 collapsed** — `outputs.a.v ?? outputs.b.v` read from task `c` remains nullable.
 
-The output boundary was cheap because its terminals are already materialised as a list.
-Task contexts come from `computeContextSets`, a fixpoint whose lattice element is *one*
-set of ids, intersected across predecessors. Making it path-sensitive means carrying a
+The output boundary was cheap because its terminals are already materialised as a list, and
+since §2 the *representation* is no longer the obstacle either: a union context is what a
+path-sensitive task scope would be, and inference already distributes over one. What is left is
+computing the alternatives. Task contexts come from `computeContextSets`, a fixpoint whose
+lattice element is *one* set of ids, intersected across predecessors. Making it path-sensitive means carrying a
 **set of alternative must-sets** — a DNF — which is exponential in the worst case and needs
 a widening rule to terminate. That is a different piece of work with a different risk
 profile.

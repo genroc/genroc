@@ -196,6 +196,29 @@ where the engine has already written the new output — `engine.buildEnv` shadow
 the name means one thing. Both are refused where the task has no output or nothing routes back
 to it, and the two get different messages because they are different mistakes.
 
+## The contexts are addressable, and one of them is a floor
+
+`slots.go` exports the environment inference builds and then spends on error messages:
+`SlotContexts` keys a context by slot address for `genctl schema context`
+([specs/schema-command.md](../../specs/schema-command.md)). It is not a second construction —
+**`taskScopes` in `context.go` is the only one**, with a method per phase, and `contextSchema`
+has no caller outside it. The checker, `Compare`'s per-task entry view and the addressable view
+differ only in what they FEED it, which is the part a test has to hold: `SlotContexts` reads a
+finished `SchemaFile` where `buildInputs` reads the pool mid-flight. Two things make that sound
+— outputs are all inferred in **phase 1** before any phase-2 context is built, and the pool only
+grows (`uniqueDefName` renames the newcomer) — and `TestSlotContextsAreTheCheckersOwn` pins
+them: identical bodies, and every definition the check resolved still resolving to the same
+thing. A context reported to an author that nothing checked is the failure it exists to catch.
+
+**The process `output` slot has no exception left.** Its context is one `anyOf` arm per way the
+process can end, built by `processOutputContext` and used by the checker itself, so what is
+reported is what typed the expression. The arms are what carry the correlation between
+path-exclusive outputs, and `schema.InferNode` distributes over them — until 2026-09-04 that
+partition was a loop in `inferProcessOutput`, which typed the same expressions but handed out a
+flattened context, so `(outputs.a ?? outputs.b) + 1` was refused by a reader of the context and
+accepted by the checker. `TestProcessOutputContextCarriesEveryEnding` pins the five expressions
+that boundary is made of.
+
 ## Pointers
 
 - `NarrowsTo` vs `IsSubset`, and why only what a child hands back may narrow —

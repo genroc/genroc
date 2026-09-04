@@ -2,9 +2,11 @@ package validation
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"genroc/internal/model"
+	"genroc/internal/schema"
 )
 
 // predEdge is a predecessor edge in the task graph.
@@ -39,6 +41,143 @@ type terminalEnd struct {
 // outputTerminals: one entry per way of ending. Kept apart because outputContextSets
 // INTERSECTS must-sets, destroying the correlation that lets `outputs.a.v ?? outputs.b.v`
 // type non-null when a and b cover every terminal. specs/path-sensitive-output.md.
+// taskScopes is everything a context at a task is built from, so the checker and the
+// addressable view (slots.go) cannot build one differently: one constructor per phase, and the
+// phases are specs/task-scopes.md's. Held together by TestSlotContextsAreTheCheckersOwn.
+type taskScopes struct {
+	tasks              map[string]TaskSchemas
+	processInput       schema.Schema
+	configSchema       schema.Schema
+	defs               schema.Defs
+	required, optional map[string][]string
+	errs               map[string]errAt
+}
+
+// base is the part every slot of a task shares: the process input, config, the outputs that
+// reach it, and the failure that routed control here. `self` is what the phases add.
+func (sc taskScopes) base(t *model.Task) schema.Schema {
+	return contextSchema(sc.required[t.ID], sc.optional[t.ID], sc.tasks, sc.processInput, sc.configSchema, sc.errs[t.ID])
+}
+
+func (sc taskScopes) loops(t *model.Task) bool { return taskLoops(t, sc.required, sc.optional) }
+
+// entry is the context on entry to the task, with no `self` at all — what an instance sitting
+// there holds. Compare uses it against a stored row.
+func (sc taskScopes) entry(t *model.Task) schema.Schema {
+	return sc.base(t).WithDefs(sc.defs)
+}
+
+// action is the scope of every slot evaluated before the task's output exists: the action's
+// own, `timeout`, and a batch's per-entry inputs.
+func (sc taskScopes) action(t *model.Task) schema.Schema {
+	return addPreviousOnly(sc.base(t), t, sc.loops(t)).WithDefs(sc.defs)
+}
+
+// outputMap is the scope of the output projection, where the action has answered. The bool is
+// whether the result is typed at all — an untyped one is absent rather than unknown, so a
+// reference to it can be reported as the rule it breaks.
+func (sc taskScopes) outputMap(t *model.Task) (schema.Schema, bool, error) {
+	resultType, typed, err := actionResultType(t, sc.defs)
+	if err != nil {
+		return schema.Schema{}, false, err
+	}
+	return outputMapContext(sc.base(t), resultType, typed, t.ID, sc.loops(t), t.Action).WithDefs(sc.defs), typed, nil
+}
+
+// switchScope is the scope of every switch clause: the output map has run, so `self.output` is
+// the projection this run just produced.
+func (sc taskScopes) switchScope(t *model.Task) (schema.Schema, error) {
+	ctx := sc.base(t)
+	if t.Action == nil && !t.Output.Present() {
+		return ctx.WithDefs(sc.defs), nil
+	}
+	withSelf, err := addSelfSchema(ctx, t, sc.loops(t), sc.defs)
+	if err != nil {
+		return schema.Schema{}, err
+	}
+	return withSelf.WithDefs(sc.defs), nil
+}
+
+// processOutput is the scope of the process-level `output` expression: the join over terminal
+// paths, and no `self` — it is not a task slot. Above one terminal the checker also builds a
+// context PER path (`inferProcessOutput`) and requires every one of them to type-check, which
+// is how it infers a precise result type; the names in scope are the same either way.
+// specs/path-sensitive-output.md.
+func (sc taskScopes) processOutput(def *model.ProcessDefinition, errData schema.Schema) schema.Schema {
+	req, opt, errReq, errOpt := outputContextSets(def)
+	e := errAt{must: errReq, may: errOpt, data: errData}
+	return contextSchema(req, opt, sc.tasks, sc.processInput, sc.configSchema, e).WithDefs(sc.defs)
+}
+
+// processOutputContext is the scope of the process-level `output` expression: one arm per way
+// the process can end. The arms are what carry the correlation between path-exclusive outputs
+// — where a path does not set one, that arm types it null — and inference distributes over
+// them (schema.InferNode), so the precision lives in the CONTEXT rather than in a walk the
+// checker performs and nobody else can see. specs/path-sensitive-output.md.
+func (sc taskScopes) processOutputContext(def *model.ProcessDefinition) schema.Schema {
+	terminals := outputTerminals(def)
+	if len(terminals) == 0 {
+		// Nothing reaches the end, so there is no ending to describe: the expression is still
+		// checked, against an empty set of outputs.
+		return sc.processOutput(def, schema.Schema{})
+	}
+	// Task outputs reachable on at least one terminal. A reference to anything outside this
+	// set is absent everywhere, so it is left out of every arm and still reported as an access
+	// error instead of silently typing null.
+	everMay := make(map[string]bool)
+	for _, t := range terminals {
+		for id := range t.may {
+			everMay[id] = true
+		}
+	}
+	arms := make([]schema.Schema, 0, len(terminals))
+	for _, t := range terminals {
+		arms = append(arms, sc.processOutputAt(t, everMay))
+	}
+	if len(arms) == 1 {
+		return arms[0]
+	}
+	return schema.AnyOf(arms...).WithDefs(sc.defs)
+}
+
+// processOutputAt is the process output's scope on ONE terminal path — the outputs that path
+// guarantees, the ones it may set, and the ones only OTHER paths set, typed null. That last
+// category is the correlation the join above destroys: it is what lets `outputs.a ?? outputs.b`
+// come out non-null when a and b between them cover every ending.
+func (sc taskScopes) processOutputAt(t terminalEnd, everMay map[string]bool) schema.Schema {
+	var must, opt, absent []string
+	for id := range t.must {
+		must = append(must, id)
+	}
+	for id := range t.may {
+		if !t.must[id] {
+			opt = append(opt, id)
+		}
+	}
+	for id := range everMay {
+		if !t.may[id] {
+			absent = append(absent, id)
+		}
+	}
+	sort.Strings(must)
+	sort.Strings(opt)
+	sort.Strings(absent)
+	e := errAt{must: t.errMin, may: t.errMax, data: sc.errs[t.task].data}
+	// The path is named ON the arm, so a failure under it reads "on the path ending at task
+	// …" without the checker carrying that fact beside the schema — a reader of the context
+	// gets the same sentence.
+	return contextSchemaAbsent(must, opt, absent, sc.tasks, sc.processInput, sc.configSchema, e).
+		WithDescription(fmt.Sprintf("on the path ending at task %q", t.task)).
+		WithDefs(sc.defs)
+}
+
+// rule is one on_error rule's scope: the task's own, plus `error` — the failure THIS rule
+// caught, which is not the `last_error` that routed control here.
+func (sc taskScopes) rule(t *model.Task, ec model.ErrorCase) schema.Schema {
+	ctx := withErrorProperty(sc.base(t), model.StateError, ruleErrAt(t, ec, sc.defs))
+	return addPreviousOnly(ctx, t, sc.loops(t)).WithDefs(sc.defs)
+}
+
 func outputTerminals(def *model.ProcessDefinition) []terminalEnd {
 	tasks := def.Tasks
 	n := len(tasks)
@@ -127,6 +266,9 @@ func outputContextSets(def *model.ProcessDefinition) (required, optional []strin
 		}
 	}
 
+	// Sorted, because these become a `required` array: map order would make the same
+	// definition produce a different schema document on every run, and `genctl schema` prints
+	// one people diff.
 	for id := range mustAtEnd {
 		required = append(required, id)
 	}
@@ -152,6 +294,8 @@ func outputContextSets(def *model.ProcessDefinition) (required, optional []strin
 	}
 	errRequired = allErrMin
 	errOptional = anyErrMax && !allErrMin
+	sort.Strings(required)
+	sort.Strings(optional)
 	return
 }
 

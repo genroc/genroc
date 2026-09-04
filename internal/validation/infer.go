@@ -19,11 +19,15 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 	}
 	required, optional, mustErr, mayErr, errSrc := computeContextSets(tasks)
 	errs := errContexts(tasks, mustErr, mayErr, errSrc, defs)
+	scopes := taskScopes{
+		tasks: taskSchemas, processInput: processInput, configSchema: configSchema, defs: defs,
+		required: required, optional: optional, errs: errs,
+	}
 
 	// Phase 1: infer every output-map task's exported type, in dependency order
 	// (mutually-recursive tasks resolved jointly), writing each to defs so the
 	// switches and later tasks below see the final types.
-	if err := inferOutputs(tasks, taskSchemas, processInput, configSchema, defs, required, optional, errs); err != nil {
+	if err := inferOutputs(tasks, scopes); err != nil {
 		return err
 	}
 
@@ -51,7 +55,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			hasUntil := isDelay && s.Action.Until != nil
 			hasTimeout := !s.Timeout.IsZero()
 			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout {
-				ctx := addPreviousOnly(contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID]), s, loops).WithDefs(defs)
+				ctx := scopes.action(s)
 				// The child_list `over` expression must be a non-null array; each
 				// element becomes one child's input. Type-check it here so a malformed or
 				// non-array expression is rejected at registration.
@@ -129,15 +133,10 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 		}
 
 		if len(s.Switch) > 0 {
-			switchCtx := contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID])
-			if s.Action != nil || s.Output.Present() {
-				withSelf, err := addSelfSchema(switchCtx, s, loops, defs)
-				if err != nil {
-					return fmt.Errorf("task %q: %w", s.ID, err)
-				}
-				switchCtx = withSelf
+			switchCtx, err := scopes.switchScope(s)
+			if err != nil {
+				return fmt.Errorf("task %q: %w", s.ID, err)
 			}
-			switchCtx = switchCtx.WithDefs(defs)
 			// An untyped action result cannot be read in a case any more than it can be
 			// exported through an output, so a case that touches self.result gets the same
 			// actionable message the output slot gives.
@@ -191,9 +190,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			}
 			// The task's own context — `last_error` and all — plus `error`, the failure THIS
 			// rule caught. Both are readable here and they are different errors.
-			ruleCtx := addPreviousOnly(withErrorProperty(
-				contextSchema(required[s.ID], optional[s.ID], taskSchemas, processInput, configSchema, errs[s.ID]),
-				model.StateError, ruleErrAt(s, ec, defs)), s, loops).WithDefs(defs)
+			ruleCtx := scopes.rule(s, ec)
 			where := fmt.Sprintf("on_error[%d]", i)
 			// The case is checked in the SAME per-rule scope as the clauses: `code` has
 			// already said which error this is, so `error.data` here is that code's declared

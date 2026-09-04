@@ -437,15 +437,11 @@ func inferSchemas(docs []sourceDoc, sites []site) (map[string]validation.SchemaF
 		if _, dup := out[name]; dup {
 			return nil, fmt.Errorf("two definitions named %q in one apply - schemas are keyed by process name", name)
 		}
-		raw, err := json.Marshal(sd.doc)
+		def, err := decodeDefinition(sd)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", sd.file, err)
+			return nil, err
 		}
-		var def model.ProcessDefinition
-		if err := numeric.Decode(raw, &def); err != nil {
-			return nil, fmt.Errorf("%s: %w", sd.file, err)
-		}
-		sf, err := validation.Generate(&def)
+		sf, err := validation.Generate(def)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %s: %w", sd.file, name, err)
 		}
@@ -457,6 +453,20 @@ func inferSchemas(docs []sourceDoc, sites []site) (map[string]validation.SchemaF
 // taskInput is the inferred type of the task's action input, which validation already
 // computed (validation.buildInputs). It may be a $ref into that process's own $defs pool.
 // A zero schema returns nil so the manifest omits the key rather than carrying `null`.
+// decodeDefinition reads one source document as a definition. Non-strict and without
+// Validate: genctl computes the types, the server decides validity (§inferSchemas).
+func decodeDefinition(sd sourceDoc) (*model.ProcessDefinition, error) {
+	raw, err := json.Marshal(sd.doc)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", sd.file, err)
+	}
+	var def model.ProcessDefinition
+	if err := numeric.Decode(raw, &def); err != nil {
+		return nil, fmt.Errorf("%s: %w", sd.file, err)
+	}
+	return &def, nil
+}
+
 func taskInput(schemas map[string]validation.SchemaFile, process, task string) any {
 	if task == "" {
 		return nil

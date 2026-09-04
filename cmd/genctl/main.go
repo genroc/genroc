@@ -7,6 +7,7 @@
 //	genctl apply    [-f <path|glob> ...] [--channel latest]
 //	genctl validate [-f <path|glob> ...]
 //	genctl types    [-f <path|glob> ...]
+//	genctl schema   context <process> [address]
 //	genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
 //	genctl token   create --perms <list> [--label <name>] [-q] | list [--json] | revoke <id>...
 //	genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
@@ -163,6 +164,8 @@ func main() {
 		runValidateCmd(server, args)
 	case "types":
 		runTypesCmd(args)
+	case "schema":
+		runSchemaCmd(args)
 	case "run":
 		runRunCmd(server, args)
 	case "token":
@@ -344,6 +347,7 @@ func usageTo(w io.Writer) {
   genctl apply    [-f <path|glob> ...] [--channel latest]
   genctl validate [-f <path|glob> ...]
   genctl types    [-f <path|glob> ...]
+  genctl schema   context <process> [address] [-f <path|glob> ...] [--json]
   genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
   genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
   genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]

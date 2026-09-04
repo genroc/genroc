@@ -104,6 +104,26 @@ stays untyped and unexportable, so "I meant it to be opaque" stays distinguishab
 "I forgot". The `infer` mode in that doc (inherit the child's computed output) is
 **not built**.
 
+## A union CONTEXT is alternative states, and inference distributes over it
+
+`Schema.InferNode` types an expression under each arm of an `anyOf` context and joins the
+results, rather than against the flattened view. That is what keeps a **correlation** between
+two properties — `a` is null exactly where `b` is not — which flattening destroys: `a ?? b` is
+nullable against the flattened union and non-null under every arm.
+
+The rule applies only at the CONTEXT root, not to a union met while navigating a value: one is
+"which state are we in", the other "which shape is this value". Everything else about a union
+value is unchanged.
+
+Two behaviours the callers depend on, both mirroring what the process-output walk used to do
+by hand ([specs/path-sensitive-output.md](../../specs/path-sensitive-output.md) §2):
+
+- **Every arm must type.** The expression runs in one of the states and nothing says which, so
+  one that fails anywhere is a failure.
+- **A failure names its arm only if another arm typed.** The name comes from the arm's own
+  `description`; an expression that fails under every state is simply wrong, and prefixing it
+  with a state sends the author looking in the wrong place.
+
 ## Where sub-schemas live is a table, and it does not cover everything
 
 `mapChildren` (`walk.go`) is the one enumeration of the keywords that hold sub-schemas;

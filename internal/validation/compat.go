@@ -136,10 +136,15 @@ func TaskContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 func taskContexts(def *model.ProcessDefinition, sf SchemaFile, input schema.Schema) map[string]schema.Schema {
 	required, optional, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
 	errs := errContexts(def.Tasks, mustErr, mayErr, errSrc, sf.Defs)
+	// The zero configSchema is rule 3 above: config is re-resolved every tick, so nothing
+	// persisted corresponds to it. `input` comes from the caller, hoisted out of the loop.
+	scopes := taskScopes{
+		tasks: sf.Tasks, processInput: input, configSchema: schema.Schema{}, defs: sf.Defs,
+		required: required, optional: optional, errs: errs,
+	}
 	out := make(map[string]schema.Schema, len(def.Tasks))
 	for _, t := range def.Tasks {
-		out[t.ID] = contextSchema(required[t.ID], optional[t.ID], sf.Tasks, input,
-			schema.Schema{}, errs[t.ID]).WithDefs(sf.Defs)
+		out[t.ID] = scopes.entry(t)
 	}
 	return out
 }

@@ -2,7 +2,6 @@ package validation
 
 import (
 	"fmt"
-	"slices"
 
 	"genroc/internal/expression"
 	"genroc/internal/model"
@@ -14,25 +13,21 @@ import (
 // solver orders work by exact dependency, detects recursion on contact, and fixpoints
 // each cycle (null seed, re-infer, join). No separate dependency graph to drift.
 // specs/recursive-type-inference.md.
-func inferOutputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, processInput, configSchema schema.Schema,
-	defs schema.Defs, required, optional map[string][]string, errs map[string]errAt) error {
-
-	solver := schema.NewSolver(defs)
+func inferOutputs(tasks []*model.Task, scopes taskScopes) error {
+	solver := schema.NewSolver(scopes.defs)
 	declared := false
 	for _, s := range tasks {
 		if !s.Output.Present() {
 			continue
 		}
 		id := s.ID
-		base := contextSchema(required[id], optional[id], taskSchemas, processInput, configSchema, errs[id])
 		// The task loops iff it is its own predecessor: computeContextSets then
 		// lists its own output among its available (optional) outputs.
-		loops := slices.Contains(optional[id], id) || slices.Contains(required[id], id)
-		resultType, typed, err := actionResultType(s, defs)
+		loops := scopes.loops(s)
+		ctx, typed, err := scopes.outputMap(s)
 		if err != nil {
 			return fmt.Errorf("task %q: %w", id, err)
 		}
-		ctx := outputMapContext(base, resultType, typed, id, loops, s.Action).WithDefs(defs)
 		node := s.Output.Raw
 		label := fmt.Sprintf("task %q output", id)
 		// An untyped result (fetch/external with no result_schema) cannot be exported: the

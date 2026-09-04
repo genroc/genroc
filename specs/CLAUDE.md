@@ -420,7 +420,7 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   say "required, not deferred"; the doc now rejects it outright** and the shipped code has
   none, so read §2f rather than this line: pruning `mustNew(T)` to what is actually read
   would promise an upgrade whose instance then reads a value that is not there.
-- [schema-command.md](schema-command.md) — **PROPOSAL (2026-09-04).** `genctl schema` hands
+- [schema-command.md](schema-command.md) — **`context` BUILT (2026-09-04); `type` proposed.** `genctl schema` hands
   back a piece of a definition's inferred view: `context` for what an expression at a slot may
   read, `type` for the shape of a slot, so a client, a consumer or an `external` worker can be
   generated from it. Possible only since the types moved into genctl the same day
