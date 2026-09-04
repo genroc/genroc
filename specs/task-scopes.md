@@ -1,6 +1,7 @@
 # Task scopes
 
-**Status: implemented.** Which names a task's expressions may use, and what each one holds.
+**Status: implemented, except §"The error axis" — PROPOSED 2026-09-04.** Which names a task's
+expressions may use, and what each one holds.
 
 A task's slots are not evaluated at one moment. The action's slots are built first, the action
 answers, the output map runs, the switch routes. `self` names the task itself, and its members
@@ -32,6 +33,57 @@ a failure, so there is no result and the output map never ran. What it *can* see
 of the last run that succeeded — untouched, because a failing task writes none.
 
 A process-level `output` is not a task slot and has no `self` at all.
+
+## The error axis: `error` and `last_error`
+
+**PROPOSED 2026-09-04.** Today `error` names two different failures depending on which line it
+sits on. Inside an `on_error` rule it is the error that rule **caught**; anywhere else in a task
+it is the error that **routed control here** from some other task's `on_error`. Both are useful
+and both are needed; sharing one name is what makes them impossible to tell apart.
+
+| name | is | in scope |
+|---|---|---|
+| `error` | the failure the rule at hand caught | inside an `on_error` rule only |
+| `last_error` | the failure that routed control into this task | every slot of a task an error edge enters |
+
+The name is `last_error` and not `prev_error` because `previous` is already spoken for by
+`self.previous` — *this* task's prior run — so `prev_error` reads as "my last attempt's error",
+which is the wrong referent and type-checks. `last_error` misreads in the other direction, as
+"the last error anywhere in this instance", and that reading is refused at registration.
+
+**`last_error` is not durable, and the name is the only thing that suggests it might be.** It is
+deleted on every ordinary transition (`advance.go`): a handler that wants the failure to travel
+projects it into its own output, which is how every other value moves, and inference types it on
+exactly the tasks an error edge enters. Making it survive would put an optional, union-typed
+failure on every task downstream of any handler, trade an exact type for a weak one, and
+duplicate what the audit trail already records.
+
+### What it dissolves
+
+`retry.*` currently reads the routed-in error while `case` / `raise` / `panic` two lines above it
+read the caught one — the same word, two failures, and no way to see which. Under the split that
+is not a defect to fix but a distinction to spell: `retry.*` reads `last_error` like every other
+action-phase slot, and `error` is simply not in its scope. **No engine change** — the rename is
+the whole of it.
+
+That is [retry-policy.md](retry-policy.md)'s decision, not a new one: a policy answers "how long
+do we wait for this dependency", a property of the deployment rather than of the individual
+failure. What that doc could not say, while one name covered both, is that a retry slot on a
+routed task can read *an* error — just never the one being retried. `last_error` is what makes
+that sentence writable.
+
+The shape that falls out: **the persisted slot is only ever written for the next task; what a
+rule reads is bound for the rule and nothing else.**
+
+### What it costs
+
+Handler tasks change `error.*` to `last_error.*`; `on_error` clauses do not move. Nothing goes
+silently wrong — `error` is simply not in a handler task's context afterwards, so an unconverted
+definition is refused at registration.
+
+No migration: the failure has had its own column since migration 019 (`error_data`), so the name
+lives only in `inst.State`'s key and in the inferred context. `state.error` on the instance
+detail becomes `state.last_error`.
 
 ## `outputs.<own id>` is `self.previous`
 

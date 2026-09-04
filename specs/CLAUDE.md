@@ -420,6 +420,21 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   say "required, not deferred"; the doc now rejects it outright** and the shipped code has
   none, so read §2f rather than this line: pruning `mustNew(T)` to what is actually read
   would promise an upgrade whose instance then reads a value that is not there.
+- [schema-command.md](schema-command.md) — **PROPOSAL (2026-09-04).** `genctl schema` hands
+  back a piece of a definition's inferred view: `context` for what an expression at a slot may
+  read, `type` for the shape of a slot, so a client, a consumer or an `external` worker can be
+  generated from it. Possible only since the types moved into genctl the same day
+  (source-resolution.md §One roundtrip) — as a roundtrip per question it is not a thing anyone
+  runs while writing YAML. `context` is specced in full and rests on one finding: the scope
+  varies along **exactly two axes**, `self` and `error`, so five addresses cover every
+  expression slot in a process and the rest resolve into them. `type` is deferred on a hole it
+  exposes — `TaskSchemas` carries no `result`, which is why genctl reads the declared
+  `result_schema` out of the raw YAML to fill the resolver manifest. **Step 1 is not the command
+  at all**: writing it turned up `error` naming two different failures — the one an `on_error`
+  rule caught, and the one that routed control into the task — with `retry.*` sitting in the
+  first and reading the second. A command reporting the scope at a slot would have to document
+  that instead of answering it, so the split lands first, as `error` / `last_error` in
+  [task-scopes.md](task-scopes.md) §The error axis.
 - [id-list-commands.md](id-list-commands.md) — **BUILT (2026-08-26).** `genctl pause`,
   `resume` and `retry` take several instance ids, iterating client-side like `upgrade`'s id
   form and adding no endpoint. Its premise is that these three verbs **refuse a no-op** by
