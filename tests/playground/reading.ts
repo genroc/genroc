@@ -9,7 +9,6 @@
 // Template literals need no escaping here: genctl doubles every `$` on splice, so `${…}` is
 // JavaScript rather than a genroc interpolation. That is the whole point of the import.
 import type { Input, Output } from "./reading.genroc";
-import { appendFile } from "node:fs/promises";
 
 // WMO weather codes, jen ty běžné — cokoliv jiného se vypíše číslem.
 const CONDITIONS: Record<number, string> = {
@@ -41,7 +40,7 @@ type Forecast = {
 };
 
 export default async function (input: Input): Promise<Output> {
-  const { geo, prev } = input;
+  const { geo } = input;
 
   if (!geo) {
     throw new Error("No geolocation provided");
@@ -73,5 +72,5 @@ export default async function (input: Input): Promise<Output> {
 
   // The whole history, not just the latest: process.yaml feeds the last run's array back in
   // as `prev`, so the accumulation lives here rather than in an output map.
-  return [...prev, { time: current.time, condition, temperature_c, summary }];
+  return { time: current.time, condition, temperature_c, summary };
 }

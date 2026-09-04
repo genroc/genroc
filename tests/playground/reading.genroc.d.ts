@@ -17,7 +17,6 @@ export type geo_response = {
 
 export type Input = {
   geo: location_output;
-  prev: Array<reading>;
 };
 
-export type Output = Array<reading>;
+export type Output = reading;
