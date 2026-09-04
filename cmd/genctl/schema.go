@@ -21,75 +21,192 @@ import (
 
 func runSchemaCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: genctl schema context <process> [address] [-e <expression>] [-f <path|glob> ...]")
+		fmt.Fprintln(os.Stderr, "Usage: genctl schema context <process> [address] [-e <expression>] [-f <path|glob> ...]\n"+
+			"       genctl schema type    <process> [address] [-f <path|glob> ...]")
 		os.Exit(1)
 	}
 	switch args[0] {
 	case "context":
-		runSchemaContextCmd(args[1:])
+		runSchemaViewCmd(contextView, args[1:])
+	case "type":
+		runSchemaViewCmd(typeView, args[1:])
 	default:
-		fatal("unknown subcommand %q: genctl schema context <process> [address]", args[0])
+		fatal("unknown subcommand %q: genctl schema <context|type> <process> [address]", args[0])
 	}
 }
 
-// runSchemaContextCmd answers what an expression written at a slot may read. With no address it
-// lists every slot instead, keyed by the address that asks for it.
-func runSchemaContextCmd(args []string) {
-	fs := flag.NewFlagSet("schema context", flag.ExitOnError)
+// A view is one question asked of a process. The two differ in the document they build and how
+// a listing reads — everything else (the file rules, `--json`, navigation, `-e`, what stdout may
+// carry) is the command's, so a change to any of it cannot reach one view and not the other.
+type schemaView struct {
+	name string
+	// document is the whole view as one schema. An address is a path into it and nothing else,
+	// so there is no address grammar left to differ between the views.
+	document func(*model.ProcessDefinition) (schema.Schema, error)
+	// slots is the same content flattened, for the listing: one line per address.
+	slots    func(*model.ProcessDefinition) (map[string]schema.Schema, error)
+	render   func(map[string]schema.Schema)
+	exprHelp string
+	example  string
+	jsonHelp string
+}
+
+var contextView = schemaView{
+	name:     "context",
+	slots:    validation.SlotContexts,
+	document: validation.ContextDocument,
+	render:   printInScope,
+	exprHelp: "type this expression against the schema the address selected, bare: self.result.fee",
+	example:  "tasks.price.output",
+	jsonHelp: "print the schemas rather than a summary of what is in scope",
+}
+
+var typeView = schemaView{
+	name:     "type",
+	slots:    validation.TypeSlots,
+	document: validation.TypeDocument,
+	render:   printTypes,
+	exprHelp: "type this expression against the schema the address selected, bare: items[0].sku",
+	example:  "tasks.price.result",
+	jsonHelp: "print the schemas rather than a summary of what each is",
+}
+
+// runSchemaViewCmd is both subcommands: an address answers with one document, no address lists
+// what can be asked. specs/schema-command.md.
+func runSchemaViewCmd(v schemaView, args []string) {
+	fs := flag.NewFlagSet("schema "+v.name, flag.ExitOnError)
 	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
 		"and repeats")
-	asJSON := fs.Bool("json", false, "print the schemas rather than a summary of what is in scope")
-	expr := fs.String("e", "", "type this expression against the addressed slot's context, "+
-		"bare: self.result.fee")
+	asJSON := fs.Bool("json", false, v.jsonHelp)
+	expr := fs.String("e", "", v.exprHelp)
 	files, rest := takeFileValues(args)
 	pos := parseArgs(fs, rest)
 	if len(pos) == 0 {
-		fatal("genctl schema context <process> [address]: name the process")
+		fatal("genctl schema %s <process> [address]: name the process", v.name)
 	}
 	if len(pos) > 2 {
-		fatal("%s: unexpected argument. A slot is one address, e.g. tasks.price.output", pos[2])
+		fatal("%s: unexpected argument. A slot is one address, e.g. %s", pos[2], v.example)
 	}
 	if *expr != "" && len(pos) < 2 {
 		fatal("-e types an expression at one slot, so it needs an address:\n"+
-			"  genctl schema context %s <address> -e '%s'", pos[0], *expr)
+			"  genctl schema %s %s <address> -e '%s'", v.name, pos[0], *expr)
 	}
 
 	def := loadDefinition(files, pos[0])
-	slots, err := validation.SlotContexts(def)
-	if err != nil {
-		fatal("%s: %v", def.Name, err)
-	}
-
 	if len(pos) == 2 {
-		address, err := validation.CanonicalSlot(def, pos[1])
+		doc, err := v.document(def)
+		if err != nil {
+			fatal("%s: %v", def.Name, err)
+		}
+		path, err := schema.ParsePath(pos[1])
 		if err != nil {
 			fatal("%v", err)
 		}
-		ctx, ok := slots[address]
-		if !ok {
-			fatal("%s: nothing is evaluated there", pos[1])
-		}
-		if address != pos[1] {
-			// The phase it landed in, on stderr: stdout carries the document and nothing else.
-			fmt.Fprintf(os.Stderr, "%s → %s\n", pos[1], address)
+		s, err := validation.Navigate(doc, pos[1], path)
+		if err != nil {
+			fatal("%v%s", err, otherView(v, def, path))
 		}
 		if *expr != "" {
 			// Availability before inference, the order the checker runs them in: "not readable
-			// here" beats the "field not found" the schema would answer with.
-			if err := validation.CheckSlotRoots(def, address, *expr); err != nil {
+			// here" beats the "field not found" the schema would answer with. It answers only
+			// where the address named a slot; inside one, nothing is being written.
+			if err := validation.CheckSlotRoots(def, pos[1], *expr); err != nil {
 				fatal("%v", err)
 			}
-			ctx = inferExpr(ctx, *expr)
+			s = inferExpr(s, *expr)
 		}
-		printJSON(selfContained(schemaDoc(ctx)))
+		printJSON(selfContained(schemaDoc(s)))
 		return
 	}
 
+	slots, err := v.slots(def)
+	if err != nil {
+		fatal("%s: %v", def.Name, err)
+	}
 	if *asJSON {
-		printJSON(contextListing(slots))
+		printJSON(listing(slots))
 		return
 	}
-	printInScope(slots)
+	v.render(slots)
+}
+
+// otherView names the sibling when the address it could not find is one the OTHER view answers.
+// The two share an address space, so a miss here is usually a question asked of the wrong half —
+// `tasks.x.switch` has a context and no type, `tasks.x.result` a type and no context.
+func otherView(v schemaView, def *model.ProcessDefinition, path []schema.Segment) string {
+	other := typeView
+	if v.name == typeView.name {
+		other = contextView
+	}
+	doc, err := other.document(def)
+	if err != nil {
+		return ""
+	}
+	if _, err := validation.Navigate(doc, "", path); err != nil {
+		return ""
+	}
+	return fmt.Sprintf("\n`genctl schema %s` has it: that address is a %s, not a %s",
+		other.name, other.name, v.name)
+}
+
+// printTypes is the human answer: one line per address naming what is there. The documents are
+// `--json`, or one address at a time.
+func printTypes(slots map[string]schema.Schema) {
+	addresses := slices.Sorted(maps.Keys(slots))
+	width := 0
+	for _, a := range addresses {
+		width = max(width, len(a))
+	}
+	pool, _ := listing(slots)["$defs"].(map[string]any)
+	for _, a := range addresses {
+		fmt.Printf("%-*s  %s\n", width, a, typeSummary(schemaDoc(slots[a]), pool))
+	}
+}
+
+// typeSummary names a type in one line — its kind, an object's members, an array's element —
+// enough to pick the address whose document you want. A `$ref` is followed once: the name of a
+// definition says less than what it holds.
+func typeSummary(doc, pool map[string]any) string {
+	if ref, ok := doc["$ref"].(string); ok {
+		if name, cut := strings.CutPrefix(ref, "#/$defs/"); cut {
+			if target, ok := pool[name].(map[string]any); ok {
+				return typeSummary(target, pool)
+			}
+		}
+	}
+	kind := typeKind(doc)
+	switch {
+	case kind == "object":
+		if members := memberNames(doc); members != "" {
+			return "object{" + members + "}"
+		}
+	case kind == "array":
+		if items, ok := doc["items"].(map[string]any); ok {
+			return "array<" + typeSummary(items, pool) + ">"
+		}
+	}
+	return kind
+}
+
+// typeKind renders the `type` keyword: a union prints as its members, and an absent one is the
+// top type — a value a caller must narrow, not a missing answer.
+func typeKind(doc map[string]any) string {
+	switch t := doc["type"].(type) {
+	case string:
+		return t
+	case []any:
+		names := make([]string, 0, len(t))
+		for _, v := range t {
+			if s, ok := v.(string); ok {
+				names = append(names, s)
+			}
+		}
+		return strings.Join(names, "|")
+	}
+	if _, ok := doc["anyOf"]; ok {
+		return "one of several"
+	}
+	return "unknown"
 }
 
 // inferExpr types one expression against a slot's context: the context query with its last
@@ -258,22 +375,15 @@ func collectRefs(v any, out map[string]bool) {
 	}
 }
 
-// contextListing is every slot keyed by its address, over one shared pool: the same schema
-// appears at several addresses, so a pool per entry would repeat most of the answer.
-func contextListing(slots map[string]schema.Schema) map[string]any {
+// listing is every slot keyed by its address, over one shared pool: the same schema appears at
+// several addresses, so a pool per entry would repeat most of the answer.
+func listing(slots map[string]schema.Schema) map[string]any {
 	out := map[string]any{}
-	pool := map[string]any{}
-	for address, ctx := range slots {
-		doc := schemaDoc(ctx)
-		if defs, ok := doc["$defs"].(map[string]any); ok {
-			maps.Copy(pool, defs)
-		}
-		delete(doc, "$defs")
-		out[address] = doc
+	for address, s := range slots {
+		out[address] = schemaDoc(s)
 	}
-	if len(pool) > 0 {
-		out["$defs"] = pool
-	}
+	// selfContained hoists every entry's pool into one at the root — the same schema appears at
+	// several addresses, so a pool per entry would repeat most of the answer.
 	return selfContained(out)
 }
 

@@ -6,6 +6,8 @@ package validation
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -67,6 +69,182 @@ func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 	return out, nil
 }
 
+// Type slots. The contract boundaries — what a generator is handed — addressed in the same
+// space as the contexts above: one slot, two questions. specs/schema-command.md §7.
+const (
+	slotInput   = "input"
+	slotResult  = "result"
+	slotLastErr = "last_error"
+	slotRaises  = "raises"
+)
+
+// TypeSlots returns the type of every addressable slot, keyed by address. Each carries the
+// pool it resolves against, so one answer can be handed on whole.
+func TypeSlots(def *model.ProcessDefinition) (map[string]schema.Schema, error) {
+	sf, err := Generate(def)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]schema.Schema{}
+	put := func(address string, s schema.Schema) {
+		if !s.IsZero() {
+			out[address] = s.WithDefs(sf.Defs)
+		}
+	}
+	put(slotInput, sf.ProcessInput)
+	put(SlotProcessOutput, sf.ProcessOutput)
+	for code, raised := range sf.Raises {
+		put(schema.JoinPath(slotRaises, code), raised)
+	}
+	for id, ts := range sf.Tasks {
+		put(taskSlot(id, slotInput), ts.Input)
+		put(taskSlot(id, slotResult), ts.Result)
+		put(taskSlot(id, slotOutput), ts.Output)
+		put(taskSlot(id, slotLastErr), ts.Error)
+	}
+	return out, nil
+}
+
+// ContextDocument and TypeDocument are the two views as ONE schema each: the addresses are
+// paths into them, so an address is navigation and nothing else. specs/schema-command.md §2.
+func ContextDocument(def *model.ProcessDefinition) (schema.Schema, error) {
+	slots, err := SlotContexts(def)
+	if err != nil {
+		return schema.Schema{}, err
+	}
+	return nest(slots)
+}
+
+func TypeDocument(def *model.ProcessDefinition) (schema.Schema, error) {
+	slots, err := TypeSlots(def)
+	if err != nil {
+		return schema.Schema{}, err
+	}
+	return nest(slots)
+}
+
+// nest folds addressed slots into the object they are addresses INTO. Every property is
+// required: a slot listed here exists, and an optional one would come back nullable and stop
+// navigating.
+func nest(slots map[string]schema.Schema) (schema.Schema, error) {
+	root := schema.Object()
+	var defs schema.Defs
+	for _, address := range slices.Sorted(maps.Keys(slots)) {
+		segs, err := schema.ParsePath(address)
+		if err != nil {
+			return schema.Schema{}, err
+		}
+		if defs.IsZero() {
+			// Every slot came from one Generate, so they share one pool; the ROOT must carry it
+			// or a $ref inside a leaf has nothing to resolve against when navigated.
+			defs = slots[address].DefsHandle()
+		}
+		root = put(root, segs, slots[address].WithoutDefs())
+	}
+	return root.WithDefs(defs), nil
+}
+
+// put writes leaf at path, creating the objects on the way. A segment is a property name: an
+// index would need `items`, which types every element alike.
+func put(node schema.Schema, path []schema.Segment, leaf schema.Schema) schema.Schema {
+	name := path[0].Name
+	if len(path) == 1 {
+		return node.WithProperty(name, leaf, true)
+	}
+	child, ok := node.Properties()[name]
+	if !ok {
+		child = schema.Object()
+	}
+	return node.WithProperty(name, put(child, path[1:], leaf), true)
+}
+
+// Navigate walks path into s. On a miss it says what IS there: the document is the address
+// space, so the keys at the point of failure are the list of what could be typed instead.
+func Navigate(s schema.Schema, address string, path []schema.Segment) (schema.Schema, error) {
+	walked := ""
+	for i, seg := range path {
+		step := path[i : i+1]
+		// An index into an OBJECT reads the key spelled with that number: `on_error[0]` is the
+		// first rule, which is keyed rather than indexed because one `items` cannot type each
+		// rule differently. Nothing is conflated — indexing an object is otherwise an error.
+		if seg.IsIndex {
+			if _, ok := rootProperties(s)[strconv.Itoa(seg.Index)]; ok {
+				step = []schema.Segment{{Name: strconv.Itoa(seg.Index)}}
+			}
+		}
+		next, err := s.At(renderSegments(step))
+		if err != nil {
+			where := "this process"
+			if walked != "" {
+				where = walked
+			}
+			// The address as TYPED: re-rendering it would quote a key the author spelled bare,
+			// and an error that echoes something else reads as a second mistake.
+			return schema.Schema{}, fmt.Errorf("%s: no %q in %s%s%s",
+				address, name(seg), where, holds(s), quotedHint(s, seg))
+		}
+		walked = renderSegments(path[:i+1])
+		s = next
+	}
+	return s, nil
+}
+
+// name is what the author wrote for one step, index or key alike.
+func name(seg schema.Segment) string {
+	if seg.IsIndex {
+		return strconv.Itoa(seg.Index)
+	}
+	return seg.Name
+}
+
+// quotedHint catches the one key a path grammar splits by accident: a dot inside a name. The
+// listing above already shows it, but not that it has to be quoted to be read as one segment.
+func quotedHint(s schema.Schema, seg schema.Segment) string {
+	for _, key := range slices.Sorted(maps.Keys(rootProperties(s))) {
+		if strings.HasPrefix(key, seg.Name+".") {
+			return fmt.Sprintf(" (a key holding a dot is quoted: [%s])", strconv.Quote(key))
+		}
+	}
+	return ""
+}
+
+// holds names what an object carries, so a miss teaches the address space rather than only
+// reporting one. Empty for a leaf, which has nothing to offer instead.
+func holds(s schema.Schema) string {
+	names := slices.Sorted(maps.Keys(rootProperties(s)))
+	if len(names) == 0 {
+		return ""
+	}
+	return ", which holds: " + strings.Join(names, ", ")
+}
+
+// rootProperties reads through a union: a context with ARMS (the process output has one per
+// ending) carries its roots inside them, so the arms are where the answer is.
+func rootProperties(s schema.Schema) map[string]schema.Schema {
+	if props := s.Properties(); len(props) > 0 {
+		return props
+	}
+	out := map[string]schema.Schema{}
+	for _, arm := range s.Variants() {
+		maps.Copy(out, arm.Properties())
+	}
+	return out
+}
+
+// renderSegments is ParsePath's inverse over the segments it returns, so a slot address
+// rebuilt from a parse is spelled the way a listing prints it.
+func renderSegments(segs []schema.Segment) string {
+	out := ""
+	for _, sg := range segs {
+		if sg.IsIndex {
+			out = schema.JoinIndex(out, sg.Index)
+			continue
+		}
+		out = schema.JoinPath(out, sg.Name)
+	}
+	return out
+}
+
 // newTaskScopes rebuilds the checker's own scope builder off a finished SchemaFile. These are
 // not contexts LIKE the ones it used: they come from the same constructors it calls.
 func newTaskScopes(def *model.ProcessDefinition) (taskScopes, error) {
@@ -85,36 +263,39 @@ func newTaskScopes(def *model.ProcessDefinition) (taskScopes, error) {
 
 // CheckSlotRoots reports whether an expression written at address may READ what it names, with
 // the message registration would give: `self.result` before the action answers, a previous
-// output no path returns to, a result the action never types. Inference alone answers those
-// with "field not found", which names the member and not the rule.
+// output no path returns to, a result the action never types. Inference alone answers those with
+// "field not found", which names the member and not the rule.
 //
-// The availability half only. A slot's required TYPE is not checked, and cannot be: an address
-// names a phase and a requirement is per slot (specs/schema-command.md §2).
+// The availability half only, and only where the address names a SLOT: past that it has walked
+// inside one, where no expression is being written and there is nothing to check. A slot's
+// required TYPE is never checked — that is per slot, and one context serves many
+// (specs/schema-command.md §2).
 func CheckSlotRoots(def *model.ProcessDefinition, address, expr string) error {
-	canonical, err := CanonicalSlot(def, address)
+	segs, err := schema.ParsePath(address)
 	if err != nil {
 		return err
 	}
-	if canonical == SlotProcessOutput {
-		return nil // no `self` at all, so nothing here is per-task
-	}
-	segs, err := schema.ParsePath(canonical)
-	if err != nil {
-		return err
+	if len(segs) < 3 || segs[0].Name != slotTasks {
+		return nil
 	}
 	task := findTask(def, segs[1])
 	if task == nil {
-		return fmt.Errorf("%q names no task in %q", address, def.Name)
+		return nil
 	}
-	sc := beforeOutput
-	switch segs[2].Name {
-	case slotOutput:
+	var sc selfScope
+	switch phase, depth := segs[2].Name, len(segs); {
+	case phase == slotAction && depth == 3:
+		sc = beforeOutput
+	case phase == slotOutput && depth == 3:
 		sc = afterAction
-	case slotSwitch:
+	case phase == slotSwitch && depth == 3:
 		sc = afterOutput
+	case phase == slotOnError && depth == 4:
+		sc = beforeOutput
+	default:
+		return nil
 	}
-	shp := shape.Shape{Raw: expr, Expr: true}
-	refs, err := shp.Roots()
+	refs, err := (&shape.Shape{Raw: expr, Expr: true}).Roots()
 	if err != nil {
 		return nil // a parse failure is inference's to report, with its own message
 	}
@@ -126,7 +307,7 @@ func CheckSlotRoots(def *model.ProcessDefinition, address, expr string) error {
 	if err != nil {
 		return err
 	}
-	return slotRoots(task, canonical, scopes.loops(task), typedResult, sc)(refs)
+	return slotRoots(task, address, scopes.loops(task), typedResult, sc)(refs)
 }
 
 // An address is a path in the expression language's own accessor syntax, so a task id that no
@@ -136,64 +317,15 @@ func taskSlot(id, phase string) string {
 	return schema.JoinPath(schema.JoinPath(slotTasks, id), phase)
 }
 
+// ruleSlot keys a rule by its index rather than indexing an array: `items` is one schema for
+// every element, so an array could not carry a different context per rule.
+//
+// Dotted, not JoinPath's `["0"]`: a bare segment is always a property name, so `.0` round-trips,
+// and an address is not an expression — `tasks.my task.output` is not one either. The reason to
+// prefer it is the shell: `[0]` is a glob, and zsh refuses the whole command with "no matches
+// found" before genctl sees it. Both bracket forms still parse.
 func ruleSlot(id string, i int) string {
-	return schema.JoinIndex(taskSlot(id, slotOnError), i)
-}
-
-// CanonicalSlot maps any slot address onto the phase whose context it is evaluated in:
-// `tasks.price.url` and `tasks.price.action.input.code` are both `tasks.price.action`. The
-// table it implements is specs/task-scopes.md's, which is why it lives beside the contexts
-// rather than in the CLI that parses the address.
-func CanonicalSlot(def *model.ProcessDefinition, address string) (string, error) {
-	segs, err := schema.ParsePath(address)
-	if err != nil {
-		return "", err
-	}
-	if len(segs) == 1 && segs[0].Name == SlotProcessOutput {
-		if !def.Output.Present() {
-			return "", fmt.Errorf("%s: this process declares no output", address)
-		}
-		return SlotProcessOutput, nil
-	}
-	if segs[0].Name != slotTasks || len(segs) < 2 {
-		return "", fmt.Errorf("%q is not a slot address: expected `output` or `tasks.<id>.<slot>`", address)
-	}
-	task := findTask(def, segs[1])
-	if task == nil {
-		return "", unknownTask(def, address, segs[1])
-	}
-	rest := segs[2:]
-	// `action.` is optional: the phase is named by what follows it either way. A lone `action`
-	// stays — it is the phase's own canonical address, and stripping it would name no slot.
-	if len(rest) > 1 && rest[0].Name == slotAction {
-		rest = rest[1:]
-	}
-
-	switch head := headSegment(rest); head {
-	case "":
-		return "", fmt.Errorf("%q names a task, not a slot in it: add %s, %s, %s or %s[<n>]",
-			address, slotAction, slotOutput, slotSwitch, slotOnError)
-	case slotOnError:
-		i, err := ruleIndex(rest, task, address)
-		if err != nil {
-			return "", err
-		}
-		return ruleSlot(task.ID, i), nil
-	case slotSwitch:
-		if len(task.Switch) == 0 {
-			return "", fmt.Errorf("%s: task %q has no switch", address, task.ID)
-		}
-		return taskSlot(task.ID, slotSwitch), nil
-	case slotOutput:
-		if !task.Output.Present() {
-			return "", fmt.Errorf("%s: task %q projects no output", address, task.ID)
-		}
-		return taskSlot(task.ID, slotOutput), nil
-	default:
-		// Everything else a task holds is evaluated before its output exists: the action's
-		// slots, `timeout`, and the per-entry inputs of a batch.
-		return taskSlot(task.ID, slotAction), nil
-	}
+	return taskSlot(id, slotOnError) + "." + strconv.Itoa(i)
 }
 
 func findTask(def *model.ProcessDefinition, seg schema.Segment) *model.Task {
@@ -206,34 +338,4 @@ func findTask(def *model.ProcessDefinition, seg schema.Segment) *model.Task {
 		}
 	}
 	return nil
-}
-
-// unknownTask names the quoted form when the id looks split rather than absent: a dot is the
-// one character an id may hold that the grammar reads as a step, so `tasks.step.one` names the
-// task "step" and never "step.one".
-func unknownTask(def *model.ProcessDefinition, address string, seg schema.Segment) error {
-	for _, t := range def.Tasks {
-		if strings.HasPrefix(t.ID, seg.Name+".") {
-			return fmt.Errorf("%q names no task in %q: an id holding a dot is quoted, tasks[%s]",
-				address, def.Name, strconv.Quote(t.ID))
-		}
-	}
-	return fmt.Errorf("%q names no task in %q", address, def.Name)
-}
-
-func headSegment(rest []schema.Segment) string {
-	if len(rest) == 0 {
-		return ""
-	}
-	return rest[0].Name
-}
-
-func ruleIndex(rest []schema.Segment, task *model.Task, address string) (int, error) {
-	if len(rest) < 2 || !rest[1].IsIndex {
-		return 0, fmt.Errorf("%s: an on_error rule is addressed by index, e.g. %s[0]", address, slotOnError)
-	}
-	if i := rest[1].Index; i >= 0 && i < len(task.OnError) {
-		return i, nil
-	}
-	return 0, fmt.Errorf("%s: task %q has %d on_error rule(s)", address, task.ID, len(task.OnError))
 }

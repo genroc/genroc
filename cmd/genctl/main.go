@@ -8,6 +8,7 @@
 //	genctl validate [-f <path|glob> ...]
 //	genctl types    [-f <path|glob> ...]
 //	genctl schema   context <process> [address] [-e <expression>]
+//	genctl schema   type    <process> [address]
 //	genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
 //	genctl token   create --perms <list> [--label <name>] [-q] | list [--json] | revoke <id>...
 //	genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
@@ -348,6 +349,7 @@ func usageTo(w io.Writer) {
   genctl validate [-f <path|glob> ...]
   genctl types    [-f <path|glob> ...]
   genctl schema   context <process> [address] [-e <expression>] [-f <path|glob> ...] [--json]
+  genctl schema   type    <process> [address] [-f <path|glob> ...] [--json]
   genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
   genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
   genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]

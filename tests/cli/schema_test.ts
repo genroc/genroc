@@ -79,8 +79,8 @@ test("schema context — lists one slot per phase, and what each can read", () =
     "tasks.explain.output",
     "tasks.explain.switch",
     "tasks.price.action",
-    "tasks.price.on_error[0]",
-    "tasks.price.on_error[1]",
+    "tasks.price.on_error.0",
+    "tasks.price.on_error.1",
     "tasks.price.output",
     "tasks.price.switch",
   ]);
@@ -121,7 +121,7 @@ test("schema context — a rule reads `error`, a routed task reads `last_error`"
 
   // Inside the rule: the failure it caught, typed by the code it catches — `wait` comes from
   // the 429 body, which is what makes `retry.delay` writable.
-  const rule = schemaOf(path, "tasks.price.on_error[0]").doc;
+  const rule = schemaOf(path, "tasks.price.on_error.0").doc;
   expect(Object.keys(rule.properties).sort()).toEqual(["error", "input", "outputs"]);
   expect(rule.properties.error.properties.data.properties).toEqual({ wait: { type: "number" } });
 
@@ -132,19 +132,110 @@ test("schema context — a rule reads `error`, a routed task reads `last_error`"
   expect(Object.keys(routed.properties)).not.toContain("error");
 });
 
-test("schema context — a finer slot resolves to its phase, and says which", () => {
+test("schema context — an address is a path, and a task is an object of its phases", () => {
   const path = defFile();
+
+  // A task holds its phases and nothing else: `url` and `timeout` are slots of the ACTION, and
+  // the address space is the document, so they are not addresses. The miss names what is.
   const url = runCli(bin, ["schema", "context", "pricing", "tasks.price.url", "-f", path], OFFLINE);
+  expect(url.ok).toBe(false);
+  expect(url.stderr).toContain("which holds: action, on_error, output, switch");
 
-  expect(url.ok, url.stderr).toBe(true);
-  // The resolution is the answer's most useful half — `url`, `timeout` and `body` are one
-  // context, and nothing in the YAML says so — but it goes to stderr so stdout stays a document.
-  expect(url.stderr).toContain("tasks.price.url → tasks.price.action");
-  expect(JSON.parse(url.stdout)).toEqual(schemaOf(path, "tasks.price.action").doc);
+  // The rules are keyed, not indexed (`items` types every element alike), and the key is spelled
+  // three ways that must agree. The dotted one is canonical because it is the only one a shell
+  // leaves alone: zsh reads `[0]` as a glob and refuses the command before genctl sees it.
+  const dotted = schemaOf(path, "tasks.price.on_error.0");
+  expect(schemaOf(path, "tasks.price.on_error[0]").doc).toEqual(dotted.doc);
+  expect(schemaOf(path, 'tasks.price.on_error["0"]').doc).toEqual(dotted.doc);
 
-  // `action.` is an optional segment, not a second spelling to remember.
-  const withAction = schemaOf(path, "tasks.price.action.body.amount").doc;
-  expect(withAction).toEqual(schemaOf(path, "tasks.price.input").doc);
+  // A number is a KEY, so it reads an object and not an array: a property lookup into an array
+  // means nothing, and saying so beats inventing a second way to index.
+  const onArray = runCli(
+    bin,
+    ["schema", "type", "pricing", "tasks.price.output.fee.0", "-f", path],
+    OFFLINE,
+  );
+  expect(onArray.ok).toBe(false);
+});
+
+// Past the slot, an address NAVIGATES what the slot answered — the same rule `schema type` has,
+// so one grammar covers both. It is what makes an address that names nothing fail: a context has
+// roots, and `headers` is not one of them.
+test("schema context — the tail navigates the context, and a name that is not there fails", () => {
+  const path = defFile();
+
+  const self = schemaOf(path, "tasks.price.output.self");
+  expect(Object.keys(self.doc.properties).sort()).toEqual(["headers", "result", "status"]);
+  // Nothing was resolved, so nothing is reported: the address was walked into, not redirected.
+  expect(self.stderr).toBe("");
+
+  const deeper = schemaOf(path, "tasks.price.output.self.result.fee");
+  expect(deeper.doc).toEqual({ type: "number" });
+
+  for (const missing of ["tasks.price.output.headers", "output.fee"]) {
+    const r = runCli(bin, ["schema", "context", "pricing", missing, "-f", path], OFFLINE);
+    expect(r.ok, `${missing} names no root of that context`).toBe(false);
+    expect(r.stderr).toContain("which holds:");
+  }
+
+  // The process output's context is one arm per ending, and navigation walks them WITHOUT
+  // flattening: each arm keeps what that ending set and what it did not, which is the
+  // correlation an expression reads with `??`.
+  const arms = schemaOf(path, "output.outputs").doc;
+  expect(arms.anyOf, "one arm per ending, still").toHaveLength(2);
+  const nulls = arms.anyOf.map((a: any) =>
+    Object.entries(a.properties)
+      .filter(([, v]: any) => v.type === "null")
+      .map(([k]) => k),
+  );
+  expect(nulls.flat().sort()).toEqual(["explain", "price"]);
+});
+
+// The other half of the same idea: an object schema IS a scope, its properties the roots, so an
+// expression can be typed against whatever the address selected rather than only against a slot.
+test("schema context -e — an expression is rooted where the address stopped", () => {
+  const path = defFile();
+
+  const fromSlot = runCli(
+    bin,
+    ["schema", "context", "pricing", "tasks.price.output", "-e", "self.result.fee", "-f", path],
+    OFFLINE,
+  );
+  const fromInside = runCli(
+    bin,
+    ["schema", "context", "pricing", "tasks.price.output.self", "-e", "result.fee", "-f", path],
+    OFFLINE,
+  );
+  expect(fromSlot.ok, fromSlot.stderr).toBe(true);
+  expect(fromInside.ok, fromInside.stderr).toBe(true);
+  expect(JSON.parse(fromInside.stdout)).toEqual(JSON.parse(fromSlot.stdout));
+  expect(JSON.parse(fromSlot.stdout)).toEqual({ type: "number" });
+});
+
+test("schema context --json — the listing is the same addresses, as documents over one pool", () => {
+  const r = runCli(bin, ["schema", "context", "pricing", "--json", "-f", defFile()], OFFLINE);
+  expect(r.ok, `${r.stdout}${r.stderr}`).toBe(true);
+  const doc = JSON.parse(r.stdout);
+
+  const addresses = Object.keys(doc).filter((k) => k !== "$defs");
+  expect(addresses.sort()).toEqual([
+    "output",
+    "tasks.explain.action",
+    "tasks.explain.output",
+    "tasks.explain.switch",
+    "tasks.price.action",
+    "tasks.price.on_error.0",
+    "tasks.price.on_error.1",
+    "tasks.price.output",
+    "tasks.price.switch",
+  ]);
+  // One pool for the whole listing: the same definitions are reached from most addresses, so a
+  // pool per entry would repeat most of the answer.
+  expect(Object.keys(doc.$defs).length).toBeGreaterThan(0);
+  for (const [address, entry] of Object.entries(doc)) {
+    if (address === "$defs") continue;
+    expect(entry, `${address} carries no pool of its own`).not.toHaveProperty("$defs");
+  }
 });
 
 test("schema context — the answer is self-contained, and carries no pool it does not use", () => {
@@ -185,7 +276,7 @@ test("schema context — an unresolved $import types as a string, so no resolver
     ].join("\n"),
   );
 
-  const r = runCli(bin, ["schema", "context", "pricing", "tasks.price.input", "-f", path], OFFLINE);
+  const r = runCli(bin, ["schema", "context", "pricing", "tasks.price.action", "-f", path], OFFLINE);
   expect(r.ok, `${r.stdout}${r.stderr}`).toBe(true);
   expect(existsSync(join(dir, "RAN")), "a context query must not run the project's resolvers").toBe(false);
 });
@@ -194,11 +285,11 @@ test("schema context — an address that names nothing says what the task has", 
   const path = defFile();
   const noTask = runCli(bin, ["schema", "context", "pricing", "tasks.nope.output", "-f", path], OFFLINE);
   expect(noTask.ok).toBe(false);
-  expect(noTask.stderr).toContain("names no task");
+  expect(noTask.stderr, "the tasks it does have are the answer").toContain("which holds: explain, price");
 
-  const noRule = runCli(bin, ["schema", "context", "pricing", "tasks.price.on_error[9]", "-f", path], OFFLINE);
+  const noRule = runCli(bin, ["schema", "context", "pricing", "tasks.price.on_error.9", "-f", path], OFFLINE);
   expect(noRule.ok).toBe(false);
-  expect(noRule.stderr, "the count is what tells you which index to use").toContain("2 on_error rule(s)");
+  expect(noRule.stderr, "the rules it does have are the list of what to type").toContain("which holds: 0, 1");
 
   const noSwitch = runCli(bin, ["schema", "context", "nothing", "-f", path], OFFLINE);
   expect(noSwitch.ok).toBe(false);
@@ -249,13 +340,12 @@ test("schema context — an id no identifier can spell is addressed, and printed
   // bare — and the note says which address it landed on.
   const bare = runCli(bin, ["schema", "context", "pricing", "tasks.my task.output", "-f", path], OFFLINE);
   expect(bare.ok, bare.stderr).toBe(true);
-  expect(bare.stderr).toContain('tasks.my task.output → tasks["my task"].output');
+  expect(bare.stderr, "nothing was resolved — a space is not a separator").toBe("");
 
   // What the listing prints IS an address: every key it emitted resolves, and to itself.
   for (const a of addresses) {
     const back = runCli(bin, ["schema", "context", "pricing", a, "-f", path], OFFLINE);
     expect(back.ok, `${a}: ${back.stderr}`).toBe(true);
-    expect(back.stderr, `${a} is already canonical, so nothing resolved`).not.toContain("→");
   }
 });
 
@@ -266,16 +356,16 @@ test("schema context — a dotted id names the task it splits into, and the erro
 
   const dotted = at("tasks.step.one.output");
   expect(dotted.ok, "`tasks.step.one` names the task `step`, which does not exist").toBe(false);
-  expect(dotted.stderr, "the fix is the quoted form, named in the error").toContain('tasks["step.one"]');
+  expect(dotted.stderr, "the fix is the quoted form, named in the error").toContain('["step.one"]');
 
-  // Under a quoted id every finer address still resolves to its phase, index form included.
+  // Under a quoted id the rest of the path navigates as anywhere else, keyed rules included.
   const rule = at('tasks["step.one"].on_error[0]');
   expect(rule.ok, rule.stderr).toBe(true);
   expect(Object.keys(JSON.parse(rule.stdout).properties)).toContain("error");
 
-  const url = at('tasks["step.one"].url');
-  expect(url.ok, url.stderr).toBe(true);
-  expect(url.stderr).toContain('tasks["step.one"].url → tasks["step.one"].action');
+  const action = at('tasks["step.one"].action');
+  expect(action.ok, action.stderr).toBe(true);
+  expect(JSON.parse(action.stdout).properties).toHaveProperty("outputs");
 });
 
 /** `-e` at a slot: the raw run, so a refusal can be read the same way as an answer. */
@@ -298,11 +388,10 @@ test("schema context -e — types one expression, and the slot is what decides",
   expect(early.ok, "self.result must not be readable from the action slots").toBe(false);
   expect(early.stderr).toContain("self.result is not available here");
 
-  // A finer slot still resolves to its phase, and still says so on stderr.
-  const url = typeOf(path, "tasks.price.url", "input.amount");
-  expect(url.ok, url.stderr).toBe(true);
-  expect(url.stderr).toContain("tasks.price.url → tasks.price.action");
-  expect(JSON.parse(url.stdout)).toEqual({ type: "number" });
+  // …and the same expression at a phase that does carry it.
+  const action = typeOf(path, "tasks.price.action", "input.amount");
+  expect(action.ok, action.stderr).toBe(true);
+  expect(JSON.parse(action.stdout)).toEqual({ type: "number" });
 });
 
 // The arms are not decoration: an expression is typed under each ending and the results joined,
@@ -346,6 +435,23 @@ test("schema context -e — an unavailable root is refused with the checker's re
   expect(previous.ok).toBe(false);
   expect(previous.stderr, "nothing routes back to it, so there is no previous run")
     .toContain("no path returns to task \"price\"");
+});
+
+// A rule is a slot like any other, so the availability rule answers there too — under either
+// spelling of the key, since both parse to the same four segments.
+test("schema context -e — availability answers at an on_error rule, keyed or indexed", () => {
+  const path = defFile();
+
+  for (const address of ['tasks.price.on_error["0"]', "tasks.price.on_error[0]"]) {
+    const r = typeOf(path, address, "self.result.fee");
+    expect(r.ok, `${address}: a rule runs before the action has answered`).toBe(false);
+    expect(r.stderr).toContain("self.result is not available here");
+  }
+
+  // …and the rule's own error IS readable there, which is what makes it a different context.
+  const ok = typeOf(path, 'tasks.price.on_error["0"]', "error.data.wait");
+  expect(ok.ok, ok.stderr).toBe(true);
+  expect(JSON.parse(ok.stdout)).toEqual({ type: "number" });
 });
 
 test("schema context -e — a bad path is refused, and a pasted leaf is named as one", () => {

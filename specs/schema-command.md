@@ -16,8 +16,8 @@ code generator, for a client, a consumer, or a worker implementing an `external`
    would have had to document the ambiguity instead of answering. It also decided §3's table.
 2. **`context`**, `-e` included — ✅ **BUILT 2026-09-04**, as specced here
    (`internal/validation/slots.go`, `cmd/genctl/schema.go`, `tests/cli/schema_test.ts`).
-3. **`type`**, §7 — deferred behind a slot the inferred view does not carry, which is a change
-   to `validation` rather than to this command.
+3. **`type`**, §7 — specced 2026-09-04, once `TaskSchemas` grew the `Result` the inferred view
+   did not carry.
 
 It became possible on 2026-09-04, when the types moved into genctl
 ([source-resolution.md](source-resolution.md) §One roundtrip). Before that this command would
@@ -44,48 +44,78 @@ named `output`. Process names are unconstrained (`validate:"required"` and nothi
 `config` names have a charset), so there is no lexical rule that separates the two spellings.
 One less rule beats one less word.
 
-The address is a **path in the expression language's own accessor syntax** — what `JoinPath`
-renders and `schema.ParsePath` reads — addressing tasks by **id** rather than index, and indexing
-only what has no name:
+### The view is one schema, and an address is a path into it
 
-| address | the context |
-|---|---|
-| `output` | the process output expression — no `self` at all |
-| `tasks.<id>.action` | the action slots, and `timeout` |
-| `tasks.<id>.output` | the output map |
-| `tasks.<id>.switch` | every case and every clause in the switch |
-| `tasks.<id>.on_error[i]` | one rule |
+Each view builds **one document**, and an address navigates it — `schema.At`, the same walk that
+reads a value's type. There is no address grammar beside it: no arity, no phase resolution, no
+slot-versus-navigation boundary, and so nothing that can differ between the two views.
 
-Five forms, and they are the YAML's own keys, so there is nothing to learn. `action.` is an
-**optional segment**: `tasks.price.input` and `tasks.price.action.input` are one address.
-`switch` takes no index because one context serves every clause; `on_error` takes one because
-the error axis is per rule (§3).
+```jsonc
+// context                                   // type
+{ "output": { /* … */ },                     { "input":  { /* … */ },
+  "tasks": { "price": {                        "output": { /* … */ },
+    "action":   { /* … */ },                   "raises": { "period_closed": { /* … */ } },
+    "output":   { /* … */ },                   "tasks":  { "price": {
+    "switch":   { /* … */ },                     "input": {…}, "result": {…},
+    "on_error": { "0": { /* … */ } } } } }       "output": {…}, "last_error": {…} } } }
+```
+
+So `tasks.price` is an object of that task's phases, `tasks.price.output` one of them,
+`tasks.price.output.self.result` a walk inside it, and `tasks.price -e 'output'` the same answer
+by expression. One logic, all the way down.
 
 **A task id that is not an identifier is quoted** — `tasks["step.one"].output` — because an id is
 `required` and nothing else, so a dot in one is otherwise read as a step. It is the same grammar
 as the `outputs["step.one"].fee` it addresses, and the rendering is injective, so every address a
-listing prints resolves back to itself. It replaced a longest-prefix match over the ids, which
-chose between a task `a` and a task `a.b` without saying so.
+listing prints resolves back to itself.
 
-**Any finer slot resolves to its phase, and the answer names the phase it landed in.** That
-resolution is most of the command's value: `tasks.price.url`, `tasks.price.children["a"].input`
-and `tasks.price.timeout` are one context, and nothing in the document says so.
-[scope.go](../internal/validation/scope.go) `preOutputSlots` is already that enumeration.
+**A rule is keyed, not indexed.** `items` types every element of an array alike, so an array
+could not carry a different context per rule; `on_error` is an object keyed `"0"`, `"1"`. Three
+spellings reach it — `on_error.0`, `on_error[0]`, `on_error["0"]` — and **the dotted one is
+canonical**, because it is the only one a shell leaves alone: zsh reads `[0]` as a glob and
+refuses the command with "no matches found" before genctl sees it. Dotting a digit is safe here
+and not in `JoinPath`: a bare segment is always a property name, so it round-trips, and an
+address is not an expression (`tasks.my task.output` is not one either).
+
+A number is a KEY, so it reads an object and never an array: `tiers.0` on an array is refused
+rather than being a second way to index, and `[0]` on an object reads the key of that number only
+because indexing an object is otherwise an error. Neither direction conflates anything.
+
+**A miss teaches the space.** The document IS the address space, so what sits at the point of
+failure is the list of what could be typed instead: `no "url" in tasks.price, which holds:
+action, on_error, output, switch`. A key holding a dot names its quoted spelling, and an address
+the OTHER view answers names that view — `tasks.price.result` is a type, not a context.
+
+**What this dropped, deliberately.** `tasks.price.url` used to resolve up to the action phase,
+and the answer reported that with an arrow. The rule bought one real thing — `url`, `timeout` and
+`body` are one context, and nothing in the YAML says so — and cost another: an address naming
+nothing at all (`tasks.send.output.headers`) was answered rather than refused, with the arrow as
+the only sign. Navigation refuses it and names the phases instead, teaching the same fact at the
+point of the mistake. The arrow is gone with the resolution it reported.
 
 ### `-e`: the type of one expression there
 
     genctl schema context <process> <address> -e 'outputs.price.fee ?? 0'
+    genctl schema type    <process> <address> -e 'items[0].sku'
 
-The query with its last step taken: the address says what is in scope, `-e` what an expression
-written there produces. A flag and not a third positional, because the address is optional and
-telling one from the other needs the rule this section already refused.
+The query with its last step taken: the address selects a schema, `-e` says what an expression
+reads against it. A flag and not a third positional, because the address is optional and telling
+one from the other needs the rule this section already refused.
+
+**An object schema is a scope** — its properties are the roots — so `-e` is not the context
+view's alone, and it is rooted wherever the address stopped: `tasks.price.output -e
+'self.result.fee'` and `tasks.price.output.self -e 'result.fee'` are one answer. That is the
+whole reason navigation and `-e` belong to both views rather than one each.
 
 **Bare, not the leaf it is written in.** `${…}` belongs to the template layer, where every
 interpolated string is `string`; the grammar is unambiguous without it — `total` is a path,
 `"total"` a literal. A pasted leaf therefore fails to parse, and the error hands the expression
 back unwrapped rather than pointing at the `$`.
 
-It runs the checker's two phases in the checker's order — **availability, then inference**. A
+At a slot it runs the checker's two phases in the checker's order — **availability, then
+inference**. Availability is a statement about the SLOT, so it applies only where the address
+stopped at one; once it has walked inside, there is no slot being written and inference answers
+alone. A
 reference the phase does not carry (`self.result` before the action answers, a previous output no
 path returns to, a result the action never types) is refused with `validation.slotRoots`'s own
 sentence, which is the one constructor every registration-time check installs; inference alone
@@ -163,7 +193,7 @@ With **no address** it prints one entry per phase, keyed by address:
   "tasks.price.action":        { /* … */ },
   "tasks.price.output":        { /* … */ },
   "tasks.price.switch":        { /* … */ },
-  "tasks.price.on_error[0]":   { /* … */ },
+  "tasks.price.on_error.0":    { /* … */ },
   "$defs":                     { /* … */ }
 }
 ```
@@ -178,7 +208,7 @@ The human rendering names what each slot can READ, rather than printing nine sch
 tasks.price.action       input, outputs
 tasks.price.output       input, outputs, self{headers, result, status}
 tasks.price.switch       input, outputs, self{headers, output, result, status}
-tasks.price.on_error[0]  error, input, outputs
+tasks.price.on_error.0   error, input, outputs
 ```
 
 `self` and `outputs` are spelled out, `?` marks what a path may not set and `=null` what one
@@ -212,20 +242,56 @@ placeholder `apply` splices types as, by the argument [source-resolution.md](sou
   phase. Covered by the resolution rule, so they need no address of their own — until an entry
   gets a scope the others do not.
 
-## 7. `type`, deferred
+## 7. `type`
 
-Recorded so the settled parts are not re-argued. The address space is the **contract
-boundaries**, the places someone generates code from: `input`, `output`, `raises.<code>`,
-`tasks.<id>.{input,result,output,error}`. Answers are standalone documents, as in §4, and
-navigation continues *into* a schema by property — `input.amount` — which is `schema.At`.
+The address space is the **contract boundaries**, the places someone generates code from:
+`input`, `output`, `raises.<code>`, `tasks.<id>.{input,result,output,last_error}`. Answers are
+standalone documents, as in §4.
 
-The blocker is `result`. `TaskSchemas` carries `ActionType`, `Input`, `Output` and `Error` and
-no result, so the declared `result_schema` / `responses` exists only as the inline type of
-`self.result`. The evidence that this is a hole rather than a choice: genctl already reads the
-declared result **out of the raw YAML** — `enclosingTask`,
-[sources.go](../cmd/genctl/sources.go) — to fill the resolver manifest's `output`, so one half
-of that manifest is a document read and the other is inference. Adding `Result` to
-`TaskSchemas` is additive: a `SchemaFile` is computed per call, never persisted.
+### One address space, two questions
 
-Undecided: whether a fetch exposes one `result` (the 200, as `self.result` sees it) or one
-address per declared status.
+`context` and `type` do not have similar addresses; they have **the same** ones. An address
+names a slot, `context` says what an expression written there may READ, `type` says what shape
+the slot IS, and each refuses — naming its sibling — where it has no answer. That refusal is
+what makes it one space rather than two that happen to look alike.
+
+| address | `context` | `type` |
+|---|---|---|
+| `input` | — | the process input |
+| `output` | what the output expression reads | what the process produces |
+| `raises["payment.declined"]` | — | that fault's payload |
+| `tasks.<id>.input` | — (the action phase is `.action`) | what the action is sent |
+| `tasks.<id>.result` | — | what the action hands back |
+| `tasks.<id>.output` | what the output map reads | what the output map produces |
+| `tasks.<id>.last_error` | — | the payload of the failure that routed here |
+| `tasks.<id>.action` | the action-phase context | — (names no single type) |
+| `tasks.<id>.switch` | the switch context | — (a case is boolean by construction) |
+| `tasks.<id>.on_error.<i>` | that rule's context | — |
+
+`tasks.<id>.output` is the case that proves it: one spelling, one slot, and two documents that
+answer different questions about it — what an expression written there may read, and what the map
+produces. Where only one view has an answer the other names it (§2, a miss teaches the space).
+
+### Navigation
+
+Navigation is §2's, unchanged: this view is a document like the other one, so
+`tasks["step.one"].result.tiers[0]` and `raises["http.429"].detail` are paths like any other —
+and `tasks.send` is the whole contract of one task, which is what a worker implementor wants.
+
+### `result` is what `self.result` sees [decided 2026-09-04]
+
+A fetch declares `responses` per status, and the answer is the accepted ones, unioned exactly as
+inference types `self.result`. Not one address per status: the non-accepted declared bodies are
+already `tasks.<id>.last_error` — what routed here carries — so the two halves of the contract each
+have an address and the grammar gains no fourth arity. What a worker returns and what a caller
+must handle, which is what a generator is being handed.
+
+### The prerequisite is a deletion
+
+`TaskSchemas` carried `ActionType`, `Input`, `Output` and `Error` and no result, so the declared
+`result_schema` / `responses` existed only as the inline type of `self.result`. The evidence
+that this was a hole rather than a choice: genctl read the declared result **out of the raw
+YAML** — `enclosingTask`, [sources.go](../cmd/genctl/sources.go) — to fill the resolver
+manifest's `output`, so one half of that manifest was a document read and the other inference.
+Adding `Result` is additive (a `SchemaFile` is computed per call, never persisted) and lets that
+read go.

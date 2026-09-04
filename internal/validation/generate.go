@@ -14,12 +14,17 @@ import (
 type TaskSchemas struct {
 	ActionType model.ActionType `json:"action_type"`
 	Input      schema.Schema    `json:"input,omitzero"`
-	Output     schema.Schema    `json:"output,omitzero"`
-	// Error is the type of `error.data` at this task — a declared fetch response body or a
-	// child's declared raise payload. It rides in the SchemaFile because redaction reads it
-	// from here: a `secret: true` inside a declared payload is invisible to a context schema
-	// that has no error slot, and the value reaches the API and the logs in the clear.
-	Error schema.Schema `json:"error,omitzero"`
+	// Result is what the action hands back, typed as `self.result` sees it: a declared
+	// result_schema on a child or external, the accepted responses on a fetch. Absent where the
+	// action types none. A contract boundary — the shape a worker implementing this task
+	// returns — so it is filled for every task, output map or not.
+	Result schema.Schema `json:"result,omitzero"`
+	Output schema.Schema `json:"output,omitzero"`
+	// Error is what `last_error.data` carries at this task: the payload of the failure that
+	// ROUTED here — a declared fetch response body, a child's declared raise — unioned over
+	// every path that can reach it. Not the one an `on_error` rule catches, which is per rule
+	// and belongs to that rule's context (specs/task-scopes.md §The error axis).
+	Error schema.Schema `json:"last_error,omitzero"`
 }
 
 // SchemaFile is the top-level output.
@@ -150,6 +155,25 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 			ts.ActionType = t.Action.Type
 		}
 		ts.Error = e.data
+		tasks[t.ID] = ts
+	}
+
+	for _, t := range def.Tasks {
+		if t.Action == nil {
+			continue // a routing task hands nothing back; `null` is not a contract
+		}
+		res, typed, err := actionResultType(t, defs)
+		if err != nil {
+			return SchemaFile{}, err
+		}
+		if !typed || res.IsZero() {
+			continue
+		}
+		ts := tasks[t.ID]
+		if ts.ActionType == "" {
+			ts.ActionType = t.Action.Type
+		}
+		ts.Result = res
 		tasks[t.ID] = ts
 	}
 

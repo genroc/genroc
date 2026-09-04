@@ -205,7 +205,7 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 					loc:      append([]any(nil), loc...),
 					docIdx:   i,
 				}
-				s.Task, s.Output = enclosingTask(sd.doc, loc)
+				s.Task = enclosingTaskID(sd.doc, loc)
 				out = append(out, s)
 			}
 			return nil
@@ -217,43 +217,30 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 	return out, nil
 }
 
-// enclosingTask reports the id of the task a site sits under and the output type that task
-// declares. Output is DECLARED, never inferred: result_schema on a child, responses.200 on
-// a fetch, and absent when the task claims neither.
-func enclosingTask(doc any, loc []any) (string, any) {
+// enclosingTaskID reports the id of the task a site sits under. What that task RETURNS is not
+// read here: it is `TaskSchemas.Result`, which inference already computed (taskResult).
+func enclosingTaskID(doc any, loc []any) string {
 	if len(loc) < 2 {
-		return "", nil
+		return ""
 	}
 	key, ok := loc[0].(string)
 	if !ok || key != "tasks" {
-		return "", nil
+		return ""
 	}
 	idx, ok := loc[1].(int)
 	if !ok {
-		return "", nil
+		return ""
 	}
 	tasks, ok := doc.(map[string]any)["tasks"].([]any)
 	if !ok || idx >= len(tasks) {
-		return "", nil
+		return ""
 	}
 	task, ok := tasks[idx].(map[string]any)
 	if !ok {
-		return "", nil
+		return ""
 	}
 	id, _ := task["id"].(string)
-	action, ok := task["action"].(map[string]any)
-	if !ok {
-		return id, nil
-	}
-	if rs, ok := action["result_schema"]; ok {
-		return id, rs
-	}
-	if responses, ok := action["responses"].(map[string]any); ok {
-		if ok200, ok := responses["200"]; ok {
-			return id, ok200
-		}
-	}
-	return id, nil
+	return id
 }
 
 func pointerOf(loc []any) string {
@@ -399,6 +386,7 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 		group := byResolver[name]
 		for i := range group {
 			group[i].Input = taskInput(schemas, group[i].Process, group[i].Task)
+			group[i].Output = taskResult(schemas, group[i].Process, group[i].Task)
 		}
 		code, err := runResolver(cfg, cfg.Resolvers[name], manifest{
 			Mode: mode, Root: cfg.Root, Schemas: schemas, Sites: group,
@@ -465,6 +453,19 @@ func decodeDefinition(sd sourceDoc) (*model.ProcessDefinition, error) {
 		return nil, fmt.Errorf("%s: %w", sd.file, err)
 	}
 	return &def, nil
+}
+
+// taskResult is what the task hands back, which the resolver types the script's RETURN against.
+// Declared, never inferred from the script — that is the direction $infer runs.
+func taskResult(schemas map[string]validation.SchemaFile, process, task string) any {
+	if task == "" {
+		return nil
+	}
+	ts, ok := schemas[process].Tasks[task]
+	if !ok || ts.Result.IsZero() {
+		return nil
+	}
+	return ts.Result
 }
 
 func taskInput(schemas map[string]validation.SchemaFile, process, task string) any {
