@@ -11,6 +11,7 @@ import (
 
 	"genroc/internal/model"
 	"genroc/internal/schema"
+	"genroc/internal/shape"
 )
 
 // Slot addresses. A task has one context per phase, and every finer slot resolves into one of
@@ -28,18 +29,9 @@ const (
 // address. The `$defs` pool every context resolves against travels with each of them, so one
 // answer can be handed on whole.
 func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error) {
-	sf, err := Generate(def)
+	scopes, err := newTaskScopes(def)
 	if err != nil {
 		return nil, err
-	}
-	configSchema := buildConfigSchema(def.ConfigSchema)
-	required, optional, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
-	errs := errContexts(def.Tasks, mustErr, mayErr, errSrc, sf.Defs)
-	// The checker's own builder, off the finished SchemaFile: these are not contexts LIKE the
-	// ones it used, they are built by the same constructors it calls.
-	scopes := taskScopes{
-		tasks: sf.Tasks, processInput: sf.ProcessInput, configSchema: configSchema, defs: sf.Defs,
-		required: required, optional: optional, errs: errs,
 	}
 
 	out := make(map[string]schema.Schema)
@@ -73,6 +65,68 @@ func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 		out[SlotProcessOutput] = scopes.processOutputContext(def)
 	}
 	return out, nil
+}
+
+// newTaskScopes rebuilds the checker's own scope builder off a finished SchemaFile. These are
+// not contexts LIKE the ones it used: they come from the same constructors it calls.
+func newTaskScopes(def *model.ProcessDefinition) (taskScopes, error) {
+	sf, err := Generate(def)
+	if err != nil {
+		return taskScopes{}, err
+	}
+	required, optional, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
+	return taskScopes{
+		tasks: sf.Tasks, processInput: sf.ProcessInput,
+		configSchema: buildConfigSchema(def.ConfigSchema), defs: sf.Defs,
+		required: required, optional: optional,
+		errs: errContexts(def.Tasks, mustErr, mayErr, errSrc, sf.Defs),
+	}, nil
+}
+
+// CheckSlotRoots reports whether an expression written at address may READ what it names, with
+// the message registration would give: `self.result` before the action answers, a previous
+// output no path returns to, a result the action never types. Inference alone answers those
+// with "field not found", which names the member and not the rule.
+//
+// The availability half only. A slot's required TYPE is not checked, and cannot be: an address
+// names a phase and a requirement is per slot (specs/schema-command.md §2).
+func CheckSlotRoots(def *model.ProcessDefinition, address, expr string) error {
+	canonical, err := CanonicalSlot(def, address)
+	if err != nil {
+		return err
+	}
+	if canonical == SlotProcessOutput {
+		return nil // no `self` at all, so nothing here is per-task
+	}
+	segs, err := schema.ParsePath(canonical)
+	if err != nil {
+		return err
+	}
+	task := findTask(def, segs[1])
+	if task == nil {
+		return fmt.Errorf("%q names no task in %q", address, def.Name)
+	}
+	sc := beforeOutput
+	switch segs[2].Name {
+	case slotOutput:
+		sc = afterAction
+	case slotSwitch:
+		sc = afterOutput
+	}
+	shp := shape.Shape{Raw: expr, Expr: true}
+	refs, err := shp.Roots()
+	if err != nil {
+		return nil // a parse failure is inference's to report, with its own message
+	}
+	scopes, err := newTaskScopes(def)
+	if err != nil {
+		return err
+	}
+	_, typedResult, err := scopes.outputMap(task)
+	if err != nil {
+		return err
+	}
+	return slotRoots(task, canonical, scopes.loops(task), typedResult, sc)(refs)
 }
 
 // An address is a path in the expression language's own accessor syntax, so a task id that no

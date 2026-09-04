@@ -85,8 +85,20 @@ interpolated string is `string`; the grammar is unambiguous without it — `tota
 `"total"` a literal. A pasted leaf therefore fails to parse, and the error hands the expression
 back unwrapped rather than pointing at the `$`.
 
-It is the checker's own inference, so at `output` the expression is typed under every arm and the
-results joined (§6): `outputs.price.fee` is `number|null` and `?? 0` is not. A declared
+It runs the checker's two phases in the checker's order — **availability, then inference**. A
+reference the phase does not carry (`self.result` before the action answers, a previous output no
+path returns to, a result the action never types) is refused with `validation.slotRoots`'s own
+sentence, which is the one constructor every registration-time check installs; inference alone
+would answer "field not found", naming the member and not the rule.
+
+**The third phase is deliberately absent.** The checker then conforms the value against the
+slot's required type — boolean for a case, a string for a `url` — and `-e` does not, because an
+address names a PHASE and a requirement is per slot: `url`, `timeout` and `children["a"].input`
+share one context and require three different things. `-e` answers what an expression produces;
+what it must produce belongs to the slot the address deliberately dropped.
+
+The inference is the checker's own too, so at `output` the expression is typed under every arm
+and the results joined (§6): `outputs.price.fee` is `number|null` and `?? 0` is not. A declared
 `secret: true` travels with the type it sits on — structurally, since the taint that once
 followed a secret through a transformation is gone with the redactor it fed
 (object-store.md §Redaction). The refusal is half the value: a wrong path gets the checker's

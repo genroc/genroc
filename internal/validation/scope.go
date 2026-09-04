@@ -46,6 +46,20 @@ func checkSelfScope(s *model.Task, label string, loops bool, sc selfScope, refs 
 	return nil
 }
 
+// slotRoots is the availability rule for one phase of a task, as the Roots hook every check of
+// that phase installs: which `self` members exist there, whether a previous output exists at
+// all, and — where `self.result` is in scope — whether the action types it. typedResult is read
+// only in that last case. One constructor, so an expression refused at registration and the same
+// expression typed by `genctl schema context -e` are refused for the same reason.
+func slotRoots(s *model.Task, label string, loops, typedResult bool, sc selfScope) func(expression.Roots) error {
+	return func(refs expression.Roots) error {
+		if sc.result && !typedResult && refs.SelfResult {
+			return fmt.Errorf("%s: references self.result, but %s", label, untypedResultAdvice(s.Action))
+		}
+		return checkSelfScope(s, label, loops, sc, refs)
+	}
+}
+
 // preOutputSlot is one expression evaluated before this task's own output exists.
 type preOutputSlot struct {
 	label string
@@ -127,7 +141,8 @@ func checkPreOutputScopes(s *model.Task, loops bool) error {
 		if err != nil {
 			continue // a parse failure is the per-slot check's to report, with its own message
 		}
-		if err := checkSelfScope(s, slot.label, loops, beforeOutput, refs); err != nil {
+		// beforeOutput has no self.result, so typedResult cannot be reached from here.
+		if err := slotRoots(s, slot.label, loops, false, beforeOutput)(refs); err != nil {
 			return err
 		}
 	}

@@ -74,6 +74,11 @@ func runSchemaContextCmd(args []string) {
 			fmt.Fprintf(os.Stderr, "%s → %s\n", pos[1], address)
 		}
 		if *expr != "" {
+			// Availability before inference, the order the checker runs them in: "not readable
+			// here" beats the "field not found" the schema would answer with.
+			if err := validation.CheckSlotRoots(def, address, *expr); err != nil {
+				fatal("%v", err)
+			}
 			ctx = inferExpr(ctx, *expr)
 		}
 		printJSON(selfContained(schemaDoc(ctx)))

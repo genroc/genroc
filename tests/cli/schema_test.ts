@@ -291,9 +291,12 @@ test("schema context -e — types one expression, and the slot is what decides",
   expect(JSON.parse(ok.stdout)).toEqual({ type: "number" });
 
   // The same expression one phase earlier: the action has not answered, so there is no
-  // `self.result` to read — which is the whole reason the answer is per slot.
+  // `self.result` to read — which is the whole reason the answer is per slot. The message is
+  // the checker's own (one Roots hook, `validation.slotRoots`), not inference's "field not
+  // found", which names the member and reads as a typo rather than a rule.
   const early = typeOf(path, "tasks.price.action", "self.result.fee");
   expect(early.ok, "self.result must not be readable from the action slots").toBe(false);
+  expect(early.stderr).toContain("self.result is not available here");
 
   // A finer slot still resolves to its phase, and still says so on stderr.
   const url = typeOf(path, "tasks.price.url", "input.amount");
@@ -316,6 +319,33 @@ test("schema context -e — an expression at `output` is typed under every endin
   expect(coalesced.ok, coalesced.stderr).toBe(true);
   const recovered = JSON.parse(coalesced.stdout).type;
   expect(recovered, "?? removes the null under every arm").not.toContain("null");
+});
+
+// Availability is checked before inference, in that order, so a reference that is unavailable
+// HERE gets the rule rather than the navigation failure. Same sentence the checker gives at
+// registration; only the location is spelled in this command's own idiom.
+test("schema context -e — an unavailable root is refused with the checker's reason", () => {
+  const path = defFile(
+    [
+      "name: pricing",
+      "tasks:",
+      "  - id: price",
+      "    action: { type: external }",
+      "    output: { v: '$: 1' }",
+      "    switch: [{ goto: end }]",
+      "",
+    ].join("\n"),
+  );
+
+  const untyped = typeOf(path, "tasks.price.output", "self.result.x");
+  expect(untyped.ok).toBe(false);
+  expect(untyped.stderr, "the action types no result, which is a rule and not a typo")
+    .toContain("references self.result, but the action has no result_schema");
+
+  const previous = typeOf(path, "tasks.price.output", "self.previous");
+  expect(previous.ok).toBe(false);
+  expect(previous.stderr, "nothing routes back to it, so there is no previous run")
+    .toContain("no path returns to task \"price\"");
 });
 
 test("schema context -e — a bad path is refused, and a pasted leaf is named as one", () => {

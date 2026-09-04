@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"genroc/internal/delayspec"
-	"genroc/internal/expression"
 	"genroc/internal/model"
 	"genroc/internal/schema"
 	"genroc/internal/shape"
@@ -160,12 +159,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					},
 				}
 				label := fmt.Sprintf("task %q switch case %q", s.ID, c.Case)
-				hooks.Roots = func(refs expression.Roots) error {
-					if untypedResult && refs.SelfResult {
-						return fmt.Errorf("%s: references self.result, but %s", label, untypedResultAdvice(s.Action))
-					}
-					return checkSelfScope(s, label, loops, afterOutput, refs)
-				}
+				hooks.Roots = slotRoots(s, label, loops, !untypedResult, afterOutput)
 				shp := shape.Shape{Raw: c.Case, Schema: &boolSchema, Name: fmt.Sprintf("task %q switch case %q", s.ID, c.Case), Expr: true}
 				if _, err := shp.CheckWith(switchCtx, hooks); err != nil {
 					return err
