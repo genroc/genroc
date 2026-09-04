@@ -474,30 +474,3 @@ func errContexts(tasks []*model.Task, mustErr, mayErr map[string]bool, errSrc ma
 	}
 	return out
 }
-
-// unionErrData joins several tasks' error.data — the process output is read at whichever
-// terminal ran, so its `error` is whatever any of them could have left. A terminal with no
-// readable body contributes null rather than dropping out, the same treatment an absent
-// output gets: omission errors the access, null lets `??` take the other arm.
-func unionErrData(errs map[string]errAt, ids []string) schema.Schema {
-	var arms []schema.Schema
-	nullable := false
-	for _, id := range ids {
-		e := errs[id]
-		if e.data.IsZero() {
-			nullable = true
-			continue
-		}
-		arms = append(arms, e.data)
-	}
-	if len(arms) == 0 {
-		return schema.Schema{}
-	}
-	if nullable {
-		arms = append(arms, schema.Type("null"))
-	}
-	if len(arms) == 1 {
-		return arms[0]
-	}
-	return schema.AnyOf(arms...)
-}

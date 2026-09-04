@@ -157,56 +157,25 @@ func printTypes(slots map[string]schema.Schema) {
 	for _, a := range addresses {
 		width = max(width, len(a))
 	}
-	pool, _ := listing(slots)["$defs"].(map[string]any)
 	for _, a := range addresses {
-		fmt.Printf("%-*s  %s\n", width, a, typeSummary(schemaDoc(slots[a]), pool))
+		fmt.Printf("%-*s  %s\n", width, a, typeSummary(slots[a]))
 	}
 }
 
 // typeSummary names a type in one line — its kind, an object's members, an array's element —
-// enough to pick the address whose document you want. A `$ref` is followed once: the name of a
+// enough to pick the address whose document you want. A `$ref` is followed: the name of a
 // definition says less than what it holds.
-func typeSummary(doc, pool map[string]any) string {
-	if ref, ok := doc["$ref"].(string); ok {
-		if name, cut := strings.CutPrefix(ref, "#/$defs/"); cut {
-			if target, ok := pool[name].(map[string]any); ok {
-				return typeSummary(target, pool)
-			}
-		}
+func typeSummary(s schema.Schema) string {
+	if resolved, err := s.Resolve(); err == nil {
+		s = resolved
 	}
-	kind := typeKind(doc)
-	switch {
-	case kind == "object":
-		if members := memberNames(doc); members != "" {
-			return "object{" + members + "}"
-		}
-	case kind == "array":
-		if items, ok := doc["items"].(map[string]any); ok {
-			return "array<" + typeSummary(items, pool) + ">"
-		}
+	if members := memberNames(s); members != "" {
+		return "object{" + members + "}"
 	}
-	return kind
-}
-
-// typeKind renders the `type` keyword: a union prints as its members, and an absent one is the
-// top type — a value a caller must narrow, not a missing answer.
-func typeKind(doc map[string]any) string {
-	switch t := doc["type"].(type) {
-	case string:
-		return t
-	case []any:
-		names := make([]string, 0, len(t))
-		for _, v := range t {
-			if s, ok := v.(string); ok {
-				names = append(names, s)
-			}
-		}
-		return strings.Join(names, "|")
+	if items := s.Items(); !items.IsZero() {
+		return "array<" + typeSummary(items) + ">"
 	}
-	if _, ok := doc["anyOf"]; ok {
-		return "one of several"
-	}
-	return "unknown"
+	return s.TypeName()
 }
 
 // inferExpr types one expression against a slot's context: the context query with its last
@@ -398,7 +367,7 @@ func printInScope(slots map[string]schema.Schema) {
 	}
 	for _, a := range addresses {
 		// A context with arms prints one line each, indented under the address it belongs to.
-		lines := strings.ReplaceAll(inScope(schemaDoc(slots[a])), "\n", "\n"+strings.Repeat(" ", width+2))
+		lines := strings.ReplaceAll(inScope(slots[a]), "\n", "\n"+strings.Repeat(" ", width+2))
 		fmt.Printf("%-*s  %s\n", width, a, lines)
 	}
 }
@@ -407,12 +376,11 @@ func printInScope(slots map[string]schema.Schema) {
 // `outputs` — and marking with `?` what may be absent. A context with several ARMS is one per
 // state the slot can be evaluated in — the process output has one per way the process ends —
 // and each is named by its own description.
-func inScope(doc map[string]any) string {
-	if arms, ok := doc["anyOf"].([]any); ok && len(arms) > 0 {
-		var lines []string
-		for _, a := range arms {
-			arm, _ := a.(map[string]any)
-			label, _ := arm["description"].(string)
+func inScope(ctx schema.Schema) string {
+	if arms := ctx.Variants(); len(arms) > 0 {
+		lines := make([]string, 0, len(arms))
+		for _, arm := range arms {
+			label := arm.Description()
 			if label == "" {
 				label = "one state"
 			}
@@ -420,23 +388,16 @@ func inScope(doc map[string]any) string {
 		}
 		return strings.Join(lines, "\n")
 	}
-	props, _ := doc["properties"].(map[string]any)
-	required := map[string]bool{}
-	if req, ok := doc["required"].([]any); ok {
-		for _, r := range req {
-			if s, ok := r.(string); ok {
-				required[s] = true
-			}
-		}
-	}
+	props := ctx.Properties()
+	required := requiredSet(ctx)
 	var roots []string
 	for _, name := range slices.Sorted(maps.Keys(props)) {
 		root := name
 		if !required[name] {
 			root += "?"
 		}
-		if members, ok := props[name].(map[string]any); ok && (name == "self" || name == "outputs") {
-			if inner := memberNames(members); inner != "" {
+		if name == "self" || name == "outputs" {
+			if inner := memberNames(props[name]); inner != "" {
 				root += "{" + inner + "}"
 			}
 		}
@@ -450,20 +411,13 @@ func inScope(doc map[string]any) string {
 
 // memberNames spells out one root's own properties, `?` for the ones a path may not set —
 // which outputs and self differ by, and is the whole reason to look.
-func memberNames(root map[string]any) string {
-	props, _ := root["properties"].(map[string]any)
+func memberNames(root schema.Schema) string {
+	props := root.Properties()
 	if len(props) == 0 {
 		return ""
 	}
-	required := map[string]bool{}
-	if req, ok := root["required"].([]any); ok {
-		for _, r := range req {
-			if s, ok := r.(string); ok {
-				required[s] = true
-			}
-		}
-	}
-	var names []string
+	required := requiredSet(root)
+	names := make([]string, 0, len(props))
 	for _, name := range slices.Sorted(maps.Keys(props)) {
 		label := name
 		if !required[name] {
@@ -471,12 +425,20 @@ func memberNames(root map[string]any) string {
 		}
 		// `=null` is what one arm says about an output another arm sets: present, and null
 		// here. It is the correlation the arms exist to carry, so it has to be visible.
-		if sub, ok := props[name].(map[string]any); ok && sub["type"] == "null" {
+		if props[name].IsNull() {
 			label += "=null"
 		}
 		names = append(names, label)
 	}
 	return strings.Join(names, ", ")
+}
+
+func requiredSet(s schema.Schema) map[string]bool {
+	out := make(map[string]bool)
+	for _, name := range s.Required() {
+		out[name] = true
+	}
+	return out
 }
 
 func printJSON(v any) {

@@ -32,6 +32,11 @@ func runGenerateErr(t *testing.T, defJSON string) error {
 	return err
 }
 
+func mustMarshal(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
 func defKeys(out validation.SchemaFile) []string {
 	return out.Defs.Names()
 }

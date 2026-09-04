@@ -138,7 +138,7 @@ input alike.
 |---|---|---|
 | 1 | Inference moves into `schema`: `Schema.Infer(expr)`, `Schema.ReferencesSecret(expr)`; `At(path)` keeps plain navigation; `expression` keeps `Eval` + refs analysis (op tables split; the `union_*` conformance tests guard drift) | ergonomics; prerequisite — the solver must own deref |
 | 2 | Algebra hardening + productivity in `CheckDoc` + `conform` guard | fixes the latent user-schema hang |
-| 3 | The Tarjan solver in `schema`; `outputorder.go`/`recursive.go` ported onto it; syntactic graph deleted | exact dependency graph, demand-chain errors, one recursion mechanism |
+| 3 | The Tarjan solver in `schema`; `outputorder.go` ported onto it; syntactic graph deleted | exact dependency graph, demand-chain errors, one recursion mechanism |
 | 4 | Symbolic fragment + collapse-or-keep | recursive types become a feature |
 
 ## Verification plan
@@ -160,3 +160,10 @@ input alike.
 - Determinism: solve twice, byte-identical output. Demand order must not leak
   into results (declare defs in adversarial orders).
 - Cluster expansion mid-fixpoint (A↔B where B also reads C and C reads A).
+
+`recursive.go` went with step 3 in the end: once the solver typed whole processes, its
+single-member entry point had no caller but its own test. Deleted 2026-09-04, and the seven cases
+it carried were restated as whole processes through `Generate`
+(`validationtest/recursive_test.go`) — the path that actually types a definition, where a
+missing base case surfaces as the nullability error an author meets rather than the solver's
+internal productivity refusal.
