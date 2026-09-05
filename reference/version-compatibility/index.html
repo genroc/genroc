@@ -250,7 +250,7 @@ anything. Every form names <strong>both</strong> sides — defaulting one would 
 were compared.</p>
 <p><code>compat</code> exits non-zero when anything is incompatible, so it drops straight into a
 pipeline.</p>
-<p>Definitions submitted with <code>-f</code> are <strong>validated first</strong>, exactly as <code>genctl validate</code> does.
+<p>Definitions submitted with <code>-f</code> are <strong>validated first</strong>, exactly as <code>genctl apply</code> does.
 A document that does not parse, whose expressions do not type-check, or whose child
 references do not resolve is refused with that error — naming the task and the expression —
 rather than compared and reported as unanalysable. Stored versions are not re-validated:
