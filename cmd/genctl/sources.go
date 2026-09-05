@@ -8,11 +8,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
+	"slices"
 	"strings"
 
 	"genroc/internal/model"
@@ -20,6 +21,8 @@ import (
 	"genroc/internal/validation"
 
 	"gopkg.in/yaml.v3"
+
+	"genroc/internal/schema"
 )
 
 // A dotfile with no extension, like .eslintrc or .npmrc. Deliberately NOT `*.genroc.yaml`:
@@ -34,6 +37,12 @@ type resolverConfig struct {
 	Phase   string   `yaml:"phase"`
 	Ext     string   `yaml:"ext"`
 	Command []string `yaml:"command"`
+	// Types is what this resolver wants typed, as name → address, and it is the whole reason
+	// genctl no longer decides: a toolchain knows which slot its runtime binds, genroc does
+	// not. Addresses are `genctl schema type`'s, RELATIVE to the task the directive sits in —
+	// `input.input` is the argument an evaluator binds out of the action's input. Absent means
+	// the resolver wants none.
+	Types map[string]string `yaml:"types"`
 }
 
 type projectConfig struct {
@@ -74,23 +83,62 @@ type sourceDoc struct {
 // site is one directive occurrence. The exported fields are the manifest's; loc is how
 // splice finds the slot again, and is why nothing re-walks the document to apply the result.
 type site struct {
-	Resolver string `json:"resolver"`
-	Process  string `json:"process"`
+	// Resolver groups the sites; it is not on the wire, because the manifest goes to exactly
+	// that resolver and a binary being told its own name learns nothing. Process is the same
+	// kind of field: the manifest nests sites UNDER their process, so it is not on the wire
+	// either — but the pass needs it to know which types to resolve against.
+	Resolver string `json:"-"`
+	Process  string `json:"-"`
 	Task     string `json:"task,omitempty"`
-	Pointer  string `json:"pointer"`
-	Path     string `json:"path"`
-	Input    any    `json:"input,omitempty"`
-	Output   any    `json:"output,omitempty"`
+	// Action is the task's action type and Child the process a child action calls: what the
+	// site IS, which a resolver would otherwise have to read the definition for. Facts about
+	// the site, not steps in its address.
+	Action string `json:"action,omitempty"`
+	Child  string `json:"child,omitempty"`
+	// Pointer is where the directive sits, shaped like the definition: keys and indices rather
+	// than an RFC 6901 string, because a recipient would otherwise unescape `~0`/`~1`, and a
+	// string cannot tell the object key "0" from index 0 (specs/object-store.md made the same
+	// choice for the same reason).
+	Pointer []any `json:"pointer"`
+	// Argument is everything after `$<resolver>:`, verbatim. genctl does not interpret it —
+	// a resolver that takes a file joins it to its process's `dir`, one that takes a URL or a
+	// package name reads it as that.
+	Argument string `json:"argument"`
+	// Types are the fragments this resolver asked for, keyed by the name it chose.
+	Types map[string]any `json:"types,omitempty"`
 
 	loc    []any
 	docIdx int
 }
 
 type manifest struct {
-	Mode    string                           `json:"mode"`
-	Root    string                           `json:"root"`
-	Schemas map[string]validation.SchemaFile `json:"schemas"`
-	Sites   []site                           `json:"sites"`
+	Mode string `json:"mode"`
+	// One entry per process that has a site, in the order the files were read. Sites nest under
+	// the process they are in, so nothing has to be joined by name.
+	Processes []manifestProcess `json:"processes"`
+}
+
+// manifestProcess is one definition's sites, and the definitions they need. `$defs` is narrowed
+// to what the fragments below it actually reach — a `$ref` survives because a task output may
+// reference itself, but nothing unreferenced travels.
+type manifestProcess struct {
+	Name string `json:"name"`
+	// Dir and File are the definition's own location, split because a relative argument is
+	// relative to the DIRECTORY: joining is the resolver's to do, and it needs the base.
+	Dir   string         `json:"dir"`
+	File  string         `json:"file"`
+	Sites []site         `json:"sites"`
+	Defs  map[string]any `json:"$defs,omitempty"`
+}
+
+// flatten is the order `code` answers in: processes as they appear, sites within each as they
+// do. The splice reads the reply by position, so the manifest's own order is the contract.
+func (m manifest) flatten() []site {
+	var out []site
+	for _, p := range m.Processes {
+		out = append(out, p.Sites...)
+	}
+	return out
 }
 
 type resolverReply struct {
@@ -137,6 +185,12 @@ func findProjectConfig(dir string) (projectConfig, error) {
 				if len(r.Command) == 0 {
 					return projectConfig{}, fmt.Errorf("%s: resolver %q has no command", path, name)
 				}
+				for typeName, address := range r.Types {
+					if _, err := framed(address, "x"); err != nil {
+						return projectConfig{}, fmt.Errorf("%s: resolver %q, type %q: %w",
+							path, name, typeName, err)
+					}
+				}
 			}
 			return cfg, nil
 		}
@@ -150,13 +204,14 @@ func findProjectConfig(dir string) (projectConfig, error) {
 
 // ── finding sites ──────────────────────────────────────────────────────────────
 
-// findSites walks every document for directive leaves. Paths resolve against the file the
-// directive appeared in and are returned absolute, so a resolver needs no cwd convention.
+// findSites walks every document for directive leaves. What follows the resolver's name is
+// passed on VERBATIM: genctl does not know that an argument is a path, let alone that it is a
+// file, so it neither resolves nor stats it. The resolver joins it to the definition's own
+// directory, which the manifest carries beside it.
 func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 	var out []site
 	for i, sd := range docs {
 		name, _ := sd.doc.(map[string]any)["name"].(string)
-		dir := filepath.Dir(sd.file)
 		var walk func(node any, loc []any) error
 		walk = func(node any, loc []any) error {
 			switch v := node.(type) {
@@ -177,35 +232,33 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 				if m == nil {
 					return nil
 				}
-				resolver, rel := m[1], m[2]
+				resolver, argument := m[1], m[2]
 				rc, ok := cfg.Resolvers[resolver]
 				if !ok {
 					return fmt.Errorf("%s: %s: no resolver named %q is registered in %s",
-						sd.file, pointerOf(loc), resolver, projectConfigName)
+						sd.file, renderPointer(slotPointer(sd.doc, loc)), resolver, projectConfigName)
 				}
-				if rc.Ext != "" && !strings.EqualFold(filepath.Ext(rel), rc.Ext) {
+				// `ext` is a suffix assertion on the ARGUMENT, not a claim that it names a
+				// file: it is what makes a `.py` handed to the TypeScript toolchain fail here
+				// with a sentence rather than inside `tsc` with a stack.
+				if rc.Ext != "" && !strings.EqualFold(filepath.Ext(argument), rc.Ext) {
 					return fmt.Errorf("%s: %s: resolver %q accepts %s files, but %q is not one",
-						sd.file, pointerOf(loc), resolver, rc.Ext, rel)
-				}
-				// Absolute, always: the resolver's cwd is the project root, not the
-				// directory the -f path was relative to, so a relative path here would
-				// resolve against the wrong place on the far side of the manifest.
-				abs, err := filepath.Abs(filepath.Join(dir, rel))
-				if err != nil {
-					return fmt.Errorf("%s: %s: %w", sd.file, pointerOf(loc), err)
-				}
-				if _, err := os.Stat(abs); err != nil {
-					return fmt.Errorf("%s: %s: %w", sd.file, pointerOf(loc), err)
+						sd.file, renderPointer(slotPointer(sd.doc, loc)), resolver, rc.Ext, argument)
 				}
 				s := site{
 					Resolver: resolver,
 					Process:  name,
-					Pointer:  pointerOf(loc),
-					Path:     abs,
+					Pointer:  slotPointer(sd.doc, loc),
+					Argument: argument,
 					loc:      append([]any(nil), loc...),
 					docIdx:   i,
 				}
 				s.Task = enclosingTaskID(sd.doc, loc)
+				if task := enclosingTask(sd.doc, loc); task != nil {
+					action, _ := task["action"].(map[string]any)
+					s.Action, _ = action["type"].(string)
+					s.Child, _ = action["name"].(string)
+				}
 				out = append(out, s)
 			}
 			return nil
@@ -220,45 +273,74 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 // enclosingTaskID reports the id of the task a site sits under. What that task RETURNS is not
 // read here: it is `TaskSchemas.Result`, which inference already computed (taskResult).
 func enclosingTaskID(doc any, loc []any) string {
-	if len(loc) < 2 {
-		return ""
-	}
-	key, ok := loc[0].(string)
-	if !ok || key != "tasks" {
-		return ""
-	}
-	idx, ok := loc[1].(int)
-	if !ok {
-		return ""
-	}
-	tasks, ok := doc.(map[string]any)["tasks"].([]any)
-	if !ok || idx >= len(tasks) {
-		return ""
-	}
-	task, ok := tasks[idx].(map[string]any)
-	if !ok {
+	task := enclosingTask(doc, loc)
+	if task == nil {
 		return ""
 	}
 	id, _ := task["id"].(string)
 	return id
 }
 
-func pointerOf(loc []any) string {
-	var b strings.Builder
-	for _, seg := range loc {
-		b.WriteByte('/')
+// enclosingTask is the task a site sits under, as the raw document holds it.
+func enclosingTask(doc any, loc []any) map[string]any {
+	if len(loc) < 2 {
+		return nil
+	}
+	key, ok := loc[0].(string)
+	if !ok || key != "tasks" {
+		return nil
+	}
+	idx, ok := loc[1].(int)
+	if !ok {
+		return nil
+	}
+	tasks, ok := doc.(map[string]any)["tasks"].([]any)
+	if !ok || idx >= len(tasks) {
+		return nil
+	}
+	task, _ := tasks[idx].(map[string]any)
+	return task
+}
+
+// slotPointer is where a directive sits, shaped like the definition: the task by ID rather than
+// by index, and then the document's own keys, `action` included. What KIND of action it is, and
+// which process a child calls, are facts about the site rather than steps in a path — they are
+// fields beside it. specs/source-resolution.md.
+func slotPointer(doc any, loc []any) []any {
+	if len(loc) < 2 || loc[0] != "tasks" {
+		return append([]any(nil), loc...)
+	}
+	id, _ := enclosingTask(doc, loc)["id"].(string)
+	if id == "" {
+		return append([]any(nil), loc...)
+	}
+	return append([]any{"tasks", id}, loc[2:]...)
+}
+
+// actionType is what the task's action declares, empty for a routing task or a definition the
+// server has not judged yet.
+func actionType(task map[string]any) string {
+	action, _ := task["action"].(map[string]any)
+	kind, _ := action["type"].(string)
+	return kind
+}
+
+// renderPointer spells a pointer as the address it is, for a message. A key no identifier can
+// spell is quoted, which is what keeps a task id holding a dot readable.
+func renderPointer(pointer []any) string {
+	out := ""
+	for _, seg := range pointer {
 		switch v := seg.(type) {
 		case string:
-			r := strings.NewReplacer("~", "~0", "/", "~1")
-			b.WriteString(r.Replace(v))
+			out = schema.JoinPath(out, v)
 		case int:
-			b.WriteString(strconv.Itoa(v))
+			out = schema.JoinIndex(out, v)
 		}
 	}
-	if b.Len() == 0 {
-		return "/"
+	if out == "" {
+		return "."
 	}
-	return b.String()
+	return out
 }
 
 // ── splicing ───────────────────────────────────────────────────────────────────
@@ -323,6 +405,7 @@ func runResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]string, er
 		return nil, fmt.Errorf("resolver %q failed:\n%s", strings.Join(rc.Command, " "), msg)
 	}
 	if m.Mode == "types" {
+		println(stdout.String())
 		return nil, nil
 	}
 	var reply resolverReply
@@ -330,9 +413,9 @@ func runResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]string, er
 		return nil, fmt.Errorf("resolver %q: stdout is not the expected {\"code\": [...]}: %w",
 			strings.Join(rc.Command, " "), err)
 	}
-	if len(reply.Code) != len(m.Sites) {
+	if want := len(m.flatten()); len(reply.Code) != want {
 		return nil, fmt.Errorf("resolver %q returned %d strings for %d sites",
-			strings.Join(rc.Command, " "), len(reply.Code), len(m.Sites))
+			strings.Join(rc.Command, " "), len(reply.Code), want)
 	}
 	return reply.Code, nil
 }
@@ -385,19 +468,23 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 	for _, name := range order {
 		group := byResolver[name]
 		for i := range group {
-			group[i].Input = taskInput(schemas, group[i].Process, group[i].Task)
-			group[i].Output = taskResult(schemas, group[i].Process, group[i].Task)
+			types, err := siteTypes(schemas, cfg.Resolvers[name].Types, group[i])
+			if err != nil {
+				return 0, err
+			}
+			group[i].Types = types
 		}
-		code, err := runResolver(cfg, cfg.Resolvers[name], manifest{
-			Mode: mode, Root: cfg.Root, Schemas: schemas, Sites: group,
-		})
+		m := manifest{Mode: mode, Processes: byProcess(schemas, docs, group)}
+		code, err := runResolver(cfg, cfg.Resolvers[name], m)
 		if err != nil {
 			return 0, err
 		}
 		if mode == "types" {
 			continue
 		}
-		for i, s := range group {
+		// By the manifest's own order, not the group's: nesting sites under their process may
+		// interleave two files differently, and `code` answers what the resolver was shown.
+		for i, s := range m.flatten() {
 			if err := splice(docs, s, escapeDollars(code[i])); err != nil {
 				return 0, err
 			}
@@ -455,26 +542,127 @@ func decodeDefinition(sd sourceDoc) (*model.ProcessDefinition, error) {
 	return &def, nil
 }
 
-// taskResult is what the task hands back, which the resolver types the script's RETURN against.
-// Declared, never inferred from the script — that is the direction $infer runs.
-func taskResult(schemas map[string]validation.SchemaFile, process, task string) any {
-	if task == "" {
-		return nil
+// Frames. An address in `types` names the one it is relative to, because a site can be inside a
+// task or not and `input` would otherwise mean the action's here and the process's there —
+// silently, since both frames have one. specs/source-resolution.md.
+const (
+	frameTask    = "task"
+	frameProcess = "process"
+)
+
+// framed turns a request into a path into the type document. A `task.` address at a site that is
+// in no task returns nil, nil: the answer is null, which is the honest one — a task-relative
+// request has nothing to resolve against there.
+func framed(address, task string) ([]schema.Segment, error) {
+	segs, err := schema.ParsePath(address)
+	if err != nil {
+		return nil, err
 	}
-	ts, ok := schemas[process].Tasks[task]
-	if !ok || ts.Result.IsZero() {
-		return nil
+	switch segs[0].Name {
+	case frameTask:
+		if task == "" {
+			return nil, nil
+		}
+		return append([]schema.Segment{{Name: "tasks"}, {Name: task}}, segs[1:]...), nil
+	case frameProcess:
+		return segs[1:], nil
 	}
-	return ts.Result
+	return nil, fmt.Errorf("%q names no frame: an address starts with %q (the task this import "+
+		"sits in) or %q (the definition)", address, frameTask, frameProcess)
 }
 
-func taskInput(schemas map[string]validation.SchemaFile, process, task string) any {
-	if task == "" {
-		return nil
+// byProcess nests the group's sites under the definition they are in, in the order the files
+// were read, and gives each the definitions its own fragments reach — never the whole pool, and
+// never another process's: a `$ref` inside a fragment points into the pool printed beside it.
+func byProcess(schemas map[string]validation.SchemaFile, docs []sourceDoc, group []site) []manifestProcess {
+	var order []string
+	sites := map[string][]site{}
+	file := map[string]string{}
+	for _, s := range group {
+		if _, seen := sites[s.Process]; !seen {
+			order = append(order, s.Process)
+			// Absolute: definitions in one call come from different directories, so no single
+			// cwd reads them all — and a relative argument is joined to this, not to the cwd.
+			abs, err := filepath.Abs(docs[s.docIdx].file)
+			if err != nil {
+				abs = docs[s.docIdx].file
+			}
+			file[s.Process] = abs
+		}
+		sites[s.Process] = append(sites[s.Process], s)
 	}
-	ts, ok := schemas[process].Tasks[task]
-	if !ok || ts.Input.IsZero() {
-		return nil
+
+	out := make([]manifestProcess, 0, len(order))
+	for _, name := range order {
+		p := manifestProcess{
+			Name: name, Dir: filepath.Dir(file[name]), File: filepath.Base(file[name]),
+			Sites: sites[name],
+		}
+		var fragments []any
+		for _, s := range p.Sites {
+			for _, frag := range s.Types {
+				fragments = append(fragments, frag)
+			}
+		}
+		if sf, ok := schemas[name]; ok {
+			p.Defs = reachableDefs(poolOf(sf), fragments...)
+		}
+		out = append(out, p)
 	}
-	return ts.Input
+	return out
+}
+
+// poolOf renders a process's $defs as the documents they are printed as, so the reachability
+// walk reads refs the same way it does everywhere else.
+func poolOf(sf validation.SchemaFile) map[string]any {
+	pool := map[string]any{}
+	for _, name := range sf.Defs.Names() {
+		if def, ok := sf.Defs.Get(name); ok {
+			pool[name] = schemaDoc(def.WithoutDefs())
+		}
+	}
+	return pool
+}
+
+// siteTypes answers the resolver's request at one site: each address is resolved against the
+// TYPE view of that site's process, relative to the task the directive sits in. The schemas come
+// back as inference wrote them — a `$ref` into that process's own pool, which the manifest ships
+// beside them.
+func siteTypes(schemas map[string]validation.SchemaFile, want map[string]string, s site) (map[string]any, error) {
+	if len(want) == 0 {
+		return nil, nil
+	}
+	sf, ok := schemas[s.Process]
+	if !ok {
+		return nil, nil
+	}
+	doc, err := validation.TypeDocumentFrom(sf)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", s.Process, err)
+	}
+	out := make(map[string]any, len(want))
+	for _, name := range slices.Sorted(maps.Keys(want)) {
+		path, err := framed(want[name], s.Task)
+		if err != nil {
+			return nil, fmt.Errorf("resolver type %q: %w", name, err)
+		}
+		if path == nil {
+			out[name] = nil // a task frame at a site that is in no task
+			continue
+		}
+		at, err := validation.Navigate(doc, want[name], path)
+		if err != nil {
+			// Null, not absent, and not fatal. Null because the key was ASKED for and there is
+			// nothing at it — the same reason a `raise` attaching nothing types as null rather
+			// than dropping out: absent would mean "not requested", which is a different fact.
+			// Not fatal because what a site can answer varies legitimately (a script taking no
+			// argument has no `input.input`), and whether that matters is the resolver's to say.
+			out[name] = nil
+			continue
+		}
+		// As the document it is printed as, without its pool: a `$ref` inside it points into the
+		// `$defs` beside it, and a copy per fragment would repeat most of the answer.
+		out[name] = schemaDoc(at.WithoutDefs())
+	}
+	return out, nil
 }

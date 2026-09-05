@@ -273,8 +273,20 @@ func selfContained(doc map[string]any) map[string]any {
 		return body
 	}
 
+	if kept := reachableDefs(pool, body); len(kept) > 0 {
+		body["$defs"] = kept
+	}
+	return body
+}
+
+// reachableDefs is the subset of pool that from can reach, following refs between definitions —
+// which is what keeps a task output that references itself resolvable. Shared with the resolver
+// manifest, which narrows a process's pool to what its sites' fragments name.
+func reachableDefs(pool map[string]any, from ...any) map[string]any {
 	want := map[string]bool{}
-	collectRefs(body, want)
+	for _, v := range from {
+		collectRefs(v, want)
+	}
 	kept := map[string]any{}
 	for {
 		next := ""
@@ -285,7 +297,7 @@ func selfContained(doc map[string]any) map[string]any {
 			}
 		}
 		if next == "" {
-			break
+			return kept
 		}
 		def, ok := pool[next]
 		if !ok {
@@ -295,10 +307,6 @@ func selfContained(doc map[string]any) map[string]any {
 		kept[next] = def
 		collectRefs(def, want)
 	}
-	if len(kept) > 0 {
-		body["$defs"] = kept
-	}
-	return body
 }
 
 // hoistDefs returns v with every `$defs` removed, merging them into pool. The pool is one

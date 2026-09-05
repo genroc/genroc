@@ -199,7 +199,7 @@ const CROSS: { name: string; type: string; context: string; path: string }[] = [
   { name: "the process input", type: "input", context: "tasks.probe.action", path: "input" },
   {
     name: "what the action hands back",
-    type: "tasks.probe.result",
+    type: "tasks.probe.action.result",
     context: "tasks.probe.output",
     path: "self.result",
   },
@@ -238,7 +238,7 @@ for (const c of CROSS) {
 test("an expression rooted at a navigated type is rooted at the slot in the other view", () => {
   const path = bothViewsFile();
 
-  const onTheType = view("type", path, "tasks.probe.result", "fee > 0");
+  const onTheType = view("type", path, "tasks.probe.action.result", "fee > 0");
   const onTheContext = view("context", path, "tasks.probe.output", "self.result.fee > 0");
   const walkedThere = view("context", path, "tasks.probe.output.self.result", "fee > 0");
 

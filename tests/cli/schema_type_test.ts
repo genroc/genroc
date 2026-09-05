@@ -63,15 +63,16 @@ test("schema type — lists the contract boundaries, one line each", () => {
     .split("\n")
     .map((l) => l.split(/\s{2,}/)[0]);
 
-  // Every place someone generates code from, and nothing else: an expression slot has no
-  // shape, so `action`, `switch` and `on_error` are absent by construction.
+  // Every place someone generates code from, and nothing else: an expression slot has no shape,
+  // so `switch` and `on_error` are absent by construction, and what the ACTION has sits under
+  // the same `action` segment the definition writes.
   expect(addresses).toEqual([
     "input",
     "output",
     'raises["payment.declined"]',
-    "tasks.price.input",
+    "tasks.price.action.body",
+    "tasks.price.action.result",
     "tasks.price.output",
-    "tasks.price.result",
     "tasks.recover.last_error",
     "tasks.recover.output",
   ]);
@@ -83,13 +84,13 @@ test("schema type — lists the contract boundaries, one line each", () => {
 test("schema type — an address answers with a standalone document, and navigates into it", () => {
   const path = defFile();
 
-  const result = typeAt(path, "tasks.price.result");
+  const result = typeAt(path, "tasks.price.action.result");
   expect(result.ok, result.stderr).toBe(true);
   expect(JSON.parse(result.stdout).properties.fee).toEqual({ type: "number" });
 
   // Navigation continues past the slot, into the schema — the slot is the first three
   // segments and the rest is `schema.At`.
-  const nested = typeAt(path, "tasks.price.result.tiers[0]");
+  const nested = typeAt(path, "tasks.price.action.result.tiers[0]");
   expect(nested.ok, nested.stderr).toBe(true);
   // An element of an optional array comes back nullable: the array may not be there.
   expect(JSON.parse(nested.stdout).type.sort()).toEqual(["null", "string"]);
@@ -105,7 +106,7 @@ test("schema type — an address answers with a standalone document, and navigat
 test("schema type — result is the accepted response, last_error the routed one", () => {
   const path = defFile();
 
-  const result = JSON.parse(typeAt(path, "tasks.price.result").stdout);
+  const result = JSON.parse(typeAt(path, "tasks.price.action.result").stdout);
   expect(Object.keys(result.properties).sort()).toEqual(["fee", "tiers"]);
 
   const routed = JSON.parse(typeAt(path, "tasks.recover.last_error").stdout);
@@ -153,7 +154,7 @@ test("schema type — the listing names null, a union and an element type", () =
 test("schema type — an address the other view answers names that view", () => {
   const path = defFile();
 
-  for (const address of ["tasks.price.switch", "tasks.price.action", "tasks.price.on_error[0]"]) {
+  for (const address of ["tasks.price.switch", "tasks.price.on_error[0]"]) {
     const r = typeAt(path, address);
     expect(r.ok, `${address} has no shape`).toBe(false);
     expect(r.stderr).toContain("`genctl schema context` has it");
@@ -162,7 +163,7 @@ test("schema type — an address the other view answers names that view", () => 
   // The reverse, from the other side.
   const inContext = runCli(
     bin,
-    ["schema", "context", "pricing", "tasks.price.result", "--json", "-f", path],
+    ["schema", "context", "pricing", "tasks.price.action.result", "--json", "-f", path],
     OFFLINE,
   );
   expect(inContext.ok).toBe(false);
@@ -182,14 +183,14 @@ test("schema type -e — an expression is typed against the selected schema", ()
 
   const expr = runCli(
     bin,
-    ["schema", "type", "pricing", "tasks.price.result", "-e", "fee > 0", "--json", "-f", path],
+    ["schema", "type", "pricing", "tasks.price.action.result", "-e", "fee > 0", "--json", "-f", path],
     OFFLINE,
   );
   expect(expr.ok, expr.stderr).toBe(true);
   expect(JSON.parse(expr.stdout)).toEqual({ type: "boolean" });
 
   // …and it reads the same schema navigation would: one names the field, the other computes on it.
-  const navigated = typeAt(path, "tasks.price.result.fee");
+  const navigated = typeAt(path, "tasks.price.action.result.fee");
   expect(JSON.parse(navigated.stdout)).toEqual({ type: "number" });
 });
 

@@ -110,13 +110,43 @@ not. Different owners, different lifetimes, different files.
 
 ```yaml
 resolvers:
-  import: { phase: code,       ext: .ts, command: [node, tools/genroc-import.ts] }
+  import:
+    phase: code
+    ext: .ts
+    command: [node, tools/genroc-import.ts]
+    types: { Input: task.action.input.input, Output: task.action.result }
   infer:  { phase: structural, ext: .ts, command: [node, tools/genroc-infer.ts] }
 ```
 
 The directive names the resolver, so `ext` is **an assertion, not a dispatch key**: it makes
 a `.py` path handed to the TypeScript toolchain fail at genctl with a sentence, instead of
 failing inside `tsc` with a stack.
+
+**`types` is what the resolver wants typed, and genctl decides none of it.** The names are the
+resolver's; the addresses are [`genctl schema type`](schema-command.md)'s, prefixed by the
+**frame** they are relative to. Absent means it wants none, which is most resolvers.
+
+| frame | resolves against | where there is none |
+|---|---|---|
+| `task.…` | `tasks.<id>` — the task the directive sits in | `null` |
+| `process.…` | the definition: `input`, `output`, `raises`, `tasks` | resolves |
+
+So `task.action.input.input` is the argument an evaluator binds out of the action's input, and
+`task.action.result` is what it hands back — neither naming the action's TYPE, so one config
+serves a `child` task in one definition and an `external` one in the next.
+
+**The frame is named rather than inferred from the site**, because a directive can sit inside a
+task or outside one and more than one frame carries an `input`: without it, `input.input`
+answered with the action's argument at one site and the PROCESS input at the next — a
+plausible-looking type from an unrelated schema, which is worse than no answer. An address naming
+no frame is refused when the config is read, so a typo fails where it is written instead of
+resolving somewhere unintended.
+
+A requested type that is **not at a site comes back `null`, and is not fatal**. Null rather than
+absent for the reason `raises: {code: null}` is a declaration: the name was asked for and nothing
+is there, which is a different fact from not being asked for. Not fatal because what a site can
+answer varies legitimately — a script taking no argument has no `input.input` — and whether that
+matters is the resolver's to decide.
 
 ## Directive syntax
 
@@ -169,50 +199,82 @@ stdin:
 ```jsonc
 {
   "mode": "build",                       // or "types" — see below
-  "root": "/abs/path/to/project",        // the directory holding .genroc; also the cwd
-  "schemas": {
-    "weather-logger": { /* SchemaFile: process_input, process_output, tasks{}, $defs */ }
-  },
-  "sites": [
+  "processes": [
     {
-      "process": "weather-logger",
-      "task": "summarize",
-      "pointer": "/tasks/5/action/input/code",   // JSON pointer to the slot
-      "path": "/abs/path/to/summarize.ts",       // absolute; genctl resolved it
-      "input":  { "$ref": "#/$defs/summarize_input" },
-      "output": { /* result_schema, or responses.200 */ }
+      "name": "weather-logger",
+      "dir":  "/abs/path/to/defs",       // the definition's directory: an argument's base
+      "file": "weather.genroc.yaml",
+      "sites": [
+        {
+          "task": "summarize", "action": "child", "child": "script-node",
+          "pointer": ["tasks", "summarize", "action", "input", "code"],  // shaped like the YAML
+          "argument": "./summarize.ts",                        // verbatim, after `$import:`
+          "types": {                                           // what `types` in .genroc asked for
+            "Input":  { "$ref": "#/$defs/input" },             // task.action.input.input
+            "Output": { "type": "object", "properties": { "fee": { "type": "number" } },
+                        "required": ["fee"] },                 // task.action.result, declared
+            "Absent": null                                     // asked for, nothing at that address
+          }
+        }
+      ],
+      "$defs": { "input": { /* … */ } }    // only what the fragments above reach
     }
   ]
 }
 ```
 
-stdout: `{"code": ["<string>", …]}` — parallel to `sites`, by position. Non-zero exit aborts
+stdout: `{"code": ["<string>", …]}` — parallel to the manifest's own site order, by position. Non-zero exit aborts
 the apply with stderr as the diagnostic; stdout carries nothing else.
 
 Exact rules, each removing a convention someone would otherwise have to guess:
 
-- **`path` is absolute.** genctl resolved it against the source file that held the
-  directive; sites in one call can come from different files, so no single cwd would do.
-  The subprocess cwd is `root` instead; a resolver that wants a `tsconfig` finds it from
-  the script, not from there ([script-tasks.md](script-tasks.md)).
-- **`pointer` identifies the site**, not `task` — a task may hold two directives.
-- **`$ref` in `input`/`output` points into `schemas[<process>].$defs`**, that process's pool
-  and no other.
-- **`input` is `SchemaFile.Tasks[<task>].Input`** — the inferred type of the action's input
-  shape, computed by `buildInputs` ([infer.go:16](../internal/validation/infer.go#L16)).
-  **No server change was required**, and since the local pass it is no longer a server's
-  answer at all.
-- **`schemas` carries the definitions that have sites**, not every definition in the apply.
-  A `$ref` only ever points into the pool of a process a site named.
-- **`input` is the whole action input, not the resolver's parameter type.** For `/eval` that
-  is `{code, input, timeout_ms, …}`, of which only `input` is bound as the script's
-  argument. genroc cannot know which slot a resolver's runtime binds, so **the resolver
-  navigates** — `scriptInput` in `import.ts` does it, and it is the right place because that
-  file owns the evaluator's wire contract. Getting this backwards is not a subtle failure:
-  the first build reported `Property 'amount' does not exist on type 'price_input'`.
-- **`output` is declared, never inferred**: `result_schema` on a child, `responses.200` on a
-  fetch, absent when the task declares neither. A generator with no `output` emits the top
-  type.
+- **The argument travels verbatim.** genctl reads what follows `$<resolver>:` as a string and
+  nothing more — not a path, and certainly not a file: a resolver may take a URL, a package
+  name, or an identifier. `dir` is the base a resolver JOINS to when its argument is relative,
+  and it is absolute because definitions in one call come from different directories, so no
+  single cwd reads them all. The consequence to accept: a missing file is refused by the
+  resolver rather than by genctl, which is where the knowledge that it is a file lives. What
+  genctl still checks is the assertion the config made — `ext`, a suffix test on the argument.
+- **There is no `root`.** The subprocess cwd IS the project root, so a resolver that wants it
+  reads its own; a field repeating it would be a second thing to keep true.
+- **`pointer` identifies the site**, not `task` — a task may hold two directives. It is shaped
+  like the DEFINITION: the task by **id** rather than by index, then the document's own keys,
+  `action` included — `["tasks", "price", "action", "input", "code"]`, not
+  `/tasks/0/action/input/code`. Where the slot it names has a type, that IS its type address:
+  `genctl schema type <process> tasks.price.action.input.code` answers about the very slot the
+  directive fills, because both spaces name a slot the way the definition does
+  (schema-command.md §2). Where the slot has none — `url`, a `raise` message — the pointer is
+  just a location, which is all a pointer promises.
+- **What the site IS travels beside it, as fields**: `action` (the action's type) and `child`
+  (the process a child action calls). A task has exactly one action, so putting its type in the
+  path would name no choice — and a resolver that wants to check where it landed would otherwise
+  have to read the definition, which the manifest no longer carries.
+- An ARRAY rather than an RFC 6901 string: a string makes every recipient unescape `~0`/`~1`,
+  and cannot tell the object key `"0"` from index `0`. object-store.md made the same choice for
+  the same reason.
+- **A process is the outer structure, and a site sits under the definition it is in.** There is
+  no `process` field to join on, and the pool a fragment resolves against is printed beside it.
+- **`$defs` is narrowed to what the fragments reach.** It used to be the whole `SchemaFile`, then
+  the whole pool; both shipped definitions no resolver opened, and the SchemaFile also carried a
+  second copy of every fragment. Refs survive the narrowing rather than being inlined, because a
+  task output may reference itself. A resolver that wants more than it asked for asks for more —
+  `process` is an address, and answers with the whole type view.
+- **`code` answers in the manifest's own order**: processes as listed, sites within each as
+  listed. The splice reads it by position.
+- **A fragment is the type view's answer at the address `types` named**, which is inference's —
+  `SchemaFile` computed by `buildInputs` and friends
+  ([infer.go:16](../internal/validation/infer.go#L16)). **No server change was ever required**,
+  and since the local pass it is not a server's answer at all.
+- **Only processes that have sites appear**, not every definition in the apply.
+- **The resolver no longer navigates.** genctl used to send the whole action input — for `/eval`
+  that is `{code, input, timeout_ms, …}` — and `import.ts` picked `input` out of it by hand,
+  because genroc cannot know which slot an evaluator binds. It still cannot; the difference is
+  that the resolver now SAYS which, as an address, and `scriptInput` is deleted. Getting this
+  backwards was not a subtle failure: the first build reported `Property 'amount' does not exist
+  on type 'price_input'`.
+- **What is declared stays declared.** `result` is `result_schema` on a child, the accepted
+  `responses` on a fetch, and absent where the task declares neither — inference never invents
+  it from the script, which is the direction `$infer` runs.
 
 ### genctl passes the sites; a resolver never re-detects them
 

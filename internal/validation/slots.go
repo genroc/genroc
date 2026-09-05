@@ -73,6 +73,7 @@ func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 // space as the contexts above: one slot, two questions. specs/schema-command.md §7.
 const (
 	slotInput   = "input"
+	slotBody    = "body"
 	slotResult  = "result"
 	slotLastErr = "last_error"
 	slotRaises  = "raises"
@@ -85,6 +86,16 @@ func TypeSlots(def *model.ProcessDefinition) (map[string]schema.Schema, error) {
 	if err != nil {
 		return nil, err
 	}
+	return typeSlots(sf), nil
+}
+
+// TypeDocumentFrom is TypeDocument for a caller that already has the SchemaFile — the resolver
+// pass, which infers every definition once and then addresses into them.
+func TypeDocumentFrom(sf SchemaFile) (schema.Schema, error) {
+	return nest(typeSlots(sf))
+}
+
+func typeSlots(sf SchemaFile) map[string]schema.Schema {
 	out := map[string]schema.Schema{}
 	put := func(address string, s schema.Schema) {
 		if !s.IsZero() {
@@ -97,16 +108,28 @@ func TypeSlots(def *model.ProcessDefinition) (map[string]schema.Schema, error) {
 		put(schema.JoinPath(slotRaises, code), raised)
 	}
 	for id, ts := range sf.Tasks {
-		put(taskSlot(id, slotInput), ts.Input)
+		// `input` and `result` are the ACTION's and sit under it, exactly where the definition
+		// writes them; `output` and `last_error` are the task's and sit beside it. Keeping the
+		// `action` segment is what stops the two namespaces sharing one — a task-level slot
+		// added later cannot collide with an action's.
+		action := taskSlot(id, slotAction)
+		// The payload takes the name the DEFINITION gives it — `body` on a fetch, `input`
+		// everywhere else — so a pointer into it and the type of it are one address. Only fetch
+		// diverges, and a payload is `input` on every action type a resolver targets.
+		payload := slotInput
+		if ts.ActionType == model.ActionTypeFetch {
+			payload = slotBody
+		}
+		put(schema.JoinPath(action, payload), ts.Input)
 		// A routing task's result is `null` — what `self.result` reads there — and that is a
 		// fact about the scope, not a contract a caller generates from.
 		if ts.ActionType != "" {
-			put(taskSlot(id, slotResult), ts.Result)
+			put(schema.JoinPath(action, slotResult), ts.Result)
 		}
 		put(taskSlot(id, slotOutput), ts.Output)
 		put(taskSlot(id, slotLastErr), ts.Error)
 	}
-	return out, nil
+	return out
 }
 
 // ContextDocument and TypeDocument are the two views as ONE schema each: the addresses are

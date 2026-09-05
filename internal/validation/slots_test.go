@@ -341,7 +341,7 @@ func TestTypeSlotsAreTheCheckersOwn(t *testing.T) {
 	}
 
 	// What the action hands back, as the output map reads it.
-	same("tasks.call.result", "tasks.call.output", "self.result")
+	same("tasks.call.action.result", "tasks.call.output", "self.result")
 	// What the output map produces, as the switch reads it back.
 	same("tasks.call.output", "tasks.call.switch", "self.output")
 	same("tasks.handler.output", "tasks.handler.switch", "self.output")

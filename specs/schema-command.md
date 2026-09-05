@@ -56,9 +56,31 @@ slot-versus-navigation boundary, and so nothing that can differ between the two 
   "tasks": { "price": {                        "output": { /* … */ },
     "action":   { /* … */ },                   "raises": { "period_closed": { /* … */ } },
     "output":   { /* … */ },                   "tasks":  { "price": {
-    "switch":   { /* … */ },                     "input": {…}, "result": {…},
+    "switch":   { /* … */ },                     "action": { "input": {…}, "result": {…} },
     "on_error": { "0": { /* … */ } } } } }       "output": {…}, "last_error": {…} } } }
 ```
+
+**`action` stays in the path.** The payload and the result are the ACTION's and sit under it,
+exactly where the definition writes them; `output`, `last_error`, `switch` and `on_error` are the
+task's and sit beside it. Two namespaces, kept apart by the segment the YAML already has — a
+task-level slot added later cannot collide with an action's. It is also what makes
+`tasks.<id>.action` answer in BOTH views: what an expression there may read, and what the
+action's shape is.
+
+**A slot takes the name the definition gives it**, so an address into the document and the
+address of its type are the same string: a fetch's payload is `tasks.<id>.action.body`, every
+other action's is `tasks.<id>.action.input`. Only `fetch` diverges, and it is the one action type
+no resolver targets — a payload is `input` on child, child_list, child_map and external alike.
+That is what makes a manifest pointer a TYPE ADDRESS wherever the slot it names has a type
+(source-resolution.md), rather than a second spelling to translate.
+
+**Where a slot has no type, there is no address**, and that is the honest half: `url`, `headers`,
+`query`, a switch `case`, an `on_error` clause's `message` hold templates, not contract
+boundaries, so `schema type` refuses them by naming what the action does have. Three slots run
+the other way — `result` (a fetch's is the accepted `responses`, unioned), `last_error` (which
+failures route here) and `raises` (collected from every `raise` clause) — and are DERIVED, so
+they have a type and no document path at all. The two spaces coincide where a slot is both, and
+neither is a subset of the other.
 
 So `tasks.price` is an object of that task's phases, `tasks.price.output` one of them,
 `tasks.price.output.self.result` a walk inside it, and `tasks.price -e 'output'` the same answer
@@ -251,7 +273,8 @@ placeholder `apply` splices types as, by the argument [source-resolution.md](sou
 ## 7. `type`
 
 The address space is the **contract boundaries**, the places someone generates code from:
-`input`, `output`, `raises.<code>`, `tasks.<id>.{input,result,output,last_error}`. Answers are
+`input`, `output`, `raises.<code>`, `tasks.<id>.action.{input,result}` and
+`tasks.<id>.{output,last_error}`. Answers are
 standalone documents, as in §4.
 
 ### One address space, two questions
@@ -266,11 +289,11 @@ what makes it one space rather than two that happen to look alike.
 | `input` | — | the process input |
 | `output` | what the output expression reads | what the process produces |
 | `raises["payment.declined"]` | — | that fault's payload |
-| `tasks.<id>.input` | — (the action phase is `.action`) | what the action is sent |
-| `tasks.<id>.result` | — | what the action hands back |
+| `tasks.<id>.action` | the action-phase context | its input and result |
+| `tasks.<id>.action.input` | — | what the action is sent |
+| `tasks.<id>.action.result` | — | what the action hands back |
 | `tasks.<id>.output` | what the output map reads | what the output map produces |
 | `tasks.<id>.last_error` | — | the payload of the failure that routed here |
-| `tasks.<id>.action` | the action-phase context | — (names no single type) |
 | `tasks.<id>.switch` | the switch context | — (a case is boolean by construction) |
 | `tasks.<id>.on_error.<i>` | that rule's context | — |
 

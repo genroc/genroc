@@ -49,16 +49,22 @@ afterAll(() => runner?.kill());
 
 const REPO = new URL("../../", import.meta.url).pathname;
 
-/** A resolver that echoes each site's file and dumps the manifest for inspection. */
+// `schema` infers locally; nothing here needs the server.
+const OFFLINE = { GENROC_SERVER: "http://127.0.0.1:1" };
+
+/** A resolver that echoes each site's file and dumps the manifest for inspection. It JOINS the
+ *  argument to its process's directory, because genctl passes the argument verbatim. */
 const ECHO_RESOLVER = `
 import { readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 const chunks = [];
 for await (const c of process.stdin) chunks.push(c);
 const m = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 writeFileSync(new URL("./manifest.json", import.meta.url), JSON.stringify(m, null, 2));
 if (m.mode === "types") process.exit(0);
 const code = [];
-for (const s of m.sites) code.push(readFileSync(s.path, "utf8"));
+for (const p of m.processes)
+  for (const s of p.sites) code.push(readFileSync(resolve(p.dir, s.argument), "utf8"));
 process.stdout.write(JSON.stringify({ code }));
 `;
 
@@ -81,7 +87,24 @@ function project(resolvers: string): Project {
 }
 
 function echoProject(): Project {
+  // No `types`: this resolver splices text and wants nothing typed, which is most of them.
   return project(`resolvers:\n  import: { phase: code, command: [node, echo.mjs] }\n`);
+}
+
+// A resolver that DOES want types names them, by `genctl schema type` address relative to the
+// task the directive sits in — `input` is the whole action input, `input.amount` one field of
+// it, `result` what the task hands back.
+function typedProject(): Project {
+  return project(
+    [
+      "resolvers:",
+      "  import:",
+      "    phase: code",
+      "    command: [node, echo.mjs]",
+      "    types: { Action: task.action.body, Amount: task.action.body.amount, Output: task.action.result }",
+      "",
+    ].join("\n"),
+  );
 }
 
 // ── the resolution pass ─────────────────────────────────────────────────────────
@@ -117,7 +140,7 @@ test("apply — an imported file becomes the slot's value, and $ survives it ver
 });
 
 test("apply — the manifest carries the inferred input type and the declared output type", () => {
-  const p = echoProject();
+  const p = typedProject();
   const name = uid("import");
   p.write("body.txt", "x");
   const def = p.write(
@@ -148,23 +171,35 @@ test("apply — the manifest carries the inferred input type and the declared ou
 
   const m = p.manifest();
   expect(m.mode).toBe("build");
-  expect(m.root).toBe(p.dir);
-  expect(m.sites).toHaveLength(1);
+  expect(m.root, "the cwd genctl runs a resolver in says it; the manifest need not").toBeUndefined();
+  expect(m.processes).toHaveLength(1);
+  expect(m.processes[0].name).toBe(name);
+  expect(m.processes[0].dir).toBe(p.dir);
+  expect(m.processes[0].file).toBe("proc.yaml");
+  expect(m.processes[0].sites).toHaveLength(1);
 
-  const site = m.sites[0];
-  expect(site.resolver).toBe("import");
-  expect(site.process).toBe(name);
+  const site = m.processes[0].sites[0];
   expect(site.task).toBe("call");
-  expect(site.pointer).toBe("/tasks/0/action/body/code");
-  expect(site.path).toBe(join(p.dir, "body.txt"));
+  // Shaped like the definition: the task by ID, then the document's own keys. What KIND of
+  // action it is rides beside the address as a field, not inside it.
+  expect(site.pointer).toEqual(["tasks", "call", "action", "body", "code"]);
+  expect(site.action, "what the site IS, beside where it is").toBe("fetch");
+  expect(site.argument, "verbatim: genctl does not read it as a path").toBe("./body.txt");
 
-  // The input type is INFERRED — `amount` is typed from the process input schema, which
-  // only validation knows. The output type is DECLARED: responses.200 verbatim.
-  const defs = m.schemas[name].$defs;
-  const input = site.input.$ref ? defs[site.input.$ref.replace("#/$defs/", "")] : site.input;
-  expect(input.properties.amount).toEqual({ type: "number" });
-  expect(input.properties.code).toEqual({ type: "string" });
-  expect(site.output).toEqual({
+  // Each fragment is what the resolver ASKED for, resolved at this site. `Action` is inferred —
+  // `amount` is typed from the process input schema, which only validation knows — and `Amount`
+  // is one field of it, which genctl reaches because the request is an address rather than a
+  // fixed pair. `Output` is DECLARED: responses.200 verbatim.
+  const defs = m.processes[0].$defs;
+  const action = site.types.Action.$ref
+    ? defs[site.types.Action.$ref.replace("#/$defs/", "")]
+    : site.types.Action;
+  expect(action.properties.amount).toEqual({ type: "number" });
+  expect(action.properties.code).toEqual({ type: "string" });
+  expect(site.types.Amount, "an address reaches INTO the action input").toEqual({
+    type: "number",
+  });
+  expect(site.types.Output).toEqual({
     type: "object",
     properties: { ok: { type: "boolean" } },
     required: ["ok"],
@@ -199,7 +234,7 @@ test("types — writes declarations and applies nothing", () => {
 // every edit, and an editor loop that stops working when the server is down is a worse
 // property than a genctl that links the inference. specs/source-resolution.md.
 test("types — needs no server, and the types are still inferred", () => {
-  const p = echoProject();
+  const p = typedProject();
   p.write("body.txt", "x");
   const def = p.write(
     "proc.yaml",
@@ -218,6 +253,8 @@ test("types — needs no server, and the types are still inferred", () => {
       "      body:",
       '        code: "$import: ./body.txt"',
       '        amount: "$: input.amount"',
+      "      responses:",
+      "        200: { type: object, properties: { ok: { type: boolean } }, required: [ok] }",
       "    switch: [{ goto: end }]",
       "",
     ].join("\n"),
@@ -227,13 +264,16 @@ test("types — needs no server, and the types are still inferred", () => {
   const r = runCli(bin, ["types", "-f", def], { GENROC_SERVER: "http://127.0.0.1:1" });
   expect(r.ok, `types must not need a server:\n${r.stdout}${r.stderr}`).toBe(true);
 
-  // …and the manifest still carries the INFERRED input, which is the half a roundtrip used
-  // to buy: `amount` is typed from the process input schema, not from the source text.
+  // …and the manifest still carries INFERRED fragments, which is the half a roundtrip used to
+  // buy: `amount` is typed from the process input schema, not from the source text.
   const m = p.manifest();
-  const site = m.sites[0];
-  const defs = m.schemas[site.process].$defs ?? {};
-  const input = site.input.$ref ? defs[site.input.$ref.replace("#/$defs/", "")] : site.input;
-  expect(input.properties.amount).toEqual({ type: "number" });
+  const site = m.processes[0].sites[0];
+  const defs = m.processes[0].$defs ?? {};
+  const action = site.types.Action.$ref
+    ? defs[site.types.Action.$ref.replace("#/$defs/", "")]
+    : site.types.Action;
+  expect(action.properties.amount).toEqual({ type: "number" });
+  expect(site.types.Amount).toEqual({ type: "number" });
 });
 
 // genctl computes the types; the server decides validity. A definition carrying no directive
@@ -276,7 +316,7 @@ test("types — says so when a definition imports nothing", () => {
   expect(runCli(bin, ["types", "-f", def]).stdout).toContain("no imports found");
 });
 
-test("apply — a relative -f path still resolves the site absolutely", async () => {
+test("apply — a relative -f path still leaves the resolver a base it can join", async () => {
   const p = echoProject();
   const name = uid("import");
   p.write("snippet.txt", "relative\n");
@@ -294,11 +334,14 @@ test("apply — a relative -f path still resolves the site absolutely", async ()
     ].join("\n"),
   );
 
-  // The resolver's cwd is the project root, not the directory -f was relative to. A site
-  // path left relative resolved against the wrong place and the resolver wrote its output
-  // into a mirrored subtree instead of beside the script.
+  // The argument travels verbatim and the DIRECTORY it is relative to travels with the
+  // definition — absolute, because the resolver's cwd is the project root rather than the
+  // directory -f was relative to, and joining against the wrong base finds nothing.
   expect(runCli(bin, ["apply", "-f", relative(process.cwd(), def)]).ok).toBe(true);
-  expect(p.manifest().sites[0].path).toBe(join(p.dir, "snippet.txt"));
+  const proc = p.manifest().processes[0];
+  expect(proc.sites[0].argument).toBe("./snippet.txt");
+  expect(proc.dir).toBe(p.dir);
+  expect(proc.file).toBe("proc.yaml");
 
   const id = startedID(runCli(bin, ["run", name]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
@@ -363,12 +406,16 @@ test("apply — an unregistered resolver names itself and stores nothing", () =>
   expect(r.stderr).toContain(".genroc");
 });
 
-test("apply — a missing file is refused before anything is sent", () => {
+// genctl does not know an argument names a file, so it cannot refuse one that is missing — the
+// resolver that reads it is the one that can, and it still fails the apply before anything is
+// stored. What genctl checks is the ASSERTION the config made: `ext`.
+test("apply — a missing file is the resolver's to refuse", () => {
   const p = echoProject();
+  const name = uid("import");
   const def = p.write(
     "proc.yaml",
     [
-      `name: ${uid("import")}`,
+      `name: ${name}`,
       "tasks:",
       "  - id: t",
       "    output:",
@@ -380,7 +427,10 @@ test("apply — a missing file is refused before anything is sent", () => {
   const r = runCli(bin, ["apply", "-f", def]);
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain("gone.txt");
-  expect(existsSync(join(p.dir, "manifest.json"))).toBe(false);
+  // The manifest WAS written: the resolver ran, and refused. Nothing reached the server.
+  expect(existsSync(join(p.dir, "manifest.json"))).toBe(true);
+  const rows = JSON.parse(runCli(bin, ["definitions", "--json"]).stdout) as { name: string }[];
+  expect(rows.some((r) => r.name === name)).toBe(false);
 });
 
 test("apply — a resolver's exit code aborts the apply with its stderr", () => {
@@ -471,11 +521,200 @@ test("apply — a definition with no directives spends no resolver and no extra 
   expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
 });
 
+// What a site can answer varies: a resolver asks for the same addresses everywhere, and a task
+// that types no result simply has none. The key is NULL rather than missing — it was asked for,
+// and nothing is there, which is a different fact from not being asked for — and the apply is
+// not refused, because a script that takes no argument is a legal definition.
+test("a requested type that is not at this site comes back null", () => {
+  const p = typedProject();
+  const name = uid("import");
+  p.write("body.txt", "x");
+  const def = p.write(
+    "proc.yaml",
+    [
+      `name: ${name}`,
+      "input_schema:",
+      "  type: object",
+      "  properties: { amount: { type: number } }",
+      "  required: [amount]",
+      "tasks:",
+      "  - id: t",
+      "    action:",
+      "      type: fetch",
+      "      url: https://example.test/x",
+      "      method: POST",
+      '      body: { code: "$import: ./body.txt", amount: "$: input.amount" }',
+      "    switch: [{ goto: end }]",
+      "",
+    ].join("\n"),
+  );
+
+  // No `responses`, so the task types no result — but the input fragments are there.
+  const r = runCli(bin, ["types", "-f", def]);
+  expect(r.ok, `${r.stdout}${r.stderr}`).toBe(true);
+
+  const site = p.manifest().processes[0].sites[0];
+  expect(Object.keys(site.types).sort(), "every name the resolver asked for is answered").toEqual([
+    "Action",
+    "Amount",
+    "Output",
+  ]);
+  expect(site.types.Output, "asked for, and nothing is there").toBeNull();
+  expect(site.types.Amount).toEqual({ type: "number" });
+});
+
+// An address names the frame it is relative to, because a directive can sit inside a task or
+// outside one and both frames have an `input`. Without the frame, a `task`-relative request
+// silently answered with the PROCESS input at a site in the output map — a plausible-looking
+// type from an unrelated schema, which is worse than no answer.
+test("a task-relative type is null outside a task, and process-relative still answers", () => {
+  const p = project(
+    [
+      "resolvers:",
+      "  import:",
+      "    phase: code",
+      "    command: [node, echo.mjs]",
+      "    types: { Input: task.action.input.input, Output: task.action.result, Whole: process.input }",
+      "",
+    ].join("\n"),
+  );
+  const name = uid("import");
+  p.write("body.txt", "x");
+  const def = p.write(
+    "proc.yaml",
+    [
+      `name: ${name}`,
+      "input_schema:",
+      "  type: object",
+      "  properties: { amount: { type: number } }",
+      "  required: [amount]",
+      "tasks:",
+      "  - id: t",
+      "    action: { type: external, result_schema: { type: object } }",
+      "    switch: [{ goto: end }]",
+      "output:",
+      '  note: "$import: ./body.txt"',
+      "",
+    ].join("\n"),
+  );
+
+  expect(runCli(bin, ["types", "-f", def]).ok).toBe(true);
+  const site = p.manifest().processes[0].sites[0];
+  expect(site.pointer, "the directive is in the process output, not in a task").toEqual([
+    "output",
+    "note",
+  ]);
+  expect(site.task).toBeUndefined();
+  expect(site.types.Input, "no task here, so a task-relative address answers null").toBeNull();
+  expect(site.types.Output).toBeNull();
+  expect(site.types.Whole, "the process frame is there at every site").toEqual({
+    $ref: "#/$defs/input",
+  });
+});
+
+// A frame that is not one is a typo, and it is refused where it is written rather than resolving
+// somewhere unintended.
+test("an address with no frame is refused at the config", () => {
+  const p = project(
+    `resolvers:\n  import: { phase: code, command: [node, echo.mjs], types: { X: input.input } }\n`,
+  );
+  p.write("body.txt", "x");
+  const def = p.write(
+    "proc.yaml",
+    [`name: ${uid("import")}`, "tasks:", "  - id: t", "    output:", '      code: "$import: ./body.txt"', "    switch: [{ goto: end }]", ""].join("\n"),
+  );
+  const r = runCli(bin, ["types", "-f", def]);
+  expect(r.ok).toBe(false);
+  expect(r.stderr).toContain('"input.input" names no frame');
+});
+
+// ── pointers are type addresses ─────────────────────────────────────────────────
+
+/** A pointer as the address it is — the rendering `schema` reads back, brackets and all. */
+function address(pointer: (string | number)[]): string {
+  return pointer
+    .map((seg) =>
+      typeof seg === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(seg)
+        ? `.${seg}`
+        : `[${JSON.stringify(seg)}]`,
+    )
+    .join("")
+    .replace(/^\./, "");
+}
+
+// Both spaces name a slot the way the DEFINITION does, so what the manifest says about where a
+// directive is can be handed to `schema type` unchanged. This feeds the pointers straight back
+// rather than re-deriving them: a rename on either side breaks it here.
+test("a manifest pointer is an address `schema type` answers", () => {
+  const p = echoProject();
+  const name = uid("import");
+  p.write("body.txt", "x");
+  const def = p.write(
+    "proc.yaml",
+    [
+      `name: ${name}`,
+      "input_schema: { type: object, properties: { n: { type: integer } }, required: [n] }",
+      "tasks:",
+      // A space in the id, so the rendering has to quote it and the address still resolves.
+      '  - id: "my call"',
+      "    action:",
+      "      type: fetch",
+      '      url: "$import: ./body.txt"',
+      "      method: POST",
+      '      body: { code: "$import: ./body.txt" }',
+      "      responses:",
+      "        200: { type: object, properties: { ok: { type: boolean } }, required: [ok] }",
+      '    output: { note: "$import: ./body.txt" }',
+      "    switch: [{ goto: end }]",
+      'output: { done: "$import: ./body.txt" }',
+      "",
+    ].join("\n"),
+  );
+
+  expect(runCli(bin, ["types", "-f", def]).ok).toBe(true);
+  const pointers = p.manifest().processes[0].sites.map((s: { pointer: (string | number)[] }) =>
+    address(s.pointer),
+  );
+  expect(pointers.sort()).toEqual([
+    'tasks["my call"].action.body.code',
+    'tasks["my call"].action.url',
+    'tasks["my call"].output.note',
+    "output.done",
+  ].sort());
+
+  // A directive is a string leaf, so where the slot has a type the answer is what it splices to.
+  const TYPED = new Set([
+    'tasks["my call"].action.body.code',
+    'tasks["my call"].output.note',
+    "output.done",
+  ]);
+  for (const at of pointers) {
+    const r = runCli(bin, ["schema", "type", name, at, "--json", "-f", def], OFFLINE);
+    if (TYPED.has(at)) {
+      expect(r.ok, `${at}: ${r.stderr}`).toBe(true);
+      expect(JSON.parse(r.stdout), at).toEqual({ type: "string" });
+      continue;
+    }
+    // `url` holds a template, not a contract boundary: a pointer promises a location, and only
+    // a location. The refusal names what the action does have rather than inventing a type.
+    expect(r.ok, `${at} names no type`).toBe(false);
+    expect(r.stderr).toContain("which holds: body, result");
+  }
+});
+
 // ── the evaluator's importer ────────────────────────────────────────────────────
 
 function tsProject(): Project {
   const p = project(
-    `resolvers:\n  import: { phase: code, ext: .ts, command: [node, ${join(REPO, "eval-node/import.ts")}] }\n`,
+    [
+      "resolvers:",
+      "  import:",
+      "    phase: code",
+      "    ext: .ts",
+      `    command: [node, ${join(REPO, "eval-node/import.ts")}]`,
+      "    types: { Input: task.action.input.input, Output: task.action.result }",
+      "",
+    ].join("\n"),
   );
   return p;
 }
@@ -526,6 +765,36 @@ test("evaluator importer — generates declarations keyed by the script's path",
   expect(decls).toContain("export type Output =");
   expect(decls).toContain("fee: number");
 }, 60_000);
+
+// genctl is agnostic about what a script is for; that an evaluation request carries its module
+// in `code` is the EVALUATOR's contract, so the evaluator is what enforces it. Its two shapes are
+// a child call to a process that forwards to it (what the scaffold generates) and an external
+// task making the same request directly.
+test("evaluator importer — a directive outside an evaluation request is refused", () => {
+  const p = tsProject();
+  p.write("fee.ts", "export default () => 1;\n");
+  const def = p.write(
+    "proc.yaml",
+    [
+      `name: ${uid("import")}`,
+      "tasks:",
+      "  - id: t",
+      "    action:",
+      "      type: fetch",
+      "      url: http://x",
+      "      method: POST",
+      '      body: { code: "$import: ./fee.ts" }',
+      "      responses: { 200: { type: object } }",
+      "    switch: [{ goto: end }]",
+      "",
+    ].join("\n"),
+  );
+
+  const r = runCli(bin, ["types", "-f", def]);
+  expect(r.ok).toBe(false);
+  expect(r.stderr).toContain("belongs in the `code` field of a child or external task's input");
+  expect(r.stderr, "and it says which slot it landed in").toContain("tasks.t.action.body.code");
+});
 
 test("evaluator importer — a type error is a failed import, so nothing is stored", () => {
   const p = tsProject();

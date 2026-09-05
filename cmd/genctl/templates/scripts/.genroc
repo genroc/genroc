@@ -9,3 +9,9 @@ resolvers:
     phase: code
     ext: .ts
     command: [npx, genroc-import]
+    # What the generated declarations are typed from, as `genctl schema type` addresses,
+    # relative to the task the import sits in. `input.input` is the argument the evaluator
+    # binds out of the action's input; `result` is what the task hands back.
+    types:
+      Input: task.action.input.input
+      Output: task.action.result
