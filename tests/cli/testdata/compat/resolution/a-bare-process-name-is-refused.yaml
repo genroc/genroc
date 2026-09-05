@@ -1,0 +1,20 @@
+# compat's only positional is an instance id. Every other selector moved to a flag because a
+# position cannot be told from an unquoted glob's leftovers: `compat *.yaml` read the files as
+# a process name, matched nothing, and reported an empty comparison with exit 0.
+apply:
+  - channel: bare_a
+    definitions:
+      - name: bare_proc
+        tasks:
+          - id: ship
+            action:
+              type: fetch
+              url: http://x
+            switch: end
+run: [bare_proc, --from, bare_a, --to, bare_a]
+
+expect: |
+  --- stderr ---
+  genctl: bare_proc: compat's only positional is an instance id. Name a process with --process bare_proc, and its versions with --from bare_proc@N --to bare_proc@M
+
+  exit 1

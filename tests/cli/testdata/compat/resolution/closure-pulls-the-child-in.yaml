@@ -44,7 +44,7 @@ apply:
               name: closure_kid
               result_schema: {type: object, properties: {id: {type: string}}, required: [id]}
             switch: end
-run: [closure_boss, 1, 2]
+run: [--process, closure_boss, --from, closure_boss@1, --to, closure_boss@2]
 
 expect: |
   closure_boss  v1 → v2  upgradable, compatible

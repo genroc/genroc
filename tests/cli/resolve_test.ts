@@ -13,10 +13,10 @@ import {
 } from "../helpers/genctl.ts";
 import { waitForParked } from "../helpers/external.ts";
 
-// The two ways to answer an external task from the CLI — `resolve` by token, `signal` by
-// instance id + task id. The `external-tasks` listing they used to be discovered through is
-// gone; a token is derived from the instance (helpers/external.ts), which is what the listing
-// was doing under the covers.
+// `resolve` answers an external task, addressed either way it can be: by the queue token a
+// worker claimed it with, or by instance id + --task. The `external-tasks` listing tasks used
+// to be discovered through is gone; a token is derived from the instance
+// (helpers/external.ts), which is what the listing was doing under the covers.
 //
 // Every test resolves what it parked, so nothing lingers for the other CLI suites.
 
@@ -98,43 +98,64 @@ test("resolve — an unknown or missing token is an error", () => {
   expect(none.stderr).toContain("usage: genctl resolve");
 });
 
-// ── signal ──────────────────────────────────────────────────────────────────────
+// ── resolve, addressed by instance id ───────────────────────────────────────────
 
-test("signal — delivers by instance id + --task and reports delivery", async () => {
+test("resolve <id> --task — delivers by instance id and reports delivery", async () => {
   const { id } = park("signal");
   await waitForExternalToken(id);
 
-  const r = runCli(bin, ["signal", id, "--task", "approval", "--set", "approved=true"]);
+  const r = runCli(bin, ["resolve", id, "--task", "approval", "--set", "approved=true"]);
   expect(r.ok).toBe(true);
-  expect(r.stdout).toContain("signaled:");
+  expect(r.stdout).toContain("resolved:");
   // (delivered) distinguishes an armed task from one that buffered the result.
   expect(r.stdout).toContain("(delivered)");
   expect(await waitForInstance(id)).toBe("completed");
 }, 30_000);
 
-test("signal @last -f — addresses @last and reads the result from a file", async () => {
+test("resolve @last -f — addresses @last and reads the result from a file", async () => {
   const { id } = park("signal_last");
   await waitForExternalToken(id);
 
   const file = join(tmpdir(), `genroc_signal_${Date.now()}.json`);
   writeFileSync(file, JSON.stringify({ approved: true }), "utf8");
 
-  expect(runCli(bin, ["signal", "@last", "--task", "approval", "-f", file]).ok).toBe(true);
+  expect(runCli(bin, ["resolve", "@last", "--task", "approval", "-f", file]).ok).toBe(true);
   expect(await waitForInstance(id)).toBe("completed");
 }, 30_000);
 
-test("signal — needs --task, and rejects a result failing result_schema", async () => {
+// The argument decides the endpoint, so a half-named address is refused rather than sent:
+// neither call can do anything with an instance id carrying no task, or a token carrying one.
+test("resolve — an address that names half a task is refused, both ways round", async () => {
+  const { id } = park("resolve_half");
+  const token = await waitForExternalToken(id);
+
+  const noTask = runCli(bin, ["resolve", id, "--set", "approved=true"]);
+  expect(noTask.ok).toBe(false);
+  expect(noTask.stderr).toContain("needs --task");
+
+  const bothWays = runCli(bin, ["resolve", token, "--task", "approval", "--set", "approved=true"]);
+  expect(bothWays.ok).toBe(false);
+  expect(bothWays.stderr).toContain("already names one task");
+
+  // Neither reached the server: the task is still parked and still resolvable.
+  expect(runCli(bin, ["resolve", token, "--set", "approved=true"]).ok).toBe(true);
+  expect(await waitForInstance(id)).toBe("completed");
+}, 30_000);
+
+test("resolve <id> — needs --task, and rejects a result failing result_schema", async () => {
   const { id } = park("signal_bad");
   await waitForExternalToken(id);
 
-  const noTask = runCli(bin, ["signal", id, "--set", "approved=true"]);
+  // An id addresses an instance, not a task: without --task the command names no slot to
+  // deliver to, and a queue token would have named one by itself.
+  const noTask = runCli(bin, ["resolve", id, "--set", "approved=true"]);
   expect(noTask.ok).toBe(false);
-  expect(noTask.stderr).toContain("usage: genctl signal");
+  expect(noTask.stderr).toContain("needs --task");
 
-  const badResult = runCli(bin, ["signal", id, "--task", "approval", "--set", "approved=notabool"]);
+  const badResult = runCli(bin, ["resolve", id, "--task", "approval", "--set", "approved=notabool"]);
   expect(badResult.ok).toBe(false);
-  expect(badResult.stderr).toContain("result is not valid for task");
+  expect(badResult.stderr).toContain("result is not valid");
 
-  runCli(bin, ["signal", id, "--task", "approval", "--set", "approved=true"]);
+  runCli(bin, ["resolve", id, "--task", "approval", "--set", "approved=true"]);
   expect(await waitForInstance(id)).toBe("completed");
 }, 30_000);

@@ -39,10 +39,15 @@ Keep new list/get commands consistent so the surface stays predictable.
   the asserted state prints `already` and exits 0, so a line that half applied is repaired
   by running it again; `get`/`logs` refuse a second positional rather than dropping it.
   specs/id-list-commands.md.
-- **An instance id may stand in for a process name.** `upgrade` and `compat` take either in
-  the same positional, told apart by shape (`isInstanceRef`: a UUID, or `@last`). An id names
-  one row, so the flags that SELECT rows — `--from`, `--status` — are refused there rather
-  than ignored: a selector that is silently overridden reads as if it applied.
+- **One positional, several kinds, told apart by shape.** `upgrade` and `compat` take an
+  instance id where a process name goes, and `resolve` takes a queue token (`<uuid>.<uuid>`)
+  where an instance id goes — `isInstanceRef` (a UUID, or `@last`) decides. An id names one
+  row, so the flags that SELECT rows — `--from`, `--status` — are refused there rather than
+  ignored: a selector that is silently overridden reads as if it applied.
+- **`resolve` is one submission with two addresses**, not two commands: same payload flags,
+  same error channel, same conforming. Addressed by instance id it may arrive before the task
+  arms, so the confirmation line says `delivered` or `buffered` — the distinction lives in the
+  output, which is where it is observable.
 - **`--json` is the one machine-readable form.** A list prints raw items as a JSON array
   via `printJSONItems` (lossless, same order as the table); a single item prints the raw
   server object (`callGet` into `json.RawMessage`, then indent). Never invent a
@@ -61,7 +66,8 @@ Deliberate exceptions — special-purpose, not resource list/get. Leave them:
   still bound `created_at` under it, as filters over the window rather than the point the
   walk starts from.
 - `channel list` prints plain `name -> vN` pointer lines (a projection, not a resource
-  object), and `status` is a coherence report, not a listing.
+  object), and `channel status` is a coherence report, not a listing — it prints nothing
+  per clean member.
 
 
 ## Which files a command reads
@@ -94,10 +100,11 @@ one flag with many values, while `-f a b --channel prod` still leaves the flag t
 `parseArgs` then parses flags appearing anywhere among the positionals, since `flag.Parse` stops
 at the first non-flag.
 
-`compat` has no positional for a process any more — `--process` replaced it. The trailing name
-collided with an unquoted glob: the leftover files were read as a process name, matched nothing,
-and reported an empty comparison with exit 0. A bare name there is now refused, and
-`looksLikePath` catches a path in any other position.
+`compat`'s only positional is an instance id — `--process` and `--from`/`--to` took over
+everything else, including the `<process> <from> <to>` triple. Every one of them read a SELECTOR
+off a position, which an unquoted glob's leftovers are indistinguishable from: the files were
+taken as a process name, matched nothing, and reported an empty comparison with exit 0. A bare
+name is now refused by name, and `looksLikePath` catches a path in any position.
 
 ## Exactness is the whole path
 

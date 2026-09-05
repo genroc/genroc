@@ -10,8 +10,7 @@
 //	genctl schema   type    <process> [address]
 //	genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
 //	genctl token   create --perms <list> [--label <name>] [-q] | list [--json] | revoke <id>...
-//	genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
-//	genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [-q]
+//	genctl resolve  <token> | <instance-id> --task <task-id>  [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
 //	genctl instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>] [--children] [--sort updated|created] [--since <when>] [--until <when>] [--json | -q]
 //	genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
 //	genctl upgrade  <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]
@@ -49,7 +48,6 @@
 //	genctl pause    <instance-id> [<instance-id> ...]
 //	genctl resume   <instance-id> [<instance-id> ...]
 //	genctl retry    [--force] <instance-id> [<instance-id> ...]
-//	genctl last
 //
 // WHICH FILES apply/types/compat read: `-f`, which takes several values and stops at
 // the next flag, preferring an existing path over any pattern reading of it and globbing only
@@ -57,9 +55,9 @@
 // never positional. `**` matches any depth. A directory is refused, naming the pattern that
 // would do it.
 //
-// get/logs/pause/resume/retry/signal require an instance id; pass @last for the most
-// recently started instance (recorded by run). `genctl last` prints that id. upgrade takes
-// either form: a process name sweeps its fleet, ids move those trees.
+// get/logs/pause/resume/retry require an instance id; pass @last for the most recently
+// started instance (recorded by run). upgrade takes either form: a process name sweeps its
+// fleet, ids move those trees; resolve takes either a queue token or an id with --task.
 //
 // pause/resume/retry act on every id named, one call each. They are assertions, so an id
 // already in the state asserted prints "already" and does NOT fail the command — which is
@@ -84,9 +82,9 @@
 //
 //	genctl channel list   <process>
 //	genctl channel set    <process> <channel> <version>
-//	genctl channel delete <process> <channel>
-//	genctl promote  --from <channel> --to <channel> [--process <name>]
-//	genctl status   --channel <channel>
+//	genctl channel delete  <process> <channel>
+//	genctl channel promote --from <channel> --to <channel> [--process <name>]
+//	genctl channel status  [<channel>]
 //	genctl config   get <key> | set <key> <value> | unset <key>
 //
 // A `$<resolver>: <path>` leaf in a source file is replaced by a string a binary named in
@@ -173,16 +171,10 @@ func main() {
 		runResolveCmd(server, args)
 	case "object":
 		runObjectCmd(server, args)
-	case "signal":
-		runSignalCmd(server, args)
 	case "get":
 		runGetCmd(server, args)
 	case "channel":
 		runChannelCmd(server, args)
-	case "promote":
-		runPromoteCmd(server, args)
-	case "status":
-		runStatusCmd(server, args)
 	case "compat":
 		runCompatCmd(server, args)
 	case "upgrade":
@@ -199,8 +191,6 @@ func main() {
 		runResumeCmd(server, args)
 	case "retry":
 		runRetryCmd(server, args)
-	case "last":
-		runLastCmd(args)
 	case "init":
 		runInitCmd(args)
 	case "config":
@@ -237,6 +227,20 @@ func instanceIDAndFlags(fs *flag.FlagSet, args []string) string {
 		fatal("%s reads one instance, and %d ids were named", fs.Name(), len(ids))
 	}
 	return ids[0]
+}
+
+// instanceIDOrToken parses resolve's one positional, which is a queue token OR an instance id.
+// It shape-checks neither: a token is the server's to recognise, and which of the two this is
+// decides the endpoint, so the caller reads the shape itself.
+func instanceIDOrToken(fs *flag.FlagSet, args []string) string {
+	pos := leadingArgs(fs, args)
+	if len(pos) == 0 {
+		fatal("resolve needs a queue token, or an instance id with --task")
+	}
+	if len(pos) > 1 {
+		fatal("resolve submits one outcome, and %d were named", len(pos))
+	}
+	return pos[0]
 }
 
 // instanceIDsAndFlags is the same parse for pause/resume/retry, which act on every id
@@ -348,8 +352,7 @@ func usageTo(w io.Writer) {
   genctl schema   context <process> [address] [-e <expression>] [-f <path|glob> ...] [--json]
   genctl schema   type    <process> [address] [-f <path|glob> ...] [--json]
   genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
-  genctl resolve  <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
-  genctl signal   <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
+  genctl resolve  <token> | <instance-id> --task <task-id>  [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
   genctl instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>] [--children] [--sort updated|created] [--since <when>] [--until <when>] [--json | -q]
   genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
   genctl upgrade  <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]
@@ -360,16 +363,14 @@ func usageTo(w io.Writer) {
   genctl pause    <instance-id> [<instance-id> ...]
   genctl resume   <instance-id> [<instance-id> ...]
   genctl retry    [--force] <instance-id> [<instance-id> ...]
-  genctl last
-  genctl compat   <process> <from> <to>
   genctl compat   --from <channel> [-f <path|glob> ...]
   genctl compat   --from <channel> --to <channel> [--process <name>]
   genctl compat   <instance-id> --to <version|channel> | <instance-id> -f file.yaml
-  genctl channel list   <process>
-  genctl channel set    <process> <channel> <version>
-  genctl channel delete <process> <channel>
-  genctl promote  --from <channel> --to <channel> [--process <name>]
-  genctl status   --channel <channel>
+  genctl channel list    <process>
+  genctl channel set     <process> <channel> <version>
+  genctl channel delete  <process> <channel>
+  genctl channel promote --from <channel> --to <channel> [--process <name>]
+  genctl channel status  [<channel>]
   genctl token    create --perms <list> [--label <name>] [-q] | generate | list [--json] | revoke <id>...
   genctl init     [dir] [--eval-node] [--no-auth] [--postgres] [--version <tag>] [-y]
   genctl init password [email]
@@ -377,11 +378,11 @@ func usageTo(w io.Writer) {
 
 Flags:
   -f        apply: definition file(s), YAML or JSON, multi-doc --- (repeatable);
-            run/resolve/signal: read the input/result/payload from a file (path — tab-completes)
+            run/resolve: read the input/result/payload from a file (path — tab-completes)
   --input   process input: a JSON/YAML literal, or - for stdin
-  --result  external-task result (resolve/signal): a JSON/YAML literal, or - for stdin
-  --task    the external task id to signal
-  --code    resolve/signal: answer on the ERROR channel with this code; the result
+  --result  external-task result (resolve): a JSON/YAML literal, or - for stdin
+  --task    resolve: the external task to deliver to, when addressing by instance id
+  --code    resolve: answer on the ERROR channel with this code; the result
             flags then carry the failure payload, conformed against raises[code]
   --message required with --code; lands on error.message
   --set     input/result/payload field key=value (repeatable; dotted keys nest, values type-inferred)
@@ -432,11 +433,11 @@ Time zones:
               genctl pause $(genctl instances -q --status running)
               genctl instances -q --status failed | xargs genctl retry
             The cap still applies and still reports on stderr, so a fleet wider than 20
-            needs --since; with resolve/signal, suppress the confirmation line
+            needs --since; with resolve, suppress the confirmation line
 
 Instance id:
-  get/logs/pause/resume/retry/signal require an instance id; pass @last for the most
-  recently started instance (recorded by run), or run "genctl last" to print it.
+  get/logs/pause/resume/retry require an instance id; pass @last for the most
+  recently started instance (recorded by run).
   pause/resume/retry take several, one call each. They assert a state, so an id already
   in it prints "already" and does not fail the command; run the same line again to
   finish one that was only half applied. A refusal stops neither the ids after it nor
@@ -450,11 +451,12 @@ Instance id:
 External tasks:
   A worker enumerates the queue by CLAIMING it -- there is no listing endpoint; the one
   that existed was the polling shape claim/renew/release replaced.
-  resolve takes a task's resolve token (the "<instance-id>.<nonce>" TOKEN column
-  from that list); signal addresses a task by instance id + --task and buffers the
-  result if the task is not armed yet. Both answer on the error channel with
-  --code/--message instead of a result: the code is routed through the task's
-  on_error rules like any other call error, and buffers the same way.
+  resolve takes either a task's resolve token (the "<instance-id>.<nonce>" TOKEN
+  column from that list) or an instance id with --task, which buffers the result if
+  the task is not armed yet -- one submission, addressed the two ways it can be.
+  Either way --code/--message answers on the error channel instead of with a result:
+  the code is routed through the task's on_error rules like any other call error,
+  and buffers the same way.
 
 Config keys (~/.config/genroc/config.yaml, mode 0600):
   server    genroc server base URL                    ($GENROC_SERVER wins)

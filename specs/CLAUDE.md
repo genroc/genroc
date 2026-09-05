@@ -549,7 +549,7 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   decorator does not, with `durability-levels.md` named as the signal to reopen.
 - [docs-site.md](docs-site.md) — the user-facing documentation site, and the only doc here
   about **user-facing tooling rather than the language**. The gap it fills is *reference*: nothing today
-  says what `accepted_status` accepts or what `genctl promote` does. Draws the
+  says what `accepted_status` accepts or what `genctl channel promote` does. Draws the
   spec-vs-doc line quoted above, and follows it: `docs/` is shipped behavior only, the site
   never links into `specs/`, and the explanation a *user* needs lives in guides rather than
   being outsourced to a spec's argument. Records why plain Astro

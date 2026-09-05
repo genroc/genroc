@@ -10,7 +10,7 @@ stand-in.
 ## The gap is genre, not volume
 
 ~350 KB of prose, none of it user-facing **reference**: nowhere to look up what
-`accepted_status` accepts or what `genctl promote` does — the answers live in struct
+`accepted_status` accepts or what `genctl channel promote` does — the answers live in struct
 tags and half-proposal specs. Hence the `docs/`→`specs/` rename: a directory called
 docs whose contents are half proposal is a trap.
 

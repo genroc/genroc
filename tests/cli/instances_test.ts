@@ -707,13 +707,12 @@ test("get and logs read one instance — a second id is refused, not dropped", (
   expect(runCli(bin, ["logs", first, second]).ok).toBe(false);
 });
 
-// ── last / @last ────────────────────────────────────────────────────────────────
+// ── @last ───────────────────────────────────────────────────────────────────────
 
-test("last and @last — address the most recently started instance", () => {
+test("@last — addresses the most recently started instance", () => {
   const name = apply(inputDef(uid("proc")));
   const id = runCli(bin, ["run", name, "--set", "count=7", "-q"]).stdout.trim();
 
-  expect(runCli(bin, ["last"]).stdout.trim()).toBe(id);
   expect(runCli(bin, ["get", "@last", "--json"]).stdout).toContain(`"${id}"`);
   expect(runCli(bin, ["logs", "@last"]).ok).toBe(true);
 });

@@ -87,7 +87,7 @@ test("commands that need an argument say which one", () => {
     { args: ["channel", "list"], want: "usage: genctl channel list" },
     { args: ["channel", "set", "p"], want: "usage: genctl channel set" },
     { args: ["channel", "delete", "p"], want: "usage: genctl channel delete" },
-    { args: ["promote", "--from", "a"], want: "--from and --to are required" },
+    { args: ["channel", "promote", "--from", "a"], want: "--from and --to are required" },
     { args: ["get"], want: "an instance id is required" },
     { args: ["resolve"], want: "usage: genctl resolve" },
   ];

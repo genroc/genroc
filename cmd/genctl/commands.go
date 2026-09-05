@@ -148,16 +148,22 @@ func runTypesCmd(args []string) {
 
 func runChannelCmd(server string, args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: genctl channel <list|set|delete> ...")
+		fmt.Fprintln(os.Stderr, "Usage: genctl channel <list|set|delete|promote|status> ...")
 		os.Exit(1)
 	}
 
-	fs := flag.NewFlagSet("channel", flag.ExitOnError)
+	sub, args := args[0], args[1:]
+	fs := flag.NewFlagSet("channel "+sub, flag.ExitOnError)
 	serverFlag := addServerFlag(fs, server)
-	fs.Parse(args[1:])
+	// promote's own selectors. Declared here rather than in a nested flag set because the
+	// stdlib parses one set per call, and every other subcommand takes its arguments
+	// positionally.
+	fromFlag := fs.String("from", "", "promote: source channel")
+	toFlag := fs.String("to", "", "promote: target channel")
+	processFlag := fs.String("process", "", "promote: limit to this process and its dependency subtree")
+	fs.Parse(args)
 	rest := fs.Args()
 
-	sub := args[0]
 	switch sub {
 	case "list":
 		if len(rest) < 1 {
@@ -212,46 +218,42 @@ func runChannelCmd(server string, args []string) {
 		}
 		fmt.Printf("deleted: %s@%s\n", rest[0], rest[1])
 
+	case "promote":
+		if *fromFlag == "" || *toFlag == "" {
+			fatal("--from and --to are required")
+		}
+		body := map[string]any{"from": *fromFlag, "to": *toFlag}
+		if *processFlag != "" {
+			body["process"] = *processFlag
+		}
+		var resp struct {
+			From     string           `json:"from"`
+			To       string           `json:"to"`
+			Promoted []map[string]any `json:"promoted"`
+		}
+		if err := call(*serverFlag+"/api/channels/promote", http.MethodPost, body, &resp); err != nil {
+			fatal("%v", err)
+		}
+		for _, p := range resp.Promoted {
+			fmt.Printf("promoted: %v@v%v -> %s\n", p["name"], p["version"], resp.To)
+		}
+
+	case "status":
+		channelStatus(*serverFlag, rest)
+
 	default:
 		fatal("unknown channel subcommand %q", sub)
 	}
 }
 
-func runPromoteCmd(server string, args []string) {
-	fs := flag.NewFlagSet("promote", flag.ExitOnError)
-	serverFlag := addServerFlag(fs, server)
-	fromFlag := fs.String("from", "", "source channel")
-	toFlag := fs.String("to", "", "target channel")
-	processFlag := fs.String("process", "", "limit to this process and its dependency subtree (optional)")
-	fs.Parse(args)
-
-	if *fromFlag == "" || *toFlag == "" {
-		fatal("--from and --to are required")
+// channelStatus reports the child references a channel's members baked at a version the
+// channel no longer points at -- a coherence report, not a listing, which is why it prints
+// nothing per clean member.
+func channelStatus(server string, rest []string) {
+	channel := "latest"
+	if len(rest) > 0 {
+		channel = rest[0]
 	}
-
-	body := map[string]any{"from": *fromFlag, "to": *toFlag}
-	if *processFlag != "" {
-		body["process"] = *processFlag
-	}
-
-	var resp struct {
-		From     string           `json:"from"`
-		To       string           `json:"to"`
-		Promoted []map[string]any `json:"promoted"`
-	}
-	if err := call(*serverFlag+"/api/channels/promote", http.MethodPost, body, &resp); err != nil {
-		fatal("%v", err)
-	}
-	for _, p := range resp.Promoted {
-		fmt.Printf("promoted: %v@v%v -> %s\n", p["name"], p["version"], resp.To)
-	}
-}
-
-func runStatusCmd(server string, args []string) {
-	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	serverFlag := addServerFlag(fs, server)
-	channelFlag := fs.String("channel", "latest", "channel to inspect")
-	fs.Parse(args)
 
 	var resp []struct {
 		Name      string `json:"name"`
@@ -263,8 +265,8 @@ func runStatusCmd(server string, args []string) {
 			ChannelVersion int    `json:"channel_version"`
 		} `json:"stale_refs"`
 	}
-	if err := call(*serverFlag+"/api/channels/status", http.MethodPost,
-		map[string]any{"channel": *channelFlag}, &resp); err != nil {
+	if err := call(server+"/api/channels/status", http.MethodPost,
+		map[string]any{"channel": channel}, &resp); err != nil {
 		fatal("%v", err)
 	}
 
@@ -281,7 +283,7 @@ func runStatusCmd(server string, args []string) {
 		}
 	}
 	if allClean {
-		fmt.Printf("channel %q is coherent\n", *channelFlag)
+		fmt.Printf("channel %q is coherent\n", channel)
 	}
 }
 
@@ -346,14 +348,23 @@ func runRunCmd(server string, args []string) {
 	fmt.Printf("started: %s  %s@v%d  (%s)\n", resp.ID, resp.Process, resp.Version, resp.Status)
 }
 
+// runResolveCmd submits an outcome for an external task, addressed either way it can be: by
+// the queue token a worker claimed it with, or by instance id + --task. The second may arrive
+// BEFORE the task arms, in which case the server buffers it FIFO -- which is why the line it
+// prints names what happened rather than just the id.
+//
+// One command because the two are one submission: same payload flags, same error channel,
+// same conforming against what the task declares. A token is `<uuid>.<uuid>`, an instance ref
+// a bare UUID or @last, so the argument says which endpoint it is for.
 func runResolveCmd(server string, args []string) {
 	if len(args) == 0 {
-		fatal("usage: genctl resolve <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]")
+		fatal("usage: genctl resolve <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]\n" +
+			"       genctl resolve <instance-id> --task <task-id> [same flags]")
 	}
-	token := args[0]
 
 	fs := flag.NewFlagSet("resolve", flag.ExitOnError)
 	serverFlag := addServerFlag(fs, server)
+	taskFlag := fs.String("task", "", "with an instance id: the external task to deliver to")
 	resultFlag := fs.String("result", "", "result as a JSON/YAML literal, or - for stdin")
 	fileFlag := fs.String("f", "", "read result/payload from a file (path)")
 	codeFlag := fs.String("code", "", "answer on the ERROR channel with this code (lower_snake_case, no dots)")
@@ -362,7 +373,19 @@ func runResolveCmd(server string, args []string) {
 	fs.Var(&sets, "set", "set a result/payload field: key=value (repeatable; dotted keys nest, values are type-inferred)")
 	quietFlag := fs.Bool("quiet", false, "on success print nothing (exit 0); by default prints a confirmation line")
 	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")
-	fs.Parse(args[1:])
+	// The reference is the sole positional, before or after flags; @last resolves here.
+	ref := instanceIDOrToken(fs, args)
+
+	// Which of the two the argument is decides the endpoint, so a half-named address is
+	// refused rather than sent: neither server call can do anything useful with it.
+	byInstance := isInstanceRef(ref)
+	switch {
+	case byInstance && *taskFlag == "":
+		fatal("resolve %s: an instance id needs --task <task-id>; a queue token addresses the task by itself", ref)
+	case !byInstance && *taskFlag != "":
+		fatal("resolve %s: --task names a task on an INSTANCE, and this is not an instance id — "+
+			"a queue token already names one task", ref)
+	}
 
 	// A missing --result/-f/--set means an empty result: valid for a task with no
 	// result_schema, and rejected by the server otherwise (surfaced below).
@@ -371,12 +394,18 @@ func runResolveCmd(server string, args []string) {
 		fatal("%v", err)
 	}
 
-	body := outcomeBody(map[string]any{"token": token}, payload, *codeFlag, *messageFlag)
+	endpoint, target := "/api/external-tasks/resolve", map[string]any{"token": ref}
+	if byInstance {
+		id := resolveInstanceID(ref)
+		endpoint, target = "/api/external-tasks/signal", map[string]any{"instance_id": id, "task_id": *taskFlag}
+		ref = id
+	}
 
 	var resp struct {
 		Resolved bool `json:"resolved"`
+		Buffered bool `json:"buffered"`
 	}
-	if err := call(*serverFlag+"/api/external-tasks/resolve", http.MethodPost, body, &resp); err != nil {
+	if err := call(*serverFlag+endpoint, http.MethodPost, outcomeBody(target, payload, *codeFlag, *messageFlag), &resp); err != nil {
 		// Surface a result-schema mismatch as a clear, dedicated message instead of the
 		// generic "server: ..." wrapper (mirrors run's input-validation handling).
 		if detail, ok := resultValidationError(err); ok {
@@ -387,11 +416,19 @@ func runResolveCmd(server string, args []string) {
 	if *quietFlag {
 		return
 	}
-	if *codeFlag != "" {
-		fmt.Printf("resolved: %s (error %s)\n", token, *codeFlag)
-		return
+
+	line := "resolved: " + ref
+	if byInstance {
+		state := "delivered"
+		if resp.Buffered {
+			state = "buffered"
+		}
+		line = fmt.Sprintf("resolved: %s  task=%s  (%s)", ref, *taskFlag, state)
 	}
-	fmt.Printf("resolved: %s\n", token)
+	if *codeFlag != "" {
+		line += " (error " + *codeFlag + ")"
+	}
+	fmt.Println(line)
 }
 
 // outcomeBody puts the payload on the channel --code selects: the error half when a code is
@@ -411,55 +448,6 @@ func outcomeBody(body map[string]any, payload any, code, message string) map[str
 	}
 	body["error"] = fail
 	return body
-}
-
-// runSignalCmd delivers an outcome to an instance's external task by id + --task (not a queue
-// token like resolve): resolved now if the task is armed, else buffered FIFO until armed.
-func runSignalCmd(server string, args []string) {
-	fs := flag.NewFlagSet("signal", flag.ExitOnError)
-	serverFlag := addServerFlag(fs, server)
-	taskFlag := fs.String("task", "", "the external task id to signal")
-	resultFlag := fs.String("result", "", "result as a JSON/YAML literal, or - for stdin")
-	fileFlag := fs.String("f", "", "read result/payload from a file (path)")
-	codeFlag := fs.String("code", "", "answer on the ERROR channel with this code (lower_snake_case, no dots)")
-	messageFlag := fs.String("message", "", "with --code: human-readable cause; lands on error.message")
-	var sets multiFlag
-	fs.Var(&sets, "set", "set a result/payload field: key=value (repeatable; dotted keys nest, values are type-inferred)")
-	quietFlag := fs.Bool("quiet", false, "on success print nothing (exit 0); by default prints a confirmation line")
-	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")
-	// The instance id is the sole positional (before or after flags); resolves @last.
-	id := instanceIDAndFlags(fs, args)
-
-	if *taskFlag == "" {
-		fatal("usage: genctl signal <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]")
-	}
-
-	payload, _, err := buildInput(*resultFlag, *fileFlag, sets)
-	if err != nil {
-		fatal("%v", err)
-	}
-
-	body := outcomeBody(map[string]any{"instance_id": id, "task_id": *taskFlag}, payload, *codeFlag, *messageFlag)
-
-	var resp struct {
-		Delivered bool `json:"delivered"`
-		Buffered  bool `json:"buffered"`
-	}
-	if err := call(*serverFlag+"/api/external-tasks/signal", http.MethodPost, body, &resp); err != nil {
-		// Surface a result-schema mismatch as a dedicated message (mirrors resolve/run).
-		if detail, ok := resultValidationError(err); ok {
-			fatal("result is not valid for task %q:\n  %s", *taskFlag, detail)
-		}
-		fatal("%v", err)
-	}
-	if *quietFlag {
-		return
-	}
-	state := "delivered"
-	if resp.Buffered {
-		state = "buffered"
-	}
-	fmt.Printf("signaled: %s  task=%s  (%s)\n", id, *taskFlag, state)
 }
 
 func runGetCmd(server string, args []string) {
@@ -964,24 +952,8 @@ func runRetryCmd(server string, args []string) {
 	})
 }
 
-func runLastCmd(args []string) {
-	fmt.Println(resolveInstanceID("@last"))
-}
-
-func loadDefs(files []string) ([]any, error) {
-	docs, err := loadSourceDocs(files)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]any, len(docs))
-	for i, d := range docs {
-		out[i] = d.doc
-	}
-	return out, nil
-}
-
-// loadSourceDocs is loadDefs keeping the file each document came from: a directive's path
-// resolves against it, and an error has to name it.
+// loadSourceDocs keeps the file each document came from: a directive's path resolves against
+// it, and an error has to name it.
 func loadSourceDocs(files []string) ([]sourceDoc, error) {
 	var all []sourceDoc
 	for _, path := range files {
@@ -1428,27 +1400,20 @@ func runCompatCmd(server string, args []string) {
 			fatal("%v", err)
 		}
 		from, to = parseSelector("from", fromFlag), map[string]any{"definitions": defs}
-	case len(pos) == 3:
-		// Sugar for the single-process case. The server closes each side over the child
-		// versions that version was registered against, so this still compares the graph.
-		fromV, err := strconv.Atoi(pos[1])
-		toV, err2 := strconv.Atoi(pos[2])
-		if err != nil || err2 != nil {
-			fatal("usage: genctl compat <process> <from-version> <to-version>")
-		}
-		process = pos[0]
-		from = map[string]any{"versions": map[string]any{process: fromV}}
-		to = map[string]any{"versions": map[string]any{process: toV}}
 	default:
 		if len(fromFlag) == 0 || len(toFlag) == 0 {
-			fatal("usage: genctl compat <process> <from> <to>\n" +
-				"       genctl compat --from <sel> [-f <path|glob> ...]\n" +
+			fatal("usage: genctl compat --from <sel> [-f <path|glob> ...]\n" +
 				"       genctl compat --from <sel> --to <sel> [--process <name>]\n" +
 				"       genctl compat <instance-id> --to <version|channel>")
 		}
 		from, to = parseSelector("from", fromFlag), parseSelector("to", toFlag)
-		if len(pos) == 1 {
-			fatal("%s: a bare name here is ambiguous; narrow with --process %s", pos[0], pos[0])
+		// The one positional form left is an instance id, so a name here is the dropped
+		// `compat <process> <from> <to>` sugar -- which read a selector off a position and so
+		// could not be told from an unquoted glob's leftovers.
+		if len(pos) > 0 {
+			fatal("%s: compat's only positional is an instance id. Name a process with "+
+				"--process %s, and its versions with --from %s@N --to %s@M",
+				pos[0], pos[0], pos[0], pos[0])
 		}
 	}
 	// --process narrows any form. It replaced a trailing positional, which collided with an

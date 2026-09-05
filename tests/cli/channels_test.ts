@@ -72,7 +72,7 @@ test("promote — copies every pointer from one channel to another", () => {
   const from = applyOn([switchDef(a), switchDef(b)], uid("from"));
   const to = uid("to");
 
-  const r = runCli(bin, ["promote", "--from", from, "--to", to]);
+  const r = runCli(bin, ["channel", "promote", "--from", from, "--to", to]);
   expect(r.ok).toBe(true);
   expect(r.stdout).toContain(`promoted: ${a}@v1 -> ${to}`);
   expect(r.stdout).toContain(`promoted: ${b}@v1 -> ${to}`);
@@ -87,7 +87,7 @@ test("promote --process — moves only that process and its dependency subtree",
   const from = applyOn([switchDef(child), childDef(parent, child), switchDef(unrelated)], uid("from"));
   const to = `${from}_out`;
 
-  expect(runCli(bin, ["promote", "--from", from, "--to", to, "--process", parent]).ok).toBe(true);
+  expect(runCli(bin, ["channel", "promote", "--from", from, "--to", to, "--process", parent]).ok).toBe(true);
 
   expect(runCli(bin, ["channel", "list", parent]).stdout).toContain(to);
   // The subtree comes along; anything outside it does not.
@@ -96,7 +96,7 @@ test("promote --process — moves only that process and its dependency subtree",
 });
 
 test("promote — both --from and --to are required", () => {
-  for (const args of [["promote", "--from", "staging"], ["promote", "--to", "prod"], ["promote"]]) {
+  for (const args of [["channel", "promote", "--from", "staging"], ["channel", "promote", "--to", "prod"], ["channel", "promote"]]) {
     const r = runCli(bin, args);
     expect(r.ok).toBe(false);
     expect(r.stderr).toContain("--from and --to are required");
@@ -110,7 +110,7 @@ test("status — reports a channel coherent while parent and child agree", () =>
   const parent = uid("parent");
   const channel = applyOn([switchDef(child), childDef(parent, child)], uid("track"));
 
-  const r = runCli(bin, ["status", "--channel", channel]);
+  const r = runCli(bin, ["channel", "status", channel]);
   expect(r.ok).toBe(true);
   expect(r.stdout).toContain(`channel "${channel}" is coherent`);
 });
@@ -124,7 +124,7 @@ test("status — reports a stale ref when a child advances without its parent", 
   const child2 = { ...switchDef(child), tasks: [{ id: "s2", switch: [{ goto: "end" }] }] };
   applyOn([child2], channel);
 
-  const r = runCli(bin, ["status", "--channel", channel]);
+  const r = runCli(bin, ["channel", "status", channel]);
   expect(r.ok).toBe(true);
   expect(r.stdout).toContain("STALE");
   expect(r.stdout).toContain(parent);
@@ -167,12 +167,12 @@ test("status — stale refs are ordered deterministically by child name", () => 
     applyOn([next], channel);
   }
 
-  const out = runCli(bin, ["status", "--channel", channel]).stdout;
+  const out = runCli(bin, ["channel", "status", channel]).stdout;
   expect(out.indexOf(childA)).toBeLessThan(out.indexOf(childB));
 });
 
 test("status — defaults to the latest channel", () => {
-  const r = runCli(bin, ["status"]);
+  const r = runCli(bin, ["channel", "status"]);
   expect(r.ok).toBe(true);
   expect(r.stdout).toMatch(/channel "latest" is coherent|STALE/);
 });
