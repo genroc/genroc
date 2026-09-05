@@ -149,8 +149,8 @@ process parked on an <code>external</code> task, that can be weeks.</p>
 <p><code>genctl compat</code> compares two versions and reports what changed, so a change that would
 strand running work is visible before it is deployed rather than after.</p>
 <h2 id="comparing-two-versions">Comparing two versions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#comparing-two-versions"><span></span></a></h2>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>genctl compat &lt;process&gt; &lt;from-version&gt; &lt;to-version&gt;</span></span>
-<span class="line"><span>genctl compat --from stable --to latest [&lt;process&gt;]</span></span>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>genctl compat --from orders@1 --to orders@2 --process orders</span></span>
+<span class="line"><span>genctl compat --from stable --to latest [--process &lt;name&gt;]</span></span>
 <span class="line"><span>genctl compat --from boss@1 --from kid@1 --to boss@2 --to kid@3</span></span>
 <span class="line"><span>genctl compat -f ./processes/*.yaml --from latest</span></span></code></pre>
 <p><code>--from</code> and <code>--to</code> are repeatable. A side is <strong>either</strong> one channel <strong>or</strong> one-or-more
@@ -261,7 +261,7 @@ own.</p>
 <h3 id="a-comparison-covers-the-graph-not-one-process">A comparison covers the graph, not one process<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#a-comparison-covers-the-graph-not-one-process"><span></span></a></h3>
 <p>Whatever you name is closed over the child versions those definitions were <strong>registered
 against</strong>, so a parent is never judged without the children it calls:</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>genctl compat order_pipeline 2 3</span></span></code></pre>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>genctl compat --from order_pipeline@2 --to order_pipeline@3 --process order_pipeline</span></span></code></pre>
 <p>…resolves the <code>from</code> side to <code>order_pipeline@2</code> plus whatever child versions it was
 registered with, and the <code>to</code> side to <code>order_pipeline@3</code> plus its own. A pin you write
 yourself wins over one a dependency supplies. Nothing is hidden — the report prints a line
