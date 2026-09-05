@@ -183,6 +183,7 @@ test("apply — the manifest carries the inferred input type and the declared ou
   // Shaped like the definition: the task by ID, then the document's own keys. What KIND of
   // action it is rides beside the address as a field, not inside it.
   expect(site.pointer).toEqual(["tasks", "call", "action", "body", "code"]);
+  expect(site.level, "which namespace it sits in").toBe("action");
   expect(site.action, "what the site IS, beside where it is").toBe("fetch");
   expect(site.argument, "verbatim: genctl does not read it as a path").toBe("./body.txt");
 
@@ -645,6 +646,35 @@ function address(pointer: (string | number)[]): string {
 // Both spaces name a slot the way the DEFINITION does, so what the manifest says about where a
 // directive is can be handed to `schema type` unchanged. This feeds the pointers straight back
 // rather than re-deriving them: a rename on either side breaks it here.
+// A site's level is which namespace it is in, and the action's type is reported only where the
+// directive is actually IN the action: a switch case is the task's, and calling it a delay site
+// would describe the wrong thing.
+test("a site says which level it is at, and only an action site names the action", () => {
+  const p = echoProject();
+  const name = uid("import");
+  p.write("f.txt", "x");
+  const def = p.write(
+    "proc.yaml",
+    [
+      `name: ${name}`,
+      "tasks:",
+      "  - id: wait",
+      "    action: { type: delay, for: 5s }",
+      '    switch: [{ case: "$import: ./f.txt", goto: end }]',
+      'output: { done: "$import: ./f.txt" }',
+      "",
+    ].join("\n"),
+  );
+
+  expect(runCli(bin, ["types", "-f", def]).ok).toBe(true);
+  const sites = p.manifest().processes[0].sites as Record<string, unknown>[];
+  const at = (level: string) => sites.find((s) => s.level === level)!;
+
+  expect(at("task").task).toBe("wait");
+  expect(at("task").action, "a switch case is not in the action").toBeUndefined();
+  expect(at("process").task, "and the process output is in no task at all").toBeUndefined();
+});
+
 test("a manifest pointer is an address `schema type` answers", () => {
   const p = echoProject();
   const name = uid("import");

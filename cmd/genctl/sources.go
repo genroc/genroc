@@ -89,10 +89,15 @@ type site struct {
 	// either — but the pass needs it to know which types to resolve against.
 	Resolver string `json:"-"`
 	Process  string `json:"-"`
-	Task     string `json:"task,omitempty"`
+	// Level is which namespace the directive sits in — `process`, `task` or `action`. The two
+	// task-side ones share no slot names by accident (the `action` segment keeps them apart),
+	// and a resolver that must know where it landed should not parse the pointer for it.
+	Level string `json:"level"`
+	Task  string `json:"task,omitempty"`
 	// Action is the task's action type and Child the process a child action calls: what the
 	// site IS, which a resolver would otherwise have to read the definition for. Facts about
-	// the site, not steps in its address.
+	// the site, not steps in its address — and set only AT action level, since a switch case
+	// is not in the action and saying what type it is would describe the wrong thing.
 	Action string `json:"action,omitempty"`
 	Child  string `json:"child,omitempty"`
 	// Pointer is where the directive sits, shaped like the definition: keys and indices rather
@@ -254,7 +259,8 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 					docIdx:   i,
 				}
 				s.Task = enclosingTaskID(sd.doc, loc)
-				if task := enclosingTask(sd.doc, loc); task != nil {
+				s.Level = levelOf(loc)
+				if task := enclosingTask(sd.doc, loc); task != nil && s.Level == levelAction {
 					action, _ := task["action"].(map[string]any)
 					s.Action, _ = action["type"].(string)
 					s.Child, _ = action["name"].(string)
@@ -300,6 +306,26 @@ func enclosingTask(doc any, loc []any) map[string]any {
 	}
 	task, _ := tasks[idx].(map[string]any)
 	return task
+}
+
+// The three namespaces a directive can sit in. `task` and `action` are separate because the
+// `action` segment keeps their slot names apart, and a site in one is not in the other.
+const (
+	levelProcess = "process"
+	levelTask    = "task"
+	levelAction  = "action"
+)
+
+// levelOf reads the level off the document path: a directive under a task's `action` key is in
+// the action, one elsewhere under a task is the task's, and anything else is the definition's.
+func levelOf(loc []any) string {
+	if len(loc) < 2 || loc[0] != "tasks" {
+		return levelProcess
+	}
+	if len(loc) > 2 && loc[2] == "action" {
+		return levelAction
+	}
+	return levelTask
 }
 
 // slotPointer is where a directive sits, shaped like the definition: the task by ID rather than

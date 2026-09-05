@@ -206,6 +206,7 @@ stdin:
       "file": "weather.genroc.yaml",
       "sites": [
         {
+          "level": "action",                 // process | task | action
           "task": "summarize", "action": "child", "child": "script-node",
           "pointer": ["tasks", "summarize", "action", "input", "code"],  // shaped like the YAML
           "argument": "./summarize.ts",                        // verbatim, after `$import:`
@@ -245,10 +246,14 @@ Exact rules, each removing a convention someone would otherwise have to guess:
   directive fills, because both spaces name a slot the way the definition does
   (schema-command.md §2). Where the slot has none — `url`, a `raise` message — the pointer is
   just a location, which is all a pointer promises.
-- **What the site IS travels beside it, as fields**: `action` (the action's type) and `child`
-  (the process a child action calls). A task has exactly one action, so putting its type in the
-  path would name no choice — and a resolver that wants to check where it landed would otherwise
-  have to read the definition, which the manifest no longer carries.
+- **What the site IS travels beside it, as fields**: `level` — which namespace the directive
+  sits in — plus `action` (the action's type) and `child` (the process a child action calls). A
+  task has exactly one action, so putting its type in the path would name no choice; it travels
+  as a field because a resolver that wants to check where it landed would otherwise have to read
+  the definition, which the manifest no longer carries. **`action` and `child` appear only at
+  `level: "action"`**: a `switch` case is the TASK's, so reporting the action's type there would
+  describe a slot the directive is not in. `task` is absent at `level: "process"`, where there is
+  no task to name.
 - An ARRAY rather than an RFC 6901 string: a string makes every recipient unescape `~0`/`~1`,
   and cannot tell the object key `"0"` from index `0`. object-store.md made the same choice for
   the same reason.

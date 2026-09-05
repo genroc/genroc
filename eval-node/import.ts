@@ -23,8 +23,10 @@ import ts from "typescript";
 type Schema = Record<string, any>;
 
 type Site = {
+  // Which namespace the directive sits in: `process`, `task` or `action`.
+  level: "process" | "task" | "action";
   task?: string;
-  // What the site IS: the task's action type, and the process a child action calls.
+  // What the site IS, at action level: the action's type, and the process a child call names.
   action?: string;
   child?: string;
   // The slot as a path of keys and indices, so nothing has to unescape a JSON Pointer.
@@ -447,7 +449,7 @@ for (const at of located) {
   // it the directive sits is the pointer. A child call is the shape the scaffold generates — to a
   // process that forwards to the evaluator — and an external task is the same request made
   // directly.
-  const kind = at.site.action ?? "";
+  const kind = at.site.level === "action" ? (at.site.action ?? "") : "";
   const slot = at.site.pointer.slice(-2).join(".");
   if ((kind !== "child" && kind !== "external") || slot !== "input.code") {
     die(
