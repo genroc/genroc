@@ -17,7 +17,6 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"strconv"
@@ -51,7 +50,7 @@ type instanceRow struct {
 }
 
 func runUpgradeCmd(server string, args []string) {
-	fs := flag.NewFlagSet("upgrade", flag.ExitOnError)
+	fs := newFlagSet("upgrade", args)
 	fromFlag := fs.String("from", "",
 		"the version instances are on now: a number, or a channel name. Selects the sweep; instance ids need no --from")
 	toFlag := fs.String("to", "", "the version to move them to: a number, or a channel name")

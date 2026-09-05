@@ -8,7 +8,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"maps"
 	"os"
@@ -24,9 +23,11 @@ import (
 
 func runSchemaCmd(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: genctl schema context <process> [address] [-e <expression>] [-f <path|glob> ...]\n"+
-			"       genctl schema type    <process> [address] [-f <path|glob> ...]")
-		os.Exit(1)
+		missingSubcommand("schema")
+	}
+	if hasHelpArg(args[:1]) {
+		helpFor("schema")
+		return
 	}
 	switch args[0] {
 	case "context":
@@ -77,7 +78,7 @@ var typeView = schemaView{
 // runSchemaViewCmd is both subcommands: an address answers with one document, no address lists
 // what can be asked. specs/schema-command.md.
 func runSchemaViewCmd(v schemaView, args []string) {
-	fs := flag.NewFlagSet("schema "+v.name, flag.ExitOnError)
+	fs := newFlagSet("schema "+v.name, args)
 	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
 		"and repeats")
 	asJSON := fs.Bool("json", false, v.jsonHelp)

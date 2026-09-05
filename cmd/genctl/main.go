@@ -1,103 +1,27 @@
-// genctl is a command-line gateway to a running genroc server, inspired by kubectl.
-// It reads process definition files (YAML or JSON, multi-document via ---) and
-// forwards them to the server in a single API call.
+// genctl is a command-line gateway to a running genroc server, inspired by kubectl. It reads
+// process definition files (YAML or JSON, multi-document via ---) and forwards them to the
+// server in a single API call.
 //
-// Usage:
+// THE USER-FACING SURFACE IS help.go. Every command's grammar, its prose and its one-line
+// summary live in `commandDocs`; `genctl <cmd> -h` prints that page plus the flags the
+// command's own flag set declares. A usage line repeated here would be a second copy to keep
+// true. Conventions and the deliberate exceptions: cmd/genctl/CLAUDE.md.
 //
-//	genctl apply    [-f <path|glob> ...] [--channel latest] [--check-only] [--json]
-//	genctl types    [-f <path|glob> ...]
-//	genctl schema   context <process> [address] [-e <expression>]
-//	genctl schema   type    <process> [address]
-//	genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
-//	genctl token   create --perms <list> [--label <name>] [-q] | list [--json] | revoke <id>...
-//	genctl resolve  <token> | <instance-id> --task <task-id>  [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
-//	genctl instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>] [--children] [--sort updated|created] [--since <when>] [--until <when>] [--json | -q]
-//	genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
-//	genctl upgrade  <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]
-//	genctl upgrade  <instance-id> [<instance-id> ...] --to <version|channel> [--json]
-//	genctl get      <instance-id> [--resolve] [--json]
-//	genctl object   <ref>
-//	genctl logs     [--level <level>] [--since <when>] [--until <when>] [--time clock|full] [--recursive] [--mode basic|detail|json] <instance-id>
+// Two notes about the CODE rather than the surface:
 //
-// Every list endpoint sorts newest-first. No list command takes --limit: each is capped
-// instead — 20 rows, 200 for logs — and says on stderr when the cap dropped anything, so
-// nothing is truncated in silence. The cap is a guard against dumping an unbounded table,
-// not a page size.
-//
-// --since lifts it. It takes a duration back from now (2h, 45m) or a timestamp, and is a
-// CLI-side helper only: it resolves to unix millis and goes out as the endpoint's
-// created_after or updated_after — whichever column the active sort keys on — together
-// with order=asc. So past the cap the read walks forward from that point toward now,
-// printing pages as they arrive, in the same direction it displays.
-//
-// --until is its other end, same forms, sent as *_before. The two make the half-open
-// window [since, until), so adjacent windows never repeat the row on their boundary. On
-// its own --until leaves the cap in place, which reads as "the newest N before then" —
-// what was happening at that moment.
-//
-// Rows print oldest→newest either way, so the most recent is at the bottom, nearest the
-// prompt (like tail). logs additionally carries a day separator per date in its time
-// column; --time full puts the date on every row instead.
-//
-// Times display in — and --since/--until are read in — the local zone ($TZ), so a
-// timestamp read off a row can be passed straight back. --mode json is the exception: it
-// forwards the server's UTC RFC3339 verbatim, so machine output never depends on who ran
-// the command. A *duration* resolves against this machine's clock rather than the
-// server's; see parseWhen for when that distinction bites.
-//
-//	genctl pause    <instance-id> [<instance-id> ...]
-//	genctl resume   <instance-id> [<instance-id> ...]
-//	genctl retry    [--force] <instance-id> [<instance-id> ...]
-//
-// WHICH FILES apply/types/compat read: `-f`, which takes several values and stops at
-// the next flag, preferring an existing path over any pattern reading of it and globbing only
-// when nothing is there; or, with no -f, `definitions:` in the nearest `.genroc`. Files are
-// never positional. `**` matches any depth. A directory is refused, naming the pattern that
-// would do it.
-//
-// get/logs/pause/resume/retry require an instance id; pass @last for the most recently
-// started instance (recorded by run). upgrade takes either form: a process name sweeps its
-// fleet, ids move those trees; resolve takes either a queue token or an id with --task.
-//
-// pause/resume/retry act on every id named, one call each. They are assertions, so an id
-// already in the state asserted prints "already" and does NOT fail the command — which is
-// what lets a line that was only half applied be run again as-is. Only a refusal exits 1,
-// and it stops neither the ids after it nor the exit code. specs/id-list-commands.md.
-//
-//	genctl compat   <process> <from> <to>
-//	genctl compat   --from <channel> [-f <path|glob> ...]
-//	genctl compat   --from <channel> --to <channel> [--process <name>]
-//	genctl compat   <instance-id> --to <version|channel> | <instance-id> -f file.yaml
+// --since/--until are CLI-side helpers only. Each resolves to unix millis and goes out as the
+// endpoint's created_after/updated_after -- whichever column the active sort keys on -- with
+// order=asc, so past the cap the read walks forward toward now, printing pages as they
+// arrive, in the direction it displays. A *duration* resolves against this machine's clock
+// rather than the server's; see parseWhen for when that distinction bites.
 //
 // compat answers two questions about a pair of versions and gives each its own column:
-// UPGRADE, could an instance running the older one continue under the newer; CONTRACT,
-// does the newer still produce what consumers of the older were written against.
-// --ignore contract excuses the second from the exit code, and nothing excuses the first.
-// It is a shape check: a change of meaning (dollars to cents) compares equal, so the
-// per-slot detail under the table is the deliverable.
+// UPGRADE, could an instance running the older one continue under the newer; CONTRACT, does
+// the newer still produce what consumers of the older were written against. It is a shape
+// check -- a change of meaning (dollars to cents) compares equal -- so the per-slot detail
+// under the table is the deliverable.
 //
-// An instance id in place of the process reads both sides off the row — its process at the
-// version it is on — so `compat <id> --to N` is the question `upgrade <id> --to N` answers
-// by moving.
-//
-//	genctl channel list   <process>
-//	genctl channel set    <process> <channel> <version>
-//	genctl channel delete  <process> <channel>
-//	genctl channel promote --from <channel> --to <channel> [--process <name>]
-//	genctl channel status  [<channel>]
-//	genctl config   get <key> | set <key> <value> | unset <key>
-//
-// A `$<resolver>: <path>` leaf in a source file is replaced by a string a binary named in
-// the project's .genroc produces, before anything is sent. Every command that reads a
-// source file resolves first — apply (a --check-only apply included, since a document that
-// does not resolve is one that would not apply) and compat's -f, which compares what an
-// apply WOULD store; types generates the resolver's declarations without building or
-// applying, and without a server: the types a resolver checks against are inferred here.
-// See specs/source-resolution.md.
-//
-// Environment:
-//
-//	GENROC_SERVER  base URL of the genroc server (default: http://localhost:8448)
+// Environment: GENROC_SERVER (default http://localhost:8448), GENROC_TOKEN, TZ.
 package main
 
 import (
@@ -108,11 +32,8 @@ import (
 	"strings"
 
 	"genroc/internal/model"
-	"io"
 )
 
-// Command conventions (naming, --server, table/--json output, the no---limit list
-// bounds rule) and the deliberate exceptions: cmd/genctl/CLAUDE.md.
 // Set at build time: -ldflags "-X main.version=0.1.0 -X main.commit=abc1234". A binary that
 // cannot say what it is makes every bug report start with a guess -- and on a rolling channel
 // the version alone is not enough, because "edge" names a moving target.
@@ -339,128 +260,6 @@ func eachInstance(ids []string, done string, do func(id string) (model.Outcome, 
 	if refused > 0 {
 		os.Exit(1)
 	}
-}
-
-// usage writes to w: stderr when it accompanies an error, stdout when it IS the answer
-// (`genctl -h`), so help can be piped without redirecting stderr.
-func usage() { usageTo(os.Stderr) }
-
-func usageTo(w io.Writer) {
-	fmt.Fprintln(w, `Usage:
-  genctl apply    [-f <path|glob> ...] [--channel latest] [--check-only] [--json]
-  genctl types    [-f <path|glob> ...]
-  genctl schema   context <process> [address] [-e <expression>] [-f <path|glob> ...] [--json]
-  genctl schema   type    <process> [address] [-f <path|glob> ...] [--json]
-  genctl run      <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]
-  genctl resolve  <token> | <instance-id> --task <task-id>  [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]
-  genctl instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>] [--children] [--sort updated|created] [--since <when>] [--until <when>] [--json | -q]
-  genctl definitions [--sort created|name] [--since <when>] [--until <when>] [--json]
-  genctl upgrade  <process> --from <version|channel> --to <version|channel> [--status running,paused,failed] [--json]
-  genctl upgrade  <instance-id> [<instance-id> ...] --to <version|channel> [--json]
-  genctl get      <instance-id> [--resolve] [--json]
-  genctl object   <ref>
-  genctl logs     [--level <level>] [--since <when>] [--until <when>] [--time clock|full] [--recursive] [--mode basic|detail|json] <instance-id>
-  genctl pause    <instance-id> [<instance-id> ...]
-  genctl resume   <instance-id> [<instance-id> ...]
-  genctl retry    [--force] <instance-id> [<instance-id> ...]
-  genctl compat   --from <channel> [-f <path|glob> ...]
-  genctl compat   --from <channel> --to <channel> [--process <name>]
-  genctl compat   <instance-id> --to <version|channel> | <instance-id> -f file.yaml
-  genctl channel list    <process>
-  genctl channel set     <process> <channel> <version>
-  genctl channel delete  <process> <channel>
-  genctl channel promote --from <channel> --to <channel> [--process <name>]
-  genctl channel status  [<channel>]
-  genctl token    create --perms <list> [--label <name>] [-q] | generate | list [--json] | revoke <id>...
-  genctl init     [dir] [--eval-node] [--no-auth] [--postgres] [--version <tag>] [-y]
-  genctl init password [email]
-  genctl config   get <key> | set <key> <value> | unset <key>
-
-Flags:
-  -f        apply: definition file(s), YAML or JSON, multi-doc --- (repeatable);
-            run/resolve: read the input/result/payload from a file (path — tab-completes)
-  --input   process input: a JSON/YAML literal, or - for stdin
-  --result  external-task result (resolve): a JSON/YAML literal, or - for stdin
-  --task    resolve: the external task to deliver to, when addressing by instance id
-  --code    resolve: answer on the ERROR channel with this code; the result
-            flags then carry the failure payload, conformed against raises[code]
-  --message required with --code; lands on error.message
-  --set     input/result/payload field key=value (repeatable; dotted keys nest, values type-inferred)
-  --server  genroc server URL (overrides $GENROC_SERVER and config file)
-  --since   read forward from here — a duration back from now (2h, 45m) or a timestamp
-            (2006-01-02, "2006-01-02 15:04"). Without it a list shows its newest N
-            (20; logs 200) and notes on stderr if that dropped any. No list takes
-            --limit: --since is what reaches further back.
-  --until   the far end of the window, same forms. [--since, --until) is half-open, so
-            adjacent windows never repeat a row. Alone it keeps the cap, giving the
-            newest N before that instant.
-  --sort    instances: created (default) or updated; definitions: created or name.
-            --since bounds whichever column the sort keys on.
-  --children
-            instances: include child instances. By default the listing is ROOTS ONLY —
-            one row per tree, which is the unit pause/resume/retry and upgrade act on, so
-            a list substituted into one of them names only what it can move. A child_list
-            fan-out would otherwise bury the roots it belongs to. With it, a PARENT column
-            appears, since nothing else on a row tells the two apart.
-  --process instances: exact process name, across every version. --version narrows to one
-            version (and stands alone to mean "any process at that version")
-  --to      compat: the channel to compare against. --from is its other end and is
-            never defaulted: naming one side hides which two documents were compared.
-  --ignore  compat: excuse a check from the exit code. Only "contract" is accepted —
-            the upgrade check answers for rows this deployment already owns, so nothing
-            waves it through. It changes neither what is compared nor what is printed:
-            the break is still reported, marked "(ignored)".
-  --time    logs: the time column — clock (15:04:05, the default, with a
-            "--- 2006-01-02 +02:00 ---" separator at each day change) or full
-            (2006-01-02 15:04:05 +02:00 on every row, fixed-width, no separators)
-
-Time zones:
-  Timestamps display in the local zone and --since is read in it, so a time you read
-  off a row is one you can pass back. Both follow $TZ: TZ=UTC genctl logs <id>
-  Zones print as a numeric offset, never an abbreviation — "CST" is two zones fourteen
-  hours apart, the same reason a definition's tz takes an IANA name or an offset only.
-  --mode json is the exception — it passes the server's UTC RFC3339 through untouched,
-  so machine output never depends on who ran the command.
-  --json    machine-readable output: a list (instances/definitions) prints its
-            raw items as a JSON array; get prints the raw instance object
-  --resolve get: fetch the values listed under "objects" and put them back where
-            they belong. logs never resolves - a trail is scanned, not read, and
-            those payloads are large by definition; it prints the ref instead, and
-            "genctl object <ref>" fetches the one you want.
-  -q        with run, print only the new instance id (id=$(genctl run NAME -q));
-            with instances, print only ids, one per line, and nothing at all when the
-            list is empty — the form to nest in a lifecycle command:
-              genctl pause $(genctl instances -q --status running)
-              genctl instances -q --status failed | xargs genctl retry
-            The cap still applies and still reports on stderr, so a fleet wider than 20
-            needs --since; with resolve, suppress the confirmation line
-
-Instance id:
-  get/logs/pause/resume/retry require an instance id; pass @last for the most
-  recently started instance (recorded by run).
-  pause/resume/retry take several, one call each. They assert a state, so an id already
-  in it prints "already" and does not fail the command; run the same line again to
-  finish one that was only half applied. A refusal stops neither the ids after it nor
-  the exit code, which is 1 if any id was refused.
-  upgrade takes either a process name (sweeps the fleet, needs --from) or instance ids
-  (moves those trees, one call each; --from is the sweep's selector, so it is not
-  needed). compat takes one id too, and reads the from side off the row: compat <id>
-  --to N is the question upgrade <id> --to N answers by moving. It takes only one,
-  because a comparison carries one version per process.
-
-External tasks:
-  A worker enumerates the queue by CLAIMING it -- there is no listing endpoint; the one
-  that existed was the polling shape claim/renew/release replaced.
-  resolve takes either a task's resolve token (the "<instance-id>.<nonce>" TOKEN
-  column from that list) or an instance id with --task, which buffers the result if
-  the task is not armed yet -- one submission, addressed the two ways it can be.
-  Either way --code/--message answers on the error channel instead of with a result:
-  the code is routed through the task's on_error rules like any other call error,
-  and buffers the same way.
-
-Config keys (~/.config/genroc/config.yaml, mode 0600):
-  server    genroc server base URL                    ($GENROC_SERVER wins)
-  token     API credential, a genroc_sk_* value       ($GENROC_TOKEN wins)`)
 }
 
 func fatal(format string, args ...any) {

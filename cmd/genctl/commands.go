@@ -31,7 +31,7 @@ import (
 )
 
 func runApplyCmd(server string, args []string) {
-	fs := flag.NewFlagSet("apply", flag.ExitOnError)
+	fs := newFlagSet("apply", args)
 	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
 		"and repeats")
 	serverFlag := addServerFlag(fs, server)
@@ -114,7 +114,7 @@ func runApplyCmd(server string, args []string) {
 // It contacts no server: the types are inferred locally (inferSchemas), so this runs on every
 // edit whether or not one is reachable.
 func runTypesCmd(args []string) {
-	fs := flag.NewFlagSet("types", flag.ExitOnError)
+	fs := newFlagSet("types", args)
 	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
 		"and repeats")
 	files, rest := takeFileValues(args)
@@ -148,12 +148,15 @@ func runTypesCmd(args []string) {
 
 func runChannelCmd(server string, args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: genctl channel <list|set|delete|promote|status> ...")
-		os.Exit(1)
+		missingSubcommand("channel")
+	}
+	if hasHelpArg(args[:1]) {
+		helpFor("channel")
+		return
 	}
 
 	sub, args := args[0], args[1:]
-	fs := flag.NewFlagSet("channel "+sub, flag.ExitOnError)
+	fs := newFlagSet("channel "+sub, args)
 	serverFlag := addServerFlag(fs, server)
 	// promote's own selectors. Declared here rather than in a nested flag set because the
 	// stdlib parses one set per call, and every other subcommand takes its arguments
@@ -288,12 +291,7 @@ func channelStatus(server string, rest []string) {
 }
 
 func runRunCmd(server string, args []string) {
-	if len(args) == 0 {
-		fatal("usage: genctl run <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]")
-	}
-	process := args[0]
-
-	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	fs := newFlagSet("run", args)
 	serverFlag := addServerFlag(fs, server)
 	channelFlag := fs.String("channel", "", "resolve the version via this channel")
 	versionFlag := fs.Int("version", 0, "pin an explicit process version")
@@ -303,7 +301,15 @@ func runRunCmd(server string, args []string) {
 	fs.Var(&sets, "set", "set an input field: key=value (repeatable; dotted keys nest, values are type-inferred)")
 	quietFlag := fs.Bool("quiet", false, "print only the new instance id, e.g. id=$(genctl run NAME -q)")
 	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")
-	fs.Parse(args[1:])
+	// The process name is the sole positional, before or after the flags.
+	pos := leadingArgs(fs, args)
+	if len(pos) == 0 {
+		fatal("usage: genctl run <process> [--channel C | --version N] [--input <json|-> | -f file] [--set k=v ...] [-q]")
+	}
+	if len(pos) > 1 {
+		fatal("run starts one process, and %d were named", len(pos))
+	}
+	process := pos[0]
 
 	input, hasInput, err := buildInput(*inputFlag, *fileFlag, sets)
 	if err != nil {
@@ -362,7 +368,7 @@ func runResolveCmd(server string, args []string) {
 			"       genctl resolve <instance-id> --task <task-id> [same flags]")
 	}
 
-	fs := flag.NewFlagSet("resolve", flag.ExitOnError)
+	fs := newFlagSet("resolve", args)
 	serverFlag := addServerFlag(fs, server)
 	taskFlag := fs.String("task", "", "with an instance id: the external task to deliver to")
 	resultFlag := fs.String("result", "", "result as a JSON/YAML literal, or - for stdin")
@@ -451,7 +457,7 @@ func outcomeBody(body map[string]any, payload any, code, message string) map[str
 }
 
 func runGetCmd(server string, args []string) {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
+	fs := newFlagSet("get", args)
 	serverFlag := addServerFlag(fs, server)
 	jsonFlag := fs.Bool("json", false, "print the raw JSON response")
 	resolveFlag := fs.Bool("resolve", false, "fetch the values listed under \"objects\" and put them back where they belong")
@@ -532,7 +538,7 @@ func runGetCmd(server string, args []string) {
 }
 
 func runInstancesCmd(server string, args []string) {
-	fs := flag.NewFlagSet("instances", flag.ExitOnError)
+	fs := newFlagSet("instances", args)
 	serverFlag := addServerFlag(fs, server)
 	statusFlag := fs.String("status", "", "filter by status (running, completed, failing, failed, raised, pausing, paused)")
 	codeFlag := fs.String("error-code", "", "filter by exact error code (e.g. card_declined, http.500)")
@@ -670,7 +676,7 @@ func runInstancesCmd(server string, args []string) {
 // --sort name gives alphabetical order instead, under which --since is a filter over
 // created_at rather than the point the walk starts from, so it does not lift the cap.
 func runDefinitionsCmd(server string, args []string) {
-	fs := flag.NewFlagSet("definitions", flag.ExitOnError)
+	fs := newFlagSet("definitions", args)
 	serverFlag := addServerFlag(fs, server)
 	sortFlag := fs.String("sort", "created", "sort key: created (newest registered first) or name")
 	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04)")
@@ -794,7 +800,7 @@ func applyWindow(q url.Values, since, until, col string, cap int) int {
 }
 
 func runLogsCmd(server string, args []string) {
-	fs := flag.NewFlagSet("logs", flag.ExitOnError)
+	fs := newFlagSet("logs", args)
 	serverFlag := addServerFlag(fs, server)
 	levelFlag := fs.String("level", "", "filter by level (debug, info, warn, error); empty = all")
 	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04); empty = the newest 200 entries")
@@ -918,7 +924,7 @@ func serverErrorDetail(err error, marker string) (string, bool) {
 }
 
 func runPauseCmd(server string, args []string) {
-	fs := flag.NewFlagSet("pause", flag.ExitOnError)
+	fs := newFlagSet("pause", args)
 	serverFlag := addServerFlag(fs, server)
 	ids := instanceIDsAndFlags(fs, args)
 
@@ -928,7 +934,7 @@ func runPauseCmd(server string, args []string) {
 }
 
 func runResumeCmd(server string, args []string) {
-	fs := flag.NewFlagSet("resume", flag.ExitOnError)
+	fs := newFlagSet("resume", args)
 	serverFlag := addServerFlag(fs, server)
 	ids := instanceIDsAndFlags(fs, args)
 
@@ -938,7 +944,7 @@ func runResumeCmd(server string, args []string) {
 }
 
 func runRetryCmd(server string, args []string) {
-	fs := flag.NewFlagSet("retry", flag.ExitOnError)
+	fs := newFlagSet("retry", args)
 	serverFlag := addServerFlag(fs, server)
 	forceFlag := fs.Bool("force", false, "override only_once retry protection")
 	ids := instanceIDsAndFlags(fs, args)
@@ -1107,11 +1113,12 @@ func readFile(path string) ([]any, error) {
 }
 
 func runConfigCmd(args []string) {
+	if len(args) > 0 && hasHelpArg(args[:1]) {
+		helpFor("config")
+		return
+	}
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: genctl config get <key>          (server, token)")
-		fmt.Fprintln(os.Stderr, "       genctl config set <key> <value>")
-		fmt.Fprintln(os.Stderr, "       genctl config unset <key>")
-		os.Exit(1)
+		missingSubcommand("config")
 	}
 	sub, key := args[0], args[1]
 	switch sub {
@@ -1330,7 +1337,7 @@ func compatSidesForInstance(server, id string, fromFlag, toFlag, files multiFlag
 }
 
 func runCompatCmd(server string, args []string) {
-	fs := flag.NewFlagSet("compat", flag.ExitOnError)
+	fs := newFlagSet("compat", args)
 	var fromFlag, toFlag multiFlag
 	fs.String("f", "", "definition file or glob to compare against --from; takes several, and repeats")
 	processFlag := fs.String("process", "", "narrow the report to one process")
@@ -1886,13 +1893,13 @@ func place(root any, path []any, value any) {
 // hatch that lets `logs` print an id instead of a payload: a trail is scanned, and the one entry
 // you care about is fetched on purpose.
 func runObjectCmd(server string, args []string) {
-	if len(args) == 0 {
+	fs := newFlagSet("object", args)
+	serverFlag := addServerFlag(fs, server)
+	pos := leadingArgs(fs, args)
+	if len(pos) != 1 {
 		fatal("usage: genctl object <ref>")
 	}
-	ref := args[0]
-	fs := flag.NewFlagSet("object", flag.ExitOnError)
-	serverFlag := addServerFlag(fs, server)
-	fs.Parse(args[1:])
+	ref := pos[0]
 
 	var resp struct {
 		Data string `json:"data"`
@@ -1910,11 +1917,15 @@ func runObjectCmd(server string, args []string) {
 // against the database by whoever can read it. specs/api-auth.md §5.3.
 func runTokenCmd(server string, args []string) {
 	if len(args) == 0 {
-		fatal("usage: genctl token create --perms <list> [--label <name>] | token generate | token list | token revoke <id>...")
+		missingSubcommand("token")
+	}
+	if hasHelpArg(args[:1]) {
+		helpFor("token")
+		return
 	}
 	sub, rest := args[0], args[1:]
 
-	fs := flag.NewFlagSet("token "+sub, flag.ExitOnError)
+	fs := newFlagSet("token "+sub, rest)
 	serverFlag := addServerFlag(fs, server)
 	labelFlag := fs.String("label", "", "a name for this token, shown in listings")
 	permsFlag := fs.String("perms", "", "comma-separated: admin, deploy, operate, read, worker")

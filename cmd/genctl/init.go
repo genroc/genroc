@@ -32,6 +32,10 @@ func runInitCmd(args []string) {
 		runPasswordCmd(args[1:])
 		return
 	}
+	if hasHelpArg(args) {
+		helpFor("init")
+		return
+	}
 	choices, tag, assumeYes := parseInitArgs(args)
 
 	// Prompt only when someone is there to answer. A pipe, a CI job or `| head` gets the

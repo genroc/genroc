@@ -30,9 +30,27 @@ test("an unknown command prints the usage and exits 1", () => {
   const r = runCli(bin, ["bogus-command"]);
   expect(r.exitCode).toBe(1);
   expect(r.stderr).toContain(`unknown command "bogus-command"`);
-  // The usage follows, so the error is self-correcting rather than a dead end.
-  expect(r.stderr).toContain("genctl apply");
-  expect(r.stderr).toContain("genctl logs");
+  // The map of commands follows, so the error is self-correcting rather than a dead end.
+  expect(r.stderr).toMatch(/^  apply +register definitions/m);
+  expect(r.stderr).toMatch(/^  logs +print an instance/m);
+  expect(r.stderr).toContain("genctl <command> -h");
+});
+
+// The map is one screen; the page is where the detail moved. Neither is useful as the other.
+test("-h — the map is short, and a command's own -h is the long form", () => {
+  const map = runCli(bin, ["-h"]);
+  expect(map.exitCode).toBe(0);
+  expect(map.stdout.split("\n").length).toBeLessThan(45);
+  expect(map.stderr, "asking for help is not an error").toBe("");
+
+  const page = runCli(bin, ["apply", "-h"]);
+  expect(page.exitCode).toBe(0);
+  expect(page.stdout).toContain("genctl apply [-f <path|glob> ...]");
+  // The three parts of a page: grammar, the rules that command needs, and its real flags.
+  expect(page.stdout).toContain("-f takes several values");
+  expect(page.stdout).toMatch(/^Flags:$/m);
+  expect(page.stdout).toMatch(/^ +--check-only +report whether/m);
+  expect(page.stdout.split("\n").length, "the page is the long form").toBeGreaterThan(12);
 });
 
 test("no arguments at all prints the usage and exits 1", () => {
@@ -83,7 +101,7 @@ test("commands that need an argument say which one", () => {
     { args: ["apply"], want: "no files given" },
     { args: ["apply", "--check-only"], want: "no files given" },
     { args: ["run"], want: "usage: genctl run" },
-    { args: ["channel"], want: "Usage: genctl channel" },
+    { args: ["channel"], want: "genctl channel list" },
     { args: ["channel", "list"], want: "usage: genctl channel list" },
     { args: ["channel", "set", "p"], want: "usage: genctl channel set" },
     { args: ["channel", "delete", "p"], want: "usage: genctl channel delete" },

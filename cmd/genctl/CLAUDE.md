@@ -1,5 +1,19 @@
 # cmd/genctl
 
+## Help lives in one place
+
+`help.go` holds every command's grammar, prose and one-line summary (`commandDocs`), and the
+groups `genctl -h` prints (`helpGroups`). `genctl -h` is the MAP -- one screen -- and
+`genctl <cmd> -h` is the page: that entry plus the flags printed **from the command's own flag
+set**, so a flag is described where it is declared and nowhere else. `newFlagSet(name, args)`
+is what wires the two together; it captures args so `Usage` knows whether it was asked for
+(stdout) or accompanies a parse error (stderr).
+
+A subcommand dispatcher reads a positional before any flag set exists, so `genctl channel -h`
+never reaches `flag.Parse` -- those call `helpFor(name)` themselves, and `missingSubcommand`
+for the same page on stderr with exit 1. `TestEveryCommandIsDocumented` pins the dispatch and
+the map to each other: an undocumented command fails no other way, it simply never appears.
+
 ## Command conventions
 
 Keep new list/get commands consistent so the surface stays predictable.
