@@ -36,6 +36,12 @@ func runApplyCmd(server string, args []string) {
 		"and repeats")
 	serverFlag := addServerFlag(fs, server)
 	channelFlag := fs.String("channel", "latest", "channel to apply definitions to")
+	// A check runs everything an apply does except the write — resolvers included, since a
+	// document that does not resolve is one that would not apply.
+	checkOnly := fs.Bool("check-only", false, "report whether the definitions are valid, "+
+		"registering nothing")
+	asJSON := fs.Bool("json", false, "print the server's answer: the inferred schemas under "+
+		"--check-only, what was registered otherwise")
 	files, rest := takeFileValues(args)
 	if pos := parseArgs(fs, rest); len(pos) > 0 {
 		fatal("%s: unexpected argument. Definitions are named with -f, which takes several:\n"+
@@ -55,9 +61,33 @@ func runApplyCmd(server string, args []string) {
 		fatal("%v", err)
 	}
 
-	body := map[string]any{
+	endpoint, method, payload := "/api/definitions/batch", http.MethodPut, any(map[string]any{
 		"channel":     *channelFlag,
 		"definitions": defs,
+	})
+	if *checkOnly {
+		endpoint, method, payload = "/api/definitions/validate", http.MethodPost, defs
+	}
+	var raw json.RawMessage
+	if err := call(*serverFlag+endpoint, method, payload, &raw); err != nil {
+		fatal("%v", err)
+	}
+	if *asJSON {
+		printIndented(raw)
+		return
+	}
+
+	if *checkOnly {
+		var schemas []struct {
+			Process string `json:"process"`
+		}
+		if err := json.Unmarshal(raw, &schemas); err != nil {
+			fatal("check: %v", err)
+		}
+		for _, s := range schemas {
+			fmt.Printf("valid: %s\n", s.Process)
+		}
+		return
 	}
 
 	var resp []struct {
@@ -65,8 +95,8 @@ func runApplyCmd(server string, args []string) {
 		Version int    `json:"version"`
 		Saved   bool   `json:"saved"`
 	}
-	if err := call(*serverFlag+"/api/definitions/batch", http.MethodPut, body, &resp); err != nil {
-		fatal("%v", err)
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		fatal("apply: %v", err)
 	}
 	for _, r := range resp {
 		status := "saved"
@@ -75,37 +105,6 @@ func runApplyCmd(server string, args []string) {
 		}
 		fmt.Printf("%s: %s@v%d\n", status, r.Name, r.Version)
 	}
-}
-
-func runValidateCmd(server string, args []string) {
-	fs := flag.NewFlagSet("validate", flag.ExitOnError)
-	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
-		"and repeats")
-	serverFlag := addServerFlag(fs, server)
-	files, rest := takeFileValues(args)
-	if pos := parseArgs(fs, rest); len(pos) > 0 {
-		fatal("%s: unexpected argument. Definitions are named with -f, which takes several:\n"+
-			"  genctl %s -f %s", pos[0], fs.Name(), strings.Join(pos, " "))
-	}
-	files, pathErr := definitionPaths(files)
-	if pathErr != nil {
-		fatal("%v", pathErr)
-	}
-	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "genctl: no files given, and no `definitions:` in .genroc")
-		os.Exit(1)
-	}
-
-	defs, err := resolvedDefs(files)
-	if err != nil {
-		fatal("%v", err)
-	}
-
-	var raw json.RawMessage
-	if err := call(*serverFlag+"/api/definitions/validate", http.MethodPost, defs, &raw); err != nil {
-		fatal("%v", err)
-	}
-	printIndented(raw)
 }
 
 // runTypesCmd generates the declarations a resolver's authoring layer needs, without

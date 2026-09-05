@@ -96,7 +96,7 @@ were compared.
 `compat` exits non-zero when anything is incompatible, so it drops straight into a
 pipeline.
 
-Definitions submitted with `-f` are **validated first**, exactly as `genctl validate` does.
+Definitions submitted with `-f` are **validated first**, exactly as `genctl apply` does.
 A document that does not parse, whose expressions do not type-check, or whose child
 references do not resolve is refused with that error — naming the task and the expression —
 rather than compared and reported as unanalysable. Stored versions are not re-validated:

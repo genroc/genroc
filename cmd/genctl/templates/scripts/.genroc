@@ -1,8 +1,8 @@
-# What `genctl apply|validate|types` reads when you pass no paths. Patterns and files,
+# What `genctl apply|types` reads when you pass no paths. Patterns and files,
 # resolved against this file. `**` matches any depth.
 definitions: ["./definitions/**/*.genroc.yaml"]
 
-# Resolvers `genctl apply|validate|types` run over source files in this directory. Discovery
+# Resolvers `genctl apply|types` run over source files in this directory. Discovery
 # walks up from the file, so nothing here depends on the cwd.
 resolvers:
   import:

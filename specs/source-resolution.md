@@ -63,10 +63,10 @@ The sequence, per `genctl apply`:
 4. Splice each string into its slot, `$`-escaped (below).
 5. `POST /definitions`.
 
-`genctl validate` stops after step 3 in `types` mode, and never reaches step 5. `genctl
-compat -f` runs 1–4 and then compares instead of storing: a stored version holds the resolved
-string, so an unresolved directive would compare as a literal against it and every imported
-site would read as changed.
+`genctl types` stops after step 3, in `types` mode. `genctl apply --check-only` runs 1–4 and
+asks for the verdict without storing it; `genctl compat -f` runs 1–4 and then compares instead
+of storing: a stored version holds the resolved string, so an unresolved directive would compare
+as a literal against it and every imported site would read as changed.
 
 ### One roundtrip: genctl computes the types, the server decides validity
 
@@ -262,7 +262,9 @@ Exact rules, each removing a convention someone would otherwise have to guess:
 - **`$defs` is narrowed to what the fragments reach.** It used to be the whole `SchemaFile`, then
   the whole pool; both shipped definitions no resolver opened, and the SchemaFile also carried a
   second copy of every fragment. Refs survive the narrowing rather than being inlined, because a
-  task output may reference itself. A resolver that wants more than it asked for asks for more —
+  task output may reference itself — though a definition that is only a `$ref` is collapsed into
+  what it names, since a generator turns each one into a type alias that says nothing
+  (schema-command.md §4). A resolver that wants more than it asked for asks for more —
   `process` is an address, and answers with the whole type view.
 - **`code` answers in the manifest's own order**: processes as listed, sites within each as
   listed. The splice reads it by position.

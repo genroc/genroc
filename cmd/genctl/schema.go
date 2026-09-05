@@ -273,6 +273,7 @@ func selfContained(doc map[string]any) map[string]any {
 		return body
 	}
 
+	collapseAliases(pool, body)
 	if kept := reachableDefs(pool, body); len(kept) > 0 {
 		body["$defs"] = kept
 	}
@@ -306,6 +307,95 @@ func reachableDefs(pool map[string]any, from ...any) map[string]any {
 		}
 		kept[next] = def
 		collectRefs(def, want)
+	}
+}
+
+// collapseAliases rewrites a ref to an alias-only definition — one whose whole document is a
+// `$ref` — as a ref to what it names, and drops it from pool. Inference has to declare
+// `<id>_output` for every task because that name is what a self-referencing output resolves
+// through; a task whose output simply IS another definition leaves one behind that says nothing,
+// and a generator reading the pool turns each into a type alias per task.
+//
+// pool and docs are rewritten IN PLACE, and docs must be every document that can reference the
+// pool — one left out keeps a ref to a name that is no longer there.
+func collapseAliases(pool map[string]any, docs ...any) {
+	alias := map[string]string{}
+	for name, def := range pool {
+		if to, ok := soleRef(def); ok {
+			if _, defined := pool[to]; defined {
+				alias[name] = to
+			}
+		}
+	}
+	final := map[string]string{}
+	for name := range alias {
+		if to, ok := chaseAlias(alias, name); ok {
+			final[name] = to
+		}
+	}
+	if len(final) == 0 {
+		return
+	}
+	for _, doc := range docs {
+		rewriteRefs(doc, final)
+	}
+	for _, def := range pool {
+		rewriteRefs(def, final)
+	}
+	for name := range final {
+		delete(pool, name)
+	}
+}
+
+// soleRef is the name a document points at when that is ALL it is: a `$ref` beside a
+// `description` still carries something the ref does not.
+func soleRef(v any) (string, bool) {
+	doc, ok := v.(map[string]any)
+	if !ok || len(doc) != 1 {
+		return "", false
+	}
+	ref, ok := doc["$ref"].(string)
+	if !ok {
+		return "", false
+	}
+	return strings.CutPrefix(ref, "#/$defs/")
+}
+
+// chaseAlias follows an alias to the definition that is not one. A cycle of aliases names no
+// type at all, so it is left exactly as it is rather than collapsed to an arbitrary member.
+func chaseAlias(alias map[string]string, name string) (string, bool) {
+	// One probe per alias, plus the one that finds the target is not itself an alias.
+	to := name
+	for range len(alias) + 1 {
+		next, ok := alias[to]
+		if !ok {
+			return to, to != name
+		}
+		to = next
+	}
+	return "", false
+}
+
+func rewriteRefs(v any, alias map[string]string) {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, sub := range t {
+			if k == "$ref" {
+				if ref, ok := sub.(string); ok {
+					if name, ok := strings.CutPrefix(ref, "#/$defs/"); ok {
+						if to, ok := alias[name]; ok {
+							t[k] = "#/$defs/" + to
+						}
+					}
+				}
+				continue
+			}
+			rewriteRefs(sub, alias)
+		}
+	case []any:
+		for _, e := range t {
+			rewriteRefs(e, alias)
+		}
 	}
 }
 

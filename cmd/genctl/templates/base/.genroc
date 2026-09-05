@@ -1,3 +1,3 @@
-# What `genctl apply|validate|types` reads when you pass no paths. Patterns and files,
+# What `genctl apply|types` reads when you pass no paths. Patterns and files,
 # resolved against this file. `**` matches any depth.
 definitions: ["./definitions/**/*.genroc.yaml"]

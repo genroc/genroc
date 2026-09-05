@@ -212,6 +212,9 @@ unrecognised keyword follows, sorted, so a new one shows up rather than disappea
 The document is **self-contained**: the reachable subset of `$defs`, with `$ref`s rewritten
 against the returned root. Inlining is not the alternative — a task output may reference
 itself ([recursive-type-inference.md](recursive-type-inference.md)), so refs have to survive.
+A definition that is ONLY a `$ref` is dropped, and refs through it name what it named: every
+task gets a `<id>_output` because recursion resolves through the name, and where the output
+already is a definition that leaves a hop that says nothing.
 
 With **no address** it prints one entry per phase, keyed by address:
 

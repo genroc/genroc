@@ -14,8 +14,8 @@ import {
   uid,
 } from "../helpers/genctl.ts";
 
-// The definition entity: `apply` and `validate` that write it, and `definitions` that
-// reads it back. Every flag of all three, plus the columns the table commits to.
+// The definition entity: `apply` (and its --check-only dry run), and `definitions` that
+// reads it back. Every flag of both, plus the columns the table commits to.
 
 let bin: string;
 beforeAll(() => {
@@ -63,15 +63,15 @@ test("apply — a YAML merge key folds the anchored map in, and an explicit key 
 });
 
 
-test("validate — a child that exists only in the batch resolves, as it does on apply", () => {
+test("check — a child that exists only in the batch resolves, as it does on apply", () => {
   const child = uid("vchild");
   const parent = uid("vparent");
   const file = writeDefs([switchDef(child), childDef(parent, child)]);
 
-  // Neither is stored. apply has always resolved a sibling from the batch; validate could
+  // Neither is stored. apply has always resolved a sibling from the batch; the check could
   // not, so a batch that applied cleanly was unvalidatable — and `apply` now validates
   // first to infer types for imports, which put that gap on the apply path too.
-  const r = runCli(bin, ["validate", "-f", file]);
+  const r = runCli(bin, ["apply", "--check-only", "-f", file]);
   expect(r.stderr).not.toContain("no definitions found");
   expect(r.ok).toBe(true);
 });
@@ -173,20 +173,31 @@ test("apply — a rejected re-apply leaves the existing version untouched", () =
   expect(runCli(bin, ["channel", "list", name]).stdout).toContain("latest -> v1");
 });
 
-// ── validate ────────────────────────────────────────────────────────────────────
+// ── apply --check-only ──────────────────────────────────────────────────────────
 
-test("validate — prints the resolved schema without registering anything", () => {
+test("apply --check-only — reports each definition without registering anything", () => {
   const name = uid("proc");
-  const r = runCli(bin, ["validate", "-f", writeDefs([switchDef(name)])]);
+  const file = writeDefs([switchDef(name)]);
+  const r = runCli(bin, ["apply", "--check-only", "-f", file]);
 
-  expect(r.ok).toBe(true);
-  expect(r.stdout).toContain(name);
-  // Validation is a dry run: nothing reaches the registry.
+  expect(r.ok, r.stderr).toBe(true);
+  expect(r.stdout.trim(), "the same per-definition line an apply prints, minus the version").toBe(
+    `valid: ${name}`,
+  );
+  // A check is a dry run: nothing reaches the registry.
+  expect(defs(["--since", "1h"]).some((d) => d.name === name)).toBe(false);
+
+  // --json is the inferred schemas, which is what a type generator reads.
+  const j = runCli(bin, ["apply", "--check-only", "--json", "-f", file]);
+  expect(j.ok, j.stderr).toBe(true);
+  expect(JSON.parse(j.stdout)[0].process).toBe(name);
   expect(defs(["--since", "1h"]).some((d) => d.name === name)).toBe(false);
 });
 
-test("validate — exits non-zero for an invalid definition", () => {
-  expect(runCli(bin, ["validate", "-f", writeDefs([{ name: uid("bad"), tasks: [] }])]).ok).toBe(false);
+test("apply --check-only — exits non-zero for an invalid definition", () => {
+  expect(
+    runCli(bin, ["apply", "--check-only", "-f", writeDefs([{ name: uid("bad"), tasks: [] }])]).ok,
+  ).toBe(false);
 });
 
 // ── definitions: displayed fields ───────────────────────────────────────────────

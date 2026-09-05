@@ -151,6 +151,50 @@ test("schema type — the listing names null, a union and an element type", () =
 
 // The two views share one address space, so a miss on one is usually a question asked of the
 // wrong half — and the answer says which half has it rather than only that this one does not.
+// Inference declares `<id>_output` for every task because that name is what a self-referencing
+// output resolves through. Where the output simply IS another definition, the placeholder is
+// left over saying nothing — and a generator reading the pool emits a type alias per task.
+test("both views — a definition that only names another is collapsed away", () => {
+  const path = defFile(
+    [
+      "name: pricing",
+      "tasks:",
+      "  - id: price",
+      "    action:",
+      "      type: fetch",
+      "      url: http://x/price",
+      '      responses: { 200: { $ref: "#/$defs/quote" } }',
+      "    output: '$: self.result'",
+      "    switch: [{ goto: end }]",
+      "output: '$: outputs.price'",
+      "$defs:",
+      "  quote: { type: object, properties: { fee: { type: number } }, required: [fee] }",
+      "",
+    ].join("\n"),
+  );
+
+  for (const address of ["tasks.price.output", "output"]) {
+    const doc = JSON.parse(typeAt(path, address).stdout);
+    expect(doc.$ref, `${address} is the definition, not a name for a name for it`).toBe(
+      "#/$defs/quote",
+    );
+    expect(Object.keys(doc.$defs), `${address} carries no def that only forwards`).toEqual([
+      "quote",
+    ]);
+  }
+
+  // Both views print through one narrowing, so the pool a context reads from is the same one.
+  const ctx = runCli(
+    bin,
+    ["schema", "context", "pricing", "output", "--json", "-f", path],
+    OFFLINE,
+  );
+  expect(ctx.ok, ctx.stderr).toBe(true);
+  const doc = JSON.parse(ctx.stdout);
+  expect(doc.properties.outputs.properties.price).toEqual({ $ref: "#/$defs/quote" });
+  expect(Object.keys(doc.$defs)).toEqual(["quote"]);
+});
+
 test("schema type — an address the other view answers names that view", () => {
   const path = defFile();
 

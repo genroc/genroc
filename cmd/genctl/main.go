@@ -4,8 +4,7 @@
 //
 // Usage:
 //
-//	genctl apply    [-f <path|glob> ...] [--channel latest]
-//	genctl validate [-f <path|glob> ...]
+//	genctl apply    [-f <path|glob> ...] [--channel latest] [--check-only] [--json]
 //	genctl types    [-f <path|glob> ...]
 //	genctl schema   context <process> [address] [-e <expression>]
 //	genctl schema   type    <process> [address]
@@ -52,7 +51,7 @@
 //	genctl retry    [--force] <instance-id> [<instance-id> ...]
 //	genctl last
 //
-// WHICH FILES apply/validate/types/compat read: `-f`, which takes several values and stops at
+// WHICH FILES apply/types/compat read: `-f`, which takes several values and stops at
 // the next flag, preferring an existing path over any pattern reading of it and globbing only
 // when nothing is there; or, with no -f, `definitions:` in the nearest `.genroc`. Files are
 // never positional. `**` matches any depth. A directory is refused, naming the pattern that
@@ -92,7 +91,8 @@
 //
 // A `$<resolver>: <path>` leaf in a source file is replaced by a string a binary named in
 // the project's .genroc produces, before anything is sent. Every command that reads a
-// source file resolves first — apply, validate, and compat's -f, which compares what an
+// source file resolves first — apply (a --check-only apply included, since a document that
+// does not resolve is one that would not apply) and compat's -f, which compares what an
 // apply WOULD store; types generates the resolver's declarations without building or
 // applying, and without a server: the types a resolver checks against are inferred here.
 // See specs/source-resolution.md.
@@ -161,8 +161,6 @@ func main() {
 	switch cmd {
 	case "apply":
 		runApplyCmd(server, args)
-	case "validate":
-		runValidateCmd(server, args)
 	case "types":
 		runTypesCmd(args)
 	case "schema":
@@ -345,8 +343,7 @@ func usage() { usageTo(os.Stderr) }
 
 func usageTo(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
-  genctl apply    [-f <path|glob> ...] [--channel latest]
-  genctl validate [-f <path|glob> ...]
+  genctl apply    [-f <path|glob> ...] [--channel latest] [--check-only] [--json]
   genctl types    [-f <path|glob> ...]
   genctl schema   context <process> [address] [-e <expression>] [-f <path|glob> ...] [--json]
   genctl schema   type    <process> [address] [-f <path|glob> ...] [--json]

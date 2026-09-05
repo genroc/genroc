@@ -167,7 +167,7 @@ test("apply — the manifest carries the inferred input type and the declared ou
     ].join("\n"),
   );
 
-  expect(runCli(bin, ["validate", "-f", def]).ok).toBe(true);
+  expect(runCli(bin, ["apply", "--check-only", "-f", def]).ok).toBe(true);
 
   const m = p.manifest();
   expect(m.mode).toBe("build");
@@ -562,6 +562,53 @@ test("a requested type that is not at this site comes back null", () => {
   ]);
   expect(site.types.Output, "asked for, and nothing is there").toBeNull();
   expect(site.types.Amount).toEqual({ type: "number" });
+});
+
+// The same collapse `schema type` prints, on the path that ships to a resolver: a def that is
+// only a `$ref` becomes a generated type alias per task, naming nothing.
+test("a definition that only names another never reaches the manifest", () => {
+  const p = project(
+    [
+      "resolvers:",
+      "  import:",
+      "    phase: code",
+      "    command: [node, echo.mjs]",
+      "    types: { Output: task.output }",
+      "",
+    ].join("\n"),
+  );
+  const name = uid("import");
+  p.write("body.txt", "x");
+  const def = p.write(
+    "proc.yaml",
+    [
+      `name: ${name}`,
+      "tasks:",
+      "  - id: t",
+      "    action:",
+      "      type: fetch",
+      "      url: https://example.test/x",
+      "      method: POST",
+      '      body: { code: "$import: ./body.txt" }',
+      '      responses: { 200: { $ref: "#/$defs/quote" } }',
+      "    output: \"$: self.result\"",
+      "    switch: [{ goto: end }]",
+      "$defs:",
+      "  quote: { type: object, properties: { fee: { type: number } }, required: [fee] }",
+      "",
+    ].join("\n"),
+  );
+
+  const r = runCli(bin, ["types", "-f", def]);
+  expect(r.ok, `${r.stdout}${r.stderr}`).toBe(true);
+
+  const proc = p.manifest().processes[0];
+  expect(proc.sites[0].types.Output, "the definition itself, not a name for it").toEqual({
+    $ref: "#/$defs/quote",
+  });
+  expect(Object.keys(proc.$defs), "and no def that only forwards travels beside it").toEqual([
+    "quote",
+  ]);
 });
 
 // An address names the frame it is relative to, because a directive can sit inside a task or

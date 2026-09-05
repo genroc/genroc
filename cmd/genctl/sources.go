@@ -631,7 +631,9 @@ func byProcess(schemas map[string]validation.SchemaFile, docs []sourceDoc, group
 			}
 		}
 		if sf, ok := schemas[name]; ok {
-			p.Defs = reachableDefs(poolOf(sf), fragments...)
+			pool := poolOf(sf)
+			collapseAliases(pool, fragments...)
+			p.Defs = reachableDefs(pool, fragments...)
 		}
 		out = append(out, p)
 	}

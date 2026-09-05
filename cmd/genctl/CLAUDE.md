@@ -46,7 +46,9 @@ Keep new list/get commands consistent so the surface stays predictable.
 - **`--json` is the one machine-readable form.** A list prints raw items as a JSON array
   via `printJSONItems` (lossless, same order as the table); a single item prints the raw
   server object (`callGet` into `json.RawMessage`, then indent). Never invent a
-  per-command machine format.
+  per-command machine format. It is the answer to what the command DID, so `apply --json`
+  prints what was registered and `apply --check-only --json` the inferred schemas — the two
+  are different endpoints, not one shape with a hole in it.
 
 Deliberate exceptions — special-purpose, not resource list/get. Leave them:
 
@@ -64,8 +66,8 @@ Deliberate exceptions — special-purpose, not resource list/get. Leave them:
 
 ## Which files a command reads
 
-`definitionPaths` is the one place that answers it, for `apply`, `validate`, `types`, `schema`
-and `compat` alike. Exactly two sources:
+`definitionPaths` is the one place that answers it, for `apply`, `types`, `schema` and `compat`
+alike. Exactly two sources:
 
 - **`-f`**, which takes several values and stops at the next flag. It is literal FIRST: a value
   naming an existing path is that path; only a value naming nothing is globbed. That is the
@@ -77,7 +79,7 @@ and `compat` alike. Exactly two sources:
 
 **Files are never positional.** They were, briefly, so an unquoted `defs/*.yaml` had somewhere
 to land — `-f` taking several values removed the need, and with it the last difference between
-these four commands. A positional now names the argument and the `-f` line that would work.
+these commands. A positional now names the argument and the `-f` line that would work.
 
 A DIRECTORY is refused rather than walked. Implicit recursion hides both the depth and the
 filename filter, so `-f defs/` and `defs/**/*.genroc.yaml` would silently differ; the error names

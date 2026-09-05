@@ -5,7 +5,7 @@
 // the wire. The script author's view - `Input`/`Output` for each `$import`ed .ts - comes
 // from `genctl types` instead, and is typechecked at apply. See specs/script-tasks.md.
 //
-// Requires the genroc server to be running (genctl validate calls it).
+// Requires the genroc server to be running (the check calls it).
 //
 // Outputs:
 //   playground/generated/types.ts   — ProcessInput/Output + per-task Input/Output
@@ -38,7 +38,9 @@ const result = spawnSync(
   [
     "run",
     "./cmd/genctl",
-    "validate",
+    "apply",
+    "--check-only",
+    "--json",
     "--server",
     "http://localhost:8888",
     ...yamls.flatMap((f) => ["-f", f]),
@@ -47,7 +49,7 @@ const result = spawnSync(
 );
 
 if (result.status !== 0) {
-  throw new Error(`genctl validate: ${result.stderr.trim()}`);
+  throw new Error(`genctl apply --check-only: ${result.stderr.trim()}`);
 }
 
 type Ref = { $ref: string };

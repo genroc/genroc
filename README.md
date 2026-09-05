@@ -89,7 +89,7 @@ GitHub release. To remove it:
     genctl init orders      # skips that question
 
 Definitions land in `definitions/`, and `.genroc` records the pattern that finds them — so
-`genctl apply`, `validate`, `types` and `compat --from latest` need no file arguments. To narrow,
+`genctl apply`, `types` and `compat --from latest` need no file arguments. To narrow,
 `-f` takes any number of paths or globs.
 
 It then asks whether you want TypeScript script tasks, whether to write a `compose.yaml`, and

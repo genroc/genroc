@@ -9,6 +9,9 @@
       "input": {
         "$ref": "#/$defs/location_input"
       },
+      "result": {
+        "$ref": "#/$defs/geo_response"
+      },
       "output": {
         "$ref": "#/$defs/location_output"
       }
@@ -18,13 +21,22 @@
       "input": {
         "$ref": "#/$defs/reading_input"
       },
+      "result": {
+        "$ref": "#/$defs/reading"
+      },
       "output": {
         "$ref": "#/$defs/reading_output"
       }
     },
     "wait": {
       "action_type": "delay",
-      "error": {
+      "input": {
+        "type": "object"
+      },
+      "result": {
+        "type": "null"
+      },
+      "last_error": {
         "oneOf": [
           {
             "$ref": "#/$defs/script_throw"
