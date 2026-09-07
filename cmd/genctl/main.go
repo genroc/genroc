@@ -110,6 +110,8 @@ func main() {
 		runPauseCmd(server, args)
 	case "resume":
 		runResumeCmd(server, args)
+	case "cancel":
+		runCancelCmd(server, args)
 	case "retry":
 		runRetryCmd(server, args)
 	case "init":
@@ -164,7 +166,7 @@ func instanceIDOrToken(fs *flag.FlagSet, args []string) string {
 	return pos[0]
 }
 
-// instanceIDsAndFlags is the same parse for pause/resume/retry, which act on every id
+// instanceIDsAndFlags is the same parse for pause/resume/cancel/retry, which act on every id
 // named. Ids may sit before or after the flags and each resolves on its own, so `@last`
 // may appear among them (see resolveInstanceID).
 func instanceIDsAndFlags(fs *flag.FlagSet, args []string) []string {

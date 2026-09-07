@@ -26,6 +26,10 @@ went with them; migration 022 maps old rows. There is deliberately no permanent 
 every process must have a way back; a terminal stop, if ever wanted, is a new status
 beside `failed`, leaving `paused` untouched.
 
+**That stop was later wanted, and built on exactly those terms** (migration 045): `cancelled` is
+settled beside `failed`, `RetryProcess` refuses it by name, and `paused` is untouched — the two
+verbs never meet, which is what keeps this document true. See §Cancel below.
+
 ## The decisions
 
 1. **Pause is non-destructive, so resume is a status flip.** Everything that makes
@@ -96,3 +100,32 @@ Mature engines separate the same three axes: reversible suspension, terminal
 cancellation, retry-budget override. Suspension is expensive in an event-sourced
 partitioned engine; it is nearly free here, where the scheduler is a claim query over
 one table — why genroc has it and some larger engines still do not.
+
+## Cancel
+
+**Built 2026-09-07.** `cancelling`/`cancelled`, root-only, reusing this document's machinery
+rather than extending it: the leased/parked split is pause's (a row a worker is inside can only
+be ASKED to stop), the deferred landing is pause's CASE in the lease-releasing writes, and the
+crash-recovery settle is `settlePausing`'s shape. Three things differ, each because cancel is
+terminal where pause is reversible:
+
+1. **The selector is every live status, not `running` alone.** A paused tree is exactly what an
+   operator needs to dispose of, and a `failing` one draining a dead branch is the other. Pause
+   can take `running` only because anything else is already stopped in the sense pause means.
+2. **A failure does not outrank a cancel** — the reverse of §4. A pause is reversible, so the
+   tree must still record that it broke; a cancel is terminal and there is no later run for the
+   failure to matter to, so `FailAncestors` excludes both cancel states and the operator's stop
+   stands.
+3. **`settleCancelling` does not resolve an interrupted `only_once` first**, unlike
+   `settlePausing`. That resolution exists to route `only_once.interrupted` into `on_error` so
+   the process can ask the system of record and carry on — and carrying on is what the operator
+   just forbade. The interruption stays in the trail; what it must not do is restart the tree.
+
+Two seams the build found. `ClaimInstances`'s status list and migration 045's partial index are
+**one predicate written twice**: `cancelling` must be in both, and a status in the index but not
+the query is simply never scanned — which strands every draining row whose worker died. And
+`Status.Terminal()`'s SQL copies (`CountActiveSiblings`, `NonTerminalSubtree`) had to gain
+`cancelled` by hand, as that function's own comment warns.
+
+Reaching work already in flight is the heartbeat's job, not this document's:
+[external-task-queue.md](external-task-queue.md) §Renew is the heartbeat.

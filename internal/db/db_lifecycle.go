@@ -267,7 +267,9 @@ func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResu
 			// 'pausing' is excluded from the selector above (it matches 'running' only), so
 			// without this a second pause on a draining tree would report it as stopped while
 			// a worker was still inside a task.
-			n, err := qtx.CountDrainingInTree(ctx, id)
+			n, err := qtx.CountDrainingInTree(ctx, dbgen.CountDrainingInTreeParams{
+				Root: id, Draining: string(model.StatusPausing),
+			})
 			if err != nil {
 				return fmt.Errorf("count draining instances: %w", err)
 			}
@@ -484,6 +486,115 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 	return fmt.Errorf("instance %q is not a root instance; %s root instance %q instead: %w", row.ID, op, stack[0], ErrInvalid)
 }
 
+// CancelProcess stops a process tree for good: root + every live descendant, terminal, with
+// no way back. It is the one settled outcome an operator produces rather than the definition,
+// which is why it is a status beside 'failed' and not a mode of 'paused' -- pause exists to be
+// reversible and must stay that way. Root-only, same lock order as PauseProcess.
+// See specs/pause-resume.md.
+//
+// The selector is every LIVE status, not 'running' alone as pause's is, and that difference is
+// the feature: a paused tree is exactly what an operator needs to dispose of, and a 'failing'
+// one draining a dead branch is the other. Terminal rows are left alone -- a finished process
+// stays finished.
+//
+// A row parked on an external task settles here immediately. The engine holds no lease on it,
+// so there is nothing to drain; the WORKER still holds a claim, and the only channel that
+// reaches it is its next renewal -- which reports the row cancelled and gets the claim
+// released. That is why nothing here clears external_worker_id: cleared, the renewal would
+// answer "lost", which tells the worker to stop WITHOUT releasing.
+// specs/external-task-queue.md.
+func (db *DB) CancelProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
+	row, err := db.loadInstanceRow(ctx, id)
+	if err != nil {
+		return LifecycleResult{}, err
+	}
+	if err := requireRoot(row, "cancel"); err != nil {
+		return LifecycleResult{}, err
+	}
+
+	// settled reached 'cancelled' in this call; leased is left draining in 'cancelling'.
+	// Different events for the same reason pause logs two: a leased row is not stopped yet,
+	// it has only been asked to stop.
+	var settled, leased []string
+	var draining int64
+	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
+		now := nowMillis()
+
+		// Same shape and same id order as PauseProcess -- the shared global lock order, which
+		// is what keeps the two from deadlocking against each other on Postgres.
+		rows, err := exec.QueryContext(ctx, `
+		SELECT id, CASE WHEN worker_id IS NOT NULL AND lease_expires_at > ?
+		                THEN 1 ELSE 0 END AS held
+		FROM process_instances
+		WHERE `+inTree+` AND status IN ('running', 'failing', 'pausing', 'paused')
+		ORDER BY id`+db.forUpdate(), now, id)
+		if err != nil {
+			return fmt.Errorf("lock tree: %w", err)
+		}
+		for rows.Next() {
+			var rowID string
+			var held int
+			if err := rows.Scan(&rowID, &held); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan tree row: %w", err)
+			}
+			if held == 1 {
+				leased = append(leased, rowID)
+			} else {
+				settled = append(settled, rowID)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close() // release the cursor before the UPDATE (SQLite single connection)
+
+		if len(settled)+len(leased) == 0 {
+			// 'cancelling' is outside the selector above, so without this a second cancel on a
+			// draining tree would report it stopped while a worker was still inside a task.
+			n, err := qtx.CountDrainingInTree(ctx, dbgen.CountDrainingInTreeParams{
+				Root: id, Draining: string(model.StatusCancelling),
+			})
+			if err != nil {
+				return fmt.Errorf("count draining instances: %w", err)
+			}
+			draining = n
+			return nil
+		}
+
+		if err := updateStatusIn(ctx, qtx, settled, string(model.StatusCancelled), now); err != nil {
+			return fmt.Errorf("cancel process: %w", err)
+		}
+		if err := updateStatusIn(ctx, qtx, leased, string(model.StatusCancelling), now); err != nil {
+			return fmt.Errorf("cancel process: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return LifecycleResult{}, err
+	}
+
+	written := len(settled) + len(leased)
+	if written == 0 {
+		if draining > 0 {
+			return db.lifecycleResult(ctx, id, model.OutcomeAccepted, 0)
+		}
+		return db.lifecycleResult(ctx, id, model.OutcomeUnchanged, 0)
+	}
+	db.logTreeAction(id, model.EventCancelRequested, "cancel requested", actor,
+		int64(written), map[string]any{"cancelling": len(leased)})
+	db.logInstances(settled, model.EventCancelled, "cancelled", actor)
+	db.logInstances(leased, model.EventCancelling, "cancel requested while a task was in flight", actor)
+
+	// A leased row has been asked to stop, not stopped: the tree still has a task running
+	// until that worker's write lands. specs/id-list-commands.md s202.
+	outcome := model.OutcomeApplied
+	if len(leased) > 0 {
+		outcome = model.OutcomeAccepted
+	}
+	return db.lifecycleResult(ctx, id, outcome, written)
+}
+
 // RetryProcess revives a failed root from where its tree died: failed nodes on the current
 // path are revived in place (leaves re-run their pending task; parents reconstructed as
 // waiting or collecting), and completed work is never redone. force overrides only_once
@@ -500,6 +611,13 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 	if status := model.Status(rootRow.Status); status != model.StatusFailed {
 		if status == model.StatusPaused || status == model.StatusPausing {
 			return LifecycleResult{}, fmt.Errorf("process is paused, not failed (status: %s); resume it instead: %w", status, ErrConflict)
+		}
+		// The refusal cancel exists to make: retry revives a tree whose DEFINITION ran out of
+		// attempts, and an operator's stop was never an attempt. Reviving one would restore the
+		// merged verb whose removal is the whole of specs/pause-resume.md.
+		if status == model.StatusCancelled || status == model.StatusCancelling {
+			return LifecycleResult{}, fmt.Errorf("process was cancelled (status: %s); a cancel is final -- "+
+				"start a new instance instead: %w", status, ErrConflict)
 		}
 		// A raised root is settled, not interrupted: retry could only re-run the very task whose
 		// switch DECIDED to raise, against state a retry cannot change — re-raising identically
@@ -604,13 +722,14 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 	var revive func(node *model.ProcessInstance) error
 	revive = func(node *model.ProcessInstance) error {
 		switch node.Status {
-		case model.StatusCompleted, model.StatusRaised:
+		case model.StatusCompleted, model.StatusRaised, model.StatusCancelled:
 			// Settled work is kept, raised included: a raise concluded by design, and the
 			// status means the same at every depth. (One case retry cannot help: a parent
 			// that failed on an unmatched child code re-resolves identically, since the
 			// missing rule lives in a version-pinned definition. The fix is a new version.)
 			return nil
-		case model.StatusRunning, model.StatusFailing, model.StatusPausing, model.StatusPaused:
+		case model.StatusRunning, model.StatusFailing, model.StatusPausing, model.StatusPaused,
+			model.StatusCancelling:
 			// Unreachable under a failed root: it settles only once every child is
 			// terminal, and paused children count as active (CountActiveSiblings), so
 			// a tree holding one stays 'failing'. Kept as defense — a live or

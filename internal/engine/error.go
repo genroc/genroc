@@ -312,6 +312,25 @@ func (e *Engine) settlePausing(inst *model.ProcessInstance) advanceOutcome {
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
+// settleCancelling lands 'cancelling' in the terminal 'cancelled'; reached only when a worker
+// died holding the instance (a live cancel lands in SQL on the owner's write, like a pause).
+//
+// Unlike settlePausing this does NOT resolve an interrupted only_once first, and the
+// difference is the point: that resolution exists to route only_once.interrupted into
+// on_error so the process can ASK the system of record and carry on. Carrying on is what an
+// operator just forbade. The interruption is still evidence, and it is in the trail -- what it
+// must not do is restart the tree. specs/only-once-interrupted.md, specs/pause-resume.md.
+func (e *Engine) settleCancelling(inst *model.ProcessInstance) advanceOutcome {
+	inst.Status = model.StatusCancelled
+	inst.WaitState = model.WaitStateNone
+	inst.WakeAt = nil
+	// The other half of inst_cancelled: CancelProcess logs the rows it settled itself, this
+	// covers the leased one it could only mark 'cancelling'.
+	e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventCancelled, Task: inst.Task,
+		Msg: "in-flight task settled; instance cancelled"})
+	return advanceOutcome{kind: outcomeTerminal}
+}
+
 // settleFailing finalises a draining 'failing' instance once its children have settled
 // (it only becomes claimable then). The error was recorded when the failure propagated up.
 func (e *Engine) settleFailing(inst *model.ProcessInstance) advanceOutcome {

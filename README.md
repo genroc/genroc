@@ -30,12 +30,16 @@ no worker while it waits.
   (`child_list`) child processes and wait for them, with versioning and
   compatibility checks between parent and child.
 - **External tasks.** A task can hand off to a human or a long-running external
-  system (`external`) and resume when the result is signalled back in.
-- **Pause / resume / retry.** A running tree can be suspended and resumed with
-  nothing else changed — timers keep running, so it carries on exactly where it
-  stopped. Retrying is the separate, deliberate act of granting a *failed* tree
-  an attempt its definition did not authorise (see
-  [specs/pause-resume.md](specs/pause-resume.md)).
+  system (`external`) and resume when the result is signalled back in. Workers pull from
+  a claim queue and renew what they hold; the renewal answers per token — `renewed`,
+  `lost`, `cancelled` — which is the only channel that reaches work already in flight,
+  since a worker dials genroc and never the reverse.
+- **Pause / resume / cancel / retry.** A running tree can be suspended and resumed
+  with nothing else changed — timers keep running, so it carries on exactly where it
+  stopped. Cancelling is the terminal stop: irreversible, and not retryable, which is
+  why it is a state of its own rather than a mode of paused. Retrying is the separate,
+  deliberate act of granting a *failed* tree an attempt its definition did not
+  authorise (see [specs/pause-resume.md](specs/pause-resume.md)).
 - **Typed data flow.** Process input, task outputs, and child results are
   described with a strict JSON-Schema subset, and output types are *inferred* —
   including recursive shapes (see [specs/recursive-type-inference.md](specs/recursive-type-inference.md)).
@@ -59,7 +63,7 @@ no worker while it waits.
 | Binary       | Purpose |
 |--------------|---------|
 | `genroc`     | The server: runs the engine and serves the API over HTTP / TCP / Unix socket. |
-| `genctl`     | Command-line client for a running server (apply, run, inspect, logs, pause/resume/retry), inspired by kubectl. |
+| `genctl`     | Command-line client for a running server (apply, run, inspect, logs, pause/resume/cancel/retry), inspired by kubectl. |
 | `genrocspec` | Emits the server's OpenAPI spec (`openapi.json`). |
 
 ## Install

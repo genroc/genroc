@@ -283,6 +283,17 @@ func (h *Handlers) resumeInstance(id, actor string) Reply {
 	return outcomeReply(res)
 }
 
+func (h *Handlers) cancelInstance(id, actor string) Reply {
+	if id == "" {
+		return invalid("id is required").reply()
+	}
+	res, err := h.db.CancelProcess(context.Background(), id, actor)
+	if err != nil {
+		return errReply(err)
+	}
+	return outcomeReply(res)
+}
+
 func (h *Handlers) retryInstance(id string, raw json.RawMessage, actor string) Reply {
 	if id == "" {
 		return invalid("id is required").reply()

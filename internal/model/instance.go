@@ -34,6 +34,12 @@ const (
 	StatusRaised    Status = "raised"  // concluded by a `raise` clause; catchable by the parent
 	StatusPausing   Status = "pausing" // pause requested, still holding an in-flight task
 	StatusPaused    Status = "paused"
+
+	// cancelled is the terminal stop, and the one settled outcome an operator produces
+	// rather than the definition. It is deliberately NOT reachable from `paused` in the
+	// other direction: pause has a way back and this does not. specs/pause-resume.md.
+	StatusCancelling Status = "cancelling" // cancel requested, still holding an in-flight task
+	StatusCancelled  Status = "cancelled"
 )
 
 // Terminal reports whether the status is a settled outcome. paused and pausing are
@@ -44,7 +50,7 @@ const (
 // waiting on a child that has already concluded. The SQL copies of this predicate are
 // separate and must be kept in step by hand — see CountActiveSiblings in queries.sql.
 func (s Status) Terminal() bool {
-	return s == StatusCompleted || s == StatusFailed || s == StatusRaised
+	return s == StatusCompleted || s == StatusFailed || s == StatusRaised || s == StatusCancelled
 }
 
 // Outcome is what a lifecycle assertion (pause, resume) did. It sits beside Status
@@ -70,6 +76,11 @@ const (
 // discard work an outside caller has already performed, and on an only_once task the
 // external.timeout that follows can never be retried. The claim side refuses a suspended
 // tree instead. specs/external-task-queue.md §Pause.
+//
+// The cancel states are absent, and the contrast with pause is the reason: work delivered to
+// a paused tree is work that will still be read when it resumes, and work delivered to a
+// cancelled one never will be. Refusing is what tells the worker to stop -- accepting would
+// take an answer nobody would ever look at.
 func (s Status) AcceptsExternalOutcome() bool {
 	return s == StatusRunning || s == StatusPaused || s == StatusPausing
 }

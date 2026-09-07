@@ -9,12 +9,6 @@ One line per item. The argument lives in `specs/`; this is the index.
   (specs/api-auth.md §7)
 - [] **metrics** — `/healthz` is binary; nothing reports backlog depth or the age of the
   oldest due `wake_at` (specs/resource-limits.md)
-- [] **renew as a heartbeat** — the response is a count, so a worker holding several claims
-  cannot tell which to abandon; per-token `renewed`/`lost` is also the only channel that can
-  reach work in flight (specs/external-task-queue.md §Renew is the heartbeat)
-- [] **cancel** — no terminal "an operator stopped this"; a paused tree holds its row forever
-  and strands a waiting parent. `cancelling`/`cancelled` mirroring pause, reusing `failing`'s
-  descendant drain, and riding the renew heartbeat to stop claimed work
 - [] **instance retention** — logs prune and objects sweep, `process_instances` grows forever
 - [] **deterministic simulation**, tier 1 — the only place `only_once` can be asserted
   (specs/deterministic-simulation.md)
@@ -37,6 +31,11 @@ One line per item. The argument lives in `specs/`; this is the index.
 
 ## Shipped
 
+- [x] cancel — `cancelling`/`cancelled` as a terminal stop BESIDE `failed`, not a mode of
+      `paused`: root-only, mirroring pause's leased/parked split, refused by retry
+      (specs/pause-resume.md)
+- [x] renew as a heartbeat — per-token `renewed`/`lost`/`cancelled` and `renew_before_ms`, which
+      is what carries a cancel to work already in flight (specs/external-task-queue.md)
 - [x] auth — permissions on every action, `token` / `header` / `jwt` modes composing in one
       chain, the session exchange, and a default that warns when it is exposed (specs/api-auth.md)
 - [x] attribution — `actor` as `source:subject` on definitions, channels and operator-initiated

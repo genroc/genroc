@@ -540,7 +540,7 @@ func runGetCmd(server string, args []string) {
 func runInstancesCmd(server string, args []string) {
 	fs := newFlagSet("instances", args)
 	serverFlag := addServerFlag(fs, server)
-	statusFlag := fs.String("status", "", "filter by status (running, completed, failing, failed, raised, pausing, paused)")
+	statusFlag := fs.String("status", "", "filter by status (running, completed, failing, failed, raised, pausing, paused, cancelling, cancelled)")
 	codeFlag := fs.String("error-code", "", "filter by exact error code (e.g. card_declined, http.500)")
 	processFlag := fs.String("process", "", "filter by exact process name, across every version")
 	versionFlag := fs.Int("version", 0, "filter by exact process version; with --process, that process at that version")
@@ -944,6 +944,16 @@ func runResumeCmd(server string, args []string) {
 
 	eachInstance(ids, "resumed", func(id string) (model.Outcome, error) {
 		return assert(*serverFlag + "/api/instances/" + url.PathEscape(id) + "/resume")
+	})
+}
+
+func runCancelCmd(server string, args []string) {
+	fs := newFlagSet("cancel", args)
+	serverFlag := addServerFlag(fs, server)
+	ids := instanceIDsAndFlags(fs, args)
+
+	eachInstance(ids, "cancelled", func(id string) (model.Outcome, error) {
+		return assert(*serverFlag + "/api/instances/" + url.PathEscape(id) + "/cancel")
 	})
 }
 

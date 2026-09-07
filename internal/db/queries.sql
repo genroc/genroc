@@ -115,7 +115,10 @@ SET task             = sqlc.arg(task),
     wake_at    = sqlc.arg(wake_at),
     status           = CASE WHEN status = 'pausing'
                             AND CAST(sqlc.arg(status) AS TEXT) = 'running'
-                            THEN 'paused' ELSE CAST(sqlc.arg(status) AS TEXT) END,
+                            THEN 'paused'
+                            WHEN status = 'cancelling'
+                            AND CAST(sqlc.arg(status) AS TEXT) = 'running'
+                            THEN 'cancelled' ELSE CAST(sqlc.arg(status) AS TEXT) END,
     wait_state       = sqlc.arg(wait_state),
     error_message    = sqlc.arg(error_message),
     error_code       = sqlc.arg(error_code),
@@ -141,7 +144,8 @@ SET task             = sqlc.arg(task),
     objects          = sqlc.arg(objects),
     retry_count      = sqlc.arg(retry_count),
     wake_at    = sqlc.arg(wake_at),
-    status           = CASE WHEN status = 'pausing' THEN 'paused' ELSE status END,
+    status           = CASE WHEN status = 'pausing'    THEN 'paused'
+                            WHEN status = 'cancelling' THEN 'cancelled' ELSE status END,
     wait_state       = sqlc.arg(wait_state),
     updated_at       = sqlc.arg(updated_at),
     worker_id        = NULL,
@@ -228,7 +232,7 @@ SELECT COUNT(*) FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id)
   AND parent_task_epoch = sqlc.arg(parent_task_epoch)
-  AND status NOT IN ('completed', 'failed', 'raised');
+  AND status NOT IN ('completed', 'failed', 'raised', 'cancelled');
 
 -- name: GetWaitState :one
 SELECT wait_state FROM process_instances WHERE id = sqlc.arg(id);
@@ -274,6 +278,11 @@ ORDER BY created_at, id;
 -- dead branch still poisons upward. 'raised' is deliberately absent (a settled outcome
 -- never reopens into 'failing' -- terminal for "batch done", yet neither poisoning nor
 -- poisonable). error_code travels along so a poisoned tree filters by its origin code.
+--
+-- 'cancelling'/'cancelled' are absent for the opposite reason to 'paused': a pause is
+-- reversible, so the tree must still record that it broke, but a cancel is terminal and
+-- there is no later run for the failure to matter to. Recording it would overwrite the
+-- operator's stop with a fault nobody will act on.
 UPDATE process_instances
 SET status = 'failing', error_message = sqlc.arg(error_message), error_code = sqlc.arg(error_code),
     updated_at = sqlc.arg(updated_at)
@@ -314,8 +323,23 @@ WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)));
 -- name: RenewExternalLeasesChunk :execrows
 -- RenewWorkerLeasesChunk's external twin, scoped by external_worker_id for the same reason:
 -- a renewal must not resurrect a claim on a row someone else now holds.
+--
+-- A cancelled row is deliberately NOT renewed: the answer the worker is owed is "stop",
+-- and extending a lease on work nobody wants would hold the claim open until the worker
+-- noticed some other way. HeldExternalClaimsChunk reports it in the same transaction.
 UPDATE process_instances
 SET external_lease_expires_at = sqlc.arg(new_expiry)
+WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)))
+  AND external_worker_id = sqlc.arg(external_worker_id)
+  AND status NOT IN ('cancelling', 'cancelled');
+
+-- name: HeldExternalClaimsChunk :many
+-- Which of the ids a renewing worker still holds, and what its instance is doing. Run in
+-- the SAME transaction as RenewExternalLeasesChunk so the classification describes exactly
+-- the rows that write touched: present and live is renewed, present and cancelled is
+-- cancelled, and ABSENT is lost -- the id is not reported, so the caller derives it by
+-- difference against what it asked for. specs/external-task-queue.md.
+SELECT id, status FROM process_instances
 WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)))
   AND external_worker_id = sqlc.arg(external_worker_id);
 
@@ -346,10 +370,12 @@ VALUES
 -- both take a dynamic ORDER BY + keyset cursor (see paginate.go). They differ only in
 -- which indexed column they filter on -- instance_id or root_id -- since migration 040.
 
--- CountDrainingInTree counts the rows a previous pause left mid-task ('pausing'). It is
--- what tells a tree that has STOPPED from one still draining: PauseProcess selects
--- 'running' only, so a second pause on a draining tree writes nothing and would otherwise
--- report it as stopped while a worker is still inside a task.
+-- CountDrainingInTree counts the rows a previous pause or cancel left mid-task, which is
+-- what tells a tree that has STOPPED from one still draining: both select 'running' only,
+-- so a second call on a draining tree writes nothing and would otherwise report it as
+-- stopped while a worker is still inside a task. `draining` is the caller's own draining
+-- state ('pausing' or 'cancelling') -- counting the other verb's would report a tree as
+-- still stopping because someone paused it.
 -- specs/id-list-commands.md.
 --
 -- Unlike its neighbours in db_lifecycle.go this one is expressible here: it takes no row
@@ -359,7 +385,7 @@ VALUES
 
 -- name: CountDrainingInTree :one
 SELECT COUNT(*) FROM process_instances
-WHERE root_id = sqlc.arg(root) AND status = 'pausing';
+WHERE root_id = sqlc.arg(root) AND status = sqlc.arg(draining);
 
 -- GetInstanceStatus reads one root's status inside the transaction that already holds the
 -- tree, which is what lets ResumeProcess decide "already advancing" from "settled and
@@ -473,7 +499,7 @@ UPDATE durability_marker SET n = n + 1 WHERE id = 1;
 -- task predicate is what turns that into a lost race a re-run picks up rather than a
 -- clobber.
 --
--- worker_id IS NULL is defence, not a live case: a claim only takes running/failing/pausing
+-- worker_id IS NULL is defence, not a live case: a claim only takes the live and draining
 -- rows, so a paused or failed one is never leased. It is here because the status filter and
 -- the claim predicate are separate statements that could drift apart, and this write must
 -- not be the place that discovers it.
@@ -514,7 +540,7 @@ SELECT id, process_name, process_version, parent_id,
 FROM process_instances
 WHERE root_id = sqlc.arg(root)
   AND (process_instances.id = sqlc.arg(root)
-       OR status NOT IN ('completed', 'failed', 'raised'))
+       OR status NOT IN ('completed', 'failed', 'raised', 'cancelled'))
 ORDER BY created_at ASC, id ASC;
 
 -- name: SupersedeInstance :exec

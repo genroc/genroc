@@ -111,7 +111,7 @@ SELECT COUNT(*) FROM process_instances
 WHERE parent_id = ?1
   AND spawn_task_id = ?2
   AND parent_task_epoch = ?3
-  AND status NOT IN ('completed', 'failed', 'raised')
+  AND status NOT IN ('completed', 'failed', 'raised', 'cancelled')
 `
 
 type CountActiveSiblingsParams struct {
@@ -153,24 +153,31 @@ const countDrainingInTree = `-- name: CountDrainingInTree :one
 
 
 SELECT COUNT(*) FROM process_instances
-WHERE root_id = ?1 AND status = 'pausing'
+WHERE root_id = ?1 AND status = ?2
 `
+
+type CountDrainingInTreeParams struct {
+	Root     string
+	Draining string
+}
 
 // ListLogs (one instance) and ListTreeLogs (a whole tree) are hand-written in db_logs.go:
 // both take a dynamic ORDER BY + keyset cursor (see paginate.go). They differ only in
 // which indexed column they filter on -- instance_id or root_id -- since migration 040.
-// CountDrainingInTree counts the rows a previous pause left mid-task ('pausing'). It is
-// what tells a tree that has STOPPED from one still draining: PauseProcess selects
-// 'running' only, so a second pause on a draining tree writes nothing and would otherwise
-// report it as stopped while a worker is still inside a task.
+// CountDrainingInTree counts the rows a previous pause or cancel left mid-task, which is
+// what tells a tree that has STOPPED from one still draining: both select 'running' only,
+// so a second call on a draining tree writes nothing and would otherwise report it as
+// stopped while a worker is still inside a task. `draining` is the caller's own draining
+// state ('pausing' or 'cancelling') -- counting the other verb's would report a tree as
+// still stopping because someone paused it.
 // specs/id-list-commands.md.
 //
 // Unlike its neighbours in db_lifecycle.go this one is expressible here: it takes no row
 // locks (no dialect-dependent FOR UPDATE) and binds no dynamic id list.
 //
 // `root` must BE a root: root_id names the tree (migration 040), so a child counts nothing.
-func (q *Queries) CountDrainingInTree(ctx context.Context, root string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countDrainingInTree, root)
+func (q *Queries) CountDrainingInTree(ctx context.Context, arg CountDrainingInTreeParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countDrainingInTree, arg.Root, arg.Draining)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -298,6 +305,11 @@ type FailAncestorsParams struct {
 // dead branch still poisons upward. 'raised' is deliberately absent (a settled outcome
 // never reopens into 'failing' -- terminal for "batch done", yet neither poisoning nor
 // poisonable). error_code travels along so a poisoned tree filters by its origin code.
+//
+// 'cancelling'/'cancelled' are absent for the opposite reason to 'paused': a pause is
+// reversible, so the tree must still record that it broke, but a cancel is terminal and
+// there is no later run for the failure to matter to. Recording it would overwrite the
+// operator's stop with a fault nobody will act on.
 func (q *Queries) FailAncestors(ctx context.Context, arg FailAncestorsParams) error {
 	_, err := q.db.ExecContext(ctx, failAncestors,
 		arg.ErrorMessage,
@@ -707,6 +719,50 @@ type GrantLeasesParams struct {
 func (q *Queries) GrantLeases(ctx context.Context, arg GrantLeasesParams) error {
 	_, err := q.db.ExecContext(ctx, grantLeases, arg.WorkerID, arg.LeaseExpiresAt, arg.Ids)
 	return err
+}
+
+const heldExternalClaimsChunk = `-- name: HeldExternalClaimsChunk :many
+SELECT id, status FROM process_instances
+WHERE id IN (SELECT value FROM json_each(?1))
+  AND external_worker_id = ?2
+`
+
+type HeldExternalClaimsChunkParams struct {
+	Ids              interface{}
+	ExternalWorkerID sql.NullString
+}
+
+type HeldExternalClaimsChunkRow struct {
+	ID     string
+	Status string
+}
+
+// Which of the ids a renewing worker still holds, and what its instance is doing. Run in
+// the SAME transaction as RenewExternalLeasesChunk so the classification describes exactly
+// the rows that write touched: present and live is renewed, present and cancelled is
+// cancelled, and ABSENT is lost -- the id is not reported, so the caller derives it by
+// difference against what it asked for. specs/external-task-queue.md.
+func (q *Queries) HeldExternalClaimsChunk(ctx context.Context, arg HeldExternalClaimsChunkParams) ([]HeldExternalClaimsChunkRow, error) {
+	rows, err := q.db.QueryContext(ctx, heldExternalClaimsChunk, arg.Ids, arg.ExternalWorkerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []HeldExternalClaimsChunkRow
+	for rows.Next() {
+		var i HeldExternalClaimsChunkRow
+		if err := rows.Scan(&i.ID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const insertAPIToken = `-- name: InsertAPIToken :exec
@@ -1141,7 +1197,7 @@ SELECT id, process_name, process_version, parent_id,
 FROM process_instances
 WHERE root_id = ?1
   AND (process_instances.id = ?1
-       OR status NOT IN ('completed', 'failed', 'raised'))
+       OR status NOT IN ('completed', 'failed', 'raised', 'cancelled'))
 ORDER BY created_at ASC, id ASC
 `
 
@@ -1345,6 +1401,7 @@ UPDATE process_instances
 SET external_lease_expires_at = ?1
 WHERE id IN (SELECT value FROM json_each(?2))
   AND external_worker_id = ?3
+  AND status NOT IN ('cancelling', 'cancelled')
 `
 
 type RenewExternalLeasesChunkParams struct {
@@ -1355,6 +1412,10 @@ type RenewExternalLeasesChunkParams struct {
 
 // RenewWorkerLeasesChunk's external twin, scoped by external_worker_id for the same reason:
 // a renewal must not resurrect a claim on a row someone else now holds.
+//
+// A cancelled row is deliberately NOT renewed: the answer the worker is owed is "stop",
+// and extending a lease on work nobody wants would hold the claim open until the worker
+// noticed some other way. HeldExternalClaimsChunk reports it in the same transaction.
 func (q *Queries) RenewExternalLeasesChunk(ctx context.Context, arg RenewExternalLeasesChunkParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, renewExternalLeasesChunk, arg.NewExpiry, arg.Ids, arg.ExternalWorkerID)
 	if err != nil {
@@ -1513,7 +1574,10 @@ SET task             = ?1,
     wake_at    = ?12,
     status           = CASE WHEN status = 'pausing'
                             AND CAST(?13 AS TEXT) = 'running'
-                            THEN 'paused' ELSE CAST(?13 AS TEXT) END,
+                            THEN 'paused'
+                            WHEN status = 'cancelling'
+                            AND CAST(?13 AS TEXT) = 'running'
+                            THEN 'cancelled' ELSE CAST(?13 AS TEXT) END,
     wait_state       = ?14,
     error_message    = ?15,
     error_code       = ?16,
@@ -1595,7 +1659,8 @@ SET task             = ?1,
     objects          = ?8,
     retry_count      = ?9,
     wake_at    = ?10,
-    status           = CASE WHEN status = 'pausing' THEN 'paused' ELSE status END,
+    status           = CASE WHEN status = 'pausing'    THEN 'paused'
+                            WHEN status = 'cancelling' THEN 'cancelled' ELSE status END,
     wait_state       = ?11,
     updated_at       = ?12,
     worker_id        = NULL,
@@ -1695,7 +1760,7 @@ type UpgradeInstanceVersionParams struct {
 // task predicate is what turns that into a lost race a re-run picks up rather than a
 // clobber.
 //
-// worker_id IS NULL is defence, not a live case: a claim only takes running/failing/pausing
+// worker_id IS NULL is defence, not a live case: a claim only takes the live and draining
 // rows, so a paused or failed one is never leased. It is here because the status filter and
 // the claim predicate are separate statements that could drift apart, and this write must
 // not be the place that discovers it.

@@ -6,7 +6,7 @@
 // See README.md for the contract, and specs/external-task-queue.md for the queue itself.
 
 import { readFileSync } from "node:fs";
-import { evaluate, type EvalRequest, type FailureKind } from "./eval.ts";
+import { Cancelled, evaluate, type EvalRequest, type FailureKind } from "./eval.ts";
 
 const SERVER = (process.env.GENROC_SERVER ?? "http://localhost:8448").replace(/\/$/, "");
 const WORKER_ID = process.env.WORKER_ID ?? `evaluator-${process.pid}`;
@@ -135,7 +135,12 @@ function asEvalRequest(input: unknown): EvalRequest | string {
   };
 }
 
-const inFlight = new Map<string, QueueTask>();
+/** A claim this worker is currently serving. The controller is how the renewal loop reaches
+ *  the evaluation: genroc cannot call us, so a cancellation arrives as an answer to our own
+ *  heartbeat and has to be delivered inward from there. */
+type Running = { job: QueueTask; abort: AbortController };
+
+const inFlight = new Map<string, Running>();
 let running = true;
 
 // Whether the last claim reached genroc. A worker polls several times a second, so an
@@ -203,7 +208,7 @@ async function answer(token: string, outcome: Record<string, unknown>): Promise<
   await release(token);
 }
 
-async function run(job: QueueTask): Promise<void> {
+async function run(job: QueueTask, signal: AbortSignal): Promise<void> {
   let resolved: unknown;
   try {
     resolved = await resolveObjects(job);
@@ -224,8 +229,16 @@ async function run(job: QueueTask): Promise<void> {
 
   let result;
   try {
-    result = await evaluate(req);
+    result = await evaluate(req, signal);
   } catch (err) {
+    // Cancelled is not a fault: the process was stopped while this ran. The claim still goes
+    // back — the row is terminal, so nothing re-claims it, and the release is what stops it
+    // waiting out a lease nobody is serving.
+    if (err instanceof Cancelled) {
+      console.log(`cancelled: ${job.token}`);
+      await release(job.token);
+      return;
+    }
     // The RUNNER faulted, not the script — the one class where a retry can help. There is no
     // error code for it on purpose: releasing the claim is how a queue spells "retryable", and
     // it puts the task in front of a different worker instead of burning the definition's
@@ -263,11 +276,22 @@ async function renewLoop(): Promise<void> {
       tokens,
       lease_ms: LEASE_MS,
     });
-    // A short count means a claim lapsed and was taken over. Nothing to do about it — the work
-    // continues and its answer will be refused — but say so, because it is the signal that
-    // LEASE_MS is too short for what these scripts actually take.
-    if (ok && data?.renewed < tokens.length) {
-      console.error(`renewed ${data.renewed}/${tokens.length} claims; a lease lapsed under load`);
+    if (!ok) continue;
+
+    // Cancelled: the process was stopped, so the evaluation is abandoned and the claim handed
+    // back. Aborting first is the point of the list — waiting for the script to finish would
+    // keep burning a core on work an operator has already stopped. The release rides run()'s
+    // own catch, so nothing is released twice.
+    for (const token of (data?.cancelled ?? []) as string[]) {
+      inFlight.get(token)?.abort.abort();
+    }
+    // Lost: someone else holds this claim now. The work continues and its answer will be
+    // refused — that is not fixable here — but say so, because it is the signal that LEASE_MS
+    // is too short for what these scripts actually take. Deliberately NOT released: the claim
+    // is the new holder's, and releasing would bump the epoch out from under it.
+    const lost = (data?.lost ?? []) as string[];
+    if (lost.length) {
+      console.error(`lost ${lost.length}/${tokens.length} claims; a lease lapsed under load`);
     }
   }
 }
@@ -277,8 +301,9 @@ async function pollLoop(): Promise<void> {
     const free = CONCURRENCY - inFlight.size;
     const jobs = free > 0 ? await claim(free) : [];
     for (const job of jobs) {
-      inFlight.set(job.token, job);
-      void run(job).finally(() => inFlight.delete(job.token));
+      const abort = new AbortController();
+      inFlight.set(job.token, { job, abort });
+      void run(job, abort.signal).finally(() => inFlight.delete(job.token));
     }
     // Only idle when there was nothing to take: a full queue should be drained at the speed the
     // realms allow, not at the poll interval.

@@ -173,7 +173,7 @@ the engine's live lease ("don't race it; buffer instead, and the signal is consu
 re-arms"). A claim is the same situation with a different holder, so it got the same treatment
 rather than a rule of its own.
 
-### Renew is the heartbeat [NOT built]
+### Renew is the heartbeat [built]
 
 Renew does two jobs: extend the visibility timeout, and tell the holder whether the work is
 still wanted. It is the *only* channel for the second — a worker dials genroc, never the
@@ -189,12 +189,25 @@ Two consequences to accept before building it: renewal stops being optional, bec
 that does not renew cannot be reached and a silent worker looks identical to a healthy one; and
 the claim response should state `renew_before_ms` rather than leaving the interval to folklore.
 
-Cancellation would ride this as a third list. That is the whole mechanism for stopping work in
-flight — an `on_cancel` hook in the definition was considered and dropped, because the engine
-statuses are needed either way and the hook's real cost is definition-language surface: schema,
-validation, a compat rule, the editor schema, docs. What it would have bought — cancelling an
-external *resource* rather than the worker, as in the submit-then-poll shape — `on_error`
-routing already reaches, if the cancellation code is catchable.
+Cancellation rides this as a third list, and it shipped with cancel itself. That is the whole
+mechanism for stopping work in flight — an `on_cancel` hook in the definition was considered and
+dropped, because the engine statuses are needed either way and the hook's real cost is
+definition-language surface: schema, validation, a compat rule, the editor schema, docs. What it
+would have bought — cancelling an external *resource* rather than the worker, as in the
+submit-then-poll shape — `on_error` routing already reaches, if the cancellation code is
+catchable.
+
+Three things settled in the build. **`lost` and `cancelled` are different instructions, not two
+words for failure**: lost means the claim is already someone else's, so the worker stops and must
+NOT release (releasing bumps the new holder's epoch out from under it); cancelled means the work
+is still yours and nobody wants it, so it stops and MUST release, or the row waits out a lease
+nobody is serving. **The classifying read shares the renewal's transaction**, because a row
+turning cancelled between the two would come back renewed — and a late answer to a cancel is the
+one answer that must not be late. And **cancel deliberately leaves `external_worker_id` set**:
+cleared, the next renewal would answer `lost`, which tells the worker exactly the wrong thing.
+
+The reason a cancelled claim is not also renewed is the same shape of argument: extending a
+lease on work nobody wants holds the claim open until the worker notices some other way.
 
 ### The error channel
 

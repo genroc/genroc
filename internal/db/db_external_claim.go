@@ -162,37 +162,83 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 	return result, tx.Commit()
 }
 
+// RenewOutcome is what one renewal round decided about each id the worker asked about.
+// Every requested id lands in exactly one list, which is the whole point of the shape: a
+// worker holding several claims cannot act on a count. specs/external-task-queue.md.
+//
+// Lost and Cancelled are different instructions, not two words for failure. Lost means the
+// claim is already someone else's -- stop, and do NOT release, because releasing would bump
+// the new holder's epoch out from under it. Cancelled means the work is still yours and
+// nobody wants it -- stop, and DO release, so the row does not wait out a lease nobody is
+// serving.
+type RenewOutcome struct {
+	Renewed   []string
+	Lost      []string
+	Cancelled []string
+}
+
 // RenewExternalClaims re-stamps this worker's claims on the listed instances to now+leaseDur,
 // in chunks so one contended row stalls only its chunk. Mirrors RenewWorkerLeases, including
 // the two rules that break silently: it must NOT bump external_claim_epoch (a renewal extends a
 // grant; bumping would fence the worker out of its own answer) and must NOT clear
 // external_worker_id (an unlisted row expires with the holder intact, which is the hand-back).
 //
-// Returns how many claims were renewed, so a worker learns it lost one rather than discovering
-// it when its answer is refused.
-func (db *DB) RenewExternalClaims(ctx context.Context, workerID string, ids []string, leaseDur time.Duration) (int64, error) {
+// Renew is also the only channel that reaches a worker at all -- a worker dials genroc and
+// never the reverse -- so cancellation rides it. That is why the classifying read shares the
+// renewal's transaction: a row that turns cancelled between the two would otherwise be
+// reported renewed, and the answer to a cancel is the one answer that must not be late.
+func (db *DB) RenewExternalClaims(ctx context.Context, workerID string, ids []string, leaseDur time.Duration) (RenewOutcome, error) {
+	out := RenewOutcome{}
 	if len(ids) == 0 {
-		return 0, nil
+		return out, nil
 	}
 	newExpiry := nowMillis() + leaseDur.Milliseconds()
-	var total int64
+	held := make(map[string]model.Status, len(ids))
+
 	for start := 0; start < len(ids); start += renewChunkSize {
 		end := min(start+renewChunkSize, len(ids))
 		idsJSON, err := json.Marshal(ids[start:end])
 		if err != nil {
-			return total, err
+			return out, err
 		}
-		n, err := db.q.RenewExternalLeasesChunk(ctx, dbgen.RenewExternalLeasesChunkParams{
-			NewExpiry:        sql.NullInt64{Int64: newExpiry, Valid: true},
-			Ids:              string(idsJSON),
-			ExternalWorkerID: sql.NullString{String: workerID, Valid: true},
-		})
-		if err != nil {
-			return total, err
+		if err := db.withTx(ctx, func(qtx *dbgen.Queries, _ dbgen.DBTX) error {
+			if _, err := qtx.RenewExternalLeasesChunk(ctx, dbgen.RenewExternalLeasesChunkParams{
+				NewExpiry:        sql.NullInt64{Int64: newExpiry, Valid: true},
+				Ids:              string(idsJSON),
+				ExternalWorkerID: sql.NullString{String: workerID, Valid: true},
+			}); err != nil {
+				return err
+			}
+			rows, err := qtx.HeldExternalClaimsChunk(ctx, dbgen.HeldExternalClaimsChunkParams{
+				Ids:              string(idsJSON),
+				ExternalWorkerID: sql.NullString{String: workerID, Valid: true},
+			})
+			if err != nil {
+				return err
+			}
+			for _, r := range rows {
+				held[r.ID] = model.Status(r.Status)
+			}
+			return nil
+		}); err != nil {
+			return out, err
 		}
-		total += n
 	}
-	return total, nil
+
+	// Driven by the REQUESTED ids rather than the rows read back, so an id the query never
+	// saw still gets an answer. That is the lost case, and it is the one a worker cannot
+	// discover any other way.
+	for _, id := range ids {
+		switch status, ok := held[id]; {
+		case !ok:
+			out.Lost = append(out.Lost, id)
+		case status == model.StatusCancelling || status == model.StatusCancelled:
+			out.Cancelled = append(out.Cancelled, id)
+		default:
+			out.Renewed = append(out.Renewed, id)
+		}
+	}
+	return out, nil
 }
 
 // ReleaseExternalClaim hands a claimed task straight back to the queue rather than waiting out

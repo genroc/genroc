@@ -134,7 +134,7 @@ test("release hands the task back at once and voids the releasing worker's token
   expect(ok, `the new holder was refused: ${JSON.stringify(ok)}`).toBeUndefined();
 });
 
-test("renew extends this worker's claims and reports what it still held", async () => {
+test("renew answers per token, not with a count", async () => {
   const name = `claim_renew_${crypto.randomUUID()}`;
   await define(name);
   await start(name);
@@ -144,13 +144,21 @@ test("renew extends this worker's claims and reports what it still held", async 
     body: { worker_id: "worker-1", tokens: [job.token], lease_ms: 60_000 },
   });
   expect(error, `renew failed: ${JSON.stringify(error)}`).toBeUndefined();
-  expect((data as any)?.renewed).toBe(1);
+  // The token, not a number: a worker holding several claims has to know WHICH one it
+  // still holds to abandon the right job. specs/external-task-queue.md.
+  expect((data as any)?.renewed).toEqual([job.token]);
+  expect((data as any)?.lost).toEqual([]);
+  expect((data as any)?.cancelled).toEqual([]);
+  // The interval is a value the worker reads rather than one it guesses.
+  expect((data as any)?.renew_before_ms).toBeGreaterThan(0);
 
-  // Scoped to the holder: a stranger renews nothing rather than stealing the lease.
+  // Scoped to the holder: a stranger renews nothing rather than stealing the lease, and is
+  // told so in the terms it asked -- the token it named comes back as lost.
   const { data: other } = await client.POST("/external-tasks/renew", {
     body: { worker_id: "worker-2", tokens: [job.token], lease_ms: 60_000 },
   });
-  expect((other as any)?.renewed).toBe(0);
+  expect((other as any)?.renewed).toEqual([]);
+  expect((other as any)?.lost).toEqual([job.token]);
 
   // A renewal extends the grant, so the token it was granted under still answers.
   const { error: ok } = await client.POST("/external-tasks/resolve", {

@@ -291,6 +291,9 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 	if inst.Status == model.StatusFailing {
 		return e.settleFailing(inst)
 	}
+	if inst.Status == model.StatusCancelling {
+		return e.settleCancelling(inst)
+	}
 	if inst.Status == model.StatusPausing {
 		// Crash recovery only (a live pause lands in SQL on the owner's write). The interrupted
 		// only_once verdict must run BEFORE the pause settles — its evidence (worker_id) does not

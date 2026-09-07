@@ -112,7 +112,7 @@ export function App() {
           <div className="bar">
             <select value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="">all statuses</option>
-              {["running", "completed", "failed", "raised", "paused"].map((s) => (
+              {["running", "completed", "failed", "raised", "paused", "cancelled"].map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>

@@ -100,11 +100,16 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 	ctx := context.Background()
 
 	// The two `?` are now (timer) and leaseCutoff (pinned by the caller — see Takeover).
-	// 'paused' is live-but-not-advanced and keeps wake_at; 'failing'/'pausing' ignore theirs.
+	// 'paused' is live-but-not-advanced and keeps wake_at; the draining states ignore theirs.
 	// The wake_at IS NULL branch excludes 'external': a no-timeout wait is the resolve API's.
-	const where = `status IN ('running', 'failing', 'pausing')
+	//
+	// This list and migration 045's partial index are one predicate written twice: a status
+	// here but not there is never scanned, and a status there but not here is index churn on
+	// rows nothing claims. 'cancelling' is in both for the reason 'pausing' is -- a draining
+	// row is leased, so only a reclaim can settle one whose worker died.
+	const where = `status IN ('running', 'failing', 'pausing', 'cancelling')
 			  AND wait_state <> 'waiting'
-			  AND (status IN ('failing', 'pausing')
+			  AND (status IN ('failing', 'pausing', 'cancelling')
 			       OR wake_at <= ?
 			       OR (wait_state <> 'external' AND wake_at IS NULL))
 			  AND (worker_id IS NULL OR lease_expires_at <= ?)`

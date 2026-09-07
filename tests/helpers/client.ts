@@ -92,7 +92,9 @@ export async function waitForInstance(
     // paused is deliberately absent: it is not an outcome, just work that is not
     // being advanced, so waiting for a terminal state must not stop on it.
     // raised is present: a `raise` clause is a settled conclusion like the other two.
-    if (status === "completed" || status === "failed" || status === "raised")
+    // cancelled likewise -- it is settled, and leaving it out makes every test that stops an
+    // instance wait out its whole timeout before failing on a state that had already arrived.
+    if (status === "completed" || status === "failed" || status === "raised" || status === "cancelled")
       return status!;
     await new Promise((r) => setTimeout(r, 100));
   }

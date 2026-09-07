@@ -57,14 +57,32 @@ class RealmFault extends Error {
   }
 }
 
-export async function evaluate(req: EvalRequest): Promise<EvalResult> {
+/** Thrown when `signal` aborts: the work was cancelled server-side, so there is no outcome to
+ *  report and worker.ts must release rather than answer. Distinct from RealmFault because the
+ *  runner did not fault -- nothing is wrong, the answer is simply no longer wanted. */
+export class Cancelled extends Error {
+  constructor() {
+    super("cancelled");
+    this.name = "Cancelled";
+  }
+}
+
+export async function evaluate(req: EvalRequest, signal?: AbortSignal): Promise<EvalResult> {
   const budget = typeof req.timeout_ms === "number" ? req.timeout_ms : DEFAULT_TIMEOUT_MS;
 
   const worker = new Worker(REALM_URL);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   try {
     return await new Promise<EvalResult>((resolve, reject) => {
       timer = setTimeout(() => resolve(timedOut(budget)), budget);
+      // The abort is wired to the same promise as the budget, so both settle through the one
+      // finally below -- which is what guarantees the thread is gone before either returns.
+      if (signal) {
+        if (signal.aborted) reject(new Cancelled());
+        onAbort = () => reject(new Cancelled());
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
       worker.once("message", (reply: WorkerReply) => resolve(reply));
       // A script may end its own realm (`process.exit()`), which is not a throw and would
       // otherwise present as a hang until the budget expired. Our own terminate() raises
@@ -75,6 +93,7 @@ export async function evaluate(req: EvalRequest): Promise<EvalResult> {
     });
   } finally {
     clearTimeout(timer);
+    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
     // Awaited, and the whole point: on the timeout path a thread is still burning a core, and
     // resolving before it is gone would report an evaluation the machine is still running.
     await worker.terminate();

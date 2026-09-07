@@ -602,6 +602,28 @@ var registry = func() []actionDef {
 			},
 		},
 		{
+			Name:    "cancel_instance",
+			Allow:   []Perm{PermOperate},
+			Method:  http.MethodPost,
+			Path:    "/instances/{id}/cancel",
+			Summary: "Stop a root process instance and its entire descendant tree for good. Terminal and irreversible — unlike pause there is no way back, and a cancelled instance is not retryable. Takes effect at the next task boundary, so a task already executing runs to completion; a claimed external task is told to stop on its next renewal. An assertion: 200 if the tree stopped, 202 if a task already in flight is still draining, 204 if there was nothing live to stop",
+			Tags:    []string{"Instances"},
+			// No CodeConflict, for pause's reason: a tree that is already settled satisfies the
+			// assertion and comes back 204. specs/id-list-commands.md.
+			Errors: []Code{CodeNotFound},
+			PathQuery: struct {
+				ID string `path:"id"`
+			}{},
+			Resp: LifecycleResp{},
+			AltSuccess: []altResp{
+				{Status: http.StatusAccepted, Body: LifecycleResp{}},
+				{Status: http.StatusNoContent},
+			},
+			handle: func(h *Handlers, env Envelope) Reply {
+				return h.cancelInstance(env.ID, env.principal.Actor())
+			},
+		},
+		{
 			Name:    "retry_instance",
 			Allow:   []Perm{PermOperate},
 			Method:  http.MethodPost,
@@ -650,7 +672,7 @@ var registry = func() []actionDef {
 			Summary: "Lease parked external tasks to a worker (FIFO by park time); the returned token is the only handle accepted while the claim is live",
 			Tags:    []string{"External Tasks"},
 			Req:     ClaimExternalTasksReq{WorkerID: "worker-1", Limit: 5, LeaseMs: 30000, Process: "expense-approval"},
-			Resp:    map[string]any{"items": []ExternalTaskResp{}},
+			Resp:    map[string]any{"items": []ExternalTaskResp{}, "renew_before_ms": 10000},
 			handle:  func(h *Handlers, env Envelope) Reply { return h.claimExternalTasks(env.Payload) },
 		},
 		{
@@ -658,11 +680,16 @@ var registry = func() []actionDef {
 			Allow:   []Perm{PermWorker},
 			Method:  http.MethodPost,
 			Path:    "/external-tasks/renew",
-			Summary: "Extend this worker's claims; `renewed` reports how many it still held",
+			Summary: "Extend this worker's claims. Answers per token: `renewed` is still yours, `lost` is already someone else's (stop, do not release), `cancelled` is yours but no longer wanted (stop and release). Renewal is mandatory, not an optimisation — it is the only channel that reaches a running worker",
 			Tags:    []string{"External Tasks"},
 			Req:     RenewExternalClaimsReq{WorkerID: "worker-1", Tokens: []string{"550e8400-e29b-41d4-a716-446655440000.6.1"}, LeaseMs: 30000},
-			Resp:    map[string]any{"renewed": 1, "requested": 1},
-			handle:  func(h *Handlers, env Envelope) Reply { return h.renewExternalClaims(env.Payload) },
+			Resp: map[string]any{
+				"renewed":         []string{"550e8400-e29b-41d4-a716-446655440000.6.1"},
+				"lost":            []string{},
+				"cancelled":       []string{},
+				"renew_before_ms": 10000,
+			},
+			handle: func(h *Handlers, env Envelope) Reply { return h.renewExternalClaims(env.Payload) },
 		},
 		{
 			Name:    "release_external_task",

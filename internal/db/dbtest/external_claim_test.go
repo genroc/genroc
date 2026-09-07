@@ -218,9 +218,9 @@ func TestRenewExternalClaims(t *testing.T) {
 			}
 			epoch := claimed[0].ExternalClaimEpoch
 
-			n, err := b.db.RenewExternalClaims(ctx, "w1", []string{"inst-renew"}, claimLease)
-			if err != nil || n != 1 {
-				t.Fatalf("renew: n=%d err=%v, want 1", n, err)
+			out, err := b.db.RenewExternalClaims(ctx, "w1", []string{"inst-renew"}, claimLease)
+			if err != nil || len(out.Renewed) != 1 || out.Renewed[0] != "inst-renew" {
+				t.Fatalf("renew: %+v err=%v, want inst-renew renewed", out, err)
 			}
 			after, _ := b.db.GetInstance("inst-renew")
 			if after.ExternalClaimEpoch != epoch {
@@ -231,9 +231,11 @@ func TestRenewExternalClaims(t *testing.T) {
 				t.Fatal("renew cleared the holder; an unlisted row must expire with it intact")
 			}
 
-			// Scoped to the holder: a stranger's renewal touches nothing.
-			if n, err := b.db.RenewExternalClaims(ctx, "w2", []string{"inst-renew"}, claimLease); err != nil || n != 0 {
-				t.Fatalf("renew by a non-holder: n=%d err=%v, want 0", n, err)
+			// Scoped to the holder: a stranger's renewal touches nothing, and the answer names
+			// the id as lost rather than staying silent about it.
+			if out, err := b.db.RenewExternalClaims(ctx, "w2", []string{"inst-renew"}, claimLease); err != nil ||
+				len(out.Renewed) != 0 || len(out.Lost) != 1 {
+				t.Fatalf("renew by a non-holder: %+v err=%v, want it reported lost", out, err)
 			}
 		})
 	}

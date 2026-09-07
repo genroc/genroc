@@ -103,7 +103,7 @@ or --version. -q prints only the new id: id=$(genctl run NAME -q).`,
 			"instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>]",
 			"          [--children] [--sort updated|created] [--since <when>] [--until <when>] [--json | -q]",
 		},
-		detail: `Roots only -- one row per tree, which is the unit pause/resume/retry and upgrade act on.
+		detail: `Roots only -- one row per tree, which is the unit pause/resume/cancel/retry and upgrade act on.
 --children adds them back and turns on a PARENT column, since nothing else on a row tells
 the two apart. -q prints bare ids, and nothing at all when empty, for nesting:
 
@@ -127,7 +127,7 @@ large value prints as a ref.`,
 		},
 		detail: "A ROOT id answers with every row in its tree, an ID column telling them apart; --flat\n" +
 			"asks for its own rows alone. A child id answers with its own rows either way -- a tree\n" +
-			"is addressed by its root here, as it is for pause/resume/retry/upgrade.\n\n" +
+			"is addressed by its root here, as it is for pause/resume/cancel/retry/upgrade.\n\n" +
 			"--mode: basic is a line per entry, detail adds the payloads, json is JSONL and the one\n" +
 			"output that keeps the server's UTC RFC3339. Refs are never resolved here -- a trail is\n" +
 			"scanned, not read; `genctl object <ref>` fetches one. --time full puts the date on every\n" +
@@ -136,6 +136,9 @@ large value prints as a ref.`,
 	},
 	"pause":  {summary: "stop an instance from advancing", usage: []string{"pause <instance-id> [<instance-id> ...]"}, detail: assertionHelp},
 	"resume": {summary: "let a paused instance advance again", usage: []string{"resume <instance-id> [<instance-id> ...]"}, detail: assertionHelp},
+	"cancel": {summary: "stop an instance for good", usage: []string{"cancel <instance-id> [<instance-id> ...]"},
+		detail: "Terminal and irreversible: a cancelled instance cannot be resumed or retried.\n" +
+			"Use pause if the tree should be able to carry on later.\n\n" + assertionHelp},
 	"retry": {
 		summary: "retry a failed instance's current task",
 		usage:   []string{"retry [--force] <instance-id> [<instance-id> ...]"},
@@ -241,7 +244,7 @@ var helpGroups = []struct {
 	names []string
 }{
 	{"Definitions", []string{"apply", "types", "schema", "compat", "definitions"}},
-	{"Instances", []string{"run", "instances", "get", "logs", "pause", "resume", "retry", "upgrade", "resolve", "object"}},
+	{"Instances", []string{"run", "instances", "get", "logs", "pause", "resume", "cancel", "retry", "upgrade", "resolve", "object"}},
 	{"Channels", []string{"channel"}},
 	{"Setup", []string{"init", "config", "token"}},
 }

@@ -167,6 +167,11 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
+	// A cancelled instance gets its own sentence: the generic one reads as a race the worker
+	// should retry, and this is the one case where it must stop instead.
+	if inst.Status == model.StatusCancelled || inst.Status == model.StatusCancelling {
+		return conflict("instance was cancelled; stop the work and release the claim").reply()
+	}
 	if !inst.Status.AcceptsExternalOutcome() || inst.WaitState != model.WaitStateExternal || task == nil {
 		return conflict("task is not waiting for an external result").reply()
 	}
@@ -246,6 +251,13 @@ const (
 	maxClaimLimit       = 100
 )
 
+// renewBefore is how long a worker may wait before renewing: a third of its lease, which
+// leaves room for two failed attempts before the claim actually lapses. Reported on every
+// grant so the interval is a value the worker reads rather than one it guesses -- a worker
+// that renews too late is indistinguishable from one that died, and cancellation rides the
+// renewal, so a slow heartbeat is also a slow stop. specs/external-task-queue.md.
+func renewBefore(lease time.Duration) int64 { return lease.Milliseconds() / 3 }
+
 func claimLease(ms int64) (time.Duration, *Error) {
 	if ms == 0 {
 		return defaultClaimLeaseMs * time.Millisecond, nil
@@ -311,13 +323,18 @@ func (h *Handlers) claimExternalTasks(raw json.RawMessage) Reply {
 		entry.Token = model.ClaimToken(inst.ID, inst.TaskEpoch, inst.ExternalClaimEpoch)
 		resp = append(resp, entry)
 	}
-	return okReply(map[string]any{"items": resp})
+	return okReply(map[string]any{"items": resp, "renew_before_ms": renewBefore(lease)})
 }
 
 // renewExternalClaims extends this worker's claims. Renewing is scoped to the holder and never
 // bumps the claim epoch: a renewal extends a grant, and bumping would fence the worker out of
-// its own answer. renewed reports how many were still held, so a worker learns it lost one here
-// rather than when its answer is refused.
+// its own answer.
+//
+// The answer is per TOKEN, not a count, because a count is one bit short of usable: a worker
+// holding four claims would learn it lost one and not which. It is also the only channel that
+// reaches a running worker at all -- workers dial genroc, never the reverse -- so `cancelled`
+// rides it, and a worker must treat renewal as mandatory rather than as an optimisation.
+// specs/external-task-queue.md.
 func (h *Handlers) renewExternalClaims(raw json.RawMessage) Reply {
 	req, err := decodeBody[RenewExternalClaimsReq](raw)
 	if err != nil {
@@ -341,11 +358,33 @@ func (h *Handlers) renewExternalClaims(raw json.RawMessage) Reply {
 		}
 		ids = append(ids, id)
 	}
-	n, err := h.db.RenewExternalClaims(context.Background(), req.WorkerID, ids, lease)
+	out, err := h.db.RenewExternalClaims(context.Background(), req.WorkerID, ids, lease)
 	if err != nil {
 		return errReply(err)
 	}
-	return okReply(map[string]any{"renewed": n, "requested": len(req.Tokens)})
+	// Answered in the caller's own handles: it asked with tokens and holds tokens, and the
+	// instance id a token carries is not what it releases or resolves with. Keyed by id and
+	// re-walked over req.Tokens so two tokens naming one instance both get an answer.
+	bucket := make(map[string]*[]string, len(ids))
+	renewed, lost, cancelled := []string{}, []string{}, []string{}
+	for _, id := range out.Renewed {
+		bucket[id] = &renewed
+	}
+	for _, id := range out.Lost {
+		bucket[id] = &lost
+	}
+	for _, id := range out.Cancelled {
+		bucket[id] = &cancelled
+	}
+	for i, t := range req.Tokens {
+		if b := bucket[ids[i]]; b != nil {
+			*b = append(*b, t)
+		}
+	}
+	return okReply(map[string]any{
+		"renewed": renewed, "lost": lost, "cancelled": cancelled,
+		"renew_before_ms": renewBefore(lease),
+	})
 }
 
 // releaseExternalTask hands a claim back to the queue immediately instead of waiting out its

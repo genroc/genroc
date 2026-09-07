@@ -16,6 +16,9 @@ th, td { padding: .35rem .5rem; }
 tr.row { cursor: pointer; }
 tr.row:hover { background: var(--line); }
 .status.failed, .status.raised { color: #d33; }
+/* A stop, not a fault -- muted rather than red, so a scan of the list does not read an
+   operator's decision as something that went wrong. */
+.status.cancelled, .status.cancelling { color: #888; }
 .status.completed { opacity: .6; }
 .problem { border: 1px solid #d33; padding: .5rem .75rem; margin: 1rem 0; border-radius: 3px; }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: grid; place-items: center; }
