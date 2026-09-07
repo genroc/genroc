@@ -291,7 +291,7 @@ type ProcessInstance struct {
 	// task it is what stops the work being handed out a second time.
 	ExternalReclaimed bool
 
-	// LoadedObjectHashes is the set of process_objects hashes the value-slots
+	// LoadedObjectHashes is the set of object hashes the value-slots
 	// (input/outputs/output) referenced when this instance was read. The write path
 	// diffs it against the slots' current references to dereference objects a slot no
 	// longer points at. Transient, never persisted.

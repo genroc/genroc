@@ -1,7 +1,7 @@
 # Large-I/O drain workload: same SHAPE as `drain` (a backlog of many independent,
 # childless roots worked off on restart), but each instance carries a ~16 KiB input that
-# it echoes straight into its output. Both values exceed the 8 KiB object-store threshold,
-# so each is externalized into `process_objects` instead of living inline on the row.
+# it echoes straight into its output. Both values exceed the 2 KiB object-store threshold,
+# so each is externalized into `objects` instead of living inline on the row.
 # Where `drain` measures the purest row-level claim/advance throughput, this measures the
 # SAME steady-state queue drain when every claim must additionally READ a big input object
 # and every completion must WRITE a big output object (plus the pin/dereference
@@ -9,7 +9,7 @@
 #
 #   make bench-drain-big   (POSTGRES_DSN=… to also compare Postgres)
 #
-# The blob below is an intentionally large literal (~16 KiB, 2x the 8 KiB threshold) so the
+# The blob below is an intentionally large literal (~16 KiB, 8x the 2 KiB threshold) so the
 # workload YAML stays the single source of truth — no runner machinery generates it. Its
 # exact contents are filler; only the size matters. It is a single quoted scalar wrapped
 # across lines purely so the file diffs sanely; YAML folds the line breaks into one string.

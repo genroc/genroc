@@ -25,8 +25,8 @@ const (
 // LogConfig controls how much the engine persists to each instance's audit log
 // and for how long, plus the verbosity of the unified server console.
 type LogConfig struct {
-	Payloads     bool          // capture truncated request/response snippets on task events
-	PayloadBytes int           // max bytes per captured snippet (<=0 → defaultPayloadBytes)
+	Payloads     bool          // record event payloads (inputs, outputs, request/response bodies) on audit rows
+	PayloadBytes int           // inline budget per payload; larger values externalize (<=0 → defaultPayloadBytes)
 	Retention    time.Duration // prune audit logs older than this; 0 = keep forever
 	Mode         logview.Mode  // console verbosity: basic omits the data body, detail includes it
 }

@@ -145,8 +145,8 @@ func (db *DB) buildLogParams(entry *model.LogEntry) (dbgen.InsertLogParams, erro
 	if !entry.CreatedAt.IsZero() {
 		createdAt = entry.CreatedAt.UnixMilli()
 	}
-	// meta is structured (and small), so it is stored as JSON; data is the raw,
-	// possibly-truncated body and is stored verbatim.
+	// meta is small and structured, so it is marshalled here; data arrives already
+	// marshalled (AppendLogValue cut it) and is stored verbatim.
 	meta := ""
 	if len(entry.Meta) > 0 {
 		b, err := json.Marshal(entry.Meta)

@@ -7,11 +7,11 @@ import { client, startMockService, waitForInstance, spliceObjects } from "../hel
 //   1. no action in the loop  → the whole loop runs in one in-memory advance().
 //   2. an action each iteration → the engine persists + reclaims between iterations, so
 //      self.previous round-trips through the DB every time.
-// Both deliberately push the accumulated value past the 8 KiB object-store threshold, so
+// Both deliberately push the accumulated value past the 2 KiB object-store threshold, so
 // outputs[<task>] externalizes and reloads as an *ObjectRef — which self.previous must
 // resolve exactly like outputs.<id> does (the regression scenario 2 guards).
 
-// A big chunk so the accumulator crosses the 8 KiB threshold within a handful of
+// A big chunk so the accumulator crosses the 2 KiB threshold within a handful of
 // iterations (each iteration appends CHUNK), keeping the server-side work modest.
 const CHUNK = "0123456789".repeat(100); // 1000 chars
 
@@ -67,7 +67,7 @@ async function runAndReadOutput(name: string, n: number, timeoutMs: number) {
   if (error) throw new Error(`start failed: ${JSON.stringify(error)}`);
   const id = started!.id;
   expect(await waitForInstance(id, timeoutMs)).toBe("completed");
-  // The accumulated text is >8 KiB so the output externalizes — splice it back to read it.
+  // The accumulated text is far past the 2 KiB cutoff so the output externalizes — splice it back to read it.
   const { data, error: getErr } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   if (getErr) throw new Error(`get failed: ${JSON.stringify(getErr)}`);
   await spliceObjects(data);
@@ -75,7 +75,7 @@ async function runAndReadOutput(name: string, n: number, timeoutMs: number) {
 }
 
 test("self.previous accumulates across an in-memory loop (single advance)", async () => {
-  // 20 × 1000 chars ≈ 20 KB (crosses the 8 KiB threshold); under the 1000 inline-task cap,
+  // 20 × 1000 chars ≈ 20 KB (crosses the 2 KiB threshold); under the 1000 inline-task cap,
   // and with no action the whole loop runs in one advance().
   const n = 20;
   const name = `loop_inmem_${crypto.randomUUID()}`;
@@ -88,7 +88,7 @@ test("self.previous accumulates across an in-memory loop (single advance)", asyn
 });
 
 test("self.previous accumulates across DB persist+reclaim (action each iteration)", async () => {
-  // text crosses 8 KiB at iteration 9, so the remaining iterations reload self.previous as
+  // text crosses 2 KiB at iteration 3, so the remaining iterations reload self.previous as
   // an externalized ref that must resolve — without the resolve it would silently reset to
   // "" (and the counter with it, so the loop would never even terminate).
   const n = 20;

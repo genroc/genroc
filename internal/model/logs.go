@@ -85,11 +85,11 @@ const ActorEngine = "engine:self"
 // LogEntry is one persisted line of an instance's execution audit trail.
 //
 // Data carries the single raw payload an event is about — a process/task input,
-// output, or request/response/error body — as a JSON snippet that MAY be truncated
-// (so it is not guaranteed to parse). Meta carries small, complete, structured
-// metadata about the event (e.g. {"url":…} / {"status":200}) and is always valid
-// JSON. Message is the human-readable summary; the same fact may appear in both
-// Message (prose) and Meta (structured) by design. Small facts with no payload
+// output, or request/response/error body — as valid JSON: a value too large to sit
+// inline is replaced by a reference listed in Objects, never truncated. Meta carries
+// small, complete, structured metadata about the event (e.g. {"url":…} /
+// {"status":200}). Message is the human-readable summary; the same fact may appear
+// in both Message (prose) and Meta (structured) by design. Small facts with no payload
 // (attempt counts, goto target, child counts) live in Message.
 type LogEntry struct {
 	ID         string   `json:"id"`

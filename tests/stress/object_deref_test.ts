@@ -22,7 +22,7 @@ import { buildGenrocBinary, startGenroc, tmpPath, type GenrocProcess } from "../
 // the mock).
 
 const PORT = 8951;
-const BLOB = "B".repeat(12 * 1024); // over the 8 KiB externalization threshold
+const BLOB = "B".repeat(12 * 1024); // over the 2 KiB externalization threshold
 const ROUNDS = 8;
 
 let bin = "";

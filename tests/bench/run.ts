@@ -20,7 +20,7 @@
 //   deep      — one root, narrow/tall tree; per-spawn depth cost.
 //   drain     — many independent roots; steady-state queue-drain throughput.
 //   drain_big — like drain, but each root carries a ~16 KiB input echoed to its output,
-//               so both externalize into process_objects; isolates object-store overhead.
+//               so both externalize into the object store; isolates object-store overhead.
 //
 // Instances processed are counted from each root's SELF-REPORTED subtree size
 // (output[count_field], summed) when the process defines one (recursive/deep); a

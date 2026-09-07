@@ -151,7 +151,7 @@ export function raisingDef(name: string, code: string) {
 }
 
 /**
- * Past the 8 KiB inline threshold, so a value carrying it is externalized to the object
+ * Past the 2 KiB inline threshold, so a value carrying it is externalized to the object
  * store and shows as a {ref, size} reference until --resolve fetches it.
  */
 export const BIG_BLOB = "B".repeat(20 * 1024);

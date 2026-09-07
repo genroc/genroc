@@ -3,7 +3,7 @@ import { client, fetchObject, objectAt, spliceObjects, waitForInstance } from ".
 
 const proc = `big_values_${crypto.randomUUID()}`;
 
-// A value larger than the externalization threshold (8 KiB) so it is stored in the
+// A value larger than the externalization threshold (2 KiB) so it is stored in the
 // object store rather than inline on the instance row.
 const BLOB = "B".repeat(20 * 1024);
 

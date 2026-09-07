@@ -24,7 +24,7 @@ const SETTLE_MS = 60_000;
 const PORT = 8950;
 const BASE_URL = `http://localhost:${PORT}`;
 
-// Both comfortably over the 8 KiB externalization threshold so every slot that holds
+// Both comfortably over the 2 KiB externalization threshold so every slot that holds
 // one lands in the object store.
 const BLOB = "B".repeat(12 * 1024);
 const PAD = "P".repeat(12 * 1024);
