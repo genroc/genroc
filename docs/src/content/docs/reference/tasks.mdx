@@ -527,8 +527,15 @@ A **worker fleet** wants the pull half instead, so two of them do not run the sa
 | | |
 |---|---|
 | `POST /api/external-tasks/claim` | leases parked tasks to a `worker_id`, oldest park first. Filters by `process` / `version` / `task`, `limit` per batch, `lease_ms` for the visibility timeout (default 30s). |
-| `POST /api/external-tasks/renew` | extends this worker's claims. `renewed` reports how many it still held — a worker learns it lost one here rather than when its answer is refused. |
+| `POST /api/external-tasks/renew` | extends this worker's claims, answering **per token**: `renewed` is still yours, `lost` is already someone else's, `cancelled` is yours but no longer wanted. `renew_before_ms` says how long you may wait before renewing again. |
 | `POST /api/external-tasks/release` | hands a claim back at once instead of waiting out the lease. |
+
+Renewing is **mandatory, not an optimisation**. genroc cannot call a worker — workers dial in —
+so the renewal is the only channel that reaches work already running, and a worker that stops
+renewing is indistinguishable from one that died. `lost` and `cancelled` are different
+instructions: on `lost` the claim is already someone else's, so stop and do **not** release
+(releasing would bump the new holder's grant); on `cancelled` an operator stopped the process,
+so stop **and** release.
 
 A claim returns a **three-part token** — `<instance>.<arming>.<grant>` — and that is the only
 handle accepted while the claim is live. The two-part token `<instance>.<arming>`, which anyone

@@ -90,6 +90,23 @@ queue worker rather than the HTTP sidecar it used to be:
   that genroc had to be able to reach. A worker only needs outbound access, so it can live
   anywhere — behind NAT, in another trust zone.
 
+The cost of that inversion is that genroc cannot reach a running worker, so anything it needs
+to say has to ride the renewal the worker already makes. **Renewing is therefore mandatory,
+not an optimisation** — a worker that stops renewing is indistinguishable from one that died.
+The response answers per token:
+
+| list | what it means | what this worker does |
+|---|---|---|
+| `renewed` | still yours | carry on |
+| `lost` | already someone else's | stop; do **not** release — that would bump the new holder's claim |
+| `cancelled` | still yours, nobody wants it | abort the script and release the claim |
+
+`cancelled` is how an operator's `genctl cancel` reaches work already running: the evaluation
+is aborted through an `AbortSignal`, its realm is terminated, and no outcome is submitted —
+the process is stopping, so there is nothing left to answer. `renew_before_ms` on the claim
+says how long the worker may wait before renewing again, so the interval is a value it reads
+rather than one it guesses.
+
 ## The task input
 
 The `input` of the external task IS the evaluation request:
