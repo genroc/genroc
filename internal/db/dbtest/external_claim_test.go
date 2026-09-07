@@ -378,7 +378,7 @@ func TestDeliverSignal_DefersToALiveClaim(t *testing.T) {
 			insertExternalParked(t, b.db, "inst-sigclaim", 0, nil)
 
 			// Armed and unclaimed: delivered outright.
-			delivered, err := b.db.DeliverSignal(ctx, "inst-sigclaim", "approval", "s0",
+			delivered, err := b.db.DeliverSignal(ctx, "inst-sigclaim", "approval",
 				model.ExternalOutcome{Result: map[string]any{"n": 1}})
 			if err != nil || !delivered {
 				t.Fatalf("armed+unclaimed: delivered=%v err=%v, want delivered", delivered, err)
@@ -389,7 +389,7 @@ func TestDeliverSignal_DefersToALiveClaim(t *testing.T) {
 			if _, err := b.db.ClaimExternalTasks("w1", claimLease, 1, "", 0, ""); err != nil {
 				t.Fatalf("claim: %v", err)
 			}
-			delivered, err = b.db.DeliverSignal(ctx, "inst-sigclaim2", "approval", "s1",
+			delivered, err = b.db.DeliverSignal(ctx, "inst-sigclaim2", "approval",
 				model.ExternalOutcome{Result: map[string]any{"n": 2}})
 			if err != nil {
 				t.Fatalf("signal under a live claim: %v", err)

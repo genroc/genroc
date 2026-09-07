@@ -795,8 +795,9 @@ describes is.)
   out from under it. So it is single-use and self-expiring by construction — most of what a
   scoped grant needs, already there.
 
-  What it is *not* is secret-grade. An instance id is a UUIDv7 — around 74 bits of randomness,
-  and it appears in logs, CLI history and every instance view. That is fine as a handle passed
+  What it is *not* is secret-grade. An instance id carries no randomness at all — it is a
+  per-process counter (`01-0002`, [internal/idgen](../internal/idgen)) and it appears in logs,
+  CLI history and every instance view, so the next one is a guess away. That is fine as a handle passed
   between trusted components and **not** fine as the only thing standing between the public and
   a resolve, which is what a browser form would make it. So the likely shape is a genroc token
   (§5) whose row carries `{perm: worker, instance, task}` plus a TTL — minted per form, revocable,

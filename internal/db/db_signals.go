@@ -92,7 +92,7 @@ func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.Proces
 // Under the instance row lock it resolves the task immediately when armed now (and not
 // mid-timeout-claim), otherwise buffers it FIFO for the next arming (delivered reports which).
 // The caller validates it against what the task declares first.
-func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID, signalID string, outcome model.ExternalOutcome) (delivered bool, err error) {
+func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID string, outcome model.ExternalOutcome) (delivered bool, err error) {
 	outcomeJSON, err := model.MarshalOutcome(outcome)
 	if err != nil {
 		return false, err
@@ -142,8 +142,12 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID, signalID st
 
 	// One destination. `armed` no longer picks WHERE the outcome goes -- only whether this call
 	// also makes the row claimable, so the engine reaches it now rather than at the next arm.
+	// Minted here rather than passed in, like the buffered path's: one call gives the id and
+	// the seq beside it, so neither insert can write a row the FIFO cannot order.
+	id, seq := db.nextSignalID()
 	if err := qtx.InsertSignal(ctx, dbgen.InsertSignalParams{
-		ID:         signalID,
+		ID:         id,
+		Seq:        seq,
 		InstanceID: instanceID,
 		TaskID:     taskID,
 		Outcome:    outcomeJSON,
@@ -202,7 +206,7 @@ func (db *DB) bufferOutcome(ctx context.Context, qtx *dbgen.Queries, instanceID,
 	if err != nil {
 		return err
 	}
-	id, seq := db.nextIDSeq()
+	id, seq := db.nextSignalID()
 	if err := qtx.InsertSignal(ctx, dbgen.InsertSignalParams{
 		ID:         id,
 		Seq:        seq,

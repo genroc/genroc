@@ -89,15 +89,13 @@ type site struct {
 	// either — but the pass needs it to know which types to resolve against.
 	Resolver string `json:"-"`
 	Process  string `json:"-"`
-	// Level is which namespace the directive sits in — `process`, `task` or `action`. The two
-	// task-side ones share no slot names by accident (the `action` segment keeps them apart),
-	// and a resolver that must know where it landed should not parse the pointer for it.
+	// Level is which namespace the directive sits in — `process`, `task` or `action` — so a
+	// resolver that must know where it landed does not parse the pointer for it.
 	Level string `json:"level"`
 	Task  string `json:"task,omitempty"`
-	// Action is the task's action type and Child the process a child action calls: what the
-	// site IS, which a resolver would otherwise have to read the definition for. Facts about
-	// the site, not steps in its address — and set only AT action level, since a switch case
-	// is not in the action and saying what type it is would describe the wrong thing.
+	// What the site IS, which a resolver would otherwise read the definition for. Facts, not
+	// steps in its address — and set only AT action level: a switch case is not in the action,
+	// so naming its type would describe the wrong thing.
 	Action string `json:"action,omitempty"`
 	Child  string `json:"child,omitempty"`
 	// Pointer is where the directive sits, shaped like the definition: keys and indices rather

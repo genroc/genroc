@@ -29,7 +29,7 @@ as one JSON array through `json_each`, which sqlc expresses fine.
 - `writeLogBatch` (`db_logs.go`) — a multi-row INSERT whose row count varies, which no named query can express.
 - `collectUnreferencedPG` (`db_objects.go`) — the object sweep splits into `SELECT … FOR UPDATE` then `DELETE` on Postgres, so the delete decides on a snapshot taken after any writer it waited for. Neither statement binds a value, so the raw `db.sqldb` transaction needs no placeholder rewriting.
 - `PauseProcess` / `ResumeProcess` / `RetryProcess` (`db_lifecycle.go`) — select a tree with `inTree` (`root_id = ?`, migration 040) and append a dialect-dependent `FOR UPDATE`, binding a dynamic id list. **The enumeration is not why they are here**: a tree query that takes no locks and binds no dynamic list belongs in `queries.sql` like any other (`CountDrainingInTree`, `NonTerminalSubtree`) — only the locking, list-binding steps stay. The selection takes no row locks; the mutating step then locks the result `ORDER BY created_at, id FOR UPDATE` in a separate step (Postgres only) — the global order shared with `FinishChild`/`FailInstanceAndAncestors` that prevents deadlocks.
-- The list endpoints — `ListInstances`, `ListExternalTasks`, `ListDefinitions`, `ListChannels`, `ListLogs`/`ListTreeLogs` — take a dynamic `ORDER BY` + keyset cursor, which sqlc can't express (a column name / `ASC`/`DESC` is never a bind value). They share the bidirectional keyset paginator in `paginate.go`: a wrapper declares a `paginator` (its table, columns, the **index-backed** sortable columns, and the filterable columns), adds filters by column+value via `Eq`/`EqIf`/`GteIf`, and calls `build()` (or `buildSource()` for a static prefix such as a CTE) to get the page query (`SELECT … FROM … WHERE … ORDER BY … LIMIT ?`). Column names and operators come only from the whitelists; all values are bound `?`, so there is no injection surface. After the page is scanned, `orient` flips a backward page back to display order and yields its boundary key values, then `built.countQuery` counts how many rows fall before the first / after the last row as **two bounded subqueries** (`SELECT (SELECT COUNT(*) FROM (… WHERE <before-keyset> LIMIT cap+1)), (SELECT COUNT(*) FROM (… WHERE <after-keyset> LIMIT cap+1))`) — each scans at most `pageCountCap+1` (1001) rows, so a value of 1001 means ">1000" (UI shows "1000+"); there is no unbounded grand `COUNT(*)`. `db.pageInfo` assembles `PageInfo`. The cursor is an opaque base64 token carrying the sort key+direction (rejected if reused under a different sort/direction); `After` pages forward, `Before` backward. The HTTP layer returns `{items, page:{size, items_before, items_after, sort, order, after, before}}` (`PageResp[T]`). `sort`/`order` echo the effective sort key + direction; `after`/`before` are the cursors to pass straight back as `?after`/`?before` (same names as the request params) and each is set only in a direction that has more rows — so cursor presence is itself the has-more signal and a page-to-end loop terminates when `after` is absent. Page size defaults to 20, capped at 100. Sorts are restricted to index-backed columns and extended by adding a key to the `sorts` map (with a matching index).
+- The list endpoints — `ListInstances`, `ListExternalTasks`, `ListDefinitions`, `ListChannels`, `ListLogs`/`ListTreeLogs` — take a dynamic `ORDER BY` + keyset cursor, which sqlc can't express (a column name / `ASC`/`DESC` is never a bind value). They share the bidirectional keyset paginator in `paginate.go`: a wrapper declares a `paginator` (its table, columns, the **index-backed** sortable columns, and the filterable columns), adds filters by column+value via `Eq`/`EqIf`/`GteIf`, and calls `build()` to get the page query (`SELECT … FROM … WHERE … ORDER BY … LIMIT ?`). Column names and operators come only from the whitelists; all values are bound `?`, so there is no injection surface. After the page is scanned, `orient` flips a backward page back to display order and yields its boundary key values, then `built.countQuery` counts how many rows fall before the first / after the last row as **two bounded subqueries** (`SELECT (SELECT COUNT(*) FROM (… WHERE <before-keyset> LIMIT cap+1)), (SELECT COUNT(*) FROM (… WHERE <after-keyset> LIMIT cap+1))`) — each scans at most `pageCountCap+1` (1001) rows, so a value of 1001 means ">1000" (UI shows "1000+"); there is no unbounded grand `COUNT(*)`. `db.pageInfo` assembles `PageInfo`. The cursor is an opaque base64 token carrying the sort key+direction (rejected if reused under a different sort/direction); `After` pages forward, `Before` backward. The HTTP layer returns `{items, page:{size, items_before, items_after, sort, order, after, before}}` (`PageResp[T]`). `sort`/`order` echo the effective sort key + direction; `after`/`before` are the cursors to pass straight back as `?after`/`?before` (same names as the request params) and each is set only in a direction that has more rows — so cursor presence is itself the has-more signal and a page-to-end loop terminates when `after` is absent. Page size defaults to 20, capped at 100. Sorts are restricted to index-backed columns and extended by adding a key to the `sorts` map (with a matching index).
 
 The hand-written persistence layer is split across `db_*.go` files by domain (`db_registry.go`, `db_instances.go`, `db_claim.go`, `db_lifecycle.go`); `db.go` holds the `DB` type, connection setup, and time/null helpers.
 
@@ -114,71 +114,50 @@ task re-entered by a loop spawns a fresh batch under the same pair.
   `scanInstance` because of its trailing `prev_worker`). Missing the third fails only on
   Postgres, and only at runtime.
 
-### Ids are minted, not random, and the worker number is what makes them unique
+### Ids are minted, not random
 
-Every id this process writes — instances, log rows, signals, tokens — comes from `db.NextID()`,
-one `idgen.Minter` built at `open()` from `id_counters.worker` (migration 041). The counter only
-ever increases, so a number is never recycled and there is nothing to lease or reclaim: a worker
-that dies takes its namespace with it. **A process that cannot allocate one fails to open**, which
-is the point — a worker that does not know which ids are its own must not write any.
+Every id this process writes — instances, log rows, signals, tokens — comes from an
+`idgen.Minter` built at `open()` from `id_counters.worker` (migration 041), which only ever
+increases: a number is never recycled, so there is nothing to lease or reclaim and a dead worker
+takes its namespace with it. **A process that cannot allocate one fails to open** — a worker that
+does not know which ids are its own must not write any. **One counter per KIND of row**, so an
+instance is `01-0002` after the previous one rather than `01-000g` because fifteen log rows
+landed between; ids from two streams can be equal, and the one place kinds meet is `object_refs`,
+keyed `(hash, owner_kind, owner_id)`. Two things deliberately do not come from it: a token SECRET
+(`crypto/rand` — a counter is predictable) and the engine's `worker_id`.
 
-The shape (`<worker>-<counter>`, both Crockford base32, each padded to a minimum width) lives in
-[internal/idgen](../idgen/idgen.go). There is no clock in it and no randomness. Two
-consequences here:
-
-- **An id does not sort, and nothing may assume it does.** A run at one width sorts by
-  accident; the moment either half outgrows its padding the order inverts. What orders a log trail inside a millisecond -- where `created_at`
-  cannot separate two rows -- is `process_logs.seq`, the minting counter stored beside the id
-  (migration 042); `process_signals.seq` does the same for the FIFO. The sort key is
-  `(created_at, seq, id)`: seq decides, and **id stays on the end because the keyset cursor
-  needs a unique key**, and because rows written before 042 carry seq 0 and fall through to the
-  sortable UUIDs they were ordered by then. Every index over those tables must cover the key
-  end to end, or the page is sorted rather than read in order.
-- **A child's id is NOT guaranteed to exceed its parent's.** It does within one process, and in
-  practice across them, but two machines with skewed clocks can invert it. Nothing may depend on
-  it: the deadlock-free lock order needs every `FOR UPDATE` site to sort by the SAME key, not by
-  a key with that meaning. Verified by running the suite with the minter counting down — 844 of
-  847 passed, and the three failures were tests asserting the id looked like a UUID.
-- **Nothing tells you when an id was minted.** That is `created_at`'s job, and dropping the
-  timestamp is what reduced the minter to one atomic increment: no clock read, no
-  backwards-clock rule, no per-millisecond sequence to exhaust.
-- **The counter is per PROCESS and log rows dominate it** (roughly ten per instance advance),
-  which is why it is 46 bits and not 36. At 10k ids/second — more than the database sustains —
-  36 bits is 80 days of uninterrupted running, so the overflow panic would have been a deadline
-  rather than an assertion. 46 is 223 years at the same rate.
-- **A log column is spelled twice and `seq` is one of them.** See the section below: the sqlc
-  `InsertLog` and the hand-written `writeLogBatch` both carry it, and a `seq` written by only
-  one of them reorders exactly the rows the common path writes.
-
-Ids on disk from before this are UUIDs and still resolve: the column is TEXT, so nothing had to
-be rewritten, and `isInstanceRef` in genctl accepts both forms.
+- **An id does not sort, and nothing may assume it does** ([internal/idgen](../idgen/idgen.go)).
+  A trail inside a millisecond is ordered by `process_logs.seq`, the minting counter stored
+  beside the id (migration 042); `process_signals.seq` does the same for the FIFO. The sort key
+  is `(created_at, seq, id)` — **id last because the cursor key must be unique**, and because
+  rows written before 042 carry seq 0 and fall through to the UUIDs they were ordered by then.
+  Every index over those tables must cover that key end to end, or the page is sorted rather
+  than read in order.
+- **A child's id is not above its parent's.** Only ids from one process relate at all. The
+  deadlock-free lock order needs every `FOR UPDATE` site to sort by the SAME key, never by one
+  with that meaning — verified by running the suite with the minter counting down.
+- **Neither half is sized.** The two numbers are rendered side by side rather than packed, so
+  each grows a digit when it needs one.
 
 ### `root_id` is the tree, and it is derived in SQL — never passed in
 
-`process_instances.root_id` and `process_logs.root_id` (migration 040) are what make
-"every log in this tree" one index range scan on `(root_id, created_at, id)`. Measured
-against a 5000-instance tree, per 20-row page: **23 buffers read, flat as the tree grows**,
-against 18,616 for a join through `process_instances` and 1,643 for the `WITH RECURSIVE` walk
-that shipped before. The join loses because the planner abandons the index order and switches
-to gather-and-sort, so its page cost stays proportional to the tree — which is the whole thing
-this removes. Copying is safe because neither source moves: `parent_id` is set at spawn and a
-log row is written once.
+`process_instances.root_id` and `process_logs.root_id` (migration 040) make "every log in this
+tree" one index range scan. Measured against a 5000-instance tree, per 20-row page: **23 buffers
+read, flat as the tree grows**, against 18,616 for a join through `process_instances` and 1,643
+for the `WITH RECURSIVE` walk that shipped before. The join loses because the planner abandons
+the index order for gather-and-sort, so its page cost stays proportional to the tree. Copying is
+safe because neither source moves: `parent_id` is set at spawn, a log row is written once.
 
-**It is computed by the INSERT statement, from the parent/instance row**
-(`COALESCE((SELECT p.root_id …), <own id>)`), not taken from a caller. That is deliberate: four
-places append log rows and two more create instances, and a forgotten field would put a row in
-a tree of its own — its rows silently absent from the trail, with nothing to error on. The
-derivation costs ~6% on a batched insert of 100k rows and nothing on disk, which is the price of
-there being one source of truth. **A new insert path must carry the subquery**, not a parameter.
-A `depth` column rode along at first and was dropped before it shipped: nothing read it, and a
-tree's rows are told apart by instance id.
+**It is computed by the INSERT, from the parent/instance row** (`COALESCE((SELECT p.root_id …),
+<own id>)`), never taken from a caller: six places write these rows, and a forgotten field would
+put one in a tree of its own — absent from the trail, with nothing to error on. It costs ~6% on a
+batched insert of 100k rows. **A new insert path must carry the subquery**, not a parameter.
 
-**Every tree query in the codebase now reads `root_id`**; there is no `WITH RECURSIVE` left
-outside migration 040's own backfill. All of them — pause, resume, retry, `CountDrainingInTree`,
-`NonTerminalSubtree` — therefore require the bound id to BE a root: a child matches nothing where
-the walk used to return the subtree under it. Each caller is already gated (`requireRoot`, and
-the upgrade handler's own parent check), and those gates are now load-bearing rather than
-merely polite.
+**Every tree query reads `root_id`**; no `WITH RECURSIVE` remains outside migration 040's own
+backfill. All of them — pause, resume, retry, `CountDrainingInTree`, `NonTerminalSubtree` —
+therefore require the bound id to BE a root: a child matches nothing, where the walk used to
+return the subtree under it. Every caller is gated (`requireRoot`, and the upgrade handler's
+parent check), and those gates are now load-bearing rather than merely polite.
 
 `LogsFor(id, flat)` is what the endpoint calls: a tree read when the id names a ROOT (one extra
 PK lookup to find out), that instance's own rows otherwise. A subtree hanging off a child is not

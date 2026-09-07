@@ -45,6 +45,46 @@ func n(o model.ExternalOutcome) float64 {
 // TestSignals_BufferThenConsumeFIFO covers the push/early case: signals delivered before the task
 // arms are buffered, the arm declines to park while any is waiting, and they are consumed in FIFO
 // order -- one per advance, each delete riding the write that acted on it. Runs on both engines.
+// FIFO has to hold when the outcomes arrive faster than created_at can tell them apart, which
+// is the normal case: two calls land in one millisecond and `seq` is the only thing separating
+// them. Ids do not sort, so a signal written without its seq falls back to nothing.
+func TestSignals_ArrivingInOneMillisecondStayInOrder(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			insertExternalRunning(t, b.db, "inst-burst")
+
+			const burst = 12
+			for i := range burst {
+				if _, err := b.db.DeliverSignal(ctx, "inst-burst", "approval",
+					model.ExternalOutcome{Result: map[string]any{"n": i}}); err != nil {
+					t.Fatalf("deliver %d: %v", i, err)
+				}
+			}
+
+			// Peek-then-consume drains them; the order they come back in is the contract.
+			for i := range burst {
+				id, outcome, ok, err := b.db.PeekSignal("inst-burst", "approval")
+				if err != nil || !ok {
+					t.Fatalf("peek %d: ok=%v err=%v", i, ok, err)
+				}
+				if got := n(outcome); got != float64(i) {
+					t.Fatalf("outcome %v came back at position %d: the FIFO is ordered by "+
+						"something other than arrival", got, i)
+				}
+				cur, err := b.db.GetInstance("inst-burst")
+				if err != nil {
+					t.Fatalf("GetInstance: %v", err)
+				}
+				cur.ConsumedSignalID = id
+				if err := b.db.UpdateInstanceProgress(cur); err != nil {
+					t.Fatalf("consume %d: %v", i, err)
+				}
+			}
+		})
+	}
+}
+
 func TestSignals_BufferThenConsumeFIFO(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -52,11 +92,11 @@ func TestSignals_BufferThenConsumeFIFO(t *testing.T) {
 			insertExternalRunning(t, b.db, "inst-sig")
 
 			// Two signals arrive before the task is armed -> both buffered.
-			d1, err := b.db.DeliverSignal(ctx, "inst-sig", "approval", "s1", model.ExternalOutcome{Result: map[string]any{"n": 1}})
+			d1, err := b.db.DeliverSignal(ctx, "inst-sig", "approval", model.ExternalOutcome{Result: map[string]any{"n": 1}})
 			if err != nil || d1 {
 				t.Fatalf("deliver s1: delivered=%v err=%v (want buffered)", d1, err)
 			}
-			d2, _ := b.db.DeliverSignal(ctx, "inst-sig", "approval", "s2", model.ExternalOutcome{Result: map[string]any{"n": 2}})
+			d2, _ := b.db.DeliverSignal(ctx, "inst-sig", "approval", model.ExternalOutcome{Result: map[string]any{"n": 2}})
 			if d2 {
 				t.Fatal("deliver s2 should buffer, not deliver")
 			}
@@ -135,7 +175,7 @@ func TestSignals_ResolveWhenArmed(t *testing.T) {
 			ctx := context.Background()
 			insertExternalParked(t, b.db, "inst-armed", 0, nil)
 
-			delivered, err := b.db.DeliverSignal(ctx, "inst-armed", "approval", "s1", model.ExternalOutcome{Result: map[string]any{"approved": true}})
+			delivered, err := b.db.DeliverSignal(ctx, "inst-armed", "approval", model.ExternalOutcome{Result: map[string]any{"approved": true}})
 			if err != nil || !delivered {
 				t.Fatalf("deliver to armed task: delivered=%v err=%v (want delivered)", delivered, err)
 			}
@@ -170,7 +210,7 @@ func TestSignals_RejectsNonRunning(t *testing.T) {
 			if err := b.db.UpdateInstance(inst); err != nil {
 				t.Fatalf("UpdateInstance: %v", err)
 			}
-			if _, err := b.db.DeliverSignal(ctx, "inst-done", "approval", "s1", model.ExternalOutcome{Result: map[string]any{"n": 1}}); err == nil {
+			if _, err := b.db.DeliverSignal(ctx, "inst-done", "approval", model.ExternalOutcome{Result: map[string]any{"n": 1}}); err == nil {
 				t.Fatal("expected signal to a completed instance to be rejected")
 			}
 		})

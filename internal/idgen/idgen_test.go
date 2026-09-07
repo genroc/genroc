@@ -69,14 +69,20 @@ func TestTwoWorkersNeverCollide(t *testing.T) {
 	}
 }
 
-// A wrapped worker number would mint ids another process owns, so it is refused rather than
-// masked -- the one failure the scheme exists to rule out.
-func TestAnOutgrownWorkerNumberIsRefused(t *testing.T) {
-	if _, err := NewMinter(MaxWorker); err != nil {
-		t.Errorf("the last usable worker number was refused: %v", err)
+// Neither half is bounded: they are rendered side by side, not packed, so a worker number the
+// id_counters row has grown to just makes a longer id. Only a negative one is refused.
+func TestAWorkerNumberIsNotBounded(t *testing.T) {
+	huge := int64(1) << 62
+	m, err := NewMinter(huge)
+	if err != nil {
+		t.Fatalf("worker %d was refused, but nothing sizes the field: %v", huge, err)
 	}
-	if _, err := NewMinter(MaxWorker + 1); err == nil {
-		t.Error("a worker number past the field was accepted, and would collide silently")
+	id, _ := m.Next()
+	if !strings.Contains(id, "-") {
+		t.Errorf("id %q is not <worker>-<counter>", id)
+	}
+	if _, err := NewMinter(-1); err == nil {
+		t.Error("a negative worker number was accepted")
 	}
 }
 

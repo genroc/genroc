@@ -98,7 +98,7 @@ func (db *DB) MintToken(ctx context.Context, label string, perms []string, expir
 		return APIToken{}, fmt.Errorf("encode perms: %w", err)
 	}
 	tok := APIToken{
-		ID: db.NextID(), Label: label, Perms: perms,
+		ID: db.nextTokenID(), Label: label, Perms: perms,
 		Secret: secret, CreatedAt: nowMillis(), ExpiresAt: expiresAt,
 	}
 	err = db.q.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
@@ -249,7 +249,7 @@ func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string
 	}
 	perms, _ := json.Marshal([]string{"admin"})
 	tok = APIToken{
-		ID: db.NextID(), Label: label, Perms: []string{"admin"},
+		ID: db.nextTokenID(), Label: label, Perms: []string{"admin"},
 		Secret: secret, CreatedAt: nowMillis(),
 	}
 	if err := qtx.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
@@ -289,7 +289,7 @@ func (db *DB) SeedToken(ctx context.Context, label string, perms []string, secre
 		return false, err
 	}
 	err = db.q.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
-		ID: db.NextID(), Hash: HashToken(secret), Label: label,
+		ID: db.nextTokenID(), Hash: HashToken(secret), Label: label,
 		Perms: string(encoded), CreatedAt: nowMillis(),
 	})
 	if err != nil {

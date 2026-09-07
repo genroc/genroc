@@ -126,11 +126,10 @@ type built struct {
 	pageArgs []any
 
 	// Count scaffolding: each side is a bounded subquery —
-	// SELECT COUNT(*) FROM (countInner WHERE <countConds AND keyset> LIMIT cap+1).
-	// Args per side: countPrefixArgs (CTE seed), countFilterArgs, then keyset args.
+	// SELECT COUNT(*) FROM (countInner WHERE <countConds AND keyset> LIMIT cap+1),
+	// bound with countFilterArgs then the keyset args.
 	countInner      string
 	countConds      []string
-	countPrefixArgs []any
 	countFilterArgs []any
 
 	mode     sortMode
@@ -141,8 +140,7 @@ type built struct {
 }
 
 // listQuery accumulates the dynamic filters of one request. Build it with
-// paginator.query(req); add filters with Eq/EqIf/Gte/GteIf; finish with build (or
-// buildSource for a custom static prefix such as a recursive CTE). A filter on an
+// paginator.query(req); add filters with Eq/EqIf/Gte/GteIf; finish with build. A filter on an
 // undeclared column is a programming error surfaced as a build error.
 type listQuery struct {
 	pg    paginator
@@ -196,25 +194,15 @@ func (q *listQuery) cond(col, op string, value any) *listQuery {
 	return q
 }
 
-// build assembles the page + count plan for the paginator's own table (SELECT <columns>
-// FROM <table> for the page, SELECT 1 FROM <table> as the count source).
+// build assembles the page + count plan: SELECT <columns> FROM <table> for the page, SELECT 1
+// FROM <table> as the count source.
 func (q *listQuery) build() (built, error) {
-	return q.buildSource(
-		"SELECT "+q.pg.columns+" FROM "+q.pg.table,
-		"SELECT 1 FROM "+q.pg.table,
-		nil,
-	)
-}
-
-// buildSource is build for callers needing a custom static prefix (e.g. a
-// CTE). pagePrefix ("[CTE] SELECT <cols> FROM <source>") and countInner ("[CTE] SELECT 1
-// FROM <source>") are TRUSTED constants; prefixArgs bind any ? in the CTE (shared by the
-// page and both count subqueries) and are placed first.
-func (q *listQuery) buildSource(pagePrefix, countInner string, prefixArgs []any) (built, error) {
 	if q.err != nil {
 		return built{}, q.err
 	}
 	pg := q.pg
+	pagePrefix := "SELECT " + pg.columns + " FROM " + pg.table
+	countInner := "SELECT 1 FROM " + pg.table
 
 	key := q.req.Sort
 	if key == "" {
@@ -280,8 +268,7 @@ func (q *listQuery) buildSource(pagePrefix, countInner string, prefixArgs []any)
 	orderBy := strings.Join(orderCols, ", ")
 
 	pageSQL := pagePrefix + whereClause(conds) + " ORDER BY " + orderBy + " LIMIT ?"
-	pageArgs := make([]any, 0, len(prefixArgs)+len(q.args)+len(predArgs)+1)
-	pageArgs = append(pageArgs, prefixArgs...)
+	pageArgs := make([]any, 0, len(q.args)+len(predArgs)+1)
 	pageArgs = append(pageArgs, q.args...)
 	pageArgs = append(pageArgs, predArgs...)
 	pageArgs = append(pageArgs, int64(limit))
@@ -291,7 +278,6 @@ func (q *listQuery) buildSource(pagePrefix, countInner string, prefixArgs []any)
 		pageArgs:        pageArgs,
 		countInner:      countInner,
 		countConds:      countConds,
-		countPrefixArgs: prefixArgs,
 		countFilterArgs: q.args,
 		mode:            mode,
 		sort:            key,
@@ -319,8 +305,7 @@ func (b built) countQuery(first, last []any) (string, []any) {
 		pred, predArgs := keysetPredicate(b.mode, cmp, vals)
 		conds := append(append([]string(nil), b.countConds...), pred)
 		inner := b.countInner + whereClause(conds) + " LIMIT " + cap1
-		args := make([]any, 0, len(b.countPrefixArgs)+len(b.countFilterArgs)+len(predArgs))
-		args = append(args, b.countPrefixArgs...)
+		args := make([]any, 0, len(b.countFilterArgs)+len(predArgs))
 		args = append(args, b.countFilterArgs...)
 		args = append(args, predArgs...)
 		return "(SELECT COUNT(*) FROM (" + inner + ") c)", args

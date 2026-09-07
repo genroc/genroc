@@ -1,13 +1,6 @@
 package archtest
 
-import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"path/filepath"
-	"strings"
-	"testing"
-)
+import "testing"
 
 // Every write of an instance's context must set Objects.
 //
@@ -22,53 +15,9 @@ import (
 // the price of the references living beside the values rather than inside them; this check is how
 // that price is paid once. specs/object-store.md.
 func TestInstanceWritesCarryObjects(t *testing.T) {
-	const field = "Objects"
-	writes := map[string]bool{
+	requireFieldOnLiterals(t, "Objects", map[string]bool{
 		"UpdateInstanceParams":         true,
 		"UpdateInstanceProgressParams": true,
 		"InsertInstanceParams":         true,
-	}
-
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, filepath.Join(repoRoot(t), "internal", "db"), nil, 0)
-	if err != nil {
-		t.Fatalf("parse internal/db: %v", err)
-	}
-	seen := 0
-	for _, p := range pkgs {
-		for path, f := range p.Files {
-			if strings.HasSuffix(path, "_test.go") {
-				continue
-			}
-			ast.Inspect(f, func(n ast.Node) bool {
-				lit, ok := n.(*ast.CompositeLit)
-				if !ok {
-					return true
-				}
-				sel, ok := lit.Type.(*ast.SelectorExpr)
-				if !ok || !writes[sel.Sel.Name] {
-					return true
-				}
-				if len(lit.Elts) == 0 {
-					return true // a zero value returned beside an error, not a write
-				}
-				seen++
-				for _, e := range lit.Elts {
-					kv, ok := e.(*ast.KeyValueExpr)
-					if !ok {
-						continue
-					}
-					if id, ok := kv.Key.(*ast.Ident); ok && id.Name == field {
-						return true
-					}
-				}
-				t.Errorf("%s: %s literal does not set %s — the instance's reference declaration would be erased while its claims stand",
-					fset.Position(lit.Pos()), sel.Sel.Name, field)
-				return true
-			})
-		}
-	}
-	if seen == 0 {
-		t.Fatal("found no instance write literals; this check has stopped checking anything")
-	}
+	}, "the instance's reference declaration would be erased while its claims stand")
 }

@@ -58,7 +58,7 @@ somebody thought to write down. What they structurally cannot do:
 | log-flush ticker | [db_logs.go:113](../internal/db/db_logs.go#L113) | real `time.NewTicker`, 5ms — a latency drain, not a janitor (§4a) |
 | fetch timeout | [action.go:30](../internal/engine/action.go#L30) | **deliberately real** — see §4c |
 | retry jitter | [backoff.go](../internal/engine/backoff.go), one global `math/rand/v2` site | seed it |
-| instance ids | `crypto/rand` + wall clock, via UUIDv7 ([internal/idgen](../internal/idgen)) | needs a seeded source that keeps v7 ordering (§7c) |
+| instance ids | ~~`crypto/rand` + wall clock~~ — a per-process counter since ids were reworked ([internal/idgen](../internal/idgen)) | **no seam left**: deterministic given the worker number, which the database hands out in order |
 | HTTP | package-level `client` in [transport.go](../internal/transport/transport.go) | no seam |
 | goroutines | 7 in `internal/`, 5 in `cmd/genroc` — four of them matter (§4a) | the difference between the tiers, but see §5 |
 | package-level mutable state | `template.cache`, `db.clockOffset`, two `sync.Once` pairs in `api` | bounded and enforced by `internal/archtest`; the reset problem is §8c |
@@ -72,7 +72,7 @@ An in-process harness that drives the engine through `Tick` with:
 
 - an injected `Clock` (§7a) replacing the tickers and the fetch timeout,
 - a simulated `Sender` (§7b) replacing `transport.Send`,
-- seeded rand and ids (§7c),
+- seeded rand (§7d); ids need no seam (§7c),
 - a fault-injecting `DBTX` decorator — error before the write, error after the write
   succeeded (the lost-reply case), connection death mid-transaction,
 - crash modelled as *discard the process image and reopen the file* (§8c).
@@ -254,11 +254,11 @@ into `db`, replacing the package global. Thirteen `db.Now()` call sites, three t
 **b. `transport.Sender`** — an interface with `Send`, injected into `Engine`, replacing the
 package-level `client`. The real implementation is the current function unchanged.
 
-**c. An id source in `idgen`.** Two properties must survive the substitution or the sim
-tests something other than production: ids sort in creation order, and a child's id sorts
-strictly after its parent's — the DB orders and locks a tree by id alone. A seeded
-generator that keeps the v7 layout (fake millis from the injected clock, seeded random
-tail) preserves both, and `Add`/`After`/`ChildBase` need no change.
+**c. ~~An id source in `idgen`~~ — nothing to cut.** Ids became `<worker>-<counter>`: no clock,
+no randomness, and deterministic given the worker number the database hands out in order. The
+two properties this section existed to preserve under seeding — ids sorting in creation order,
+a child's id above its parent's — are gone with the format that carried them, and nothing
+depended on either.
 
 **d. An RNG on `Engine`** for backoff jitter, replacing the `math/rand/v2` global.
 

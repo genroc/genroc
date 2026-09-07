@@ -148,24 +148,18 @@ func (t upgradeTally) done(target string, jsonOut bool) {
 	}
 }
 
-// mintedIDRe is what internal/idgen produces: `<worker>-<counter>`, both Crockford base32 (I,
-// L, O and U are not in the alphabet). legacyIDRe is the UUID instances were minted as before
-// it, which rows already on disk still carry.
-//
-// A hyphenated PROCESS NAME can match this, where a UUID could not -- `spawn-task` would, and
-// `web-api` would not, only because i and o are outside the alphabet. Both commands that share
-// the positional refuse the other reading loudly (upgrade wants --from for a sweep), and both
-// take --process instead, so the cost is a clear error rather than a wrong target.
+// What idgen mints, and the UUIDs rows written before it still carry. A hyphenated PROCESS NAME
+// can match the first, where a UUID could not -- `spawn-task` does, `web-api` does not (i and o
+// are outside the alphabet). Both commands sharing the positional take --process instead, so the
+// cost is a clear error rather than a wrong target.
 var (
 	mintedIDRe = regexp.MustCompile(`^[0-9a-hjkmnp-tv-z]+-[0-9a-hjkmnp-tv-z]+$`)
 	legacyIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
 
-// isInstanceRef reports whether the positional is shaped like an instance reference: a minted
-// id, a legacy UUID, or the @last sigil the rest of the CLI reads as one. Serves two callers.
-// `upgrade` and `compat` use it to tell an id from a PROCESS NAME, which is never written
-// either way; the lifecycle commands use it to reject an argument that cannot name a row at
-// all, before anything is sent (instanceIDsAndFlags).
+// isInstanceRef serves two callers: `upgrade` and `compat` tell an id from a PROCESS NAME with
+// it, and the lifecycle commands reject an argument that can name no row before anything is
+// sent (instanceIDsAndFlags).
 func isInstanceRef(arg string) bool {
 	return arg == "@last" || mintedIDRe.MatchString(arg) || legacyIDRe.MatchString(arg)
 }

@@ -229,7 +229,7 @@ func (h *Handlers) signalInstance(raw json.RawMessage) Reply {
 	if bad != nil {
 		return bad.reply()
 	}
-	delivered, err := h.db.DeliverSignal(context.Background(), id, req.TaskID, h.db.NextID(), outcome)
+	delivered, err := h.db.DeliverSignal(context.Background(), id, req.TaskID, outcome)
 	if err != nil {
 		return errReply(err)
 	}

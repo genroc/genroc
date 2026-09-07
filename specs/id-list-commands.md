@@ -106,12 +106,11 @@ because the ids that landed the first time now report `already`.
     is not id-shaped touches nothing. This is the conflict-vs-mistake split of decision 5
     moved one step earlier: what can be known *without asking the server* must not be
     discovered halfway through mutating. The case it exists for is a table substituted in
-    where ids were meant, which otherwise pauses whichever cell parses as a UUID while
-    printing a "not found" for every other word on screen. The shape test must keep
-    accepting DERIVED ids — a child is `idgen.Add`/`After` arithmetic on its parent, which
-    can carry into the variant nibble; `uuid.Parse` checks the textual form only, and
-    tightening it to `Version()`/`Variant()` would refuse real children deep in a sibling
-    run and nowhere else (pinned by `TestIsInstanceRefAcceptsDerivedChildIDs`).
+    where ids were meant, which otherwise pauses whichever cell parses as an id while
+    printing a "not found" for every other word on screen. The shape test accepts both minted
+    ids (`<worker>-<counter>`) and the UUIDs rows written before them still carry; a hyphenated
+    PROCESS NAME can match the first, which is why the two commands sharing that positional
+    also take `--process` (pinned by `TestIsInstanceRefAcceptsBothMintedAndLegacyIDs`).
 
 11. **The list a group is fed from must name only what the group can act on.** `instances`
     lists **roots only** (`children=true` opts them back in), because a tree is the unit

@@ -145,7 +145,6 @@ func (h *Handlers) upgradeInstance(id string, raw json.RawMessage, actor string)
 func (h *Handlers) auditUpgrades(ups []db.InstanceUpgrade, actor string) {
 	for _, up := range ups {
 		h.db.AppendLog(&model.LogEntry{
-			ID:         h.db.NextID(),
 			Actor:      actor,
 			InstanceID: up.Instance.ID,
 			Level:      model.LogInfo,

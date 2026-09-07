@@ -20,16 +20,15 @@ type LogQuery struct {
 	Page    PageReq
 }
 
-// Log pagination: time order only — (created_at, id) preserves insertion order (UUIDv7
-// monotonic per ms) and is index-backed, under instance_id and under root_id alike.
+// Log pagination: time order only — (created_at, seq, id), index-backed under instance_id and
+// under root_id alike.
 var logPaginator = paginator{
 	table:      "process_logs pl",
 	columns:    logColumns,
 	filterCols: []string{"pl.instance_id", "pl.root_id", "pl.level", "pl.created_at"},
 	sorts: map[string]sortMode{
-		// seq orders two rows sharing a millisecond; pl.id follows it because the keyset
-		// cursor needs a UNIQUE key, and because rows written before migration 042 carry
-		// seq 0 and fall through to the sortable ids they were ordered by then.
+		// seq orders two rows sharing a millisecond; id follows it to keep the cursor key
+		// unique, and to order rows written before 042 (seq 0) by the UUIDs they carry.
 		"created": {{"pl.created_at", kindInt}, {"pl.seq", kindInt}, {"pl.id", kindText}},
 	},
 	defSort:  "created",
@@ -138,9 +137,8 @@ func decodeRefs(s string) []*model.ObjectRef {
 // A blank id gets a fresh one -- minted ids rise within a process, so the (created_at, id)
 // sort preserves insertion order for co-millisecond events; a zero CreatedAt gets the DB clock.
 func (db *DB) buildLogParams(entry *model.LogEntry) (dbgen.InsertLogParams, error) {
-	// The counter behind the id, stored beside it: created_at is millisecond-granular, so it
-	// is what orders two rows written in one advance (migration 042).
-	id, seq := db.nextIDSeq()
+	// created_at is millisecond-granular, so seq is what orders two rows from one advance.
+	id, seq := db.nextLogID()
 	if entry.ID != "" {
 		id = entry.ID
 	}
