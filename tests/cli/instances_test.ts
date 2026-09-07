@@ -227,6 +227,30 @@ test("get — a failed instance prints the error it reports, payload and all", a
   );
 }, 15_000);
 
+test("get — an externalized value shows its ref where the value belongs", async () => {
+  const name = uid("refplace");
+  runCli(bin, ["apply", "-f", writeDefs([blobInputDef(name)])]);
+  const id = runCli(bin, ["run", name, "--input", JSON.stringify({ blob: BIG_BLOB }), "-q"])
+    .stdout.trim();
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const text = runCli(bin, ["get", id]);
+  expect(text.ok, text.stderr).toBe(true);
+  const state = text.stdout.slice(text.stdout.indexOf("State:"));
+  expect(
+    state,
+    "the slot is absent on the wire, so a reader who cannot see the key cannot tell a value "
+      + "that was cut from one that was never there",
+  ).toMatch(/"blob": \{\s*"ref": "[0-9a-f]{32}",\s*"size": \d+\s*\}/);
+  expect(state).not.toContain("BBBBBBBBBB");
+
+  // --resolve means the same thing here as it does in --json.
+  const resolved = runCli(bin, ["get", id, "--resolve"]);
+  expect(resolved.ok, resolved.stderr).toBe(true);
+  expect(resolved.stdout).toContain("BBBBBBBBBB");
+  expect(resolved.stdout).not.toContain('"ref"');
+}, 15_000);
+
 test("get --resolve — materializes context values held in the object store", async () => {
   const name = uid("bigctx");
   runCli(bin, ["apply", "-f", writeDefs([blobInputDef(name)])]);

@@ -51,6 +51,9 @@ export function runCli(
       ...env,
     },
     encoding: "utf8",
+    // A resolved payload is as big as the object store allows; the 1 MB default truncates
+    // stdout and kills the child, which reads as a genctl failure with no stderr.
+    maxBuffer: 64 * 1024 * 1024,
   });
   return {
     stdout: result.stdout ?? "",

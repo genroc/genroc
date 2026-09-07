@@ -472,14 +472,16 @@ func runGetCmd(server string, args []string) {
 		// the big values still never pass through a response nobody sized.
 		u += "?resolve=true"
 	}
+	// One fetch for both views: --resolve has to mean the same thing in each, and the text one
+	// needs the `objects` section a decode into the struct below would drop.
+	var raw json.RawMessage
+	if err := callGet(u, &raw); err != nil {
+		fatal("%v", err)
+	}
+	if *resolveFlag {
+		raw = spliceObjects(*serverFlag, raw)
+	}
 	if *jsonFlag {
-		var raw json.RawMessage
-		if err := callGet(u, &raw); err != nil {
-			fatal("%v", err)
-		}
-		if *resolveFlag {
-			raw = spliceObjects(*serverFlag, raw)
-		}
 		printIndented(raw)
 		return
 	}
@@ -499,9 +501,12 @@ func runGetCmd(server string, args []string) {
 		CreatedAt    string         `json:"created_at"`
 		UpdatedAt    string         `json:"updated_at"`
 		State        map[string]any `json:"state"`
+		Objects      []objectEntry  `json:"objects"`
 	}
-	if err := callGet(u, &inst); err != nil {
-		fatal("%v", err)
+	// numeric.Decode, not json.Unmarshal: a large literal must survive the display path.
+	// specs/number-precision.md.
+	if err := numeric.Decode(raw, &inst); err != nil {
+		fatal("decode: %v", err)
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -531,7 +536,7 @@ func runGetCmd(server string, args []string) {
 
 	if len(inst.State) > 0 {
 		fmt.Println("\nState:")
-		b, _ := json.MarshalIndent(inst.State, "", "  ")
+		b, _ := json.MarshalIndent(withObjectRefs(inst.State, inst.Objects, "state"), "", "  ")
 		os.Stdout.Write(b)
 		os.Stdout.Write([]byte("\n"))
 	}
@@ -1798,6 +1803,40 @@ type objectEntry struct {
 	Size int64  `json:"size"`
 }
 
+// withObjectRefs puts a {ref, size} marker at every path an `objects` section names, relative
+// to at -- where v itself sits in the response. The wire leaves the slot absent so nothing in a
+// payload can be mistaken for a reference (specs/object-store.md §The wire); a reader needs one.
+func withObjectRefs(v any, objects []objectEntry, at ...any) any {
+	if len(objects) == 0 {
+		return v
+	}
+	// A synthetic root, so a value externalized whole (its path IS at) can replace v itself.
+	root := map[string]any{"": v}
+	for _, o := range objects {
+		rest, ok := pathUnder(o.Path, at)
+		if !ok {
+			continue
+		}
+		place(root, append([]any{""}, rest...), map[string]any{"ref": o.Ref, "size": o.Size})
+	}
+	return root[""]
+}
+
+// pathUnder returns path with the prefix at removed, and whether it was under it at all. One
+// response's section can name paths outside the value being rendered (`get` lists the whole
+// response's, of which State is one branch), and those belong to nobody here.
+func pathUnder(path, at []any) ([]any, bool) {
+	if len(path) < len(at) {
+		return nil, false
+	}
+	for i, seg := range at {
+		if path[i] != seg {
+			return nil, false
+		}
+	}
+	return path[len(at):], true
+}
+
 // logData renders a log payload for one row: whatever the entry carried inline, with each
 // externalized piece shown as its {ref,size} handle in the place it was cut from. logs never
 // fetches -- a trail is scanned, and these payloads are large by definition; `genctl object
@@ -1807,16 +1846,10 @@ func logData(raw json.RawMessage, objects []objectEntry) string {
 		return ""
 	}
 	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+	if err := numeric.Decode(raw, &value); err != nil {
 		return string(raw)
 	}
-	if len(objects) > 0 {
-		wrapper := map[string]any{"data": value}
-		for _, o := range objects {
-			place(wrapper, o.Path, map[string]any{"ref": o.Ref, "size": o.Size})
-		}
-		value = wrapper["data"]
-	}
+	value = withObjectRefs(value, objects, "data")
 	if str, ok := value.(string); ok {
 		return str
 	}
@@ -1835,7 +1868,7 @@ func logData(raw json.RawMessage, objects []objectEntry) string {
 // value behind a query parameter is an unbounded response nobody asked the size of.
 func spliceObjects(server string, raw json.RawMessage) json.RawMessage {
 	var body map[string]any
-	if err := json.Unmarshal(raw, &body); err != nil {
+	if err := numeric.Decode(raw, &body); err != nil {
 		return raw
 	}
 	entries, _ := body["objects"].([]any)
@@ -1856,7 +1889,7 @@ func spliceObjects(server string, raw json.RawMessage) json.RawMessage {
 			fatal("fetch object %s: %v", ref, err)
 		}
 		var value any
-		if err := json.Unmarshal([]byte(resp.Data), &value); err != nil {
+		if err := numeric.Decode([]byte(resp.Data), &value); err != nil {
 			value = resp.Data // not JSON (a raw log payload): put it back as the string it is
 		}
 		place(body, path, value)

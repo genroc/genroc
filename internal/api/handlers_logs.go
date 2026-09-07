@@ -6,6 +6,7 @@ import (
 
 	"genroc/internal/db"
 	"genroc/internal/model"
+	"genroc/internal/numeric"
 )
 
 // logObjects roots an entry's stored references at the ENTRY, which is where a list's objects
@@ -27,12 +28,15 @@ func childPath(root []any, rest []any) []any {
 // logData is the stored payload as a value. A malformed column reads back as the raw string
 // rather than failing the listing: an audit row is best-effort, and a trail that will not render
 // is worse than one entry that reads oddly.
+//
+// numeric.Decode, not json.Unmarshal: the column holds the payload's literals, and a plain
+// decode rounds them through float64 on the way back out. specs/number-precision.md.
 func logData(raw string) any {
 	if raw == "" {
 		return nil
 	}
 	var v any
-	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+	if err := numeric.Decode([]byte(raw), &v); err != nil {
 		return raw
 	}
 	return v

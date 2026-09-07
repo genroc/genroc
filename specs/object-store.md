@@ -505,6 +505,11 @@ only real values:
   better failure — a client that ignores the section sees a *missing* value rather than a
   plausible object it will treat as data — and a client that reads the section, which is the
   contract, sees no ambiguity at all.
+- **A DISPLAY puts the marker back** [2026-09-07]. genctl renders `{ref, size}` at the path the
+  section names (`withObjectRefs`, used by `get` and `logs`), because a reader who cannot see
+  the key cannot tell a cut value from one that never existed. The ambiguity the wire refuses is
+  between data and a marker, and rendered text is consumed by nobody as data — so the machine
+  forms (`--json`, `--mode json`) stay verbatim, section and all.
 
 `resolve=true` returns in a bounded form (§Resolution is automatic while it is small); what goes
 for good is `HydrateContext`'s unbounded materialization and the truncated preview that existed

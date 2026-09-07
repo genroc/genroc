@@ -35,7 +35,9 @@ Keep new list/get commands consistent so the surface stays predictable.
   and returns which to pass, so naming where to begin is the one way past the cap. Always
   report the capped result through `noteCapped` — **a cap nobody can raise must never
   truncate silently.**
-- **Single-item output.** A `Key:\tvalue` tabwriter block with `longTime()` timestamps.
+- **Single-item output.** A `Key:\tvalue` tabwriter block with `longTime()` timestamps. A
+  payload prints its externalized pieces as `{ref, size}` markers where they were cut from
+  (`withObjectRefs`); `--resolve` fetches them instead, in the text view and `--json` alike.
 - **`instances` lists roots only.** A tree is one unit of work — and the unit
   `pause`/`resume`/`retry`/`upgrade` act on — so the default listing is one row per tree
   and `-q` yields only ids those verbs can accept. `--children` (query `children=true`)

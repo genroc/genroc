@@ -3,7 +3,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { writeFileSync } from "fs";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
-import { waitForInstance } from "../helpers/client.ts";
+import { API_BASE, waitForInstance } from "../helpers/client.ts";
 
 // Numbers must survive the whole path, not just the engine: YAML/JSON parsed by
 // the CLI, uploaded, stored, evaluated, returned, and rendered back by the CLI.
@@ -218,6 +218,88 @@ test("genctl — get --json preserves the exact literal", async () => {
   expect(got.stdout).toContain(BIG_INT);
   expect(got.stdout).not.toContain(BIG_INT_AS_FLOAT64);
 });
+
+// The audit trail is a third rendering path, and its payload column is read back and
+// re-marshalled by the server before genctl ever sees it.
+test("genctl — a literal in a log payload survives the trail", async () => {
+  const name = uid("preclog");
+  const def = defaultCarryingDef(name, BIG_INT);
+  runCli(bin, ["apply", "-f", writeRawYaml(def)]);
+  const id = runCli(bin, ["run", name, "-q", "--input", "{}"]).stdout.trim();
+  expect(await waitForInstance(id, 10_000)).toBe("completed");
+
+  // A width the payload fits in: `logs` cuts a row to the terminal, which would truncate
+  // the literal under test rather than round it.
+  const text = runCli(bin, ["logs", id], { COLUMNS: "5000" });
+  expect(text.ok, text.stderr).toBe(true);
+  expect(text.stdout).toContain(BIG_INT);
+  expect(text.stdout).not.toContain(BIG_INT_AS_FLOAT64);
+
+  const json = runCli(bin, ["logs", id, "--mode", "json"]);
+  expect(json.stdout).toContain(BIG_INT);
+  expect(json.stdout).not.toContain(BIG_INT_AS_FLOAT64);
+});
+
+// Past 1 MiB per object (api maxInlineResolveBytes) the server cannot carry the value in the
+// response, so genctl fetches and splices it: the one display path where a literal is decoded
+// from a second response. Built and posted as raw text -- JSON.stringify of 25k JS numbers
+// would round every one of them before the server saw it.
+test("genctl — a literal inside an object too large for the server to splice survives --resolve", async () => {
+  const name = uid("precbig");
+  const def = `name: ${name}
+input_schema:
+  type: object
+  properties:
+    rows: { type: array }
+tasks:
+  - id: pass
+    switch: end
+`;
+  runCli(bin, ["apply", "-f", writeRawYaml(def)]);
+  const started = await fetch(`${API_BASE}/instances`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: `{"process":"${name}","input":{"rows":[${Array(25_000).fill(BIG_INT).join(",")}]}}`,
+  });
+  expect(started.status).toBe(200);
+  const id = ((await started.json()) as { id: string }).id;
+  expect(await waitForInstance(id, 10_000)).toBe("completed");
+
+  const resolved = runCli(bin, ["get", id, "--resolve"]);
+  expect(resolved.ok, resolved.stderr).toBe(true);
+  expect(resolved.stdout).toContain(BIG_INT);
+  expect(resolved.stdout).not.toContain(BIG_INT_AS_FLOAT64);
+}, 20_000);
+
+// A value the server CAN carry is spliced before it leaves, so this is the same literal
+// through the other half of --resolve.
+test("genctl — a literal inside an externalized value survives --resolve", async () => {
+  const name = uid("precobj");
+  // No single leaf is large, so the cut has to take the array whole and the literals ride
+  // out to the object store inside it.
+  const rows = Array(100).fill(BIG_INT).join(",");
+  const def = `name: ${name}
+input_schema:
+  type: object
+  properties:
+    rows: { type: array }
+tasks:
+  - id: pass
+    switch: end
+`;
+  runCli(bin, ["apply", "-f", writeRawYaml(def)]);
+  const id = runCli(bin, ["run", name, "-q", "--input", `{"rows":[${rows}]}`]).stdout.trim();
+  expect(await waitForInstance(id, 10_000)).toBe("completed");
+
+  // The unresolved view names the object rather than carrying it.
+  const marked = runCli(bin, ["get", id]);
+  expect(marked.stdout).toMatch(/"rows": \{\s*"ref": "[0-9a-f]{32}"/);
+
+  const resolved = runCli(bin, ["get", id, "--resolve"]);
+  expect(resolved.ok, resolved.stderr).toBe(true);
+  expect(resolved.stdout).toContain(BIG_INT);
+  expect(resolved.stdout).not.toContain(BIG_INT_AS_FLOAT64);
+}, 15_000);
 
 // A YAML spelling JSON cannot express must still be accepted rather than becoming
 // an unmarshalable json.Number — the fallback in yamlToAny.
