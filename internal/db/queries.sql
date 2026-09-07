@@ -73,14 +73,20 @@ ORDER BY pc.name;
 INSERT INTO process_instances
     (id, process_name, process_version, task,
      input_data, outputs_data, output_data, error_internal, error_data, external_data, engine_state,
-     parent_id, spawn_task_id, parent_task_epoch, task_epoch,
+     parent_id, root_id, spawn_task_id, parent_task_epoch, task_epoch,
      call_stack, retry_count, wake_at, status, wait_state, error_message, error_code, created_at, updated_at, objects,
      next_replayable)
 VALUES
     (sqlc.arg(id), sqlc.arg(process_name), sqlc.arg(process_version), sqlc.arg(task),
      sqlc.arg(input_data), sqlc.arg(outputs_data), sqlc.arg(output_data),
      sqlc.arg(error_internal), sqlc.arg(error_data), sqlc.arg(external_data), sqlc.arg(engine_state),
-     sqlc.arg(parent_id), sqlc.arg(spawn_task_id), sqlc.arg(parent_task_epoch), sqlc.arg(task_epoch),
+     sqlc.arg(parent_id),
+     -- The tree, read off the PARENT rather than taken from the caller: parent_id is the one
+     -- edge the whole system agrees on, so deriving from anything else (a call_stack a fixture
+     -- forgot, a field a new creation site did not set) would put a row in a tree of its own
+     -- and lose its rows from the trail without erroring.
+     COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = sqlc.arg(parent_id)), sqlc.arg(id)),
+     sqlc.arg(spawn_task_id), sqlc.arg(parent_task_epoch), sqlc.arg(task_epoch),
      sqlc.arg(call_stack), sqlc.arg(retry_count), sqlc.arg(wake_at),
      sqlc.arg(status), sqlc.arg(wait_state), sqlc.arg(error_message), sqlc.arg(error_code),
      sqlc.arg(created_at), sqlc.arg(updated_at), sqlc.arg(objects),
@@ -156,7 +162,7 @@ SELECT id, process_name, process_version, parent_id,
        input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data, superseded_at
+       next_replayable, error_data, superseded_at, root_id
 FROM process_instances
 WHERE id = sqlc.arg(id);
 
@@ -245,7 +251,7 @@ SELECT id, process_name, process_version, parent_id,
        input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data, superseded_at
+       next_replayable, error_data, superseded_at, root_id
 FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id)
@@ -287,16 +293,19 @@ ORDER BY pd.parent_name, pd.child_name, pd.task_id;
 
 -- name: InsertLog :exec
 INSERT INTO process_logs
-    (id, instance_id, level, event, task_id, message, code, data, objects, meta, created_at, actor)
+    (id, instance_id, root_id, level, event, task_id, message, code, data, objects, meta, created_at, actor)
 VALUES
-    (sqlc.arg(id), sqlc.arg(instance_id), sqlc.arg(level), sqlc.arg(event),
+    (sqlc.arg(id), sqlc.arg(instance_id),
+     -- Read off the instance rather than taken from the writer: four call sites append rows and
+     -- a forgotten field would drop a child's rows out of its tree's trail without erroring.
+     -- An orphan (instance already gone) is its own root, which is what the migration backfilled.
+     COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = sqlc.arg(instance_id)), sqlc.arg(instance_id)),
+     sqlc.arg(level), sqlc.arg(event),
      sqlc.arg(task_id), sqlc.arg(message), sqlc.arg(code), sqlc.arg(data), sqlc.arg(objects), sqlc.arg(meta), sqlc.arg(created_at), sqlc.arg(actor));
 
--- ListLogs (per-instance) and ListTreeLogs (subtree) are hand-written in
--- db_logs.go: both take a dynamic ORDER BY + keyset cursor (see paginate.go), and
--- the subtree view additionally needs a WITH RECURSIVE walk over
--- process_instances.parent_id that sqlc's SQLite grammar can't parse. Both runtime
--- drivers support it.
+-- ListLogs (one instance) and ListTreeLogs (a whole tree) are hand-written in db_logs.go:
+-- both take a dynamic ORDER BY + keyset cursor (see paginate.go). They differ only in
+-- which indexed column they filter on -- instance_id or root_id -- since migration 040.
 
 -- CountDrainingInTree counts the rows a previous pause left mid-task ('pausing'). It is
 -- what tells a tree that has STOPPED from one still draining: PauseProcess selects
@@ -320,6 +329,9 @@ WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
 -- GetInstanceStatus reads one root's status inside the transaction that already holds the
 -- tree, which is what lets ResumeProcess decide "already advancing" from "settled and
 -- never will" on the same snapshot as the outcome itself.
+
+-- name: GetInstanceRoot :one
+SELECT root_id FROM process_instances WHERE id = sqlc.arg(id);
 
 -- name: GetInstanceStatus :one
 SELECT status FROM process_instances WHERE id = sqlc.arg(id);
@@ -468,7 +480,7 @@ SELECT id, process_name, process_version, parent_id,
        input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data, superseded_at
+       next_replayable, error_data, superseded_at, root_id
 FROM process_instances
 WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
   AND (process_instances.id = sqlc.arg(root)

@@ -267,16 +267,18 @@ test("pause and resume are recorded on every instance, with a root entry for the
     await ctx.env.pause(gp);
     await ctx.env.resume(gp);
 
-    const logsOf = async (id: string) => {
+    // flat, because every assertion below is about ONE instance's own trail: a root id
+    // otherwise answers with its whole tree, which is what the endpoint now defaults to.
+    const logsOf = async (id: string, flat = true) => {
       const { data } = await ctx.env.client.GET("/instances/{id}/logs", {
-        params: { path: { id }, query: { limit: 100 } },
+        params: { path: { id }, query: { limit: 100, flat } },
       });
       return data!.items ?? [];
     };
 
     // The root carries the pause as an operator action, with the count of what was
     // actually live. Nothing was leased between ticks, so none were left draining.
-    const rootLogs = await logsOf(gp);
+    const rootLogs = await logsOf(gp, false); // the tree read, which carries the root's own rows too
     const requested = rootLogs.find((l) => l.event === "inst_pause_requested");
     expect(requested).toBeDefined();
     expect(requested!.level).toBe("info");

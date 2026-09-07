@@ -507,7 +507,7 @@ var registry = func() []actionDef {
 			Allow:   []Perm{PermRead},
 			Method:  http.MethodGet,
 			Path:    "/instances/{id}/logs",
-			Summary: "Get the execution audit trail for a process instance (newest first)",
+			Summary: "Get the execution audit trail for a process instance (newest first) - the whole tree when the id names a root, unless flat=true",
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
@@ -515,18 +515,18 @@ var registry = func() []actionDef {
 				Level         string `query:"level" enum:"debug,info,warn,error" description:"Filter by log level"`
 				CreatedAfter  int64  `query:"created_after" description:"Only logs at/after this unix-millis timestamp"`
 				CreatedBefore int64  `query:"created_before" description:"Only logs strictly before this unix-millis timestamp"`
-				Recursive     bool   `query:"recursive" description:"Include the whole process subtree, keyed on the root instance"`
+				Flat          bool   `query:"flat" description:"This instance's own rows only. Without it a ROOT id answers with every row in its tree, which is one indexed read rather than a walk; a child id answers with its own rows either way, since a tree is addressed by its root"`
 				pageQuery
 			}{},
 			Resp: PageResp[LogEntryResp]{},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
 				q := r.URL.Query()
-				recursive, _ := strconv.ParseBool(q.Get("recursive"))
+				flat, _ := strconv.ParseBool(q.Get("flat"))
 				b, _ := json.Marshal(ListLogsReq{
 					Level:         q.Get("level"),
 					CreatedAfter:  millisQuery(r, "created_after"),
 					CreatedBefore: millisQuery(r, "created_before"),
-					Recursive:     recursive,
+					Flat:          flat,
 					Pagination:    paginationFrom(r),
 				})
 				return Envelope{Action: "list_instance_logs", ID: r.PathValue("id"), Payload: b}, nil

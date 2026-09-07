@@ -206,6 +206,10 @@ type ProcessInstance struct {
 	// so consecutive spawn tasks under the same parent never mix.
 	SpawnTaskID string
 
+	// RootID is the tree this instance belongs to -- its own id when it is a root. Derived
+	// from parent_id by the INSERT, so a tree is an indexed lookup rather than a walk.
+	RootID string
+
 	// CallStack is the ordered list of ancestor instance IDs (root first).
 	// Used for O(1) ancestor lookup during error cascade.
 	CallStack []string

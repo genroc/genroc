@@ -48,7 +48,6 @@ function jsonRows(id: string, extra: string[] = [], env: Record<string, string> 
         JSON.parse(l) as {
           time: string;
           instance: string;
-          depth: number;
           level: string;
           event: string;
         },
@@ -61,9 +60,10 @@ test("logs — the table commits to TIME, LEVEL, EVENT and TASK", async () => {
   const id = await ran(switchDef(uid("cols")));
   const lines = runCli(bin, ["logs", id]).stdout.trim().split("\n");
 
-  expect(lines[0].split(/\s+/)).toEqual(["TIME", "LEVEL", "EVENT", "TASK"]);
-  // The ID column appears only under --recursive; a single-instance view repeats one id.
-  expect(lines[0]).not.toContain("ID");
+  expect(lines[0].split(/\s+/)).toEqual(["TIME", "LEVEL", "ID", "EVENT", "TASK"]);
+  // --flat is one instance's own rows, where an ID column would repeat one id on every line.
+  const own = runCli(bin, ["logs", id, "--flat"]).stdout.trim().split("\n");
+  expect(own[0].split(/\s+/)).toEqual(["TIME", "LEVEL", "EVENT", "TASK"]);
 });
 
 test("logs — entries print oldest→newest, with the newest nearest the prompt", async () => {
@@ -179,24 +179,46 @@ test("logs --level — narrows to one level", async () => {
   expect(unknown.stdout.trim()).toBe("");
 }, 15_000);
 
-test("logs --recursive — adds the subtree's rows and the ID column that tells them apart", async () => {
+test("logs — a root's trail is its whole tree, and --flat is its own rows", async () => {
   const child = uid("child");
   const parent = uid("parent");
   runCli(bin, ["apply", "-f", writeDefs([switchDef(child), childDef(parent, child)])]);
   const id = startedID(runCli(bin, ["run", parent]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
 
-  const flat = jsonRows(id);
-  const tree = jsonRows(id, ["--recursive"]);
-  expect(tree.length).toBeGreaterThan(flat.length);
-  // The subtree spans more than one instance, which is why the id becomes a column.
+  const tree = jsonRows(id);
+  const own = jsonRows(id, ["--flat"]);
+  expect(tree.length).toBeGreaterThan(own.length);
+  // The tree spans more than one instance, which is why the id becomes a column.
   expect(new Set(tree.map((r) => r.instance)).size).toBeGreaterThan(1);
-  // depth is the distance from the queried root, so the child's rows sit below it.
-  expect(tree.some((r) => r.depth > 0)).toBe(true);
-  expect(flat.every((r) => r.depth === 0)).toBe(true);
+  // --flat is this instance's own rows, so the root is the only id in them.
+  expect(new Set(own.map((r) => r.instance))).toEqual(new Set([id]));
 
-  const header = runCli(bin, ["logs", id, "--recursive"]).stdout.trim().split("\n")[0];
+  const header = runCli(bin, ["logs", id]).stdout.trim().split("\n")[0];
   expect(header.split(/\s+/)).toEqual(["TIME", "LEVEL", "ID", "EVENT", "TASK"]);
+}, 15_000);
+
+// A tree is addressed by its ROOT, as it is for pause/resume/retry/upgrade -- so a child id
+// is a question about that child, and answers with its own rows rather than its siblings'.
+test("logs — a child id answers with that child's own rows", async () => {
+  const child = uid("child");
+  const parent = uid("parent");
+  runCli(bin, ["apply", "-f", writeDefs([switchDef(child), childDef(parent, child)])]);
+  const rootID = startedID(runCli(bin, ["run", parent]).stdout);
+  expect(await waitForInstance(rootID)).toBe("completed");
+
+  const kidID = JSON.parse(
+    runCli(bin, ["instances", "--process", child, "--children", "--since", "1h", "--json"]).stdout,
+  )[0].id;
+
+  const kidRows = jsonRows(kidID);
+  expect(kidRows.length).toBeGreaterThan(0);
+  expect(
+    new Set(kidRows.map((r) => r.instance)),
+    "a child's trail is its own, not the tree it sits in",
+  ).toEqual(new Set([kidID]));
+  // ...and the tree read from the root still carries them.
+  expect(jsonRows(rootID).some((r) => r.instance === kidID)).toBe(true);
 }, 15_000);
 
 // ── window and cap ──────────────────────────────────────────────────────────────

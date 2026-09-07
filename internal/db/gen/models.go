@@ -99,6 +99,7 @@ type ProcessInstance struct {
 	NextReplayable         int64
 	ErrorData              string
 	SupersededAt           sql.NullInt64
+	RootID                 string
 }
 
 type ProcessLog struct {
@@ -114,6 +115,7 @@ type ProcessLog struct {
 	Meta       string
 	Objects    string
 	Actor      string
+	RootID     string
 }
 
 type ProcessSignal struct {

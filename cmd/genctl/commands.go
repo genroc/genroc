@@ -805,7 +805,7 @@ func runLogsCmd(server string, args []string) {
 	levelFlag := fs.String("level", "", "filter by level (debug, info, warn, error); empty = all")
 	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04); empty = the newest 200 entries")
 	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
-	recursiveFlag := fs.Bool("recursive", false, "include the whole process subtree (root instance id)")
+	flatFlag := fs.Bool("flat", false, "this instance's own rows only; by default a ROOT id answers with every row in its tree")
 	modeFlag := fs.String("mode", "detail", "output: basic (no data body), detail (+ data), or json (one JSON object per line, untruncated)")
 	timeFlag := fs.String("time", "clock", "time column: clock (15:04:05, with a day separator per date) or full (2006-01-02 15:04:05 +02:00); both render in the local zone ($TZ)")
 	id := instanceIDAndFlags(fs, args)
@@ -824,9 +824,13 @@ func runLogsCmd(server string, args []string) {
 	}
 	// created_at is a trail's only order, so --since needs no column to pair with.
 	limit := applyWindow(q, *sinceFlag, *untilFlag, "created_at", logTailDefault)
-	if *recursiveFlag {
-		q.Set("recursive", "true")
+	if *flatFlag {
+		q.Set("flat", "true")
 	}
+	// A tree read can carry rows from several instances, so the ID column comes with it. It is
+	// tied to the REQUEST rather than to what a page happens to hold: a column that appears
+	// once the second page arrives would re-align a trail mid-scroll.
+	tree := !*flatFlag
 	u := *serverFlag + "/api/instances/" + url.PathEscape(id) + "/logs"
 	if enc := q.Encode(); enc != "" {
 		u += "?" + enc
@@ -882,7 +886,7 @@ func runLogsCmd(server string, args []string) {
 	capped, err := fetchOrdered(u, limit, newestFirst, func(rows []logRow) error {
 		for _, l := range rows {
 			if !header {
-				fmt.Fprintln(out, logview.Header(style, *recursiveFlag))
+				fmt.Fprintln(out, logview.Header(style, tree))
 				header = true
 			}
 			t, ok := parseTime(l.Time)
@@ -892,10 +896,10 @@ func runLogsCmd(server string, args []string) {
 			}
 			rec := logview.Record{Event: l.Event, Task: l.Task, Msg: l.Message, Code: l.Code, Actor: l.Actor, Data: logData(l.Data, l.Objects), Meta: l.Meta}
 			idTag := ""
-			if *recursiveFlag {
+			if tree {
 				idTag = shortID(l.Instance)
 			}
-			fmt.Fprintln(out, logview.RenderEvent(style, t, l.Level, idTag, l.Event, l.Task, rec.Detail(mode), *recursiveFlag))
+			fmt.Fprintln(out, logview.RenderEvent(style, t, l.Level, idTag, l.Event, l.Task, rec.Detail(mode), tree))
 		}
 		return out.Flush()
 	})

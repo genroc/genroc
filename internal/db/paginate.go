@@ -206,7 +206,7 @@ func (q *listQuery) build() (built, error) {
 	)
 }
 
-// buildSource is build for callers needing a custom static prefix (e.g. a recursive
+// buildSource is build for callers needing a custom static prefix (e.g. a
 // CTE). pagePrefix ("[CTE] SELECT <cols> FROM <source>") and countInner ("[CTE] SELECT 1
 // FROM <source>") are TRUSTED constants; prefixArgs bind any ? in the CTE (shared by the
 // page and both count subqueries) and are placed first.

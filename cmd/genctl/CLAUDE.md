@@ -75,6 +75,9 @@ Deliberate exceptions — special-purpose, not resource list/get. Leave them:
   per line, streaming), not a `{items, page}` array. It also caps at 200 rather than
   `listCap` and renders as it streams — the others build a tabwriter, which sizes its
   columns from every row and so cannot.
+- `logs` is the one read whose default is a TREE: a root id answers with every row under it,
+  `--flat` with its own. The ID column follows the request rather than the page — a column
+  that appeared once the second page arrived would re-align a trail mid-scroll.
 - `definitions` offers `--sort name`, and is the one list whose capped read keeps the
   **first** N rather than the newest (`fetchOrdered`'s `firstFirst`). `--since`/`--until`
   still bound `created_at` under it, as filters over the window rather than the point the

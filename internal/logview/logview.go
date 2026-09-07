@@ -162,7 +162,7 @@ func (r Record) Detail(mode Mode) []Field {
 }
 
 // RenderEvent renders an audit event as a fixed-width column line; the id column shows
-// only when withID (always on the server, on the CLI only in --recursive):
+// only when withID (always on the server; on the CLI whenever the read is a tree):
 //
 //	15:04:05  INFO   2559a9  action_started    first         msg=fetch url=… request={…}
 func RenderEvent(style TimeStyle, t time.Time, level, id, event, task string, detail []Field, withID bool) string {

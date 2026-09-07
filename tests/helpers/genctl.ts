@@ -80,7 +80,7 @@ export function restDef(name: string, endpoint = "http://localhost/x") {
   };
 }
 
-/** Spawns childName, so dependency-aware behaviour (promote, status, --recursive) has a tree. */
+/** Spawns childName, so dependency-aware behaviour (promote, status, tree logs) has a tree. */
 export function childDef(name: string, childName: string) {
   return {
     name,

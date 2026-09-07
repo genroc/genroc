@@ -98,7 +98,7 @@ you are on an unreleased build: point it at `http://localhost:8448/public/proces
 genctl apply -f greet.genroc.yaml
 genctl run greet --set url=https://api.example.com --set name=World
 genctl get @last          # inspect the most recent instance
-genctl logs @last         # its per-instance logs
+genctl logs @last         # its whole tree's trail (--flat for its own rows)
 ```
 
 `apply` registers a **version** of the definition. Applying a changed file makes version 2;

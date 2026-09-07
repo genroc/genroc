@@ -60,7 +60,7 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 	input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
 	error_code, lease_epoch, task_epoch, parent_task_epoch,
 	external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-	next_replayable, error_data`
+	next_replayable, error_data, root_id`
 
 // Lightweight ListInstances projection — no context/call-stack blobs; order matches
 // scanInstanceSummary. error_code stays despite the rule: short, and it is what a list
@@ -101,7 +101,7 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorInternal, &r.ExternalData, &r.EngineState, &r.Task,
 		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
 		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
-		&r.NextReplayable, &r.ErrorData,
+		&r.NextReplayable, &r.ErrorData, &r.RootID,
 	)
 	return r, err
 }
@@ -598,6 +598,7 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 		Task:            r.Task,
 		NextReplayable:  r.NextReplayable != 0,
 		ParentID:        r.ParentID,
+		RootID:          r.RootID,
 		SpawnTaskID:     r.SpawnTaskID,
 		RetryCount:      int(r.RetryCount),
 		Status:          model.Status(r.Status),

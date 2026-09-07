@@ -360,10 +360,11 @@ func (db *DB) logTreeAction(rootID, event, msg, actor string, instances int64, e
 	_ = db.AppendLog(&model.LogEntry{
 		Actor:      actor,
 		InstanceID: rootID,
-		Level:      model.LogInfo,
-		Event:      event,
-		Message:    fmt.Sprintf("%s (%d instance(s))", msg, instances),
-		Meta:       meta,
+
+		Level:   model.LogInfo,
+		Event:   event,
+		Message: fmt.Sprintf("%s (%d instance(s))", msg, instances),
+		Meta:    meta,
 	})
 }
 

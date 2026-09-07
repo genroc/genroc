@@ -198,7 +198,7 @@ Apply and run it:
 genctl apply -f greet.genroc.yaml
 genctl run greet --set url=https://api.example.com --set name=World
 genctl get @last          # inspect the most recent instance
-genctl logs @last         # its per-instance logs
+genctl logs @last         # its whole tree's trail (--flat for its own rows)
 ```
 
 See [examples/polling-task](examples/polling-task) for a fuller example — a parent

@@ -51,15 +51,7 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 		Created: db.Window{After: req.CreatedAfter, Before: req.CreatedBefore},
 		Page:    req.page(),
 	}
-	var (
-		logs []*model.LogEntry
-		info db.PageInfo
-	)
-	if req.Recursive {
-		logs, info, err = h.db.ListTreeLogs(id, opts)
-	} else {
-		logs, info, err = h.db.ListLogs(id, opts)
-	}
+	logs, info, err := h.db.LogsFor(id, req.Flat, opts)
 	if err != nil {
 		return errReply(err)
 	}
@@ -73,7 +65,6 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 		resp[i] = LogEntryResp{
 			Time:     l.CreatedAt.Format(time.RFC3339Nano),
 			Instance: l.InstanceID,
-			Depth:    l.Depth,
 			Level:    l.Level,
 			Event:    l.Event,
 			Task:     l.TaskID,

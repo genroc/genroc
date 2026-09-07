@@ -80,7 +80,4 @@ type LogEntry struct {
 	// crediting whoever started the run. specs/api-auth.md section 7.
 	Actor     string    `json:"actor,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
-	// Depth is the instance's distance from the queried subtree root; only set by
-	// ListTreeLogs (0 for single-instance queries). Not persisted.
-	Depth int `json:"-"`
 }

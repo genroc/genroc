@@ -122,12 +122,15 @@ large value prints as a ref.`,
 		summary: "print an instance's log trail",
 		usage: []string{
 			"logs [--level <level>] [--since <when>] [--until <when>] [--time clock|full]",
-			"     [--recursive] [--mode basic|detail|json] <instance-id>",
+			"     [--flat] [--mode basic|detail|json] <instance-id>",
 		},
-		detail: "--mode: basic is a line per entry, detail adds the payloads, json is JSONL and the one\n" +
-			"output that keeps the server's UTC RFC3339. --recursive follows the tree into children.\n" +
-			"Refs are never resolved here -- a trail is scanned, not read; `genctl object <ref>`\n" +
-			"fetches one. --time full puts the date on every row instead of a per-day separator.\n\n" +
+		detail: "A ROOT id answers with every row in its tree, an ID column telling them apart; --flat\n" +
+			"asks for its own rows alone. A child id answers with its own rows either way -- a tree\n" +
+			"is addressed by its root here, as it is for pause/resume/retry/upgrade.\n\n" +
+			"--mode: basic is a line per entry, detail adds the payloads, json is JSONL and the one\n" +
+			"output that keeps the server's UTC RFC3339. Refs are never resolved here -- a trail is\n" +
+			"scanned, not read; `genctl object <ref>` fetches one. --time full puts the date on every\n" +
+			"row instead of a per-day separator.\n\n" +
 			instanceRefs + "\n\n" + listWindow,
 	},
 	"pause":  {summary: "stop an instance from advancing", usage: []string{"pause <instance-id> [<instance-id> ...]"}, detail: assertionHelp},

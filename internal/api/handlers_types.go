@@ -288,7 +288,7 @@ type ListLogsReq struct {
 	Level         string `json:"level"`          // optional filter: debug, info, warn, error
 	CreatedAfter  int64  `json:"created_after"`  // only logs at/after this timestamp
 	CreatedBefore int64  `json:"created_before"` // only logs strictly before it
-	Recursive     bool   `json:"recursive"`      // include the whole process subtree, keyed on the root instance
+	Flat          bool   `json:"flat"`           // this instance's own rows only, where a root would answer with its tree
 	Pagination
 }
 
@@ -439,7 +439,6 @@ type InstanceDetailResp struct {
 type LogEntryResp struct {
 	Time     string         `json:"time"`
 	Instance string         `json:"instance"`
-	Depth    int            `json:"depth"` // distance from the queried subtree root (0 = the queried node)
 	Level    model.LogLevel `json:"level"`
 	Event    string         `json:"event"`
 	Task     string         `json:"task,omitempty"`

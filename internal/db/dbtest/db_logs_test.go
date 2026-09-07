@@ -220,7 +220,7 @@ func TestListLogs_CursorTiebreaker(t *testing.T) {
 func TestListTreeLogs_AggregatesSubtree(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			// Build a real parent chain so the recursive CTE has edges to walk:
+			// Build a real parent chain, since root_id is derived from parent_id at insert:
 			//   root → child-a → grandchild
 			//   root → child-b
 			// plus an unrelated tree (other) that must never leak in.
@@ -236,7 +236,7 @@ func TestListTreeLogs_AggregatesSubtree(t *testing.T) {
 			appendLog(t, b.db, "grandchild", model.LogInfo, model.EventActionSucceeded, 4000)
 			appendLog(t, b.db, "other", model.LogInfo, model.EventActionStarted, 2500)
 
-			// Subtree from the root: root + a + b + grandchild = 4 (not "other").
+			// The tree from its root: root + a + b + grandchild = 4 (not "other").
 			fromRoot, _, err := b.db.ListTreeLogs("root", dbpkg.LogQuery{})
 			if err != nil {
 				t.Fatalf("ListTreeLogs(root): %v", err)
@@ -244,38 +244,43 @@ func TestListTreeLogs_AggregatesSubtree(t *testing.T) {
 			if len(fromRoot) != 4 {
 				t.Fatalf("subtree(root): want 4 entries, got %d", len(fromRoot))
 			}
-			// Depth is the instance's distance from the queried root.
-			wantDepth := map[string]int{"root": 0, "child-a": 1, "child-b": 1, "grandchild": 2}
+			// Every instance in the tree is represented, and nothing outside it.
+			seen := map[string]bool{}
 			for _, e := range fromRoot {
-				if e.Depth != wantDepth[e.InstanceID] {
-					t.Errorf("depth for %s: want %d, got %d", e.InstanceID, wantDepth[e.InstanceID], e.Depth)
+				seen[e.InstanceID] = true
+			}
+			for _, want := range []string{"root", "child-a", "child-b", "grandchild"} {
+				if !seen[want] {
+					t.Errorf("tree(root): %s is missing", want)
 				}
 			}
 
-			// Subtree from a mid-tree node: child-a + grandchild = 2. Works from any
-			// node, not just the root — the win over the old root_id column.
-			fromChildA, _, err := b.db.ListTreeLogs("child-a", dbpkg.LogQuery{})
+			// A tree is addressed by its ROOT. LogsFor is what the endpoint calls, and a
+			// mid-tree id is a question about that instance: its own rows, not the subtree
+			// under it and not its siblings'. There is no walk left that could answer more.
+			fromChildA, _, err := b.db.LogsFor("child-a", false, dbpkg.LogQuery{})
 			if err != nil {
-				t.Fatalf("ListTreeLogs(child-a): %v", err)
+				t.Fatalf("LogsFor(child-a): %v", err)
 			}
-			if len(fromChildA) != 2 {
-				t.Fatalf("subtree(child-a): want 2 entries, got %d", len(fromChildA))
+			if len(fromChildA) != 1 || fromChildA[0].InstanceID != "child-a" {
+				t.Fatalf("child-a: want its own 1 entry, got %d entries", len(fromChildA))
 			}
-			// Depth is relative to the queried node: child-a is now the root (0).
-			wantChildADepth := map[string]int{"child-a": 0, "grandchild": 1}
-			for _, e := range fromChildA {
-				if e.Depth != wantChildADepth[e.InstanceID] {
-					t.Errorf("depth from child-a for %s: want %d, got %d", e.InstanceID, wantChildADepth[e.InstanceID], e.Depth)
-				}
+			// flat asks a root for its own rows, which is the only way to get them alone.
+			ownRows, _, err := b.db.LogsFor("root", true, dbpkg.LogQuery{})
+			if err != nil {
+				t.Fatalf("LogsFor(root, flat): %v", err)
+			}
+			if len(ownRows) != 1 || ownRows[0].InstanceID != "root" {
+				t.Fatalf("root --flat: want its own 1 entry, got %d entries", len(ownRows))
 			}
 
-			// Per-instance view stays scoped to one instance.
-			single, _, err := b.db.ListLogs("child-a", dbpkg.LogQuery{})
+			// A root id takes the tree branch without being told which it is.
+			whole, _, err := b.db.LogsFor("root", false, dbpkg.LogQuery{})
 			if err != nil {
-				t.Fatalf("ListLogs(child-a): %v", err)
+				t.Fatalf("LogsFor(root): %v", err)
 			}
-			if len(single) != 1 {
-				t.Fatalf("child-a: want 1 entry, got %d", len(single))
+			if len(whole) != 4 {
+				t.Fatalf("LogsFor(root): want the whole tree (4), got %d", len(whole))
 			}
 		})
 	}
