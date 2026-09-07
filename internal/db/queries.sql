@@ -171,8 +171,8 @@ WHERE id = sqlc.arg(id);
 -- process_version, updated_at) is the claim's predicate once a worker names a process or task.
 
 -- name: InsertSignal :exec
-INSERT INTO process_signals (id, instance_id, task_id, outcome, created_at)
-VALUES (sqlc.arg(id), sqlc.arg(instance_id), sqlc.arg(task_id), sqlc.arg(outcome), sqlc.arg(created_at));
+INSERT INTO process_signals (id, instance_id, task_id, seq, outcome, created_at)
+VALUES (sqlc.arg(id), sqlc.arg(instance_id), sqlc.arg(task_id), sqlc.arg(seq), sqlc.arg(outcome), sqlc.arg(created_at));
 
 -- name: PeekOldestSignal :one
 -- The oldest buffered outcome for (instance, task), FIFO. READ ONLY: the advance decides on it
@@ -180,7 +180,7 @@ VALUES (sqlc.arg(id), sqlc.arg(instance_id), sqlc.arg(task_id), sqlc.arg(outcome
 -- crash between the two cannot lose an answer or apply it twice.
 SELECT id, outcome FROM process_signals
 WHERE instance_id = sqlc.arg(instance_id) AND task_id = sqlc.arg(task_id)
-ORDER BY created_at, id LIMIT 1;
+ORDER BY created_at, seq, id LIMIT 1;
 
 -- name: DeleteSignal :exec
 DELETE FROM process_signals WHERE id = sqlc.arg(id);
@@ -280,6 +280,11 @@ SET status = 'failing', error_message = sqlc.arg(error_message), error_code = sq
 WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)))
   AND status IN ('running', 'pausing', 'paused');
 
+-- name: NextWorkerNumber :one
+-- Allocates this process's id namespace. One statement, so the read and the increment cannot
+-- interleave: Postgres takes the row lock, SQLite serialises on its single writer.
+UPDATE id_counters SET value = value + 1 WHERE name = 'worker' RETURNING value;
+
 -- name: SetStatusIn :exec
 -- Sets one status on an explicit id list the CALLER has already locked -- pause and resume
 -- both write their tree this way. The ids bind as a JSON array through json_each, the same
@@ -327,14 +332,14 @@ ORDER BY pd.parent_name, pd.child_name, pd.task_id;
 
 -- name: InsertLog :exec
 INSERT INTO process_logs
-    (id, instance_id, root_id, level, event, task_id, message, code, data, objects, meta, created_at, actor)
+    (id, instance_id, root_id, seq, level, event, task_id, message, code, data, objects, meta, created_at, actor)
 VALUES
     (sqlc.arg(id), sqlc.arg(instance_id),
      -- Read off the instance rather than taken from the writer: four call sites append rows and
      -- a forgotten field would drop a child's rows out of its tree's trail without erroring.
      -- An orphan (instance already gone) is its own root, which is what the migration backfilled.
      COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = sqlc.arg(instance_id)), sqlc.arg(instance_id)),
-     sqlc.arg(level), sqlc.arg(event),
+     sqlc.arg(seq), sqlc.arg(level), sqlc.arg(event),
      sqlc.arg(task_id), sqlc.arg(message), sqlc.arg(code), sqlc.arg(data), sqlc.arg(objects), sqlc.arg(meta), sqlc.arg(created_at), sqlc.arg(actor));
 
 -- ListLogs (one instance) and ListTreeLogs (a whole tree) are hand-written in db_logs.go:

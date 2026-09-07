@@ -897,7 +897,7 @@ func runLogsCmd(server string, args []string) {
 			rec := logview.Record{Event: l.Event, Task: l.Task, Msg: l.Message, Code: l.Code, Actor: l.Actor, Data: logData(l.Data, l.Objects), Meta: l.Meta}
 			idTag := ""
 			if tree {
-				idTag = shortID(l.Instance)
+				idTag = l.Instance
 			}
 			fmt.Fprintln(out, logview.RenderEvent(style, t, l.Level, idTag, l.Event, l.Task, rec.Detail(mode), tree))
 		}

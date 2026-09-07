@@ -3,6 +3,10 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
+
+// A minted id: `<worker>-<counter>` in Crockford base32 (no i, l, o or u). One form -- what a
+// listing prints is what every command takes back, with nothing to shorten or expand.
+const ID_RE = /^[0-9a-hjkmnp-tv-z]+-[0-9a-hjkmnp-tv-z]+$/;
 import { waitForInstance } from "../helpers/client.ts";
 import {
   BIG_BLOB,
@@ -95,7 +99,7 @@ test("run — prints the id, process and version it started", () => {
   expect(r.ok).toBe(true);
   expect(r.stdout).toContain("started:");
   expect(r.stdout).toContain(`${name}@v1`);
-  expect(startedID(r.stdout)).toMatch(/^[0-9a-f-]{36}$/);
+  expect(startedID(r.stdout)).toMatch(ID_RE);
 });
 
 test("run — the three input sources: --set, --input and -f", () => {
@@ -146,7 +150,7 @@ test("run -q — prints the bare id and nothing else", () => {
   const r = runCli(bin, ["run", name, "--set", "count=1", "-q"]);
 
   // Exactly the id, so id=$(genctl run … -q) needs no trimming or parsing.
-  expect(r.stdout.trim()).toMatch(/^[0-9a-f-]{36}$/);
+  expect(r.stdout.trim()).toMatch(ID_RE);
   expect(r.stdout).not.toContain("started:");
 });
 
@@ -468,7 +472,7 @@ test("instances -q — ids only, one per line, and they match what the table lis
   const q = runCli(bin, ["instances", "-q", ...scope]);
   expect(q.ok).toBe(true);
   const lines = q.stdout.trim().split("\n");
-  expect(lines.every((l) => /^[0-9a-f-]{36}$/.test(l)), `not bare ids: ${q.stdout}`).toBe(true);
+  expect(lines.every((l) => ID_RE.test(l)), `not bare ids: ${q.stdout}`).toBe(true);
   expect(lines.sort()).toEqual([...ids].sort());
 
   // Same rows in the same order, so -q is a projection of the list and not its own query.
@@ -555,6 +559,27 @@ test("pause then resume — parks a running instance and revives it", async () =
 // refused rather than acted on. The refusal is what makes that read correct: without it the
 // tree selector would match nothing and the call would report "unchanged", which reads as a
 // tree that was already stopped.
+// The point of the id scheme: what a listing prints is what every command takes back. There
+// is no short form to expand and no long form to shorten -- that gap is why the old truncated
+// display could not be pasted into anything.
+test("an id printed by one command is accepted by every other, verbatim", async () => {
+  const name = apply(externalDef(uid("idform")));
+  const listed = startedID(runCli(bin, ["run", name]).stdout);
+  expect(listed).toMatch(ID_RE);
+
+  const fromTable = instances(["--since", "1h"]).find((i) => i.id === listed);
+  expect(fromTable, "the id the table lists is the id run printed").toBeDefined();
+
+  // The logs ID column carries it in full, so a row can be copied straight into a command.
+  const logged = runCli(bin, ["logs", listed, "--mode", "basic"]).stdout;
+  expect(logged).toContain(listed);
+
+  for (const args of [["get", listed], ["logs", listed], ["pause", listed], ["resume", listed]]) {
+    const r = runCli(bin, args);
+    expect(r.ok, `${args[0]} rejected the id it was given: ${r.stderr}`).toBe(true);
+  }
+}, 30_000);
+
 test("pause/resume/retry — a child is refused, naming the root to use instead", async () => {
   const child = uid("lchild");
   const parent = uid("lparent");

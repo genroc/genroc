@@ -5,7 +5,6 @@ import (
 	"time"
 
 	dbpkg "genroc/internal/db"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 )
 
@@ -14,7 +13,7 @@ import (
 func saveInstance(t *testing.T, db *dbpkg.DB, process string) *model.ProcessInstance {
 	t.Helper()
 	inst := &model.ProcessInstance{
-		ID:             idgen.New(),
+		ID:             db.NextID(),
 		ProcessName:    process,
 		ProcessVersion: 1,
 		Task:           "",

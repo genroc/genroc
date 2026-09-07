@@ -11,7 +11,6 @@ import (
 
 	"genroc/internal/db"
 	"genroc/internal/errcode"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 	"genroc/internal/shape"
 )
@@ -34,7 +33,7 @@ func newPanicEngine(t *testing.T, name string) (*db.DB, *Engine) {
 func saveInstance(t *testing.T, database *db.DB, process string, ctxData map[string]any) *model.ProcessInstance {
 	t.Helper()
 	inst := &model.ProcessInstance{
-		ID:             idgen.New(),
+		ID:             database.NextID(),
 		ProcessName:    process,
 		ProcessVersion: 1,
 		Task:           "a",

@@ -70,15 +70,15 @@ func TestRenderEvent(t *testing.T) {
 	ts := time.Date(2026, 1, 2, 15, 4, 5, 0, time.UTC)
 
 	// With id (tree): fixed-width columns, JSON body rendered raw, status from meta.
-	got := RenderEvent(TimeClock, ts, "info", "abc123", rec.Event, "fetch", rec.Detail(ModeDetail), true)
-	want := "15:04:05  INFO   abc123  action_succeeded  fetch           status=200 result={\"slept\":5000}"
+	got := RenderEvent(TimeClock, ts, "info", "2-1f3k", rec.Event, "fetch", rec.Detail(ModeDetail), true)
+	want := "15:04:05  INFO   2-1f3k        action_succeeded  fetch           status=200 result={\"slept\":5000}"
 	if got != want {
 		t.Errorf("RenderEvent(tree):\n got %q\nwant %q", got, want)
 	}
 
 	// basic mode drops the data body.
-	got = RenderEvent(TimeClock, ts, "info", "abc123", rec.Event, "fetch", rec.Detail(ModeBasic), true)
-	want = "15:04:05  INFO   abc123  action_succeeded  fetch           status=200"
+	got = RenderEvent(TimeClock, ts, "info", "2-1f3k", rec.Event, "fetch", rec.Detail(ModeBasic), true)
+	want = "15:04:05  INFO   2-1f3k        action_succeeded  fetch           status=200"
 	if got != want {
 		t.Errorf("RenderEvent(basic):\n got %q\nwant %q", got, want)
 	}

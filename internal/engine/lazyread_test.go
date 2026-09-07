@@ -10,7 +10,6 @@ import (
 
 	"genroc/internal/db"
 	"genroc/internal/expression"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 	"genroc/internal/shape"
 )
@@ -38,7 +37,7 @@ func lazyEngine(t *testing.T) (*db.DB, *Engine) {
 func storedContext(t *testing.T, database *db.DB, ctxData map[string]any) *model.ProcessInstance {
 	t.Helper()
 	inst := &model.ProcessInstance{
-		ID:             idgen.New(),
+		ID:             database.NextID(),
 		ProcessName:    "lazy",
 		ProcessVersion: 1,
 		Task:           "b",

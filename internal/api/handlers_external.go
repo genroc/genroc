@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"genroc/internal/db"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 	"genroc/internal/schema"
 )
@@ -230,7 +229,7 @@ func (h *Handlers) signalInstance(raw json.RawMessage) Reply {
 	if bad != nil {
 		return bad.reply()
 	}
-	delivered, err := h.db.DeliverSignal(context.Background(), id, req.TaskID, idgen.New(), outcome)
+	delivered, err := h.db.DeliverSignal(context.Background(), id, req.TaskID, h.db.NextID(), outcome)
 	if err != nil {
 		return errReply(err)
 	}

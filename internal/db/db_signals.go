@@ -8,7 +8,6 @@ import (
 	"time"
 
 	dbgen "genroc/internal/db/gen"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 )
 
@@ -198,13 +197,15 @@ func (db *DB) CountBufferedSignals(instanceID, taskID string) (int, error) {
 // bufferOutcome appends an outcome to the FIFO for (instance, task). The ONE way an answer
 // reaches a parked instance: whether the task is armed decides only whether the caller also
 // un-parks it, never where the outcome goes. specs/external-outcome-as-signal.md.
-func bufferOutcome(ctx context.Context, qtx *dbgen.Queries, instanceID, taskID string, outcome model.ExternalOutcome) error {
+func (db *DB) bufferOutcome(ctx context.Context, qtx *dbgen.Queries, instanceID, taskID string, outcome model.ExternalOutcome) error {
 	outcomeJSON, err := model.MarshalOutcome(outcome)
 	if err != nil {
 		return err
 	}
+	id, seq := db.nextIDSeq()
 	if err := qtx.InsertSignal(ctx, dbgen.InsertSignalParams{
-		ID:         idgen.New(),
+		ID:         id,
+		Seq:        seq,
 		InstanceID: instanceID,
 		TaskID:     taskID,
 		Outcome:    outcomeJSON,

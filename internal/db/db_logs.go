@@ -7,7 +7,6 @@ import (
 	"time"
 
 	dbgen "genroc/internal/db/gen"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 	"genroc/internal/numeric"
 )
@@ -28,7 +27,10 @@ var logPaginator = paginator{
 	columns:    logColumns,
 	filterCols: []string{"pl.instance_id", "pl.root_id", "pl.level", "pl.created_at"},
 	sorts: map[string]sortMode{
-		"created": {{"pl.created_at", kindInt}, {"pl.id", kindText}},
+		// seq orders two rows sharing a millisecond; pl.id follows it because the keyset
+		// cursor needs a UNIQUE key, and because rows written before migration 042 carry
+		// seq 0 and fall through to the sortable ids they were ordered by then.
+		"created": {{"pl.created_at", kindInt}, {"pl.seq", kindInt}, {"pl.id", kindText}},
 	},
 	defSort:  "created",
 	defDesc:  true, // newest first, as every list endpoint defaults
@@ -37,7 +39,7 @@ var logPaginator = paginator{
 }
 
 func logCursorVals(_ string, e *model.LogEntry) []any {
-	return []any{e.CreatedAt.UnixMilli(), e.ID}
+	return []any{e.CreatedAt.UnixMilli(), int64(e.Seq), e.ID}
 }
 
 // logFlushInterval is how often the background flusher drains buffered audit-log
@@ -55,7 +57,7 @@ const (
 // here, not at flush time, so the (created_at, id) sort preserves insertion order; the
 // write is batched off the hot path by logFlusher (or inline once it hits logBatchRows).
 func (db *DB) AppendLog(entry *model.LogEntry) error {
-	params, err := buildLogParams(entry)
+	params, err := db.buildLogParams(entry)
 	if err != nil {
 		return err
 	}
@@ -93,7 +95,7 @@ func (db *DB) AppendLogValue(entry *model.LogEntry, v any, target int64) error {
 	if len(referenced) == 0 {
 		return db.AppendLog(entry)
 	}
-	params, err := buildLogParams(entry)
+	params, err := db.buildLogParams(entry)
 	if err != nil {
 		return err
 	}
@@ -133,13 +135,14 @@ func decodeRefs(s string) []*model.ObjectRef {
 }
 
 // buildLogParams stamps an entry's id/created_at/meta into the process_logs row params.
-// A blank id gets a fresh UUIDv7 (monotonic within a millisecond, so the (created_at,
-// id) sort preserves insertion order for co-millisecond events); a zero CreatedAt gets
-// the DB clock.
-func buildLogParams(entry *model.LogEntry) (dbgen.InsertLogParams, error) {
-	id := entry.ID
-	if id == "" {
-		id = idgen.New()
+// A blank id gets a fresh one -- minted ids rise within a process, so the (created_at, id)
+// sort preserves insertion order for co-millisecond events; a zero CreatedAt gets the DB clock.
+func (db *DB) buildLogParams(entry *model.LogEntry) (dbgen.InsertLogParams, error) {
+	// The counter behind the id, stored beside it: created_at is millisecond-granular, so it
+	// is what orders two rows written in one advance (migration 042).
+	id, seq := db.nextIDSeq()
+	if entry.ID != "" {
+		id = entry.ID
 	}
 	createdAt := nowMillis()
 	if !entry.CreatedAt.IsZero() {
@@ -157,6 +160,7 @@ func buildLogParams(entry *model.LogEntry) (dbgen.InsertLogParams, error) {
 	}
 	return dbgen.InsertLogParams{
 		ID:         id,
+		Seq:        seq,
 		InstanceID: entry.InstanceID,
 		Level:      string(entry.Level),
 		Event:      entry.Event,
@@ -233,8 +237,8 @@ func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 			// queries.sql is the other, used by AppendLogValue for rows carrying objects. A
 			// column added to one and not the other is written on the rare path and dropped
 			// on the common one, which reads as the feature not working at all.
-			sb.WriteString(`INSERT INTO process_logs (id, instance_id, root_id, level, event, task_id, message, code, data, objects, meta, created_at, actor) VALUES `)
-			args := make([]any, 0, len(chunk)*14)
+			sb.WriteString(`INSERT INTO process_logs (id, instance_id, root_id, seq, level, event, task_id, message, code, data, objects, meta, created_at, actor) VALUES `)
+			args := make([]any, 0, len(chunk)*15)
 			for i, r := range chunk {
 				if i > 0 {
 					sb.WriteByte(',')
@@ -244,8 +248,8 @@ func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 				// writes rows that no tree read can find.
 				sb.WriteString("(?,?," +
 					"COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = ?), ?)," +
-					"?,?,?,?,?,?,?,?,?,?)")
-				args = append(args, r.ID, r.InstanceID, r.InstanceID, r.InstanceID,
+					"?,?,?,?,?,?,?,?,?,?,?)")
+				args = append(args, r.ID, r.InstanceID, r.InstanceID, r.InstanceID, r.Seq,
 					r.Level, r.Event, r.TaskID, r.Message, r.Code, r.Data, r.Objects, r.Meta, r.CreatedAt, r.Actor)
 			}
 			if _, err := exec.ExecContext(ctx, sb.String(), args...); err != nil {
@@ -258,7 +262,7 @@ func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 
 // logColumns is the pl.-qualified SELECT list shared by both log queries, which differ only
 // in the column they filter on.
-const logColumns = `pl.id, pl.instance_id, pl.level, pl.event, pl.task_id, pl.message, pl.code, pl.data, pl.objects, pl.meta, pl.created_at, pl.actor`
+const logColumns = `pl.id, pl.instance_id, pl.level, pl.event, pl.task_id, pl.message, pl.code, pl.data, pl.objects, pl.meta, pl.created_at, pl.actor, pl.seq`
 
 func (db *DB) ListLogs(instanceID string, opts LogQuery) ([]*model.LogEntry, PageInfo, error) {
 	db.flushLogs() // make any buffered rows for this instance visible to the read
@@ -307,7 +311,7 @@ func (db *DB) ListTreeLogs(rootID string, opts LogQuery) ([]*model.LogEntry, Pag
 func scanLogRow(s rowScanner) (*model.LogEntry, error) {
 	var r dbgen.ProcessLog
 	if err := s.Scan(&r.ID, &r.InstanceID, &r.Level, &r.Event, &r.TaskID, &r.Message,
-		&r.Code, &r.Data, &r.Objects, &r.Meta, &r.CreatedAt, &r.Actor); err != nil {
+		&r.Code, &r.Data, &r.Objects, &r.Meta, &r.CreatedAt, &r.Actor, &r.Seq); err != nil {
 		return nil, err
 	}
 	return toLogEntry(r)
@@ -324,6 +328,7 @@ func toLogEntry(r dbgen.ProcessLog) (*model.LogEntry, error) {
 	e := &model.LogEntry{
 		ID:         r.ID,
 		InstanceID: r.InstanceID,
+		Seq:        r.Seq,
 		Level:      model.LogLevel(r.Level),
 		Event:      r.Event,
 		TaskID:     r.TaskID,

@@ -76,13 +76,16 @@ func TestMigration040BackfillsTheTree(t *testing.T) {
 	}
 }
 
-// The indexes are what the whole change bought -- 23 buffers per page against 18,616 -- and
+// The indexes are what the tree read bought -- 23 buffers per page against 18,616 -- and
 // losing one makes no noise: every query still returns the right rows, by scanning. Not
 // hypothetical here: migration 012 had to hand-recreate a partial index because SQLite's
 // ALTER TABLE forced a table rebuild, and the next migration that rebuilds either table has
 // the same line to remember. Asserted on the SCHEMA rather than on a query plan, which is the
 // optimiser's business and not a promise anyone made.
-func TestMigration040LeavesItsIndexes(t *testing.T) {
+//
+// The columns must be the SORT KEY, end to end: a page whose ORDER BY runs past the index is
+// sorted rather than read in order, which costs the table instead of the page.
+func TestTreeIndexesCoverTheSortKey(t *testing.T) {
 	dir := t.TempDir()
 	sqldb, err := sql.Open("sqlite3", dir+"/idx.db")
 	if err != nil {
@@ -93,7 +96,9 @@ func TestMigration040LeavesItsIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []struct{ index, table, cols string }{
-		{"idx_process_logs_root", "process_logs", "(root_id, created_at, id)"},
+		{"idx_process_logs_root", "process_logs", "(root_id, created_at, seq, id)"},
+		{"idx_process_logs_instance", "process_logs", "(instance_id, created_at, seq, id)"},
+		{"idx_signals_fifo", "process_signals", "(instance_id, task_id, created_at, seq, id)"},
 		{"idx_instances_root", "process_instances", "(root_id)"},
 	} {
 		var ddl string

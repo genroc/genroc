@@ -102,7 +102,7 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch 
 		// it CUT, declared in `objects` and claimed -- none of which this path could do, holding
 		// only the row lock with no reference set to reconcile.
 		// specs/external-outcome-as-signal.md.
-		if err := bufferOutcome(ctx, qtx, instanceID, taskID, outcome); err != nil {
+		if err := db.bufferOutcome(ctx, qtx, instanceID, taskID, outcome); err != nil {
 			return err
 		}
 		// The status/wait_state/token/lease checks above ran under the row lock, so the

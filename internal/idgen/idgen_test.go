@@ -1,133 +1,116 @@
 package idgen
 
 import (
-	"encoding/binary"
-	"sort"
+	"strings"
+	"sync"
 	"testing"
-
-	"github.com/google/uuid"
 )
 
-// mk builds a UUID from explicit high/low 64-bit words for precise carry tests.
-func mk(hi, lo uint64) uuid.UUID {
-	var u uuid.UUID
-	binary.BigEndian.PutUint64(u[:8], hi)
-	binary.BigEndian.PutUint64(u[8:], lo)
-	return u
-}
-
-func TestAdd_Basic(t *testing.T) {
-	base := mk(5, 100)
-	if got := Add(base, 0); got != base {
-		t.Errorf("Add(base, 0) = %v, want %v", got, base)
+// An id is unique by construction, and its counter is what a row stores when its order has to
+// survive a millisecond it shares with another row.
+func TestIDsAreUniqueAndCarryTheirCounter(t *testing.T) {
+	m, err := NewMinter(1)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := Add(base, 7); got != mk(5, 107) {
-		t.Errorf("Add(base, 7) = %v, want %v", got, mk(5, 107))
-	}
-}
-
-func TestAdd_CarryIntoHighWord(t *testing.T) {
-	// Low word at max: adding 1 must wrap to 0 and increment the high word.
-	base := mk(1, ^uint64(0))
-	if got := Add(base, 1); got != mk(2, 0) {
-		t.Errorf("Add(maxlo, 1) = %v, want %v", got, mk(2, 0))
-	}
-	// +3 across the boundary: 0xFFFF…FFFD + 3 = high+1, low 2.
-	if got := Add(mk(1, ^uint64(0)-2), 3); got != mk(2, 0) {
-		t.Errorf("carry +3 = %v, want %v", got, mk(2, 0))
+	seen := map[string]bool{}
+	for i := 1; i <= 5000; i++ {
+		id, seq := m.Next()
+		if seen[id] {
+			t.Fatalf("id %q was minted twice", id)
+		}
+		if seq != int64(i) {
+			t.Fatalf("counter jumped: want %d beside %q, got %d", i, id, seq)
+		}
+		seen[id] = true
 	}
 }
 
-func TestAdd_StrictlyIncreasing(t *testing.T) {
-	base := NewV7()
-	const n = 1000
-	ids := make([]string, n)
-	for i := 0; i < n; i++ {
-		ids[i] = Add(base, uint64(i)).String()
+// The counter is the only thing separating two ids from one worker, so it must never repeat,
+// however fast or from however many goroutines ids are asked for.
+func TestConcurrentMintsAreUnique(t *testing.T) {
+	m, _ := NewMinter(3)
+	var mu sync.Mutex
+	seen := map[string]bool{}
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 1000 {
+				id, _ := m.Next()
+				mu.Lock()
+				if seen[id] {
+					t.Errorf("%q minted twice", id)
+				}
+				seen[id] = true
+				mu.Unlock()
+			}
+		}()
 	}
-	// The run must already be in ascending string order (= the DB sort order).
-	if !sort.StringsAreSorted(ids) {
-		t.Fatal("Add run is not in ascending string order")
-	}
-	for i := 1; i < n; i++ {
-		if ids[i] <= ids[i-1] {
-			t.Fatalf("not strictly increasing at %d: %s <= %s", i, ids[i], ids[i-1])
+	wg.Wait()
+}
+
+// A worker number is what makes an id unique without randomness, so two of them must never
+// produce the same id -- which is also why the worker leads: no counter value can reach across.
+func TestTwoWorkersNeverCollide(t *testing.T) {
+	a, _ := NewMinter(1)
+	b, _ := NewMinter(2)
+	seen := map[string]bool{}
+	for range 5000 {
+		idA, _ := a.Next()
+		idB, _ := b.Next()
+		for _, id := range []string{idA, idB} {
+			if seen[id] {
+				t.Fatalf("two workers minted %q", id)
+			}
+			seen[id] = true
 		}
 	}
 }
 
-func TestNew_IsV7(t *testing.T) {
-	u := uuid.MustParse(New())
-	if u.Version() != 7 {
-		t.Errorf("New() version = %d, want 7", u.Version())
+// A wrapped worker number would mint ids another process owns, so it is refused rather than
+// masked -- the one failure the scheme exists to rule out.
+func TestAnOutgrownWorkerNumberIsRefused(t *testing.T) {
+	if _, err := NewMinter(MaxWorker); err != nil {
+		t.Errorf("the last usable worker number was refused: %v", err)
 	}
-	if New() == New() {
-		t.Error("New() returned duplicate ids")
-	}
-}
-
-func TestAfter_FreshIsGreater(t *testing.T) {
-	// prev is an old v7 (tiny timestamp), so a fresh v7 is naturally greater and
-	// After must return that fresh value, not the prev+1 fallback.
-	prev := mk(0, 0)
-	got := After(prev)
-	if got.Version() != 7 {
-		t.Errorf("After version = %d, want 7", got.Version())
-	}
-	if got == Add(prev, 1) {
-		t.Error("After took the fallback path when a fresh v7 was already greater")
-	}
-	if !idLess(prev, got) {
-		t.Errorf("After(prev)=%v not greater than prev=%v", got, prev)
+	if _, err := NewMinter(MaxWorker + 1); err == nil {
+		t.Error("a worker number past the field was accepted, and would collide silently")
 	}
 }
 
-func TestAfter_FallbackWhenNotGreater(t *testing.T) {
-	// prev is a far-future id (first byte 0xFF), so a current v7 is below it and
-	// After must fall back to prev+1.
-	var prev uuid.UUID
-	prev[0] = 0xFF
-	got := After(prev)
-	if got != Add(prev, 1) {
-		t.Errorf("After(future prev) = %v, want prev+1 = %v", got, Add(prev, 1))
-	}
-	if !idLess(prev, got) {
-		t.Errorf("After(prev)=%v not greater than prev=%v", got, prev)
-	}
-}
-
-func TestChildBase_GreaterThanParent(t *testing.T) {
-	// A tree: each level's base must sort strictly after its parent.
-	root := uuid.MustParse(New())
-	child := ChildBase(root.String())
-	grandchild := ChildBase(child.String())
-	if !idLess(root, child) {
-		t.Errorf("child %v not > root %v", child, root)
-	}
-	if !idLess(child, grandchild) {
-		t.Errorf("grandchild %v not > child %v", grandchild, child)
-	}
-
-	// Parallel siblings off a base are all > parent and ordered among themselves.
-	base := ChildBase(root.String())
-	prev := root
-	for i := 0; i < 5; i++ {
-		sib := Add(base, uint64(i))
-		if !idLess(root, sib) {
-			t.Errorf("sibling %d %v not > parent %v", i, sib, root)
+func TestTheAlphabetSurvivesBeingReadAloud(t *testing.T) {
+	m, _ := NewMinter(1)
+	for range 500 {
+		id, _ := m.Next()
+		if i := strings.IndexAny(id, "ilou"); i >= 0 {
+			t.Fatalf("%q carries a character the alphabet excludes for legibility", id)
 		}
-		if i > 0 && !idLess(prev, sib) {
-			t.Errorf("sibling %d %v not > previous %v", i, sib, prev)
+		// `.` would split an external task's token, which is `<instance-id>.<task_epoch>`.
+		if strings.Contains(id, ".") {
+			t.Fatalf("%q carries a dot, which the token parser cuts on", id)
 		}
-		prev = sib
 	}
 }
 
-func TestChildBase_InvalidParentFallsBack(t *testing.T) {
-	got := ChildBase("not-a-uuid")
-	if got.Version() != 7 {
-		t.Errorf("ChildBase(invalid) version = %d, want 7", got.Version())
+// The rendering is short because it is unpadded, which is exactly why it does not sort. Pinned
+// so nobody reintroduces an ordering assumption the format cannot carry: `process_logs.seq` is
+// where a trail's order lives.
+func TestIDsDoNotSort(t *testing.T) {
+	m, _ := NewMinter(1)
+	var ids []string
+	for range 40 {
+		id, _ := m.Next()
+		ids = append(ids, id)
+	}
+	sorted := true
+	for i := 1; i < len(ids); i++ {
+		if ids[i] < ids[i-1] {
+			sorted = false
+		}
+	}
+	if sorted {
+		t.Errorf("ids happen to sort in mint order (%v); nothing may come to depend on that", ids[:12])
 	}
 }
-
-func idLess(a, b uuid.UUID) bool { return a.String() < b.String() }

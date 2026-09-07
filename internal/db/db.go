@@ -15,6 +15,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	dbgen "genroc/internal/db/gen"
+	"genroc/internal/idgen"
 )
 
 //go:embed migrations/*.sql
@@ -29,6 +30,11 @@ type DB struct {
 	q       *dbgen.Queries
 	exec    dbgen.DBTX // rewrites ?→$N on Postgres; use for hand-written SQL
 	dialect string     // "sqlite" | "postgres"
+
+	// ids mints every id this process writes, in the namespace the id_counters row handed
+	// it at open. Its sequence starts at zero on every open BECAUSE the worker number is
+	// fresh on every open: a restart gets a new namespace, so nothing survives one.
+	ids *idgen.Minter
 
 	// flushes counts successful Flush calls, for tests and diagnostics. In process, not
 	// read back from durability_marker: that row only moves on SQLite, so a test built on
@@ -279,6 +285,17 @@ func open(sqldb *sql.DB, dialect string) (*DB, error) {
 		logStop:    make(chan struct{}),
 		logStopped: make(chan struct{}),
 	}
+	// The id namespace this process mints in, taken once at startup. Failing here fails the
+	// open: a process that cannot be told which ids are its own must not write any.
+	worker, err := db.q.NextWorkerNumber(context.Background())
+	if err != nil {
+		sqldb.Close()
+		return nil, fmt.Errorf("allocate worker number: %w", err)
+	}
+	if db.ids, err = idgen.NewMinter(worker); err != nil {
+		sqldb.Close()
+		return nil, err
+	}
 	// Not the zero value. Durability reads two ways and they disagree at zero: for a
 	// write's FLOOR it means "sync at every level" (safe), for the configured LEVEL it
 	// means the weakest one (not). A DB nobody called SetDurability on must be strict.
@@ -339,6 +356,17 @@ func bootstrapPostgres(sqldb *sql.DB) error {
 func (db *DB) Ping(ctx context.Context) error { return db.sqldb.PingContext(ctx) }
 
 // Dialect reports the engine backing this DB: "sqlite" or "postgres".
+// NextID mints an id in this process's namespace -- instances, log rows, signals and tokens
+// all draw from the one sequence. See internal/idgen for the shape.
+func (db *DB) NextID() string {
+	id, _ := db.ids.Next()
+	return id
+}
+
+// nextIDSeq is NextID for a row that also stores its counter: an id does not sort, so a row
+// whose ORDER matters keeps the counter in a `seq` column and sorts on that (migration 042).
+func (db *DB) nextIDSeq() (string, int64) { return db.ids.Next() }
+
 func (db *DB) Dialect() string { return db.dialect }
 
 // Close flushes buffered audit-log rows, stops the flusher, and closes the pool.

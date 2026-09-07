@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"genroc/internal/db"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 )
 
@@ -35,9 +34,7 @@ func spawnFixture(t *testing.T, database *db.DB, name string) string {
 		t.Fatalf("SaveDefinition (parent): %v", err)
 	}
 
-	// A real UUID, not a readable string: idgen.ChildBase falls back to a random v7 for
-	// anything unparseable, and one test needs the child id to be derivable in advance.
-	id := idgen.New()
+	id := database.NextID()
 	if err := database.SaveInstance(&model.ProcessInstance{
 		ID: id, ProcessName: parent, ProcessVersion: 1,
 		Task: "fan", State: map[string]any{}, Status: model.StatusRunning,

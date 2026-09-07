@@ -878,20 +878,21 @@ func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) 
 
 const insertLog = `-- name: InsertLog :exec
 INSERT INTO process_logs
-    (id, instance_id, root_id, level, event, task_id, message, code, data, objects, meta, created_at, actor)
+    (id, instance_id, root_id, seq, level, event, task_id, message, code, data, objects, meta, created_at, actor)
 VALUES
     (?1, ?2,
      -- Read off the instance rather than taken from the writer: four call sites append rows and
      -- a forgotten field would drop a child's rows out of its tree's trail without erroring.
      -- An orphan (instance already gone) is its own root, which is what the migration backfilled.
      COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = ?2), ?2),
-     ?3, ?4,
-     ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+     ?3, ?4, ?5,
+     ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
 `
 
 type InsertLogParams struct {
 	ID         string
 	InstanceID string
+	Seq        int64
 	Level      string
 	Event      string
 	TaskID     string
@@ -908,6 +909,7 @@ func (q *Queries) InsertLog(ctx context.Context, arg InsertLogParams) error {
 	_, err := q.db.ExecContext(ctx, insertLog,
 		arg.ID,
 		arg.InstanceID,
+		arg.Seq,
 		arg.Level,
 		arg.Event,
 		arg.TaskID,
@@ -924,14 +926,15 @@ func (q *Queries) InsertLog(ctx context.Context, arg InsertLogParams) error {
 
 const insertSignal = `-- name: InsertSignal :exec
 
-INSERT INTO process_signals (id, instance_id, task_id, outcome, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5)
+INSERT INTO process_signals (id, instance_id, task_id, seq, outcome, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
 `
 
 type InsertSignalParams struct {
 	ID         string
 	InstanceID string
 	TaskID     string
+	Seq        int64
 	Outcome    string
 	CreatedAt  int64
 }
@@ -944,6 +947,7 @@ func (q *Queries) InsertSignal(ctx context.Context, arg InsertSignalParams) erro
 		arg.ID,
 		arg.InstanceID,
 		arg.TaskID,
+		arg.Seq,
 		arg.Outcome,
 		arg.CreatedAt,
 	)
@@ -1106,6 +1110,19 @@ func (q *Queries) MarkObjectReleased(ctx context.Context, now sql.NullInt64) (in
 	return result.RowsAffected()
 }
 
+const nextWorkerNumber = `-- name: NextWorkerNumber :one
+UPDATE id_counters SET value = value + 1 WHERE name = 'worker' RETURNING value
+`
+
+// Allocates this process's id namespace. One statement, so the read and the increment cannot
+// interleave: Postgres takes the row lock, SQLite serialises on its single writer.
+func (q *Queries) NextWorkerNumber(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextWorkerNumber)
+	var value int64
+	err := row.Scan(&value)
+	return value, err
+}
+
 const nonTerminalSubtree = `-- name: NonTerminalSubtree :many
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
@@ -1227,7 +1244,7 @@ func (q *Queries) OrphanedLogRefs(ctx context.Context) ([]OrphanedLogRefsRow, er
 const peekOldestSignal = `-- name: PeekOldestSignal :one
 SELECT id, outcome FROM process_signals
 WHERE instance_id = ?1 AND task_id = ?2
-ORDER BY created_at, id LIMIT 1
+ORDER BY created_at, seq, id LIMIT 1
 `
 
 type PeekOldestSignalParams struct {

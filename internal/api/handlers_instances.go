@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"genroc/internal/db"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 	"genroc/internal/numeric"
 )
@@ -67,7 +66,7 @@ func (h *Handlers) startInstance(raw json.RawMessage, actor string) Reply {
 	}
 
 	inst := &model.ProcessInstance{
-		ID:             idgen.New(),
+		ID:             h.db.NextID(),
 		ProcessName:    def.Name,
 		ProcessVersion: version,
 		Task:           def.Tasks[0].ID,

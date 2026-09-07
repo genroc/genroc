@@ -1,57 +1,85 @@
-// Package idgen mints instance ids as time-ordered UUIDv7 values, with helpers to
-// keep a process tree sortable: sibling ids are a contiguous increasing run, and a
-// child id is always strictly greater than its parent's. That lets the DB order
-// (and lock) a tree by id alone — ancestors before descendants, creation order
-// within a level.
+// Package idgen mints every id genroc stores: instances, log rows, buffered signals, API
+// tokens. `<worker>-<counter>` in Crockford base32 -- `2-1` on a fresh install, `4w8-1yjpx80`
+// a year in. No randomness and no clock: a worker number allocated once per process (db.open,
+// from a counter that only increases) plus a counter within it is unique by construction.
+//
+// It is written unpadded, which means an id SORTS AS NOTHING -- `2-9` follows `2-10` as text.
+// That is deliberate. Ordering a log trail inside a millisecond, where created_at cannot
+// separate two rows, is `process_logs.seq`'s job (migration 042): the counter beside the id
+// rather than smuggled through its rendering, which is what lets the id be this short.
+//
+// The alphabet drops I, L, O and U, so an id survives being read aloud or copied off a screen.
+// The separator is `-` and never `.`: an external task's token is `<instance-id>.<task_epoch>`
+// and parses by cutting at the first dot.
 package idgen
 
 import (
-	"bytes"
-	"encoding/binary"
-
-	"github.com/google/uuid"
+	"fmt"
+	"slices"
+	"sync/atomic"
 )
 
-func New() string { return NewV7().String() }
+const (
+	workerBits = 24
+	// Sized so overflow is unreachable rather than distant: log rows dominate the count, and
+	// at 10k ids/second -- more than the database sustains -- this is 223 years of one process
+	// running without a restart. 36 bits was 80 days at that rate, which is a deadline, not a
+	// bound.
+	counterBits = 46
 
-// NewV7 returns a fresh time-ordered UUIDv7. uuid.NewV7 only errors when crypto/rand
-// fails; the v4 fallback fails the same way, so this never returns a non-unique id.
-func NewV7() uuid.UUID {
-	if v7, err := uuid.NewV7(); err == nil {
-		return v7
-	}
-	return uuid.New()
+	MaxWorker  = 1<<workerBits - 1
+	maxCounter = 1<<counterBits - 1
+)
+
+// Crockford base32: no I, L, O or U, so a mistyped id is a refusal rather than another row.
+const alphabet = "0123456789abcdefghjkmnpqrstvwxyz"
+
+// Minter is one process's id space. The zero value is not usable; construct it with NewMinter,
+// which is called once per open database (the worker number comes from there).
+type Minter struct {
+	worker  uint64
+	counter atomic.Uint64
 }
 
-// Add returns base + n as a 128-bit big-endian integer (carrying low→high word).
-// Sibling ids base, base+1, … form a strictly increasing run that sorts in spawn order.
-func Add(base uuid.UUID, n uint64) uuid.UUID {
-	hi := binary.BigEndian.Uint64(base[:8])
-	lo := binary.BigEndian.Uint64(base[8:])
-	sum := lo + n
-	if sum < lo { // overflow of the low word carries into the high word
-		hi++
+// NewMinter fails rather than wrapping when the counter outgrows the field: a wrapped worker
+// number would silently mint ids another process already owns, which is the one failure this
+// scheme exists to rule out.
+func NewMinter(worker int64) (*Minter, error) {
+	if worker < 0 || worker > MaxWorker {
+		return nil, fmt.Errorf("worker number %d is outside the %d-bit field ids reserve for it; "+
+			"the id_counters row has been incremented %d times", worker, workerBits, worker)
 	}
-	binary.BigEndian.PutUint64(base[:8], hi)
-	binary.BigEndian.PutUint64(base[8:], sum)
-	return base
+	return &Minter{worker: uint64(worker)}, nil
 }
 
-// After returns a UUIDv7 that sorts strictly after prev: a fresh v7 usually does, else
-// (same-millisecond mint) prev+1 — guaranteeing a child id exceeds its parent's.
-func After(prev uuid.UUID) uuid.UUID {
-	v := NewV7()
-	if bytes.Compare(v[:], prev[:]) > 0 {
-		return v
+// Next returns an id no other process can mint and this one has not minted before, with the
+// counter behind it -- what a row stores in a `seq` column when its order has to survive a
+// millisecond it shares with another row.
+//
+// The counter starts at zero on every construction BECAUSE the worker number is fresh on every
+// one: a restart gets a new namespace rather than resuming an old one, which is what makes the
+// counter safe to keep in memory.
+func (m *Minter) Next() (string, int64) {
+	n := m.counter.Add(1)
+	if n > maxCounter {
+		// 68 billion ids into one process: reachable only by a mint loop, and wrapping would
+		// hand back ids this process already used. Nothing sane recovers, so say what happened.
+		panic(fmt.Sprintf("idgen: worker %d has minted %d ids, past the %d-bit counter",
+			m.worker, n, counterBits))
 	}
-	return Add(prev, 1)
+	return base32(m.worker) + "-" + base32(n), int64(n)
 }
 
-// ChildBase returns a v7 base id that sorts after parentID, for its children. Falls
-// back to a plain v7 if parentID isn't a valid UUID (it always is for real instances).
-func ChildBase(parentID string) uuid.UUID {
-	if p, err := uuid.Parse(parentID); err == nil {
-		return After(p)
+// base32 renders v with no padding: shortest first, which is why an id does not sort.
+func base32(v uint64) string {
+	if v == 0 {
+		return "0"
 	}
-	return NewV7()
+	var out []byte
+	for v > 0 {
+		out = append(out, alphabet[v&31])
+		v >>= 5
+	}
+	slices.Reverse(out)
+	return string(out)
 }

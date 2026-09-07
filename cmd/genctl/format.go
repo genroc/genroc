@@ -5,15 +5,6 @@ import (
 	"time"
 )
 
-// shortID returns a compact id tag for tree-log display: the id's random tail, not its
-// timestamp-prefixed head, so a parent and same-millisecond child differ.
-func shortID(id string) string {
-	if len(id) > 6 {
-		return id[len(id)-6:]
-	}
-	return id
-}
-
 // ── time formatting ─────────────────────────────────────────────────────────────
 
 // parseTime parses an RFC3339(/Nano) timestamp and converts it to local time.

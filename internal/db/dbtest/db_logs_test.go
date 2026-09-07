@@ -1,6 +1,8 @@
 package dbtest
 
 import (
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -223,6 +225,47 @@ func TestListLogs_CursorTiebreaker(t *testing.T) {
 				if collected[i-1] <= collected[i] {
 					t.Errorf("ids not strictly descending at %d: %s <= %s", i, collected[i-1], collected[i])
 				}
+			}
+		})
+	}
+}
+
+// Everything the id scheme rests on. created_at is millisecond-granular and a single advance
+// writes its whole trail inside one, so `seq` -- the minting counter stored beside the id -- is
+// what keeps the events in the order they happened. The ids deliberately do NOT sort (`2-9`
+// follows `2-10` as text), so if the sort key ever loses seq this reverses in exactly the case
+// an operator reads a trail for: what did this task do, in what order.
+func TestLogsWrittenInOneMillisecondComeBackInOrder(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			const sameMs = 1_700_000_000_000
+			written := []string{
+				model.EventActionStarted, model.EventRetryScheduled,
+				model.EventActionSucceeded, model.EventInstanceDone,
+			}
+			for _, event := range written {
+				appendLog(t, b.db, "one-ms", model.LogInfo, event, sameMs)
+			}
+			// Ten more rows in the same millisecond, so the answer cannot be luck: with no
+			// tie-break the engines return these in an order nothing controls.
+			for i := range 10 {
+				appendLog(t, b.db, "one-ms", model.LogInfo, fmt.Sprintf("filler_%d", i), sameMs)
+				written = append(written, fmt.Sprintf("filler_%d", i))
+			}
+
+			// Newest-first, like every list endpoint; the CLI flips it for display.
+			got, _, err := b.db.ListLogs("one-ms", dbpkg.LogQuery{Page: dbpkg.PageReq{Limit: 100}})
+			if err != nil {
+				t.Fatalf("ListLogs: %v", err)
+			}
+			events := make([]string, len(got))
+			for i, e := range got {
+				events[i] = e.Event
+			}
+			slices.Reverse(events)
+			if !slices.Equal(events, written) {
+				t.Errorf("a trail written inside one millisecond came back reordered:\n got %v\nwant %v",
+					events, written)
 			}
 		})
 	}

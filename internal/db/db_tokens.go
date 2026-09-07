@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	dbgen "genroc/internal/db/gen"
-	"genroc/internal/idgen"
 )
 
 // Machine credentials. specs/api-auth.md §5.
@@ -99,7 +98,7 @@ func (db *DB) MintToken(ctx context.Context, label string, perms []string, expir
 		return APIToken{}, fmt.Errorf("encode perms: %w", err)
 	}
 	tok := APIToken{
-		ID: idgen.New(), Label: label, Perms: perms,
+		ID: db.NextID(), Label: label, Perms: perms,
 		Secret: secret, CreatedAt: nowMillis(), ExpiresAt: expiresAt,
 	}
 	err = db.q.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
@@ -250,7 +249,7 @@ func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string
 	}
 	perms, _ := json.Marshal([]string{"admin"})
 	tok = APIToken{
-		ID: idgen.New(), Label: label, Perms: []string{"admin"},
+		ID: db.NextID(), Label: label, Perms: []string{"admin"},
 		Secret: secret, CreatedAt: nowMillis(),
 	}
 	if err := qtx.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
@@ -290,7 +289,7 @@ func (db *DB) SeedToken(ctx context.Context, label string, perms []string, secre
 		return false, err
 	}
 	err = db.q.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
-		ID: idgen.New(), Hash: HashToken(secret), Label: label,
+		ID: db.NextID(), Hash: HashToken(secret), Label: label,
 		Perms: string(encoded), CreatedAt: nowMillis(),
 	})
 	if err != nil {

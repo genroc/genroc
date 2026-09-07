@@ -3,16 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"genroc/internal/idgen"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"genroc/internal/idgen"
-
-	"github.com/google/uuid"
 )
 
 func toJSON(t *testing.T, v any) string {
@@ -236,38 +233,36 @@ func TestTimeFormatting(t *testing.T) {
 	}
 }
 
-// The shape check in instanceIDsAndFlags rejects an argument that cannot name a row, so
-// it has to accept every id the server can actually mint — including the DERIVED ones.
-// A child id is not a fresh v7: idgen builds siblings by 128-bit arithmetic on the
-// parent's id (Add/After/ChildBase, kept sortable so the DB can lock a tree by id alone),
-// and that arithmetic can carry into the variant nibble. uuid.Parse validates the textual
-// form only, which is what makes this safe — tightening isInstanceRef to check Version()
-// or Variant() would start refusing real children deep in a sibling run, and only there.
-func TestIsInstanceRefAcceptsDerivedChildIDs(t *testing.T) {
-	root := idgen.NewV7()
-	base := idgen.ChildBase(root.String())
-	ids := map[string]uuid.UUID{
-		"root":                 root,
-		"child base":           base,
-		"sibling +1":           idgen.Add(base, 1),
-		"sibling +1000":        idgen.Add(base, 1000),
-		"carry into variant":   idgen.Add(base, 1<<62),
-		"carry into high word": idgen.Add(base, ^uint64(0)),
-		"after":                idgen.After(base),
-		"grandchild":           idgen.ChildBase(idgen.Add(base, 3).String()),
+// isInstanceRef is the shape check that runs BEFORE anything is sent, so it has to accept
+// every id the server can mint and refuse everything that cannot name a row. Both forms are
+// real: minted ids are what a running server produces now, and legacy UUIDs are what rows
+// written before the scheme changed still carry.
+func TestIsInstanceRefAcceptsBothMintedAndLegacyIDs(t *testing.T) {
+	m, err := idgen.NewMinter(1)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for name, id := range ids {
-		if !isInstanceRef(id.String()) {
-			t.Errorf("%s: %q is a real instance id and was refused as malformed", name, id)
+	for range 5000 { // a run, so the check covers every width and the whole alphabet
+		if id, _ := m.Next(); !isInstanceRef(id) {
+			t.Fatalf("%q is an id the server mints and was refused as malformed", id)
 		}
 	}
-
-	for _, arg := range []string{"@last", strings.ToUpper(root.String())} {
+	for _, arg := range []string{
+		"@last",
+		"550e8400-e29b-41d4-a716-446655440000", // legacy, still on disk
+		"550E8400-E29B-41D4-A716-446655440000",
+	} {
 		if !isInstanceRef(arg) {
 			t.Errorf("%q must be accepted", arg)
 		}
 	}
-	for _, arg := range []string{"", "ID", "STATUS", "weather-logger@v7", "9m", "not-a-uuid"} {
+	for _, arg := range []string{
+		"", "ID", "STATUS", "weather-logger@v7", "9m", "not-a-uuid",
+		"2-", // half an id names no row
+		"-1",
+		"2-1i", // i is not in the alphabet, so this was mistyped
+		"2-1L",
+	} {
 		if isInstanceRef(arg) {
 			t.Errorf("%q is not an id and must be refused before anything is sent", arg)
 		}

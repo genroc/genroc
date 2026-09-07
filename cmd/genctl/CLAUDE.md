@@ -75,6 +75,10 @@ Deliberate exceptions — special-purpose, not resource list/get. Leave them:
   per line, streaming), not a `{items, page}` array. It also caps at 200 rather than
   `listCap` and renders as it streams — the others build a tabwriter, which sizes its
   columns from every row and so cannot.
+- **An id is printed in full, everywhere.** There is no short form: ids are 14 characters
+  (internal/idgen), so what a listing prints is what a command takes back. `shortID` — which
+  truncated to the LAST 6 characters, because a UUIDv7's leading bits are a timestamp and its
+  prefix collides — is gone with the format that needed it.
 - `logs` is the one read whose default is a TREE: a root id answers with every row under it,
   `--flat` with its own. The ID column follows the request rather than the page — a column
   that appeared once the second page arrived would re-align a trail mid-scroll.

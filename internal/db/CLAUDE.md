@@ -114,6 +114,45 @@ task re-entered by a loop spawns a fresh batch under the same pair.
   `scanInstance` because of its trailing `prev_worker`). Missing the third fails only on
   Postgres, and only at runtime.
 
+### Ids are minted, not random, and the worker number is what makes them unique
+
+Every id this process writes — instances, log rows, signals, tokens — comes from `db.NextID()`,
+one `idgen.Minter` built at `open()` from `id_counters.worker` (migration 041). The counter only
+ever increases, so a number is never recycled and there is nothing to lease or reclaim: a worker
+that dies takes its namespace with it. **A process that cannot allocate one fails to open**, which
+is the point — a worker that does not know which ids are its own must not write any.
+
+The shape (`<worker>-<counter>`, both Crockford base32) lives in
+[internal/idgen](../idgen/idgen.go). There is no clock in it and no randomness. Two
+consequences here:
+
+- **An id does not sort, and nothing may assume it does.** It is written unpadded, so `2-9`
+  follows `2-10` as text. What orders a log trail inside a millisecond -- where `created_at`
+  cannot separate two rows -- is `process_logs.seq`, the minting counter stored beside the id
+  (migration 042); `process_signals.seq` does the same for the FIFO. The sort key is
+  `(created_at, seq, id)`: seq decides, and **id stays on the end because the keyset cursor
+  needs a unique key**, and because rows written before 042 carry seq 0 and fall through to the
+  sortable UUIDs they were ordered by then. Every index over those tables must cover the key
+  end to end, or the page is sorted rather than read in order.
+- **A child's id is NOT guaranteed to exceed its parent's.** It does within one process, and in
+  practice across them, but two machines with skewed clocks can invert it. Nothing may depend on
+  it: the deadlock-free lock order needs every `FOR UPDATE` site to sort by the SAME key, not by
+  a key with that meaning. Verified by running the suite with the minter counting down — 844 of
+  847 passed, and the three failures were tests asserting the id looked like a UUID.
+- **Nothing tells you when an id was minted.** That is `created_at`'s job, and dropping the
+  timestamp is what reduced the minter to one atomic increment: no clock read, no
+  backwards-clock rule, no per-millisecond sequence to exhaust.
+- **The counter is per PROCESS and log rows dominate it** (roughly ten per instance advance),
+  which is why it is 46 bits and not 36. At 10k ids/second — more than the database sustains —
+  36 bits is 80 days of uninterrupted running, so the overflow panic would have been a deadline
+  rather than an assertion. 46 is 223 years at the same rate.
+- **A log column is spelled twice and `seq` is one of them.** See the section below: the sqlc
+  `InsertLog` and the hand-written `writeLogBatch` both carry it, and a `seq` written by only
+  one of them reorders exactly the rows the common path writes.
+
+Ids on disk from before this are UUIDs and still resolve: the column is TEXT, so nothing had to
+be rewritten, and `isInstanceRef` in genctl accepts both forms.
+
 ### `root_id` is the tree, and it is derived in SQL — never passed in
 
 `process_instances.root_id` and `process_logs.root_id` (migration 040) are what make

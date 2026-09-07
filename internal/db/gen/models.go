@@ -24,6 +24,11 @@ type DurabilityMarker struct {
 	N  int64
 }
 
+type IDCounter struct {
+	Name  string
+	Value int64
+}
+
 type Object struct {
 	Hash       string
 	Content    string
@@ -116,6 +121,7 @@ type ProcessLog struct {
 	Objects    string
 	Actor      string
 	RootID     string
+	Seq        int64
 }
 
 type ProcessSignal struct {
@@ -124,4 +130,5 @@ type ProcessSignal struct {
 	TaskID     string
 	Outcome    string
 	CreatedAt  int64
+	Seq        int64
 }

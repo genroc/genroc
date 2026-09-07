@@ -7,7 +7,6 @@ import (
 	"sort"
 
 	"genroc/internal/errcode"
-	"genroc/internal/idgen"
 	"genroc/internal/model"
 	"genroc/internal/shape"
 )
@@ -215,8 +214,7 @@ func (e *Engine) buildSingleChild(inst *model.ProcessInstance, task *model.Task,
 		return nil, stop(e.failInstance(inst, errcode.EngineInput, fmt.Sprintf("task %q child input validation: %v", task.ID, err)))
 	}
 	spawnCtx := map[string]any{}
-	base := idgen.ChildBase(inst.ID)
-	return newChildInstance(inst, task, def, version, input, callStack, idgen.Add(base, 0).String(), spawnCtx), nil
+	return newChildInstance(inst, task, def, version, input, callStack, e.db.NextID(), spawnCtx), nil
 }
 
 // buildMapChildren resolves definitions, evaluates inputs, and constructs
@@ -229,13 +227,8 @@ func (e *Engine) buildMapChildren(ctx context.Context, inst *model.ProcessInstan
 	}
 	sort.Strings(keys)
 
-	// One base id (guaranteed to sort after the parent); siblings are base, base+1,
-	// … in sorted-key order, so the whole batch sorts after the parent and among
-	// itself in spawn order.
-	base := idgen.ChildBase(inst.ID)
-
 	children := make([]*model.ProcessInstance, 0, len(task.Action.Children))
-	for i, key := range keys {
+	for _, key := range keys {
 		entry := task.Action.Children[key]
 		version, err := e.resolveChildVersion(inst, task.ID, entry.Name, entry.Version, key)
 		if err != nil {
@@ -256,7 +249,7 @@ func (e *Engine) buildMapChildren(ctx context.Context, inst *model.ProcessInstan
 		spawnCtx := map[string]any{
 			"_spawn_child_key": key,
 		}
-		children = append(children, newChildInstance(inst, task, def, version, input, callStack, idgen.Add(base, uint64(i)).String(), spawnCtx))
+		children = append(children, newChildInstance(inst, task, def, version, input, callStack, e.db.NextID(), spawnCtx))
 	}
 	return children, nil
 }
@@ -295,7 +288,6 @@ func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInsta
 
 	// One base id (sorts after the parent); siblings are base, base+1, … in element
 	// order, so the batch sorts after the parent and among itself in input order.
-	base := idgen.ChildBase(inst.ID)
 	children := make([]*model.ProcessInstance, 0, len(items))
 	for i, elem := range items {
 		input, err := def.ValidateInput(elem)
@@ -305,7 +297,7 @@ func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInsta
 		spawnCtx := map[string]any{
 			"_spawn_index": i,
 		}
-		children = append(children, newChildInstance(inst, task, def, version, input, callStack, idgen.Add(base, uint64(i)).String(), spawnCtx))
+		children = append(children, newChildInstance(inst, task, def, version, input, callStack, e.db.NextID(), spawnCtx))
 	}
 	return children, nil
 }

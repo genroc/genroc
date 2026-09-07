@@ -450,7 +450,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID      string `path:"id" format:"uuid"`
+				ID      string `path:"id"`
 				Resolve bool   `query:"resolve" description:"Splice externalized values into the state where they fit; anything over the per-object limit stays listed under objects for the caller to fetch"`
 			}{},
 			Resp: InstanceDetailResp{
@@ -488,7 +488,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID string `path:"id" format:"uuid"`
+				ID string `path:"id"`
 			}{},
 			Resp: InstanceStatusResp{
 				ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
@@ -511,7 +511,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID            string `path:"id" format:"uuid"`
+				ID            string `path:"id"`
 				Level         string `query:"level" enum:"debug,info,warn,error" description:"Filter by log level"`
 				CreatedAfter  int64  `query:"created_after" description:"Only logs at/after this unix-millis timestamp"`
 				CreatedBefore int64  `query:"created_before" description:"Only logs strictly before this unix-millis timestamp"`
@@ -572,7 +572,7 @@ var registry = func() []actionDef {
 			// comes back 204, not 409. specs/id-list-commands.md.
 			Errors: []Code{CodeNotFound},
 			PathQuery: struct {
-				ID string `path:"id" format:"uuid"`
+				ID string `path:"id"`
 			}{},
 			Resp: LifecycleResp{},
 			AltSuccess: []altResp{
@@ -592,7 +592,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound, CodeConflict},
 			PathQuery: struct {
-				ID string `path:"id" format:"uuid"`
+				ID string `path:"id"`
 			}{},
 			Resp: LifecycleResp{},
 			// No 202: a resume is atomic, nothing is left draining (pause-resume.md §7).
@@ -610,7 +610,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound, CodeConflict},
 			PathQuery: struct {
-				ID    string `path:"id" format:"uuid"`
+				ID    string `path:"id"`
 				Force bool   `query:"force" description:"Override only_once retry protection"`
 			}{},
 			Resp: LifecycleResp{},
@@ -632,7 +632,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound, CodeConflict, CodeInvalid},
 			PathQuery: struct {
-				ID string `path:"id" format:"uuid"`
+				ID string `path:"id"`
 			}{},
 			Req:  UpgradeInstanceReq{},
 			Resp: UpgradeResp{},
