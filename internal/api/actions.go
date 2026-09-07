@@ -720,7 +720,9 @@ var registry = func() []actionDef {
 			Tags:    []string{"Tokens"},
 			Req:     CreateTokenReq{Label: "ci", Perms: []string{"deploy", "read"}},
 			Resp:    CreateTokenResp{ID: "01a0…", Token: "genroc_sk_…", Label: "ci", Perms: []string{"deploy", "read"}},
-			handle:  func(h *Handlers, env Envelope) Reply { return h.createToken(env.Payload) },
+			handle: func(h *Handlers, env Envelope) Reply {
+				return h.createToken(env.Payload, env.principal.Actor())
+			},
 		},
 		{
 			Name:    "list_tokens",
@@ -747,7 +749,9 @@ var registry = func() []actionDef {
 			fromHTTP: func(r *http.Request) (Envelope, error) {
 				return Envelope{Action: "revoke_token", ID: r.PathValue("id")}, nil
 			},
-			handle: func(h *Handlers, env Envelope) Reply { return h.revokeToken(env.ID) },
+			handle: func(h *Handlers, env Envelope) Reply {
+				return h.revokeToken(env.ID, env.principal.Actor())
+			},
 		},
 		{
 			Name:    "health",

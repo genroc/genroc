@@ -180,6 +180,10 @@ Reading it back is a third and fourth place: `logColumns` (the shared `pl.`-qual
 `scanLogRow`'s destination list, plus `toLogEntry` to copy it onto the model. The `actor` column
 (migration 038) cost three of these four before a test caught it.
 
+`api_tokens` carries `actor` and `revoked_by` (migration 043) — two events, two columns, each set
+in the same statement as the timestamp it describes. `RevokeAPIToken` writes `revoked_at` and
+`revoked_by` together for that reason.
+
 ### `engine_state` is a whitelist, and a missing key is dropped in silence
 
 `engineStateKeys` maps the engine-internal context keys (`_spawn_child_key`, `_spawn_index`,

@@ -18,7 +18,7 @@ func TestTokens_MintThenLookup(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			tok, err := b.db.MintToken(ctx, "ci", []string{"deploy", "read"}, 0)
+			tok, err := b.db.MintToken(ctx, "ci", []string{"deploy", "read"}, 0, dbpkg.ActorTokenCreate)
 			if err != nil {
 				t.Fatalf("mint: %v", err)
 			}
@@ -46,7 +46,7 @@ func TestTokens_PlaintextIsNotStored(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			tok, err := b.db.MintToken(ctx, "ci", []string{"read"}, 0)
+			tok, err := b.db.MintToken(ctx, "ci", []string{"read"}, 0, dbpkg.ActorTokenCreate)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -73,11 +73,11 @@ func TestTokens_RevokedStopsAuthenticating(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			tok, err := b.db.MintToken(ctx, "leaked", []string{"admin"}, 0)
+			tok, err := b.db.MintToken(ctx, "leaked", []string{"admin"}, 0, dbpkg.ActorTokenCreate)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := b.db.RevokeToken(ctx, tok.ID); err != nil {
+			if err := b.db.RevokeToken(ctx, tok.ID, dbpkg.ActorTokenRevoke); err != nil {
 				t.Fatalf("revoke: %v", err)
 			}
 			if _, ok, _ := b.db.LookupToken(ctx, tok.Secret); ok {
@@ -85,7 +85,7 @@ func TestTokens_RevokedStopsAuthenticating(t *testing.T) {
 			}
 			// Revoking twice is not the same as revoking something that never existed, and an
 			// operator running the wrong command must not be told it worked.
-			if err := b.db.RevokeToken(ctx, tok.ID); !errors.Is(err, dbpkg.ErrNotFound) {
+			if err := b.db.RevokeToken(ctx, tok.ID, dbpkg.ActorTokenRevoke); !errors.Is(err, dbpkg.ErrNotFound) {
 				t.Errorf("second revoke err = %v, want ErrNotFound", err)
 			}
 		})
@@ -120,7 +120,7 @@ func TestTokens_BootstrapIgnoresNonAdminTokens(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			if _, err := b.db.MintToken(ctx, "a-worker", []string{"worker"}, 0); err != nil {
+			if _, err := b.db.MintToken(ctx, "a-worker", []string{"worker"}, 0, dbpkg.ActorTokenCreate); err != nil {
 				t.Fatal(err)
 			}
 			if _, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", ""); err != nil || !created {
@@ -272,7 +272,7 @@ func TestTokens_ExpiredStopsAuthenticating(t *testing.T) {
 			ctx := context.Background()
 			ttl := time.Hour
 			tok, err := b.db.MintToken(ctx, "session:alice", []string{"read"},
-				dbpkg.Now().Add(ttl).UnixMilli())
+				dbpkg.Now().Add(ttl).UnixMilli(), dbpkg.ActorTokenCreate)
 			if err != nil {
 				t.Fatalf("mint: %v", err)
 			}
@@ -299,7 +299,7 @@ func TestTokens_ZeroExpiryNeverExpires(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
-			tok, err := b.db.MintToken(ctx, "worker", []string{"worker"}, 0)
+			tok, err := b.db.MintToken(ctx, "worker", []string{"worker"}, 0, dbpkg.ActorTokenCreate)
 			if err != nil {
 				t.Fatalf("mint: %v", err)
 			}
@@ -318,7 +318,7 @@ func TestTokens_BootstrapIgnoresAnExpiredAdmin(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			ctx := context.Background()
 			if _, err := b.db.MintToken(ctx, "old-admin", []string{"admin"},
-				dbpkg.Now().Add(time.Hour).UnixMilli()); err != nil {
+				dbpkg.Now().Add(time.Hour).UnixMilli(), dbpkg.ActorTokenCreate); err != nil {
 				t.Fatalf("mint: %v", err)
 			}
 			if _, created, err := b.db.EnsureBootstrapToken(ctx, "bootstrap", ""); err != nil || created {
@@ -336,6 +336,71 @@ func TestTokens_BootstrapIgnoresAnExpiredAdmin(t *testing.T) {
 			}
 			if _, ok, err := b.db.LookupToken(ctx, tok.Secret); err != nil || !ok {
 				t.Errorf("the bootstrap token it minted does not authenticate: ok=%v err=%v", ok, err)
+			}
+		})
+	}
+}
+
+// Every path that mints names itself, so a listing answers "where did this credential come
+// from" -- §5.3's root-of-trust ranking, made readable off the row. The bootstrap pair is the
+// half worth pinning: both land in EnsureBootstrapToken and only the supplied secret tells them
+// apart, so getting it wrong attributes an auto-minted credential to the operator.
+func TestTokens_EveryMintingPathRecordsItsOwnActor(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			ctx := context.Background()
+			seed, err := dbpkg.NewTokenSecret()
+			if err != nil {
+				t.Fatal(err)
+			}
+			supplied, err := dbpkg.NewTokenSecret()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := b.db.MintToken(ctx, "by-cli", []string{"read"}, 0, dbpkg.ActorTokenCreate); err != nil {
+				t.Fatalf("mint: %v", err)
+			}
+			if _, err := b.db.SeedToken(ctx, "by-seed", []string{"worker"}, seed); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+			// Neither of the two above is an admin, so the bootstrap condition still holds.
+			flagged, created, err := b.db.EnsureBootstrapToken(ctx, "by-flag", supplied)
+			if err != nil || !created {
+				t.Fatalf("bootstrap from a supplied secret: created=%v err=%v", created, err)
+			}
+			// Revoked so the next call sees no live admin and takes the auto-mint path instead.
+			if err := b.db.RevokeToken(ctx, flagged.ID, dbpkg.ActorTokenRevoke); err != nil {
+				t.Fatalf("revoke: %v", err)
+			}
+			if _, created, err := b.db.EnsureBootstrapToken(ctx, "by-auto", ""); err != nil || !created {
+				t.Fatalf("auto-mint: created=%v err=%v", created, err)
+			}
+
+			want := map[string]string{
+				"by-cli":  dbpkg.ActorTokenCreate,
+				"by-seed": dbpkg.ActorSeedTokens,
+				"by-flag": dbpkg.ActorBootstrapToken,
+				"by-auto": dbpkg.ActorAutoMint,
+			}
+			rows, err := b.db.ListTokens(ctx)
+			if err != nil {
+				t.Fatalf("list: %v", err)
+			}
+			for _, r := range rows {
+				if w, ok := want[r.Label]; ok {
+					if r.Actor != w {
+						t.Errorf("%s: actor = %q, want %q -- a credential nobody can trace to "+
+							"how it entered the system is one nobody can decide to trust", r.Label, r.Actor, w)
+					}
+					delete(want, r.Label)
+				}
+				if r.Label == "by-flag" && r.RevokedBy != dbpkg.ActorTokenRevoke {
+					t.Errorf("revoked_by = %q, want %q -- revoked_at moved and the actor beside "+
+						"it did not, which is the seam §7 already paid for once", r.RevokedBy, dbpkg.ActorTokenRevoke)
+				}
+			}
+			for label := range want {
+				t.Errorf("no token labelled %q was listed, so its actor was never checked", label)
 			}
 		})
 	}

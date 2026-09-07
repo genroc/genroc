@@ -166,8 +166,8 @@ func TestPrincipalActor_CarriesTheSourceBesideTheSubject(t *testing.T) {
 		want string
 	}{
 		{"token", &Principal{Subject: "ci", Source: "token"}, "token:ci"},
-		{"header", &Principal{Subject: "ada@example.com", Source: "header"}, "header:ada@example.com"},
-		{"none", anonymousAdmin(), "none:anonymous"},
+		{"jwt", &Principal{Subject: "ada@example.com", Source: "jwt"}, "jwt:ada@example.com"},
+		{"auth off", anonymousAdmin(), "no-auth:anonymous"},
 		{"nil records nothing rather than panicking", nil, ""},
 	}
 	for _, c := range cases {

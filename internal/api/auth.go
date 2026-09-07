@@ -62,7 +62,7 @@ type Principal struct {
 }
 
 // Actor renders this principal for an audit trail, as `source:subject` -- `token:ci`,
-// `jwt:ada@example.com`, `none:anonymous`.
+// `jwt:ada@example.com`, `no-auth:anonymous`.
 //
 // The source is IN the string rather than beside it because the two facts are only useful
 // together: `ada@example.com` alone cannot say whether genroc authenticated that identity or
@@ -81,8 +81,11 @@ func (p *Principal) Actor() string {
 // anonymousAdmin is the principal `mode: none` produces. It is the pre-auth behaviour written
 // down rather than a special case in the check: with auth off every caller is an operator, and
 // the startup warning (not this) is what says so out loud.
+//
+// The source is `no-auth`, not `none`: beside `startup:` and `cli:` on a token row (migration
+// 043) `none:` read as a missing value rather than as the statement it is.
 func anonymousAdmin() *Principal {
-	return &Principal{Subject: "anonymous", Grants: []Grant{{Perm: PermAdmin}}, Source: "none"}
+	return &Principal{Subject: "anonymous", Grants: []Grant{{Perm: PermAdmin}}, Source: "no-auth"}
 }
 
 // Allows reports whether this principal may take an action admitted by any of `allow`.

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { buildGenrocBinary, startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
+import { BASE_URL } from "../helpers/constants.ts";
 
 // specs/api-auth.md §3, §5. The permission split is only real if it is observed over HTTP —
 // a Go unit test can assert `authorize` returns 403, but not that the gate is actually in
@@ -325,4 +326,56 @@ test("attribution — every response reports who genroc thinks you are, so a cli
     anon.headers.get("X-Genroc-Actor"),
     "an unauthenticated response named an actor; the header's absence is the signal to ask",
   ).toBeNull();
+});
+
+test("attribution — a credential records which caller minted it, and who revoked it", async () => {
+  const label = `minted_${crypto.randomUUID().slice(0, 8)}`;
+  const created = await req("/api/tokens", ADMIN, {
+    method: "POST",
+    body: JSON.stringify({ label, perms: ["read"] }),
+  });
+  expect(created.status).toBe(200);
+  const id = created.body.id as string;
+
+  type Row = { id: string; label?: string; actor?: string; revoked_by?: string };
+  const listed = await req("/api/tokens", ADMIN);
+  const rows = listed.body.items as Row[];
+  expect(
+    rows.find((t) => t.id === id)?.actor,
+    "a credential was minted with no actor — 'who issued this admin token' is the one audit " +
+      "question tokens cannot answer any other way, since a mint belongs to no instance and " +
+      "so cannot reach process_logs",
+  ).toBe("token:bootstrap");
+
+  // The server's own startup path attributes itself too, and says WHICH path: this deployment
+  // was handed its admin credential rather than generating one for itself (§5.3).
+  expect(rows.find((t) => t.label === "bootstrap")?.actor).toBe("startup:bootstrap-token");
+
+  expect((await req(`/api/tokens/${id}`, ADMIN, { method: "DELETE" })).status).toBe(200);
+  const after = (await req("/api/tokens", ADMIN)).body.items as Row[];
+  expect(
+    after.find((t) => t.id === id)?.revoked_by,
+    "revoked_at moved and revoked_by did not — the two describe one write",
+  ).toBe("token:bootstrap");
+});
+
+test("attribution — with auth off a credential is still attributed, as no-auth", async () => {
+  // The SHARED server, which runs unauthenticated: `none:` would have read as a missing value
+  // beside `startup:`/`cli:`, so the source states the fact instead.
+  const label = `anon_${crypto.randomUUID().slice(0, 8)}`;
+  const created = await fetch(`${BASE_URL}/api/tokens`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ label, perms: ["read"] }),
+  });
+  expect(created.status).toBe(200);
+  const id = (await created.json()).id as string;
+
+  const rows = (await (await fetch(`${BASE_URL}/api/tokens`)).json()).items as
+    { id: string; actor?: string }[];
+  expect(
+    rows.find((t) => t.id === id)?.actor,
+    "auth being off is a fact worth recording, not an absence — an empty actor is reserved " +
+      "for rows that predate attribution",
+  ).toBe("no-auth:anonymous");
 });

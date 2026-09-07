@@ -17,6 +17,8 @@ type ApiToken struct {
 	LastUsedAt sql.NullInt64
 	RevokedAt  sql.NullInt64
 	ExpiresAt  sql.NullInt64
+	Actor      string
+	RevokedBy  string
 }
 
 type DurabilityMarker struct {

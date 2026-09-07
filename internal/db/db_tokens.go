@@ -35,7 +35,22 @@ type APIToken struct {
 	RevokedAt  int64
 	// 0 = never, which is what a machine credential wants. §5.
 	ExpiresAt int64
+	// Actor minted it, RevokedBy killed it. Two events, so two columns: neither supersedes the
+	// other the way a channel's last mover supersedes its first. §7, migration 043.
+	Actor     string
+	RevokedBy string
 }
+
+// The actor for each path that mints outside any request, so the row records HOW a credential
+// entered the system -- §5.3's root-of-trust ranking, made readable. An API mint carries the
+// calling principal's actor instead.
+const (
+	ActorSeedTokens     = "startup:seed-tokens"
+	ActorBootstrapToken = "startup:bootstrap-token"
+	ActorAutoMint       = "startup:auto-mint"
+	ActorTokenCreate    = "cli:token-create"
+	ActorTokenRevoke    = "cli:token-revoke"
+)
 
 // NewTokenSecret returns a fresh credential. 32 bytes of crypto/rand, base64url without
 // padding — no ambiguity about where the token ends when it is pasted into a shell or a header.
@@ -88,7 +103,7 @@ func ValidateTokenSecret(secret string) error {
 //
 // expiresAt is millis, or 0 for never. Required rather than optional because a machine
 // credential and a browser session want opposite answers.
-func (db *DB) MintToken(ctx context.Context, label string, perms []string, expiresAt int64) (APIToken, error) {
+func (db *DB) MintToken(ctx context.Context, label string, perms []string, expiresAt int64, actor string) (APIToken, error) {
 	secret, err := NewTokenSecret()
 	if err != nil {
 		return APIToken{}, err
@@ -99,12 +114,12 @@ func (db *DB) MintToken(ctx context.Context, label string, perms []string, expir
 	}
 	tok := APIToken{
 		ID: db.nextTokenID(), Label: label, Perms: perms,
-		Secret: secret, CreatedAt: nowMillis(), ExpiresAt: expiresAt,
+		Secret: secret, CreatedAt: nowMillis(), ExpiresAt: expiresAt, Actor: actor,
 	}
 	err = db.q.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
 		ID: tok.ID, Hash: HashToken(secret), Label: label,
 		Perms: string(encoded), CreatedAt: tok.CreatedAt,
-		ExpiresAt: nullMillis(expiresAt),
+		ExpiresAt: nullMillis(expiresAt), Actor: actor,
 	})
 	if err != nil {
 		return APIToken{}, fmt.Errorf("insert token: %w", err)
@@ -161,7 +176,7 @@ func (db *DB) ListTokens(ctx context.Context) ([]APIToken, error) {
 		out = append(out, APIToken{
 			ID: r.ID, Label: r.Label, Perms: perms, CreatedAt: r.CreatedAt,
 			LastUsedAt: r.LastUsedAt.Int64, RevokedAt: r.RevokedAt.Int64,
-			ExpiresAt: r.ExpiresAt.Int64,
+			ExpiresAt: r.ExpiresAt.Int64, Actor: r.Actor, RevokedBy: r.RevokedBy,
 		})
 	}
 	return out, nil
@@ -170,9 +185,9 @@ func (db *DB) ListTokens(ctx context.Context) ([]APIToken, error) {
 // RevokeToken marks a token dead. Reports ErrNotFound when nothing changed, so revoking twice
 // is distinguishable from revoking an id that never existed — an operator running the wrong
 // command should not be told it worked.
-func (db *DB) RevokeToken(ctx context.Context, id string) error {
+func (db *DB) RevokeToken(ctx context.Context, id string, actor string) error {
 	n, err := db.q.RevokeAPIToken(ctx, dbgen.RevokeAPITokenParams{
-		ID: id, RevokedAt: sql.NullInt64{Int64: nowMillis(), Valid: true},
+		ID: id, RevokedAt: sql.NullInt64{Int64: nowMillis(), Valid: true}, RevokedBy: actor,
 	})
 	if err != nil {
 		return err
@@ -240,7 +255,11 @@ func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string
 	if live > 0 {
 		return APIToken{}, false, nil
 	}
+	// The two bootstrap paths differ only in who produced the secret, which is exactly the
+	// difference in root of trust worth recording (§5.3).
+	actor := ActorBootstrapToken
 	if secret == "" {
+		actor = ActorAutoMint
 		if secret, err = NewTokenSecret(); err != nil {
 			return APIToken{}, false, err
 		}
@@ -250,11 +269,11 @@ func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string
 	perms, _ := json.Marshal([]string{"admin"})
 	tok = APIToken{
 		ID: db.nextTokenID(), Label: label, Perms: []string{"admin"},
-		Secret: secret, CreatedAt: nowMillis(),
+		Secret: secret, CreatedAt: nowMillis(), Actor: actor,
 	}
 	if err := qtx.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
 		ID: tok.ID, Hash: HashToken(secret), Label: label,
-		Perms: string(perms), CreatedAt: tok.CreatedAt,
+		Perms: string(perms), CreatedAt: tok.CreatedAt, Actor: actor,
 	}); err != nil {
 		return APIToken{}, false, fmt.Errorf("insert bootstrap token: %w", err)
 	}
@@ -290,7 +309,7 @@ func (db *DB) SeedToken(ctx context.Context, label string, perms []string, secre
 	}
 	err = db.q.InsertAPIToken(ctx, dbgen.InsertAPITokenParams{
 		ID: db.nextTokenID(), Hash: HashToken(secret), Label: label,
-		Perms: string(encoded), CreatedAt: nowMillis(),
+		Perms: string(encoded), CreatedAt: nowMillis(), Actor: ActorSeedTokens,
 	})
 	if err != nil {
 		// A concurrent replica seeding the same secret loses the UNIQUE(hash) race, which is

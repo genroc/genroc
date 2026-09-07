@@ -485,4 +485,8 @@ type TokenResp struct {
 	// ExpiresAt is absent for a token that never expires, which every machine credential is —
 	// nothing sets it since the session exchange went (auth-two-credentials.md s6).
 	ExpiresAt string `json:"expires_at,omitempty"`
+	// Actor minted it; RevokedBy killed it. Empty means unattributed, which only a row
+	// predating migration 043 is. specs/api-auth.md §7.
+	Actor     string `json:"actor,omitempty"`
+	RevokedBy string `json:"revoked_by,omitempty"`
 }

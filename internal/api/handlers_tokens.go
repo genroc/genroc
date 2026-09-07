@@ -12,7 +12,7 @@ import (
 // an attacker which credentials exist and what they can reach. `genroc token` is the same set
 // against the database, for when the API is not reachable (§5.3).
 
-func (h *Handlers) createToken(raw json.RawMessage) Reply {
+func (h *Handlers) createToken(raw json.RawMessage, actor string) Reply {
 	req, err := decodeBody[CreateTokenReq](raw)
 	if err != nil {
 		return errReply(err)
@@ -24,7 +24,7 @@ func (h *Handlers) createToken(raw json.RawMessage) Reply {
 	// 0: a machine credential does not expire. Rotating a worker token is a deploy, not a clock,
 	// and a fleet that starts failing at 3am because a token lapsed is worse than one that keeps
 	// working until someone revokes it.
-	tok, err := h.db.MintToken(context.Background(), req.Label, perms, 0)
+	tok, err := h.db.MintToken(context.Background(), req.Label, perms, 0, actor)
 	if err != nil {
 		return errReply(err)
 	}
@@ -44,16 +44,18 @@ func (h *Handlers) listTokens() Reply {
 			LastUsedAt: millisTime(r.LastUsedAt),
 			RevokedAt:  millisTime(r.RevokedAt),
 			ExpiresAt:  millisTime(r.ExpiresAt),
+			Actor:      r.Actor,
+			RevokedBy:  r.RevokedBy,
 		})
 	}
 	return okReply(map[string]any{"items": out})
 }
 
-func (h *Handlers) revokeToken(id string) Reply {
+func (h *Handlers) revokeToken(id string, actor string) Reply {
 	if id == "" {
 		return invalid("id is required").reply()
 	}
-	if err := h.db.RevokeToken(context.Background(), id); err != nil {
+	if err := h.db.RevokeToken(context.Background(), id, actor); err != nil {
 		return errReply(err)
 	}
 	return okReply(map[string]any{"revoked": true})

@@ -2000,6 +2000,8 @@ func runTokenCmd(server string, args []string) {
 			LastUsedAt string   `json:"last_used_at"`
 			RevokedAt  string   `json:"revoked_at"`
 			ExpiresAt  string   `json:"expires_at"`
+			Actor      string   `json:"actor"`
+			RevokedBy  string   `json:"revoked_by"`
 		}
 		rows := make([]tokenRow, 0, len(page.Items))
 		for _, raw := range page.Items {
@@ -2010,7 +2012,7 @@ func runTokenCmd(server string, args []string) {
 			rows = append(rows, t)
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tLABEL\tPERMS\tCREATED\tLAST USED\tEXPIRES\tSTATUS")
+		fmt.Fprintln(w, "ID\tLABEL\tPERMS\tACTOR\tCREATED\tLAST USED\tEXPIRES\tSTATUS")
 		now := time.Now().UTC()
 		for _, t := range rows {
 			// Expiry is a status, not just a column: a lapsed token reported as "live" is the
@@ -2024,9 +2026,15 @@ func runTokenCmd(server string, args []string) {
 					status = "expired"
 				}
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t.ID, orDash(t.Label),
-				strings.Join(t.Perms, ","), shortTime(t.CreatedAt), orDash(shortTime(t.LastUsedAt)),
-				orDash(shortTime(t.ExpiresAt)), status)
+			// Who revoked it displaces who minted it once revoked: that is the newer fact, and
+			// it is the one an operator staring at a dead credential wants.
+			who := t.Actor
+			if t.RevokedBy != "" {
+				who = t.RevokedBy
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", t.ID, orDash(t.Label),
+				strings.Join(t.Perms, ","), orDash(who), shortTime(t.CreatedAt),
+				orDash(shortTime(t.LastUsedAt)), orDash(shortTime(t.ExpiresAt)), status)
 		}
 		w.Flush()
 	case "revoke":

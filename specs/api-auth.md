@@ -643,12 +643,26 @@ promoted v7 to prod, and when?"*; `process_logs.actor` answers it for a pause, r
 upgrade and an instance's creation. Everything written before the migrations stays anonymous
 permanently, which was the argument for landing this early rather than when it was next asked for.
 
-**One column, holding `source:subject`** — `token:ci`, `header:ada@example.com`,
-`none:anonymous`. The source is IN the value rather than beside it because the two facts are only
+**`api_tokens` got TWO columns (migration 043), not one.** A token has two attributable events —
+`actor` minted it, `revoked_by` killed it — and neither supersedes the other the way a channel's
+last mover supersedes its first, so a single column would silently change meaning on revocation.
+Minting is also the only write that GRANTS access, and the only one with no audit-log fallback:
+a token belongs to no instance, so `process_logs` cannot hold it, for the reason this section's
+last paragraph gives about channel history.
+
+**Every mint names its path**, so `actor` is empty only on a row that predates 043:
+`startup:seed-tokens`, `startup:bootstrap-token`, `startup:auto-mint` and `cli:token-create` for
+the four paths that run outside any request — §5.3 ranks them by root of trust, and the value is
+what makes that ranking readable off the row — and the caller's own actor for `POST /tokens`.
+
+**One column, holding `source:subject`** — `token:ci`, `jwt:ada@example.com`,
+`no-auth:anonymous`. The source is IN the value rather than beside it because the two facts are only
 useful together: `ada@example.com` alone cannot say whether genroc authenticated that identity or
 merely wrote down what a proxy asserted, and splitting them into two columns invites exactly the
 query that reads the subject and loses the distinction. `Principal.Actor()` is the only place it
-is spelled.
+is spelled — which is why `none:` became `no-auth:` in one edit (migration 044 rewrote the rows):
+beside `startup:` and `cli:` on a token row, `none:` read as a missing value rather than as the
+statement it is.
 
 ~~**The cheap part does work in `none` mode.**~~ Built 2026-09-02 as an `asserted:<subject>`
 source read from a configured header, and **removed the same day** with the rest of the

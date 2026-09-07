@@ -710,9 +710,9 @@ func (q *Queries) GrantLeases(ctx context.Context, arg GrantLeasesParams) error 
 }
 
 const insertAPIToken = `-- name: InsertAPIToken :exec
-INSERT INTO api_tokens (id, hash, label, perms, created_at, expires_at)
+INSERT INTO api_tokens (id, hash, label, perms, created_at, expires_at, actor)
 VALUES (?1, ?2, ?3, ?4, ?5,
-        ?6)
+        ?6, ?7)
 `
 
 type InsertAPITokenParams struct {
@@ -722,6 +722,7 @@ type InsertAPITokenParams struct {
 	Perms     string
 	CreatedAt int64
 	ExpiresAt sql.NullInt64
+	Actor     string
 }
 
 func (q *Queries) InsertAPIToken(ctx context.Context, arg InsertAPITokenParams) error {
@@ -732,6 +733,7 @@ func (q *Queries) InsertAPIToken(ctx context.Context, arg InsertAPITokenParams) 
 		arg.Perms,
 		arg.CreatedAt,
 		arg.ExpiresAt,
+		arg.Actor,
 	)
 	return err
 }
@@ -966,7 +968,8 @@ func (q *Queries) LatestVersion(ctx context.Context, name string) (interface{}, 
 }
 
 const listAPITokens = `-- name: ListAPITokens :many
-SELECT id, label, perms, created_at, last_used_at, revoked_at, expires_at FROM api_tokens
+SELECT id, label, perms, created_at, last_used_at, revoked_at, expires_at, actor, revoked_by
+FROM api_tokens
 ORDER BY created_at DESC, id
 `
 
@@ -978,6 +981,8 @@ type ListAPITokensRow struct {
 	LastUsedAt sql.NullInt64
 	RevokedAt  sql.NullInt64
 	ExpiresAt  sql.NullInt64
+	Actor      string
+	RevokedBy  string
 }
 
 func (q *Queries) ListAPITokens(ctx context.Context) ([]ListAPITokensRow, error) {
@@ -997,6 +1002,8 @@ func (q *Queries) ListAPITokens(ctx context.Context) ([]ListAPITokensRow, error)
 			&i.LastUsedAt,
 			&i.RevokedAt,
 			&i.ExpiresAt,
+			&i.Actor,
+			&i.RevokedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -1395,17 +1402,20 @@ func (q *Queries) RenewWorkerLeasesChunk(ctx context.Context, arg RenewWorkerLea
 }
 
 const revokeAPIToken = `-- name: RevokeAPIToken :execrows
-UPDATE api_tokens SET revoked_at = ?1
-WHERE id = ?2 AND revoked_at IS NULL
+UPDATE api_tokens SET revoked_at = ?1, revoked_by = ?2
+WHERE id = ?3 AND revoked_at IS NULL
 `
 
 type RevokeAPITokenParams struct {
 	RevokedAt sql.NullInt64
+	RevokedBy string
 	ID        string
 }
 
+// revoked_by is set in the same statement as revoked_at: they describe one write, and a column
+// only some paths set is the failure section 7 already paid for once.
 func (q *Queries) RevokeAPIToken(ctx context.Context, arg RevokeAPITokenParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeAPIToken, arg.RevokedAt, arg.ID)
+	result, err := q.db.ExecContext(ctx, revokeAPIToken, arg.RevokedAt, arg.RevokedBy, arg.ID)
 	if err != nil {
 		return 0, err
 	}
