@@ -963,7 +963,13 @@ A <strong>worker fleet</strong> wants the pull half instead, so two of them do n
 
 
 
-<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>POST /api/external-tasks/claim</code></td><td>leases parked tasks to a <code>worker_id</code>, oldest park first. Filters by <code>process</code> / <code>version</code> / <code>task</code>, <code>limit</code> per batch, <code>lease_ms</code> for the visibility timeout (default 30s).</td></tr><tr><td><code>POST /api/external-tasks/renew</code></td><td>extends this worker’s claims. <code>renewed</code> reports how many it still held — a worker learns it lost one here rather than when its answer is refused.</td></tr><tr><td><code>POST /api/external-tasks/release</code></td><td>hands a claim back at once instead of waiting out the lease.</td></tr></tbody></table>
+<table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>POST /api/external-tasks/claim</code></td><td>leases parked tasks to a <code>worker_id</code>, oldest park first. Filters by <code>process</code> / <code>version</code> / <code>task</code>, <code>limit</code> per batch, <code>lease_ms</code> for the visibility timeout (default 30s).</td></tr><tr><td><code>POST /api/external-tasks/renew</code></td><td>extends this worker’s claims, answering <strong>per token</strong>: <code>renewed</code> is still yours, <code>lost</code> is already someone else’s, <code>cancelled</code> is yours but no longer wanted. <code>renew_before_ms</code> says how long you may wait before renewing again.</td></tr><tr><td><code>POST /api/external-tasks/release</code></td><td>hands a claim back at once instead of waiting out the lease.</td></tr></tbody></table>
+<p>Renewing is <strong>mandatory, not an optimisation</strong>. genroc cannot call a worker — workers dial in —
+so the renewal is the only channel that reaches work already running, and a worker that stops
+renewing is indistinguishable from one that died. <code>lost</code> and <code>cancelled</code> are different
+instructions: on <code>lost</code> the claim is already someone else’s, so stop and do <strong>not</strong> release
+(releasing would bump the new holder’s grant); on <code>cancelled</code> an operator stopped the process,
+so stop <strong>and</strong> release.</p>
 <p>A claim returns a <strong>three-part token</strong> — <code>&lt;instance&gt;.&lt;arming&gt;.&lt;grant&gt;</code> — and that is the only
 handle accepted while the claim is live. The two-part token <code>&lt;instance&gt;.&lt;arming&gt;</code>, which anyone
 holding the instance id and its <code>task_epoch</code> can form, still answers an <em>unclaimed</em> task, but it
