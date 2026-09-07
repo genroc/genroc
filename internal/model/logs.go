@@ -12,6 +12,22 @@ const (
 	LogError LogLevel = "error"
 )
 
+// LogLevelsAtLeast returns min and every level above it, or nil when min names no level.
+//
+// A level filter is a FLOOR, never an equality: `--level warn` that hid the errors above it
+// would answer "is anything wrong here?" with silence. The severity order lives here because
+// the stored value is the WORD -- 'error' < 'info' sorts wrong in every collation, so the
+// column cannot answer this and a caller must turn the floor into the set.
+func LogLevelsAtLeast(min LogLevel) []LogLevel {
+	order := []LogLevel{LogDebug, LogInfo, LogWarn, LogError}
+	for i, l := range order {
+		if l == min {
+			return order[i:]
+		}
+	}
+	return nil
+}
+
 // Log event kinds emitted by the engine as it advances an instance. These are
 // the stable machine-readable identifiers; the human message lives in Message.
 const (

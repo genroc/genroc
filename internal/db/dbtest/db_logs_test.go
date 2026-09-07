@@ -363,3 +363,51 @@ func TestPruneLogs_DeletesOlderThanCutoff(t *testing.T) {
 		})
 	}
 }
+
+// The level filter is a FLOOR: it selects that level and everything above it. On Postgres it is
+// also the only filter binding several placeholders in one condition, so the ? → $N rewrite has
+// to keep the placeholders and the args in step -- which is why this runs on both engines.
+func TestListLogs_LevelIsAFloor(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			appendLog(t, b.db, "inst-lvl", model.LogDebug, model.EventActionStarted, 1000)
+			appendLog(t, b.db, "inst-lvl", model.LogInfo, model.EventWorkStarted, 2000)
+			appendLog(t, b.db, "inst-lvl", model.LogWarn, model.EventRetryScheduled, 3000)
+			appendLog(t, b.db, "inst-lvl", model.LogError, model.EventInstanceFailed, 4000)
+
+			for _, tc := range []struct {
+				level string
+				want  int
+			}{
+				{"", 4},
+				{string(model.LogDebug), 4},
+				{string(model.LogInfo), 3},
+				{string(model.LogWarn), 2},
+				{string(model.LogError), 1},
+				// Unknown: matches only itself. It must never widen to the whole trail --
+				// the API refuses it, and this is the floor under that check.
+				{"critical", 0},
+			} {
+				got, info, err := b.db.ListLogs("inst-lvl", dbpkg.LogQuery{Level: tc.level})
+				if err != nil {
+					t.Fatalf("ListLogs(level=%q): %v", tc.level, err)
+				}
+				if len(got) != tc.want {
+					t.Errorf("level %q: want %d rows, got %d -- a floor keeps every level above it",
+						tc.level, tc.want, len(got))
+				}
+				for _, l := range got {
+					if tc.level != "" && !slices.Contains(model.LogLevelsAtLeast(model.LogLevel(tc.level)), l.Level) {
+						t.Errorf("level %q: got a %s row, which is below the floor", tc.level, l.Level)
+					}
+				}
+				// The counts run the same filters through a SECOND query -- which is where a
+				// placeholder that lost its argument to the rewrite surfaces.
+				if info.ItemsBefore != 0 || info.ItemsAfter != 0 {
+					t.Errorf("level %q: one page of %d reported %d before and %d after",
+						tc.level, len(got), info.ItemsBefore, info.ItemsAfter)
+				}
+			}
+		})
+	}
+}

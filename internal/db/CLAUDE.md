@@ -17,6 +17,9 @@ Rules:
 - `gen_pg_validate/` is gitignored. Run `sqlc generate` then `go build ./...` locally to validate cross-engine compatibility.
 
 Hand-written SQL (the exceptions below) uses `?` placeholders run through the rewriter-aware executor — `db.exec` (non-transactional) or the `dbtx` returned by `beginTx` (in a transaction), both `pgRewriter`-wrapped, which rewrites `?`→`$N` on Postgres. Never hand-write `$N` or branch a query just for placeholders; the only legitimate dialect branch is a genuine SQL feature gap (e.g. `FOR UPDATE`). A raw `db.sqldb.BeginTx` + `tx.ExecContext` does NOT rewrite — use `beginTx`'s `dbtx`.
+`listQuery.InIf` is the one builder condition that binds SEVERAL placeholders (`IN (?, ?, ?)`),
+so it is where a rewrite that lost count would show first — and it runs twice per read, since
+the page's filters go through the count query too.
 
 Exceptions (hand-written in Go, not in `queries.sql`). Each is one of four reasons — a
 `FOR UPDATE` a dialect lacks, a predicate built at runtime, a statement whose LENGTH varies, or a

@@ -10,7 +10,7 @@
  *      task_completed → inst_completed; action_succeeded carries the response
  *      body in data and the HTTP status in meta, work_started names the worker.
  *   2. A failing task with one retry records retry_scheduled (warn) then
- *      instance_failed; the level filter narrows to just the warn entry.
+ *      instance_failed; the level filter is a floor over those levels.
  *   3. Time-based pruning: advancing the clock past the retention window drops
  *      old log rows on the next tick.
  */
@@ -166,10 +166,12 @@ test("failing task records retry_scheduled then instance_failed; level filter na
   expect(failed?.code).toMatch(/^http\./);
   expect(failed?.meta?.status).toBe(500);
 
-  // Level filter returns only the warn-level entry (action_failed is debug).
-  const warns = await getLogs(id, { level: "warn" });
-  expect(warns).toHaveLength(1);
-  expect(warns[0].event).toBe("retry_scheduled");
+  // The level filter is a floor: warn drops the debug action_failed below it and keeps
+  // everything at warn or above, so a caller asking about trouble is never shown less of it.
+  const fromWarn = await getLogs(id, { level: "warn" });
+  expect(fromWarn.map((l) => l.event)).toContain("retry_scheduled");
+  expect(fromWarn.map((l) => l.event)).not.toContain("action_failed");
+  expect(fromWarn.every((l) => l.level === "warn" || l.level === "error")).toBe(true);
 });
 
 // Must run last: pruning is global and the clock advance persists for this server.

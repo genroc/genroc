@@ -165,6 +165,28 @@ func (q *listQuery) EqIf(col string, value any, include bool) *listQuery {
 	return q
 }
 
+// InIf adds "col IN (?, …)" only when include is true. An empty set with include is a
+// programming error rather than a filter that matches nothing: SQL has no "IN ()".
+func (q *listQuery) InIf(col string, values []any, include bool) *listQuery {
+	if !include {
+		return q
+	}
+	if q.err != nil {
+		return q
+	}
+	if len(values) == 0 {
+		q.err = fmt.Errorf("paginate: IN filter on %q has no values", col)
+		return q
+	}
+	if !q.pg.allowsFilter(col) {
+		q.err = fmt.Errorf("paginate: %q is not a configured filter column", col)
+		return q
+	}
+	q.conds = append(q.conds, col+" IN ("+strings.TrimSuffix(strings.Repeat("?, ", len(values)), ", ")+")")
+	q.args = append(q.args, values...)
+	return q
+}
+
 // GteIf adds "col >= ?" only when include is true.
 func (q *listQuery) GteIf(col string, value any, include bool) *listQuery {
 	if include {

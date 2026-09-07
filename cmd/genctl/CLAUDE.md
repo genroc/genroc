@@ -78,7 +78,9 @@ Deliberate exceptions — special-purpose, not resource list/get. Leave them:
   per line, streaming), not a `{items, page}` array. It also caps at 200 rather than
   `listCap` and renders as it streams — the others build a tabwriter, which sizes its
   columns from every row and so cannot. The text views cut each row to one line
-  (`defaultLogWidth`, `$COLUMNS` overrides); json is the uncut form.
+  (`defaultLogWidth`, `$COLUMNS` overrides); json is the uncut form. It is also the one read
+  that FILTERS by default: `--level` floors at info, and `--level debug` is the whole trail
+  (a call's request and response bodies are recorded there).
 - **An id is printed in full, everywhere.** There is no short form: ids are 14 characters
   (internal/idgen), so what a listing prints is what a command takes back. `shortID` — which
   truncated to the LAST 6 characters, because a UUIDv7's leading bits are a timestamp and its

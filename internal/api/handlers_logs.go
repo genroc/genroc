@@ -50,6 +50,11 @@ func (h *Handlers) listInstanceLogs(id string, raw json.RawMessage) Reply {
 	if err != nil {
 		return errReply(err)
 	}
+	// The floor is refused here rather than filtered to nothing downstream: a level outside the
+	// vocabulary has no set of levels above it, and an empty trail reads as "nothing happened".
+	if req.Level != "" && model.LogLevelsAtLeast(model.LogLevel(req.Level)) == nil {
+		return invalid("level %q is not one of debug, info, warn, error", req.Level).reply()
+	}
 	opts := db.LogQuery{
 		Level:   req.Level,
 		Created: db.Window{After: req.CreatedAfter, Before: req.CreatedBefore},

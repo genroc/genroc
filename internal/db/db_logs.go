@@ -15,7 +15,7 @@ import (
 // the pagination request. The zero value (empty Level, zero Created, zero Page)
 // returns the first page of the newest logs.
 type LogQuery struct {
-	Level   string
+	Level   string // a FLOOR: this level and everything above it (model.LogLevelsAtLeast)
 	Created Window // on created_at, a trail's only sort
 	Page    PageReq
 }
@@ -257,6 +257,21 @@ func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 	})
 }
 
+// levelFloor is the level set a LogQuery.Level selects: that level and everything above it.
+// A level the vocabulary does not know matches only itself, i.e. nothing -- the API refuses it
+// before this (actions.go), and inventing a floor for it would WIDEN the read instead.
+func levelFloor(min string) []any {
+	levels := model.LogLevelsAtLeast(model.LogLevel(min))
+	if len(levels) == 0 {
+		return []any{min}
+	}
+	out := make([]any, len(levels))
+	for i, l := range levels {
+		out[i] = string(l)
+	}
+	return out
+}
+
 // logColumns is the pl.-qualified SELECT list shared by both log queries, which differ only
 // in the column they filter on.
 const logColumns = `pl.id, pl.instance_id, pl.level, pl.event, pl.task_id, pl.message, pl.code, pl.data, pl.objects, pl.meta, pl.created_at, pl.actor, pl.seq`
@@ -265,7 +280,7 @@ func (db *DB) ListLogs(instanceID string, opts LogQuery) ([]*model.LogEntry, Pag
 	db.flushLogs() // make any buffered rows for this instance visible to the read
 	q := logPaginator.query(opts.Page).
 		Eq("pl.instance_id", instanceID).
-		EqIf("pl.level", opts.Level, opts.Level != "")
+		InIf("pl.level", levelFloor(opts.Level), opts.Level != "")
 	b, err := opts.Created.apply(q, "pl.created_at").build()
 	if err != nil {
 		return nil, PageInfo{}, err
@@ -297,7 +312,7 @@ func (db *DB) ListTreeLogs(rootID string, opts LogQuery) ([]*model.LogEntry, Pag
 	db.flushLogs() // make any buffered rows for the tree visible to the read
 	q := logPaginator.query(opts.Page).
 		Eq("pl.root_id", rootID).
-		EqIf("pl.level", opts.Level, opts.Level != "")
+		InIf("pl.level", levelFloor(opts.Level), opts.Level != "")
 	b, err := opts.Created.apply(q, "pl.created_at").build()
 	if err != nil {
 		return nil, PageInfo{}, err

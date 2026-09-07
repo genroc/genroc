@@ -1,6 +1,6 @@
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
-import { waitForInstance } from "../helpers/client.ts";
+import { API_BASE, waitForInstance } from "../helpers/client.ts";
 import {
   BIG_BLOB,
   blobInputDef,
@@ -110,6 +110,25 @@ test("logs --mode json — timestamps are UTC RFC3339, independent of the reader
   for (const t of utc) expect(t.endsWith("Z")).toBe(true);
 });
 
+test("logs — the default floor is info, and debug is how the call bodies are reached", async () => {
+  const id = await ran(failingDef(uid("dflt")), "failed");
+
+  const bare = jsonRows(id).map((r) => r.level);
+  expect(bare.length).toBeGreaterThan(0);
+  expect(
+    bare,
+    "a bare trail carried a debug row; the default is a floor at info, so an operator reading "
+      + "a run is not handed the engine's call-by-call detail unasked",
+  ).not.toContain("debug");
+  // The failure is above the floor, so the rows that say something went wrong are still there.
+  expect(jsonRows(id).map((r) => r.event)).toContain("inst_failed");
+
+  // ...and nothing is lost, only unasked for: debug is the bottom of the floor.
+  const full = jsonRows(id, ["--level", "debug"]);
+  expect(full.length).toBeGreaterThan(bare.length);
+  expect(full.map((r) => r.event)).toContain("action_failed");
+}, 15_000);
+
 // ── attribution and line width ──────────────────────────────────────────────────
 
 test("logs — an operator's attribution prints, the engine's own does not", async () => {
@@ -207,27 +226,40 @@ test("logs — $TZ moves the rendered times and the window flags together", asyn
 
 // ── filters ─────────────────────────────────────────────────────────────────────
 
-test("logs --level — narrows to one level", async () => {
+test("logs --level — is a floor, keeping every level above it", async () => {
   // A failing fetch is what spans levels: debug for the attempt, info for the lifecycle
   // rows, error for the failure. A completing process is info-only.
   const id = await ran(failingDef(uid("level")), "failed");
 
   const levels = (extra: string[] = []) => jsonRows(id, extra).map((r) => r.level);
-  const all = levels();
-  expect(new Set(all).size).toBeGreaterThan(1);
+  // debug is the bottom, so it is the whole trail -- the default is info.
+  const all = levels(["--level", "debug"]);
+  expect(new Set(all)).toContain("error");
+  expect(new Set(all)).toContain("debug");
 
-  for (const level of ["error", "info", "debug"]) {
-    const only = levels(["--level", level]);
-    expect(only.length).toBeGreaterThan(0);
-    expect(only.every((l) => l === level)).toBe(true);
-    expect(only.length).toBeLessThan(all.length);
-  }
+  // The floor that matters: asking for info must not hide the failure above it.
+  const fromInfo = levels(["--level", "info"]);
+  expect(
+    fromInfo,
+    "an error was filtered out by --level info -- a level filter that hides the errors above "
+      + "it answers \"is anything wrong here?\" with silence",
+  ).toContain("error");
+  expect(fromInfo).not.toContain("debug");
 
-  // A level outside the enum is not rejected by either side, so it filters to nothing.
-  // Documenting current behaviour: a typo'd --level reads as "no rows", not as an error.
+  // error is the top, so it is only errors.
+  expect(levels(["--level", "error"]).every((l) => l === "error")).toBe(true);
+  expect(levels(["--level", "warn"]).every((l) => l === "warn" || l === "error")).toBe(true);
+
+  // A level outside the vocabulary has no set above it, so it is refused rather than
+  // filtered to nothing -- an empty trail reads as "nothing happened".
   const unknown = runCli(bin, ["logs", id, "--level", "critical"]);
-  expect(unknown.ok).toBe(true);
-  expect(unknown.stdout.trim()).toBe("");
+  expect(unknown.ok).toBe(false);
+  expect(unknown.stderr).toContain("invalid --level");
+
+  // ...and so does the server, reached directly: genctl's check is a fast answer, not the rule.
+  const direct = await fetch(`${API_BASE}/instances/${id}/logs?level=critical`);
+  expect(direct.status).toBe(400);
+  expect(((await direct.json()) as { error: string }).error).toContain("debug, info, warn, error");
 }, 15_000);
 
 test("logs — a root's trail is its whole tree, and --flat is its own rows", async () => {

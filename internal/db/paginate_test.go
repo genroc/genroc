@@ -208,3 +208,53 @@ func TestOrient(t *testing.T) {
 		t.Errorf("empty page: items=%v first=%v last=%v", items, first, last)
 	}
 }
+
+// A level filter is a floor, so it binds a SET rather than one value — the placeholders and
+// the args have to stay in step, which is the whole risk in expanding an IN.
+func TestInIf(t *testing.T) {
+	b, err := logPaginator.query(PageReq{}).
+		Eq("pl.instance_id", "i1").
+		InIf("pl.level", []any{"info", "warn", "error"}, true).
+		build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "pl.level IN (?, ?, ?)"; !strings.Contains(b.pageSQL, want) {
+		t.Errorf("pageSQL missing %q:\n %s", want, b.pageSQL)
+	}
+	if !argsEqual(b.pageArgs, []any{"i1", "info", "warn", "error", int64(20)}) {
+		t.Errorf("pageArgs = %v, want [i1 info warn error 20]", b.pageArgs)
+	}
+
+	// include=false is the "no filter" case every optional filter has.
+	if b, err := logPaginator.query(PageReq{}).InIf("pl.level", nil, false).build(); err != nil {
+		t.Fatal(err)
+	} else if strings.Contains(b.pageSQL, "pl.level IN") { // pl.level is also a SELECTed column
+		t.Errorf("an excluded filter reached the SQL: %s", b.pageSQL)
+	}
+
+	// An empty set with include is a caller bug: SQL has no "IN ()", and skipping the filter
+	// silently would WIDEN the read to every level.
+	if _, err := logPaginator.query(PageReq{}).InIf("pl.level", nil, true).build(); err == nil {
+		t.Error("an empty IN set built without error; it would have widened the read")
+	}
+}
+
+func TestLevelFloor(t *testing.T) {
+	for _, tc := range []struct {
+		min  string
+		want []any
+	}{
+		{"debug", []any{"debug", "info", "warn", "error"}},
+		{"info", []any{"info", "warn", "error"}},
+		{"warn", []any{"warn", "error"}},
+		{"error", []any{"error"}},
+		// Unknown: matches only itself, i.e. nothing. It must never widen to every level —
+		// the API refuses it before here, and this is what happens if that check is missed.
+		{"critical", []any{"critical"}},
+	} {
+		if got := levelFloor(tc.min); !argsEqual(got, tc.want) {
+			t.Errorf("levelFloor(%q) = %v, want %v", tc.min, got, tc.want)
+		}
+	}
+}

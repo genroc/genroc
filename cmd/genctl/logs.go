@@ -11,12 +11,13 @@ import (
 	"os"
 
 	"genroc/internal/logview"
+	"genroc/internal/model"
 )
 
 func runLogsCmd(server string, args []string) {
 	fs := newFlagSet("logs", args)
 	serverFlag := addServerFlag(fs, server)
-	levelFlag := fs.String("level", "", "filter by level (debug, info, warn, error); empty = all")
+	levelFlag := fs.String("level", string(model.LogInfo), "lowest level to show: this level and everything above it (warn keeps errors). `debug` is the bottom, so it is the whole trail -- the engine records a call's request and response bodies there")
 	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04); empty = the newest 200 entries")
 	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
 	flatFlag := fs.Bool("flat", false, "this instance's own rows only; by default a ROOT id answers with every row in its tree")
@@ -34,6 +35,9 @@ func runLogsCmd(server string, args []string) {
 
 	q := url.Values{}
 	if *levelFlag != "" {
+		if model.LogLevelsAtLeast(model.LogLevel(*levelFlag)) == nil {
+			fatal("invalid --level %q (want debug, info, warn, or error)", *levelFlag)
+		}
 		q.Set("level", *levelFlag)
 	}
 	// created_at is a trail's only order, so --since needs no column to pair with.

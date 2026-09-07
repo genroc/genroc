@@ -285,7 +285,7 @@ type SignalInstanceReq struct {
 }
 
 type ListLogsReq struct {
-	Level         string `json:"level"`          // optional filter: debug, info, warn, error
+	Level         string `json:"level"`          // optional FLOOR: this level and everything above it
 	CreatedAfter  int64  `json:"created_after"`  // only logs at/after this timestamp
 	CreatedBefore int64  `json:"created_before"` // only logs strictly before it
 	Flat          bool   `json:"flat"`           // this instance's own rows only, where a root would answer with its tree

@@ -512,7 +512,7 @@ var registry = func() []actionDef {
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
 				ID            string `path:"id"`
-				Level         string `query:"level" enum:"debug,info,warn,error" description:"Filter by log level"`
+				Level         string `query:"level" enum:"debug,info,warn,error" description:"Lowest level to return: this level and everything above it (warn keeps errors)"`
 				CreatedAfter  int64  `query:"created_after" description:"Only logs at/after this unix-millis timestamp"`
 				CreatedBefore int64  `query:"created_before" description:"Only logs strictly before this unix-millis timestamp"`
 				Flat          bool   `query:"flat" description:"This instance's own rows only. Without it a ROOT id answers with every row in its tree, which is one indexed read rather than a walk; a child id answers with its own rows either way, since a tree is addressed by its root"`
