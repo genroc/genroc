@@ -556,7 +556,7 @@ change lands in no diff — the typecheck in `test-int` is what notices.
   `swap` flag is the trap**: upgrade is `{absentAsNull: true}` plus the after-conform mode;
   the input contract is `{}` — strict, no swap, since it already runs old ⊆ new; the output
   contract is `{swap: true}`, running new ⊆ old while the reader asks what *they* changed.
-- `cmd/genctl/commands.go` — two columns, three levels, the not-gating line. `splitReason`
+- `cmd/genctl/compat.go` — two columns, three levels, the not-gating line. `splitReason`
   and `slotFor` are deleted rather than adapted.
 - `internal/api/handlers_compat.go` — the shape it marshals, and the flag as a request field.
 

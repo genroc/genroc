@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,4 +146,84 @@ func resolveInstanceID(arg string) string {
 		fatal("@last: no instance recorded yet — run `genctl run <process>` first")
 	}
 	return id
+}
+
+func runConfigCmd(args []string) {
+	if len(args) > 0 && hasHelpArg(args[:1]) {
+		helpFor("config")
+		return
+	}
+	if len(args) < 2 {
+		missingSubcommand("config")
+	}
+	sub, key := args[0], args[1]
+	switch sub {
+	case "get":
+		cfg := loadConfig()
+		val, err := configValue(cfg, key)
+		if err != nil {
+			fatal("%v", err)
+		}
+		if val == "" {
+			fmt.Println("(not set)")
+			return
+		}
+		// A credential is never printed back. `get` is what someone runs to check a setting,
+		// often with a colleague watching or a terminal being recorded, and the value is
+		// recoverable from the file by whoever owns it anyway.
+		if key == "token" {
+			fmt.Printf("(set: %s)\n", maskToken(val))
+			return
+		}
+		fmt.Println(val)
+	case "set":
+		if len(args) < 3 {
+			fatal("usage: genctl config set <key> <value>")
+		}
+		val := args[2]
+		cfg := loadConfig()
+		switch key {
+		case "server":
+			cfg.Server = val
+		case "token":
+			cfg.Token = val
+		default:
+			fatal("unknown config key %q (server, token)", key)
+		}
+		if err := saveConfig(cfg); err != nil {
+			fatal("save config: %v", err)
+		}
+		path, _ := configFilePath()
+		shown := val
+		if key == "token" {
+			shown = maskToken(val)
+		}
+		fmt.Printf("set %s = %s  (%s)\n", key, shown, path)
+	case "unset":
+		cfg := loadConfig()
+		switch key {
+		case "server":
+			cfg.Server = ""
+		case "token":
+			cfg.Token = ""
+		default:
+			fatal("unknown config key %q (server, token)", key)
+		}
+		if err := saveConfig(cfg); err != nil {
+			fatal("save config: %v", err)
+		}
+		fmt.Printf("unset %s\n", key)
+	default:
+		fatal("unknown config subcommand %q (get, set, unset)", sub)
+	}
+}
+
+func configValue(cfg genrocConfig, key string) (string, error) {
+	switch key {
+	case "server":
+		return cfg.Server, nil
+	case "token":
+		return cfg.Token, nil
+	}
+	return "", fmt.Errorf("unknown config key %q (server, token)", key)
 }
