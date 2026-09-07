@@ -796,7 +796,8 @@ describes is.)
   scoped grant needs, already there.
 
   What it is *not* is secret-grade. An instance id carries no randomness at all — it is a
-  per-process counter (`01-0002`, [internal/idgen](../internal/idgen)) and it appears in logs,
+  scattered per-process counter (`6fah8w2p`, [internal/idgen](../internal/idgen)), it appears in
+  logs,
   CLI history and every instance view, so the next one is a guess away. That is fine as a handle passed
   between trusted components and **not** fine as the only thing standing between the public and
   a resolve, which is what a browser form would make it. So the likely shape is a genroc token

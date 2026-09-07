@@ -121,8 +121,8 @@ Every id this process writes — instances, log rows, signals, tokens — comes 
 increases: a number is never recycled, so there is nothing to lease or reclaim and a dead worker
 takes its namespace with it. **A process that cannot allocate one fails to open** — a worker that
 does not know which ids are its own must not write any. **One counter per KIND of row**, so an
-instance is `01-0002` after the previous one rather than `01-000g` because fifteen log rows
-landed between; ids from two streams can be equal, and the one place kinds meet is `object_refs`,
+instance follows the previous instance rather than the fifteen log rows written between them;
+ids from two streams can be equal, and the one place kinds meet is `object_refs`,
 keyed `(hash, owner_kind, owner_id)`. Two things deliberately do not come from it: a token SECRET
 (`crypto/rand` — a counter is predictable) and the engine's `worker_id`.
 

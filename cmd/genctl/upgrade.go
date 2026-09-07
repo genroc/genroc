@@ -152,7 +152,7 @@ func (t upgradeTally) done(target string, jsonOut bool) {
 // keeps a process name from matching -- `upgrade` and `compat` read a name and an id in the same
 // positional, and `catcher` is otherwise a perfectly good id.
 var (
-	mintedIDRe = regexp.MustCompile(`^[0-9][0-9a-hjkmnp-tv-z]{4,12}$`)
+	mintedIDRe = regexp.MustCompile(`^[0-9][0-9a-hjkmnp-tv-z]{7,13}$`)
 	legacyIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
 

@@ -58,7 +58,7 @@ const AuditKey = "_audit"
 // exception: its width comes from the TimeStyle in play.
 const (
 	colLevel = 5  // DEBUG
-	colID    = 12 // a minted instance id, in full: what a listing prints is what a command takes
+	colID    = 8  // a minted instance id, in full: what a listing prints is what a command takes
 	colEvent = 16 // longest event (action_succeeded)
 	colTask  = 14 // user-defined task id; the last column before the detail fields
 )

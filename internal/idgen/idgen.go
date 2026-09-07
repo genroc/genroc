@@ -1,28 +1,22 @@
 // Package idgen mints every id genroc stores: instances, log rows, buffered signals, API tokens.
-// One opaque token, five characters and growing with the numbers behind it: `6fah8`,
-// `7gkfeapmtwd`.
+// One opaque token, eight characters and widening only when the numbers behind it do: `6fah8w2p`.
 //
-// The leading character is a DIGIT and the rest Crockford base32, which is what keeps an id from
-// being mistaken for a process name: `upgrade` and `compat` read either in the same positional,
-// and `catcher` is otherwise a perfectly good id.
+// It is a (worker, counter) pair, scattered. The worker number comes from a database counter that
+// only increases (db.open), so the pair is unique by construction -- no randomness, no clock, and
+// neither number bounded -- and every step is INJECTIVE: a suffix-free pairing, a Feistel
+// permutation, a positional rendering. Two mints cannot meet the way two hashes can.
 //
-// It is a (worker, counter) pair, scattered. The worker number comes from a database counter
-// that only increases (db.open), so the pair is unique by construction -- no randomness and no
-// clock -- and the rendering is INJECTIVE at every step: a suffix-free pairing, a Feistel
-// permutation, a positional rendering. Two mints cannot meet the way two hashes can, and
-// neither number is bounded.
+// THE CONSTANTS CAN NEVER CHANGE. Ids on disk came from this exact map, and a different one can
+// land on them. Scattering hides the pair and nothing more -- the constants are right here, and
+// an id is not secret-grade (specs/api-auth.md).
 //
-// Scattering hides the pair, and hiding is all it does: the constants are right here, so anyone
-// who wants the worker number and the count can recover them. An id is not secret-grade
-// (specs/api-auth.md) and this does not make it one.
+// Three properties the rendering carries, each load-bearing elsewhere:
 //
-// THE CONSTANTS CAN NEVER CHANGE. Ids already on disk were produced by this exact map; a
-// different multiplier is a different bijection, and its outputs can land on theirs.
-//
-// An id SORTS AS NOTHING -- scattering is the point. Ordering rows that share a millisecond is
-// `seq`'s job (migration 042). The alphabet drops I, L, O and U so an id survives being read
-// aloud, and it never contains `.`: an external task's token is `<instance-id>.<task_epoch>`,
-// cut at the first one.
+//   - It SORTS AS NOTHING. Ordering rows that share a millisecond is `seq`'s job (migration 042).
+//   - The leading character is a DIGIT, so a process name cannot be mistaken for an id where
+//     `upgrade` and `compat` read either in one positional -- `catcher` is otherwise a fine id.
+//   - No `.`, which would split an external task's `<instance-id>.<task_epoch>` token, and no
+//     I, L, O or U, so an id survives being read aloud.
 package idgen
 
 import (
@@ -36,10 +30,20 @@ const (
 	// round constants are arbitrary and chosen for spread, not secrecy.
 	rounds = 4
 
-	// The first value that renders as five characters (10 + 320 + 10240 + 327680), added to
-	// every pair so no id is short enough to read as a typo. Adding a constant is a bijection,
-	// so it costs nothing but length.
-	minValue = 338250
+	// Both hold the id WIDTH still, which is worth more than the characters they cost: one
+	// process gets 1.3M ids before its widen, and the floor does not move for 32k process
+	// starts (a restart every ten minutes for seven months).
+	//
+	// minValue is the first value that renders minChars wide, added to every pair so none is
+	// narrower -- without it a fresh install's ids widen four times inside 42k mints. An offset
+	// and not a padded string: render's leading character is base 10 and may be `0`, so
+	// "0"+<narrower id> would collide with an id that starts with one.
+	//
+	// minGroups pads the worker's code so the counter sits at a fixed height for every worker
+	// under 32768; without it the width drops 64-fold each time the worker grows a group.
+	minChars  = 8
+	minValue  = 10 * (1<<(5*(minChars-1)) - 1) / 31
+	minGroups = 3
 )
 
 const alphabet = "0123456789abcdefghjkmnpqrstvwxyz"
@@ -60,8 +64,8 @@ func NewMinter(worker int64) (*Minter, error) {
 }
 
 // Stream returns an independent counter under the same worker number, so one kind of row does not
-// run another's numbers up -- an instance is `01-0002` after the previous one, not `01-000g`
-// because fifteen log rows landed in between.
+// run another's numbers up -- an instance follows the previous instance, not the fifteen log rows
+// written between them.
 //
 // Ids from two streams can therefore be EQUAL. Nothing resolves a bare id without knowing its
 // table; the one place kinds meet is object_refs, keyed (hash, owner_kind, owner_id).
@@ -83,9 +87,6 @@ func (m *Minter) Next() (string, int64) {
 // always be told apart reading from the bottom -- which is what makes the pairing injective
 // without bounding either of them. A fixed field would have been a cliff instead: past it a
 // process could not start at all.
-//
-// It also costs less than a field would for the worker numbers anyone reaches: six bits under
-// 32, twelve under 1024.
 func pair(worker, counter uint64) uint64 {
 	var low, shift uint64
 	for {
@@ -99,6 +100,7 @@ func pair(worker, counter uint64) uint64 {
 			break
 		}
 	}
+	shift = max(shift, 6*minGroups)
 	if shift >= 64 || counter >= 1<<(64-shift)-1 {
 		panic("idgen: the worker and counter no longer pair into 64 bits")
 	}

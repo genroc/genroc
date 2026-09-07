@@ -254,7 +254,7 @@ into `db`, replacing the package global. Thirteen `db.Now()` call sites, three t
 **b. `transport.Sender`** — an interface with `Send`, injected into `Engine`, replacing the
 package-level `client`. The real implementation is the current function unchanged.
 
-**c. ~~An id source in `idgen`~~ — nothing to cut.** Ids became `<worker>-<counter>`: no clock,
+**c. ~~An id source in `idgen`~~ — nothing to cut.** Ids became a scattered counter: no clock,
 no randomness, and deterministic given the worker number the database hands out in order. The
 two properties this section existed to preserve under seeding — ids sorting in creation order,
 a child's id above its parent's — are gone with the format that carried them, and nothing

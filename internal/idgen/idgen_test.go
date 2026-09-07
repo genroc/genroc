@@ -123,6 +123,17 @@ func TestTheRenderingIsInjective(t *testing.T) {
 	}
 }
 
+// minValue is derived arithmetic, not a number anyone should check by hand: it has to be the
+// exact boundary, or ids come out a character short of what every shape check expects.
+func TestMinValueIsTheFirstValueOfItsWidth(t *testing.T) {
+	if got := len(render(minValue)); got != minChars {
+		t.Errorf("minValue renders %d characters, not %d", got, minChars)
+	}
+	if got := len(render(minValue - 1)); got != minChars-1 {
+		t.Errorf("the value below minValue renders %d characters, so minValue is not a boundary", got)
+	}
+}
+
 // Scattering is a permutation OF a width, not across widths: an id's length still follows the
 // numbers behind it, which is what keeps short ids short.
 func TestScatterStaysInsideItsWidth(t *testing.T) {
