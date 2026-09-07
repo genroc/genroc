@@ -75,9 +75,9 @@ type LogEntry struct {
 	// payload rather than inside it, the same as every other owner. specs/object-store.md.
 	Objects []*ObjectRef   `json:"objects,omitempty"`
 	Meta    map[string]any `json:"meta,omitempty"`
-	// Actor is who caused this entry, as `source:subject`. Set only on operator-initiated
-	// events; the engine advances on its own behalf and leaves it empty rather than
-	// crediting whoever started the run. specs/api-auth.md section 7.
+	// Actor is who caused this entry, as `source:subject`: an operator for a verb they asked
+	// for, `engine:self` for the engine's own advance. Empty only on a row written before
+	// migration 038. specs/api-auth.md section 7.
 	Actor string `json:"actor,omitempty"`
 	// Seq is the minting counter, stored beside the id (migration 042) because an id does not
 	// sort: it is what orders two rows that share a millisecond. Set by the write path.

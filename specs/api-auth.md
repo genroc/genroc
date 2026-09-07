@@ -673,10 +673,17 @@ which is strictly better than an unverified `asserted:`.
 
 Three things the build settled that the draft did not raise:
 
-- **Only operator-initiated rows carry an actor.** The engine advances on its own behalf, so
-  `AuditCreated` takes the actor for a ROOT instance and `""` for a spawned child, and no engine
-  event carries one. Attributing every row the engine then writes to whoever started the run puts
-  an identity on work nobody requested.
+- **The engine names itself rather than nobody.** It advances on its own behalf, so it must not
+  be credited to whoever started the run — that would put an identity on work nobody requested.
+  But empty was the wrong way to say so, because empty already means "written before 038". Every
+  engine row carries `engine:self` (`engine.ActorEngine`, applied in one place: `audit`), and
+  `AuditCreated` takes a real actor for a ROOT instance and none for a spawned child, which
+  resolves to the same.
+
+  **`actor` is therefore non-empty on every row genroc writes**, and empty means exactly one
+  thing: the row predates attribution. It is NOT NULL with a `''` default in all five places it
+  exists (038, 039, 043) and never nullable in Go. No backfill invents one — an engine row
+  written before this change stays empty, because nothing tells it from a pre-038 row.
 - **A version and a pointer want opposite rules, and getting that backwards is a real bug that
   was made and caught here.** A definition version is immutable, so its actor is whoever
   deployed it and `InsertDefinition`'s conflict path leaves it alone (a safety net more than a

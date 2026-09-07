@@ -29,14 +29,25 @@ type logEvent struct {
 	// once for the console. specs/object-store.md.
 	Data  any
 	Meta  map[string]any
-	Actor string // operator-initiated events only; see AuditCreated
+	Actor string // left unset for the engine's own work; audit fills in ActorEngine
 }
+
+// ActorEngine is what genroc records for work it does on its own behalf. NOT empty: empty means
+// "written before attribution existed" (migration 038), and an engine advance is a known actor
+// rather than an unknown one. It says only that -- crediting the operator who started the run
+// would put an identity on rows nobody asked for. specs/api-auth.md section 7.
+const ActorEngine = "engine:self"
 
 // audit records an instance event to the console (slog) and the durable per-instance DB
 // trail. Best-effort on the DB write: a failure is logged and swallowed so audit logging
 // can never abort an advance.
 func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 	ev.ID = inst.ID
+	// The one place the engine's own attribution is applied, so no event can be written
+	// unattributed by forgetting to set it.
+	if ev.Actor == "" {
+		ev.Actor = ActorEngine
+	}
 	// Redaction is a RECORDING concern and its one sink is stdout, where a value is read by an
 	// operator who did not ask for it. The durable trail and every API response carry what
 	// actually happened: protecting a value at rest is encryption's job, and redacting on read
@@ -214,9 +225,9 @@ func statusMeta(status int) map[string]any {
 // input (subject to payload-logging config). Called by the API for a root instance and by
 // the engine for each spawned child; it bookends the trail with instance_completed.
 //
-// actor is who asked for this run, and is empty for a child: the engine spawns it on the
-// parent's behalf, and crediting the operator who started the root would put an identity on
-// a row no one addressed. specs/api-auth.md section 7.
+// actor is who asked for this run. A child passes none: the engine spawns it on the parent's
+// behalf, so audit records ActorEngine rather than the operator who started the root, who did
+// not address that row. specs/api-auth.md section 7.
 func (e *Engine) AuditCreated(inst *model.ProcessInstance, actor string) {
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceCreated,
 		Actor: actor, Data: e.snippet(inst.State["input"])})

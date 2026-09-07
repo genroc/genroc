@@ -178,7 +178,7 @@ test("attribution — the source is in the actor, so an asserted identity cannot
   expect(row?.actor?.startsWith("token:")).toBe(true);
 });
 
-test("attribution — an operator verb is recorded on the instance's trail, and the engine's own rows are not", async () => {
+test("attribution — an operator verb names the operator, and the engine's own rows name the engine", async () => {
   const op = await mint(["deploy", "operate", "read"], "oncall-kim");
   const name = `attrib_pause_${crypto.randomUUID().slice(0, 8)}`;
 
@@ -211,14 +211,16 @@ test("attribution — an operator verb is recorded on the instance's trail, and 
     "a pause landed with no actor — an audit trail that cannot say who paused a run is the gap §7 names",
   ).toBe("token:oncall-kim");
 
-  // The engine advances on its own behalf. Crediting the operator who started the run would
-  // attribute rows nobody asked for, which is worse than leaving them blank.
+  // The engine advances on its own behalf and says so. Empty is reserved for rows written
+  // before attribution existed, so an engine row must name the engine rather than nothing --
+  // and must never name the operator who started the run.
   const engineRow = rows.find((l) => l.event === "work_started" || l.event === "task_completed");
   if (engineRow) {
     expect(
-      engineRow.actor ?? "",
-      `the engine's ${engineRow.event} claimed an actor; only operator-initiated events carry one`,
-    ).toBe("");
+      engineRow.actor,
+      `the engine's ${engineRow.event} was written unattributed; empty means "predates ` +
+        `migration 038", which this row does not`,
+    ).toBe("engine:self");
   }
 });
 

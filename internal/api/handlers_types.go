@@ -444,8 +444,8 @@ type LogEntryResp struct {
 	Task     string         `json:"task,omitempty"`
 	Message  string         `json:"message,omitempty"`
 	Code     string         `json:"code,omitempty"`
-	// Actor is who caused this entry, as `source:subject`; present only on operator-initiated
-	// events. specs/api-auth.md section 7.
+	// Actor is who caused this entry, as `source:subject` -- an operator, or `engine:self` for
+	// the engine's own advance. specs/api-auth.md section 7.
 	Actor string         `json:"actor,omitempty"`
 	Data  any            `json:"data,omitempty"` // payload (input/output/request/response body) as a value; parts the cut moved out are absent here and listed in Objects
 	Meta  map[string]any `json:"meta,omitempty"` // small, complete, parseable metadata (e.g. {"url":…}, {"status":200})
