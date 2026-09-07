@@ -122,12 +122,12 @@ ever increases, so a number is never recycled and there is nothing to lease or r
 that dies takes its namespace with it. **A process that cannot allocate one fails to open**, which
 is the point — a worker that does not know which ids are its own must not write any.
 
-The shape (`<worker>-<counter>`, both Crockford base32) lives in
+The shape (`<worker>-<counter>`, both Crockford base32, each padded to a minimum width) lives in
 [internal/idgen](../idgen/idgen.go). There is no clock in it and no randomness. Two
 consequences here:
 
-- **An id does not sort, and nothing may assume it does.** It is written unpadded, so `2-9`
-  follows `2-10` as text. What orders a log trail inside a millisecond -- where `created_at`
+- **An id does not sort, and nothing may assume it does.** A run at one width sorts by
+  accident; the moment either half outgrows its padding the order inverts. What orders a log trail inside a millisecond -- where `created_at`
   cannot separate two rows -- is `process_logs.seq`, the minting counter stored beside the id
   (migration 042); `process_signals.seq` does the same for the FIFO. The sort key is
   `(created_at, seq, id)`: seq decides, and **id stays on the end because the keyset cursor

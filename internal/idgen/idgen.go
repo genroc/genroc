@@ -1,9 +1,15 @@
 // Package idgen mints every id genroc stores: instances, log rows, buffered signals, API
-// tokens. `<worker>-<counter>` in Crockford base32 -- `2-1` on a fresh install, `4w8-1yjpx80`
-// a year in. No randomness and no clock: a worker number allocated once per process (db.open,
-// from a counter that only increases) plus a counter within it is unique by construction.
+// tokens. `<worker>-<counter>` in Crockford base32 -- `01-0001` on a fresh install,
+// `04w8-1yjpx80` a year in. No randomness and no clock: a worker number allocated once per
+// process (db.open, from a counter that only increases) plus a counter within it is unique by
+// construction.
 //
-// It is written unpadded, which means an id SORTS AS NOTHING -- `2-9` follows `2-10` as text.
+// Each half is padded to a MINIMUM width and then grows. The padding buys nothing but a stable
+// column and ids that look alike -- it is affordable precisely because the id carries no
+// ordering, so the width may change whenever the numbers outgrow it.
+//
+// An id SORTS AS NOTHING: `01-000z` follows `01-0010` as text, and a run that crosses a width
+// boundary inverts outright.
 // That is deliberate. Ordering a log trail inside a millisecond, where created_at cannot
 // separate two rows, is `process_logs.seq`'s job (migration 042): the counter beside the id
 // rather than smuggled through its rendering, which is what lets the id be this short.
@@ -29,6 +35,11 @@ const (
 
 	MaxWorker  = 1<<workerBits - 1
 	maxCounter = 1<<counterBits - 1
+
+	// Minimum widths, not fixed ones: 1024 process starts and a million ids per process fit
+	// without growing, which covers a development session and most of a small deployment.
+	workerMin  = 2
+	counterMin = 4
 )
 
 // Crockford base32: no I, L, O or U, so a mistyped id is a refusal rather than another row.
@@ -67,18 +78,18 @@ func (m *Minter) Next() (string, int64) {
 		panic(fmt.Sprintf("idgen: worker %d has minted %d ids, past the %d-bit counter",
 			m.worker, n, counterBits))
 	}
-	return base32(m.worker) + "-" + base32(n), int64(n)
+	return base32(m.worker, workerMin) + "-" + base32(n, counterMin), int64(n)
 }
 
-// base32 renders v with no padding: shortest first, which is why an id does not sort.
-func base32(v uint64) string {
-	if v == 0 {
-		return "0"
-	}
+// base32 renders v, left-padded to at least min digits.
+func base32(v uint64, min int) string {
 	var out []byte
 	for v > 0 {
 		out = append(out, alphabet[v&31])
 		v >>= 5
+	}
+	for len(out) < min {
+		out = append(out, '0')
 	}
 	slices.Reverse(out)
 	return string(out)

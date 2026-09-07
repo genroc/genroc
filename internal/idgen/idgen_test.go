@@ -94,23 +94,20 @@ func TestTheAlphabetSurvivesBeingReadAloud(t *testing.T) {
 	}
 }
 
-// The rendering is short because it is unpadded, which is exactly why it does not sort. Pinned
-// so nobody reintroduces an ordering assumption the format cannot carry: `process_logs.seq` is
-// where a trail's order lives.
-func TestIDsDoNotSort(t *testing.T) {
+// A run of ids at one width sorts by accident, which is exactly the trap: the moment the
+// counter outgrows its padding the order inverts. Pinned so nobody reintroduces an ordering
+// assumption the format cannot carry -- `process_logs.seq` is where a trail's order lives.
+func TestIDsStopSortingWhenTheWidthGrows(t *testing.T) {
 	m, _ := NewMinter(1)
-	var ids []string
-	for range 40 {
-		id, _ := m.Next()
-		ids = append(ids, id)
+	m.counter.Store(1<<(5*counterMin) - 2) // the last id before the counter needs a fifth digit
+
+	last, _ := m.Next()
+	grown, _ := m.Next()
+	if len(grown) <= len(last) {
+		t.Fatalf("expected the counter to outgrow its padding: %q then %q", last, grown)
 	}
-	sorted := true
-	for i := 1; i < len(ids); i++ {
-		if ids[i] < ids[i-1] {
-			sorted = false
-		}
-	}
-	if sorted {
-		t.Errorf("ids happen to sort in mint order (%v); nothing may come to depend on that", ids[:12])
+	if grown > last {
+		t.Errorf("%q sorts after %q; ids happen to be ordered here and nothing may depend on it",
+			grown, last)
 	}
 }
