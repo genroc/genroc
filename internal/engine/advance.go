@@ -262,11 +262,11 @@ func (e *Engine) prepareAdvance(inst *model.ProcessInstance) (*model.ProcessDefi
 		}
 	}
 
-	// work_started: a worker has picked this instance up and is about to work its
-	// current task. One per claim (a resume after parking emits it again), tagged with
-	// the worker so the unified log shows who is doing what.
+	// work_started: a worker has picked this instance up and is about to work its current task.
+	// Debug, because it is the only per-ADVANCE event — a retry, a resume and a re-claim each
+	// emit it again — and which worker holds a row is a question about the engine, not the run.
 	if idx >= 0 {
-		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventWorkStarted, Task: inst.Task, Meta: map[string]any{"worker": e.workerID}})
+		e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventWorkStarted, Task: inst.Task, Meta: map[string]any{"worker": e.workerID}})
 	}
 
 	return def, idx, nil

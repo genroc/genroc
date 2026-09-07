@@ -110,23 +110,25 @@ test("logs --mode json — timestamps are UTC RFC3339, independent of the reader
   for (const t of utc) expect(t.endsWith("Z")).toBe(true);
 });
 
-test("logs — the default floor is info, and debug is how the call bodies are reached", async () => {
+test("logs — the default floor is info, and debug is where the engine's own rows are", async () => {
   const id = await ran(failingDef(uid("dflt")), "failed");
 
-  const bare = jsonRows(id).map((r) => r.level);
+  const bare = jsonRows(id);
   expect(bare.length).toBeGreaterThan(0);
   expect(
-    bare,
+    bare.map((r) => r.level),
     "a bare trail carried a debug row; the default is a floor at info, so an operator reading "
-      + "a run is not handed the engine's call-by-call detail unasked",
+      + "a run is not handed the engine's per-advance bookkeeping unasked",
   ).not.toContain("debug");
-  // The failure is above the floor, so the rows that say something went wrong are still there.
-  expect(jsonRows(id).map((r) => r.event)).toContain("inst_failed");
+  // What the run DID is above the floor: the call that failed and the end it came to.
+  expect(bare.map((r) => r.event)).toContain("action_failed");
+  expect(bare.map((r) => r.event)).toContain("inst_failed");
+  expect(bare.map((r) => r.event)).not.toContain("work_started");
 
   // ...and nothing is lost, only unasked for: debug is the bottom of the floor.
   const full = jsonRows(id, ["--level", "debug"]);
   expect(full.length).toBeGreaterThan(bare.length);
-  expect(full.map((r) => r.event)).toContain("action_failed");
+  expect(full.map((r) => r.event)).toContain("work_started");
 }, 15_000);
 
 // ── attribution and line width ──────────────────────────────────────────────────
@@ -308,8 +310,10 @@ test("logs — a child id answers with that child's own rows", async () => {
 
 test("logs --since / --until — bound the trail, half-open, and reject a bare integer", async () => {
   const id = await ran(switchDef(uid("window")));
+  // The whole trail, level floor out of the way: this is about the window, and a partition
+  // needs more rows than the default view of a two-event process has.
   const times = (extra: string[], env: Record<string, string> = {}) =>
-    jsonRows(id, extra, env).map((r) => new Date(r.time).getTime());
+    jsonRows(id, ["--level", "debug", ...extra], env).map((r) => new Date(r.time).getTime());
 
   const all = times(["--since", "1h"]);
   expect(all.length).toBeGreaterThanOrEqual(3);

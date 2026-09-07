@@ -9,8 +9,8 @@
  *   1. A successful run records work_started → action_started → action_succeeded →
  *      task_completed → inst_completed; action_succeeded carries the response
  *      body in data and the HTTP status in meta, work_started names the worker.
- *   2. A failing task with one retry records retry_scheduled (warn) then
- *      instance_failed; the level filter is a floor over those levels.
+ *   2. A failing task with one retry records action_failed and retry_scheduled (warn)
+ *      then instance_failed; the level filter is a floor over those levels.
  *   3. Time-based pruning: advancing the clock past the retention window drops
  *      old log rows on the next tick.
  */
@@ -124,15 +124,19 @@ test("successful run records task and completion events with response snippet", 
     "inst_completed",
   ]);
 
-  // work_started is info and names the worker that picked it up.
+  // work_started is debug -- one per advance, and which worker holds a row is a question
+  // about the engine rather than about the run -- and it names that worker.
   const started = logs.find((l) => l.event === "work_started");
-  expect(started?.level).toBe("info");
+  expect(started?.level).toBe("debug");
   expect(started?.task).toBe("first");
   expect(String(started?.meta?.worker ?? "")).not.toBe("");
 
   // action_succeeded carries the response body in data -- as the VALUE it is, the same shape
-  // every other payload takes -- and the HTTP status in the structured meta.
+  // every other payload takes -- and the HTTP status in the structured meta. Info: what a call
+  // sent and what came back is the task's work, not the engine's bookkeeping.
   const firstSucceeded = logs.find((l) => l.event === "action_succeeded");
+  expect(firstSucceeded?.level).toBe("info");
+  expect(logs.find((l) => l.event === "action_started")?.level).toBe("info");
   expect(firstSucceeded?.task).toBe("first");
   expect(firstSucceeded?.data).toEqual({ ok: true });
   expect(firstSucceeded?.meta?.status).toBe(200);
@@ -159,18 +163,20 @@ test("failing task records retry_scheduled then instance_failed; level filter na
   expect(retry?.code).toMatch(/^http\./);
   expect(retry?.message).toContain("attempt 1/1");
 
-  // action_failed (debug) captures the raw call failure separately: the http code,
-  // the status in structured meta, and the error body in data.
+  // action_failed (warn) captures the raw call failure separately: the http code,
+  // the status in structured meta, and the error body in data. Warn, so the answer to
+  // "why did it fail" is in the default view of a run that did.
   const failed = logs.find((l) => l.event === "action_failed");
-  expect(failed?.level).toBe("debug");
+  expect(failed?.level).toBe("warn");
   expect(failed?.code).toMatch(/^http\./);
   expect(failed?.meta?.status).toBe(500);
 
-  // The level filter is a floor: warn drops the debug action_failed below it and keeps
+  // The level filter is a floor: warn drops the debug work_started below it and keeps
   // everything at warn or above, so a caller asking about trouble is never shown less of it.
   const fromWarn = await getLogs(id, { level: "warn" });
   expect(fromWarn.map((l) => l.event)).toContain("retry_scheduled");
-  expect(fromWarn.map((l) => l.event)).not.toContain("action_failed");
+  expect(fromWarn.map((l) => l.event)).toContain("action_failed");
+  expect(fromWarn.map((l) => l.event)).not.toContain("work_started");
   expect(fromWarn.every((l) => l.level === "warn" || l.level === "error")).toBe(true);
 });
 

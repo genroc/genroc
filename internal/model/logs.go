@@ -30,9 +30,14 @@ func LogLevelsAtLeast(min LogLevel) []LogLevel {
 
 // Log event kinds emitted by the engine as it advances an instance. These are
 // the stable machine-readable identifiers; the human message lives in Message.
+//
+// The LEVEL an event is written at says who is asking: info is the run's own story (what it was
+// asked to do, what it sent, what came back, how it ended), debug is how the engine did it (which
+// worker, the per-instance fan-out of a tree-wide call). Verbosity is not the test -- a payload
+// too big for a line is the renderer's problem, not the level's. genctl logs floors at info.
 const (
 	EventInstanceCreated = "inst_created"
-	EventWorkStarted     = "work_started"     // a worker picked the instance up and began advancing it
+	EventWorkStarted     = "work_started"     // debug: one per ADVANCE -- a retry or resume emits it again
 	EventActionStarted   = "action_started"   // an action call is about to be sent (request)
 	EventActionSucceeded = "action_succeeded" // an action call returned successfully (response)
 	EventActionFailed    = "action_failed"    // an action call returned an error (status + error body)

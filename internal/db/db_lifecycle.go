@@ -367,8 +367,8 @@ func (db *DB) logTreeAction(rootID, event, msg, actor string, instances int64, e
 }
 
 // logInstances records the per-instance consequence of a tree-wide pause/resume, at debug
-// level: one call fans out over the whole subtree, so this is high-volume detail in the
-// same class as the action_* events, filtered out of the default view.
+// level: one call fans out over the whole subtree, so a big tree would put a row per member
+// in front of an operator who asked for one thing. The root's own entry is the info one.
 func (db *DB) logInstances(ids []string, event, msg, actor string) {
 	for _, instID := range ids {
 		_ = db.AppendLog(&model.LogEntry{

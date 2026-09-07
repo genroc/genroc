@@ -92,18 +92,18 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q accepted_status: %v", task.ID, err)))
 	}
 
-	// action_started (debug): message = the action type; data = the request body; meta =
-	// {url} so the trail shows which URL was hit. Headers are intentionally omitted — they
-	// routinely carry secrets and the audit log is persisted.
-	e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionStarted, Task: task.ID, Msg: string(task.Action.Type), Data: e.snippet(body), Meta: map[string]any{"url": url}})
+	// action_started: message = the action type; data = the request body; meta = {url} so the
+	// trail shows which URL was hit. Headers are intentionally omitted — they routinely carry
+	// secrets and the audit log is persisted.
+	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventActionStarted, Task: task.ID, Msg: string(task.Action.Type), Data: e.snippet(body), Meta: map[string]any{"url": url}})
 
 	resp, err := transport.Send(taskCtx, task.Action, url, method, acceptedStatus, resolvedHeaders, body)
 	if err != nil {
 		code := transport.ClassifyGoError(err)
-		// action_failed (debug) records the call failure — error detail in data,
+		// action_failed (warn) records the call failure — error detail in data,
 		// code in code — separate from the operational retry/route event that follows.
 		// A transport error has no HTTP status, so meta stays absent.
-		e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionFailed, Task: task.ID, Code: code, Data: e.snippetRaw(err.Error())})
+		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventActionFailed, Task: task.ID, Code: code, Data: e.snippetRaw(err.Error())})
 		return nil, nil, stop(e.handleCallError(inst, task, err.Error(), code))
 	}
 	if resp.ErrorCode != "" {
@@ -124,8 +124,8 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 				extra = map[string]any{"data": value}
 			}
 		}
-		// action_failed (debug): error body in data, status in meta, code in code.
-		e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionFailed, Task: task.ID, Code: code, Data: e.snippetRaw(resp.ErrorMessage), Meta: statusMeta(resp.Status)})
+		// action_failed (warn): error body in data, status in meta, code in code.
+		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventActionFailed, Task: task.ID, Code: code, Data: e.snippetRaw(resp.ErrorMessage), Meta: statusMeta(resp.Status)})
 		return nil, nil, stop(e.handleCallErrorWith(inst, task, msg, code, extra))
 	}
 
@@ -137,7 +137,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 		if msg == "" {
 			msg = string(resp.BodyCode)
 		}
-		e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionFailed, Task: task.ID, Code: resp.BodyCode, Data: e.snippetRaw(msg), Meta: statusMeta(resp.Status)})
+		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventActionFailed, Task: task.ID, Code: resp.BodyCode, Data: e.snippetRaw(msg), Meta: statusMeta(resp.Status)})
 		return nil, nil, stop(e.handleCallError(inst, task, msg, resp.BodyCode))
 	}
 
@@ -152,10 +152,10 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	resp.Body = normalized
 	inst.RetryCount = 0
 
-	// action_succeeded (debug): the response body in data, the HTTP status in meta.
-	// Like action_started it carries an action payload, so it is gated behind
-	// --level debug rather than cluttering the default info trail.
-	e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventActionSucceeded, Task: task.ID, Data: e.snippet(resp.Body), Meta: statusMeta(resp.Status)})
+	// action_succeeded: the response body in data, the HTTP status in meta. Info, not debug:
+	// what a call sent and what came back IS the task's work, and the size that put it at debug
+	// is the line clamp's problem and the object store's, not the level's.
+	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventActionSucceeded, Task: task.ID, Data: e.snippet(resp.Body), Meta: statusMeta(resp.Status)})
 
 	return resp.Body, &fetchMeta{status: resp.Status, headers: resp.Headers}, nil
 }
