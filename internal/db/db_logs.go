@@ -53,7 +53,7 @@ const (
 // AppendLog stamps and buffers one audit-trail row. Best-effort by contract: a failure
 // here must never abort an instance advance, and a buffered row may be lost on crash
 // (migration 008 — an observability gap, never state corruption). The row is stamped
-// here, not at flush time, so the (created_at, id) sort preserves insertion order; the
+// here, not at flush time, so the (created_at, seq, id) sort preserves insertion order; the
 // write is batched off the hot path by logFlusher (or inline once it hits logBatchRows).
 func (db *DB) AppendLog(entry *model.LogEntry) error {
 	params, err := db.buildLogParams(entry)
@@ -134,8 +134,7 @@ func decodeRefs(s string) []*model.ObjectRef {
 }
 
 // buildLogParams stamps an entry's id/created_at/meta into the process_logs row params.
-// A blank id gets a fresh one -- minted ids rise within a process, so the (created_at, id)
-// sort preserves insertion order for co-millisecond events; a zero CreatedAt gets the DB clock.
+// A blank id gets a fresh one; a zero CreatedAt gets the DB clock.
 func (db *DB) buildLogParams(entry *model.LogEntry) (dbgen.InsertLogParams, error) {
 	// created_at is millisecond-granular, so seq is what orders two rows from one advance.
 	id, seq := db.nextLogID()

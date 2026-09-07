@@ -128,7 +128,8 @@ func ClaimToken(instanceID string, taskEpoch, claimEpoch int64) string {
 // answering unclaimed work (the queue-then-resolve path a UI uses), true a claim holder
 // naming the grant it is answering under.
 //
-// Instance ids are UUIDs and carry no '.', so the first dot is the instance boundary.
+// An id carries no '.' (internal/idgen's alphabet excludes it), so the first dot is the
+// instance boundary.
 func ParseExternalToken(token string) (instanceID string, taskEpoch, claimEpoch int64, hasClaim, ok bool) {
 	id, rest, found := strings.Cut(token, ".")
 	if !found || id == "" {

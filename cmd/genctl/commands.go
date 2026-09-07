@@ -360,8 +360,8 @@ func runRunCmd(server string, args []string) {
 // prints names what happened rather than just the id.
 //
 // One command because the two are one submission: same payload flags, same error channel,
-// same conforming against what the task declares. A token is `<uuid>.<uuid>`, an instance ref
-// a bare UUID or @last, so the argument says which endpoint it is for.
+// same conforming against what the task declares. A token is `<id>.<epoch>`, an instance ref
+// a bare id or @last, so the argument says which endpoint it is for.
 func runResolveCmd(server string, args []string) {
 	if len(args) == 0 {
 		fatal("usage: genctl resolve <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]\n" +

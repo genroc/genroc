@@ -181,7 +181,7 @@ tree: a refusal reports and the rest continue, and a tree already on the target 
 exits 0. `genctl compat <instance-id> --to <version|channel>` (or `-f <file>`) asks that pair
 as a question instead of making the move, scoped to the row's process — **one** id there, since
 a side of a comparison carries one version per process. An id is told from a process name by
-shape: a UUID, or `@last`.
+shape: an opaque digit-led token, or `@last`.
 
 **There is no `dry_run`.** It was in this doc and did not survive contact: on a RUNNING
 instance the answer it gives is about a state the instance has already left, and what an

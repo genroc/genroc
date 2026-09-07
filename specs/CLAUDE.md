@@ -463,7 +463,7 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   pauses are five logical changes, unlike `applyBatch`, which earns its endpoint by being
   one. Two decisions arrived during the build and are recorded as 10 and 11: a malformed
   argument aborts the whole command where a refusal does not (shape-checked up front, so a
-  pasted table cannot pause whichever cell parses as a UUID), and `instances` lists **roots
+  pasted table cannot pause whichever cell parses as an id), and `instances` lists **roots
   only** with `-q` for bare ids -- the list a group is fed from must name only what the
   group can act on, since every one of these verbs is root-only. Its **Prior art** section
   is load-bearing rather than decorative: the taxonomy is the

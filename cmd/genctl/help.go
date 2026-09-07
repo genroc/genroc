@@ -32,7 +32,8 @@ newest N (20; logs 200) and says on stderr when that dropped rows. --since reach
 back -- a duration (2h, 45m) or a timestamp -- and --until is its far end; [since, until)
 is half-open. Times display in, and are read in, the local zone ($TZ).`
 
-	instanceRefs = `An instance id is a UUID, or @last for the most recently started one (recorded by run).`
+	instanceRefs = `An instance id is an opaque digit-led token (6fah8w2p), or @last for the most
+recently started one (recorded by run).`
 )
 
 var commandDocs = map[string]commandDoc{

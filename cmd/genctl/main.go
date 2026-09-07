@@ -177,7 +177,7 @@ func instanceIDsAndFlags(fs *flag.FlagSet, args []string) []string {
 	// the same conflict-vs-mistake one the outcomes draw, moved one step earlier: what can
 	// be known without asking the server must not be discovered halfway through mutating.
 	// The case this exists for is a table pasted in where ids were meant (`instances`
-	// without -q), which otherwise pauses whichever cell happens to parse as a UUID while
+	// without -q), which otherwise pauses whichever cell happens to parse as an id while
 	// reporting a "not found" for every other word on the screen.
 	var bad []string
 	for _, ref := range pos {
@@ -191,7 +191,7 @@ func instanceIDsAndFlags(fs *flag.FlagSet, args []string) []string {
 			not = "are not instance ids"
 		}
 		fatal("%s %s — nothing was sent.\n"+
-			"  an instance id is a UUID, or @last%s", quoteSome(bad, 3), not, listHint(len(bad)))
+			"  an instance id is an opaque digit-led token, or @last%s", quoteSome(bad, 3), not, listHint(len(bad)))
 	}
 	ids := make([]string, len(pos))
 	for i, ref := range pos {

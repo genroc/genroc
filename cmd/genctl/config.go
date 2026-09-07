@@ -132,10 +132,10 @@ func resolveInstanceID(arg string) string {
 		fatal("an instance id is required — pass one explicitly, or @last for the most recently started instance")
 	}
 	if !isInstanceRef(arg) {
-		// Checked here rather than left to the server: an id is a UUID by construction, so
-		// anything else cannot name a row and the round trip can only come back "not found",
+		// Checked here rather than left to the server: an id has a fixed shape (internal/idgen),
+		// so anything else cannot name a row and the round trip can only come back "not found",
 		// which reads as "it is gone" rather than "that was never an id".
-		fatal("not an instance id: %q — an id is a UUID, or @last", arg)
+		fatal("not an instance id: %q — an id is an opaque digit-led token, or @last", arg)
 	}
 	if arg != "@last" {
 		return arg

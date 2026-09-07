@@ -750,7 +750,7 @@ test("a malformed id list is refused whole — nothing is sent, nothing is mutat
   expect(one.stderr).toContain("is not an instance id");
   expect(one.stderr).not.toContain("-q");
 
-  // The shape check must not cost @last, which is an id reference and not a UUID.
+  // The shape check must not cost @last, which names an id rather than being one.
   expect(runCli(bin, ["pause", "@last"]).ok).toBe(true);
 }, 30_000);
 
