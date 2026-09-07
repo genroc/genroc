@@ -148,12 +148,11 @@ func (t upgradeTally) done(target string, jsonOut bool) {
 	}
 }
 
-// What idgen mints, and the UUIDs rows written before it still carry. A hyphenated PROCESS NAME
-// can match the first, where a UUID could not -- `spawn-task` does, `web-api` does not (i and o
-// are outside the alphabet). Both commands sharing the positional take --process instead, so the
-// cost is a clear error rather than a wrong target.
+// What idgen mints, and the UUIDs rows written before it still carry. The leading DIGIT is what
+// keeps a process name from matching -- `upgrade` and `compat` read a name and an id in the same
+// positional, and `catcher` is otherwise a perfectly good id.
 var (
-	mintedIDRe = regexp.MustCompile(`^[0-9a-hjkmnp-tv-z]+-[0-9a-hjkmnp-tv-z]+$`)
+	mintedIDRe = regexp.MustCompile(`^[0-9][0-9a-hjkmnp-tv-z]{4,12}$`)
 	legacyIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 )
 

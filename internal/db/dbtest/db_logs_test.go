@@ -174,18 +174,19 @@ func TestListLogs_CursorPagination(t *testing.T) {
 	}
 }
 
-// TestListLogs_CursorTiebreaker pages through rows that all share one timestamp,
-// forcing the id tiebreaker to carry the keyset. It must return every row exactly
-// once, in order, on both engines — the property that distinguishes keyset
-// pagination from a naive ORDER BY created_at LIMIT/OFFSET.
+// TestListLogs_CursorTiebreaker pages through rows that all share one timestamp, so the keyset
+// rests entirely on the tiebreaker. It must return every row exactly once, in order, on both
+// engines — the property that distinguishes keyset pagination from ORDER BY + LIMIT/OFFSET.
 func TestListLogs_CursorTiebreaker(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			const n = 5
-			for i := 0; i < n; i++ {
-				// Same created_at for all; UUIDv7 ids stay monotonic, so the (created_at,
-				// id) keyset is a total order with insertion == id order.
-				appendLog(t, b.db, "inst-1", model.LogInfo, model.EventTaskCompleted, 1000)
+			written := make([]string, 0, n)
+			for i := range n {
+				// One created_at for all of them, so (created_at, seq, id) is carried by seq.
+				event := fmt.Sprintf("row_%d", i)
+				appendLog(t, b.db, "inst-1", model.LogInfo, event, 1000)
+				written = append(written, event)
 			}
 
 			var collected []string
@@ -206,7 +207,7 @@ func TestListLogs_CursorTiebreaker(t *testing.T) {
 						t.Fatalf("duplicate id %s across pages", l.ID)
 					}
 					seen[l.ID] = true
-					collected = append(collected, l.ID)
+					collected = append(collected, l.Event)
 				}
 				// next_cursor is always set now (it points past the last row even on the
 				// final page), so terminate on items_after instead.
@@ -216,15 +217,13 @@ func TestListLogs_CursorTiebreaker(t *testing.T) {
 				after = info.After
 			}
 			if len(collected) != n {
-				t.Fatalf("collected %d ids, want %d (no skips/dupes)", len(collected), n)
+				t.Fatalf("collected %d rows, want %d (no skips/dupes)", len(collected), n)
 			}
-			// Newest-first is the default, and every row shares a created_at, so the id
-			// tiebreaker alone carries the order — strictly descending, with no row
-			// repeated or skipped at a page boundary.
-			for i := 1; i < len(collected); i++ {
-				if collected[i-1] <= collected[i] {
-					t.Errorf("ids not strictly descending at %d: %s <= %s", i, collected[i-1], collected[i])
-				}
+			// Newest-first is the default, so the pages must come back as the reverse of the
+			// order they were written -- with nothing repeated or skipped at a boundary.
+			slices.Reverse(collected)
+			if !slices.Equal(collected, written) {
+				t.Errorf("paging reordered rows sharing a timestamp:\n got %v\nwant %v", collected, written)
 			}
 		})
 	}

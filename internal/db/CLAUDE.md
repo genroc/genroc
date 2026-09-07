@@ -126,7 +126,10 @@ landed between; ids from two streams can be equal, and the one place kinds meet 
 keyed `(hash, owner_kind, owner_id)`. Two things deliberately do not come from it: a token SECRET
 (`crypto/rand` — a counter is predictable) and the engine's `worker_id`.
 
-- **An id does not sort, and nothing may assume it does** ([internal/idgen](../idgen/idgen.go)).
+- **An id is opaque and does not sort** ([internal/idgen](../idgen/idgen.go)): the (worker,
+  counter) pair is scattered by a Feistel permutation inside its own width, which is injective —
+  two mints cannot meet the way two hashes can, and neither number is bounded. Leading with a
+  digit is what keeps a process name from matching it in `upgrade`/`compat`'s shared positional.
   A trail inside a millisecond is ordered by `process_logs.seq`, the minting counter stored
   beside the id (migration 042); `process_signals.seq` does the same for the FIFO. The sort key
   is `(created_at, seq, id)` — **id last because the cursor key must be unique**, and because

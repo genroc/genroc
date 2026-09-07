@@ -4,9 +4,9 @@ import { join } from "path";
 import { beforeAll, expect, test } from "vitest";
 import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
 
-// A minted id: `<worker>-<counter>` in Crockford base32 (no i, l, o or u). One form -- what a
+// A minted id: one opaque token, digit-led so a process name cannot match it. One form -- what a
 // listing prints is what every command takes back, with nothing to shorten or expand.
-const ID_RE = /^[0-9a-hjkmnp-tv-z]+-[0-9a-hjkmnp-tv-z]+$/;
+const ID_RE = /^[0-9][0-9a-hjkmnp-tv-z]{4,12}$/;
 import { waitForInstance } from "../helpers/client.ts";
 import {
   BIG_BLOB,
