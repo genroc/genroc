@@ -5,7 +5,9 @@
 // identical in either place. The CLI adds a header (it has the whole page); the
 // streaming server can't, and its operational (non-event) logs render free-form. The
 // one width that varies is the time column (TimeStyle) — the console is pinned to
-// TimeClock, so the two stay identical unless the CLI is asked for something else.
+// TimeClock, so the two stay identical unless the CLI is asked for something else. The CLI
+// also cuts each line to a width (Clamp): it renders into a terminal it can be told the size
+// of, and the console renders into whatever its stdout is.
 //
 // The one thing that does differ is the zone: the console is UTC (a fleet's logs must
 // collate), the CLI is the reader's local (an operator correlates against their own
@@ -24,6 +26,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"genroc/internal/model"
 )
 
 // Mode is how a record is rendered: basic shows the bounded columns/fields, detail
@@ -148,8 +152,10 @@ func (r Record) Detail(mode Mode) []Field {
 		fs = append(fs, Field{"code", r.Code})
 	}
 	// "by", not "actor": this sits among msg/code in a dense one-line trail, and the events
-	// carrying it are the ones an operator scans asking who did it.
-	if r.Actor != "" {
+	// carrying it are the ones an operator scans asking who did it. model.ActorEngine is on
+	// nearly every row, so rendering it would spend a field on every line to say nothing --
+	// the storage keeps it either way, and the API answers with it.
+	if r.Actor != "" && r.Actor != model.ActorEngine {
 		fs = append(fs, Field{"by", r.Actor})
 	}
 	for _, k := range sortedKeys(r.Meta) {
@@ -171,6 +177,20 @@ func RenderEvent(style TimeStyle, t time.Time, level, id, event, task string, de
 		line += "  " + d
 	}
 	return strings.TrimRight(line, " ")
+}
+
+// Clamp cuts line to width characters, marking the cut with an ellipsis; width <= 0 leaves it
+// whole. A trail is one event per line: a payload long enough to wrap takes the column
+// alignment of every row after it with it, so the body is cut rather than the layout.
+func Clamp(line string, width int) string {
+	if width <= 0 {
+		return line
+	}
+	r := []rune(line)
+	if len(r) <= width {
+		return line
+	}
+	return string(r[:width-1]) + "…"
 }
 
 // RenderFree renders an operational record (no event) free-form: time, level, the message

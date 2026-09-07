@@ -75,7 +75,8 @@ Deliberate exceptions — special-purpose, not resource list/get. Leave them:
 - `logs` keeps `--mode basic|detail|json`: three views, and its json is JSONL (one object
   per line, streaming), not a `{items, page}` array. It also caps at 200 rather than
   `listCap` and renders as it streams — the others build a tabwriter, which sizes its
-  columns from every row and so cannot.
+  columns from every row and so cannot. The text views cut each row to one line
+  (`defaultLogWidth`, `$COLUMNS` overrides); json is the uncut form.
 - **An id is printed in full, everywhere.** There is no short form: ids are 14 characters
   (internal/idgen), so what a listing prints is what a command takes back. `shortID` — which
   truncated to the LAST 6 characters, because a UUIDv7's leading bits are a timestamp and its

@@ -24,6 +24,7 @@ beforeAll(() => {
 }, 60_000);
 
 const logTailDefault = 200; // cmd/genctl/commands.go
+const defaultLogWidth = 120; // cmd/genctl/format.go
 
 /** Apply a definition, run it to completion, and return the instance id. */
 async function ran(def: object & { name: string }, want = "completed"): Promise<string> {
@@ -50,6 +51,7 @@ function jsonRows(id: string, extra: string[] = [], env: Record<string, string> 
           instance: string;
           level: string;
           event: string;
+          actor?: string;
         },
     );
 }
@@ -107,6 +109,55 @@ test("logs --mode json — timestamps are UTC RFC3339, independent of the reader
   expect(prague).toEqual(utc);
   for (const t of utc) expect(t.endsWith("Z")).toBe(true);
 });
+
+// ── attribution and line width ──────────────────────────────────────────────────
+
+test("logs — an operator's attribution prints, the engine's own does not", async () => {
+  const id = await ran(switchDef(uid("actor")));
+  const out = runCli(bin, ["logs", id], { COLUMNS: "500" }).stdout;
+
+  expect(
+    out,
+    "engine:self is on nearly every row, so printing by= there spends a field per line to say nothing",
+  ).not.toContain("by=engine:self");
+  // The row a person caused still names them: `run` reached the API as the operator.
+  expect(out).toMatch(/inst_created\s+by=\S+/);
+  // A render choice, not a write one -- the stored trail is what an audit answers with.
+  expect(
+    jsonRows(id).some((r) => r.actor === "engine:self"),
+    "the engine stopped recording its own attribution; empty means \"predates migration 038\"",
+  ).toBe(true);
+});
+
+test("logs — a long payload is cut to the line width, never wrapped", async () => {
+  const name = uid("wide");
+  runCli(bin, ["apply", "-f", writeDefs([blobInputDef(name)])]);
+  // Under the 2 KiB object-store cutoff, so the payload stays in the row rather than
+  // becoming a ref -- a long line is the thing under test.
+  const blob = "W".repeat(400);
+  const id = runCli(bin, ["run", name, "--input", JSON.stringify({ blob }), "-q"]).stdout.trim();
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const narrow = runCli(bin, ["logs", id], { COLUMNS: "80" }).stdout.trim().split("\n");
+  for (const l of narrow) {
+    expect(
+      l.length,
+      `a row wider than the terminal wraps, and takes the column alignment of every row after it with it: ${l}`,
+    ).toBeLessThanOrEqual(80);
+  }
+  expect(narrow.some((l) => l.endsWith("…"))).toBe(true);
+
+  // A wider budget shows more of the same row, and json is the form that is never cut.
+  const wide = runCli(bin, ["logs", id], { COLUMNS: "200" }).stdout.trim().split("\n");
+  expect(wide.length).toBe(narrow.length);
+  expect(wide.join("").length).toBeGreaterThan(narrow.join("").length);
+  expect(runCli(bin, ["logs", id, "--mode", "json"]).stdout).toContain(blob);
+
+  // No COLUMNS: a fixed default width, not the whole line.
+  const dflt = runCli(bin, ["logs", id], { COLUMNS: "" }).stdout.trim().split("\n");
+  expect(Math.max(...dflt.map((l) => l.length))).toBeLessThanOrEqual(defaultLogWidth);
+  expect(dflt.some((l) => l.endsWith("…"))).toBe(true);
+}, 15_000);
 
 // ── the time column ─────────────────────────────────────────────────────────────
 
@@ -275,7 +326,8 @@ test("logs — an externalized payload shows its ref, and `object` fetches it", 
     .stdout.trim();
   expect(await waitForInstance(id)).toBe("completed");
 
-  const plain = runCli(bin, ["logs", id]);
+  // A wide budget: the ref is the point of this row, and the default width would cut it.
+  const plain = runCli(bin, ["logs", id], { COLUMNS: "500" });
   expect(plain.ok).toBe(true);
   // The handle sits where the value was cut from, inside the payload's own shape -- the entry
   // is not replaced by a ref, only the leaf that was too big to carry.

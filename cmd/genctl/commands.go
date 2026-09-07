@@ -806,7 +806,7 @@ func runLogsCmd(server string, args []string) {
 	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04); empty = the newest 200 entries")
 	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
 	flatFlag := fs.Bool("flat", false, "this instance's own rows only; by default a ROOT id answers with every row in its tree")
-	modeFlag := fs.String("mode", "detail", "output: basic (no data body), detail (+ data), or json (one JSON object per line, untruncated)")
+	modeFlag := fs.String("mode", "detail", "output: basic (no data body), detail (+ data, cut to one line -- $COLUMNS sets the width), or json (one JSON object per line, untruncated)")
 	timeFlag := fs.String("time", "clock", "time column: clock (15:04:05, with a day separator per date) or full (2006-01-02 15:04:05 +02:00); both render in the local zone ($TZ)")
 	id := instanceIDAndFlags(fs, args)
 	mode, err := logview.ParseMode(*modeFlag)
@@ -882,7 +882,7 @@ func runLogsCmd(server string, args []string) {
 	// Shared logview layout, so a row reads identically here and on the server console. The
 	// header waits for the first row (an empty trail prints nothing); day carries the last
 	// date rendered so each new day gets a DateBreak. Both fetchOrdered paths render here.
-	header, day := false, ""
+	header, day, width := false, "", logLineWidth()
 	capped, err := fetchOrdered(u, limit, newestFirst, func(rows []logRow) error {
 		for _, l := range rows {
 			if !header {
@@ -899,7 +899,7 @@ func runLogsCmd(server string, args []string) {
 			if tree {
 				idTag = l.Instance
 			}
-			fmt.Fprintln(out, logview.RenderEvent(style, t, l.Level, idTag, l.Event, l.Task, rec.Detail(mode), tree))
+			fmt.Fprintln(out, logview.Clamp(logview.RenderEvent(style, t, l.Level, idTag, l.Event, l.Task, rec.Detail(mode), tree), width))
 		}
 		return out.Flush()
 	})

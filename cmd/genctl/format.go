@@ -2,8 +2,26 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 )
+
+// ── output width ────────────────────────────────────────────────────────────────
+
+// logLineWidth is the budget one log line is cut to (logview.Clamp). It is fixed rather than
+// read off the terminal -- genctl links no terminal library, and a trail piped to a file would
+// have no width to read anyway; $COLUMNS is the override, and --mode json is never cut.
+func logLineWidth() int {
+	if n, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && n > 0 {
+		return n
+	}
+	return defaultLogWidth
+}
+
+// Wide enough for the 59-column row prefix plus a short payload, narrow enough to fit the
+// terminal most trails are read in.
+const defaultLogWidth = 120
 
 // ── time formatting ─────────────────────────────────────────────────────────────
 

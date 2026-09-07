@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"genroc/internal/model"
 )
 
 func TestLabel(t *testing.T) {
@@ -62,6 +64,47 @@ func TestDetail(t *testing.T) {
 	}
 	if hasKey(detail, "id") || hasKey(detail, "task") {
 		t.Errorf("id/task are columns, not detail: %v", detail)
+	}
+}
+
+func TestDetailActor(t *testing.T) {
+	engine := Record{Event: "work_started", Actor: model.ActorEngine}.Detail(ModeDetail)
+	if hasKey(engine, "by") {
+		t.Errorf("the engine attributes every advance to itself, so a rendered by= would cost a "+
+			"field on nearly every line to say nothing: %v", engine)
+	}
+	op := Record{Event: "inst_paused", Actor: "token:oncall-kim"}.Detail(ModeDetail)
+	if !hasKey(op, "by") {
+		t.Errorf("an operator-caused row lost its attribution -- who asked for it is the one "+
+			"thing these rows are scanned for: %v", op)
+	}
+}
+
+func TestClamp(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		line  string
+		width int
+		want  string
+	}{
+		{"under the width is untouched", "abcde", 8, "abcde"},
+		{"exactly the width is untouched", "abcde", 5, "abcde"},
+		{"over the width ends in the ellipsis", "abcdefgh", 5, "abcd…"},
+		{"no width leaves the line whole", "abcdefgh", 0, "abcdefgh"},
+		// Runes, not bytes: cutting mid-rune would emit a replacement char, and a
+		// multi-byte payload would be cut far shorter than the width asked for.
+		{"multi-byte counts as one column", "áéíóú", 5, "áéíóú"},
+		{"multi-byte cuts on the rune", "áéíóú", 3, "áé…"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Clamp(tc.line, tc.width); got != tc.want {
+				t.Errorf("Clamp(%q, %d) = %q, want %q", tc.line, tc.width, got, tc.want)
+			}
+			if got := len([]rune(Clamp(tc.line, tc.width))); tc.width > 0 && got > tc.width {
+				t.Errorf("Clamp left %d columns, over the %d asked for -- the row wraps and takes "+
+					"the alignment of every row after it", got, tc.width)
+			}
+		})
 	}
 }
 

@@ -56,6 +56,11 @@ const (
 	EventLeaseLost = "lease_lost"
 )
 
+// ActorEngine is the Actor recorded for work genroc does on its own behalf. NOT empty: empty
+// means "written before attribution existed" (migration 038), and an engine advance is a known
+// actor. It is stored on every such row but not rendered -- see logview.Record.Detail.
+const ActorEngine = "engine:self"
+
 // LogEntry is one persisted line of an instance's execution audit trail.
 //
 // Data carries the single raw payload an event is about — a process/task input,
