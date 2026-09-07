@@ -98,7 +98,7 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 
 	// SQLite cannot reference a FROM table in RETURNING, so it selects then updates inside one
 	// transaction; the single-writer model makes that atomic without FOR UPDATE.
-	tx, _, raw, err := db.beginTx(ctx, nil)
+	tx, qtx, raw, err := db.beginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -142,11 +142,11 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 	if err != nil {
 		return nil, err
 	}
-	if _, err := raw.ExecContext(ctx,
-		`UPDATE process_instances SET external_worker_id = ?, external_lease_expires_at = ?,
-		    external_claim_epoch = external_claim_epoch + 1
-		 WHERE id IN (SELECT value FROM json_each(?))`,
-		workerID, leaseExpiry, string(idsJSON)); err != nil {
+	if err := qtx.GrantExternalLeases(ctx, dbgen.GrantExternalLeasesParams{
+		ExternalWorkerID:       sql.NullString{String: workerID, Valid: true},
+		ExternalLeaseExpiresAt: sql.NullInt64{Int64: leaseExpiry, Valid: true},
+		Ids:                    string(idsJSON),
+	}); err != nil {
 		return nil, err
 	}
 
@@ -182,14 +182,11 @@ func (db *DB) RenewExternalClaims(ctx context.Context, workerID string, ids []st
 		if err != nil {
 			return total, err
 		}
-		res, err := db.exec.ExecContext(ctx,
-			`UPDATE process_instances SET external_lease_expires_at = ?
-			 WHERE id IN (SELECT value FROM json_each(?)) AND external_worker_id = ?`,
-			newExpiry, string(idsJSON), workerID)
-		if err != nil {
-			return total, err
-		}
-		n, err := res.RowsAffected()
+		n, err := db.q.RenewExternalLeasesChunk(ctx, dbgen.RenewExternalLeasesChunkParams{
+			NewExpiry:        sql.NullInt64{Int64: newExpiry, Valid: true},
+			Ids:              string(idsJSON),
+			ExternalWorkerID: sql.NullString{String: workerID, Valid: true},
+		})
 		if err != nil {
 			return total, err
 		}

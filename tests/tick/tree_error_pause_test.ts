@@ -261,6 +261,12 @@ test("a fails while the tree is paused — failure propagates, and resume unbloc
       rootLogs!.items!.find((l) => l.event === "inst_pause_requested")!.meta,
     ).toMatchObject({ instances: 4, pausing: 1 });
 
+    // Pausing again while a is still draining reports `accepted`, not `unchanged`. Nothing
+    // is left to write -- the whole tree is already paused or pausing -- so the difference
+    // comes entirely from CountDrainingInTree, and a caller told "unchanged" would read a
+    // tree with a worker still inside a task as stopped.
+    expect(await ctx.env.pause(gp)).toBe("accepted");
+
     // Release the held 500. The engine still holds a as in-memory 'running', so the
     // failure path runs: failInstance(a) → FailAncestors, whose predicate includes
     // paused rows — a failure is a real outcome and must not be hidden by a

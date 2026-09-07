@@ -53,6 +53,17 @@ func TestListLogs_OrderAndFilters(t *testing.T) {
 			// A different instance must not leak into inst-1's logs.
 			appendLog(t, b.db, "inst-2", model.LogInfo, model.EventActionStarted, 1500)
 
+			// These rows have no instance row at all -- a trail outliving what wrote it.
+			// LogsFor must still answer with them: an id it cannot place is not a root, so
+			// its own rows are the most that can be said about it.
+			orphan, _, err := b.db.LogsFor("inst-1", false, dbpkg.LogQuery{})
+			if err != nil {
+				t.Fatalf("LogsFor(inst-1): %v", err)
+			}
+			if len(orphan) != 4 {
+				t.Fatalf("logs whose instance is gone: want 4, got %d", len(orphan))
+			}
+
 			all, _, err := b.db.ListLogs("inst-1", dbpkg.LogQuery{})
 			if err != nil {
 				t.Fatalf("ListLogs: %v", err)

@@ -177,15 +177,15 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 	})
 }
 
-// subtreeCTE binds `subtree` to an instance and every descendant via parent_id, taking NO
-// row locks: mutating callers lock the enumerated rows in a SEPARATE step, ORDER BY id
-// FOR UPDATE (the shared global order) — Postgres deadlocks otherwise, and forbids
-// FOR UPDATE inside a recursive CTE anyway.
-const subtreeCTE = `WITH RECURSIVE subtree(id) AS (
-	SELECT id FROM process_instances WHERE id = ?
-	UNION ALL
-	SELECT pi.id FROM process_instances pi JOIN subtree s ON pi.parent_id = s.id
-)`
+// inTree selects a whole tree by the root id stored on every row (migration 040), replacing a
+// WITH RECURSIVE walk over parent_id. It takes NO row locks: mutating callers lock the
+// enumerated rows in a SEPARATE step, ORDER BY id FOR UPDATE (the shared global order) --
+// Postgres deadlocks otherwise.
+//
+// **The bound id must be a ROOT.** A child matches nothing here, where the walk would have
+// returned the subtree under it; every caller is gated by requireRoot (the upgrade path by the
+// handler's own parent check), which is the same rule the operations themselves enforce.
+const inTree = `root_id = ?`
 
 // forUpdate is the lock clause appended to the subtree-locking SELECT on Postgres;
 // SQLite serialises via its single writer and has no FOR UPDATE syntax.
@@ -231,12 +231,12 @@ func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResu
 		// Lock the rows this call mutates, in id order — the shared global order that prevents
 		// deadlocks. Selecting rather than blind-updating also yields the per-instance outcome
 		// the audit trail needs, which a row count cannot express.
-		rows, err := exec.QueryContext(ctx, subtreeCTE+`
+		rows, err := exec.QueryContext(ctx, `
 		SELECT id, CASE WHEN worker_id IS NOT NULL AND lease_expires_at > ?
 		                THEN 1 ELSE 0 END AS held
 		FROM process_instances
-		WHERE id IN (SELECT id FROM subtree) AND status = 'running'
-		ORDER BY id`+db.forUpdate(), id, now)
+		WHERE `+inTree+` AND status = 'running'
+		ORDER BY id`+db.forUpdate(), now, id)
 		if err != nil {
 			return fmt.Errorf("lock tree: %w", err)
 		}
@@ -277,10 +277,10 @@ func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResu
 
 		// A worker mid-task cannot be stopped, so a leased row only records the request
 		// ('pausing') and lands in 'paused' on the write that finishes its task.
-		if err := updateStatusIn(ctx, exec, settled, string(model.StatusPaused), now); err != nil {
+		if err := updateStatusIn(ctx, qtx, settled, string(model.StatusPaused), now); err != nil {
 			return fmt.Errorf("pause process: %w", err)
 		}
-		if err := updateStatusIn(ctx, exec, leased, string(model.StatusPausing), now); err != nil {
+		if err := updateStatusIn(ctx, qtx, leased, string(model.StatusPausing), now); err != nil {
 			return fmt.Errorf("pause process: %w", err)
 		}
 
@@ -331,10 +331,8 @@ func (db *DB) lifecycleResult(ctx context.Context, id string, outcome model.Outc
 	return LifecycleResult{Outcome: outcome, Status: model.Status(row.Status), Instances: written}, nil
 }
 
-// updateStatusIn sets status on an explicit id list (already locked by the caller),
-// binding the ids as a JSON array through json_each -- the same dynamic-IN pattern as
-// FailAncestors, and the reason no dialect branch is needed here.
-func updateStatusIn(ctx context.Context, exec dbgen.DBTX, ids []string, status string, now int64) error {
+// updateStatusIn sets status on an explicit id list the caller has already locked.
+func updateStatusIn(ctx context.Context, qtx *dbgen.Queries, ids []string, status string, now int64) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -342,11 +340,9 @@ func updateStatusIn(ctx context.Context, exec dbgen.DBTX, ids []string, status s
 	if err != nil {
 		return err
 	}
-	_, err = exec.ExecContext(ctx,
-		`UPDATE process_instances SET status = ?, updated_at = ?
-		 WHERE id IN (SELECT value FROM json_each(?))`,
-		status, now, string(idsJSON))
-	return err
+	return qtx.SetStatusIn(ctx, dbgen.SetStatusInParams{
+		Status: status, UpdatedAt: now, Ids: string(idsJSON),
+	})
 }
 
 // logTreeAction records an operator's pause on the root at info level — the counts are
@@ -405,9 +401,9 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
 		now := nowMillis()
 
-		rows, err := exec.QueryContext(ctx, subtreeCTE+`
+		rows, err := exec.QueryContext(ctx, `
 		SELECT id FROM process_instances
-		WHERE id IN (SELECT id FROM subtree) AND status IN ('paused', 'pausing')
+		WHERE `+inTree+` AND status IN ('paused', 'pausing')
 		ORDER BY id`+db.forUpdate(), id)
 		if err != nil {
 			return fmt.Errorf("lock tree: %w", err)
@@ -441,7 +437,7 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 			}
 			return nil
 		}
-		if err := updateStatusIn(ctx, exec, resumed, string(model.StatusRunning), now); err != nil {
+		if err := updateStatusIn(ctx, qtx, resumed, string(model.StatusRunning), now); err != nil {
 			return fmt.Errorf("resume process: %w", err)
 		}
 
@@ -523,11 +519,11 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 	defer tx.Rollback()
 
 	// Lock and load the whole tree in id order (the shared global order) so concurrent
-	// pauses and child completions serialize against the revival; subtreeCTE enumerates,
-	// the outer FOR UPDATE (Postgres) locks.
-	rows, err := exec.QueryContext(ctx, subtreeCTE+`
+	// pauses and child completions serialize against the revival; the FOR UPDATE (Postgres)
+	// locks what the root_id scan enumerates.
+	rows, err := exec.QueryContext(ctx, `
 		SELECT `+instanceColumns+` FROM process_instances
-		WHERE id IN (SELECT id FROM subtree) AND superseded_at IS NULL
+		WHERE `+inTree+` AND superseded_at IS NULL
 		ORDER BY id`+db.forUpdate(), id)
 	if err != nil {
 		return LifecycleResult{}, fmt.Errorf("lock tree: %w", err)

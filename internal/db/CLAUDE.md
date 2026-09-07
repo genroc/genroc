@@ -18,10 +18,17 @@ Rules:
 
 Hand-written SQL (the exceptions below) uses `?` placeholders run through the rewriter-aware executor — `db.exec` (non-transactional) or the `dbtx` returned by `beginTx` (in a transaction), both `pgRewriter`-wrapped, which rewrites `?`→`$N` on Postgres. Never hand-write `$N` or branch a query just for placeholders; the only legitimate dialect branch is a genuine SQL feature gap (e.g. `FOR UPDATE`). A raw `db.sqldb.BeginTx` + `tx.ExecContext` does NOT rewrite — use `beginTx`'s `dbtx`.
 
-Exceptions (hand-written in Go, not in `queries.sql`):
-- `ClaimInstances` (`db_claim.go`) — PostgreSQL uses `FOR UPDATE SKIP LOCKED` for concurrent workers; SQLite's single-writer model does not support this.
+Exceptions (hand-written in Go, not in `queries.sql`). Each is one of four reasons — a
+`FOR UPDATE` a dialect lacks, a predicate built at runtime, a statement whose LENGTH varies, or a
+dynamic `ORDER BY`. **A statement with none of them belongs in `queries.sql`**, where sqlc checks
+it against the schema for both engines at generate time; four of them (`SetStatusIn`,
+`GrantLeases`, `GrantExternalLeases`, `RenewExternalLeasesChunk`) sat here on the strength of
+their NEIGHBOURS' reasons until an audit moved them. A dynamic id list is not a reason: it binds
+as one JSON array through `json_each`, which sqlc expresses fine.
+- `ClaimInstances` (`db_claim.go`) — PostgreSQL uses `FOR UPDATE SKIP LOCKED` for concurrent workers; SQLite's single-writer model does not support this. Its second half, the grant, is `GrantLeases` in `queries.sql` — the dialect gap is the SELECT, not the UPDATE. Same split in `db_external_claim.go` (`GrantExternalLeases`).
+- `writeLogBatch` (`db_logs.go`) — a multi-row INSERT whose row count varies, which no named query can express.
 - `collectUnreferencedPG` (`db_objects.go`) — the object sweep splits into `SELECT … FOR UPDATE` then `DELETE` on Postgres, so the delete decides on a snapshot taken after any writer it waited for. Neither statement binds a value, so the raw `db.sqldb` transaction needs no placeholder rewriting.
-- `PauseProcess` / `ResumeProcess` / `RetryProcess` (`db_lifecycle.go`) — enumerate a process tree with a `WITH RECURSIVE` walk over `parent_id` (`subtreeCTE`), appending a dialect-dependent `FOR UPDATE` and binding a dynamic id list. **The log queries no longer walk anything** (migration 040, below). **The CTE alone is not the reason**: sqlc parses `WITH RECURSIVE` fine (`SubtreeForUpgrade`, `CountDrainingInTree`), so a tree query that takes no locks and binds no dynamic list belongs in `queries.sql` like any other — only the locking, list-binding steps stay here. The recursive CTE takes no row locks; the mutating step then locks the result `ORDER BY created_at, id FOR UPDATE` in a separate step (Postgres only) — the global order shared with `FinishChild`/`FailInstanceAndAncestors` that prevents deadlocks (Postgres also forbids `FOR UPDATE` inside a recursive CTE, forcing this split).
+- `PauseProcess` / `ResumeProcess` / `RetryProcess` (`db_lifecycle.go`) — select a tree with `inTree` (`root_id = ?`, migration 040) and append a dialect-dependent `FOR UPDATE`, binding a dynamic id list. **The enumeration is not why they are here**: a tree query that takes no locks and binds no dynamic list belongs in `queries.sql` like any other (`CountDrainingInTree`, `NonTerminalSubtree`) — only the locking, list-binding steps stay. The selection takes no row locks; the mutating step then locks the result `ORDER BY created_at, id FOR UPDATE` in a separate step (Postgres only) — the global order shared with `FinishChild`/`FailInstanceAndAncestors` that prevents deadlocks.
 - The list endpoints — `ListInstances`, `ListExternalTasks`, `ListDefinitions`, `ListChannels`, `ListLogs`/`ListTreeLogs` — take a dynamic `ORDER BY` + keyset cursor, which sqlc can't express (a column name / `ASC`/`DESC` is never a bind value). They share the bidirectional keyset paginator in `paginate.go`: a wrapper declares a `paginator` (its table, columns, the **index-backed** sortable columns, and the filterable columns), adds filters by column+value via `Eq`/`EqIf`/`GteIf`, and calls `build()` (or `buildSource()` for a static prefix such as a CTE) to get the page query (`SELECT … FROM … WHERE … ORDER BY … LIMIT ?`). Column names and operators come only from the whitelists; all values are bound `?`, so there is no injection surface. After the page is scanned, `orient` flips a backward page back to display order and yields its boundary key values, then `built.countQuery` counts how many rows fall before the first / after the last row as **two bounded subqueries** (`SELECT (SELECT COUNT(*) FROM (… WHERE <before-keyset> LIMIT cap+1)), (SELECT COUNT(*) FROM (… WHERE <after-keyset> LIMIT cap+1))`) — each scans at most `pageCountCap+1` (1001) rows, so a value of 1001 means ">1000" (UI shows "1000+"); there is no unbounded grand `COUNT(*)`. `db.pageInfo` assembles `PageInfo`. The cursor is an opaque base64 token carrying the sort key+direction (rejected if reused under a different sort/direction); `After` pages forward, `Before` backward. The HTTP layer returns `{items, page:{size, items_before, items_after, sort, order, after, before}}` (`PageResp[T]`). `sort`/`order` echo the effective sort key + direction; `after`/`before` are the cursors to pass straight back as `?after`/`?before` (same names as the request params) and each is set only in a direction that has more rows — so cursor presence is itself the has-more signal and a page-to-end loop terminates when `after` is absent. Page size defaults to 20, capped at 100. Sorts are restricted to index-backed columns and extended by adding a key to the `sorts` map (with a matching index).
 
 The hand-written persistence layer is split across `db_*.go` files by domain (`db_registry.go`, `db_instances.go`, `db_claim.go`, `db_lifecycle.go`); `db.go` holds the `DB` type, connection setup, and time/null helpers.
@@ -127,6 +134,13 @@ there being one source of truth. **A new insert path must carry the subquery**, 
 A `depth` column rode along at first and was dropped before it shipped: nothing read it, and a
 tree's rows are told apart by instance id.
 
+**Every tree query in the codebase now reads `root_id`**; there is no `WITH RECURSIVE` left
+outside migration 040's own backfill. All of them — pause, resume, retry, `CountDrainingInTree`,
+`NonTerminalSubtree` — therefore require the bound id to BE a root: a child matches nothing where
+the walk used to return the subtree under it. Each caller is already gated (`requireRoot`, and
+the upgrade handler's own parent check), and those gates are now load-bearing rather than
+merely polite.
+
 `LogsFor(id, flat)` is what the endpoint calls: a tree read when the id names a ROOT (one extra
 PK lookup to find out), that instance's own rows otherwise. A subtree hanging off a child is not
 addressable — the same rule `requireRoot` applies to pause/resume/retry/upgrade — and that is
@@ -157,7 +171,7 @@ Both read as zero, and a retry budget that never advances never terminates.
 
 ### PostgreSQL runtime setup
 
-`open()` in `db.go` runs a Postgres-only bootstrap (the `if dialect == "postgres"` block) after migrations: the `json_each` helper function and **aggressive autovacuum on `process_instances`**. (Tree enumeration uses a recursive `parent_id` walk, so there is no `call_stack` GIN index.)
+`open()` in `db.go` runs a Postgres-only bootstrap (the `if dialect == "postgres"` block) after migrations: the `json_each` helper function and **aggressive autovacuum on `process_instances`**. (Tree enumeration reads the indexed `root_id`, so there is no `call_stack` GIN index.)
 
 `process_instances` is a high-churn queue table: every instance passes through `status='running'` and then completes, leaving a dead tuple in `idx_instances_runnable` (the partial index over runnable rows that `ClaimInstances` walks — see migration 010). `ClaimInstances` runs on every poll by every worker and must skip those dead entries, so a burst of completions outruns the default autovacuum (`scale_factor=0.2`, i.e. 20% dead) and claim latency drifts up until it catches up — visible as the benchmark getting slower as finished instances accumulate, and fast again on a fresh DB. The bootstrap sets `autovacuum_vacuum_scale_factor=0.02` + unthrottled so dead tuples are reclaimed ~10× sooner. This is Postgres-only: SQLite updates rows in place (no MVCC dead tuples), so it has no equivalent bloat. A different index does not help — dead entries follow the rows into whatever index covers the runnable set; only vacuum reclaims them.
 

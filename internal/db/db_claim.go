@@ -166,7 +166,7 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 	// SQLite can't reference a FROM table in RETURNING, so it selects-then-updates
 	// in one transaction. Its single-writer model makes that atomic (no FOR UPDATE);
 	// the selected worker_id is the prior owner, before we overwrite it.
-	tx, _, raw, err := db.beginTxAt(ctx, syncStrict, nil)
+	tx, qtx, raw, err := db.beginTxAt(ctx, syncStrict, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -211,11 +211,11 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 	if err != nil {
 		return nil, err
 	}
-	if _, err := raw.ExecContext(ctx,
-		`UPDATE process_instances SET worker_id = ?, lease_expires_at = ?,
-		    lease_epoch = lease_epoch + 1
-		 WHERE id IN (SELECT value FROM json_each(?))`,
-		workerID, leaseExpiry, string(idsJSON)); err != nil {
+	if err := qtx.GrantLeases(ctx, dbgen.GrantLeasesParams{
+		WorkerID:       sql.NullString{String: workerID, Valid: true},
+		LeaseExpiresAt: sql.NullInt64{Int64: leaseExpiry, Valid: true},
+		Ids:            string(idsJSON),
+	}); err != nil {
 		return nil, err
 	}
 

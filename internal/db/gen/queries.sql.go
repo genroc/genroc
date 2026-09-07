@@ -152,14 +152,8 @@ func (q *Queries) CountBufferedSignals(ctx context.Context, arg CountBufferedSig
 const countDrainingInTree = `-- name: CountDrainingInTree :one
 
 
-WITH RECURSIVE subtree(id) AS (
-    SELECT process_instances.id FROM process_instances WHERE process_instances.id = ?1
-    UNION ALL
-    SELECT pi.id FROM process_instances pi JOIN subtree s ON pi.parent_id = s.id
-)
 SELECT COUNT(*) FROM process_instances
-WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
-  AND process_instances.status = 'pausing'
+WHERE root_id = ?1 AND status = 'pausing'
 `
 
 // ListLogs (one instance) and ListTreeLogs (a whole tree) are hand-written in db_logs.go:
@@ -173,6 +167,8 @@ WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
 //
 // Unlike its neighbours in db_lifecycle.go this one is expressible here: it takes no row
 // locks (no dialect-dependent FOR UPDATE) and binds no dynamic id list.
+//
+// `root` must BE a root: root_id names the tree (migration 040), so a child counts nothing.
 func (q *Queries) CountDrainingInTree(ctx context.Context, root string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countDrainingInTree, root)
 	var count int64
@@ -671,6 +667,48 @@ func (q *Queries) GetWaitState(ctx context.Context, id string) (string, error) {
 	return wait_state, err
 }
 
+const grantExternalLeases = `-- name: GrantExternalLeases :exec
+UPDATE process_instances
+SET external_worker_id = ?1,
+    external_lease_expires_at = ?2,
+    external_claim_epoch = external_claim_epoch + 1
+WHERE id IN (SELECT value FROM json_each(?3))
+`
+
+type GrantExternalLeasesParams struct {
+	ExternalWorkerID       sql.NullString
+	ExternalLeaseExpiresAt sql.NullInt64
+	Ids                    interface{}
+}
+
+// The external queue's twin of GrantLeases, on the external-claim trio.
+func (q *Queries) GrantExternalLeases(ctx context.Context, arg GrantExternalLeasesParams) error {
+	_, err := q.db.ExecContext(ctx, grantExternalLeases, arg.ExternalWorkerID, arg.ExternalLeaseExpiresAt, arg.Ids)
+	return err
+}
+
+const grantLeases = `-- name: GrantLeases :exec
+UPDATE process_instances
+SET worker_id = ?1, lease_expires_at = ?2,
+    lease_epoch = lease_epoch + 1
+WHERE id IN (SELECT value FROM json_each(?3))
+`
+
+type GrantLeasesParams struct {
+	WorkerID       sql.NullString
+	LeaseExpiresAt sql.NullInt64
+	Ids            interface{}
+}
+
+// The SQLite claim's second half: it selects the runnable rows, then grants them here.
+// Postgres does both in one statement with FOR UPDATE SKIP LOCKED, which is the dialect gap
+// that keeps ClaimInstances hand-written -- this half is portable and lives here.
+// A claim IS a grant, so this is one of the two places lease_epoch may move.
+func (q *Queries) GrantLeases(ctx context.Context, arg GrantLeasesParams) error {
+	_, err := q.db.ExecContext(ctx, grantLeases, arg.WorkerID, arg.LeaseExpiresAt, arg.Ids)
+	return err
+}
+
 const insertAPIToken = `-- name: InsertAPIToken :exec
 INSERT INTO api_tokens (id, hash, label, perms, created_at, expires_at)
 VALUES (?1, ?2, ?3, ?4, ?5,
@@ -1069,11 +1107,6 @@ func (q *Queries) MarkObjectReleased(ctx context.Context, now sql.NullInt64) (in
 }
 
 const nonTerminalSubtree = `-- name: NonTerminalSubtree :many
-WITH RECURSIVE subtree(id) AS (
-    SELECT process_instances.id FROM process_instances WHERE process_instances.id = ?1
-    UNION ALL
-    SELECT pi.id FROM process_instances pi JOIN subtree s ON pi.parent_id = s.id
-)
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
@@ -1082,7 +1115,7 @@ SELECT id, process_name, process_version, parent_id,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
        next_replayable, error_data, superseded_at, root_id
 FROM process_instances
-WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
+WHERE root_id = ?1
   AND (process_instances.id = ?1
        OR status NOT IN ('completed', 'failed', 'raised'))
 ORDER BY created_at ASC, id ASC
@@ -1283,6 +1316,29 @@ func (q *Queries) PutObjectRef(ctx context.Context, arg PutObjectRefParams) erro
 	return err
 }
 
+const renewExternalLeasesChunk = `-- name: RenewExternalLeasesChunk :execrows
+UPDATE process_instances
+SET external_lease_expires_at = ?1
+WHERE id IN (SELECT value FROM json_each(?2))
+  AND external_worker_id = ?3
+`
+
+type RenewExternalLeasesChunkParams struct {
+	NewExpiry        sql.NullInt64
+	Ids              interface{}
+	ExternalWorkerID sql.NullString
+}
+
+// RenewWorkerLeasesChunk's external twin, scoped by external_worker_id for the same reason:
+// a renewal must not resurrect a claim on a row someone else now holds.
+func (q *Queries) RenewExternalLeasesChunk(ctx context.Context, arg RenewExternalLeasesChunkParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renewExternalLeasesChunk, arg.NewExpiry, arg.Ids, arg.ExternalWorkerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const renewWorkerLeasesChunk = `-- name: RenewWorkerLeasesChunk :execrows
 UPDATE process_instances
 SET lease_expires_at = ?1
@@ -1337,6 +1393,26 @@ func (q *Queries) RevokeAPIToken(ctx context.Context, arg RevokeAPITokenParams) 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setStatusIn = `-- name: SetStatusIn :exec
+UPDATE process_instances
+SET status = ?1, updated_at = ?2
+WHERE id IN (SELECT value FROM json_each(?3))
+`
+
+type SetStatusInParams struct {
+	Status    string
+	UpdatedAt int64
+	Ids       interface{}
+}
+
+// Sets one status on an explicit id list the CALLER has already locked -- pause and resume
+// both write their tree this way. The ids bind as a JSON array through json_each, the same
+// dynamic-IN pattern as FailAncestors, which is why neither needs a dialect branch.
+func (q *Queries) SetStatusIn(ctx context.Context, arg SetStatusInParams) error {
+	_, err := q.db.ExecContext(ctx, setStatusIn, arg.Status, arg.UpdatedAt, arg.Ids)
+	return err
 }
 
 const supersedeInstance = `-- name: SupersedeInstance :exec

@@ -280,6 +280,40 @@ SET status = 'failing', error_message = sqlc.arg(error_message), error_code = sq
 WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)))
   AND status IN ('running', 'pausing', 'paused');
 
+-- name: SetStatusIn :exec
+-- Sets one status on an explicit id list the CALLER has already locked -- pause and resume
+-- both write their tree this way. The ids bind as a JSON array through json_each, the same
+-- dynamic-IN pattern as FailAncestors, which is why neither needs a dialect branch.
+UPDATE process_instances
+SET status = sqlc.arg(status), updated_at = sqlc.arg(updated_at)
+WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)));
+
+-- name: GrantLeases :exec
+-- The SQLite claim's second half: it selects the runnable rows, then grants them here.
+-- Postgres does both in one statement with FOR UPDATE SKIP LOCKED, which is the dialect gap
+-- that keeps ClaimInstances hand-written -- this half is portable and lives here.
+-- A claim IS a grant, so this is one of the two places lease_epoch may move.
+UPDATE process_instances
+SET worker_id = sqlc.arg(worker_id), lease_expires_at = sqlc.arg(lease_expires_at),
+    lease_epoch = lease_epoch + 1
+WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)));
+
+-- name: GrantExternalLeases :exec
+-- The external queue's twin of GrantLeases, on the external-claim trio.
+UPDATE process_instances
+SET external_worker_id = sqlc.arg(external_worker_id),
+    external_lease_expires_at = sqlc.arg(external_lease_expires_at),
+    external_claim_epoch = external_claim_epoch + 1
+WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)));
+
+-- name: RenewExternalLeasesChunk :execrows
+-- RenewWorkerLeasesChunk's external twin, scoped by external_worker_id for the same reason:
+-- a renewal must not resurrect a claim on a row someone else now holds.
+UPDATE process_instances
+SET external_lease_expires_at = sqlc.arg(new_expiry)
+WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)))
+  AND external_worker_id = sqlc.arg(external_worker_id);
+
 -- name: FindStaleRefs :many
 SELECT pd.parent_name, pc.version AS parent_version,
        pd.task_id, pd.child_name,
@@ -315,16 +349,12 @@ VALUES
 --
 -- Unlike its neighbours in db_lifecycle.go this one is expressible here: it takes no row
 -- locks (no dialect-dependent FOR UPDATE) and binds no dynamic id list.
+--
+-- `root` must BE a root: root_id names the tree (migration 040), so a child counts nothing.
 
 -- name: CountDrainingInTree :one
-WITH RECURSIVE subtree(id) AS (
-    SELECT process_instances.id FROM process_instances WHERE process_instances.id = sqlc.arg(root)
-    UNION ALL
-    SELECT pi.id FROM process_instances pi JOIN subtree s ON pi.parent_id = s.id
-)
 SELECT COUNT(*) FROM process_instances
-WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
-  AND process_instances.status = 'pausing';
+WHERE root_id = sqlc.arg(root) AND status = 'pausing';
 
 -- GetInstanceStatus reads one root's status inside the transaction that already holds the
 -- tree, which is what lets ResumeProcess decide "already advancing" from "settled and
@@ -469,11 +499,6 @@ WHERE id = sqlc.arg(id)
 -- reads as "no tree to move". A failed root has no live descendants anyway: a parent
 -- poisoned by a child goes to `failing`, and the claim predicate refuses a waiting row, so
 -- it cannot settle to `failed` until its children are terminal.
-WITH RECURSIVE subtree(id) AS (
-    SELECT process_instances.id FROM process_instances WHERE process_instances.id = sqlc.arg(root)
-    UNION ALL
-    SELECT pi.id FROM process_instances pi JOIN subtree s ON pi.parent_id = s.id
-)
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
@@ -482,7 +507,7 @@ SELECT id, process_name, process_version, parent_id,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
        next_replayable, error_data, superseded_at, root_id
 FROM process_instances
-WHERE process_instances.id IN (SELECT subtree.id FROM subtree)
+WHERE root_id = sqlc.arg(root)
   AND (process_instances.id = sqlc.arg(root)
        OR status NOT IN ('completed', 'failed', 'raised'))
 ORDER BY created_at ASC, id ASC;

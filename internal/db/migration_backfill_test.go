@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -71,6 +72,44 @@ func TestMigration040BackfillsTheTree(t *testing.T) {
 		}
 		if got != want {
 			t.Errorf("log on %s: want root %s, got %s", inst, want, got)
+		}
+	}
+}
+
+// The indexes are what the whole change bought -- 23 buffers per page against 18,616 -- and
+// losing one makes no noise: every query still returns the right rows, by scanning. Not
+// hypothetical here: migration 012 had to hand-recreate a partial index because SQLite's
+// ALTER TABLE forced a table rebuild, and the next migration that rebuilds either table has
+// the same line to remember. Asserted on the SCHEMA rather than on a query plan, which is the
+// optimiser's business and not a promise anyone made.
+func TestMigration040LeavesItsIndexes(t *testing.T) {
+	dir := t.TempDir()
+	sqldb, err := sql.Open("sqlite3", dir+"/idx.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqldb.Close()
+	if err := runMigrations(sqldb, "sqlite"); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []struct{ index, table, cols string }{
+		{"idx_process_logs_root", "process_logs", "(root_id, created_at, id)"},
+		{"idx_instances_root", "process_instances", "(root_id)"},
+	} {
+		var ddl string
+		err := sqldb.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?`,
+			want.index).Scan(&ddl)
+		if errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("%s is gone: %s reads by %s cost the table rather than the page",
+				want.index, want.table, want.cols)
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(strings.ReplaceAll(ddl, " ", ""), strings.ReplaceAll(want.cols, " ", "")) {
+			t.Errorf("%s is on %q, not %s -- the keyset page needs the sort columns in the index",
+				want.index, ddl, want.cols)
 		}
 	}
 }

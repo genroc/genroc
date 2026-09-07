@@ -7,6 +7,7 @@ import { waitForInstance } from "../helpers/client.ts";
 import {
   BIG_BLOB,
   blobInputDef,
+  childDef,
   externalDef,
   failingDef,
   inputDef,
@@ -548,6 +549,38 @@ test("pause then resume — parks a running instance and revives it", async () =
 
   runCli(bin, ["resolve", token, "--set", "approved=true"]);
   expect(await waitForInstance(id)).toBe("completed");
+}, 30_000);
+
+// A tree is the unit these verbs act on, and they read it by its root id -- so a child is
+// refused rather than acted on. The refusal is what makes that read correct: without it the
+// tree selector would match nothing and the call would report "unchanged", which reads as a
+// tree that was already stopped.
+test("pause/resume/retry — a child is refused, naming the root to use instead", async () => {
+  const child = uid("lchild");
+  const parent = uid("lparent");
+  runCli(bin, ["apply", "-f", writeDefs([externalDef(child), childDef(parent, child)])]);
+  const rootID = startedID(runCli(bin, ["run", parent]).stdout);
+
+  let kidID = "";
+  for (let i = 0; i < 50 && !kidID; i++) {
+    const kids = JSON.parse(
+      runCli(bin, ["instances", "--process", child, "--children", "--since", "1h", "--json"]).stdout,
+    );
+    kidID = kids[0]?.id ?? "";
+    if (!kidID) await new Promise((r) => setTimeout(r, 100));
+  }
+  expect(kidID, "the child instance never appeared").not.toBe("");
+
+  for (const verb of ["pause", "resume", "retry"]) {
+    const r = runCli(bin, [verb, kidID]);
+    expect(r.ok, `${verb} on a child should be refused`).toBe(false);
+    expect(r.stderr).toContain("not a root instance");
+    expect(r.stderr, "the refusal names the root to use instead").toContain(rootID);
+  }
+
+  // The root itself is accepted, so the refusal is about the child and not the tree.
+  expect(runCli(bin, ["pause", rootID]).ok).toBe(true);
+  expect(runCli(bin, ["resume", rootID]).ok).toBe(true);
 }, 30_000);
 
 test("retry — re-arms a failed instance; --force also overrides only_once", async () => {
