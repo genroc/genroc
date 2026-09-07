@@ -21,6 +21,9 @@ const RECOVER1_PORT = 20071 + PORT_OFFSET;
 const RECOVER2_PORT = 20072 + PORT_OFFSET;
 const RERUN1_PORT = 20081 + PORT_OFFSET;
 const RERUN2_PORT = 20082 + PORT_OFFSET;
+// Fifth pair, for the cancel-crash tests -- same rule again.
+const CANCEL1_PORT = 20091 + PORT_OFFSET;
+const CANCEL2_PORT = 20092 + PORT_OFFSET;
 
 let genrocBin: string;
 let crashPgDSN: string | undefined;
@@ -234,9 +237,9 @@ async function pauseThenCrash(
   mockPort: number,
   onlyOnce: boolean,
   // Optional on_error rules on the held task, plus the tasks they route to.
-  opts: { onError?: unknown[]; extraTasks?: unknown[] } = {},
+  opts: { onError?: unknown[]; extraTasks?: unknown[]; port?: number } = {},
 ) {
-  const genroc1 = await startGenroc(genrocBin, PAUSE1_PORT, db, crashPgDSN);
+  const genroc1 = await startGenroc(genrocBin, opts.port ?? PAUSE1_PORT, db, crashPgDSN);
   const { error } = await genroc1.client.PUT("/definitions", {
     body: {
       name: processName,
@@ -439,6 +442,133 @@ test("a pausing only_once instance whose worker crashes fails instead of pausing
   } finally {
     genroc1.crash();
     await mock.stop();
+  }
+}, 60_000);
+
+// The cancel counterparts of the two pausing-crash tests above. They are the ONLY thing that
+// reaches settleCancelling: a live cancel lands in SQL on the owner's own write, so the engine
+// path exists purely for the row whose worker died holding it.
+test("a cancelling instance whose worker crashes is settled to cancelled by the reclaimer", async () => {
+  const db = crashPgDSN ? "" : join(tmpdir(), `genroc_cancel_crash_${Date.now()}.db`);
+  const mock = await startMockService(0, {
+    response: { done: true },
+    firstRequestDelayMs: Infinity,
+  });
+  const name = `cancel_crash_${crypto.randomUUID()}`;
+  const { genroc1, instanceId } = await pauseThenCrash(name, db, mock.port, false, {
+    port: CANCEL1_PORT,
+  });
+
+  try {
+    await mock.firstRequestReceived;
+
+    // Leased, so the cancel can only be recorded as a request.
+    await genroc1.client.POST("/instances/{id}/cancel", {
+      params: { path: { id: instanceId } },
+    });
+    const { data: mid } = await genroc1.client.GET("/instances/{id}/detail", {
+      params: { path: { id: instanceId } },
+    });
+    expect(mid!.status).toBe("cancelling");
+
+    genroc1.crash(); // before the worker can land it
+
+    const genroc2 = await startGenroc(genrocBin, CANCEL2_PORT, db, crashPgDSN, 0);
+    try {
+      await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
+
+      const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
+        params: { path: { id: instanceId } },
+      });
+      // Settled, not advanced: the abandoned task is NOT re-executed on the way out.
+      expect(after!.status).toBe("cancelled");
+      expect(mock.requestCount()).toBe(1);
+
+      // Audited for the same reason the pause counterpart is: this landing went through the
+      // engine rather than a worker's own write, so it is the one that can be seen.
+      let events: string[] = [];
+      for (let i = 0; i < 40 && !events.includes("inst_cancelled"); i++) {
+        const { data: logs } = await genroc2.client.GET("/instances/{id}/logs", {
+          params: { path: { id: instanceId }, query: { limit: 100 } },
+        });
+        events = (logs!.items ?? []).map((l) => l.event as string);
+        if (!events.includes("inst_cancelled")) await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(events).toContain("inst_cancelled");
+
+      // And it stays stopped: a further tick must not pick it up.
+      await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
+      const { data: still } = await genroc2.client.GET("/instances/{id}/detail", {
+        params: { path: { id: instanceId } },
+      });
+      expect(still!.status).toBe("cancelled");
+      expect(mock.requestCount()).toBe(1);
+    } finally {
+      genroc2.stop();
+    }
+  } finally {
+    genroc1.crash();
+    await mock.stop();
+  }
+}, 60_000);
+
+// The divergence from pause, and the reason settleCancelling is its own function. The same
+// crash on a PAUSING only_once instance fails it (the interrupted call may already have taken
+// effect, and pausing would launder that into a silent re-execution on resume). Cancelling has
+// no resume to launder into: the tree is being stopped, so the interruption is recorded and
+// the instance settles as the operator asked. A handler is attached to make the point sharper
+// -- pause routes to it, cancel must not, because routing is carrying on.
+test("a cancelling only_once instance whose worker crashes cancels rather than routing", async () => {
+  const db = crashPgDSN ? "" : join(tmpdir(), `genroc_cancel_once_${Date.now()}.db`);
+  const mock = await startMockService(0, {
+    response: { done: true },
+    firstRequestDelayMs: Infinity,
+  });
+  const verify = await startMockService(0, { response: { settled: true } });
+  const name = `cancel_once_${crypto.randomUUID()}`;
+  const { genroc1, instanceId } = await pauseThenCrash(name, db, mock.port, true, {
+    port: CANCEL1_PORT,
+    onError: [{ code: ["only_once.interrupted"], goto: "$check" }],
+    extraTasks: [
+      {
+        id: "check",
+        action: { type: "fetch" as const, url: `http://localhost:${verify.port}/verify` },
+        timeout: 5_000,
+        switch: [{ goto: "end" }],
+      },
+    ],
+  });
+
+  try {
+    await mock.firstRequestReceived;
+    await genroc1.client.POST("/instances/{id}/cancel", {
+      params: { path: { id: instanceId } },
+    });
+    genroc1.crash();
+
+    const genroc2 = await startGenroc(genrocBin, CANCEL2_PORT, db, crashPgDSN, 0);
+    try {
+      await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
+
+      const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
+        params: { path: { id: instanceId } },
+      });
+      expect(after!.status, "an operator's stop outranks the only_once route").toBe("cancelled");
+      // `task` is what actually separates the two implementations, and requestCount is not:
+      // routing to the handler would ALSO end at 'cancelled' with the handler unrun, because
+      // the landing CASE catches it on the way. Where the instance stopped is the evidence --
+      // 'work' means it settled, 'check' means it routed first. The pause counterpart above
+      // proves its own claim the same way.
+      expect(after!.task, "cancel must settle where it stood, not route into on_error").toBe("work");
+      expect(verify.requestCount(), "the handler must not run").toBe(0);
+      expect(mock.requestCount()).toBe(1);
+    } finally {
+      genroc2.stop();
+    }
+  } finally {
+    genroc1.crash();
+    await mock.stop();
+    await verify.stop();
   }
 }, 60_000);
 

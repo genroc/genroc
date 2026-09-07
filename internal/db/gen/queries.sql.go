@@ -1495,9 +1495,11 @@ type SetStatusInParams struct {
 	Ids       interface{}
 }
 
-// Sets one status on an explicit id list the CALLER has already locked -- pause and resume
-// both write their tree this way. The ids bind as a JSON array through json_each, the same
-// dynamic-IN pattern as FailAncestors, which is why neither needs a dialect branch.
+// Sets one status on an explicit id list the CALLER has already locked -- pause, resume and
+// cancel all write their tree this way. Status ONLY, cancel included: it abandons a wait
+// rather than ending one, and ReleaseExternalClaim finds a claim by wait_state='external'.
+// The ids bind as a JSON array through json_each, the same dynamic-IN pattern as
+// FailAncestors, which is why neither needs a dialect branch.
 func (q *Queries) SetStatusIn(ctx context.Context, arg SetStatusInParams) error {
 	_, err := q.db.ExecContext(ctx, setStatusIn, arg.Status, arg.UpdatedAt, arg.Ids)
 	return err

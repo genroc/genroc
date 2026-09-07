@@ -295,9 +295,11 @@ WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)))
 UPDATE id_counters SET value = value + 1 WHERE name = 'worker' RETURNING value;
 
 -- name: SetStatusIn :exec
--- Sets one status on an explicit id list the CALLER has already locked -- pause and resume
--- both write their tree this way. The ids bind as a JSON array through json_each, the same
--- dynamic-IN pattern as FailAncestors, which is why neither needs a dialect branch.
+-- Sets one status on an explicit id list the CALLER has already locked -- pause, resume and
+-- cancel all write their tree this way. Status ONLY, cancel included: it abandons a wait
+-- rather than ending one, and ReleaseExternalClaim finds a claim by wait_state='external'.
+-- The ids bind as a JSON array through json_each, the same dynamic-IN pattern as
+-- FailAncestors, which is why neither needs a dialect branch.
 UPDATE process_instances
 SET status = sqlc.arg(status), updated_at = sqlc.arg(updated_at)
 WHERE id IN (SELECT value FROM json_each(sqlc.arg(ids)));

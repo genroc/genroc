@@ -434,6 +434,12 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 				return fmt.Errorf("read root status: %w", err)
 			}
 			if model.Status(status).Terminal() {
+				// A cancelled tree gets its own advice: retry refuses it by design, so naming
+				// retry here would send the operator to the one door that is bolted.
+				if model.Status(status) == model.StatusCancelled {
+					return fmt.Errorf("process was cancelled and a cancel is final; "+
+						"start a new instance: %w", ErrConflict)
+				}
 				return fmt.Errorf("process is not paused and has settled (status: %s); "+
 					"retry it or start a new instance: %w", status, ErrConflict)
 			}

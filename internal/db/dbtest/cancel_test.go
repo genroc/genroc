@@ -324,6 +324,17 @@ func TestUpdateInstanceProgress_LandsPendingCancel(t *testing.T) {
 			if got := mustStatus(t, b.db, "held"); got != model.StatusCancelled {
 				t.Errorf("held: expected cancelled, got %q", got)
 			}
+			// The write that lands the cancel is also the one that PARKS the instance, and the
+			// park survives: a cancel abandons a wait rather than ending one. It is load-bearing
+			// as well as honest -- ReleaseExternalClaim finds a claim by wait_state='external',
+			// and releasing is exactly what the heartbeat tells a cancelled worker to do.
+			after, err := b.db.GetInstance("held")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			if after.WaitState != model.WaitStateExternal {
+				t.Errorf("a landed cancel must keep the park it was stopped in, got %q", after.WaitState)
+			}
 		})
 	}
 }
@@ -423,6 +434,31 @@ func TestPauseDoesNotReopenACancelledTree(t *testing.T) {
 			}
 			if got := mustStatus(t, b.db, "stopped"); got != model.StatusCancelled {
 				t.Errorf("a cancelled tree must stay cancelled, got %q", got)
+			}
+		})
+	}
+}
+
+// TestCancelledRowKeepsItsPark: cancel writes the status column and nothing else, exactly as
+// pause does -- the machinery is shared, so a divergence here is a bug in whichever moved.
+// Preserving is not cosmetic: ReleaseExternalClaim finds a claim by wait_state='external', so
+// a cleared park would make the release the heartbeat asks a cancelled worker for impossible.
+func TestCancelledRowKeepsItsPark(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			insertInstW(t, b.db, "parked", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+			if _, err := b.db.CancelProcess(context.Background(), "parked", ""); err != nil {
+				t.Fatalf("CancelProcess: %v", err)
+			}
+			got, err := b.db.GetInstance("parked")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			if got.Status != model.StatusCancelled {
+				t.Errorf("expected cancelled, got %q", got.Status)
+			}
+			if got.WaitState != model.WaitStateWaiting {
+				t.Errorf("cancel must write status alone, got wait_state %q", got.WaitState)
 			}
 		})
 	}

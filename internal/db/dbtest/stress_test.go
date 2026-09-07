@@ -419,3 +419,189 @@ func TestStress_ConcurrentRetry(t *testing.T) {
 		}
 	}
 }
+
+// CancelProcess against FailInstanceAndAncestors — the same top-down/bottom-up pair as the
+// pause test above, because CancelProcess takes the same rows in the same id order. Cancel
+// must not introduce a lock order of its own.
+func TestStress_CancelProcess_vs_FailInstanceAndAncestors(t *testing.T) {
+	if sharedPgDB == nil {
+		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
+	}
+	ctx := context.Background()
+	db := sharedPgDB
+
+	const iterations = 30
+	var deadlockCount, successCount int
+
+	for i := 0; i < iterations; i++ {
+		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
+		insertInst(t, db, "parent", model.StatusRunning, "", nil, "")
+		insertInst(t, db, "child", model.StatusRunning, "parent", []string{"parent"}, "")
+
+		child, err := db.GetInstance("child")
+		if err != nil {
+			t.Fatalf("iteration %d: GetInstance child: %v", i, err)
+		}
+		child.Status = model.StatusFailed
+		child.ErrorMessage = "stress error"
+
+		var wg sync.WaitGroup
+		errs := make(chan error, 2)
+		wg.Add(2)
+		go func() { defer wg.Done(); _, err := db.CancelProcess(ctx, "parent", ""); errs <- err }()
+		go func() { defer wg.Done(); errs <- db.FailInstanceAndAncestors(child) }()
+		wg.Wait()
+		close(errs)
+
+		for err := range errs {
+			switch {
+			case err == nil:
+				successCount++
+			case pgDeadlock(err):
+				deadlockCount++
+			default:
+				t.Errorf("iteration %d: unexpected error: %v", i, err)
+			}
+		}
+
+		for _, id := range []string{"parent", "child"} {
+			inst, err := db.GetInstance(id)
+			if err != nil {
+				t.Errorf("iteration %d: %s not queryable after concurrent ops: %v", i, id, err)
+				continue
+			}
+			if inst.Status == model.StatusRunning {
+				t.Errorf("iteration %d: %s still 'running' — inconsistent state", i, id)
+			}
+		}
+	}
+	t.Logf("ran %d iterations: %d ok, %d deadlock", iterations, successCount, deadlockCount)
+}
+
+// Cancel racing pause on ONE tree. Both take the same rows in the same order under FOR UPDATE,
+// so they serialize — and either serial order ends the same way, which is the precedence the
+// design claims: pause first leaves 'paused', which cancel's selector then takes; cancel first
+// leaves 'cancelled', which pause's 'running'-only selector cannot touch. So the tree is
+// ALWAYS cancelled, whichever won. A run where some interleave left it merely paused would
+// mean an operator's final stop had been silently downgraded to a reversible one.
+func TestStress_CancelProcess_vs_PauseProcess(t *testing.T) {
+	if sharedPgDB == nil {
+		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
+	}
+	ctx := context.Background()
+	db := sharedPgDB
+
+	const iterations = 40
+	for i := 0; i < iterations; i++ {
+		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
+		insertInst(t, db, "parent", model.StatusRunning, "", nil, "")
+		insertInst(t, db, "child", model.StatusRunning, "parent", []string{"parent"}, "")
+
+		var wg sync.WaitGroup
+		errs := make(chan error, 2)
+		wg.Add(2)
+		go func() { defer wg.Done(); _, err := db.CancelProcess(ctx, "parent", ""); errs <- err }()
+		go func() { defer wg.Done(); _, err := db.PauseProcess(ctx, "parent", ""); errs <- err }()
+		wg.Wait()
+		close(errs)
+
+		for err := range errs {
+			if err != nil && !pgDeadlock(err) {
+				t.Errorf("iteration %d: unexpected error: %v", i, err)
+			}
+		}
+
+		for _, id := range []string{"parent", "child"} {
+			inst, err := db.GetInstance(id)
+			if err != nil {
+				t.Errorf("iteration %d: %s not queryable: %v", i, id, err)
+				continue
+			}
+			if inst.Status != model.StatusCancelled {
+				t.Errorf("iteration %d: %s is %q; a cancel must win either interleave",
+					i, id, inst.Status)
+			}
+		}
+	}
+	t.Logf("ran %d iterations; cancel won every interleave", iterations)
+}
+
+// A cancel moves the whole tree or none of it. Postgres-gated because that is where the
+// question is real: the per-row UPDATEs are indivisible only because they share one
+// transaction, whereas SQLite's single writer would make this pass however it was written.
+//
+// The reader takes the tree in ONE statement, which is what makes it a snapshot -- reading
+// row by row can straddle a commit and see a mix that was never committed, so it could not
+// tell an atomicity bug from its own sampling.
+func TestStress_CancelProcess_IsAtomic(t *testing.T) {
+	if sharedPgDB == nil {
+		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
+	}
+	ctx := context.Background()
+	db := sharedPgDB
+	const kids = 8
+
+	for i := 0; i < 20; i++ {
+		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
+		insertInst(t, db, "root", model.StatusRunning, "", nil, "")
+		for k := 0; k < kids; k++ {
+			insertInst(t, db, fmt.Sprintf("kid%d", k), model.StatusRunning, "root", []string{"root"}, "")
+		}
+
+		var wg sync.WaitGroup
+		var mixed atomic.Value
+		stop := make(chan struct{})
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				rows, err := sharedPgRaw.QueryContext(ctx,
+					`SELECT status, COUNT(*) FROM process_instances WHERE root_id = $1 GROUP BY status`, "root")
+				if err != nil {
+					return
+				}
+				seen := map[string]int{}
+				for rows.Next() {
+					var status string
+					var n int
+					if err := rows.Scan(&status, &n); err == nil {
+						seen[status] = n
+					}
+				}
+				rows.Close()
+				// One status for the whole tree, whichever it is. Two means a reader caught
+				// the cancel part-way through, and a tree whose parent and children disagree
+				// about whether the run is over is exactly what the transaction prevents.
+				if len(seen) > 1 {
+					mixed.Store(fmt.Sprintf("%v", seen))
+					return
+				}
+			}
+		}()
+
+		if _, err := db.CancelProcess(ctx, "root", ""); err != nil {
+			t.Fatalf("iteration %d: CancelProcess: %v", i, err)
+		}
+		close(stop)
+		wg.Wait()
+
+		if v := mixed.Load(); v != nil {
+			t.Fatalf("iteration %d: a reader saw a half-cancelled tree: %s", i, v)
+		}
+		var n int
+		if err := sharedPgRaw.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM process_instances WHERE root_id = $1 AND status = 'cancelled'`,
+			"root").Scan(&n); err != nil {
+			t.Fatalf("iteration %d: count: %v", i, err)
+		}
+		if n != kids+1 {
+			t.Errorf("iteration %d: %d of %d rows cancelled", i, n, kids+1)
+		}
+	}
+}

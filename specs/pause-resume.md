@@ -121,6 +121,13 @@ terminal where pause is reversible:
    the process can ask the system of record and carry on — and carrying on is what the operator
    just forbade. The interruption stays in the trail; what it must not do is restart the tree.
 
+What does NOT differ is §1: cancel writes the status column and nothing else, so a stopped
+tree still records what each node was doing. Clearing `wait_state` was tried and reverted —
+besides losing that record, it breaks `ReleaseExternalClaim`, which finds a claim by
+`wait_state = 'external'`, and releasing is precisely what the heartbeat tells a cancelled
+worker to do. `settleFailing` clears the wait because there it genuinely ENDED; a cancel
+abandons one, which is not the same thing.
+
 Two seams the build found. `ClaimInstances`'s status list and migration 045's partial index are
 **one predicate written twice**: `cancelling` must be in both, and a status in the index but not
 the query is simply never scanned — which strands every draining row whose worker died. And

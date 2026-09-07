@@ -134,6 +134,14 @@ export class TickEnv {
     return data?.outcome ?? "unchanged";
   }
 
+  async cancel(id: string): Promise<string> {
+    const { data, error } = await this.genroc.client.POST("/instances/{id}/cancel", {
+      params: { path: { id } },
+    });
+    if (error) throw new Error(`cancel(${id}) failed: ${JSON.stringify(error)}`);
+    return data?.outcome ?? "unchanged";
+  }
+
   async resume(id: string): Promise<string> {
     const { data, error } = await this.genroc.client.POST("/instances/{id}/resume", {
       params: { path: { id } },

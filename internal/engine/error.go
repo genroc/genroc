@@ -321,9 +321,11 @@ func (e *Engine) settlePausing(inst *model.ProcessInstance) advanceOutcome {
 // operator just forbade. The interruption is still evidence, and it is in the trail -- what it
 // must not do is restart the tree. specs/only-once-interrupted.md, specs/pause-resume.md.
 func (e *Engine) settleCancelling(inst *model.ProcessInstance) advanceOutcome {
+	// Status only, like settlePausing and unlike settleFailing: a cancel abandons a wait
+	// rather than ending one, so wait_state and wake_at stay as the record of what this
+	// instance was doing when it was stopped. It is also what ReleaseExternalClaim finds a
+	// claim by, and a cancelled worker is told to release.
 	inst.Status = model.StatusCancelled
-	inst.WaitState = model.WaitStateNone
-	inst.WakeAt = nil
 	// The other half of inst_cancelled: CancelProcess logs the rows it settled itself, this
 	// covers the leased one it could only mark 'cancelling'.
 	e.audit(inst, logEvent{Level: model.LogDebug, Event: model.EventCancelled, Task: inst.Task,

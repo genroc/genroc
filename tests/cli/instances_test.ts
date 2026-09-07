@@ -596,7 +596,7 @@ test("pause/resume/retry — a child is refused, naming the root to use instead"
   }
   expect(kidID, "the child instance never appeared").not.toBe("");
 
-  for (const verb of ["pause", "resume", "retry"]) {
+  for (const verb of ["pause", "resume", "cancel", "retry"]) {
     const r = runCli(bin, [verb, kidID]);
     expect(r.ok, `${verb} on a child should be refused`).toBe(false);
     expect(r.stderr).toContain("not a root instance");
@@ -606,6 +606,45 @@ test("pause/resume/retry — a child is refused, naming the root to use instead"
   // The root itself is accepted, so the refusal is about the child and not the tree.
   expect(runCli(bin, ["pause", rootID]).ok).toBe(true);
   expect(runCli(bin, ["resume", rootID]).ok).toBe(true);
+}, 30_000);
+
+test("cancel — stops an instance for good, and it stays stopped", async () => {
+  const name = apply(externalDef(uid("cancellable")));
+  const id = startedID(runCli(bin, ["run", name]).stdout);
+  await waitForExternalToken(id);
+
+  const r = runCli(bin, ["cancel", id]);
+  expect(r.ok, `cancel failed: ${r.stderr}`).toBe(true);
+  expect(r.stdout, "the CLI reports the verb it performed").toContain("cancelled");
+  expect(instances(["--since", "1h"]).find((i) => i.id === id)?.status).toBe("cancelled");
+
+  // Neither verb takes it back, and each says so in its own terms. resume refuses because
+  // the tree has settled; retry refuses because a stop was never an attempt the definition
+  // budgeted for. Both messages must point at starting a new instance -- sending an operator
+  // to `retry` here would name the one door that is bolted.
+  const resumed = runCli(bin, ["resume", id]);
+  expect(resumed.ok, "a cancelled instance must not resume").toBe(false);
+  expect(resumed.stderr).toContain("cancel");
+  expect(resumed.stderr).toContain("new instance");
+  expect(resumed.stderr, "retry refuses a cancel, so it must not be offered").not.toContain("retry it");
+  expect(instances(["--since", "1h"]).find((i) => i.id === id)?.status).toBe("cancelled");
+
+  const retried = runCli(bin, ["retry", id]);
+  expect(retried.ok, "a cancelled instance must not be retryable").toBe(false);
+  expect(retried.stderr).toContain("cancel");
+}, 30_000);
+
+// Re-running the same assertion over a group of ids has to converge, which is why an
+// already-stopped tree reports instead of failing. specs/id-list-commands.md.
+test("cancel — a second cancel reports rather than failing", async () => {
+  const name = apply(externalDef(uid("cancel_twice")));
+  const id = startedID(runCli(bin, ["run", name]).stdout);
+  await waitForExternalToken(id);
+
+  expect(runCli(bin, ["cancel", id]).ok).toBe(true);
+  const again = runCli(bin, ["cancel", id]);
+  expect(again.ok, `a repeated cancel must not fail: ${again.stderr}`).toBe(true);
+  expect(again.stdout).toContain("already");
 }, 30_000);
 
 test("retry — re-arms a failed instance; --force also overrides only_once", async () => {

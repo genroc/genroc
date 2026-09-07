@@ -82,8 +82,14 @@ test("a cancelled instance is neither resumable nor retryable", async () => {
   });
   expect(retryErr, "a cancelled instance must not be retryable").toBeDefined();
 
-  // Resume is an assertion, so it reports rather than errors -- but it must not revive.
-  await client.POST("/instances/{id}/resume", { params: { path: { id } } });
+  // Resume refuses too, on the settled-and-never-will path -- which is only reachable
+  // because `cancelled` is terminal. Its advice must not name retry, since retry is the
+  // one verb that refuses a cancel outright.
+  const { error: resumeErr } = await client.POST("/instances/{id}/resume", {
+    params: { path: { id } },
+  });
+  expect(resumeErr, "a cancelled instance must not resume").toBeDefined();
+  expect(JSON.stringify(resumeErr)).toContain("new instance");
   expect(await statusOf(id)).toBe("cancelled");
 });
 
@@ -185,4 +191,57 @@ test("cancel takes the whole tree, and is refused on a descendant", async () => 
   await cancel(id);
   expect(await statusOf(id)).toBe("cancelled");
   expect(await statusOf(kidID)).toBe("cancelled");
+});
+
+// The "and nothing else" half of the guarantee, at the HTTP surface. Each verb is closed for
+// its own reason and in its own package, so the rule holds only as long as every one of them
+// keeps holding it -- and an endpoint added later is what this is here to catch. What is
+// asserted is not the shape of each refusal (some error, some are assertions that report a
+// no-op, and both are right) but the one thing they must share: the status does not move.
+test("once a cancel lands, no operator verb moves the instance", async () => {
+  const name = `cancel_closed_${crypto.randomUUID()}`;
+  await define(name);
+  const id = await start(name);
+  await waitForParked(id);
+
+  // A second version to aim an upgrade at, so that verb is genuinely attempted rather than
+  // failing on a missing target.
+  await define(name, [
+    {
+      id: "work",
+      action: { type: "external" as const, input: { job: "v2" }, result_schema: {} },
+      output: "$: self.result",
+      switch: [{ goto: "end" }],
+    },
+  ]);
+
+  await cancel(id);
+  expect(await statusOf(id)).toBe("cancelled");
+
+  const verbs: [string, () => Promise<unknown>][] = [
+    ["pause", () => client.POST("/instances/{id}/pause", { params: { path: { id } } })],
+    ["resume", () => client.POST("/instances/{id}/resume", { params: { path: { id } } })],
+    ["retry", () => client.POST("/instances/{id}/retry", { params: { path: { id } } })],
+    ["cancel again", () => cancel(id)],
+    [
+      "upgrade",
+      () =>
+        client.POST("/instances/{id}/upgrade", {
+          params: { path: { id } },
+          body: { to_version: 2 } as never,
+        }),
+    ],
+    [
+      "signal",
+      () =>
+        client.POST("/external-tasks/signal", {
+          body: { instance_id: id, task_id: "work", result: { ok: true } } as never,
+        }),
+    ],
+  ];
+
+  for (const [verb, call] of verbs) {
+    await call();
+    expect(await statusOf(id), `${verb} moved a cancelled instance`).toBe("cancelled");
+  }
 });
