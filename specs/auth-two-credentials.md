@@ -19,7 +19,7 @@ two credentials without the proxy sandwich.
 | credential | who holds it | genroc's role |
 |---|---|---|
 | an opaque `genroc_sk_*`, hashed in `api_tokens` | machines — CI, workers, apps, `genctl` | **issues** it, and verifies it |
-| a signed JWT, verified against a configured JWKS | people, via whatever IdP the deployment runs | **verifies only** — never issues, never refreshes |
+| a signed JWT, HS256 against a shared secret | people, via genroc-ui | **verifies only** — never issues, never refreshes |
 
 Nothing else is an identity. No trusted headers, no cookies, no client certificates, and **no
 path by which a proxy obtains a genroc token on a person's behalf**. A deployment configures
@@ -116,23 +116,13 @@ router config with this reasoning beside it, because it is invisible when wrong.
 
 ## 5. Configuration, after
 
-```yaml
-# -auth-config /etc/genroc/auth.yaml     — the only valid mode is `jwt`
-mode: jwt
-jwt:
-  jwks_url: http://dex:5556/dex/keys           # back-channel; jwks_file for air-gapped/testing
-  issuer:   http://localhost:5556/dex          # front-channel — what `iss` actually carries
-  audience: genroc                             # the IdP client id
-  algorithms: [RS256]
-  subject_claim: email
-  roles_claim:   groups
-  leeway: 30s
-roles:
-  "my-org:platform": [admin]                   # Dex's GitHub connector emits `org:team`
-  "*":               [read]
-users:
-  ada@example.com:  [admin]                    # for providers carrying no groups at all
-```
+Superseded the same day by [ui-issued-tokens.md](ui-issued-tokens.md), which moved the role map
+into genroc-ui: the server takes flags rather than the YAML this section specified.
+
+    -jwt-secret-file /run/secrets/genroc-jwt   # the key genroc-ui signs with; turns jwt mode on
+    -jwt-issuer genroc-ui                      # pinned; this is also the default
+    -jwt-audience genroc                       # pinned; likewise
+    -jwt-leeway 30s
 
 `-auth token` stays an independent flag; a deployment serving both audiences passes both, and the
 two authenticators compose in the existing chain.
@@ -173,12 +163,14 @@ client to ask for a credential — and present on a 403, where naming the caller
 
 ## 7. What survives unchanged
 
-`token` mode entire, including bootstrap (§5.3) and the token CLI. The role map — `roles:`,
-`users:`, `"*"` — and §2.3's split: the IdP says who and what group, genroc says what that may
-do. `Perm`/`Allow`/`authorize` and the one gate every transport passes. Attribution (§7). The
-path zones and `TestEveryApiPathIsGated` (§1). 401 versus 403 (§8). The token-only deployment
-(§5.2), which is the one configuration with no proxy and therefore the one where a person still
-pastes a `genroc_sk_*` into the UI.
+`token` mode entire, including bootstrap (§5.3) and the token CLI. `Perm`/`Allow`/`authorize`
+and the one gate every transport passes. Attribution (§7). The path zones and
+`TestEveryApiPathIsGated` (§1). 401 versus 403 (§8). The token-only deployment (§5.2), which is
+the one configuration with no proxy and therefore the one where a person still pastes a
+`genroc_sk_*` into the UI.
+
+The role map did NOT: [ui-issued-tokens.md](ui-issued-tokens.md) moved it to genroc-ui the same
+day, which is the one line of this section that did not hold.
 
 ## 8. Open, and deliberately not decided here
 

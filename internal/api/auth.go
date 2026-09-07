@@ -56,14 +56,13 @@ type GrantConstraint struct {
 // and nothing downstream can tell them apart — which is what lets a deployment run several at
 // once. specs/api-auth.md §2.
 type Principal struct {
-	Subject string   // who, for the audit trail
-	Roles   []string // as asserted by an IdP; empty for a genroc token
-	Grants  []Grant  // RESOLVED — the only thing an authorization decision reads
-	Source  string   // which mode admitted it; for the trail, never for a decision
+	Subject string  // who, for the audit trail
+	Grants  []Grant // RESOLVED — the only thing an authorization decision reads
+	Source  string  // which mode admitted it; for the trail, never for a decision
 }
 
 // Actor renders this principal for an audit trail, as `source:subject` -- `token:ci`,
-// `header:ada@example.com`, `none:anonymous`.
+// `jwt:ada@example.com`, `none:anonymous`.
 //
 // The source is IN the string rather than beside it because the two facts are only useful
 // together: `ada@example.com` alone cannot say whether genroc authenticated that identity or

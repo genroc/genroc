@@ -11,15 +11,18 @@ issued, and a JWT it only verifies. It reads no identity headers and mints nothi
 behalf. Sections describing header mode below are kept because their reasoning is instructive,
 and are marked where they no longer describe behaviour.
 
+**The role map went with it.** `jwt` shipped in [ui-issued-tokens.md](ui-issued-tokens.md)'s
+shape, not §4's: genroc-ui resolves groups to permissions and mints an HS256 token carrying
+them, so the server verifies one issuer and reads a `perms` claim.
+
 The default remains `none` — no `Authorization` handling, no actor recorded, every endpoint open
 and `PUT /definitions` arbitrary code execution — with a startup warning when that is also bound
 beyond loopback (§6).
 
-> **Superseded in part by [auth-two-credentials.md](auth-two-credentials.md) (proposal,
-> 2026-09-02).** That doc argues the mode set down to two — `token` and `jwt` — dropping `header`
-> mode (§2, §6) and the `/session/token` exchange (§5.1), and re-splitting §5.1's routing on
-> credential presence rather than by path. Everything below still describes SHIPPED behaviour;
-> read that doc before building on §2.2, §5.1 or §6.
+> **Superseded in part by [auth-two-credentials.md](auth-two-credentials.md) (built,
+> 2026-09-02).** That doc cut the mode set to two — `token` and `jwt` — dropping `header` mode
+> (§2, §6) and the `/session/token` exchange (§5.1). Read it and
+> [ui-issued-tokens.md](ui-issued-tokens.md) before building on §2.1, §2.3, §4, §5.1 or §6.
 
 ## 0. The split that decides everything
 
@@ -119,19 +122,19 @@ which produced it:
 ```go
 type Principal struct {
     Subject string   // who, for the audit trail
-    Roles   []string // as asserted by an IdP; empty for a genroc token
     Grants  []Grant  // RESOLVED — the only thing an authorization decision reads
     Source  string   // which mode admitted it — for the audit trail, never for a decision
 }
 ```
 
-`Roles` and `Grants` are separate on purpose. An asserted role is the deployment's word and §4's
-map resolves it; a genroc token carries permissions on its row and needs no map. Two paths in,
-one field out — so the check in front of every handler has exactly one input and cannot learn
-which mode ran. (`Perms []Perm` in the draft; it shipped as `[]Grant` for §3's reason.)
+`Grants` is RESOLVED before it arrives — a genroc token carries permissions on its row, a JWT in
+its `perms` claim — so the check in front of every handler has exactly one input and cannot
+learn which mode ran. (`Perms []Perm` in the draft; it shipped as `[]Grant` for §3's reason.
+A `Roles []string` field sat here until the role map left the server, resolving nothing.)
 
-- **`jwt`** [built] — a signed JWT arrives in `Authorization: Bearer` and genroc verifies it
-  against a configured JWKS. The only way a person authenticates. §2.1.
+- **`jwt`** [built] — a signed JWT arrives in `Authorization: Bearer` and genroc verifies its
+  HS256 signature against a shared secret. The only way a person authenticates. §2.1,
+  [ui-issued-tokens.md](ui-issued-tokens.md).
 - **`token`** [built] — genroc's own tokens, hashed in the database, for **machines**: CI,
   deployment pipelines, apps that start instances, and workers. §5.
 - **`none`** [built] — the default, and the pre-auth behaviour. Every request is an anonymous
@@ -148,9 +151,9 @@ secret; a CI job can hold a secret and cannot do a redirect flow.
 by the request picking one: each mode declines a credential that is not its own — a
 `genroc_sk_*` is not three dot-separated segments, and a JWT does not carry the prefix — and the
 first to recognise it answers. One rule in that chain is load-bearing: **a mode that cannot
-DECIDE stops it**, rather than falling through to the next. An unreachable database or JWKS
-must not be silently downgraded to "not authenticated" by the mode after it, which would turn an
-outage into 401s indistinguishable from a misconfigured client.
+DECIDE stops it**, rather than falling through to the next. An unreachable database must not be
+silently downgraded to "not authenticated" by the mode after it, which would turn an outage into
+401s indistinguishable from a misconfigured client.
 
 **How they compose, as built.** There is one place identity can come from — the bearer
 credential — and `Chain` tries each mode in turn. Each declines what is not its own: a
@@ -169,32 +172,17 @@ thing that decays as a cluster is reorganised.
 
 A signed token moves the guarantee into the request. Genroc rejects anything it cannot verify,
 so **a bypassed proxy buys an attacker nothing** — the port-forward reaches a server that still
-demands a signature it cannot produce. It costs one dependency (`github.com/golang-jwt/jwt/v5`
-plus JWKS fetching — genroc's dep list is small and deliberate, so this is a real if modest
-addition) and a key to distribute, and it buys the removal of the single worst failure mode in
-this design.
+demands a signature it cannot produce. It costs one dependency (`github.com/golang-jwt/jwt/v5` —
+genroc's dep list is small and deliberate, so this is a real if modest addition) and a key to
+distribute, and it buys the removal of the single worst failure mode in this design.
 
 Three further gains, none decisive alone: `exp` bounds replay, which a plain header has no way
 to express; claims are structured, so there is no per-proxy convention about how a group list is
-comma-separated; and verification is offline against a cached JWKS, so there is no per-request
-callout the way forward-auth has.
+comma-separated; and verification is offline, so there is no per-request callout the way
+forward-auth has.
 
-**The dependency came in at one, as budgeted.** `github.com/golang-jwt/jwt/v5` does the
-signature; the JWKS is parsed with the standard library, because turning a JWK into an
-`*rsa.PublicKey` is base64 and `big.Int` rather than cryptography, and a second dependency to do
-that is not worth it against a deliberately small list. Key rotation needs no restart and no
-timer: an unknown `kid` is the signal to re-read, rate-limited to once per five minutes so a
-stream of garbage `kid`s cannot become a stream of outbound fetches. An empty `kid` resolves
-only when the set holds exactly one key — otherwise which key verified a token would depend on
-map iteration order.
-
-**Most proxies forward rather than mint, and that is the better shape anyway.** oauth2-proxy can
-put the IdP's ID token in `Authorization` (`--set-authorization-header`); Istio's
-`RequestAuthentication` validates and forwards the original. Genroc then verifies against the
-**IdP's** JWKS and there is no second signing key in the system. Cloudflare Access and Pomerium
-are the two that mint their own (`Cf-Access-Jwt-Assertion`), which works identically with their
-JWKS configured instead. Kong, Traefik and nginx-ingress mostly need a plugin or an Enterprise
-tier to do either — which is why `header` mode stays.
+**The dependency came in at one, as budgeted**, and stayed there when the issuer became
+genroc-ui: a symmetric key has no key set to fetch, parse or rotate.
 
 ### 2.2 Where `header` mode was the only option — and why that turned out to be false
 
@@ -239,18 +227,18 @@ at all — which is what Dex's own `staticPasswords` does, so the example exerci
 
 ### 2.3 What the token does NOT decide
 
+> **Narrowed 2026-09-02.** What follows holds for a THIRD-PARTY issuer, which is why it stays;
+> [ui-issued-tokens.md](ui-issued-tokens.md) §1 is the narrowing, and §4 is where the map went.
+
 A JWT carries **roles**, not permissions. An IdP has no idea what `deploy` means in genroc, and
 teaching it would put our authorization model back outside genroc — the thing §0 exists to
 prevent. So §4's role map is unchanged by this mode: the token says *who and what group*, the
 map says *what that may do*.
 
-The exception is a proxy minting a genroc-specific token, which could carry permissions
-directly. **Not built, deliberately, and this is a reversal of the draft's "supported by reading
-them if present".** Reading a permissions claim means either a hardcoded claim name — surprising,
-and a claim an unrelated IdP might already emit — or a config knob for a path this same paragraph
-says nobody should take. Both spend surface on the thing §0 exists to prevent, with no demand
-behind it. The role map is the documented path and now the only one; add the knob when someone
-asks, and the signal to reopen is a deployment that genuinely cannot express its policy as roles.
+The exception is an issuer minting a genroc-specific token, which carries permissions directly.
+**That is what shipped**, once the issuer became one we ship and version ourselves: `perms` is a
+fixed claim name rather than a config knob, scoped by the pinned `iss`/`aud` rather than by
+hoping an unrelated IdP does not emit it.
 
 ### 2.4 Three validations that are not optional
 
@@ -263,27 +251,22 @@ Each is a known way JWT deployments are broken, and none is the default in most 
   accepted.
 - **The algorithm set must be pinned** to what the issuer actually uses. `alg: none` and
   RS256→HS256 confusion are both live vulnerability classes, and both are configuration, not
-  cryptography.
+  cryptography. Built as HS256 and nothing else: with one symmetric key there is no set to
+  configure, so the class closes by construction rather than by pinning.
 
 `exp`/`nbf` need a small configurable skew; a fixed zero fails on real clusters. Built as a
 30s default, and `exp` is additionally REQUIRED — a verified token with no expiry is a permanent
 credential with no revocation path, since genroc holds no denylist for tokens it did not mint.
 
 **All four are parser options, not checks written beside the parse**, so there is no code path
-that verifies without them. Each is refused at config LOAD when unset, rather than defaulted:
-every default available here is one that accepts more than the operator meant.
+that verifies without them. `iss` and `aud` DEFAULT to what genroc-ui uses rather than being
+refused when unset — the pair ships together, so the default is a deployment rather than a
+guess; the signing secret has none and is refused at load.
 
-**A static `jwks_file` must be supported beside `jwks_url`.** It is what makes the mode testable
-without standing up an IdP — mint against a fixed key in the suite and hit genroc directly, no
-proxy in the loop — and it is also the answer for an air-gapped deployment and for pinning a key
-rather than trusting a fetch. A mode that can only be exercised end-to-end is a mode whose
-edge cases (`aud` mismatch, expired token, wrong `alg`) never get a test.
-
-That paid off immediately, and with a lesson attached. Removing each pin in turn and re-running
-showed **the algorithm pin was the one not actually under test**: the `alg: none` and
-RS256→HS256 cases both fail anyway on golang-jwt's key typing, so they pass with
-`WithValidMethods` deleted. Only a token signed with the RIGHT key and the WRONG algorithm
-(RS512 against an RS256-only config) isolates the pin. A test that passes for a reason other
+A lesson from testing the pins. Removing each in turn showed **the algorithm pin was the one not
+actually under test**: `alg: none` fails anyway on golang-jwt's key typing, so it passes with
+`WithValidMethods` deleted. Only a token signed with the RIGHT secret and the WRONG algorithm
+(HS512 against an HS256-only verifier) isolates the pin. A test that passes for a reason other
 than the one it names is worse than no test: it reports coverage of a guard nothing is holding.
 
 ## 3. Permissions live on the action registry
@@ -365,40 +348,17 @@ presents its credential on the envelope's `Token` field, since a stream protocol
 
 ## 4. The role map, and where it lives
 
-Roles are the deployment's words, not ours — `genroc-admins` is whatever their IdP calls it. The
-map from those words to permissions is configuration:
+**Not in the server.** It moved to genroc-ui on 2026-09-02 along with the group→permission
+resolution it exists for, so the server verifies one issuer and reads the resolved `perms` claim.
+[ui-issued-tokens.md](ui-issued-tokens.md). The `-auth-config` YAML this section specified was
+never built; what it argued — policy must not be editable through the API it governs — is
+satisfied more completely by the map living in a different binary.
 
-```yaml
-# -auth-config /etc/genroc/auth.yaml            # as built; `jwt` is the only valid mode
-mode: jwt
-jwt:
-  jwks_url: https://accounts.example.com/.well-known/jwks.json
-  # jwks_file: /etc/genroc/jwks.json         # alternative: no network, no IdP
-  issuer:   https://accounts.example.com     # pinned; §2.4
-  audience: genroc                           # pinned; §2.4
-  algorithms: [RS256]                        # pinned; §2.4
-  subject_claim: email                       # default `sub`
-  roles_claim:   groups                      # default `groups`
-  leeway: 30s                                # default 30s; zero fails on real clusters
-roles:
-  genroc-admins:    [admin]
-  genroc-deployers: [deploy, operate, read]
-  "*":              [read]                   # any authenticated caller
-users:                                       # for providers carrying no groups at all
-  ada@example.com:  [admin]
-```
+What the server takes instead is four scalars describing which tokens to accept:
+`-jwt-secret-file` (or `-jwt-secret`), `-jwt-issuer`, `-jwt-audience`, `-jwt-leeway`. A file for
+that is a parser, a schema and a mount for no benefit. `internal/api/authconfig.go`.
 
-`issuer`, `audience` and `algorithms` have no defaults and the server refuses to start without
-them (§2.4). `jwks_url` and `jwks_file` are exclusive. A file whose `mode` is anything but `jwt`
-is refused by name, so an old `mode: header` config fails loudly rather than decoding into an
-empty jwt block that authenticates nobody.
-
-**A file, not a table.** The policy governing an API must not be editable *through* that API —
-a `deploy` permission that can rewrite the role map is `admin` wearing a disguise. A file
-mounted read-only from a ConfigMap is also the k8s-idiomatic and GitOps-shaped answer, and it
-needs no bootstrapping story.
-
-`-auth-config` and `-auth token` are **independent flags**, not one setting with several
+`-jwt-secret-file` and `-auth token` are **independent flags**, not one setting with several
 values, which is the shape §2 argues for: a deployment serving both people and machines passes
 both, and each request is admitted by whichever recognises it.
 
@@ -614,9 +574,9 @@ credential lapsed. The cost is the one the draft named and is accepted: revoking
 token and restarting mints a fresh one. Recovery is meant to be possible; making it require a
 file the operator may no longer be able to reach is how a break-glass path becomes decoration.
 
-**A configured `header` mode suppresses it entirely.** The proxy already identifies an operator
-and the role map already gives them admin, so minting an unasked-for credential and printing it
-to a log is pure exposure. `genroc token create` remains the break-glass path either way.
+**Configured jwt mode suppresses it entirely.** genroc-ui already identifies an operator and
+resolves their permissions, so minting an unasked-for credential and printing it to a log is
+pure exposure. `genroc token create` remains the break-glass path either way.
 
 **The fleet makes the naive version racy, and a transaction is not the fix.** Genroc runs as
 multiple workers against one database, so N replicas start together and all count zero. The
@@ -673,7 +633,7 @@ guards are **BUILT 2026-09-01**:
 - In `none` mode bound beyond loopback, one loud warning at startup naming what is exposed. The
   default is `-http :8448` — all interfaces — so `docker run -p 8448:8448` puts an
   unauthenticated `PUT /definitions` on the network. That should be a decision, not an accident.
-  Suppressed when `-auth-config` is set, since a proxy is then the answer.
+  Suppressed when jwt mode is configured, since genroc-ui is then the operator's way in.
 
 ## 7. Attribution is the half that pays for itself
 

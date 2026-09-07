@@ -206,10 +206,10 @@ func main() {
 		if secret == "" {
 			secret = os.Getenv("GENROC_BOOTSTRAP_TOKEN")
 		}
-		// A deployment with header mode already has a way in — the proxy identifies an operator
-		// and the role map gives them admin — so minting a bootstrap credential nobody asked
-		// for, and printing it to a log, is pure exposure. Skip it and let the proxy be the
-		// answer; `genroc token create` remains the break-glass path either way.
+		// A deployment running jwt mode already has a way in — genroc-ui identifies an operator
+		// and resolves their permissions — so minting a bootstrap credential nobody asked for,
+		// and printing it to a log, is pure exposure. `genroc token create` stays the
+		// break-glass path either way. specs/api-auth.md s5.3.
 		if humanAuthOn && secret == "" {
 			log.Info("skipping bootstrap token", "reason", "jwt mode provides an operator path")
 			auths = append(auths, api.NewTokenAuth(database))

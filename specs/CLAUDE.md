@@ -73,10 +73,8 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
 
   **Attribution (§7) landed last and is the one to read before adding a column anywhere near
   logs.** The actor is ONE value, `source:subject`, because the subject alone cannot say whether
-  genroc authenticated an identity or merely wrote down what a proxy asserted — and the
-  `none`-mode half the spec promised does work, on the rule that recording is not trusting: an
-  asserted header changes no grant, so it needs no `trusted_proxies`, and its source is
-  `asserted` rather than `header`. Only operator-initiated rows carry one; the engine advances on
+  genroc authenticated an identity or merely wrote down what a proxy asserted. Only
+  operator-initiated rows carry one; the engine advances on
   its own behalf and crediting it to whoever started the run would attribute work nobody asked
   for. The trap it paid for twice is that a `process_logs` column is spelled in FOUR places, and
   the sqlc one (`InsertLog`) serves only the rare object-carrying path while the hand-written
@@ -90,13 +88,12 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   moment it moves again.
 
   **`jwt` (§2.1, §2.4) closed the last mode**, at the one dependency it budgeted — golang-jwt for
-  the signature, stdlib for the JWKS, since a JWK is base64 and `big.Int` rather than
-  cryptography. Its four pins (`iss`, `aud`, the algorithm set, and a REQUIRED `exp`) are parser
-  options rather than checks beside the parse, so no path verifies without them, and each is
-  refused at config load because every available default accepts more than the operator meant.
+  the signature, and nothing for the key, since genroc-ui signs with a shared secret. Its four
+  pins (`iss`, `aud`, the algorithm, and a REQUIRED `exp`) are parser options rather than checks
+  beside the parse, so no path verifies without them.
   Two findings worth carrying: `jwt` and `token` share the bearer header so they compose in a
   **chain**, where a mode that cannot DECIDE must stop it rather than fall through (an
-  unreachable JWKS silently becoming a 401 is an outage no operator can diagnose); and §2.2's
+  unreachable database silently becoming a 401 is an outage no operator can diagnose); and §2.2's
   Google hybrid ships as an **overlay** in the transport, not a mode, because it needs the
   request that `Authenticate` never sees. The `jwks_file` the spec insisted on is what made the
   edge cases testable at all — and testing them revealed that the algorithm pin was NOT actually
