@@ -230,6 +230,7 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 		// From the EXTRACTED state, so an externalized payload is the same marker-free value the
 		// status endpoint shows rather than a reference the caller cannot place.
 		ErrorData: state[model.StateErrorData],
+		Output:    state["output"],
 		State:     state,
 
 		WorkerID:        derefString(inst.WorkerID),
@@ -337,6 +338,12 @@ func (h *Handlers) tick(raw json.RawMessage) Reply {
 
 func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
 	payload, objects := reportedPayload(inst)
+	// Rooted at "output", not "state.output": this response has no state to point into, and a
+	// path naming one would send a caller looking for a field that is not here.
+	var output any
+	if raw, ok := inst.State["output"]; ok {
+		output = extractObjects(raw, []any{"output"}, &objects)
+	}
 	return InstanceStatusResp{
 		ID:           inst.ID,
 		Process:      inst.ProcessName,
@@ -348,6 +355,7 @@ func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
 		ErrorCode:    inst.ErrorCode,
 		ErrorMessage: inst.ErrorMessage,
 		ErrorData:    payload,
+		Output:       output,
 		CreatedAt:    inst.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:    inst.UpdatedAt.Format(time.RFC3339),
 		Objects:      objects,

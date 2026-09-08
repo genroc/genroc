@@ -112,9 +112,24 @@ the two apart. -q prints bare ids, and nothing at all when empty, for nesting:
 ` + listWindow,
 	},
 	"get": {
-		summary: "show one instance",
+		summary: "show one instance and what it produced",
 		usage:   []string{"get <instance-id> [--resolve] [--json]"},
 		detail: instanceRefs + ` A second id is refused rather than dropped.
+
+Prints what the instance reports OUTWARD: its status and its ` + "`output:`" + ` block, which is the
+same value a parent collects as a child's result. The engine's own slots are ` + "`detail`" + `.
+
+--resolve fetches the values listed under "objects" and puts them back inline; without it a
+large value prints as a ref.`,
+	},
+	"detail": {
+		summary: "show everything stored on one instance",
+		usage:   []string{"detail <instance-id> [--resolve] [--json]"},
+		detail: instanceRefs + ` A second id is refused rather than dropped.
+
+The whole row, state included -- engine bookkeeping and all -- which is what an upgrade
+validates and a migration rewrites. Reading it is reading internals; ` + "`get`" + ` is the
+everyday view.
 
 --resolve fetches the values listed under "objects" and puts them back inline; without it a
 large value prints as a ref.`,
@@ -244,7 +259,7 @@ var helpGroups = []struct {
 	names []string
 }{
 	{"Definitions", []string{"apply", "types", "schema", "compat", "definitions"}},
-	{"Instances", []string{"run", "instances", "get", "logs", "pause", "resume", "cancel", "retry", "upgrade", "resolve", "object"}},
+	{"Instances", []string{"run", "instances", "get", "detail", "logs", "pause", "resume", "cancel", "retry", "upgrade", "resolve", "object"}},
 	{"Channels", []string{"channel"}},
 	{"Setup", []string{"init", "config", "token"}},
 }

@@ -494,6 +494,7 @@ var registry = func() []actionDef {
 				ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
 				Version: 1, Status: model.StatusFailed, Task: "charge_card",
 				ErrorCode: "only_once.interrupted", ErrorMessage: "the task may have already run",
+				Output: map[string]any{"shipped": true},
 			},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
 				return Envelope{Action: "get_instance", ID: r.PathValue("id")}, nil

@@ -5,7 +5,8 @@ import { BASE_URL } from "../helpers/constants.ts";
 // An instance is readable through two views and the split is deliberate.
 //
 //   GET /instances/{id}         what the instance reports OUTWARD: where it is, how it ended,
-//                               and the error it carries.
+//                               the error it carries, and the `output:` its definition declared
+//                               -- the same value a parent collects as a child's result.
 //   GET /instances/{id}/detail  what it HOLDS: state exactly as stored, bookkeeping slots and
 //                               all, plus the columns around it.
 //
@@ -37,6 +38,9 @@ test("the outward view carries no state — not under any name", async () => {
   expect(Object.keys(data as object).sort()).toEqual([
     "created_at",
     "id",
+    // The declared output: block, which is a projection of state rather than state -- a caller
+    // reading it is reading what the process chose to report, not the engine's slots.
+    "output",
     "process",
     "retry_count",
     "status",
@@ -123,6 +127,53 @@ test("an oversized error_data is listed, not inlined and not leaked as a marker"
   expect(listed, "past the cutoff it must be listed at the path it belongs to").toBeDefined();
   // fetchObject returns the stored JSON text, so the string arrives quoted.
   expect(JSON.parse(await fetchObject(listed!.ref))).toBe(blob);
+});
+
+// `output` is the other unbounded value on the outward view -- a definition may declare any
+// shape -- so it obeys the same rule error_data does, and the paths it is listed under are
+// rooted at THIS response rather than at the state slot it came from. A path naming `state`
+// here would send a caller looking for a field the outward view does not have.
+test("an oversized output is listed at its own path, not inlined and not leaked as a marker", async () => {
+  const name = `views_bigout_${crypto.randomUUID().slice(0, 8)}`;
+  const blob = "B".repeat(8 * 1024);
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: {
+        type: "object",
+        properties: { blob: { type: "string" } },
+        required: ["blob"],
+      },
+      tasks: [{ id: "pass", output: { echo: "$: input.blob" }, switch: "end" }],
+      output: { echo: "$: outputs.pass.echo", small: "inline" },
+    },
+  });
+  expect(error).toBeUndefined();
+  const { data: started } = await client.POST("/instances", {
+    body: { process: name, input: { blob } },
+  });
+  expect(await waitForInstance(started!.id)).toBe("completed");
+  const id = started!.id;
+
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const output = data!.output as Record<string, unknown>;
+  expect(output.small, "a small sibling is not dragged out with the big leaf").toBe("inline");
+  expect(output.echo, "the oversized leaf is absent, not a marker").toBeUndefined();
+  expect(JSON.stringify(output), "no reference may sit where a value goes").not.toContain("ref");
+
+  const listed = (data!.objects ?? []).find((o) => o.path?.[1] === "echo");
+  expect(listed, "past the cutoff it must be listed").toBeDefined();
+  expect(
+    listed!.path,
+    "rooted at the field on THIS response -- `state` names nothing the outward view returns",
+  ).toEqual(["output", "echo"]);
+  expect(JSON.parse(await fetchObject(listed!.ref))).toBe(blob);
+
+  // The same value on detail is listed under the state slot it was cut from, so a caller
+  // splicing either response puts it back where that response would hold it.
+  const { data: detail } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  const paths = (detail!.objects ?? []).map((o) => JSON.stringify(o.path));
+  expect(paths).toContain(JSON.stringify(["state", "output", "echo"]));
 });
 
 // The detail view is a strict SUPERSET of the status one: every field the status endpoint

@@ -135,7 +135,7 @@ test("apply — an imported file becomes the slot's value, and $ survives it ver
 
   const id = startedID(runCli(bin, ["run", name]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
-  const instance = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout);
+  const instance = JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout);
   expect(instance.state.output).toBe(snippet);
 });
 
@@ -346,7 +346,7 @@ test("apply — a relative -f path still leaves the resolver a base it can join"
 
   const id = startedID(runCli(bin, ["run", name]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
-  const instance = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout);
+  const instance = JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout);
   expect(instance.state.output).toBe("relative\n");
 });
 
@@ -507,7 +507,7 @@ test("apply — $$ escapes the directive, leaving a literal string", async () =>
 
   const id = startedID(runCli(bin, ["run", name]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
-  const instance = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout);
+  const instance = JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout);
   expect(instance.state.output).toBe("$import: ./body.txt");
 });
 
@@ -1117,7 +1117,7 @@ test("evaluator importer — a data file imported as JSON is inlined and reaches
   const started = runCli(bin, ["run", name, "--input", JSON.stringify({ amount: 100 })]);
   const id = startedID(`${started.stdout}${started.stderr}`);
   expect(await waitForInstance(id)).toBe("completed");
-  const instance = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout);
+  const instance = JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout);
   expect(instance.state.output.fee, "0.25 must have been baked into the bundle").toBe(25);
 }, 60_000);
 
@@ -1238,7 +1238,7 @@ test("evaluator importer — a node builtin survives the bundle and runs in the 
   const started = runCli(bin, ["run", name, "--input", JSON.stringify({ amount: 250, path: secret })]);
   const id = startedID(`${started.stdout}${started.stderr}`);
   expect(await waitForInstance(id)).toBe("completed");
-  const instance = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout);
+  const instance = JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout);
 
   // Only a real builtin can answer this: under the browser target `node:fs` bundles to `{}`
   // and `readFileSync` is undefined, so the script reaches the realm and throws.

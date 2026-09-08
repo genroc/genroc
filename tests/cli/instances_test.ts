@@ -56,7 +56,7 @@ function apply(def: object & { name: string }): string {
 
 // ── run ─────────────────────────────────────────────────────────────────────────
 
-test("get --json — a child task in a loop appears once, not once per iteration", async () => {
+test("detail --json — a child task in a loop appears once, not once per iteration", async () => {
   const kid = uid("dupkid");
   const parent = uid("dupparent");
   const file = writeDefs([
@@ -86,7 +86,7 @@ test("get --json — a child task in a loop appears once, not once per iteration
   // `outputs` holds ONE value per task however many times a loop re-enters it. Asserted on RAW
   // stdout because the failure this guards was a repeated KEY in the object, which JSON.parse
   // hides by silently keeping the last.
-  const raw = runCli(bin, ["get", id, "--json"]).stdout;
+  const raw = runCli(bin, ["detail", id, "--json"]).stdout;
   const outputs = raw.slice(raw.indexOf('"outputs"'));
   const occurrences = outputs.split(`"call":`).length - 1;
   expect(occurrences, `"call" appears ${occurrences}x in outputs:\n${raw}`).toBe(1);
@@ -124,7 +124,7 @@ test("run --set — overlays onto --input rather than replacing it", () => {
   const name = apply(inputDef(uid("proc")));
   const id = startedID(runCli(bin, ["run", name, "--input", "{count: 1, name: Base}", "--set", "count=2"]).stdout);
 
-  const { state } = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout) as {
+  const { state } = JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout) as {
     state: { input: { count: number; name: string } };
   };
   expect(state.input.count).toBe(2); // --set won the field it named
@@ -168,11 +168,58 @@ test("run — input that fails the schema is reported before anything starts", (
 
 // ── get: displayed fields ───────────────────────────────────────────────────────
 
-test("get — the detail block names the instance, its process and its state", () => {
+// `get` answers "what did it produce", `detail` answers "what does it hold". The split is the
+// point: state is engine bookkeeping, and an everyday read that hands it back teaches people to
+// depend on internals. These two must not drift back into one view.
+test("get — reports the output and no state; detail reports the state", async () => {
+  const name = uid("split");
+  runCli(bin, [
+    "apply",
+    "-f",
+    writeDefs([{
+      name,
+      input_schema: {
+        type: "object",
+        properties: { who: { type: "string" } },
+        required: ["who"],
+      },
+      tasks: [{ id: "greet", output: { greeting: "hi, ${input.who}" }, switch: [{ goto: "end" }] }],
+      output: { greeting: "$: outputs.greet.greeting" },
+    }]),
+  ]);
+  const id = runCli(bin, ["run", name, "--set", "who=ada", "-q"]).stdout.trim();
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const got = runCli(bin, ["get", id]);
+  expect(got.ok, got.stderr).toBe(true);
+  expect(got.stdout, "the declared output: block is what a caller came for").toContain(
+    "greeting: hi, ada",
+  );
+  expect(
+    got.stdout,
+    "state is the engine's own slots — `get` handing them back is what `detail` exists to avoid",
+  ).not.toContain("State:");
+  expect(got.stdout).not.toContain("outputs:");
+
+  const detail = runCli(bin, ["detail", id]);
+  expect(detail.ok, detail.stderr).toBe(true);
+  expect(detail.stdout).toContain("State:");
+  expect(detail.stdout, "the per-task slot only detail carries").toContain("outputs:");
+
+  // --json is the machine form and stays JSON in both.
+  const j = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout) as {
+    output: { greeting: string };
+    state?: unknown;
+  };
+  expect(j.output.greeting).toBe("hi, ada");
+  expect(j.state, "the status endpoint carries no state at all").toBeUndefined();
+}, 15_000);
+
+test("detail — the block names the instance, its process and its state", () => {
   const name = apply(inputDef(uid("proc")));
   const id = startedID(runCli(bin, ["run", name, "--set", "count=42"]).stdout);
 
-  const r = runCli(bin, ["get", id]);
+  const r = runCli(bin, ["detail", id]);
   expect(r.ok).toBe(true);
   expect(r.stdout).toContain(id);
   expect(r.stdout).toContain(`${name}@v1`);
@@ -182,7 +229,7 @@ test("get — the detail block names the instance, its process and its state", (
   expect(r.stdout).toContain("42"); // the input value lives in the context
 
   // --json is the raw server object, so it carries the context verbatim.
-  const j = runCli(bin, ["get", id, "--json"]);
+  const j = runCli(bin, ["detail", id, "--json"]);
   expect(j.ok).toBe(true);
   expect(JSON.parse(j.stdout)).toMatchObject({ id, process: name, version: 1 });
 });
@@ -227,31 +274,31 @@ test("get — a failed instance prints the error it reports, payload and all", a
   );
 }, 15_000);
 
-test("get — an externalized value shows its ref where the value belongs", async () => {
+test("detail — an externalized value shows its ref where the value belongs", async () => {
   const name = uid("refplace");
   runCli(bin, ["apply", "-f", writeDefs([blobInputDef(name)])]);
   const id = runCli(bin, ["run", name, "--input", JSON.stringify({ blob: BIG_BLOB }), "-q"])
     .stdout.trim();
   expect(await waitForInstance(id)).toBe("completed");
 
-  const text = runCli(bin, ["get", id]);
+  const text = runCli(bin, ["detail", id]);
   expect(text.ok, text.stderr).toBe(true);
   const state = text.stdout.slice(text.stdout.indexOf("State:"));
   expect(
     state,
     "the slot is absent on the wire, so a reader who cannot see the key cannot tell a value "
       + "that was cut from one that was never there",
-  ).toMatch(/"blob": \{\s*"ref": "[0-9a-f]{32}",\s*"size": \d+\s*\}/);
+  ).toMatch(/blob:\s+ref: [0-9a-f]{32}\s+size: \d+/);
   expect(state).not.toContain("BBBBBBBBBB");
 
   // --resolve means the same thing here as it does in --json.
-  const resolved = runCli(bin, ["get", id, "--resolve"]);
+  const resolved = runCli(bin, ["detail", id, "--resolve"]);
   expect(resolved.ok, resolved.stderr).toBe(true);
   expect(resolved.stdout).toContain("BBBBBBBBBB");
   expect(resolved.stdout).not.toContain('"ref"');
 }, 15_000);
 
-test("get --resolve — materializes context values held in the object store", async () => {
+test("detail --resolve — materializes context values held in the object store", async () => {
   const name = uid("bigctx");
   runCli(bin, ["apply", "-f", writeDefs([blobInputDef(name)])]);
   const id = runCli(bin, ["run", name, "--input", JSON.stringify({ blob: BIG_BLOB }), "-q"])
@@ -259,11 +306,11 @@ test("get --resolve — materializes context values held in the object store", a
   expect(await waitForInstance(id)).toBe("completed");
 
   // Slot-level laziness: the context carries a reference, not the blob.
-  const lazy = runCli(bin, ["get", id, "--json"]);
+  const lazy = runCli(bin, ["detail", id, "--json"]);
   expect(lazy.stdout).toContain(`"ref":`);
   expect(lazy.stdout).not.toContain("BBBBBBBBBB");
 
-  const full = runCli(bin, ["get", id, "--resolve", "--json"]);
+  const full = runCli(bin, ["detail", id, "--resolve", "--json"]);
   expect(full.ok).toBe(true);
   expect(full.stdout).toContain("BBBBBBBBBB");
 }, 15_000);

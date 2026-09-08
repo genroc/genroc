@@ -441,6 +441,29 @@ func outcomeBody(body map[string]any, payload any, code, message string) map[str
 	return body
 }
 
+// instanceView decodes both single-instance endpoints. One struct because the two must agree
+// on every field they share: a name that drifts between them reads as an absent value, not as
+// an error.
+type instanceView struct {
+	ID         string `json:"id"`
+	Process    string `json:"process"`
+	Version    int    `json:"version"`
+	Status     string `json:"status"`
+	WaitState  string `json:"wait_state"`
+	Task       string `json:"task"`
+	RetryCount int    `json:"retry_count"`
+	// The error this instance REPORTS. The one it CAUGHT is a state slot, and so reaches
+	// `detail` only.
+	ErrorCode    string         `json:"error_code"`
+	ErrorMessage string         `json:"error_message"`
+	ErrorData    any            `json:"error_data"`
+	CreatedAt    string         `json:"created_at"`
+	UpdatedAt    string         `json:"updated_at"`
+	Output       any            `json:"output"`
+	State        map[string]any `json:"state"`
+	Objects      []objectEntry  `json:"objects"`
+}
+
 func runGetCmd(server string, args []string) {
 	fs := newFlagSet("get", args)
 	serverFlag := addServerFlag(fs, server)
@@ -448,57 +471,78 @@ func runGetCmd(server string, args []string) {
 	resolveFlag := fs.Bool("resolve", false, "fetch the values listed under \"objects\" and put them back where they belong")
 	id := instanceIDAndFlags(fs, args)
 
-	// The detail endpoint: `get` shows what the instance HOLDS, which is state -- the status
-	// endpoint carries only what an instance reports outward.
-	u := *serverFlag + "/api/instances/" + url.PathEscape(id) + "/detail"
+	// The status endpoint: what the instance reports OUTWARD -- its `output:` block and the
+	// error it ended on. The engine's own slots are `detail`, so the everyday read cannot
+	// hand back internals nobody asked for.
+	inst, raw := fetchInstance(*serverFlag, "/api/instances/"+url.PathEscape(id), *resolveFlag)
+	if *jsonFlag {
+		printIndented(raw)
+		return
+	}
+	printInstanceHead(inst)
+	// The payload the failing clause attached -- the machine-readable half of the error whose
+	// prose the head printed. Before the output, because on a failed instance there is none.
+	if inst.ErrorData != nil {
+		fmt.Println("\nError data:")
+		fmt.Println(yamlBlock(withObjectRefs(inst.ErrorData, inst.Objects, "error_data")))
+	}
+	if inst.Output != nil {
+		fmt.Println("\nOutput:")
+		fmt.Println(yamlBlock(withObjectRefs(inst.Output, inst.Objects, "output")))
+	}
+}
+
+func runDetailCmd(server string, args []string) {
+	fs := newFlagSet("detail", args)
+	serverFlag := addServerFlag(fs, server)
+	jsonFlag := fs.Bool("json", false, "print the raw JSON response")
+	resolveFlag := fs.Bool("resolve", false, "fetch the values listed under \"objects\" and put them back where they belong")
+	id := instanceIDAndFlags(fs, args)
+
+	u := "/api/instances/" + url.PathEscape(id) + "/detail"
 	if *resolveFlag {
 		// The server splices what fits and leaves the rest listed, so ask it first and then
 		// fetch whatever it could not carry: two round trips at most for the small case, and
 		// the big values still never pass through a response nobody sized.
 		u += "?resolve=true"
 	}
-	// One fetch for both views: --resolve has to mean the same thing in each, and the text one
-	// needs the `objects` section a decode into the struct below would drop.
-	var raw json.RawMessage
-	if err := callGet(u, &raw); err != nil {
-		fatal("%v", err)
-	}
-	if *resolveFlag {
-		raw = spliceObjects(*serverFlag, raw)
-	}
+	inst, raw := fetchInstance(*serverFlag, u, *resolveFlag)
 	if *jsonFlag {
 		printIndented(raw)
 		return
 	}
-
-	var inst struct {
-		ID         string `json:"id"`
-		Process    string `json:"process"`
-		Version    int    `json:"version"`
-		Status     string `json:"status"`
-		WaitState  string `json:"wait_state"`
-		Task       string `json:"task"`
-		RetryCount int    `json:"retry_count"`
-		// The error this instance REPORTS. The one it CAUGHT is a context key, printed below
-		// with the rest of the state it stopped holding.
-		ErrorCode    string         `json:"error_code"`
-		ErrorMessage string         `json:"error_message"`
-		CreatedAt    string         `json:"created_at"`
-		UpdatedAt    string         `json:"updated_at"`
-		State        map[string]any `json:"state"`
-		Objects      []objectEntry  `json:"objects"`
+	printInstanceHead(inst)
+	if len(inst.State) > 0 {
+		fmt.Println("\nState:")
+		fmt.Println(yamlBlock(withObjectRefs(inst.State, inst.Objects, "state")))
 	}
+}
+
+// One fetch for both views: --resolve has to mean the same thing in each, and the text one
+// needs the `objects` section a decode into instanceView alone would drop.
+func fetchInstance(server, path string, resolve bool) (instanceView, json.RawMessage) {
+	var raw json.RawMessage
+	if err := callGet(server+path, &raw); err != nil {
+		fatal("%v", err)
+	}
+	if resolve {
+		raw = spliceObjects(server, raw)
+	}
+	var inst instanceView
 	// numeric.Decode, not json.Unmarshal: a large literal must survive the display path.
 	// specs/number-precision.md.
 	if err := numeric.Decode(raw, &inst); err != nil {
 		fatal("decode: %v", err)
 	}
+	return inst, raw
+}
 
+func printInstanceHead(inst instanceView) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(w, "ID:\t%s\n", inst.ID)
 	fmt.Fprintf(w, "Process:\t%s@v%d\n", inst.Process, inst.Version)
 	fmt.Fprintf(w, "Status:\t%s\n", inst.Status)
-	// Where the process is, printed right under what is happening to it — and on a
+	// Where the process is, printed right under what is happening to it -- and on a
 	// settled instance, where it stopped.
 	if inst.Task != "" {
 		fmt.Fprintf(w, "Task:\t%s\n", inst.Task)
@@ -518,13 +562,6 @@ func runGetCmd(server string, args []string) {
 		fmt.Fprintf(w, "Code:\t%s\n", inst.ErrorCode)
 	}
 	w.Flush()
-
-	if len(inst.State) > 0 {
-		fmt.Println("\nState:")
-		b, _ := json.MarshalIndent(withObjectRefs(inst.State, inst.Objects, "state"), "", "  ")
-		os.Stdout.Write(b)
-		os.Stdout.Write([]byte("\n"))
-	}
 }
 
 func runInstancesCmd(server string, args []string) {

@@ -94,6 +94,8 @@ func main() {
 		runObjectCmd(server, args)
 	case "get":
 		runGetCmd(server, args)
+	case "detail":
+		runDetailCmd(server, args)
 	case "channel":
 		runChannelCmd(server, args)
 	case "compat":

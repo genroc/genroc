@@ -11,7 +11,9 @@ import { API_BASE, waitForInstance } from "../helpers/client.ts";
 // too large for int64 into a float64, so a long id was destroyed on upload before
 // the request left the machine, and responses were decoded with a plain
 // json.Unmarshal, so `get` rendered through float64 even when the server held the
-// value exactly.
+// value exactly. `genctl schema` was a third: it round-tripped the document through a
+// plain json.Unmarshal of its own, so a `default:` printed back changed value -- offline,
+// with no server involved to blame.
 //
 // Every assertion here reads the CLI's raw stdout text. Parsing it as JSON would
 // be self-defeating: JavaScript numbers are float64 too, so JSON.parse would
@@ -84,14 +86,14 @@ async function applyRunGet(def: string, name: string, extraRunArgs: string[] = [
   const id = started.stdout.trim();
 
   expect(await waitForInstance(id, 10_000)).toBe("completed");
-  const got = runCli(bin, ["get", id]);
+  const got = runCli(bin, ["detail", id]);
   expect(got.ok).toBe(true);
   return got.stdout;
 }
 
 // The reported case, end to end: a long integer written as a schema default,
 // carried through a map expression and rendered back by the CLI.
-test("genctl — a large integer in a schema default survives apply → run → get", async () => {
+test("genctl — a large integer in a schema default survives apply → run → detail", async () => {
   const name = uid("precdefault");
   const out = await applyRunGet(defaultCarryingDef(name, BIG_INT), name);
 
@@ -199,10 +201,59 @@ output: "$: outputs.calc"
     `{"a":0.1,"b":0.2,"big":${BEYOND_FLOAT64}}`,
   ]);
 
-  expect(out).toContain(`"sum": 0.3`);
+  // The text view renders YAML, so a number that survived arrives unquoted: a quoted one
+  // would be a string, which is the other way this rendering can lose the value.
+  expect(out).toContain("sum: 0.3");
   expect(out).not.toContain("0.30000000000000004");
-  expect(out).toContain(`"exact": true`);
-  expect(out).toContain(`"bigPlusOne": 9007199254740994`);
+  expect(out).not.toContain(`sum: "0.3"`);
+  expect(out).toContain("exact: true");
+  expect(out).toContain("bigPlusOne: 9007199254740994");
+});
+
+// `schema` answers offline, from the file: no server, no storage, no engine. So a literal it
+// prints back wrong was destroyed by the renderer alone -- and a `default:` is a literal
+// someone wrote, which is exactly what must come back unchanged.
+test("genctl schema — a large default survives the round trip in both renderings", () => {
+  const name = uid("precschema");
+  const file = writeRawYaml(`name: ${name}
+input_schema:
+  type: object
+  properties:
+    n:
+      type: number
+      default: ${BEYOND_FLOAT64}
+    ratio:
+      type: number
+      default: 1.10
+tasks:
+  - id: pass
+    output:
+      v: "$: input.n"
+    switch:
+      - goto: end
+output:
+  v: "$: outputs.pass.v"
+`);
+
+  for (const args of [[], ["--json"]]) {
+    const label = args.length ? "--json" : "yaml";
+    const got = runCli(bin, ["schema", "type", name, "input", "-f", file, ...args]);
+    expect(got.ok, got.stderr).toBe(true);
+    expect(got.stdout, `${label}: the default came back as a different number`).toContain(
+      BEYOND_FLOAT64,
+    );
+    expect(got.stdout, `${label}: rounded to the float64 neighbour`).not.toContain(
+      FLOAT64_NEIGHBOUR,
+    );
+    expect(got.stdout, `${label}: a trailing zero is part of what was written`).toContain("1.10");
+  }
+
+  // YAML has a second way to lose it: a number that comes back quoted is a string.
+  const yaml = runCli(bin, ["schema", "type", name, "input", "-f", file]).stdout;
+  expect(yaml).not.toContain(`"${BEYOND_FLOAT64}"`);
+  expect(yaml, "the schema view is indented for pasting into a definition").toContain(
+    "  input:\n",
+  );
 });
 
 // The --json rendering is a separate code path from the human-readable one.
@@ -213,7 +264,7 @@ test("genctl — get --json preserves the exact literal", async () => {
   const id = runCli(bin, ["run", name, "-q", "--input", "{}"]).stdout.trim();
   expect(await waitForInstance(id, 10_000)).toBe("completed");
 
-  const got = runCli(bin, ["get", id, "--json"]);
+  const got = runCli(bin, ["detail", id, "--json"]);
   expect(got.ok).toBe(true);
   expect(got.stdout).toContain(BIG_INT);
   expect(got.stdout).not.toContain(BIG_INT_AS_FLOAT64);
@@ -265,7 +316,7 @@ tasks:
   const id = ((await started.json()) as { id: string }).id;
   expect(await waitForInstance(id, 10_000)).toBe("completed");
 
-  const resolved = runCli(bin, ["get", id, "--resolve"]);
+  const resolved = runCli(bin, ["detail", id, "--resolve"]);
   expect(resolved.ok, resolved.stderr).toBe(true);
   expect(resolved.stdout).toContain(BIG_INT);
   expect(resolved.stdout).not.toContain(BIG_INT_AS_FLOAT64);
@@ -292,10 +343,10 @@ tasks:
   expect(await waitForInstance(id, 10_000)).toBe("completed");
 
   // The unresolved view names the object rather than carrying it.
-  const marked = runCli(bin, ["get", id]);
-  expect(marked.stdout).toMatch(/"rows": \{\s*"ref": "[0-9a-f]{32}"/);
+  const marked = runCli(bin, ["detail", id]);
+  expect(marked.stdout).toMatch(/rows:\s+ref: [0-9a-f]{32}/);
 
-  const resolved = runCli(bin, ["get", id, "--resolve"]);
+  const resolved = runCli(bin, ["detail", id, "--resolve"]);
   expect(resolved.ok, resolved.stderr).toBe(true);
   expect(resolved.stdout).toContain(BIG_INT);
   expect(resolved.stdout).not.toContain(BIG_INT_AS_FLOAT64);

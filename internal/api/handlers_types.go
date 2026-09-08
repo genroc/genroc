@@ -363,11 +363,16 @@ type InstanceStatusResp struct {
 	// declares the code under `raises`; here it is for an operator.
 	ErrorMessage string `json:"error_message,omitempty"`
 	ErrorData    any    `json:"error_data,omitempty"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
-	// Objects is error_data's, and only error_data's: a payload past the inline cutoff is ABSENT
-	// above and listed here at the path it belongs to, so nothing in the data can be mistaken for
-	// a reference. Fetch one with GET /objects/{ref} and put it back. It is not resolved for you
+	// Output is the process's declared `output:` block -- what it reports OUTWARD, and the same
+	// value a parent collects as a child's result (engine/collect.go). It is the reason this
+	// endpoint answers "what did it produce" without handing back state, which is engine
+	// internals; absent until the definition sets it.
+	Output    any    `json:"output,omitempty"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+	// Objects covers error_data and output alike: a payload past the inline cutoff is ABSENT
+	// above and listed here at the path it belongs to -- which is what tells the two apart --
+	// so nothing in the data can be mistaken for a reference. Fetch one with GET /objects/{ref} and put it back. It is not resolved for you
 	// -- a payload has no size limit, and inlining it here would put an unbounded response behind
 	// no control at all. specs/object-store.md §The wire.
 	Objects []ObjectEntry `json:"objects,omitempty"`
@@ -402,6 +407,8 @@ type InstanceDetailResp struct {
 	// a strict SUPERSET of the status one: a caller can move to this endpoint without losing a
 	// field. Its externalized pieces are listed once, under the state path they were cut from.
 	ErrorData any `json:"error_data,omitempty"`
+	// Output is State["output"] under the same rule, for the same reason.
+	Output any `json:"output,omitempty"`
 
 	// Children is the parent's spawns, keyed by the task that made them: a bare id for a single
 	// `child`, an object keyed by entry for a `child_map`, an array in spawn order for a

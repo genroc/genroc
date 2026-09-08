@@ -14,9 +14,8 @@ import (
 	"slices"
 	"strings"
 
-	"gopkg.in/yaml.v3"
-
 	"genroc/internal/model"
+	"genroc/internal/numeric"
 	"genroc/internal/schema"
 	"genroc/internal/validation"
 )
@@ -255,7 +254,9 @@ func schemaDoc(s schema.Schema) map[string]any {
 		fatal("render schema: %v", err)
 	}
 	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	// numeric.Decode, not json.Unmarshal: a schema carries `default`, and a default is a literal
+	// someone wrote. specs/number-precision.md.
+	if err := numeric.Decode(raw, &doc); err != nil {
 		fatal("render schema: %v", err)
 	}
 	return doc
@@ -560,7 +561,8 @@ type pair struct {
 	val any
 }
 
-// document is an ordered object, and the only reason it exists is that both encoders sort.
+// document is an ordered object, and the only reason it exists is that encoding/json sorts. The
+// YAML half is yamlout.go's, which orders from the same keywordOrder.
 type document []pair
 
 func (d document) MarshalJSON() ([]byte, error) {
@@ -584,21 +586,6 @@ func (d document) MarshalJSON() ([]byte, error) {
 	}
 	b.WriteByte('}')
 	return b.Bytes(), nil
-}
-
-func (d document) MarshalYAML() (any, error) {
-	out := &yaml.Node{Kind: yaml.MappingNode}
-	for _, p := range d {
-		key, val := &yaml.Node{}, &yaml.Node{}
-		if err := key.Encode(p.key); err != nil {
-			return nil, err
-		}
-		if err := val.Encode(p.val); err != nil {
-			return nil, err
-		}
-		out.Content = append(out.Content, key, val)
-	}
-	return out, nil
 }
 
 // ordered rebuilds a decoded document with its keys in reading order, recursively. A map whose
@@ -653,13 +640,4 @@ func printJSON(v any) {
 
 // printYAML is the default for a schema: it is the language definitions are written in, so an
 // answer can be pasted into one, and it spends no lines on punctuation.
-func printYAML(v any) {
-	var b bytes.Buffer
-	enc := yaml.NewEncoder(&b)
-	enc.SetIndent(2)
-	if err := enc.Encode(ordered(v)); err != nil {
-		fatal("render: %v", err)
-	}
-	enc.Close()
-	fmt.Print(b.String())
-}
+func printYAML(v any) { printYAMLDoc(v, keywordOrder) }
