@@ -5,7 +5,6 @@ import {
   LanguageClient,
   LanguageClientOptions,
   ServerOptions,
-  TransportKind,
 } from "vscode-languageclient/node";
 
 // The extension is a launcher. Every answer a user sees — diagnostics, hover, completion,
@@ -33,10 +32,12 @@ export async function activate(context: vscode.ExtensionContext) {
     return;
   }
 
-  const server: ServerOptions = {
-    run: { command, args: ["lsp"], transport: TransportKind.stdio },
-    debug: { command, args: ["lsp"], transport: TransportKind.stdio },
-  };
+  // No `transport: TransportKind.stdio`. It is the default, and naming it makes the client
+  // APPEND `--stdio` to argv — which this extension would then depend on the binary accepting.
+  // Asking for a flag we do not need is how a genctl that predates it turns into five restarts
+  // and a disposed connection. The server accepts `--stdio` for clients that do send it.
+  const executable = { command, args: ["lsp"] };
+  const server: ServerOptions = { run: executable, debug: executable };
 
   const client_options: LanguageClientOptions = {
     // Both ids: a workspace that has not adopted the `genroc` language id still has these

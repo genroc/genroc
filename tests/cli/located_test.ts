@@ -64,10 +64,13 @@ test("apply — a missing required field points at the node that lacks it", () =
   expect(r.stderr).toContain("id is required");
 });
 
-// `--stdio` is what every LSP client appends: vscode-languageclient adds it for
-// TransportKind.stdio, and refusing it refuses the client rather than a mistake. Passing it
-// here is not incidental — it is the exact argv the extension runs.
-test("lsp — genctl speaks LSP on stdio and underlines the key a typo is in", () => {
+// Both argv shapes, because both are real: the VS Code extension runs a bare `genctl lsp`,
+// and clients that name the transport append `--stdio`. The extension asks for no flag ON
+// PURPOSE — depending on one it does not need is what turned an older genctl into five
+// restarts and a disposed connection.
+test.each([[[]], [["--stdio"]]])(
+  "lsp — genctl lsp %j speaks LSP on stdio and underlines the key a typo is in",
+  (extraArgs: string[]) => {
   // The whole editor path through the binary people already have: framed in, framed out.
   const text = 'name: demo\ntasks:\n  - id: a\n    on_eror: []\n    switch: end\n';
   const frames = [
@@ -86,7 +89,7 @@ test("lsp — genctl speaks LSP on stdio and underlines the key a typo is in", (
     })
     .join("");
 
-  const r = spawnSync(bin, ["lsp", "--stdio"], { input: frames, encoding: "utf8" });
+  const r = spawnSync(bin, ["lsp", ...extraArgs], { input: frames, encoding: "utf8" });
   expect(r.status, r.stderr).toBe(0);
 
   const msgs = readFrames(r.stdout ?? "");
@@ -99,7 +102,8 @@ test("lsp — genctl speaks LSP on stdio and underlines the key a typo is in", (
   expect(ds[0].message).toContain("on_eror");
   // Line 4 (0-based 3), and the key's own columns rather than its value's.
   expect(ds[0].range.start).toEqual({ line: 3, character: 4 });
-});
+  },
+);
 
 /** Read a Content-Length framed LSP stream. */
 function readFrames(out: string): any[] {
