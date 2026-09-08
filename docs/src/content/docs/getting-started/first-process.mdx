@@ -37,7 +37,7 @@ genctl apply -f definitions/hello.genroc.yaml
 ```
 
 Init project makes this easier for you, if you look into `.genroc` file, it has a glob for definitions.
-When you have setup like this, you can run the command without specifing the file.
+When you have setup like this, you can run the command without specifying the file.
 
 ```sh
 genctl apply        # uses definitions glob from .genroc
@@ -56,20 +56,20 @@ hello  v1       just now    no-auth:anonymous
 You can now run the definition with a `run` command:
 
 ```sh
-genct run hello --input '{"who": "genroc user"}'
+genctl run hello --input '{"who": "genroc user"}'
 ```
 
-The command creates instance of our `hello` process.
+The command creates an instance of our `hello` process.
 
-Processes accept input in form of json.
+Processes accept input in the form of JSON.
 
-You can use equivalent more user friendly version with the `--set` parameter:
+You can use an equivalent, more user friendly version with the `--set` parameter:
 
 ```sh
-genct run hello --set "who=genroc user"
+genctl run hello --set "who=genroc user"
 ```
 
-If the instance starts correctly, genctl will print summary with an instance id.
+If the instance starts correctly, genctl will print a summary with an instance id.
 
 ```
 > genctl run hello --set "who=genroc user"
@@ -86,7 +86,7 @@ genctl get 4cqpdx8z
 genctl get @last
 ```
 
-But more convenient way is to use `@last` alias, which will use last process id that was created.
+But a more convenient way is to use `@last` alias, which will use the last instance id that was created.
 
 ```
 > genctl get @last
@@ -109,7 +109,7 @@ The example process basically just copies your input and prints it out into the 
 
 ## Checking the logs
 
-You can also check the instance also produces logs which you can list through `logs` command (you can also use @last alias).
+The instance also produces logs which you can list through `logs` command (@last works as well).
 
 ```
 > genctl logs @last

@@ -1,0 +1,114 @@
+---
+title: Surviving a restart
+description: Demonstrating why to use genroc in the first place.
+order: 3
+---
+
+## Create process from scratch
+
+Let's now create a process which will run for a longer time:
+
+```yaml
+# definitions/ticker.genroc.yaml
+name: ticker
+tasks:
+  - id: tick
+    action:
+      type: delay
+      for: 10s
+    output:
+      count: "$: (self.previous.count ?? 0) + 1"
+    switch:
+      - case: "self.output.count < 3"
+        goto: $tick
+      - goto: end
+
+output:
+  ticks: "$: outputs.tick.count ?? 0"
+```
+
+Copy this yaml and put it into `definitions/ticker.genroc.yaml` (we are still working with project produced by `genctl init` from previous sections).
+
+## Let's apply
+
+Let's now apply the process:
+
+```
+> genctl apply
+unchanged: hello@v1
+saved: ticker@v1
+```
+
+You should see the same output as above. The `hello` process is unchanged and `ticker` is created.
+
+## Run the process
+
+This process doesn't require any input, so it's simple to run it.
+
+```sh
+genctl run ticker
+```
+
+Now let's check the logs.
+
+```sh
+genctl logs @last
+```
+
+This process runs for about 30s, so you can run the `logs` command repeatedly until it ends. 
+
+Once it finishes, you should see something like this:
+
+```
+> genctl logs @last
+TIME      LEVEL  ID        EVENT             TASK
+--- 2026-09-08 +02:00 ---
+14:39:51  INFO   4ptydpvz  inst_created                      by=no-auth:anonymous
+14:39:51  INFO   4ptydpvz  delay_armed       tick            msg="10s -> 2026-09-08T12:40:01Z"
+14:40:01  INFO   4ptydpvz  task_completed    tick            msg="→ $tick"
+14:40:01  INFO   4ptydpvz  delay_armed       tick            msg="10s -> 2026-09-08T12:40:11Z"
+14:40:12  INFO   4ptydpvz  task_completed    tick            msg="→ $tick"
+14:40:12  INFO   4ptydpvz  delay_armed       tick            msg="10s -> 2026-09-08T12:40:22Z"
+14:40:22  INFO   4ptydpvz  inst_completed    tick            output={"ticks":3}
+```
+
+## Let's try to break it!
+
+Let's now start a new instance and immediately stop the docker containers.
+
+```sh
+genctl run ticker && docker compose stop
+```
+
+Leave the server down for some time and then start it again.
+
+```sh
+docker compose up -d
+```
+
+Now let's check the logs:
+
+```
+> genctl logs @last                       
+TIME      LEVEL  ID        EVENT             TASK
+--- 2026-09-08 +02:00 ---
+14:50:53  INFO   20he91zm  inst_created                      by=no-auth:anonymous
+14:50:53  INFO   20he91zm  delay_armed       tick            msg="10s -> 2026-09-08T12:51:03Z"
+14:52:23  INFO   20he91zm  task_completed    tick            msg="→ $tick"
+14:52:23  INFO   20he91zm  delay_armed       tick            msg="10s -> 2026-09-08T12:52:33Z"
+14:52:33  INFO   20he91zm  task_completed    tick            msg="→ $tick"
+14:52:33  INFO   20he91zm  delay_armed       tick            msg="10s -> 2026-09-08T12:52:43Z"
+14:52:44  INFO   20he91zm  inst_completed    tick            output={"ticks":3}
+```
+
+You can see that process started at `14:50:53`, but then there is nothing for 90 seconds. Then it recovers and continues.
+
+The instance lives in the database not in the running server. So if the server restarts, nothing is lost.
+
+## How about hard crashes?
+
+You might object that docker stops the server gracefully and so it never aborts the running process forcibly, but what if our computer crashes or there is an electricity outage?
+
+Genroc is safe in these cases too - and here the nuance starts. None of the actions in ticker have side-effects, so genroc can simply re-execute the task and continue.
+
+TODO: link complete durability docs
