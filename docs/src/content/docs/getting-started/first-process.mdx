@@ -1,15 +1,124 @@
 ---
 title: Your first process
 description: Write a definition, apply it, run an instance and watch it through to completion.
-order: 3
+order: 2
 ---
 
 ## Define it
 
+Genroc processes are defined via `.genroc.yaml` files.
+If you've just initialized your project with `genctl init`, you will see `hello.genroc.yaml` in the `definitions` folder.
+
+
+```yaml
+# definitions/hello.genroc.yaml
+name: hello
+input_schema:
+  type: object
+  properties:
+    who: { type: string, default: "world" }
+tasks:
+  - id: greet
+    output:
+      greeting: "hello, ${input.who}"
+    switch:
+      - goto: end
+
+output: "$: outputs.greet"
+```
+
 ## Apply it
+
+Genroc server now doesn't know about this process, we first need to apply it.
+
+Full command to do this:
+```sh
+genctl apply -f definitions/hello.genroc.yaml
+```
+
+Init project makes this easier for you, if you look into `.genctl` file, it has a glob for definitions.
+When you have setup like this, you can run the command without specifing the file.
+
+```sh
+genctl apply        # uses definitions glob from .genctl
+```
+
+You can also list existing definitions with `genctl definitions`
+
+```
+> genctl definitions
+NAME   VERSION  REGISTERED  BY                 RAISES
+hello  v1       just now    no-auth:anonymous  
+```
 
 ## Run it
 
-## Watch it finish
+You can now run the definition with a `run` command:
 
-## Kill the worker and watch it resume
+```sh
+genct run hello --input `{"who": "genroc user"}`
+```
+
+The command creates instance of our `hello` process.
+
+Processes accept input in form of json.
+
+You can use equivalent more user friendly version with the `--set` parameter:
+
+```sh
+genct run hello --set "who=genroc user"
+```
+
+If the instance starts correctly, genctl will print summary with an instance id.
+
+```
+> genctl run hello --set "who=genroc user"
+started: 4cqpdx8z  hello@v1  (running)
+```
+
+## Checking the instance state
+
+We can now check the instance status with `get` command and the instance id.
+
+```sh
+genctl get 4cqpdx8z
+# or
+genctl get @last
+```
+
+But more convenient way is to use `@last` alias, which will use last process id that was created.
+
+```
+> genctl get @last
+ID:       4cqpdx8z
+Process:  hello@v1
+Status:   completed
+Task:     greet
+Created:  2026-09-08 13:44:24  (just now)
+Updated:  2026-09-08 13:44:24  (just now)
+
+.
+.
+.
+```
+
+The example process basically just copies your input and prints it out into the output. So it finishes instantly.
+
+
+> @last alias is genctl shorthand, it works only on the same machine that started the process
+
+## Checking the logs
+
+You can also check the instance also produces logs which you can list through `logs` command (you can also use @last alias).
+
+```
+> genctl logs @last
+TIME      LEVEL  ID        EVENT             TASK
+--- 2026-09-08 +02:00 ---
+13:44:24  INFO   4cqpdx8z  inst_created                      by=no-auth:anonymous input={"who":"genroc user"}
+13:44:24  INFO   4cqpdx8z  work_started      greet           worker=21fd4c9bef19-1-4692b4fd
+13:44:24  INFO   4cqpdx8z  inst_completed    greet           output={"greeting":"hello, genroc user"}
+```
+
+You can see what was the input and what is the final output.
+

@@ -53,6 +53,20 @@ Try entering `http://localhost:8448` to see if genroc is running correctly. If y
 
 <Screenshot src="create-project.png" alt="The genroc UI, showing a process instance" />
 
+Genctl looks for genroc server on port 8448 by default, so it should now work as well.
+
+```
+> genctl instances
+no instances
+```
+
+Should run without an error.
+
+## `data` folder
+
+Our example project stores database files in the `data` folder. This folder is in `.gitignore` by default.
+If you need to prune database just delete the folder and restart the server with docker.
+
 ## Uninstalling
 To uninstall genctl:
 
