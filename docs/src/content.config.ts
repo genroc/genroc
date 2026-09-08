@@ -10,7 +10,9 @@ const docs = defineCollection({
   loader: glob({ pattern: '**/*.{md,mdx}', base: './src/content/docs' }),
   schema: z.object({
     title: z.string(),
-    description: z.string(),
+    // Optional because a page whose only job is to name and place a folder has nothing to
+    // describe -- it has no body either, and redirects to its first child. See src/lib/nav.ts.
+    description: z.string().optional(),
     // Sorts siblings only. Nothing compares an order across two parents.
     order: z.number(),
   }),

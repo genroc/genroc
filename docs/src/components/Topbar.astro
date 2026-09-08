@@ -8,7 +8,7 @@ const path = Astro.url.pathname
 // `section` links duplicate the mobile drawer, so the narrow layout drops them.
 const links = [
   ...(await navSections()).map((s) => ({
-    href: url(s.entries[0].slug),
+    href: s.href,
     label: s.label,
     match: `/${s.id}/`,
     kind: 'section',

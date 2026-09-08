@@ -1,0 +1,81 @@
+---
+title: Process definition
+description: The definition language — tasks, routing, expressions, actions, and what a process does when something fails.
+order: 2
+---
+
+A definition is a YAML document describing what a process does. `genctl apply` registers one and
+the engine runs instances of it. This page walks the language in the order you meet it; each
+section assumes the one above.
+
+TODO: skeleton. Every heading below is a section to write, not a section that exists.
+
+## The shape of a definition
+
+TODO: the whole surface on one page — `name`, `tasks`, and the optional `input_schema`,
+`config_schema`, `output`, `$defs`. One small definition annotated, so the rest of the page has
+something to point at.
+
+## Tasks
+
+TODO: `id`, `action`, `output`, `switch`. A task is the unit of work AND the unit of durability —
+what is committed between steps is what a restart resumes from. A task with no `action` is
+routing only.
+
+## Routing with `switch`
+
+TODO: the shorthand (`end`, `next`, `$task-id`) and the list form of `case` / `goto`. The last
+case must be a catch-all. Jumping backwards is how a loop is written, with `self.output` as the
+counter — and why that is `self.output` and not `outputs.<id>`, which in a switch is still the
+PREVIOUS value.
+
+## Expressions
+
+TODO: `$:` is a typed leaf, `${}` interpolates into a string, `$$` escapes a literal dollar.
+What is in scope: `input`, `outputs`, `self` (`result`, `previous`, `output`), `config`, `error`.
+Types are inferred and checked at apply time — the "may be null; use ??" refusal belongs here,
+since it is the first one most people hit.
+
+## Actions
+
+TODO: an action is what a task DOES. Six types; a task has at most one.
+
+### `fetch`
+
+TODO: `url`, `method`, `headers`, `query`, `body`, `accepted_status`, `responses`.
+
+### `child`, `child_map`, `child_list`
+
+TODO: one child, a keyed batch, and a fan-out over an array. What the parent reads back, and
+`result_schema` / `raises` as the contract across the boundary.
+
+### `delay`
+
+TODO: `for` and `until`, exactly one of them. A delay is not a sleep — nothing is held open.
+
+### `external`
+
+TODO: the task parks and something outside answers it with `genctl resolve`. Queue tokens.
+
+## Schemas
+
+TODO: `input_schema` validates what starts an instance; `result_schema` narrows what an action
+returns; `$defs` is the shared pool. Inference means most things need no schema at all — say
+where declaring one actually buys something.
+
+## Configuration
+
+TODO: `config_schema`, resolved per tick from `GENROC_<PROCESS>_<NAME>` (falling back to
+`GENROC_GLOBAL_<NAME>`), never persisted, and `secret: true` to keep a value out of the logs.
+
+## When a task fails
+
+TODO: `on_error` rules matching on `code` and `case`, in order, first match wins. Retry tiers.
+`raises` for faults a process reports outward. `only_once` and `only_once.interrupted` — the
+honest answer to "will my payment run twice", which
+[Surviving a restart](../getting-started/surviving-a-restart/) currently defers.
+
+## Timeouts
+
+TODO: `timeout` is the same `for` / `until` grammar aimed at a deadline instead of a wake-up,
+plus `tz`. Which action types honour which form, and what a past instant means.

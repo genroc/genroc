@@ -1,0 +1,22 @@
+---
+title: HTTP API
+description: The endpoints genctl and the UI are built on, and the OpenAPI document that describes them.
+order: 1
+---
+
+TODO. genroc speaks one HTTP API and everything else is a client of it — `genctl`, the UI, and
+whatever you write. It is described by an OpenAPI document generated from the server itself, so
+it cannot drift from what is served.
+
+## The document
+
+TODO: where openapi.json is published, and how to generate a client from it.
+
+## Authentication
+
+TODO: `Authorization: Bearer`, the two credential kinds, and what a deployment without auth means.
+
+## Endpoints
+
+TODO: definitions, instances, external tasks, objects — grouped by what a caller is trying to do
+rather than by path.

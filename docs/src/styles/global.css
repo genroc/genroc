@@ -380,7 +380,6 @@ summary:focus-visible {
 .sidebar li ul {
   margin: 0.1rem 0 0.4rem;
   padding-left: 0.6rem;
-  border-left: 1px solid var(--line);
 }
 
 .sidebar li li a {
@@ -396,6 +395,9 @@ main {
 
 .prose {
   max-width: var(--measure);
+  /* Centred in the column it was given, so a wide display grows the space either side of the
+     text rather than trailing it off to the left. The sidebar and toc keep the edges. */
+  margin-inline: auto;
 }
 
 .page-head {

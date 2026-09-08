@@ -4,7 +4,6 @@ import Logo from '../components/Logo.astro'
 import Transcript from '../components/transcript/Transcript.astro'
 import type { TranscriptLine } from '../components/transcript/Transcript.astro'
 import { navSections } from '../lib/nav'
-import { url } from '../lib/url'
 
 const sections = await navSections()
 
@@ -45,10 +44,9 @@ const session: TranscriptLine[] = [
       sections.map((s) => (
         <section>
           <h2 style="margin-top:2.5rem">{s.label}</h2>
-          <p class="muted" style="color:var(--muted);margin:0">{s.blurb}</p>
           <div class="cards">
             {s.entries.map((e) => (
-              <a class="card" href={url(e.slug)}>
+              <a class="card" href={e.href}>
                 <strong>{e.title}</strong>
                 <p>{e.description}</p>
               </a>

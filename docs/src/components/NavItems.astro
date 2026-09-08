@@ -1,6 +1,5 @@
 ---
 import type { NavEntry } from '../lib/nav'
-import { url } from '../lib/url'
 
 interface Props {
   entries: NavEntry[]
@@ -14,7 +13,7 @@ const { entries, current } = Astro.props
   {
     entries.map((e) => (
       <li>
-        <a href={url(e.slug)} aria-current={e.slug === current ? 'page' : undefined}>
+        <a href={e.href} aria-current={e.slug === current ? 'page' : undefined}>
           {e.title}
         </a>
         {e.children.length > 0 && <Astro.self entries={e.children} current={current} />}

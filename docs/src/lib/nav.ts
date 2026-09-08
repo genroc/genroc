@@ -1,26 +1,24 @@
 import { getCollection } from 'astro:content'
 import { url } from './url'
 
-export const SECTIONS = [
-  { id: 'getting-started', label: 'getting started', blurb: 'install it, learn the shape of it, run one' },
-] as const
-
 export type NavEntry = {
   slug: string
   title: string
-  description: string
+  description?: string
   order: number
   children: NavEntry[]
+  /** Where a click goes. A folder page has no body, so it is its first child's URL. */
+  href: string
 }
 
-export type NavSection = { id: string; label: string; blurb: string; entries: NavEntry[] }
+export type NavSection = { id: string; label: string; href: string; entries: NavEntry[] }
 
 // One key per page, ordered so that a single string comparison answers "which way".
 //
-//   home                                 00
-//   getting-started/installation         00.01.01
-//   getting-started/basic-principles     00.01.02
-//   …/basic-principles/checkpoints       00.01.02.01
+//   home                                       00
+//   guides/getting-started                     00.01.01
+//   guides/getting-started/installation        00.01.01.01
+//   guides/process-definition                  00.01.02
 //
 // Two properties do the work. Lexicographic order matches reading order, because "."
 // sorts below every digit — so a parent precedes its children and a child precedes its
@@ -53,60 +51,88 @@ export async function navTree(): Promise<Record<string, string>> {
   return tree
 }
 
-// Nesting is the file path: `a/b/c.mdx` hangs off `a/b.mdx`, and the first segment is the
-// section. `order` sorts siblings only. A directory with
-// no page of the same name beside it has nothing to hang from, so the build stops rather
-// than dropping the page from the nav silently.
+// The whole structure is the file tree: `a/b/c.mdx` hangs off `a/b.mdx`, and a page at the
+// root is a SECTION. `order` sorts siblings only, so each folder page places itself among
+// its own kind and nothing compares an order across two parents.
+//
+// A folder page carries no body: it exists to give the folder a name and a position, and a
+// click on it lands on its first child ([...slug].astro redirects anyone who reaches the URL
+// itself). That is why `description` is optional — there is nothing to describe.
 export async function navSections(): Promise<NavSection[]> {
   const all = await getCollection('docs')
   const bySlug = new Map<string, NavEntry>(
     all.map((e) => [
       e.id,
-      { slug: e.id, title: e.data.title, description: e.data.description, order: e.data.order, children: [] },
+      {
+        slug: e.id,
+        title: e.data.title,
+        description: e.data.description,
+        order: e.data.order,
+        children: [],
+        href: url(e.id),
+        // Kept off NavEntry: whether a page has content decides where its link goes, and
+        // nothing downstream needs to ask again.
+        empty: !e.body?.trim(),
+      } as NavEntry & { empty: boolean },
     ]),
   )
-  const roots = new Map<string, NavEntry[]>(SECTIONS.map((s) => [s.id, []]))
 
+  const sections: (NavEntry & { empty?: boolean })[] = []
   for (const entry of bySlug.values()) {
     const cut = entry.slug.lastIndexOf('/')
-    const parent = cut < 0 ? '' : entry.slug.slice(0, cut)
-    const section = roots.get(parent)
-    if (section) {
-      section.push(entry)
+    if (cut < 0) {
+      sections.push(entry)
       continue
     }
-    const owner = bySlug.get(parent)
+    const owner = bySlug.get(entry.slug.slice(0, cut))
     if (!owner) {
       throw new Error(
-        `docs: ${entry.slug}.mdx has no parent — create src/content/docs/${parent}.mdx, ` +
-          `or move it under a section (${SECTIONS.map((s) => s.id).join(', ')})`,
+        `docs: ${entry.slug}.mdx has no parent — create src/content/docs/${entry.slug.slice(0, cut)}.mdx`,
       )
     }
     owner.children.push(entry)
   }
 
-  const sortDeep = (entries: NavEntry[]) => {
+  // Depth-first, deepest first: a folder's href is its first child's, and that child may be a
+  // folder too, so the child must be resolved before the parent reads it.
+  const settle = (entries: (NavEntry & { empty?: boolean })[]) => {
     entries.sort((a, b) => a.order - b.order)
-    entries.forEach((e) => sortDeep(e.children))
+    for (const e of entries) {
+      settle(e.children)
+      if (e.empty && e.children.length > 0) e.href = e.children[0].href
+    }
   }
-  return SECTIONS.map((s) => {
-    const entries = roots.get(s.id)!
-    sortDeep(entries)
-    return { ...s, entries }
-  })
+  settle(sections)
+
+  return sections.map((s) => ({ id: s.slug, label: s.title, href: s.href, entries: s.children }))
 }
 
-// `docs / reference / tasks` for `reference/tasks/fetch`. The section is a label rather
-// than a page, so it is the one crumb with no href.
+// `docs / Guides / Getting started` for `guides/getting-started/installation`. Every crumb but
+// the last is a folder page, which redirects — so they are all clickable and all land somewhere.
 export async function crumbs(slug: string): Promise<{ label: string; href?: string }[]> {
   const all = await getCollection('docs')
   const titles = new Map(all.map((e) => [e.id, e.data.title]))
   const parts = slug.split('/')
-  const section = SECTIONS.find((s) => s.id === parts[0])
-  const trail: { label: string; href?: string }[] = [{ label: section ? section.label : parts[0] }]
-  for (let i = 1; i < parts.length - 1; i++) {
+  const trail: { label: string; href?: string }[] = []
+  for (let i = 0; i < parts.length - 1; i++) {
     const ancestor = parts.slice(0, i + 1).join('/')
     trail.push({ label: titles.get(ancestor) ?? ancestor, href: url(ancestor) })
   }
   return trail
+}
+
+/** Where a slug's link lands: its own page, or its first child's when it has no body. */
+export async function hrefFor(slug: string): Promise<string | undefined> {
+  const find = (entries: NavEntry[]): NavEntry | undefined => {
+    for (const e of entries) {
+      if (e.slug === slug) return e
+      const hit = find(e.children)
+      if (hit) return hit
+    }
+  }
+  for (const s of await navSections()) {
+    if (s.id === slug) return s.href
+    const hit = find(s.entries)
+    if (hit) return hit.href
+  }
 }
