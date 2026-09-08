@@ -3,7 +3,7 @@ import type { MarkdownHeading } from 'astro'
 import Base from './Base.astro'
 import Sidebar from '../components/Sidebar.astro'
 import Toc from '../components/Toc.astro'
-import { crumbs } from '../lib/nav'
+import { crumbs, neighbours } from '../lib/nav'
 import { url } from '../lib/url'
 
 interface Props {
@@ -16,6 +16,7 @@ interface Props {
 const { title, description, slug, headings } = Astro.props
 const hasToc = headings.some((h) => h.depth === 2 || h.depth === 3)
 const trail = await crumbs(slug)
+const { prev, next } = await neighbours(slug)
 ---
 
 <Base title={`${title} — genroc`} description={description}>
@@ -36,6 +37,24 @@ const trail = await crumbs(slug)
           <p>{description}</p>
         </div>
         <slot />
+        {
+          (prev || next) && (
+            <nav class="page-nav" aria-label="reading order">
+              {prev && (
+                <a class="prev" href={prev.href}>
+                  <span>previous</span>
+                  <strong>{prev.title}</strong>
+                </a>
+              )}
+              {next && (
+                <a class="next" href={next.href}>
+                  <span>next</span>
+                  <strong>{next.title}</strong>
+                </a>
+              )}
+            </nav>
+          )
+        }
       </div>
     </main>
     <Toc headings={headings} />

@@ -136,3 +136,24 @@ export async function hrefFor(slug: string): Promise<string | undefined> {
     if (hit) return hit.href
   }
 }
+
+/** Reading order across every section, depth first. Folder pages are skipped: they redirect,
+    so landing on one from a "next" link would bounce the reader somewhere else again. */
+export async function readingOrder(): Promise<NavEntry[]> {
+  const out: NavEntry[] = []
+  const walk = (entries: NavEntry[]) => {
+    for (const e of entries) {
+      if (e.href === url(e.slug)) out.push(e)
+      walk(e.children)
+    }
+  }
+  for (const s of await navSections()) walk(s.entries)
+  return out
+}
+
+export async function neighbours(slug: string): Promise<{ prev?: NavEntry; next?: NavEntry }> {
+  const order = await readingOrder()
+  const i = order.findIndex((e) => e.slug === slug)
+  if (i < 0) return {}
+  return { prev: order[i - 1], next: order[i + 1] }
+}

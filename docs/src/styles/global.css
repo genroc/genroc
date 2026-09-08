@@ -525,6 +525,59 @@ h4 {
   opacity: 1;
 }
 
+/* --- page nav --------------------------------------------------------------- */
+
+/* Reading order, from src/lib/nav.ts — the same sequence the sidebar shows, flattened. */
+.page-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+/* Placed rather than flowed, so a page with no previous still has its next on the right. */
+.page-nav .next {
+  grid-column: 2;
+  text-align: right;
+}
+
+.page-nav a {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 0.7rem 0.9rem;
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color 200ms var(--ease-out), background-color 200ms var(--ease-out);
+}
+
+.page-nav a:hover {
+  border-color: var(--accent);
+  background: var(--code-bg);
+  text-decoration: none;
+}
+
+.page-nav span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.page-nav strong {
+  font-weight: 400;
+  color: var(--accent);
+}
+
+.page-nav .prev span::before {
+  content: "◂ ";
+}
+
+.page-nav .next span::after {
+  content: " ▸";
+}
+
 /* --- code ------------------------------------------------------------------ */
 
 code {
@@ -781,6 +834,14 @@ footer {
 }
 
 @media (max-width: 860px) {
+  .page-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .page-nav .next {
+    grid-column: auto;
+  }
+
   :root {
     --gutter: 1.25rem;
   }
