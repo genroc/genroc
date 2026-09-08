@@ -159,7 +159,7 @@ func runInitCmd(args []string) {
 	} else {
 		fmt.Println("\nNO AUTHENTICATION: every caller is an operator, and `PUT /definitions` " +
 			"stores code the\nengine runs. Right on a laptop, wrong on anything anyone else " +
-			"can reach.")
+			"can reach.\n\nA login in front?  genctl init --auth")
 	}
 	if !evalNode {
 		fmt.Println("\nTypeScript tasks?  genctl init --eval-node  (adds @genroc/eval-node)")
@@ -170,9 +170,10 @@ func runInitCmd(args []string) {
 // six flags with interactions -- is testable without writing a project.
 func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 	evalNode, postgres := false, false
-	// A login is the default: the alternative is a port on which anyone can register a
-	// definition, and `PUT /definitions` stores code the engine runs.
-	auth := true
+	// No login by default: this scaffolds a laptop, where signing in and minting a token stand
+	// between `up -d` and the first `apply`. `--auth` adds it, and anything anyone else can
+	// reach needs it -- `PUT /definitions` stores code the engine runs.
+	auth := false
 	var setEvalNode, setPostgres, setAuth bool
 	dir, tag := ".", ""
 	for i := 0; i < len(args); i++ {
@@ -200,7 +201,7 @@ func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 			tag = strings.TrimPrefix(a, "--version=")
 		case strings.HasPrefix(a, "-"):
 			fatal("init: unknown option %q\n"+
-				"usage: genctl init [dir] [--eval-node] [--no-auth] [--postgres] "+
+				"usage: genctl init [dir] [--eval-node] [--auth] [--postgres] "+
 				"[--version <tag>] [-y]", a)
 		default:
 			dir = a
@@ -282,9 +283,8 @@ func (o options) prompt(p prompter) options {
 		o.postgres = strings.HasPrefix(strings.ToLower(p.ask("database (sqlite/postgres)", "sqlite")), "p")
 	}
 	if !o.setAuth {
-		// Defaulted yes: the alternative is a port on which anyone can register a definition,
-		// and `PUT /definitions` stores code the engine runs.
-		o.auth = p.askYesNo("a login in front of the UI", true)
+		// Follows parseInitArgs: the two defaults must agree, or -y and the prompt disagree.
+		o.auth = p.askYesNo("a login in front of the UI", false)
 	}
 	if o.auth {
 		o.email = p.ask("your sign-in email", defaultEmail)

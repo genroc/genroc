@@ -212,7 +212,7 @@ logs never does, so this fetches the one payload you want.`,
 	"init": {
 		summary: "scaffold a project, or mint a new UI password",
 		usage: []string{
-			"init [dir] [--eval-node] [--no-auth] [--postgres] [--version <tag>] [-y]",
+			"init [dir] [--eval-node] [--auth] [--postgres] [--version <tag>] [-y]",
 			"init password [email]",
 		},
 		detail: "Writes a project that applies and runs: definitions/, a .genroc naming them, optionally\n" +

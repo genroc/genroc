@@ -235,20 +235,21 @@ func TestParseInitArgs(t *testing.T) {
 		want options
 		tag  string
 	}{
-		{"defaults", nil, options{dir: ".", auth: true}, releaseTag()},
-		{"a directory", []string{"orders"}, options{dir: "orders", auth: true}, releaseTag()},
+		{"defaults", nil, options{dir: "."}, releaseTag()},
+		{"a directory", []string{"orders"}, options{dir: "orders"}, releaseTag()},
 		{"--version takes the next argument", []string{"--version", "edge"},
-			options{dir: ".", auth: true}, "edge"},
+			options{dir: "."}, "edge"},
 		{"--version= is the same flag", []string{"--version=0.1.0"},
-			options{dir: ".", auth: true}, "0.1.0"},
+			options{dir: "."}, "0.1.0"},
 		// The value is consumed, so what follows is still parsed as a flag rather than a folder.
-		{"--version does not swallow the next flag", []string{"--version", "edge", "--no-auth"},
-			options{dir: ".", setAuth: true}, "edge"},
+		{"--version does not swallow the next flag", []string{"--version", "edge", "--auth"},
+			options{dir: ".", auth: true, setAuth: true}, "edge"},
+		{"--auth", []string{"--auth"}, options{dir: ".", auth: true, setAuth: true}, releaseTag()},
 		{"--no-auth", []string{"--no-auth"}, options{dir: ".", setAuth: true}, releaseTag()},
 		{"--eval-node", []string{"--eval-node"},
-			options{dir: ".", evalNode: true, auth: true, setEvalNode: true}, releaseTag()},
+			options{dir: ".", evalNode: true, setEvalNode: true}, releaseTag()},
 		{"--postgres", []string{"--postgres"},
-			options{dir: ".", postgres: true, auth: true, setPostgres: true}, releaseTag()},
+			options{dir: ".", postgres: true, setPostgres: true}, releaseTag()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, tag, _ := parseInitArgs(tc.args)

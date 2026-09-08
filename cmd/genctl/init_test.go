@@ -55,16 +55,16 @@ func TestInitOptions_AFlagIsNotReopenedByThePrompt(t *testing.T) {
 		t.Error("--postgres was overridden by the prompt's sqlite default")
 	}
 	// These two used to imply -y, which answered every OTHER question silently as well.
-	if got := (options{dir: ".", auth: false, setAuth: true}).prompt(newPrompter(enter)); got.auth {
-		t.Error("--no-auth was overridden by the prompt's default")
+	if got := (options{dir: ".", auth: true, setAuth: true}).prompt(newPrompter(enter)); !got.auth {
+		t.Error("--auth was overridden by the prompt's default")
 	}
 	if got := (options{dir: ".", evalNode: true, setEvalNode: true}).prompt(newPrompter(enter)); !got.evalNode {
 		t.Error("--eval-node was overridden by the prompt's default")
 	}
 	// And a flag answering one question must not consume the answer meant for the next.
-	got := (options{dir: ".", auth: false, setAuth: true}).prompt(newPrompter("proj\ny\npostgres\n"))
+	got := (options{dir: ".", auth: true, setAuth: true}).prompt(newPrompter("proj\ny\npostgres\n"))
 	if got.dir != "proj" || !got.evalNode || !got.postgres {
-		t.Errorf("--no-auth desynchronised the remaining prompts: %+v", got)
+		t.Errorf("--auth desynchronised the remaining prompts: %+v", got)
 	}
 }
 
@@ -75,14 +75,14 @@ func TestInitOptions_AnswersReachTheDecision(t *testing.T) {
 	}{
 		// Four questions: the folder, script tasks, the database, and the login — then the
 		// email, but only when there is an account to name.
-		{"all defaults", "\n\n\n\n\n", options{dir: "genroc-app", auth: true, email: defaultEmail}},
-		{"eval-node", "proj\ny\n\n\n", options{dir: "proj", evalNode: true, auth: true, email: defaultEmail}},
-		{"postgres", "proj\nn\npostgres\n\n",
-			options{dir: "proj", postgres: true, auth: true, email: defaultEmail}},
-		{"an email of one's own", ".\ny\n\n\nada@example.com\n",
+		{"all defaults", "\n\n\n\n\n", options{dir: "genroc-app"}},
+		{"eval-node", "proj\ny\n\n\n", options{dir: "proj", evalNode: true}},
+		{"postgres", "proj\nn\npostgres\n\n", options{dir: "proj", postgres: true}},
+		{"an email of one's own", ".\ny\n\ny\nada@example.com\n",
 			options{dir: ".", evalNode: true, auth: true, email: "ada@example.com"}},
-		// Declining the login means there is no account, so the email is never asked for.
-		{"declining the login", "proj\nn\n\nn\n", options{dir: "proj"}},
+		// Accepting the login is what adds the email question; declining never asks it.
+		{"accepting the login", "proj\nn\n\ny\n\n",
+			options{dir: "proj", auth: true, email: defaultEmail}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := options{dir: "."}.prompt(newPrompter(tc.input))

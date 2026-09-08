@@ -98,17 +98,25 @@ Definitions land in `definitions/`, and `.genroc` records the pattern that finds
 
 It then asks whether you want TypeScript script tasks, whether to write a `compose.yaml`, and
 SQLite or PostgreSQL — and writes a project that applies and runs. Flags answer the questions
-rather than reopening them (`--eval-node`, `--no-auth`, `--postgres`, `-y`); a
+rather than reopening them (`--eval-node`, `--auth`, `--postgres`, `-y`); a
 non-interactive stdin takes the defaults rather than hanging.
 
 The project pulls `:latest` images and the matching npm package. `--version <tag>` picks another —
 `--version edge` tracks `main`, and a released `genctl` pins its own version, because genctl and
 the script-task bundler speak a protocol and must match.
 
-**A login is the default.** The project gets genroc-ui in front, authentication on, and a
-generated signing key in a gitignored `data/` folder. Your password is printed once:
+**There is no login by default.** The scaffold is a laptop: nothing stands between
+`docker compose up -d` and the first `apply`. Every caller is then an operator, and `PUT
+/definitions` stores code the engine runs — right there, wrong on anything anyone else can reach.
 
     genctl init orders
+    cd orders && docker compose up -d
+    genctl apply
+
+`--auth` puts a login in front. The project gets genroc-ui, authentication on, and a generated
+signing key in a gitignored `data/` folder. Your password is printed once:
+
+    genctl init orders --auth
     cd orders && docker compose up -d
     # open http://localhost:8448, sign in, mint a token in the tokens tab
     genctl config set token genroc_sk_...
@@ -121,10 +129,8 @@ you start inherits it and `ps` can show it. The variable still wins when set, fo
 There is no admin credential on disk: you sign in and mint your own, which is why the password is
 the only thing `init` prints — and `genctl init password` mints a replacement if you lose it.
 
-`--no-auth` drops the login. The UI stays — it is how you see a run at all, and the server has
-carried no UI since it became its own image — but every caller is then an operator, and `PUT
-/definitions` stores code the engine runs. Right on a laptop, wrong on anything anyone else can
-reach.
+The UI is there either way: `--auth` decides who may reach it, not whether it runs. It is how you
+see a run at all, and the server has carried no UI since it became its own image.
 
 `data/` is world-readable because the containers must read it. That is a development default, not
 a deployment one: whoever holds that key can mint any identity genroc will accept.
