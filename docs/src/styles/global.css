@@ -371,6 +371,13 @@ summary:focus-visible {
   color: var(--accent);
 }
 
+/* "location" rather than "page": the target is a section of the document being read, which is
+   the value ARIA defines for a table of contents. Set by the scroll spy in Toc.astro. Colour
+   alone, like the sidebar's current item -- a marker appearing here would shift the text. */
+.toc li a[aria-current='location'] {
+  color: var(--accent);
+}
+
 .toc li.depth-3 a {
   padding-left: 1.2em;
 }

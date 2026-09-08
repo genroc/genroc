@@ -20,6 +20,57 @@ const shown = headings.filter((h) => h.depth === 2 || h.depth === 3)
           </li>
         ))}
       </ul>
+      {/* Navigation is cross-document (view-transitions/ViewTransitions.astro), so this runs
+          on every page load and needs no router hook. */}
+      <script is:inline>
+        ;(function () {
+          const links = [...document.querySelectorAll('.toc a[href^="#"]')]
+          const targets = links
+            .map((a) => ({ a: a, el: document.getElementById(decodeURIComponent(a.hash.slice(1))) }))
+            .filter((t) => t.el)
+          if (!targets.length) return
+
+          // The line a heading crosses to become current: just under the sticky topbar, which
+          // is measured rather than assumed -- it is where the readable area actually starts.
+          const line = () => {
+            const bar = document.querySelector('.topbar')
+            return (bar ? bar.getBoundingClientRect().height : 0) + 24
+          }
+
+          let current = null
+          function update() {
+            const y = line()
+            let active = targets[0]
+            for (const t of targets) {
+              if (t.el.getBoundingClientRect().top <= y) active = t
+            }
+            // A last section too short to reach the line would never be current, so the
+            // bottom of the page elects it.
+            if (innerHeight + scrollY >= document.documentElement.scrollHeight - 2) {
+              active = targets[targets.length - 1]
+            }
+            if (active === current) return
+            if (current) current.a.removeAttribute('aria-current')
+            active.a.setAttribute('aria-current', 'location')
+            current = active
+          }
+
+          let queued = false
+          function onScroll() {
+            if (queued) return
+            queued = true
+            requestAnimationFrame(function () {
+              queued = false
+              update()
+            })
+          }
+          addEventListener('scroll', onScroll, { passive: true })
+          addEventListener('resize', onScroll)
+          // A hash in the URL scrolls after this script parses, so re-read once settled.
+          addEventListener('load', update)
+          update()
+        })()
+      </script>
     </aside>
   )
 }
