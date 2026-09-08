@@ -2,6 +2,7 @@ import { beforeAll, expect, test } from "vitest";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 import { uid } from "../helpers/genctl.ts";
 
@@ -62,3 +63,52 @@ test("apply — a missing required field points at the node that lacks it", () =
   expect(r.stderr).toContain(`${path}:3:5:`);
   expect(r.stderr).toContain("id is required");
 });
+
+test("lsp — genctl speaks LSP on stdio and underlines the key a typo is in", () => {
+  // The whole editor path through the binary people already have: framed in, framed out.
+  const text = 'name: demo\ntasks:\n  - id: a\n    on_eror: []\n    switch: end\n';
+  const frames = [
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
+    {
+      jsonrpc: "2.0",
+      method: "textDocument/didOpen",
+      params: { textDocument: { uri: "file:///w/d.genroc.yaml", version: 1, text } },
+    },
+    { jsonrpc: "2.0", id: 2, method: "shutdown" },
+    { jsonrpc: "2.0", method: "exit" },
+  ]
+    .map((m) => {
+      const b = Buffer.from(JSON.stringify(m), "utf8");
+      return `Content-Length: ${b.length}\r\n\r\n${b}`;
+    })
+    .join("");
+
+  const r = spawnSync(bin, ["lsp"], { input: frames, encoding: "utf8" });
+  expect(r.status, r.stderr).toBe(0);
+
+  const msgs = readFrames(r.stdout ?? "");
+  const publish = msgs.find((m) => m.method === "textDocument/publishDiagnostics");
+  expect(publish, `no publishDiagnostics among ${msgs.length} message(s)`).toBeDefined();
+
+  const ds = publish!.params.diagnostics;
+  expect(ds).toHaveLength(1);
+  expect(ds[0].code).toBe("def.unknown_key");
+  expect(ds[0].message).toContain("on_eror");
+  // Line 4 (0-based 3), and the key's own columns rather than its value's.
+  expect(ds[0].range.start).toEqual({ line: 3, character: 4 });
+});
+
+/** Read a Content-Length framed LSP stream. */
+function readFrames(out: string): any[] {
+  const msgs: any[] = [];
+  let rest = Buffer.from(out, "utf8");
+  while (rest.length > 0) {
+    const sep = rest.indexOf("\r\n\r\n");
+    if (sep < 0) break;
+    const n = Number(/Content-Length: (\d+)/.exec(rest.subarray(0, sep).toString())![1]);
+    const body = rest.subarray(sep + 4, sep + 4 + n);
+    msgs.push(JSON.parse(body.toString("utf8")));
+    rest = rest.subarray(sep + 4 + n);
+  }
+  return msgs;
+}

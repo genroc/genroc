@@ -134,6 +134,15 @@ everyday view.
 --resolve fetches the values listed under "objects" and puts them back inline; without it a
 large value prints as a ref.`,
 	},
+	"lsp": {
+		summary: "run the language server an editor talks to over stdio",
+		usage:   []string{"lsp"},
+		detail: "Speaks LSP on stdin/stdout, so it is spawned by an editor rather than run by hand.\n" +
+			"It publishes diagnostics for `*.genroc.yaml` -- the same failures `apply` reports, from\n" +
+			"the same two calls, so what is underlined is what a registration would refuse.\n\n" +
+			"VS Code: point the extension's server command at `genctl lsp`. Neovim: pass it as the\n" +
+			"`cmd` of a client started for the `yaml` filetype.",
+	},
 	"logs": {
 		summary: "print an instance's log trail",
 		usage: []string{
@@ -261,7 +270,7 @@ var helpGroups = []struct {
 	{"Definitions", []string{"apply", "types", "schema", "compat", "definitions"}},
 	{"Instances", []string{"run", "instances", "get", "detail", "logs", "pause", "resume", "cancel", "retry", "upgrade", "resolve", "object"}},
 	{"Channels", []string{"channel"}},
-	{"Setup", []string{"init", "config", "token"}},
+	{"Setup", []string{"init", "config", "token", "lsp"}},
 }
 
 // usage writes to w: stderr when it accompanies an error, stdout when it IS the answer

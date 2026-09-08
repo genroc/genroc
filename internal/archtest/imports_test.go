@@ -34,11 +34,11 @@ var forbiddenImports = map[string][]string{
 		"genroc/internal/engine",
 		"genroc/internal/transport",
 	},
-	// genroc-lsp is a separate module, but its go.mod requires this one, so the module
-	// boundary fences editor dependencies OUT and nothing the other way. The rule is
-	// genctl's for the same reason: it reads the definition language and speaks to no
-	// server at all. specs/language-server.md §4.
-	"lsp": {
+	// The language server behind `genctl lsp`. Same rule for the same reason: it reads the
+	// definition language and speaks to no server at all. A module of its own was measured
+	// and rejected -- it would have fenced nothing it does not already inherit, and could
+	// not reach the project config in cmd/genctl. specs/language-server.md §4.
+	"internal/lsp": {
 		"genroc/internal/db",
 		"genroc/internal/api",
 		"genroc/internal/engine",

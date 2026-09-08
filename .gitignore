@@ -3,7 +3,6 @@
 /genrocschema
 /genctl
 /genroc-ui
-/genroc-lsp
 
 # SQLite databases
 *.db

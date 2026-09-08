@@ -84,6 +84,8 @@ func main() {
 		runTypesCmd(args)
 	case "schema":
 		runSchemaCmd(args)
+	case "lsp":
+		runLSPCmd(args)
 	case "run":
 		runRunCmd(server, args)
 	case "token":

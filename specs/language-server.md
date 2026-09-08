@@ -1,11 +1,10 @@
-# `genroc-lsp`: the definition language, in the editor
+# `genctl lsp`: the definition language, in the editor
 
 **PROPOSAL 2026-09-08. Phases 0 and 1 BUILT 2026-09-08.** Five phases in order (§7).
 
 `genctl apply` prints `file:line:col: message`, one line per broken slot;
 `POST /api/definitions/validate` returns `fields[]` for a type failure as it always did for a
-struct-tag one; and `genroc-lsp` (the `lsp/` module) publishes diagnostics over stdio for
-`*.genroc.yaml`. Phase 2 — hover and completion, the reason to build it — is next, and §7b is
+struct-tag one; and `genctl lsp` publishes diagnostics over stdio for `*.genroc.yaml`. Phase 2 — hover and completion, the reason to build it — is next, and §7b is
 what it has to clear first.
 
 [schema-command.md](schema-command.md) §1 refused this on purpose — "not an editor protocol:
@@ -97,30 +96,39 @@ whole point: genctl gets line numbers for free the moment it stops importing `ya
 from `main`. The exact-numeric behaviour (a 54-digit id must not become `1.2e+53`) travels
 with it and keeps its tests.
 
-## 4. Why a module, and what it does not buy
+## 4. Not a module — `genctl lsp`
 
-`lsp/` → `genroc/lsp`, in `go.work`, `require genroc`.
+`internal/lsp`, behind a `genctl lsp` subcommand, fenced by `archtest` exactly as `genctl` is.
 
-**Measured, not assumed:** a separate module *can* import `genroc/internal/...`. Go's
-internal rule is path-prefix, not module-scoped, so any module named `genroc/...` clears it —
-verified by building a scratch `genroc/lsp` against `genroc/internal/{model,validation}`.
-The comment in `internal/archtest/imports_test.go` ("`ui` and `jwks` … cannot reach
-`genroc/internal` at all") is therefore wrong about the mechanism: `ui` cannot reach it
-because `ui/go.mod` does not require the root module, not because the rule forbids it. **Fix
-that comment as part of phase 0** — it is load-bearing for exactly this decision.
+**This reverses the first draft of this section**, which put the server in its own
+`genroc/lsp` module. That was built, then measured, and the measurement went the other way:
 
-So the fence is one-directional, and that direction is still worth a module: **the LSP may
-grow — a JSON-RPC library, an incremental parser, a fuzzy matcher — without any of it
-reaching `genroc` or `genctl`.** It cannot fence the reverse: requiring `genroc` takes the
-root module's dependency graph whole. What actually links is small (expr, apd, validator,
-mimetype, x/{crypto,sys,text}) — 8.5 MB, the same set `genctl` already carries.
+- **It fenced nothing.** The argument was that a language server accumulates editor
+  dependencies which must not reach the server binary. The built one had **27 external
+  dependencies and none of its own** — every one inherited from `genroc` (yaml, expr, apd,
+  validator, mimetype, x/*), because JSON-RPC framing is 130 lines and was written by hand.
+  The fence guarded a hypothetical.
+- **It could not reach the project config.** `.genroc` discovery, `definitionPaths` and the
+  resolver table live in `cmd/genctl/sources.go`, which is `package main` and therefore
+  importable by nothing. Cross-file navigation (§7 phase 3) needs exactly that file set, so
+  the module would have forced the move into `internal/` anyway — after which it bought only
+  the hypothetical above.
 
-A `genctl lsp` subcommand was the alternative, and is rejected on that one property: a
-language server accumulates editor dependencies, and inside the root module every one of them
-becomes reachable from the server binary.
+This is the reasoning CLAUDE.md already applies to `genctl` itself: it shares its whole
+internal surface with the server, so **a module boundary would relocate the dependency rather
+than remove it**. The language server shares that same surface, and one binary people already
+have beats a second to install and keep in step.
 
-`internal/lsp` is not an option: `lsp/` is a module, so the code is `genroc/lsp/...` and the
-root's `internal/` is closed to it by nothing — it just has no reason to be there.
+**Measured, not assumed** — and worth keeping, because it is the correction the first draft
+turned on: a separate module *can* import `genroc/internal/...`. Go's internal rule is
+path-prefix, not module-scoped, so any module named `genroc/...` clears it. The comment in
+`internal/archtest/imports_test.go` ("`ui` and `jwks` … cannot reach `genroc/internal` at
+all") was therefore wrong about the mechanism — `ui` cannot reach it because `ui/go.mod` does
+not require the root module, not because the rule forbids it. Fixed in phase 0.
+
+The trigger to reopen this: the server growing a dependency of its own that the engine has no
+use for — an incremental parser, a fuzzy matcher. Then the fence stops being hypothetical, and
+the project config has by then moved out of `package main` regardless.
 
 ## 5. The structural layer is ours too
 
@@ -191,7 +199,7 @@ test rather than left to be rediscovered.
 ### What happens to yaml-language-server
 
 The `$schema` comment stays: it is the degraded path, and after the fix above it is an honest
-one. When `genroc-lsp` is attached it is the only server that should be answering for
+one. When `genctl lsp` is attached it is the only server that should be answering for
 `*.genroc.yaml`, so the VS Code client ships that setting rather than leaving two servers to
 double-report. This reverses the earlier draft of this section, which accepted the overlap —
 the measurements above are why.
@@ -218,10 +226,10 @@ expression — precise squiggles, or semantic highlighting.
 |---|---|---|
 | 0a ✅ | `internal/defdoc`; `additionalProperties: false` on every reflected struct, and the drift test | the published schema stops accepting what the server rejects |
 | 0b ✅ | slot addresses on every diagnostic; collect-with-recovery; codes; `Check` beside `Generate` | API returns `fields[]` for inference errors; `genctl` prints `file:line:col` |
-| 1 ✅ | `genroc-lsp`: stdio JSON-RPC, document store, didOpen/didChange, publishDiagnostics — structural *and* inference | squiggles that agree with the server |
+| 1 ✅ | `genctl lsp`: stdio JSON-RPC, document store, didOpen/didChange, publishDiagnostics — structural *and* inference | squiggles that agree with the server |
 | 2 | completion + hover: keys and action variants from the reflection walk; context and types inside `$:` / `${ }` | the reason to build it |
 | 3 | goto-definition on `goto:` and child `process:`; code actions | — |
-| 4 | VS Code client — spawn `genroc-lsp`, activate on `**/*.genroc.yaml`, disable YLS for them | distribution |
+| 4 | VS Code client — spawn `genctl lsp`, activate on `**/*.genroc.yaml`, disable YLS for them | distribution |
 
 Phase 0 is the one that can be got wrong, and it is the one whose value does not depend on
 any of the others landing. Phase 2 is where the reflection walk of §5 and the slot contexts of
@@ -256,7 +264,7 @@ is a definition the server rejects, asserted to be rejected by the published sch
 is the failure mode — the schema is generated, the rules are hand-written, and nothing
 compared them.
 
-Phases 1–3 are the LSP's own module: drive the server over a pipe with recorded JSON-RPC
-sessions. No editor in the loop. Built that way, plus the claim §5 rests on as a test of its
+Phases 1–3 drive the server over a pipe with recorded JSON-RPC sessions. No editor in the
+loop. Built that way, plus the claim §5 rests on as a test of its
 own — a table of documents run through both the editor's path and the server's two calls,
 asserting they refuse the same set.

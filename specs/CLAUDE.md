@@ -435,32 +435,35 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   that instead of answering it, so the split landed first — `error` / `last_error`, BUILT
   2026-09-04, in [task-scopes.md](task-scopes.md) §The error axis.
 - [language-server.md](language-server.md) — **PROPOSAL 2026-09-08; phases 0 and 1 BUILT the
-  same day** (`internal/defdoc`, `validation.Check` and `Diagnostic`, the schema drift closed,
-  and `genroc-lsp` in the new `lsp/` module). `genroc-lsp`, and the
-  reason it is not mostly an LSP: `Validate` + `validation.Generate` already are the whole
-  analysis, locally and with no server, so what is missing is a **location**. Inference embeds
-  its location in prose (`task "fetch" output.total:`) and returns on the first failure, which
-  is why `POST /api/definitions/validate` hands a client text it cannot attribute to a field
-  while struct-tag rules beside it return `fields[]` — the editor is the fourth consumer of the
+  same day.** `genctl lsp`, and the reason it is barely an LSP: `Validate` +
+  `validation.Generate` already are the whole analysis, locally and with no server, so what was
+  missing is a **location**. Inference embedded its location in prose (`task "fetch"
+  output.total:`) and returned on the first failure — which is why `POST
+  /api/definitions/validate` handed a client text it could not attribute to a field while the
+  struct-tag rules beside it returned `fields[]`. The editor is the fourth consumer of that
   fix, not the reason for it. Decisions: errors carry **schema-command.md's slot address**, not
-  a second grammar (the test is that a diagnostic's address, pasted into `schema context`,
-  answers what could have been written there); recovery for collect-don't-stop is `{}`, the
-  unknown, plus a poison mark so derived diagnostics are suppressed instead of cascading;
-  positions come from `yamlToAny`'s existing walk, moved to `internal/defdoc`. It is a module
-  (`genroc/lsp`) on a **measured** correction — a separate module *can* import
-  `genroc/internal` (Go's rule is path-prefix, not module-scoped; `ui` is fenced by its go.mod
-  not by the rule, and `archtest`'s comment says otherwise and is wrong), so the boundary buys
-  one direction only: editor dependencies cannot reach the server. §5 takes the **structural**
-  layer back from `yaml-language-server` on evidence rather than taste: measured against
-  `docs/public/process-schema.json`, the published schema *accepts* `on_eror:` on a task,
-  `tsaks:` at the root and a `goto` to no task — all three of which the server rejects — and
-  answers a `fetch` typo with nine errors demanding `children` and `until`, because
-  `discriminator` is an OpenAPI keyword a JSON Schema validator ignores. So the LSP does not
+  a second grammar; recovery for collect-don't-stop is `{}`, the unknown, plus a poison mark so
+  derived diagnostics are suppressed instead of cascading (and suppression consults who can
+  SEE the poison, because a blanket rule hides real findings); positions come from
+  `yamlToAny`'s existing walk, moved to `internal/defdoc`. **§4 was reversed by building it**:
+  the server had its own `genroc/lsp` module for a day and lost it — it inherited all 27 of its
+  dependencies from `genroc` so fenced nothing, and `package main` put `cmd/genctl`'s project
+  config, which cross-file navigation needs, permanently out of reach. The measurement worth
+  keeping is the one that drove the first draft: a separate module *can* import
+  `genroc/internal` (Go's rule is path-prefix, not module-scoped; `ui` is fenced by its go.mod,
+  not by the rule, and `archtest`'s comment said otherwise and was wrong). §5 takes the
+  **structural** layer back from `yaml-language-server` on evidence rather than taste: measured
+  against `docs/public/process-schema.json`, the published schema *accepted* `on_eror:` on a
+  task, `tsaks:` at the root and a `goto` to no task — all three of which the server rejects —
+  and answered a `fetch` typo with nine errors demanding `children` and `until`, because
+  `discriminator` is an OpenAPI keyword a JSON Schema validator ignores. So the server does not
   consume the schema: structural diagnostics are `DecodeStrict` + `Validate` verbatim, and one
-  reflection walk beside the document tree answers all three of *is this key legal*, *which
-  keys are*, and *what does it mean* (the `description:` tags already carry the prose). The
-  missing `additionalProperties: false` is a bug fix owed regardless, plus the test that would
-  have caught the drift.
+  reflection walk beside the document tree will answer *is this key legal*, *which keys are*,
+  and *what does it mean* (the `description:` tags already carry the prose). Closing the schema
+  uniformly found the next hole — `Fault` was the one definition struct with no unknown-key
+  check — and §7b records what phase 2 must clear first: `SlotContexts` goes through
+  `Generate`, so it answers nothing about a document mid-edit, which is every document an
+  editor sees.
 - [id-list-commands.md](id-list-commands.md) — **BUILT (2026-08-26).** `genctl pause`,
   `resume` and `retry` take several instance ids, iterating client-side like `upgrade`'s id
   form and adding no endpoint. Its premise is that these three verbs **refuse a no-op** by

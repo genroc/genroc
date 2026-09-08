@@ -27,7 +27,7 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **long-poll** on the external-task queue (specs/external-task-queue.md)
 - [] **per-definition durability field** (specs/durability-levels.md §8)
 - [] **pause as a debugging tool** — start an instance paused, step it with `tick`
-- [] **language server** — phases 0-1 built (`genroc-lsp` publishes diagnostics); hover and
+- [] **language server** — phases 0-1 built (`genctl lsp` publishes diagnostics); hover and
   completion need SlotContexts to answer over a document that does not infer
   (specs/language-server.md §7b)
 - [] **docs** — the site ships four pages; the reference gap it was written to close is open

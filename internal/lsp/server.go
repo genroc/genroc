@@ -60,7 +60,7 @@ func (s *Server) handle(req *request) {
 	case "initialize":
 		var res initializeResult
 		res.Capabilities.TextDocumentSync = 1 // Full: each change carries the whole document
-		res.ServerInfo.Name = "genroc-lsp"
+		res.ServerInfo.Name = "genctl-lsp"
 		res.ServerInfo.Version = s.version
 		_ = s.conn.reply(req.ID, res)
 

@@ -1,6 +1,9 @@
-# lsp
+# internal/lsp
 
-`genroc-lsp`, the definition language in an editor. specs/language-server.md.
+The language server behind `genctl lsp` — the definition language in an editor.
+specs/language-server.md. A module of its own was measured and rejected (§4): it inherited
+every dependency it would have fenced, and could not reach the project config in
+`cmd/genctl`, which cross-file navigation needs.
 
 **Every answer is the server's own.** Structural checking is `numeric.DecodeStrict` +
 `ProcessDefinition.Validate`, types are `validation.Check` — so the editor and an `apply`
@@ -20,6 +23,9 @@ ServerOnWhatIsRejected` is that claim as a test; a new check belongs on the serv
   Counting runes is the wrong answer that looks right in every ASCII test.
 - **One goroutine.** The work is one file's parse and inference. Concurrency would buy latency
   nobody notices and a class of races nobody wants; `docs` is a plain map for that reason.
+
+**stdout belongs to the protocol.** `genctl lsp` prints nothing; a stray line is a frame the
+editor cannot parse.
 
 ## The one shortcut
 

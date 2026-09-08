@@ -99,7 +99,7 @@ func TestInitializeAdvertisesOnlyWhatIsImplemented(t *testing.T) {
 		t.Errorf("the server keeps no incremental state, so it must ask for Full sync (1), got %d",
 			res.Capabilities.TextDocumentSync)
 	}
-	if res.ServerInfo.Name != "genroc-lsp" {
+	if res.ServerInfo.Name != "genctl-lsp" {
 		t.Errorf("serverInfo.name = %q", res.ServerInfo.Name)
 	}
 }
