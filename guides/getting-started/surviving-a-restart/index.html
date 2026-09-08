@@ -103,7 +103,7 @@
       true,
     )
   })()
-</script><link rel="stylesheet" href="/_astro/_slug_.DGufVEQD.css">
+</script><link rel="stylesheet" href="/_astro/_slug_.CX1J3hSw.css">
 <style>.screenshot[data-astro-cid-kixgfawn]{margin:1.5rem 0;border:1px solid var(--line-strong);border-radius:3px;overflow:hidden}.screenshot[data-astro-cid-kixgfawn]:before{content:"●●●";display:block;padding:.1rem .55rem .2rem;border-bottom:1px solid var(--line-strong);background:var(--code-bg);color:var(--line-strong);font-size:.62em;letter-spacing:.28em;line-height:1.2}.screenshot[data-astro-cid-kixgfawn] img[data-astro-cid-kixgfawn]{display:block;width:100%}
 </style><script type="module" src="/_astro/page.DGRhADao.js"></script></head> <body> <header class="topbar"> <a class="brand" href="/"> <span class="logo" style="--logo-size:1.5em"><svg width="1.5em" height="1.5em" aria-hidden="true" focusable="false" viewBox="0 0 220 220" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;">
     <g id="Artboard1" transform="matrix(1,0,0,1,-143.5,-28.5)">
@@ -207,4 +207,52 @@
 <h2 id="how-about-hard-crashes">How about hard crashes?<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#how-about-hard-crashes"><span></span></a></h2>
 <p>You might object that docker stops the server gracefully and so it never aborts the running process forcibly, but what if our computer crashes or there is an electricity outage?</p>
 <p>Genroc is safe in these cases too - and here the nuance starts. None of the actions in ticker have side-effects, so genroc can simply re-execute the task and continue.</p>
-<p>TODO: link complete durability docs</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#create-process-from-scratch">Create process from scratch</a></li><li class="depth-2"><a href="#lets-apply">Let’s apply</a></li><li class="depth-2"><a href="#run-the-process">Run the process</a></li><li class="depth-2"><a href="#lets-try-to-break-it">Let’s try to break it!</a></li><li class="depth-2"><a href="#how-about-hard-crashes">How about hard crashes?</a></li></ul></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
+<p>TODO: link complete durability docs</p>  </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#create-process-from-scratch">Create process from scratch</a></li><li class="depth-2"><a href="#lets-apply">Let’s apply</a></li><li class="depth-2"><a href="#run-the-process">Run the process</a></li><li class="depth-2"><a href="#lets-try-to-break-it">Let’s try to break it!</a></li><li class="depth-2"><a href="#how-about-hard-crashes">How about hard crashes?</a></li></ul><script>
+        ;(function () {
+          const links = [...document.querySelectorAll('.toc a[href^="#"]')]
+          const targets = links
+            .map((a) => ({ a: a, el: document.getElementById(decodeURIComponent(a.hash.slice(1))) }))
+            .filter((t) => t.el)
+          if (!targets.length) return
+
+          // The line a heading crosses to become current: just under the sticky topbar, which
+          // is measured rather than assumed -- it is where the readable area actually starts.
+          const line = () => {
+            const bar = document.querySelector('.topbar')
+            return (bar ? bar.getBoundingClientRect().height : 0) + 24
+          }
+
+          let current = null
+          function update() {
+            const y = line()
+            let active = targets[0]
+            for (const t of targets) {
+              if (t.el.getBoundingClientRect().top <= y) active = t
+            }
+            // A last section too short to reach the line would never be current, so the
+            // bottom of the page elects it.
+            if (innerHeight + scrollY >= document.documentElement.scrollHeight - 2) {
+              active = targets[targets.length - 1]
+            }
+            if (active === current) return
+            if (current) current.a.removeAttribute('aria-current')
+            active.a.setAttribute('aria-current', 'location')
+            current = active
+          }
+
+          let queued = false
+          function onScroll() {
+            if (queued) return
+            queued = true
+            requestAnimationFrame(function () {
+              queued = false
+              update()
+            })
+          }
+          addEventListener('scroll', onScroll, { passive: true })
+          addEventListener('resize', onScroll)
+          // A hash in the URL scrolls after this script parses, so re-read once settled.
+          addEventListener('load', update)
+          update()
+        })()
+      </script></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
