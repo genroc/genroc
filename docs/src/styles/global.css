@@ -356,7 +356,6 @@ summary:focus-visible {
   color: var(--accent);
 }
 
-.sidebar li a:hover::before,
 .sidebar li a[aria-current="page"]::before {
   opacity: 1;
   transform: none;
@@ -382,8 +381,25 @@ summary:focus-visible {
   padding-left: 1.2em;
 }
 
-/* Nesting is the page tree (src/lib/nav.ts). The rule stands in for the connectors an
-   ASCII drawing would use, so a group reads as one whatever its depth. */
+/* A group carries + or - at the right edge: furniture, not a control. Nothing here toggles —
+   the group is open exactly when the page being read is inside it (NavItems.astro). */
+/* Floated, not a flex item: making the anchor a flex container trims the trailing space out
+   of the "▸ " marker before it, which shifts a group's label one space left of its siblings. */
+.sidebar li.group > a::after {
+  content: "+";
+  float: right;
+  padding-left: 0.5em;
+}
+
+.sidebar li.group.open > a::after {
+  content: "-";
+}
+
+/* The trail to where you are. No marker: that stays the one thing meaning "this page". */
+.sidebar li.group.open > a {
+  color: var(--accent);
+}
+
 .sidebar li ul {
   margin: 0.1rem 0 0.4rem;
   padding-left: 0.6rem;

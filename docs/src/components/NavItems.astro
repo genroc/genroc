@@ -7,17 +7,26 @@ interface Props {
 }
 
 const { entries, current } = Astro.props
+
+// A group opens when the page being read is inside it, and only then — navigating in is the
+// only way to open one, which is why nothing here toggles. Decided per render, so the state is
+// in the HTML rather than restored by a script.
+const holds = (e: NavEntry): boolean => e.children.some((c) => c.slug === current || holds(c))
 ---
 
 <ul>
   {
-    entries.map((e) => (
-      <li>
-        <a href={e.href} aria-current={e.slug === current ? 'page' : undefined}>
-          {e.title}
-        </a>
-        {e.children.length > 0 && <Astro.self entries={e.children} current={current} />}
-      </li>
-    ))
+    entries.map((e) => {
+      const group = e.children.length > 0
+      const open = group && holds(e)
+      return (
+        <li class:list={[group && 'group', open && 'open']}>
+          <a href={e.href} aria-current={e.slug === current ? 'page' : undefined}>
+            {e.title}
+          </a>
+          {open && <Astro.self entries={e.children} current={current} />}
+        </li>
+      )
+    })
   }
 </ul>
