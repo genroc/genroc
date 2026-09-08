@@ -9,8 +9,9 @@
 # which invalidates every session signed with the old key.
 {{else}}#   genctl apply
 #
-# NO AUTHENTICATION (--no-auth): every caller is an operator, and `PUT /definitions` stores code
-# the engine runs. Fine on a laptop, not on anything anyone else can reach.
+# NO AUTHENTICATION (the default; --auth adds a login): every caller is an operator, and
+# `PUT /definitions` stores code the engine runs. Fine on a laptop, not on anything anyone
+# else can reach.
 {{end -}}
 services:
 {{- if .Postgres}}

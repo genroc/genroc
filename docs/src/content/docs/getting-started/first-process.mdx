@@ -36,11 +36,11 @@ Full command to do this:
 genctl apply -f definitions/hello.genroc.yaml
 ```
 
-Init project makes this easier for you, if you look into `.genctl` file, it has a glob for definitions.
+Init project makes this easier for you, if you look into `.genroc` file, it has a glob for definitions.
 When you have setup like this, you can run the command without specifing the file.
 
 ```sh
-genctl apply        # uses definitions glob from .genctl
+genctl apply        # uses definitions glob from .genroc
 ```
 
 You can also list existing definitions with `genctl definitions`
@@ -56,7 +56,7 @@ hello  v1       just now    no-auth:anonymous
 You can now run the definition with a `run` command:
 
 ```sh
-genct run hello --input `{"who": "genroc user"}`
+genct run hello --input '{"who": "genroc user"}'
 ```
 
 The command creates instance of our `hello` process.
@@ -116,7 +116,6 @@ You can also check the instance also produces logs which you can list through `l
 TIME      LEVEL  ID        EVENT             TASK
 --- 2026-09-08 +02:00 ---
 13:44:24  INFO   4cqpdx8z  inst_created                      by=no-auth:anonymous input={"who":"genroc user"}
-13:44:24  INFO   4cqpdx8z  work_started      greet           worker=21fd4c9bef19-1-4692b4fd
 13:44:24  INFO   4cqpdx8z  inst_completed    greet           output={"greeting":"hello, genroc user"}
 ```
 
