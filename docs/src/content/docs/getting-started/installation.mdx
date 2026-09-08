@@ -53,6 +53,11 @@ Try entering `http://localhost:8448` to see if genroc is running correctly. If y
 
 <Screenshot src="create-project.png" alt="The genroc UI, showing a process instance" />
 
-## Editor support
-
 ## Uninstalling
+To uninstall genctl:
+
+```sh
+curl -fsSL https://genroc.org/install.sh | sh -s -- --uninstall [--purge]
+```
+
+`--purge` also deletes your settings (config directory)
