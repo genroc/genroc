@@ -60,10 +60,28 @@ type didCloseParams struct {
 // initializeResult advertises only what is implemented. textDocumentSync 1 is Full.
 type initializeResult struct {
 	Capabilities struct {
-		TextDocumentSync int `json:"textDocumentSync"`
+		TextDocumentSync int  `json:"textDocumentSync"`
+		HoverProvider    bool `json:"hoverProvider"`
 	} `json:"capabilities"`
 	ServerInfo struct {
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	} `json:"serverInfo"`
+}
+
+type hoverParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Position position `json:"position"`
+}
+
+type hoverResult struct {
+	Contents markupContent `json:"contents"`
+	Range    *textRange    `json:"range,omitempty"`
+}
+
+type markupContent struct {
+	Kind  string `json:"kind"` // "markdown"
+	Value string `json:"value"`
 }

@@ -522,3 +522,38 @@ test("schema context -e — a config secret is reported as secret", () => {
   expect(read.ok, read.stderr).toBe(true);
   expect(JSON.parse(read.stdout)).toEqual({ type: "string", secret: true });
 });
+
+// specs/schema-command.md §1 has always said this side is "not a verdict" and answers "as far
+// as inference gets". It did not: SlotContexts went through Generate, which refuses any
+// document that does not infer — which is every document worth asking about while writing one.
+// specs/language-server.md §7b.
+test("schema context — a document that would be refused is still answered for", () => {
+  const dir = mkdtempSync(join(tmpdir(), "genroc-schema-broken-"));
+  const path = join(dir, "broken.genroc.yaml");
+  writeFileSync(
+    path,
+    [
+      "name: broken",
+      "tasks:",
+      "  - id: a",
+      "    action: { type: fetch, url: '$: nope.x' }",
+      "    switch: next",
+      "  - id: b",
+      "    action: { type: fetch, url: http://x }",
+      "    switch: end",
+      "",
+    ].join("\n"),
+  );
+
+  const r = runCli(bin, ["schema", "context", "broken", "-f", path], OFFLINE);
+  expect(r.ok, r.stderr).toBe(true);
+  // The slot whose expression is broken is still listed, because that is the slot someone is
+  // asking about when they ask.
+  expect(r.stdout).toContain("tasks.a.action");
+  expect(r.stdout).toContain("tasks.b.action");
+
+  // And it navigates into the broken task, which is what completion there will need.
+  const at = runCli(bin, ["schema", "context", "broken", "tasks.a.action", "-f", path], OFFLINE);
+  expect(at.ok, at.stderr).toBe(true);
+  expect(at.stdout).toContain("outputs");
+});

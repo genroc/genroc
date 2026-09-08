@@ -2,7 +2,7 @@ package validationtest
 
 import (
 	"encoding/json"
-	"strconv"
+	"sort"
 	"strings"
 	"testing"
 
@@ -148,15 +148,14 @@ func TestAValidDefinitionHasNoDiagnostics(t *testing.T) {
 	}
 }
 
-// The test that keeps the two grammars one grammar: every address a diagnostic carries is a
-// slot address of specs/schema-command.md §2 — `tasks.<id>.<phase>`, `tasks.<id>.on_error.<n>`,
-// `output`, or empty for a whole-definition failure — and its task segment names a real task.
+// The test the whole address decision rests on: a diagnostic's address, handed to the lookup
+// `genctl schema context` answers from, names a slot that exists — so "what is wrong here" and
+// "what could I have written here" are asked of one place, in one grammar.
 //
-// It asserts the SPELLING rather than round-tripping through SlotContexts, because that walks
-// through Generate and so answers nothing about a definition that does not infer. Which is
-// most of the ones an editor sees; see specs/language-server.md §2.
-func TestEveryDiagnosticAddressIsASlotAddress(t *testing.T) {
-	phases := map[string]bool{"action": true, "output": true, "switch": true}
+// This could not be written until SlotContexts stopped going through Generate: it refused every
+// document that did not infer, which is every document a diagnostic describes.
+// specs/language-server.md §2, §7b.
+func TestEveryDiagnosticAddressIsASlotTheContextViewNames(t *testing.T) {
 	for _, defJSON := range []string{twoBrokenActions, brokenOutputThenBrokenAction,
 		`{"name":"p","tasks":[{"id":"a","action":{"type":"fetch","url":"$: nope.x"},
 		  "switch":[{"case":"$: alsonope.y","goto":"end"},{"goto":"end"}],
@@ -166,35 +165,31 @@ func TestEveryDiagnosticAddressIsASlotAddress(t *testing.T) {
 		if err := json.Unmarshal([]byte(defJSON), &def); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
-		ids := map[string]bool{}
-		for _, task := range def.Tasks {
-			ids[task.ID] = true
-		}
 		ds := check(t, defJSON)
 		if len(ds) == 0 {
 			t.Fatalf("fixture is not broken: %s", defJSON)
 		}
+		slots, err := validation.SlotContexts(&def)
+		if err != nil {
+			t.Fatalf("the context view must answer over a broken document: %v", err)
+		}
 		for _, d := range ds {
-			if d.Address == "" || d.Address == "output" {
-				continue
+			if d.Address == "" {
+				continue // a whole-definition failure has no slot, by construction
 			}
-			seg := strings.Split(d.Address, ".")
-			if len(seg) < 3 || seg[0] != "tasks" {
-				t.Errorf("address %q is not tasks.<id>.<phase>", d.Address)
-				continue
-			}
-			if !ids[seg[1]] {
-				t.Errorf("address %q names no task; the definition has %v", d.Address, ids)
-			}
-			switch {
-			case phases[seg[2]] && len(seg) == 3:
-			case seg[2] == "on_error" && len(seg) == 4:
-				if _, err := strconv.Atoi(seg[3]); err != nil {
-					t.Errorf("address %q must index the rule: %v", d.Address, err)
-				}
-			default:
-				t.Errorf("address %q names no phase of the slot grammar", d.Address)
+			if _, ok := slots[d.Address]; !ok {
+				t.Errorf("diagnostic addressed %q, which the context view does not name; "+
+					"it knows %v", d.Address, keysOf(slots))
 			}
 		}
 	}
+}
+
+func keysOf[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

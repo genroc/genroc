@@ -82,10 +82,7 @@ const (
 // TypeSlots returns the type of every addressable slot, keyed by address. Each carries the
 // pool it resolves against, so one answer can be handed on whole.
 func TypeSlots(def *model.ProcessDefinition) (map[string]schema.Schema, error) {
-	sf, err := Generate(def)
-	if err != nil {
-		return nil, err
-	}
+	sf, _ := Check(def)
 	return typeSlots(sf), nil
 }
 
@@ -274,11 +271,15 @@ func renderSegments(segs []schema.Segment) string {
 
 // newTaskScopes rebuilds the checker's own scope builder off a finished SchemaFile. These are
 // not contexts LIKE the ones it used: they come from the same constructors it calls.
+// newTaskScopes builds the context view from what inference MANAGED, not from a clean pass:
+// the document an editor asks about is usually mid-edit, and refusing to answer for it is what
+// schema-command.md §1 says this side does not do. A slot inference could not type reads as {},
+// which navigates and answers like any other unknown.
 func newTaskScopes(def *model.ProcessDefinition) (taskScopes, error) {
-	sf, err := Generate(def)
-	if err != nil {
-		return taskScopes{}, err
-	}
+	// Diagnostics are DISCARDED, not swallowed: this view answers "what can be read here",
+	// and Check has already recovered every slot it could not type as {}. A caller that also
+	// wants the verdict asks Check itself.
+	sf, _ := Check(def)
 	required, optional, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
 	return taskScopes{
 		tasks: sf.Tasks, processInput: sf.ProcessInput,

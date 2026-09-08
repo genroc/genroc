@@ -434,7 +434,7 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   described back (both landed in `70dca11`); a policy now reads the failure it is retrying. A command reporting the scope at a slot would have to document
   that instead of answering it, so the split landed first — `error` / `last_error`, BUILT
   2026-09-04, in [task-scopes.md](task-scopes.md) §The error axis.
-- [language-server.md](language-server.md) — **PROPOSAL 2026-09-08; phases 0 and 1 BUILT the
+- [language-server.md](language-server.md) — **PROPOSAL 2026-09-08; phases 0, 1 and hover BUILT the
   same day.** `genctl lsp`, and the reason it is barely an LSP: `Validate` +
   `validation.Generate` already are the whole analysis, locally and with no server, so what was
   missing is a **location**. Inference embedded its location in prose (`task "fetch"
@@ -461,9 +461,11 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   reflection walk beside the document tree will answer *is this key legal*, *which keys are*,
   and *what does it mean* (the `description:` tags already carry the prose). Closing the schema
   uniformly found the next hole — `Fault` was the one definition struct with no unknown-key
-  check — and §7b records what phase 2 must clear first: `SlotContexts` goes through
-  `Generate`, so it answers nothing about a document mid-edit, which is every document an
-  editor sees.
+  check — §7b's first blocker is cleared: `SlotContexts` went through `Generate`, so it
+  answered nothing about a document mid-edit — it now reads what `Check` managed, which also
+  made §2's round-trip test writable at last. §5 carries a **correction**: completion reads the
+  generated schema after all, because seven definition types decode by hand and reflection sees
+  no fields on them, while their hand-written `JSONSchemaBytes` describes them exactly.
 - [id-list-commands.md](id-list-commands.md) — **BUILT (2026-08-26).** `genctl pause`,
   `resume` and `retry` take several instance ids, iterating client-side like `upgrade`'s id
   form and adding no endpoint. Its premise is that these three verbs **refuse a no-op** by

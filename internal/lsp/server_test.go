@@ -75,6 +75,8 @@ func published(t *testing.T, msgs []map[string]json.RawMessage) publishParams {
 
 const uri = "file:///w/demo.genroc.yaml"
 
+func jsonUnmarshal(raw json.RawMessage, into any) error { return json.Unmarshal(raw, into) }
+
 // 1  name: demo
 // 2  tasks:
 // 3    - id: a

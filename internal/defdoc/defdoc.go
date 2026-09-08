@@ -41,6 +41,9 @@ type Span struct {
 type Doc struct {
 	Value any
 	spans map[string]Span
+	// values is the decoded value at each path, so a caller that resolved a cursor to an
+	// address does not navigate the tree again with a second path grammar of its own.
+	values map[string]any
 }
 
 // Span returns where path was written. Two spellings address the same node:
@@ -127,7 +130,7 @@ func ParseAll(data []byte) ([]*Doc, error) {
 }
 
 func build(n *yaml.Node) (*Doc, error) {
-	d := &Doc{spans: map[string]Span{}}
+	d := &Doc{spans: map[string]Span{}, values: map[string]any{}}
 	root := n
 	if root.Kind == yaml.DocumentNode {
 		if len(root.Content) == 0 {
@@ -170,6 +173,7 @@ func (d *Doc) node(n *yaml.Node, phys, logi string, key Range) (any, Range, erro
 			r = extend(r, cr)
 		}
 		d.set(phys, logi, Span{Key: key, Value: r})
+		d.setValue(phys, logi, out)
 		return out, r, nil
 
 	case yaml.AliasNode:
@@ -192,6 +196,7 @@ func (d *Doc) node(n *yaml.Node, phys, logi string, key Range) (any, Range, erro
 			return nil, r, err
 		}
 		d.set(phys, logi, Span{Key: key, Value: r})
+		d.setValue(phys, logi, v)
 		return v, r, nil
 	}
 
@@ -260,6 +265,19 @@ func (d *Doc) set(phys, logi string, s Span) {
 	d.spans[phys] = s
 	if logi != phys {
 		d.spans[logi] = s
+	}
+}
+
+// ValueAt returns the decoded value at a path, in either spelling.
+func (d *Doc) ValueAt(path string) (any, bool) {
+	v, ok := d.values[path]
+	return v, ok
+}
+
+func (d *Doc) setValue(phys, logi string, v any) {
+	d.values[phys] = v
+	if logi != phys {
+		d.values[logi] = v
 	}
 }
 
@@ -366,4 +384,59 @@ func scalarRange(n *yaml.Node) Range {
 	}
 	r.EndCol = n.Column + w
 	return r
+}
+
+// At returns the innermost path whose value contains the position (1-based line, 1-based
+// column), which is how a cursor becomes an address. Ties between a node's two spellings go to
+// the logical one — `tasks.fetch.action`, not `tasks[0].action` — because that is the spelling
+// the context and type views are keyed by.
+func (d *Doc) At(line, col int) (string, bool) {
+	best, found := "", false
+	var bestRange Range
+	for path, span := range d.spans {
+		// A cursor on the KEY names that key's slot, not the mapping it sits in — which is
+		// what a reader means by hovering `action:`. A key range is strictly inside its
+		// parent's value range, so ranking below sorts it out with no special case.
+		hit := span.Value
+		if contains(span.Key, line, col) {
+			hit = span.Key
+		} else if !contains(span.Value, line, col) {
+			continue
+		}
+		if found && !inner(hit, bestRange) && !(hit == bestRange && preferred(path, best)) {
+			continue
+		}
+		best, bestRange, found = path, hit, true
+	}
+	return best, found
+}
+
+func contains(r Range, line, col int) bool {
+	if line < r.Line || line > r.EndLine {
+		return false
+	}
+	if line == r.Line && col < r.Col {
+		return false
+	}
+	if line == r.EndLine && col > r.EndCol {
+		return false
+	}
+	return true
+}
+
+// inner reports whether a is strictly enclosed by b, so the deepest node containing a cursor
+// wins over every ancestor that also contains it.
+func inner(a, b Range) bool {
+	if a == b {
+		return false
+	}
+	startsAfter := a.Line > b.Line || (a.Line == b.Line && a.Col >= b.Col)
+	endsBefore := a.EndLine < b.EndLine || (a.EndLine == b.EndLine && a.EndCol <= b.EndCol)
+	return startsAfter && endsBefore
+}
+
+// preferred picks between the two spellings of one node: the logical one, which addresses a
+// task by id and so matches the slot grammar the views are keyed by.
+func preferred(candidate, current string) bool {
+	return strings.ContainsRune(current, '[') && !strings.ContainsRune(candidate, '[')
 }

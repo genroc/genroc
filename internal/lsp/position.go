@@ -43,3 +43,21 @@ func utf16Column(line string, col int) int {
 }
 
 func splitLines(text string) []string { return strings.Split(text, "\n") }
+
+// byteColumn is the inverse of utf16Column: the protocol hands a UTF-16 offset and defdoc
+// indexes by byte column, so a cursor past a multi-byte character has to be translated back
+// before it can be looked up.
+func byteColumn(lines []string, p position) int {
+	if p.Line < 0 || p.Line >= len(lines) {
+		return 1
+	}
+	line := lines[p.Line]
+	units := 0
+	for i, r := range line {
+		if units >= p.Character {
+			return i + 1
+		}
+		units += len(utf16.Encode([]rune{r}))
+	}
+	return len(line) + 1
+}

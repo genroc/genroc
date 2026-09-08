@@ -60,6 +60,7 @@ func (s *Server) handle(req *request) {
 	case "initialize":
 		var res initializeResult
 		res.Capabilities.TextDocumentSync = 1 // Full: each change carries the whole document
+		res.Capabilities.HoverProvider = true
 		res.ServerInfo.Name = "genctl-lsp"
 		res.ServerInfo.Version = s.version
 		_ = s.conn.reply(req.ID, res)
@@ -83,6 +84,13 @@ func (s *Server) handle(req *request) {
 			// Full sync: the last change is the whole document.
 			s.set(p.TextDocument.URI, p.ContentChanges[len(p.ContentChanges)-1].Text, &p.TextDocument.Version)
 		}
+
+	case "textDocument/hover":
+		var p hoverParams
+		if !s.decode(req, &p) {
+			return
+		}
+		_ = s.conn.reply(req.ID, s.hover(p))
 
 	case "textDocument/didSave":
 		// The text is already current; a save changes nothing this server knows.
@@ -132,4 +140,20 @@ func (s *Server) decode(req *request, into any) bool {
 		return false
 	}
 	return true
+}
+
+// hover answers for one position, or with null — which is the protocol's "nothing to say" and
+// the answer for most of a document.
+func (s *Server) hover(p hoverParams) any {
+	text, open := s.docs[p.TextDocument.URI]
+	if !open || !isDefinitionURI(p.TextDocument.URI) {
+		return nil
+	}
+	lines := splitLines(text)
+	md, r, ok := hoverAt(text, p.Position.Line+1, byteColumn(lines, p.Position))
+	if !ok {
+		return nil
+	}
+	rng := toRange(lines, r)
+	return hoverResult{Contents: markupContent{Kind: "markdown", Value: md}, Range: &rng}
 }

@@ -161,25 +161,12 @@ func printTypes(slots map[string]schema.Schema) {
 		width = max(width, len(a))
 	}
 	for _, a := range addresses {
-		fmt.Printf("%-*s  %s\n", width, a, typeSummary(slots[a]))
+		fmt.Printf("%-*s  %s\n", width, a, summaryOf(slots[a]))
 	}
 }
 
-// typeSummary names a type in one line — its kind, an object's members, an array's element —
-// enough to pick the address whose document you want. A `$ref` is followed: the name of a
-// definition says less than what it holds.
-func typeSummary(s schema.Schema) string {
-	if resolved, err := s.Resolve(); err == nil {
-		s = resolved
-	}
-	if members := memberNames(s); members != "" {
-		return "object{" + members + "}"
-	}
-	if items := s.Items(); !items.IsZero() {
-		return "array<" + typeSummary(items) + ">"
-	}
-	return s.TypeName()
-}
+// summaryOf is schema.Summary, kept as a name this file already reads by.
+func summaryOf(s schema.Schema) string { return s.Summary() }
 
 // inferExpr types one expression against a slot's context: the context query with its last
 // step taken. The expression is BARE — the `${…}` a leaf wraps it in belongs to the template
@@ -499,7 +486,7 @@ func inScope(ctx schema.Schema) string {
 			root += "?"
 		}
 		if name == "self" || name == "outputs" {
-			if inner := memberNames(props[name]); inner != "" {
+			if inner := memberNamesOf(props[name]); inner != "" {
 				root += "{" + inner + "}"
 			}
 		}
@@ -513,27 +500,7 @@ func inScope(ctx schema.Schema) string {
 
 // memberNames spells out one root's own properties, `?` for the ones a path may not set —
 // which outputs and self differ by, and is the whole reason to look.
-func memberNames(root schema.Schema) string {
-	props := root.Properties()
-	if len(props) == 0 {
-		return ""
-	}
-	required := requiredSet(root)
-	names := make([]string, 0, len(props))
-	for _, name := range slices.Sorted(maps.Keys(props)) {
-		label := name
-		if !required[name] {
-			label += "?"
-		}
-		// `=null` is what one arm says about an output another arm sets: present, and null
-		// here. It is the correlation the arms exist to carry, so it has to be visible.
-		if props[name].IsNull() {
-			label += "=null"
-		}
-		names = append(names, label)
-	}
-	return strings.Join(names, ", ")
-}
+func memberNamesOf(s schema.Schema) string { return s.MemberNames() }
 
 func requiredSet(s schema.Schema) map[string]bool {
 	out := make(map[string]bool)

@@ -27,6 +27,19 @@ ServerOnWhatIsRejected` is that claim as a test; a new check belongs on the serv
 **stdout belongs to the protocol.** `genctl lsp` prints nothing; a stray line is a frame the
 editor cannot parse.
 
+## Hover decodes leniently; diagnostics do not
+
+`decodeLenient` vs `DecodeStrict` is the whole difference, and it is deliberate: a reader
+asking about one slot is not asking about a typo in another, so hover answers over a document
+that would be refused. The strict decode is a **verdict**, which is the diagnostics path's job
+alone. `SlotContexts` behaves the same way for the same reason — it reads what `Check` managed
+to build, not what `Generate` would accept (specs/language-server.md §7b).
+
+A `${ }` inside a longer string types as the string it renders into, so the leaf says nothing.
+`interpolationUnder` reads the interpolation the CURSOR is in out of the raw source line —
+raw, because a column is what the protocol hands over, and mapping it back through YAML's
+escaping would be a second grammar to keep true.
+
 ## The one shortcut
 
 `DisallowUnknownFields` reports prose and stops at the first unknown key, so `decodeDiagnostic`

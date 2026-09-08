@@ -42,6 +42,15 @@ func analyse(text string) []diagnostic {
 	return out
 }
 
+func marshal(v any) ([]byte, error) { return json.Marshal(v) }
+
+// decodeLenient reads as far as the document allows, ignoring keys with no home. Hover uses it
+// and diagnostics do not: a reader asking about one slot is not asking about a typo in another,
+// and the strict decode is a VERDICT, which is the diagnostics path's job alone.
+func decodeLenient(raw []byte, into *model.ProcessDefinition) error {
+	return numeric.Decode(raw, into)
+}
+
 func analyseDoc(doc *defdoc.Doc, lines []string) []diagnostic {
 	raw, err := json.Marshal(doc.Value)
 	if err != nil {

@@ -198,3 +198,78 @@ func TestAMappingSpansItsChildren(t *testing.T) {
 		t.Errorf("the fetch task runs from line 4 to line 8, got %d-%d", s.Value.Line, s.Value.EndLine)
 	}
 }
+
+// At is how a cursor becomes an address: the inverse of Span, and the primitive hover,
+// completion and goto-definition all reach for. specs/language-server.md §7.
+func TestAtFindsTheInnermostNodeUnderTheCursor(t *testing.T) {
+	d := parse(t, twoTasks)
+	//	 4  - id: fetch
+	//	 5    action:
+	//	 6      type: fetch
+	//	 7      url: "https://example.com"
+	for _, c := range []struct {
+		name      string
+		line, col int
+		want      string
+	}{
+		{"on the url value", 7, 12, "tasks.fetch.action.url"},
+		{"on the action's own key line", 5, 5, "tasks.fetch.action"},
+		{"on a task id", 4, 11, "tasks.fetch.id"},
+		{"on the top-level name", 2, 7, "name"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := d.At(c.line, c.col)
+			if !ok {
+				t.Fatalf("no node at %d:%d", c.line, c.col)
+			}
+			if got != c.want {
+				t.Errorf("At(%d,%d) = %q, want %q", c.line, c.col, got, c.want)
+			}
+		})
+	}
+}
+
+// The logical spelling is what the context and type views are keyed by, so a cursor that lands
+// on a node addressable both ways must answer with the one those views can be asked.
+func TestAtAnswersWithTheLogicalSpelling(t *testing.T) {
+	d := parse(t, twoTasks)
+	got, ok := d.At(7, 12)
+	if !ok {
+		t.Fatal("no node under the cursor")
+	}
+	if strings.ContainsRune(got, '[') {
+		t.Errorf("At returned the physical spelling %q; the views are keyed by the logical one", got)
+	}
+}
+
+func TestAtOutsideAnyNodeReportsNothing(t *testing.T) {
+	d := parse(t, "name: demo\n")
+	if got, ok := d.At(99, 1); ok {
+		t.Errorf("line 99 is past the document, got %q", got)
+	}
+}
+
+func TestValueAtAnswersInEitherSpelling(t *testing.T) {
+	d := parse(t, twoTasks)
+	byIndex, ok1 := d.ValueAt("tasks[0].action.url")
+	byID, ok2 := d.ValueAt("tasks.fetch.action.url")
+	if !ok1 || !ok2 {
+		t.Fatalf("value missing: byIndex=%v byID=%v; have %v", ok1, ok2, d.Paths())
+	}
+	if byIndex != "https://example.com" || byID != byIndex {
+		t.Errorf("got %v / %v", byIndex, byID)
+	}
+}
+
+// The value and the span describe the same node, so a merged key's value must be the one that
+// won — the same rule the spans follow.
+func TestValueAtAgreesWithTheSpanOnWhichKeyWon(t *testing.T) {
+	d := parse(t, anchored)
+	v, ok := d.ValueAt("tasks.b.only_once")
+	if !ok {
+		t.Fatalf("no value; have %v", d.Paths())
+	}
+	if v != false {
+		t.Errorf("the explicit only_once:false won the value, so ValueAt must say false, got %v", v)
+	}
+}

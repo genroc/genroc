@@ -1,11 +1,11 @@
 # `genctl lsp`: the definition language, in the editor
 
-**PROPOSAL 2026-09-08. Phases 0 and 1 BUILT 2026-09-08.** Five phases in order (§7).
+**PROPOSAL 2026-09-08. Phases 0, 1 and half of 2 BUILT 2026-09-08.** Five phases in order (§7).
 
 `genctl apply` prints `file:line:col: message`, one line per broken slot;
 `POST /api/definitions/validate` returns `fields[]` for a type failure as it always did for a
-struct-tag one; and `genctl lsp` publishes diagnostics over stdio for `*.genroc.yaml`. Phase 2 — hover and completion, the reason to build it — is next, and §7b is
-what it has to clear first.
+struct-tag one; and `genctl lsp` publishes diagnostics over stdio for `*.genroc.yaml`, and answers **hover**: the type an expression infers to, the type of a slot,
+and the scope governing it. Completion is the half of phase 2 still open.
 
 [schema-command.md](schema-command.md) §1 refused this on purpose — "not an editor protocol:
 it has no positions and no lenient parse, so it cannot underlie completion or diagnostics."
@@ -181,6 +181,26 @@ is what `discriminator` meant and what JSON Schema could not say. The `fetch` ty
 "fetch has no field `ur1`", and completion offers fetch's fields rather than the union of six.
 `goto` completion is the task-id list `Validate` already checks against.
 
+### Correction (2026-09-08): completion reads the schema, diagnostics do not
+
+The walk above is right for diagnostics and **wrong for completion**, and building phase 1
+showed why. Seven definition types decode by hand — `Action`, `SwitchMap`, `Retry`, `Timeout`,
+`ErrorCase`, `RetryNumber`, `RetryDuration` — so reflection over their Go fields sees nothing,
+and they are the most interesting nodes to complete. Six carry a hand-written
+`JSONSchemaBytes()` **because** reflection cannot derive one: the schema is the only
+machine-readable description of them that exists.
+
+Phase 0 removed both objections to using it. `additionalProperties` is closed and the drift
+test pins it to the server, and the `discriminator` problem does not apply to a consumer that
+is us: read each variant's `type: {const: fetch}` and descend into that branch, which is what
+the keyword meant. So the split is **diagnostics from the server's own two calls, completion
+from the schema**, with the drift test guaranteeing they cannot disagree.
+
+It costs one move: `buildProcessDefinitionSchema` leaves `internal/api` (which `archtest`
+forbids to the language server, correctly — it drags in OpenAPI generation) for a package both
+can reach. That is where it belonged: the schema is a definition-language artefact and `api`
+only serves the bytes.
+
 ### Fix the published schema anyway
 
 `additionalProperties: false` on the task and the root is a **bug fix independent of this
@@ -227,7 +247,8 @@ expression — precise squiggles, or semantic highlighting.
 | 0a ✅ | `internal/defdoc`; `additionalProperties: false` on every reflected struct, and the drift test | the published schema stops accepting what the server rejects |
 | 0b ✅ | slot addresses on every diagnostic; collect-with-recovery; codes; `Check` beside `Generate` | API returns `fields[]` for inference errors; `genctl` prints `file:line:col` |
 | 1 ✅ | `genctl lsp`: stdio JSON-RPC, document store, didOpen/didChange, publishDiagnostics — structural *and* inference | squiggles that agree with the server |
-| 2 | completion + hover: keys and action variants from the reflection walk; context and types inside `$:` / `${ }` | the reason to build it |
+| 2a ✅ | hover: an expression's inferred type, a slot's type, the scope it is written in | the type an author is guessing at, without leaving the file |
+| 2b | completion: keys and action variants from the schema; context members inside `$:` / `${ }` | the rest of the reason to build it |
 | 3 | goto-definition on `goto:` and child `process:`; code actions | — |
 | 4 | VS Code client — spawn `genctl lsp`, activate on `**/*.genroc.yaml`, disable YLS for them | distribution |
 
@@ -240,11 +261,12 @@ cursor sits in an expression.
 
 Two limits, both found by building it, and both squarely in the editor's way:
 
-- **`SlotContexts` answers nothing about a document that does not infer.** It goes through
-  `Generate`, so a single broken expression costs the whole context view — and a document
-  mid-edit is the normal case for completion. Now that `Check` recovers per slot, the fix is
-  to give it the partial `SchemaFile` rather than `SchemaFile{}`. schema-command.md §1 already
-  promises this ("as far as inference gets"); it is not true yet.
+- ~~**`SlotContexts` answers nothing about a document that does not infer.**~~ **FIXED
+  2026-09-08**, first thing in phase 2. `Check` now returns the view it managed to build and
+  `newTaskScopes` reads that instead of `Generate` — so `genctl schema context` answers over a
+  document that would be refused, which schema-command.md §1 had promised all along. It also
+  made §2's round-trip test writable at last: every diagnostic address is now asserted to be a
+  slot the context view names.
 - **A diagnostic underlines its slot, not its sub-slot.** The address is `tasks.a.action`
   because that is the grammar's granularity, so a bad `url` underlines the whole action even
   though the message names the url and `defdoc` indexes `tasks.a.action.url`. A second, finer
