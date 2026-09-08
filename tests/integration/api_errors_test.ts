@@ -280,8 +280,12 @@ test("api errors — an inference failure reports its slot address, not just pro
   });
   expect(status).toBe(400);
   const fields = body.fields as Field[];
-  // Both, not just the first: inference used to stop at the failure it found.
-  expect(fields.map((f) => f.field)).toEqual(["tasks.a.action", "tasks.b.action"]);
+  // Both, not just the first: inference used to stop at the failure it found. And the field
+  // is the one that is wrong — `…action.url`, not the action block it sits in (§7b).
+  expect(fields.map((f) => f.field)).toEqual([
+    "tasks.a.action.url",
+    "tasks.b.action.url",
+  ]);
   expect(new Set(fields.map((f) => f.rule))).toEqual(new Set(["def.expression"]));
   expect(fields[0].message).toContain("nope");
 });

@@ -8,7 +8,7 @@ log     ?= info
 
 # BUILD_FLAGS = CGO_ENABLED=1
 
-.PHONY: run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big bench-iterate swagger client clean generate docs docs-schema docs-build script-runner
+.PHONY: extension run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big bench-iterate swagger client clean generate docs docs-schema docs-build script-runner
 
 run:
 	$(BUILD_FLAGS) go run ./cmd/genroc \
@@ -27,6 +27,11 @@ build: sqlc
 	$(BUILD_FLAGS) go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o genroc ./cmd/genroc
 	$(BUILD_FLAGS) go build -ldflags="-s -w" -o genctl ./cmd/genctl
 	$(BUILD_FLAGS) go build -ldflags="-s -w" -o genroc-ui ./ui
+
+# The VS Code extension. It is a launcher for `genctl lsp` and ships separately from the
+# binaries, so it is not part of `build` -- packaging it needs npm.
+extension:
+	cd editors/vscode && npm install && npm run compile && npm run package
 
 test: test-unit test-int
 

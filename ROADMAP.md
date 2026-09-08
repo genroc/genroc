@@ -27,9 +27,9 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **long-poll** on the external-task queue (specs/external-task-queue.md)
 - [] **per-definition durability field** (specs/durability-levels.md §8)
 - [] **pause as a debugging tool** — start an instance paused, step it with `tick`
-- [] **language server** — phases 0-2 built: `genctl lsp` publishes diagnostics, hovers types
-  and completes keys and scope members. Navigation and the VS Code client are open
-  (specs/language-server.md §7)
+- [] **language server** — built through phase 4 (`genctl lsp` + a VS Code extension); what is
+  left is navigation ACROSS files, which needs `.genroc` discovery out of `cmd/genctl`'s
+  `package main` (specs/language-server.md §7)
 - [] **docs** — the site ships four pages; the reference gap it was written to close is open
 
 ## Shipped

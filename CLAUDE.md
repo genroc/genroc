@@ -57,7 +57,7 @@ records failures that are silent, not compile errors.
 | [internal/validation/CLAUDE.md](internal/validation/CLAUDE.md) | the version comparison as a conservative floor and the direction a refinement may move; the two `$defs` pools; changed slots as a field comparison; why diagnostics decompose above `isSubset` |
 | [internal/schema/CLAUDE.md](internal/schema/CLAUDE.md) | the `unknown` type (`{}`), why there is no keyword, `NarrowsTo` |
 | [internal/delayspec/CLAUDE.md](internal/delayspec/CLAUDE.md) | `delay` and `timeout` syntax (`for` / `until` / `tz`), arity, calendar arithmetic |
-| [internal/lsp/CLAUDE.md](internal/lsp/CLAUDE.md) | `genctl lsp`: full sync, one goroutine, clear-on-close, UTF-16 columns |
+| [internal/lsp/CLAUDE.md](internal/lsp/CLAUDE.md) | `genctl lsp` and the VS Code extension: full sync, one goroutine, clear-on-close, UTF-16 columns |
 | [specs/CLAUDE.md](specs/CLAUDE.md) | which docs are **proposals, not current behavior** |
 
 ## Two Go modules

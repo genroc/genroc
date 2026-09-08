@@ -68,3 +68,11 @@ guessing from the value's type.
 reads the key out of the message and finds it in the index — matching by SPAN, since every node
 is addressable twice (physically and logically) and counting paths finds two of everything.
 §5's reflection walk is what replaces it: every unknown key, with a path, in one pass.
+
+## The extension is a launcher
+
+`editors/vscode` starts `genctl lsp` and contributes a language id. It implements no analysis,
+and must not: two implementations of "what is wrong with this file" is the defect this whole
+spec was written against. `TestTheVSCodeExtensionMatchesTheFilesThisServerAnswersFor` is the
+one thing holding the two halves together — they are different languages and neither imports
+the other, so nothing else notices when one is edited and the other is not.

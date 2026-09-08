@@ -69,7 +69,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					// non-array expression is rejected at registration.
 					if hasOver {
 						if _, err := checkArrayTemplate(s.Action.Over, ctx, s.ID); err != nil {
-							return err
+							return inField("over", err)
 						}
 					}
 					// A delay `for` / `until` is classified syntactically: a literal is parsed
@@ -77,19 +77,19 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					// number, and a ${ } interpolation is rejected — so a malformed duration or
 					// instant fails at registration rather than when the task is reached.
 					if hasFor {
-						if err := checkDelaySlot(s.Action.For, ctx, s.ID, "delay", "for"); err != nil {
+						if err := inField("for", checkDelaySlot(s.Action.For, ctx, s.ID, "delay", "for")); err != nil {
 							return err
 						}
 					}
 					if hasUntil {
-						if err := checkDelaySlot(s.Action.Until, ctx, s.ID, "delay", "until"); err != nil {
+						if err := inField("until", checkDelaySlot(s.Action.Until, ctx, s.ID, "delay", "until")); err != nil {
 							return err
 						}
 					}
 					// A timeout is the same two slots pointed at a deadline, so it is checked the
 					// same way — a literal against the grammar, a $: expression to a number.
 					if hasTimeout {
-						if err := checkTimeout(&s.Timeout, ctx, s.ID); err != nil {
+						if err := inField("timeout", checkTimeout(&s.Timeout, ctx, s.ID)); err != nil {
 							return err
 						}
 					}
@@ -97,23 +97,23 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					// type-check them and reject a possibly-null result (a null URL or method
 					// would silently stringify to "null").
 					if hasURL {
-						if err := checkNonNullTemplate(s.Action.URL, ctx, fmt.Sprintf("task %q url", s.ID)); err != nil {
+						if err := inField("url", checkNonNullTemplate(s.Action.URL, ctx, fmt.Sprintf("task %q url", s.ID))); err != nil {
 							return err
 						}
 					}
 					if hasMethod {
-						if err := checkNonNullTemplate(s.Action.Method, ctx, fmt.Sprintf("task %q method", s.ID)); err != nil {
+						if err := inField("method", checkNonNullTemplate(s.Action.Method, ctx, fmt.Sprintf("task %q method", s.ID))); err != nil {
 							return err
 						}
 					}
 					// Headers is a shape that must evaluate to a non-null object.
 					if hasHeaders {
-						if err := checkHeadersShape(s.Action.Headers.Raw, ctx, s.ID); err != nil {
+						if err := inField("headers", checkHeadersShape(s.Action.Headers.Raw, ctx, s.ID)); err != nil {
 							return err
 						}
 					}
 					if hasQuery {
-						if err := checkQueryShape(s.Action.Query.Raw, ctx, s.ID); err != nil {
+						if err := inField("query", checkQueryShape(s.Action.Query.Raw, ctx, s.ID)); err != nil {
 							return err
 						}
 					}
@@ -122,7 +122,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					// elements aren't known statically, and an unrecognized pattern simply
 					// never matches at runtime.
 					if hasAcceptedStatus {
-						if err := checkAcceptedStatusShape(s.Action.AcceptedStatus.Raw, ctx, s.ID); err != nil {
+						if err := inField("accepted_status", checkAcceptedStatusShape(s.Action.AcceptedStatus.Raw, ctx, s.ID)); err != nil {
 							return err
 						}
 					}

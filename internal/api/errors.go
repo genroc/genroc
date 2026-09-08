@@ -177,7 +177,9 @@ func fieldsOf(err error) []model.FieldError {
 	if errors.As(err, &ds) {
 		out := make([]model.FieldError, len(ds))
 		for i, d := range ds {
-			out[i] = model.FieldError{Field: d.Address, Rule: string(d.Code), Message: d.Message}
+			// Field is the LOCATION: a client uses it to point at something, and the scope it
+			// was written in is the prefix, recoverable by walking up.
+			out[i] = model.FieldError{Field: d.Location, Rule: string(d.Code), Message: d.Message}
 		}
 		return out
 	}

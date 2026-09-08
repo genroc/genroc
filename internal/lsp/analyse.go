@@ -80,7 +80,9 @@ func analyseDoc(doc *defdoc.Doc, lines []string) []diagnostic {
 
 	_, ds := validation.Check(&def)
 	for _, d := range ds {
-		out = append(out, at(doc, lines, d.Address, string(d.Code), d.Message))
+		// Location, not Address: the reader wants the line underlined, and Address is the
+		// scope that line is written in. specs/language-server.md §7b.
+		out = append(out, at(doc, lines, d.Location, string(d.Code), d.Message))
 	}
 	return out
 }

@@ -116,9 +116,9 @@ func TestOpeningABrokenDocumentPublishesItsDiagnostic(t *testing.T) {
 		t.Fatalf("one broken slot, got %d: %+v", len(p.Diagnostics), p.Diagnostics)
 	}
 	d := p.Diagnostics[0]
-	// The action slot, which yaml reports at its first key — line 5, 0-based 4.
-	if d.Range.Start.Line != 4 {
-		t.Errorf("the action starts on line 5 (0-based 4), got %d", d.Range.Start.Line)
+	// The url itself, not the action block it sits in — line 6, 0-based 5 (§7b).
+	if d.Range.Start.Line != 5 {
+		t.Errorf("the broken url is on line 6 (0-based 5), got %d", d.Range.Start.Line)
 	}
 	if d.Severity != severityError {
 		t.Errorf("a definition that will not register is an error, got severity %d", d.Severity)

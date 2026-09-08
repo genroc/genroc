@@ -63,6 +63,7 @@ type initializeResult struct {
 		TextDocumentSync   int             `json:"textDocumentSync"`
 		HoverProvider      bool            `json:"hoverProvider"`
 		CompletionProvider *completionOpts `json:"completionProvider,omitempty"`
+		DefinitionProvider bool            `json:"definitionProvider"`
 	} `json:"capabilities"`
 	ServerInfo struct {
 		Name    string `json:"name"`
@@ -110,4 +111,10 @@ const (
 // wanted and where the client has nothing cached to filter.
 type completionOpts struct {
 	TriggerCharacters []string `json:"triggerCharacters"`
+}
+
+// location is the protocol's "here it is": a document and a range inside it.
+type location struct {
+	URI   string    `json:"uri"`
+	Range textRange `json:"range"`
 }

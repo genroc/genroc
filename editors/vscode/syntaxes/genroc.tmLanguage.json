@@ -1,0 +1,6 @@
+{
+  "$comment": "A definition IS YAML, so its highlighting is YAML's. This file exists only to give the `genroc` language id a grammar; the interesting colouring is semantic and comes from the server.",
+  "scopeName": "source.genroc",
+  "name": "genroc",
+  "patterns": [{ "include": "source.yaml" }]
+}

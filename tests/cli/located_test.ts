@@ -47,10 +47,10 @@ test("apply — every broken slot is reported as file:line:col", () => {
   expect(lines).toHaveLength(2);
   for (const line of lines) expect(line.startsWith("genctl: ")).toBe(true);
 
-  // The action slot of each task, which yaml reports at its first key.
-  expect(lines[0]).toContain(`${path}:5:7:`);
+  // The url of each task, not the action block it sits in (specs/language-server.md §7b).
+  expect(lines[0]).toContain(`${path}:6:12:`);
   expect(lines[0]).toContain(`field "nope" not found`);
-  expect(lines[1]).toContain(`${path}:10:7:`);
+  expect(lines[1]).toContain(`${path}:11:12:`);
   expect(lines[1]).toContain(`field "alsonope" not found`);
 });
 

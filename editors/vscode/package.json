@@ -1,0 +1,69 @@
+{
+  "name": "genroc",
+  "displayName": "genroc",
+  "description": "Diagnostics, hover, completion and navigation for genroc process definitions.",
+  "version": "0.1.0",
+  "publisher": "genroc",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/*.genroc.yaml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "genroc",
+        "aliases": [
+          "genroc"
+        ],
+        "filenamePatterns": [
+          "**/*.genroc.yaml",
+          "**/*.genroc.yml"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "genroc",
+        "scopeName": "source.yaml",
+        "path": "./syntaxes/genroc.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "genroc",
+      "properties": {
+        "genroc.server.path": {
+          "type": "string",
+          "default": "genctl",
+          "description": "Path to the genctl binary. The language server is `genctl lsp`."
+        },
+        "genroc.server.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run the genroc language server for *.genroc.yaml files."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -p . --watch",
+    "package": "npx --yes @vscode/vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.6.0"
+  }
+}

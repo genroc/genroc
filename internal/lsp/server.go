@@ -62,6 +62,7 @@ func (s *Server) handle(req *request) {
 		res.Capabilities.TextDocumentSync = 1 // Full: each change carries the whole document
 		res.Capabilities.HoverProvider = true
 		res.Capabilities.CompletionProvider = &completionOpts{TriggerCharacters: []string{".", "$"}}
+		res.Capabilities.DefinitionProvider = true
 		res.ServerInfo.Name = "genctl-lsp"
 		res.ServerInfo.Version = s.version
 		_ = s.conn.reply(req.ID, res)
@@ -99,6 +100,13 @@ func (s *Server) handle(req *request) {
 			return
 		}
 		_ = s.conn.reply(req.ID, s.complete(p))
+
+	case "textDocument/definition":
+		var p hoverParams // same shape: a document and a position
+		if !s.decode(req, &p) {
+			return
+		}
+		_ = s.conn.reply(req.ID, s.definition(p))
 
 	case "textDocument/didSave":
 		// The text is already current; a save changes nothing this server knows.
@@ -179,4 +187,19 @@ func (s *Server) complete(p completionParams) []completionItem {
 		return []completionItem{}
 	}
 	return items
+}
+
+// definition answers with the one location a reference points at, or null. A list would be the
+// protocol's other option, but a `goto` names exactly one task or no task at all.
+func (s *Server) definition(p hoverParams) any {
+	text, open := s.docs[p.TextDocument.URI]
+	if !open || !isDefinitionURI(p.TextDocument.URI) {
+		return nil
+	}
+	lines := splitLines(text)
+	r, ok := definitionAt(text, p.Position.Line+1, byteColumn(lines, p.Position))
+	if !ok {
+		return nil
+	}
+	return location{URI: p.TextDocument.URI, Range: toRange(lines, r)}
 }

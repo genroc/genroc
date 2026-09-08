@@ -171,3 +171,33 @@ func yamlToJSON(text string) ([]byte, error) {
 	}
 	return json.Marshal(docs[0].Value)
 }
+
+// A diagnostic underlines the FIELD, not the block it sits in: the address is the scope, the
+// location is the line. specs/language-server.md §7b.
+func TestADiagnosticUnderlinesTheFieldNotTheWholeSlot(t *testing.T) {
+	//	 1 name: demo
+	//	 2 tasks:
+	//	 3   - id: a
+	//	 4     action:
+	//	 5       type: fetch
+	//	 6       url: "$: nope.x"
+	//	 7     switch: end
+	d := only(t, "name: demo\ntasks:\n  - id: a\n    action:\n      type: fetch\n      url: \"$: nope.x\"\n    switch: end\n")
+	if d.Range.Start.Line != 5 {
+		t.Fatalf("the url is on line 6 (0-based 5); the action block starts on line 5, and "+
+			"underlining that is what this test exists to prevent. got line %d", d.Range.Start.Line)
+	}
+	if d.Range.Start.Character != 11 {
+		t.Errorf("want the value's own columns, got %d-%d", d.Range.Start.Character, d.Range.End.Character)
+	}
+}
+
+// A check that knows no field still underlines its slot, which is where the reader looks anyway.
+func TestASlotWithNoFinerFieldStillUnderlinesTheSlot(t *testing.T) {
+	//	 5     output:
+	//	 6       v: "$: nope.x"
+	d := only(t, "name: demo\ntasks:\n  - id: a\n    switch: end\n    output:\n      v: \"$: nope.x\"\n")
+	if d.Range.Start.Line != 5 {
+		t.Errorf("the output map is on line 6 (0-based 5), got %d", d.Range.Start.Line)
+	}
+}

@@ -38,6 +38,11 @@ type Diagnostic struct {
 	Address string `json:"address"`
 	Code    Code   `json:"code"`
 	Message string `json:"message"`
+	// Location is the field to point AT, when the check knew one: `tasks.a.action.url` where
+	// Address is `tasks.a.action`. The two differ because they answer different questions —
+	// Address is the scope a reader can ask `genctl schema context` about, Location is the
+	// line to underline. Defaults to Address.
+	Location string `json:"location"`
 }
 
 // Error is the message alone. The address is the machine-readable location and does not
@@ -102,7 +107,31 @@ func (b *bag) add(address string, code Code, err error) {
 	if errors.Is(err, schema.ErrUnknownValue) {
 		code = CodeUnknownRead
 	}
-	b.found[address] = Diagnostic{Address: address, Code: code, Message: err.Error()}
+	location := address
+	var f *fieldError
+	if errors.As(err, &f) && f.field != "" {
+		location = address + "." + f.field
+	}
+	b.found[address] = Diagnostic{Address: address, Code: code, Message: err.Error(), Location: location}
+}
+
+// fieldError names the field within a slot that a check was looking at. A slot is small, so
+// only the checks that already know a field name annotate; the rest underline the slot, which
+// is where the reader has to look anyway.
+type fieldError struct {
+	field string
+	err   error
+}
+
+func (e *fieldError) Error() string { return e.err.Error() }
+func (e *fieldError) Unwrap() error { return e.err }
+
+// inField tags err with the field it came from, and is a no-op on nil so it can wrap a call.
+func inField(field string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &fieldError{field: field, err: err}
 }
 
 // poison marks a task whose own output slot failed. Its exported type became {}, so every
