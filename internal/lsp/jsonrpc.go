@@ -25,11 +25,23 @@ type request struct {
 // error, and the difference is only the presence of an id.
 func (r *request) isNotification() bool { return len(r.ID) == 0 }
 
+// A response carries EXACTLY ONE of result and error, and `result: null` is a result — it is
+// how the protocol says "nothing here", which hover, completion and definition all answer with.
+// `omitempty` on Result therefore produced a reply with neither, which a client rejects
+// outright: "the received response has neither a result nor an error property".
+//
+// Two structs rather than one with omitempty, so the invariant is in the type instead of in
+// remembering which field to leave unset.
 type response struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
-	Result  any             `json:"result,omitempty"`
-	Error   *rpcError       `json:"error,omitempty"`
+	ID      json.RawMessage `json:"id"`
+	Result  any             `json:"result"`
+}
+
+type errorResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Error   *rpcError       `json:"error"`
 }
 
 type rpcError struct {
@@ -101,7 +113,7 @@ func (c *conn) reply(id json.RawMessage, result any) error {
 }
 
 func (c *conn) replyErr(id json.RawMessage, code int, format string, a ...any) error {
-	return c.send(response{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: fmt.Sprintf(format, a...)}})
+	return c.send(errorResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: fmt.Sprintf(format, a...)}})
 }
 
 // notify sends a server-initiated message, which is a request with no id.

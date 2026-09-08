@@ -64,6 +64,9 @@ test("apply — a missing required field points at the node that lacks it", () =
   expect(r.stderr).toContain("id is required");
 });
 
+// `--stdio` is what every LSP client appends: vscode-languageclient adds it for
+// TransportKind.stdio, and refusing it refuses the client rather than a mistake. Passing it
+// here is not incidental — it is the exact argv the extension runs.
 test("lsp — genctl speaks LSP on stdio and underlines the key a typo is in", () => {
   // The whole editor path through the binary people already have: framed in, framed out.
   const text = 'name: demo\ntasks:\n  - id: a\n    on_eror: []\n    switch: end\n';
@@ -83,7 +86,7 @@ test("lsp — genctl speaks LSP on stdio and underlines the key a typo is in", (
     })
     .join("");
 
-  const r = spawnSync(bin, ["lsp"], { input: frames, encoding: "utf8" });
+  const r = spawnSync(bin, ["lsp", "--stdio"], { input: frames, encoding: "utf8" });
   expect(r.status, r.stderr).toBe(0);
 
   const msgs = readFrames(r.stdout ?? "");
@@ -112,3 +115,18 @@ function readFrames(out: string): any[] {
   }
   return msgs;
 }
+
+// The extension probes with this before starting the client. It must exit 0 on a binary that
+// has the subcommand — `-v` cannot answer, because it succeeds on every genctl ever built,
+// including the ones that answer `genctl lsp` with a usage dump and exit 1.
+test("lsp — `genctl lsp -h` is the probe an editor can trust", () => {
+  const r = runCli(bin, ["lsp", "-h"]);
+  expect(r.exitCode).toBe(0);
+  expect(r.stdout).toContain("stdin/stdout");
+});
+
+test("lsp — an argument that is not a transport flag is still refused", () => {
+  const r = runCli(bin, ["lsp", "--frobnicate"]);
+  expect(r.exitCode).toBe(1);
+  expect(r.stderr).toContain("--stdio");
+});

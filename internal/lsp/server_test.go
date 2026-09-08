@@ -202,3 +202,41 @@ func TestAnUnsupportedNotificationIsSilent(t *testing.T) {
 		t.Fatalf("a notification must not be answered, got %v", msgs)
 	}
 }
+
+// JSON-RPC requires exactly one of result and error on every response, and `result: null` is a
+// result — it is how hover, completion and definition say "nothing here". Emitting neither made
+// vscode-jsonrpc reject the reply outright, which is what `omitempty` on Result did.
+func TestEveryResponseCarriesExactlyOneOfResultAndError(t *testing.T) {
+	msgs, _ := session(t,
+		frame("initialize", 1, map[string]any{}),
+		openDoc(uri, valid),
+		// Each of these answers "nothing here" for a position with nothing to say.
+		frame("textDocument/hover", 2, map[string]any{
+			"textDocument": map[string]any{"uri": uri},
+			"position":     map[string]any{"line": 0, "character": 0},
+		}),
+		frame("textDocument/definition", 3, map[string]any{
+			"textDocument": map[string]any{"uri": uri},
+			"position":     map[string]any{"line": 0, "character": 0},
+		}),
+		frame("textDocument/rename", 4, map[string]any{}),
+		frame("shutdown", 5, nil),
+		frame("exit", nil, nil))
+
+	seen := 0
+	for _, m := range msgs {
+		if _, isNotification := m["method"]; isNotification {
+			continue
+		}
+		seen++
+		_, hasResult := m["result"]
+		_, hasError := m["error"]
+		if hasResult == hasError {
+			t.Errorf("response %v carries result=%v error=%v; exactly one is required",
+				string(m["id"]), hasResult, hasError)
+		}
+	}
+	if seen != 5 {
+		t.Fatalf("every request gets a reply; sent 5, saw %d", seen)
+	}
+}

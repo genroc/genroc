@@ -19,12 +19,16 @@ export async function activate(context: vscode.ExtensionContext) {
   if (!config.get<boolean>("server.enabled", true)) return;
 
   const command = config.get<string>("server.path", "genctl");
-  const version = await probe(command);
-  if (!version) {
-    // A missing binary is the one failure a user can act on, so it is said once and plainly
-    // rather than left as an extension that silently does nothing.
+  const supported = await hasLspCommand(command);
+  if (!supported) {
+    // Said once and plainly. Without this the client starts, `genctl` prints its usage to
+    // stdout instead of a frame, and the user sees five restarts and a disposed connection —
+    // which is what a binary predating `genctl lsp` did before this check existed.
+    const version = await run(command, ["-v"]);
     vscode.window.showWarningMessage(
-      `genroc: could not run \`${command} lsp\`. Install genctl, or set genroc.server.path.`,
+      version === undefined
+        ? `genroc: could not run \`${command}\`. Install genctl, or set genroc.server.path.`
+        : `genroc: \`${command}\` (${version}) has no \`lsp\` command. Update genctl.`,
     );
     return;
   }
@@ -53,11 +57,16 @@ export function deactivate(): Thenable<void> | undefined {
   return client?.stop();
 }
 
-// probe runs `genctl -v` rather than starting the server, so a missing or wrong binary is
-// found before the client is wired up and starts reporting restarts.
-async function probe(command: string): Promise<string | undefined> {
+// hasLspCommand asks for the subcommand's own help, which exits 0 only on a binary that has
+// it. `-v` is not enough: it succeeds on every genctl ever built, including the ones that
+// answer `genctl lsp` with a usage dump and exit 1.
+async function hasLspCommand(command: string): Promise<boolean> {
+  return (await run(command, ["lsp", "-h"])) !== undefined;
+}
+
+async function run(command: string, args: string[]): Promise<string | undefined> {
   try {
-    const { stdout } = await promisify(execFile)(command, ["-v"], { timeout: 5000 });
+    const { stdout } = await promisify(execFile)(command, args, { timeout: 5000 });
     return stdout.trim();
   } catch {
     return undefined;

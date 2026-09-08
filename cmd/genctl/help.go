@@ -136,11 +136,13 @@ large value prints as a ref.`,
 	},
 	"lsp": {
 		summary: "run the language server an editor talks to over stdio",
-		usage:   []string{"lsp"},
+		usage:   []string{"lsp [--stdio]"},
 		detail: "Speaks LSP on stdin/stdout, so it is spawned by an editor rather than run by hand.\n" +
 			"It publishes diagnostics for `*.genroc.yaml` -- the same failures `apply` reports, from\n" +
 			"the same two calls, so what is underlined is what a registration would refuse.\n\n" +
-			"VS Code: point the extension's server command at `genctl lsp`. Neovim: pass it as the\n" +
+			"--stdio is accepted and ignored: it is the transport every client names on the\n" +
+			"command line, and it is the only one spoken here.\n\n" +
+			"VS Code: install the extension in editors/vscode. Neovim: pass `genctl lsp` as the\n" +
 			"`cmd` of a client started for the `yaml` filetype.",
 	},
 	"logs": {
