@@ -1,0 +1,69 @@
+package lsp
+
+// The slice of LSP this server speaks. Written out rather than imported: the protocol is
+// large and almost none of it is reachable from a server that publishes diagnostics.
+
+type position struct {
+	Line      int `json:"line"`      // 0-based
+	Character int `json:"character"` // 0-based, UTF-16 code units
+}
+
+type textRange struct {
+	Start position `json:"start"`
+	End   position `json:"end"`
+}
+
+type diagnostic struct {
+	Range    textRange `json:"range"`
+	Severity int       `json:"severity"`
+	Code     string    `json:"code,omitempty"`
+	Source   string    `json:"source"`
+	Message  string    `json:"message"`
+}
+
+const severityError = 1
+
+type publishParams struct {
+	URI         string       `json:"uri"`
+	Version     *int         `json:"version,omitempty"`
+	Diagnostics []diagnostic `json:"diagnostics"`
+}
+
+type textDocumentItem struct {
+	URI     string `json:"uri"`
+	Version int    `json:"version"`
+	Text    string `json:"text"`
+}
+
+type didOpenParams struct {
+	TextDocument textDocumentItem `json:"textDocument"`
+}
+
+type didChangeParams struct {
+	TextDocument struct {
+		URI     string `json:"uri"`
+		Version int    `json:"version"`
+	} `json:"textDocument"`
+	// Full text only: the server advertises TextDocumentSyncKind.Full, so each change
+	// carries the whole document and there is no incremental state to keep aligned.
+	ContentChanges []struct {
+		Text string `json:"text"`
+	} `json:"contentChanges"`
+}
+
+type didCloseParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+}
+
+// initializeResult advertises only what is implemented. textDocumentSync 1 is Full.
+type initializeResult struct {
+	Capabilities struct {
+		TextDocumentSync int `json:"textDocumentSync"`
+	} `json:"capabilities"`
+	ServerInfo struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	} `json:"serverInfo"`
+}

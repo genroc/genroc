@@ -26,7 +26,7 @@ jobs:
       - name: go vet
         # Each module explicitly: `./...` matches the current module only, so a new module that
         # is not listed here is a module nothing checks.
-        run: go vet ./... ./ui/...
+        run: go vet ./... ./ui/... ./lsp/...
 
   test:
     name: tests (Go unit + dual-engine DB + TS integration)

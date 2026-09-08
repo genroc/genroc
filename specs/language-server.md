@@ -1,11 +1,12 @@
 # `genroc-lsp`: the definition language, in the editor
 
-**PROPOSAL 2026-09-08. Phase 0 BUILT 2026-09-08.** Five phases in order (§7); phase 0 was a
-change to the core that paid off before any editor existed, and it has.
+**PROPOSAL 2026-09-08. Phases 0 and 1 BUILT 2026-09-08.** Five phases in order (§7).
 
-`genctl apply` now prints `file:line:col: message`, one line per broken slot, and
+`genctl apply` prints `file:line:col: message`, one line per broken slot;
 `POST /api/definitions/validate` returns `fields[]` for a type failure as it always did for a
-struct-tag one. Phases 1-4 — the server itself — are unbuilt.
+struct-tag one; and `genroc-lsp` (the `lsp/` module) publishes diagnostics over stdio for
+`*.genroc.yaml`. Phase 2 — hover and completion, the reason to build it — is next, and §7b is
+what it has to clear first.
 
 [schema-command.md](schema-command.md) §1 refused this on purpose — "not an editor protocol:
 it has no positions and no lenient parse, so it cannot underlie completion or diagnostics."
@@ -217,7 +218,7 @@ expression — precise squiggles, or semantic highlighting.
 |---|---|---|
 | 0a ✅ | `internal/defdoc`; `additionalProperties: false` on every reflected struct, and the drift test | the published schema stops accepting what the server rejects |
 | 0b ✅ | slot addresses on every diagnostic; collect-with-recovery; codes; `Check` beside `Generate` | API returns `fields[]` for inference errors; `genctl` prints `file:line:col` |
-| 1 | `genroc-lsp`: stdio JSON-RPC, document store, didOpen/didChange, publishDiagnostics — structural *and* inference | squiggles that agree with the server |
+| 1 ✅ | `genroc-lsp`: stdio JSON-RPC, document store, didOpen/didChange, publishDiagnostics — structural *and* inference | squiggles that agree with the server |
 | 2 | completion + hover: keys and action variants from the reflection walk; context and types inside `$:` / `${ }` | the reason to build it |
 | 3 | goto-definition on `goto:` and child `process:`; code actions | — |
 | 4 | VS Code client — spawn `genroc-lsp`, activate on `**/*.genroc.yaml`, disable YLS for them | distribution |
@@ -256,4 +257,6 @@ is the failure mode — the schema is generated, the rules are hand-written, and
 compared them.
 
 Phases 1–3 are the LSP's own module: drive the server over a pipe with recorded JSON-RPC
-sessions. No editor in the loop.
+sessions. No editor in the loop. Built that way, plus the claim §5 rests on as a test of its
+own — a table of documents run through both the editor's path and the server's two calls,
+asserting they refuse the same set.

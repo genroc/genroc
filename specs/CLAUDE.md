@@ -434,8 +434,9 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   described back (both landed in `70dca11`); a policy now reads the failure it is retrying. A command reporting the scope at a slot would have to document
   that instead of answering it, so the split landed first — `error` / `last_error`, BUILT
   2026-09-04, in [task-scopes.md](task-scopes.md) §The error axis.
-- [language-server.md](language-server.md) — **PROPOSAL 2026-09-08; phase 0 BUILT the same
-  day** (`internal/defdoc`, `validation.Check` and `Diagnostic`, the schema drift closed). `genroc-lsp`, and the
+- [language-server.md](language-server.md) — **PROPOSAL 2026-09-08; phases 0 and 1 BUILT the
+  same day** (`internal/defdoc`, `validation.Check` and `Diagnostic`, the schema drift closed,
+  and `genroc-lsp` in the new `lsp/` module). `genroc-lsp`, and the
   reason it is not mostly an LSP: `Validate` + `validation.Generate` already are the whole
   analysis, locally and with no server, so what is missing is a **location**. Inference embeds
   its location in prose (`task "fetch" output.total:`) and returns on the first failure, which

@@ -20,20 +20,22 @@ run:
 		-log $(log) \
 		$(ARGS)
 
-# Two modules, three binaries. genroc-ui builds from ./ui, which is a separate module with
-# its own go.mod -- see go.work. It embeds whatever is in ui/web; a bare build gets the committed
-# placeholder, and the image build overwrites it with ui/frontend compiled.
+# Three modules, four binaries. genroc-ui builds from ./ui and genroc-lsp from ./lsp, each a
+# separate module with its own go.mod -- see go.work. genroc-ui embeds whatever is in ui/web; a
+# bare build gets the committed placeholder, and the image build overwrites it with ui/frontend
+# compiled.
 build: sqlc
 	$(BUILD_FLAGS) go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o genroc ./cmd/genroc
 	$(BUILD_FLAGS) go build -ldflags="-s -w" -o genctl ./cmd/genctl
 	$(BUILD_FLAGS) go build -ldflags="-s -w" -o genroc-ui ./ui
+	cd lsp && $(BUILD_FLAGS) go build -ldflags="-s -w" -o ../genroc-lsp ./cmd/genroc-lsp
 
 test: test-unit test-int
 
 # `./...` matches the CURRENT module only, so each module is listed. Missing one here means its
 # tests silently stop running rather than failing.
 test-unit:
-	$(BUILD_FLAGS) go test ./... ./ui/...
+	$(BUILD_FLAGS) go test ./... ./ui/... ./lsp/...
 
 test-stress:
 	$(BUILD_FLAGS) go test ./internal/db/... ./internal/engine/... -run TestStress -v --count=3

@@ -57,9 +57,10 @@ records failures that are silent, not compile errors.
 | [internal/validation/CLAUDE.md](internal/validation/CLAUDE.md) | the version comparison as a conservative floor and the direction a refinement may move; the two `$defs` pools; changed slots as a field comparison; why diagnostics decompose above `isSubset` |
 | [internal/schema/CLAUDE.md](internal/schema/CLAUDE.md) | the `unknown` type (`{}`), why there is no keyword, `NarrowsTo` |
 | [internal/delayspec/CLAUDE.md](internal/delayspec/CLAUDE.md) | `delay` and `timeout` syntax (`for` / `until` / `tz`), arity, calendar arithmetic |
+| [lsp/CLAUDE.md](lsp/CLAUDE.md) | the language server: full sync, one goroutine, clear-on-close, UTF-16 columns |
 | [specs/CLAUDE.md](specs/CLAUDE.md) | which docs are **proposals, not current behavior** |
 
-## Two Go modules
+## Three Go modules
 
 The repo is a Go workspace (`go.work`), and which module a package lives in is a statement about
 what it may depend on:
@@ -68,6 +69,7 @@ what it may depend on:
 |---|---|---|
 | `.` | `genroc` | the server and `genctl` — engine, database, API. ~20 external modules |
 | `ui/` | `genroc/ui` | `golang-jwt`. **One**, and it cannot acquire the server's |
+| `lsp/` | `genroc/lsp` | none of its own yet; requires `genroc`, so the fence runs one way |
 
 `ui` is separate so the UI can grow without any of it reaching the binary people embed.
 specs/ui-component.md. It also owns the auth the server no longer does: it authenticates a
@@ -78,8 +80,15 @@ person, resolves their groups to permissions, and mints the token the server ver
 committed placeholder `go:embed` compiles in, and only the image build swaps the built SPA over it.
 The `golang-jwt` claim above is about the Go module; npm is a separate graph that reaches no binary.
 
-**`./...` matches the current module only.** A command that does not name both silently skips
-one — which is why the Makefile and CI spell out `./... ./ui/...`.
+`lsp` is separate for the direction it CAN fence: a language server accumulates editor
+dependencies, and none of them can reach `genroc` or `genctl` from there. It cannot fence the
+other way — it requires the root module, which is the price of reusing the analysis instead of
+reimplementing it. Note that a separate module reaches `genroc/internal` fine: Go's internal
+rule is path-prefix, not module-scoped, and `ui` is fenced because its go.mod requires nothing
+from here. specs/language-server.md §4.
+
+**`./...` matches the current module only.** A command that does not name all three silently
+skips one — which is why the Makefile and CI spell out `./... ./ui/... ./lsp/...`.
 
 `genctl` shares the root module with the server because it shares its whole internal surface (the
 definition language, which it validates against before sending). Its boundary is therefore a test
@@ -88,7 +97,7 @@ rather than a wall: `archtest.TestBinariesKeepTheirImportBoundaries` refuses `in
 
 ## Build / test
 
-    make build      # produces ./genroc, ./genctl and ./genroc-ui
+    make build      # produces ./genroc, ./genctl, ./genroc-ui and ./genroc-lsp
     make test       # go test across all three modules + integration tests
 
     # Run with SQLite (default):

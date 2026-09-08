@@ -57,6 +57,33 @@ func (d *Doc) Span(path string) (Span, bool) {
 	return s, ok
 }
 
+// Locate is Span falling back to the shortest enclosing path that exists. A missing REQUIRED
+// field has no node of its own, so `tasks[0].id` resolves to the task that lacks an id — which
+// is the line a reader has to look at either way.
+func (d *Doc) Locate(path string) (Span, bool) {
+	for p := path; p != ""; p = ParentPath(p) {
+		if s, ok := d.spans[p]; ok {
+			return s, true
+		}
+	}
+	s, ok := d.spans[""]
+	return s, ok
+}
+
+// ParentPath drops the last segment of either spelling: `a.b[0].c` → `a.b[0]` → `a.b` → `a`.
+// Exported for a caller searching SEVERAL documents, which has to walk the levels itself.
+func ParentPath(path string) string {
+	dot := strings.LastIndexByte(path, '.')
+	br := strings.LastIndexByte(path, '[')
+	if br > dot {
+		return path[:br]
+	}
+	if dot < 0 {
+		return ""
+	}
+	return path[:dot]
+}
+
 // Paths returns every addressable path, unordered. For tests and for "did you mean".
 func (d *Doc) Paths() []string {
 	out := make([]string, 0, len(d.spans))

@@ -140,36 +140,26 @@ func resolvedDefsLocated(files []string) ([]any, []sourceDoc, error) {
 // A missing REQUIRED field has no node of its own, so the search falls back to the shortest
 // enclosing path that does — `tasks[0].id` points at the task that lacks an id.
 func locate(docs []sourceDoc, address string) (string, defdoc.Span, bool) {
-	for a := address; a != ""; a = parentPath(a) {
-		var file string
-		var span defdoc.Span
-		found := 0
-		for _, d := range docs {
-			if d.index == nil {
-				continue
-			}
-			if sp, ok := d.index.Span(a); ok {
-				file, span, found = d.file, sp, found+1
-			}
+	// Exactly one document may claim the address: two that both resolve it are two processes
+	// with the same task id, and pointing at either would be a guess.
+	var file string
+	var span defdoc.Span
+	found := 0
+	for _, d := range docs {
+		if d.index == nil {
+			continue
 		}
-		if found == 1 {
-			return file, span, true
+		if sp, ok := d.index.Span(address); ok {
+			file, span, found = d.file, sp, found+1
 		}
+	}
+	if found == 1 {
+		return file, span, true
+	}
+	if parent := defdoc.ParentPath(address); parent != "" {
+		return locate(docs, parent)
 	}
 	return "", defdoc.Span{}, false
-}
-
-// parentPath drops the last segment of either spelling: `a.b[0].c` → `a.b[0]` → `a.b` → `a`.
-func parentPath(address string) string {
-	dot := strings.LastIndexByte(address, '.')
-	br := strings.LastIndexByte(address, '[')
-	if br > dot {
-		return address[:br]
-	}
-	if dot < 0 {
-		return ""
-	}
-	return address[:dot]
 }
 
 // readFile parses one source file. The parsed position index travels with each document so a

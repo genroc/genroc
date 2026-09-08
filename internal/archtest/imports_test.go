@@ -34,6 +34,16 @@ var forbiddenImports = map[string][]string{
 		"genroc/internal/engine",
 		"genroc/internal/transport",
 	},
+	// genroc-lsp is a separate module, but its go.mod requires this one, so the module
+	// boundary fences editor dependencies OUT and nothing the other way. The rule is
+	// genctl's for the same reason: it reads the definition language and speaks to no
+	// server at all. specs/language-server.md §4.
+	"lsp": {
+		"genroc/internal/db",
+		"genroc/internal/api",
+		"genroc/internal/engine",
+		"genroc/internal/transport",
+	},
 }
 
 func TestBinariesKeepTheirImportBoundaries(t *testing.T) {
