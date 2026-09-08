@@ -3,18 +3,19 @@ import type { MarkdownHeading } from 'astro'
 import Base from './Base.astro'
 import Sidebar from '../components/Sidebar.astro'
 import Toc from '../components/Toc.astro'
+import { crumbs } from '../lib/nav'
 import { url } from '../lib/url'
 
 interface Props {
   title: string
   description: string
-  section: string
   slug: string
   headings: MarkdownHeading[]
 }
 
-const { title, description, section, slug, headings } = Astro.props
+const { title, description, slug, headings } = Astro.props
 const hasToc = headings.some((h) => h.depth === 2 || h.depth === 3)
+const trail = await crumbs(slug)
 ---
 
 <Base title={`${title} — genroc`} description={description}>
@@ -28,7 +29,8 @@ const hasToc = headings.some((h) => h.depth === 2 || h.depth === 3)
       <div class="prose">
         <div class="page-head">
           <p class="crumb">
-            <a href={url('/')}>docs</a> / {section}
+            <a href={url('/')}>docs</a>
+            {trail.map((c) => <> / {c.href ? <a href={c.href}>{c.label}</a> : c.label}</>)}
           </p>
           <h1>{title}</h1>
           <p>{description}</p>

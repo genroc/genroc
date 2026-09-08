@@ -375,6 +375,18 @@ summary:focus-visible {
   padding-left: 1.2em;
 }
 
+/* Nesting is the page tree (src/lib/nav.ts). The rule stands in for the connectors an
+   ASCII drawing would use, so a group reads as one whatever its depth. */
+.sidebar li ul {
+  margin: 0.1rem 0 0.4rem;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--line);
+}
+
+.sidebar li li a {
+  color: var(--muted);
+}
+
 /* --- content --------------------------------------------------------------- */
 
 main {
@@ -465,6 +477,11 @@ h4 {
   margin-left: -1.2em;
   display: inline-block;
   width: 1.2em;
+}
+
+.prose img {
+  max-width: 100%;
+  height: auto;
 }
 
 .prose blockquote {

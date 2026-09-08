@@ -1,0 +1,55 @@
+---
+import { Image } from 'astro:assets'
+import type { ImageMetadata } from 'astro'
+
+interface Props {
+  src: string
+  alt: string
+}
+
+const { src, alt } = Astro.props
+
+// Named by filename rather than imported per page: the folder is the whole namespace, and
+// `components` in [...slug].astro puts this in scope for every doc without an import.
+const shots = import.meta.glob<{ default: ImageMetadata }>(
+  '/src/assets/screenshots/*.{png,jpg,jpeg,webp,avif}',
+  { eager: true },
+)
+const shot = shots[`/src/assets/screenshots/${src}`]
+if (!shot) {
+  const known = Object.keys(shots).map((p) => p.split('/').pop()).sort()
+  throw new Error(`no screenshot "${src}" in src/assets/screenshots — have: ${known.join(', ')}`)
+}
+---
+
+<figure class="screenshot">
+  <Image src={shot.default} alt={alt} />
+</figure>
+
+<style>
+  /* The window is drawn here, not in the image: a screenshot of a dark UI on a light page
+     needs an edge to read as a window rather than a hole. */
+  .screenshot {
+    margin: 1.5rem 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .screenshot::before {
+    content: "\25cf \25cf \25cf";
+    display: block;
+    padding: 0.1rem 0.55rem 0.2rem;
+    border-bottom: 1px solid var(--line-strong);
+    background: var(--code-bg);
+    color: var(--line-strong);
+    font-size: 0.62em;
+    letter-spacing: 0.28em;
+    line-height: 1.2;
+  }
+
+  .screenshot img {
+    display: block;
+    width: 100%;
+  }
+</style>

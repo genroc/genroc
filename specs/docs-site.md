@@ -73,6 +73,12 @@ Each page gets an ordering key from the nav tree (`00.01.02`, zero-padded,
 dot-joined): lexicographic order matches reading order, and prefix testing
 distinguishes *below* from *after* — four directions from one comparison; reordering a
 page moves its slide with it. Equal keys cancel the navigation and scroll instead.
+
+**Nesting is the file path**, not a frontmatter `parent`: `a/b/c.mdx` hangs off `a/b.mdx`,
+and the section is the first segment — so no page can claim a place its URL contradicts. `order` sorts siblings, the ordering key gains a level per level
+of nesting, and a directory with no page beside it fails the build rather than quietly
+dropping out of the nav.
+
 Hard-won details:
 
 - Fixed chrome (topbar/sidebar/TOC/footer) is captured as named elements, but a named

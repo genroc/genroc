@@ -1,6 +1,6 @@
 ---
+import NavItems from './NavItems.astro'
 import { navSections } from '../lib/nav'
-import { url } from '../lib/url'
 
 interface Props {
   current?: string
@@ -15,15 +15,7 @@ const sections = await navSections()
     sections.map((s) => (
       <section>
         <h2>{s.label}</h2>
-        <ul>
-          {s.entries.map((e) => (
-            <li>
-              <a href={url(e.slug)} aria-current={e.slug === current ? 'page' : undefined}>
-                {e.title}
-              </a>
-            </li>
-          ))}
-        </ul>
+        <NavItems entries={s.entries} current={current} />
       </section>
     ))
   }

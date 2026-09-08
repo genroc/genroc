@@ -1,0 +1,58 @@
+---
+title: Installation
+description: Get genctl, run genroc in docker and start your first process.
+order: 1
+---
+
+## The CLI
+
+Install genctl by running following command in your terminal:
+
+```sh
+curl -fsSL https://genroc.org/install.sh | sh -s
+```
+
+This will copy the genroc binary to your default user scoped bin location.
+
+## Starting a project
+
+Once you install genctl, you can create your first project with init command (select the project name and then use the default options):
+
+```sh
+genctl init
+```
+
+Enter the project folder:
+
+```sh
+cd genroc-app
+```
+
+Open the project in your editor. With the default options it looks like this:
+
+```
+genroc-app/
+├─ definitions/
+│  └─ hello.genroc.yaml    # the example process definition
+├─ .genroc                 # genroc configuration
+├─ compose.yaml            # docker compose file for starting the server
+└─ .gitignore
+```
+
+## Running with docker
+
+> To continue you need to have [docker installed](https://docs.docker.com/desktop/) on your system.
+
+Following command will start docker containers:
+
+```sh
+docker compose up -d
+```
+
+Try entering `http://localhost:8448` to see if genroc is running correctly. If yes you should see genroc UI.
+
+<Screenshot src="create-project.png" alt="The genroc UI, showing a process instance" />
+
+## Editor support
+
+## Uninstalling

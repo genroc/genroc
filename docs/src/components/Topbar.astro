@@ -1,12 +1,18 @@
 ---
 import Logo from './Logo.astro'
+import { navSections } from '../lib/nav'
 import { url } from '../lib/url'
 
 const path = Astro.url.pathname
+// A section link lands on its first page, so reordering the nav moves it too.
 // `section` links duplicate the mobile drawer, so the narrow layout drops them.
 const links = [
-  { href: url('guides/getting-started'), label: 'guides', match: '/guides/', kind: 'section' },
-  { href: url('reference/tasks'), label: 'reference', match: '/reference/', kind: 'section' },
+  ...(await navSections()).map((s) => ({
+    href: url(s.entries[0].slug),
+    label: s.label,
+    match: `/${s.id}/`,
+    kind: 'section',
+  })),
   { href: 'https://github.com/genroc/genroc', label: 'github', match: null, kind: 'external' },
 ]
 ---

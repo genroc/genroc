@@ -8,7 +8,9 @@ import { light, dark } from "./src/shiki-theme.ts";
 // The live site serves from the apex of genroc.org (public/CNAME), so `base` is `/`;
 // the deploy workflow overrides DOCS_BASE only for an archived build at a versioned
 // subpath. Every asset and link must therefore be resolved through `url()` in
-// src/lib/url.ts rather than written root-absolute.
+// src/lib/url.ts rather than written root-absolute. Images in content are the exception:
+// `~/assets/...` (the tsconfig paths alias) reaches Astro's image pipeline, which applies
+// `base` itself -- and errors on a path that resolves to nothing, where a root-absolute 404s.
 export default defineConfig({
   site: "https://genroc.org",
   base: process.env.DOCS_BASE ?? "/",
