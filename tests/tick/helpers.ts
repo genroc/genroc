@@ -218,8 +218,13 @@ export class TickEnv {
 // Registers beforeAll/afterAll to start a fresh tick-mode server on the given port.
 // The returned object is populated before tests run.
 //
+// THE PORT MUST BE UNIQUE ACROSS THE WHOLE SUITE. vitest runs files concurrently, so two
+// files sharing one port start two servers on it: the loser talks to the winner's, sees its
+// instances, and fails intermittently on counts it never created. delay_test and
+// tree_cancel_test shared 20019 that way. Grep before picking one.
+//
 // Usage:
-//   const ctx = useTickEnv(20014);
+//   const ctx = useTickEnv(20999); // a port no other file uses
 //   test("...", async () => { await ctx.env.tick(); });
 // Pass immediateRetries: false to keep the real backoff, so a test can advance the clock
 // across a retry timer and observe how long the policy actually parked for.

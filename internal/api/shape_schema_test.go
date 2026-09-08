@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"genroc/internal/defschema"
 	"strings"
 	"testing"
 )
@@ -10,7 +11,7 @@ import (
 // Value anyOf, the self $ref, and the task-output/action-input references. Breaking it
 // silently breaks editor autocomplete.
 func TestProcessSchemaShape(t *testing.T) {
-	b := buildProcessDefinitionSchema()
+	b := defschema.Process()
 	var root map[string]any
 	if err := json.Unmarshal(b, &root); err != nil {
 		t.Fatal(err)

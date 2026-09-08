@@ -21,7 +21,7 @@ import { expect, test, beforeAll, afterAll } from "vitest";
 import { startMockService } from "../helpers/client.ts";
 import { useTickEnv } from "./helpers.ts";
 
-const PORT = 20021;
+const PORT = 20023;
 const ctx = useTickEnv(PORT);
 
 let stopMocks: (() => Promise<void>) | undefined;

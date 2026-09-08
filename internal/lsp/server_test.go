@@ -186,7 +186,7 @@ func TestExitWithoutShutdownIsAnError(t *testing.T) {
 }
 
 func TestAnUnsupportedRequestIsRefusedRatherThanIgnored(t *testing.T) {
-	msgs, _ := session(t, frame("textDocument/completion", 7, map[string]any{}), frame("exit", nil, nil))
+	msgs, _ := session(t, frame("textDocument/rename", 7, map[string]any{}), frame("exit", nil, nil))
 	if len(msgs) != 1 {
 		t.Fatalf("a request always gets a reply, got %d messages", len(msgs))
 	}

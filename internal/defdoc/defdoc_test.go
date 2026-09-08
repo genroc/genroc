@@ -273,3 +273,26 @@ func TestValueAtAgreesWithTheSpanOnWhichKeyWon(t *testing.T) {
 		t.Errorf("the explicit only_once:false won the value, so ValueAt must say false, got %v", v)
 	}
 }
+
+// Containers are values too. A caller asking which keys a mapping already holds gets nothing
+// if only scalars were registered — and every ValueAt test that used a scalar passed while
+// that was true.
+func TestValueAtAnswersForContainersNotJustScalars(t *testing.T) {
+	d := parse(t, twoTasks)
+	v, ok := d.ValueAt("tasks.fetch.action")
+	if !ok {
+		t.Fatalf("no value for a mapping; have %d paths", len(d.Paths()))
+	}
+	m, isMap := v.(map[string]any)
+	if !isMap {
+		t.Fatalf("want the action mapping, got %T", v)
+	}
+	if _, has := m["url"]; !has {
+		t.Errorf("the mapping must carry its own keys, got %v", m)
+	}
+	if seq, ok := d.ValueAt("tasks"); !ok {
+		t.Error("a sequence has no value registered")
+	} else if _, isSlice := seq.([]any); !isSlice {
+		t.Errorf("want the tasks sequence, got %T", seq)
+	}
+}

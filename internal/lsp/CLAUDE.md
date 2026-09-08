@@ -40,6 +40,28 @@ A `${ }` inside a longer string types as the string it renders into, so the leaf
 raw, because a column is what the protocol hands over, and mapping it back through YAML's
 escaping would be a second grammar to keep true.
 
+## Completion reads the schema; diagnostics read the server
+
+Not the reflection walk §5 first proposed. Seven model types decode by hand and carry their own
+`JSONSchemaBytes` — reflection sees no fields on an `Action`, a `SwitchMap` or a `Retry`, which
+are the nodes most worth completing. The schema describes them exactly, and phase 0 closed its
+two defects (`additionalProperties`, and the drift test). `branchFor` reads each arm's
+`type: {const: …}` and descends into one, which is what OpenAPI's `discriminator` meant and
+what no JSON Schema validator will do for you.
+
+`walk` tracks the ABSOLUTE document path as it descends, because the discriminator is read out
+of the document at the node being entered. A relative path looks up `type` at the root and
+silently offers the union — the first version did exactly that.
+
+**Completion runs on text that does not parse**, which is the normal state of a buffer someone
+is typing in. `expressionPrefix` scans the RAW line, and `parseRepaired` retries the parse with
+only the cursor's line closed off (`"`, `}"`, `"}`, `: `). Repairing more would answer about a
+document the author is not looking at.
+
+**A cursor ON a key wants that key's siblings**, not its children — someone typing `respon` is
+choosing among the action's keys. `completeKey` decides with `span.Key.Contains`, not by
+guessing from the value's type.
+
 ## The one shortcut
 
 `DisallowUnknownFields` reports prose and stops at the first unknown key, so `decodeDiagnostic`

@@ -27,6 +27,9 @@ type Range struct {
 
 func (r Range) Empty() bool { return r.Line == 0 }
 
+// Contains reports whether a 1-based line and column fall inside the range.
+func (r Range) Contains(line, col int) bool { return contains(r, line, col) }
+
 // Span is where one value was written. Key is the mapping key that introduced it, and is
 // empty when nothing introduced it by name: a sequence element, or the document root.
 //
@@ -256,6 +259,7 @@ func (d *Doc) mapping(n *yaml.Node, phys, logi string, key Range) (any, Range, e
 	}
 
 	d.set(phys, logi, Span{Key: key, Value: r})
+	d.setValue(phys, logi, out)
 	return out, r, nil
 }
 

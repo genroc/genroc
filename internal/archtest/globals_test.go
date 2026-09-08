@@ -32,11 +32,12 @@ var allowed = map[string]string{
 		"what a frozen-worker simulation needs, and a process-global offset cannot express worker-vs-DB skew.",
 	// The two Once/bytes pairs are one decision each: a lazily built artifact of the
 	// binary's own types, written inside Do and never reset. No owner exists to hang them
-	// on — Spec() is called before any server is constructed, to emit the spec file.
-	"api.processSchemaOnce":  "write-once memo of the generated process schema; see the note above.",
-	"api.processSchemaBytes": "the payload processSchemaOnce fills in.",
-	"api.specOnce":           "write-once memo of the generated OpenAPI spec; see the note above.",
-	"api.specBytes":          "the payload specOnce fills in.",
+	// on — Spec() and Process() are both called before any server is constructed, to emit
+	// the spec files.
+	"defschema.processSchemaOnce":  "write-once memo of the generated process schema; see the note above.",
+	"defschema.processSchemaBytes": "the payload processSchemaOnce fills in.",
+	"api.specOnce":                 "write-once memo of the generated OpenAPI spec; see the note above.",
+	"api.specBytes":                "the payload specOnce fills in.",
 }
 
 func TestNoPackageLevelMutableState(t *testing.T) {

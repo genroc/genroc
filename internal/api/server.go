@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"genroc/internal/defschema"
 	"genroc/internal/model"
 )
 
@@ -167,7 +168,7 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 	// which to use. They do not have to share a path.
 	mux.HandleFunc("GET "+publicPrefix+"/process-schema.json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(buildProcessDefinitionSchema())
+		w.Write(defschema.Process())
 	})
 
 	// The PER-PROCESS documentation stays under /api/ and is gated: it is generated from a

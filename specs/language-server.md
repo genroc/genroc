@@ -1,11 +1,13 @@
 # `genctl lsp`: the definition language, in the editor
 
-**PROPOSAL 2026-09-08. Phases 0, 1 and half of 2 BUILT 2026-09-08.** Five phases in order (§7).
+**PROPOSAL 2026-09-08. Phases 0, 1 and 2 BUILT 2026-09-08.** Five phases in order (§7).
 
 `genctl apply` prints `file:line:col: message`, one line per broken slot;
 `POST /api/definitions/validate` returns `fields[]` for a type failure as it always did for a
-struct-tag one; and `genctl lsp` publishes diagnostics over stdio for `*.genroc.yaml`, and answers **hover**: the type an expression infers to, the type of a slot,
-and the scope governing it. Completion is the half of phase 2 still open.
+struct-tag one; and `genctl lsp` publishes diagnostics over stdio for `*.genroc.yaml`, answers **hover** (the type an expression infers to, the type of a slot, the
+scope governing it) and **completion** (scope members inside an expression, legal keys
+everywhere else — discriminated, so a `fetch` is offered fetch's keys and not the union of
+six). Phase 3 is navigation; phase 4 is the VS Code client.
 
 [schema-command.md](schema-command.md) §1 refused this on purpose — "not an editor protocol:
 it has no positions and no lenient parse, so it cannot underlie completion or diagnostics."
@@ -248,7 +250,7 @@ expression — precise squiggles, or semantic highlighting.
 | 0b ✅ | slot addresses on every diagnostic; collect-with-recovery; codes; `Check` beside `Generate` | API returns `fields[]` for inference errors; `genctl` prints `file:line:col` |
 | 1 ✅ | `genctl lsp`: stdio JSON-RPC, document store, didOpen/didChange, publishDiagnostics — structural *and* inference | squiggles that agree with the server |
 | 2a ✅ | hover: an expression's inferred type, a slot's type, the scope it is written in | the type an author is guessing at, without leaving the file |
-| 2b | completion: keys and action variants from the schema; context members inside `$:` / `${ }` | the rest of the reason to build it |
+| 2b ✅ | completion: keys and action variants from the schema; scope members inside `$:` / `${ }`, on text that does not parse | the rest of the reason to build it |
 | 3 | goto-definition on `goto:` and child `process:`; code actions | — |
 | 4 | VS Code client — spawn `genctl lsp`, activate on `**/*.genroc.yaml`, disable YLS for them | distribution |
 
@@ -267,7 +269,7 @@ Two limits, both found by building it, and both squarely in the editor's way:
   document that would be refused, which schema-command.md §1 had promised all along. It also
   made §2's round-trip test writable at last: every diagnostic address is now asserted to be a
   slot the context view names.
-- **A diagnostic underlines its slot, not its sub-slot.** The address is `tasks.a.action`
+- **A diagnostic underlines its slot, not its sub-slot.** _(still open)_ The address is `tasks.a.action`
   because that is the grammar's granularity, so a bad `url` underlines the whole action even
   though the message names the url and `defdoc` indexes `tasks.a.action.url`. A second, finer
   field on Diagnostic — the location, beside the context address — would close it without

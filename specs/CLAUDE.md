@@ -434,7 +434,7 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   described back (both landed in `70dca11`); a policy now reads the failure it is retrying. A command reporting the scope at a slot would have to document
   that instead of answering it, so the split landed first — `error` / `last_error`, BUILT
   2026-09-04, in [task-scopes.md](task-scopes.md) §The error axis.
-- [language-server.md](language-server.md) — **PROPOSAL 2026-09-08; phases 0, 1 and hover BUILT the
+- [language-server.md](language-server.md) — **PROPOSAL 2026-09-08; phases 0, 1 and 2 BUILT the
   same day.** `genctl lsp`, and the reason it is barely an LSP: `Validate` +
   `validation.Generate` already are the whole analysis, locally and with no server, so what was
   missing is a **location**. Inference embedded its location in prose (`task "fetch"

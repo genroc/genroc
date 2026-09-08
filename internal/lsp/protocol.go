@@ -60,8 +60,9 @@ type didCloseParams struct {
 // initializeResult advertises only what is implemented. textDocumentSync 1 is Full.
 type initializeResult struct {
 	Capabilities struct {
-		TextDocumentSync int  `json:"textDocumentSync"`
-		HoverProvider    bool `json:"hoverProvider"`
+		TextDocumentSync   int             `json:"textDocumentSync"`
+		HoverProvider      bool            `json:"hoverProvider"`
+		CompletionProvider *completionOpts `json:"completionProvider,omitempty"`
 	} `json:"capabilities"`
 	ServerInfo struct {
 		Name    string `json:"name"`
@@ -84,4 +85,29 @@ type hoverResult struct {
 type markupContent struct {
 	Kind  string `json:"kind"` // "markdown"
 	Value string `json:"value"`
+}
+
+type completionParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Position position `json:"position"`
+}
+
+type completionItem struct {
+	Label         string `json:"label"`
+	Kind          int    `json:"kind,omitempty"`
+	Detail        string `json:"detail,omitempty"`
+	Documentation string `json:"documentation,omitempty"`
+}
+
+const (
+	kindField    = 5
+	kindProperty = 10
+)
+
+// completionOpts asks the editor to re-request after a `.`, which is where a member list is
+// wanted and where the client has nothing cached to filter.
+type completionOpts struct {
+	TriggerCharacters []string `json:"triggerCharacters"`
 }

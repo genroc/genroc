@@ -61,6 +61,7 @@ func (s *Server) handle(req *request) {
 		var res initializeResult
 		res.Capabilities.TextDocumentSync = 1 // Full: each change carries the whole document
 		res.Capabilities.HoverProvider = true
+		res.Capabilities.CompletionProvider = &completionOpts{TriggerCharacters: []string{".", "$"}}
 		res.ServerInfo.Name = "genctl-lsp"
 		res.ServerInfo.Version = s.version
 		_ = s.conn.reply(req.ID, res)
@@ -91,6 +92,13 @@ func (s *Server) handle(req *request) {
 			return
 		}
 		_ = s.conn.reply(req.ID, s.hover(p))
+
+	case "textDocument/completion":
+		var p completionParams
+		if !s.decode(req, &p) {
+			return
+		}
+		_ = s.conn.reply(req.ID, s.complete(p))
 
 	case "textDocument/didSave":
 		// The text is already current; a save changes nothing this server knows.
@@ -156,4 +164,19 @@ func (s *Server) hover(p hoverParams) any {
 	}
 	rng := toRange(lines, r)
 	return hoverResult{Contents: markupContent{Kind: "markdown", Value: md}, Range: &rng}
+}
+
+// complete answers with a list, never with null: an empty list means "nothing here", where
+// null makes some clients fall back to guessing from the buffer's words.
+func (s *Server) complete(p completionParams) []completionItem {
+	text, open := s.docs[p.TextDocument.URI]
+	if !open || !isDefinitionURI(p.TextDocument.URI) {
+		return []completionItem{}
+	}
+	lines := splitLines(text)
+	items := completeAt(text, p.Position.Line+1, byteColumn(lines, p.Position))
+	if items == nil {
+		return []completionItem{}
+	}
+	return items
 }
