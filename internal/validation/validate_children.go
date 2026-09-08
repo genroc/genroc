@@ -35,7 +35,9 @@ func ValidateChildProcessRefs(def *model.ProcessDefinition, currentVersion int, 
 		tasks: tasks, processInput: processInput, configSchema: configSchema, defs: defs,
 		required: required, optional: optional, errs: errs,
 	}
-	if err := inferOutputs(def.Tasks, scopes); err != nil {
+	// Diagnostics are discarded: this runs after Generate, which already reported them, and
+	// an output that failed types as {} here — enough to check the child refs below.
+	if err := inferOutputs(def.Tasks, scopes, newBag()); err != nil {
 		return err
 	}
 

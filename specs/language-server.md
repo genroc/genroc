@@ -1,7 +1,11 @@
 # `genroc-lsp`: the definition language, in the editor
 
-**PROPOSAL 2026-09-08.** Nothing here is built. Five phases in order (§7); phase 0 is a
-change to the core that pays off before any editor exists.
+**PROPOSAL 2026-09-08. Phase 0 BUILT 2026-09-08.** Five phases in order (§7); phase 0 was a
+change to the core that paid off before any editor existed, and it has.
+
+`genctl apply` now prints `file:line:col: message`, one line per broken slot, and
+`POST /api/definitions/validate` returns `fields[]` for a type failure as it always did for a
+struct-tag one. Phases 1-4 — the server itself — are unbuilt.
 
 [schema-command.md](schema-command.md) §1 refused this on purpose — "not an editor protocol:
 it has no positions and no lenient parse, so it cannot underlie completion or diagnostics."
@@ -174,6 +178,15 @@ is what `discriminator` meant and what JSON Schema could not say. The `fetch` ty
 spec** — the server already rejects those keys, so the schema is simply wrong, and it is what
 an editor with no genroc extension will keep loading. Phase 0.
 
+**Built 2026-09-08**, and closing it uniformly is what found the next hole: the generator has
+no way to express "closed, except `raise`", and `Fault` was the one definition struct with no
+unknown-key check — reached through `ErrorCase`'s own `UnmarshalJSON`, where
+`DisallowUnknownFields` does not propagate. An exemption in the generator would have recorded
+the bug instead of the rule, so `Fault` was closed too. A user schema (`input_schema`,
+`$defs`) is the remaining divergence: `schema.Schema`'s node is private, so it reflects to an
+opaque object and the editor accepts a keyword the server refuses by allowlist. Recorded by a
+test rather than left to be rediscovered.
+
 ### What happens to yaml-language-server
 
 The `$schema` comment stays: it is the degraded path, and after the fix above it is an honest
@@ -202,7 +215,8 @@ expression — precise squiggles, or semantic highlighting.
 
 | # | What | Payoff without the next phase |
 |---|---|---|
-| 0 | `internal/defdoc`; slot addresses on every diagnostic; collect-with-recovery; codes; `additionalProperties: false` on task and root | API returns `fields[]` for inference errors; `genctl validate` prints line numbers; the published schema stops accepting what the server rejects |
+| 0a ✅ | `internal/defdoc`; `additionalProperties: false` on every reflected struct, and the drift test | the published schema stops accepting what the server rejects |
+| 0b ✅ | slot addresses on every diagnostic; collect-with-recovery; codes; `Check` beside `Generate` | API returns `fields[]` for inference errors; `genctl` prints `file:line:col` |
 | 1 | `genroc-lsp`: stdio JSON-RPC, document store, didOpen/didChange, publishDiagnostics — structural *and* inference | squiggles that agree with the server |
 | 2 | completion + hover: keys and action variants from the reflection walk; context and types inside `$:` / `${ }` | the reason to build it |
 | 3 | goto-definition on `goto:` and child `process:`; code actions | — |
@@ -213,16 +227,33 @@ any of the others landing. Phase 2 is where the reflection walk of §5 and the s
 §1 meet: one completion request answers with keys or with context, decided by whether the
 cursor sits in an expression.
 
+## 7b. What phase 0 left for phase 2
+
+Two limits, both found by building it, and both squarely in the editor's way:
+
+- **`SlotContexts` answers nothing about a document that does not infer.** It goes through
+  `Generate`, so a single broken expression costs the whole context view — and a document
+  mid-edit is the normal case for completion. Now that `Check` recovers per slot, the fix is
+  to give it the partial `SchemaFile` rather than `SchemaFile{}`. schema-command.md §1 already
+  promises this ("as far as inference gets"); it is not true yet.
+- **A diagnostic underlines its slot, not its sub-slot.** The address is `tasks.a.action`
+  because that is the grammar's granularity, so a bad `url` underlines the whole action even
+  though the message names the url and `defdoc` indexes `tasks.a.action.url`. A second, finer
+  field on Diagnostic — the location, beside the context address — would close it without
+  touching the grammar.
+
 ## 8. Testing
 
 Phase 0 is Go: a table of broken definitions against expected `(address, code)` sets, and the
 addresses asserted to round-trip through `genctl schema context`. That round-trip is the
 assertion that keeps the two grammars one grammar.
 
-The §5 table is itself the other test, and it belongs in `tests/` where ajv already is: every
-row a definition the server rejects, asserted to be rejected by the published schema too. It
-is what would have caught the current drift, and drift is the failure mode — the schema is
-generated, the rules are hand-written, and nothing today compares them.
+The §5 table is itself the other test. It landed in Go rather than in `tests/` where ajv is —
+`gojsonschema` is already a test dependency, so the comparison runs in `go test` against
+`ProcessSchema()` with no server and no node: `internal/api/processschema_test.go`. Every row
+is a definition the server rejects, asserted to be rejected by the published schema too. Drift
+is the failure mode — the schema is generated, the rules are hand-written, and nothing
+compared them.
 
 Phases 1–3 are the LSP's own module: drive the server over a pipe with recorded JSON-RPC
 sessions. No editor in the loop.

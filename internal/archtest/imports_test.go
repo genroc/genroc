@@ -11,9 +11,11 @@ import (
 )
 
 // Import boundaries inside the ROOT module. `ui` and `jwks` are separate modules and are fenced
-// by go.mod rather than by this test -- they cannot reach `genroc/internal` at all. genctl
-// shares a module with the server, so its boundary is a rule rather than a wall, and this is the
-// wall. specs/ui-component.md.
+// by go.mod rather than by this test: their go.mod does not require the root module. NOT by the
+// internal rule -- that is path-prefix, not module-scoped, so `genroc/ui` clears it and a module
+// that did require the root could import `genroc/internal` freely (specs/language-server.md §4).
+// genctl shares a module with the server, so its boundary is a rule rather than a wall, and this
+// is the wall. specs/ui-component.md.
 //
 // The rule: genctl is a CLIENT. It speaks HTTP to a genroc server, and it infers the types a
 // source resolver typechecks against before sending anything, which is why it legitimately

@@ -67,7 +67,7 @@ func TestSlotContextsAreTheCheckersOwn(t *testing.T) {
 		tasks: tasks, processInput: processInput, configSchema: configSchema, defs: defs,
 		required: required, optional: optional, errs: errs,
 	}
-	if err := inferOutputs(def.Tasks, checker); err != nil {
+	if err := inferOutputs(def.Tasks, checker, newBag()); err != nil {
 		t.Fatalf("inferOutputs: %v", err)
 	}
 
@@ -231,7 +231,7 @@ func TestProcessOutputSingleTerminalIsTheCheckersPath(t *testing.T) {
 		tasks: tasks, processInput: processInput, configSchema: configSchema, defs: defs,
 		required: required, optional: optional, errs: errs,
 	}
-	if err := inferOutputs(def.Tasks, checker); err != nil {
+	if err := inferOutputs(def.Tasks, checker, newBag()); err != nil {
 		t.Fatalf("inferOutputs: %v", err)
 	}
 	terminals := outputTerminals(&def)

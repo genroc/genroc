@@ -25,6 +25,17 @@ type Fault struct {
 	Data    *Shape `json:"data,omitempty" description:"Structured payload this fault carries: an expression, or an object of expressions, evaluated when the clause fires in the same scope as the message. It lands on this instance's error.data, which an operator reads on the instance detail and in logs. Omit to carry nothing — the slot is then cleared rather than left holding the error this instance caught."`
 }
 
+// UnmarshalJSON rejects unknown keys, as `switch` and `on_error` do around it: a raise clause
+// is small enough that a misspelled key looks like a working one, and the whole clause is
+// authored for the moment it fires.
+func (f *Fault) UnmarshalJSON(data []byte) error {
+	if err := rejectUnknownFields("raise/panic", data, faultFields); err != nil {
+		return err
+	}
+	type alias Fault // bypass this method
+	return json.Unmarshal(data, (*alias)(f))
+}
+
 // SwitchCase is a single entry in a Task's switch list: a boolean expression
 // evaluated against the process context (and this task's own output as "self"),
 // and what to do when the expression is true.
@@ -201,6 +212,7 @@ func (e ErrorCase) MarshalJSON() ([]byte, error) {
 var (
 	errorCaseFields  = map[string]bool{"code": true, "case": true, "retry": true, "goto": true, "raise": true, "panic": true, "not_reached": true}
 	switchCaseFields = map[string]bool{"case": true, "goto": true, "raise": true, "panic": true}
+	faultFields      = map[string]bool{"code": true, "message": true, "data": true}
 
 	// Advice for keys that are valid somewhere else, or used to be valid here. Only
 	// reached for a key the rule itself does not accept, so a legitimate use never sees

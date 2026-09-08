@@ -272,13 +272,9 @@ func callStatus(url, method string, body any, out any) (int, error) {
 	}
 
 	if resp.StatusCode >= 400 {
-		var errResp struct {
-			Error string `json:"error"`
+		if e := decodeServerError(raw, resp.StatusCode); e != nil {
+			return resp.StatusCode, e
 		}
-		if err := json.Unmarshal(raw, &errResp); err != nil {
-			return resp.StatusCode, fmt.Errorf("server error (status %d)", resp.StatusCode)
-		}
-		return resp.StatusCode, fmt.Errorf("server: %s", errResp.Error)
 	}
 	if out != nil && len(raw) > 0 {
 		// Exact literals: a plain Unmarshal would round a large id back through
@@ -287,4 +283,31 @@ func callStatus(url, method string, body any, out any) (int, error) {
 		return resp.StatusCode, numeric.Decode(raw, out)
 	}
 	return resp.StatusCode, nil
+}
+
+// serverError is a rejected request with the per-field detail kept rather than flattened to
+// the joined message. A caller holding the source turns each field into a line; one that does
+// not prints Error() and reads exactly as before.
+type serverError struct {
+	Message string
+	Fields  []serverField
+}
+
+type serverField struct {
+	Field   string `json:"field"`
+	Rule    string `json:"rule"`
+	Message string `json:"message"`
+}
+
+func (e *serverError) Error() string { return "server: " + e.Message }
+
+func decodeServerError(raw []byte, status int) error {
+	var body struct {
+		Error  string        `json:"error"`
+		Fields []serverField `json:"fields"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return fmt.Errorf("server error (status %d)", status)
+	}
+	return &serverError{Message: body.Error, Fields: body.Fields}
 }

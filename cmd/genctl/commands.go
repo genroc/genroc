@@ -41,7 +41,7 @@ func runApplyCmd(server string, args []string) {
 		os.Exit(1)
 	}
 
-	defs, err := resolvedDefs(files)
+	defs, sources, err := resolvedDefsLocated(files)
 	if err != nil {
 		fatal("%v", err)
 	}
@@ -55,7 +55,7 @@ func runApplyCmd(server string, args []string) {
 	}
 	var raw json.RawMessage
 	if err := call(*serverFlag+endpoint, method, payload, &raw); err != nil {
-		fatal("%v", err)
+		fatalLocated(sources, err)
 	}
 	if *asJSON {
 		printIndented(raw)

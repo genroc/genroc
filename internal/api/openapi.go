@@ -71,6 +71,7 @@ func buildProcessDefinitionSchema() []byte {
 				return nil
 			}),
 		)
+		r.DefaultOptions = append(r.DefaultOptions, jsonschema.InterceptSchema(closeStructs))
 		s, err := r.Reflect(model.ProcessDefinition{})
 		if err != nil {
 			panic(fmt.Sprintf("processDefinitionSchema: %v", err))
@@ -79,6 +80,25 @@ func buildProcessDefinitionSchema() []byte {
 		processSchemaBytes = upgradeToDraft201909(b)
 	})
 	return processSchemaBytes
+}
+
+// closeStructs rejects unknown keys on every object reflected from a Go struct, because the
+// server already does: decodeBody is numeric.DecodeStrict, and DisallowUnknownFields is
+// recursive. Without it the published schema accepted `on_eror:` on a task and `tsaks:` at the
+// root — a typo the editor passed and the server refused. specs/language-server.md §5.
+//
+// A struct whose fields are open (a map, a Shape) is left alone: it already carries an
+// additionalProperties of its own, and a schema stricter than the server underlines working
+// code, which is the same bug facing the other way.
+func closeStructs(params jsonschema.InterceptSchemaParams) (bool, error) {
+	if !params.Processed || params.Schema == nil || params.Schema.AdditionalProperties != nil {
+		return false, nil
+	}
+	if len(params.Schema.Properties) == 0 {
+		return false, nil
+	}
+	params.Schema.WithAdditionalProperties(jsonschema.SchemaOrBool{TypeBoolean: new(bool)})
+	return false, nil
 }
 
 // upgradeToDraft201909 rewrites a swaggest-generated schema to JSON Schema

@@ -27,8 +27,8 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **long-poll** on the external-task queue (specs/external-task-queue.md)
 - [] **per-definition durability field** (specs/durability-levels.md §8)
 - [] **pause as a debugging tool** — start an instance paused, step it with `tick`
-- [] **language server** — `Validate` + `Generate` are already the analysis; what is missing is
-  a location, and inference hides it in prose (specs/language-server.md)
+- [] **language server** — phase 0 built (diagnostics carry a slot address, `genctl` prints
+  `file:line:col`); the server itself is unbuilt (specs/language-server.md §7)
 - [] **docs** — the site ships four pages; the reference gap it was written to close is open
 
 ## Shipped

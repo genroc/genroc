@@ -106,22 +106,41 @@ func buildConfigSchema(cs *schema.Schema) schema.Schema {
 	return out
 }
 
-// Generate normalises all schemas in def and builds the SchemaFile output.
+// Generate normalises all schemas in def and builds the SchemaFile output, reporting the first
+// diagnostic as an error. It is the gate — "is this definition registrable" — and Check is the
+// same pass answering "what is wrong with it", which is the one an editor and a client want.
 func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
+	sf, ds := Check(def)
+	if len(ds) > 0 {
+		return SchemaFile{}, ds
+	}
+	return sf, nil
+}
+
+// Check runs inference and returns every diagnostic it found, addressed by slot. A slot whose
+// own analysis failed types as {} for everything downstream, so one broken expression costs
+// its own diagnostic and not the rest of the pass. specs/language-server.md §2.
+func Check(def *model.ProcessDefinition) (SchemaFile, Diagnostics) {
+	b := newBag()
 	if err := def.Normalize(); err != nil {
-		return SchemaFile{}, err
+		b.add("", CodeStructure, err)
+		return SchemaFile{}, b.diagnostics()
 	}
 	result := SchemaFile{Process: def.Name}
 
 	defs, tasks, processInput, configSchema, err := buildSchemaContext(def)
 	if err != nil {
-		return SchemaFile{}, err
+		b.add("", CodeStructure, err)
+		return SchemaFile{}, b.diagnostics()
 	}
 	result.ProcessInput = processInput
 
 	rd := newRaiseData()
-	if err := buildInputs(def.Tasks, tasks, processInput, configSchema, defs, rd); err != nil {
-		return SchemaFile{}, err
+	if err := buildInputs(def.Tasks, tasks, processInput, configSchema, defs, rd, b); err != nil {
+		b.add("", CodeStructure, err)
+	}
+	if !b.empty() {
+		return SchemaFile{}, b.diagnostics()
 	}
 	result.Raises = rd.types()
 
@@ -139,7 +158,8 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 	if def.Output.Present() {
 		outputSchema, err := inferProcessOutput(def, tasks, result.ProcessInput, configSchema, defs)
 		if err != nil {
-			return SchemaFile{}, err
+			b.add(SlotProcessOutput, CodeExpression, err)
+			return SchemaFile{}, b.diagnostics()
 		}
 		name := uniqueDefName("output", defs)
 		defs.Set(name, outputSchema)
@@ -169,7 +189,7 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 		result.Tasks = tasks
 	}
 	result.Defs = defs
-	return result, nil
+	return result, b.diagnostics()
 }
 
 // inferProcessOutput types the output expression PER TERMINAL PATH and joins: the

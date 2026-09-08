@@ -12,11 +12,15 @@ import (
 	"genroc/internal/template"
 )
 
-func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, processInput, configSchema schema.Schema, defs schema.Defs, rd *raiseData) error {
+func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, processInput, configSchema schema.Schema, defs schema.Defs, rd *raiseData, b *bag) error {
+	// Reachability is a property of the whole graph, so there is no slot to hang it on and
+	// nothing below it is worth analysing: a task nothing reaches has no context.
 	if err := checkReachability(tasks); err != nil {
-		return err
+		b.add("", CodeStructure, err)
+		return nil
 	}
 	required, optional, mustErr, mayErr, errSrc := computeContextSets(tasks)
+	b.observe(required, optional)
 	errs := errContexts(tasks, mustErr, mayErr, errSrc, defs)
 	scopes := taskScopes{
 		tasks: taskSchemas, processInput: processInput, configSchema: configSchema, defs: defs,
@@ -26,7 +30,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 	// Phase 1: infer every output-map task's exported type, in dependency order
 	// (mutually-recursive tasks resolved jointly), writing each to defs so the
 	// switches and later tasks below see the final types.
-	if err := inferOutputs(tasks, scopes); err != nil {
+	if err := inferOutputs(tasks, scopes, b); err != nil {
 		return err
 	}
 
@@ -36,137 +40,147 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 		// Ahead of the per-slot checks, so a member that does not exist here is reported as
 		// the rule it breaks rather than as the schema's "field not found".
 		if err := checkPreOutputScopes(s, loops); err != nil {
-			return err
+			b.add(schema.JoinPath(slotTasks, s.ID), CodeStructure, err)
+			continue
 		}
 		if s.Action != nil {
-			ts, inMap := taskSchemas[s.ID]
-			isFetch := s.Action.Type == model.ActionTypeFetch
-			hasURL := isFetch && s.Action.URL != ""
-			hasMethod := isFetch && s.Action.Method != ""
-			hasHeaders := isFetch && s.Action.Headers.Present()
-			hasQuery := isFetch && s.Action.Query.Present()
-			hasAcceptedStatus := isFetch && s.Action.AcceptedStatus.Present()
-			hasBody := s.Action.Body.Present()
-			hasInput := s.Action.Input.Present()
-			hasOver := s.Action.Type == model.ActionTypeChildList && s.Action.Over != ""
-			isDelay := s.Action.Type == model.ActionTypeDelay
-			hasFor := isDelay && s.Action.For != nil
-			hasUntil := isDelay && s.Action.Until != nil
-			hasTimeout := !s.Timeout.IsZero()
-			if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout {
-				ctx := scopes.action(s)
-				// The child_list `over` expression must be a non-null array; each
-				// element becomes one child's input. Type-check it here so a malformed or
-				// non-array expression is rejected at registration.
-				if hasOver {
-					if _, err := checkArrayTemplate(s.Action.Over, ctx, s.ID); err != nil {
-						return err
+			// Each section below is one slot: the first failure inside it stops that section
+			// and is recorded against its address, so the sections after it are still
+			// analysed and the author sees every slot that is wrong at once.
+			b.add(taskSlot(s.ID, slotAction), CodeExpression, func() error {
+				ts, inMap := taskSchemas[s.ID]
+				isFetch := s.Action.Type == model.ActionTypeFetch
+				hasURL := isFetch && s.Action.URL != ""
+				hasMethod := isFetch && s.Action.Method != ""
+				hasHeaders := isFetch && s.Action.Headers.Present()
+				hasQuery := isFetch && s.Action.Query.Present()
+				hasAcceptedStatus := isFetch && s.Action.AcceptedStatus.Present()
+				hasBody := s.Action.Body.Present()
+				hasInput := s.Action.Input.Present()
+				hasOver := s.Action.Type == model.ActionTypeChildList && s.Action.Over != ""
+				isDelay := s.Action.Type == model.ActionTypeDelay
+				hasFor := isDelay && s.Action.For != nil
+				hasUntil := isDelay && s.Action.Until != nil
+				hasTimeout := !s.Timeout.IsZero()
+				if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout {
+					ctx := scopes.action(s)
+					// The child_list `over` expression must be a non-null array; each
+					// element becomes one child's input. Type-check it here so a malformed or
+					// non-array expression is rejected at registration.
+					if hasOver {
+						if _, err := checkArrayTemplate(s.Action.Over, ctx, s.ID); err != nil {
+							return err
+						}
+					}
+					// A delay `for` / `until` is classified syntactically: a literal is parsed
+					// against the delayspec grammar here, a $: expression is type-checked to a
+					// number, and a ${ } interpolation is rejected — so a malformed duration or
+					// instant fails at registration rather than when the task is reached.
+					if hasFor {
+						if err := checkDelaySlot(s.Action.For, ctx, s.ID, "delay", "for"); err != nil {
+							return err
+						}
+					}
+					if hasUntil {
+						if err := checkDelaySlot(s.Action.Until, ctx, s.ID, "delay", "until"); err != nil {
+							return err
+						}
+					}
+					// A timeout is the same two slots pointed at a deadline, so it is checked the
+					// same way — a literal against the grammar, a $: expression to a number.
+					if hasTimeout {
+						if err := checkTimeout(&s.Timeout, ctx, s.ID); err != nil {
+							return err
+						}
+					}
+					// The fetch url and method are templates evaluated against the context;
+					// type-check them and reject a possibly-null result (a null URL or method
+					// would silently stringify to "null").
+					if hasURL {
+						if err := checkNonNullTemplate(s.Action.URL, ctx, fmt.Sprintf("task %q url", s.ID)); err != nil {
+							return err
+						}
+					}
+					if hasMethod {
+						if err := checkNonNullTemplate(s.Action.Method, ctx, fmt.Sprintf("task %q method", s.ID)); err != nil {
+							return err
+						}
+					}
+					// Headers is a shape that must evaluate to a non-null object.
+					if hasHeaders {
+						if err := checkHeadersShape(s.Action.Headers.Raw, ctx, s.ID); err != nil {
+							return err
+						}
+					}
+					if hasQuery {
+						if err := checkQueryShape(s.Action.Query.Raw, ctx, s.ID); err != nil {
+							return err
+						}
+					}
+					// accepted_status is a shape that must evaluate to an array of strings.
+					// The per-pattern format ("2xx"/"404") is not checked — an expression's
+					// elements aren't known statically, and an unrecognized pattern simply
+					// never matches at runtime.
+					if hasAcceptedStatus {
+						if err := checkAcceptedStatusShape(s.Action.AcceptedStatus.Raw, ctx, s.ID); err != nil {
+							return err
+						}
+					}
+					if inMap || hasBody || hasInput {
+						input, err := inferActionPayload(s, ctx)
+						if err != nil {
+							return err
+						}
+						if !inMap {
+							ts.ActionType = s.Action.Type
+						}
+						ts.Input = input
+						taskSchemas[s.ID] = ts
 					}
 				}
-				// A delay `for` / `until` is classified syntactically: a literal is parsed
-				// against the delayspec grammar here, a $: expression is type-checked to a
-				// number, and a ${ } interpolation is rejected — so a malformed duration or
-				// instant fails at registration rather than when the task is reached.
-				if hasFor {
-					if err := checkDelaySlot(s.Action.For, ctx, s.ID, "delay", "for"); err != nil {
-						return err
-					}
-				}
-				if hasUntil {
-					if err := checkDelaySlot(s.Action.Until, ctx, s.ID, "delay", "until"); err != nil {
-						return err
-					}
-				}
-				// A timeout is the same two slots pointed at a deadline, so it is checked the
-				// same way — a literal against the grammar, a $: expression to a number.
-				if hasTimeout {
-					if err := checkTimeout(&s.Timeout, ctx, s.ID); err != nil {
-						return err
-					}
-				}
-				// The fetch url and method are templates evaluated against the context;
-				// type-check them and reject a possibly-null result (a null URL or method
-				// would silently stringify to "null").
-				if hasURL {
-					if err := checkNonNullTemplate(s.Action.URL, ctx, fmt.Sprintf("task %q url", s.ID)); err != nil {
-						return err
-					}
-				}
-				if hasMethod {
-					if err := checkNonNullTemplate(s.Action.Method, ctx, fmt.Sprintf("task %q method", s.ID)); err != nil {
-						return err
-					}
-				}
-				// Headers is a shape that must evaluate to a non-null object.
-				if hasHeaders {
-					if err := checkHeadersShape(s.Action.Headers.Raw, ctx, s.ID); err != nil {
-						return err
-					}
-				}
-				if hasQuery {
-					if err := checkQueryShape(s.Action.Query.Raw, ctx, s.ID); err != nil {
-						return err
-					}
-				}
-				// accepted_status is a shape that must evaluate to an array of strings.
-				// The per-pattern format ("2xx"/"404") is not checked — an expression's
-				// elements aren't known statically, and an unrecognized pattern simply
-				// never matches at runtime.
-				if hasAcceptedStatus {
-					if err := checkAcceptedStatusShape(s.Action.AcceptedStatus.Raw, ctx, s.ID); err != nil {
-						return err
-					}
-				}
-				if inMap || hasBody || hasInput {
-					input, err := inferActionPayload(s, ctx)
-					if err != nil {
-						return err
-					}
-					if !inMap {
-						ts.ActionType = s.Action.Type
-					}
-					ts.Input = input
-					taskSchemas[s.ID] = ts
-				}
-			}
+				return nil
+			}())
 		}
 
 		if len(s.Switch) > 0 {
-			switchCtx, err := scopes.switchScope(s)
-			if err != nil {
-				return fmt.Errorf("task %q: %w", s.ID, err)
-			}
-			// An untyped action result cannot be read in a case any more than it can be
-			// exported through an output, so a case that touches self.result gets the same
-			// actionable message the output slot gives.
-			untypedResult := s.Action != nil && !taskSchemas[s.ID].resultTyped
-			for _, c := range s.Switch {
-				if c.Case == "" {
-					continue
+			b.add(taskSlot(s.ID, slotSwitch), CodeExpression, func() error {
+				switchCtx, err := scopes.switchScope(s)
+				if err != nil {
+					return fmt.Errorf("task %q: %w", s.ID, err)
 				}
-				// A case is an expression-only shape: a bare boolean expression, checked
-				// through the same object API so it shares the roots machinery.
-				hooks := shape.CheckHooks{
-					Result: func(inferred, _ schema.Schema) error {
-						return fmt.Errorf("task %q switch case %q: expression must evaluate to boolean, got %q", s.ID, c.Case, inferred.TypeName())
-					},
+				// An untyped action result cannot be read in a case any more than it can be
+				// exported through an output, so a case that touches self.result gets the same
+				// actionable message the output slot gives.
+				untypedResult := s.Action != nil && !taskSchemas[s.ID].resultTyped
+				for _, c := range s.Switch {
+					if c.Case == "" {
+						continue
+					}
+					// A case is an expression-only shape: a bare boolean expression, checked
+					// through the same object API so it shares the roots machinery.
+					hooks := shape.CheckHooks{
+						Result: func(inferred, _ schema.Schema) error {
+							return fmt.Errorf("task %q switch case %q: expression must evaluate to boolean, got %q", s.ID, c.Case, inferred.TypeName())
+						},
+					}
+					label := fmt.Sprintf("task %q switch case %q", s.ID, c.Case)
+					hooks.Roots = slotRoots(s, label, loops, !untypedResult, afterOutput)
+					shp := shape.Shape{Raw: c.Case, Schema: &boolSchema, Name: fmt.Sprintf("task %q switch case %q", s.ID, c.Case), Expr: true}
+					if _, err := shp.CheckWith(switchCtx, hooks); err != nil {
+						return err
+					}
 				}
-				label := fmt.Sprintf("task %q switch case %q", s.ID, c.Case)
-				hooks.Roots = slotRoots(s, label, loops, !untypedResult, afterOutput)
-				shp := shape.Shape{Raw: c.Case, Schema: &boolSchema, Name: fmt.Sprintf("task %q switch case %q", s.ID, c.Case), Expr: true}
-				if _, err := shp.CheckWith(switchCtx, hooks); err != nil {
-					return err
+				// A message is a template rendered when the clause fires, so it is checked in
+				// that clause's own scope — a switch case sees `self`, which is why this runs
+				// here rather than beside the code's shape rule in model.
+				for i := range s.Switch {
+					where := fmt.Sprintf("switch case %d", i)
+					if err := checkFaultClauses(s.Switch[i].Raise, s.Switch[i].Panic, switchCtx, s.ID, where, rd); err != nil {
+						return err
+					}
 				}
-			}
-			// A message is a template rendered when the clause fires, so it is checked in
-			// that clause's own scope — a switch case sees `self`, which is why this runs
-			// here rather than beside the code's shape rule in model.
-			for i := range s.Switch {
-				where := fmt.Sprintf("switch case %d", i)
-				if err := checkFaultClauses(s.Switch[i].Raise, s.Switch[i].Panic, switchCtx, s.ID, where, rd); err != nil {
-					return err
-				}
-			}
+				return nil
+			}())
 		}
 
 		// An on_error rule sees the error it CAUGHT, not the one that reaches a task it
@@ -177,32 +191,35 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			}
 			// The task's own context — `last_error` and all — plus `error`, the failure THIS
 			// rule caught. Both are readable here and they are different errors.
-			ruleCtx := scopes.rule(s, ec)
-			where := fmt.Sprintf("on_error[%d]", i)
-			// The case is checked in the SAME per-rule scope as the clauses: `code` has
-			// already said which error this is, so `error.data` here is that code's declared
-			// shape rather than the union a routed task sees. `self` is previous-only: the
-			// task failed, so it has no result. specs/child-error-handling.md M2.
-			if ec.Case != "" {
-				hooks := shape.CheckHooks{
-					Result: func(inferred, _ schema.Schema) error {
-						return fmt.Errorf("task %q %s case %q: expression must evaluate to boolean, got %q", s.ID, where, ec.Case, inferred.TypeName())
-					},
+			b.add(ruleSlot(s.ID, i), CodeExpression, func() error {
+				ruleCtx := scopes.rule(s, ec)
+				where := fmt.Sprintf("on_error[%d]", i)
+				// The case is checked in the SAME per-rule scope as the clauses: `code` has
+				// already said which error this is, so `error.data` here is that code's declared
+				// shape rather than the union a routed task sees. `self` is previous-only: the
+				// task failed, so it has no result. specs/child-error-handling.md M2.
+				if ec.Case != "" {
+					hooks := shape.CheckHooks{
+						Result: func(inferred, _ schema.Schema) error {
+							return fmt.Errorf("task %q %s case %q: expression must evaluate to boolean, got %q", s.ID, where, ec.Case, inferred.TypeName())
+						},
+					}
+					shp := shape.Shape{Raw: ec.Case, Schema: &boolSchema, Name: fmt.Sprintf("task %q %s case %q", s.ID, where, ec.Case), Expr: true}
+					if _, err := shp.CheckWith(ruleCtx, hooks); err != nil {
+						return err
+					}
 				}
-				shp := shape.Shape{Raw: ec.Case, Schema: &boolSchema, Name: fmt.Sprintf("task %q %s case %q", s.ID, where, ec.Case), Expr: true}
-				if _, err := shp.CheckWith(ruleCtx, hooks); err != nil {
+				if err := checkFaultClauses(ec.Raise, ec.Panic, ruleCtx, s.ID, where, rd); err != nil {
 					return err
 				}
-			}
-			if err := checkFaultClauses(ec.Raise, ec.Panic, ruleCtx, s.ID, where, rd); err != nil {
-				return err
-			}
-			// A retry policy's slots are the same syntactic split as a delay's: a literal was
-			// checked by the decoder, a $: expression is type-checked here — in the rule's own
-			// scope, like the case above it.
-			if err := checkRetrySlots(s.ID, i, ec, ruleCtx); err != nil {
-				return err
-			}
+				// A retry policy's slots are the same syntactic split as a delay's: a literal was
+				// checked by the decoder, a $: expression is type-checked here — in the rule's own
+				// scope, like the case above it.
+				if err := checkRetrySlots(s.ID, i, ec, ruleCtx); err != nil {
+					return err
+				}
+				return nil
+			}())
 		}
 	}
 	return nil

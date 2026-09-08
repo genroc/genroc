@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"genroc/internal/defdoc"
 )
 
 // ── input assembly (genctl run) ────────────────────────────────────────────────
@@ -73,13 +73,13 @@ func readBase(literal, file string) (any, bool, error) {
 
 // parseRelaxed parses data as YAML — a JSON superset, so strict JSON works alongside
 // shell-friendly forms ({name: Sam}). Yields JSON-native types with numeric literals
-// preserved exactly (yamlToAny), so a long --set id reaches the server as written.
+// preserved exactly (defdoc), so a long --set id reaches the server as written.
 func parseRelaxed(data []byte) (any, error) {
-	var node yaml.Node
-	if err := yaml.Unmarshal(data, &node); err != nil {
+	d, err := defdoc.Parse(data)
+	if err != nil {
 		return nil, err
 	}
-	return yamlToAny(&node)
+	return d.Value, nil
 }
 
 // applySet applies one "key=value" (or "a.b.c=value") override onto m, inferring

@@ -8,6 +8,7 @@ import (
 
 	"genroc/internal/db"
 	"genroc/internal/model"
+	"genroc/internal/validation"
 )
 
 // Code is the machine-readable classification carried by every error reply.
@@ -162,10 +163,23 @@ func codeOf(err error) Code {
 
 // fieldsOf returns the per-field detail of a definition-validation failure, or nil.
 // It looks through wrapping, so a handler's "%s: %w" context prefix does not lose it.
+//
+// Inference reports the same way: a client submitting a definition should not have to tell a
+// struct-tag failure from a type failure to find out which field to fix. Rule carries the
+// diagnostic's code, Field its slot address — the one `genctl schema context` answers to.
+// specs/language-server.md §2.
 func fieldsOf(err error) []model.FieldError {
 	var ve *model.ValidationError
 	if errors.As(err, &ve) {
 		return ve.Fields
+	}
+	var ds validation.Diagnostics
+	if errors.As(err, &ds) {
+		out := make([]model.FieldError, len(ds))
+		for i, d := range ds {
+			out[i] = model.FieldError{Field: d.Address, Rule: string(d.Code), Message: d.Message}
+		}
+		return out
 	}
 	return nil
 }

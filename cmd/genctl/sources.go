@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 
+	"genroc/internal/defdoc"
 	"genroc/internal/model"
 	"genroc/internal/numeric"
 	"genroc/internal/validation"
@@ -78,6 +79,10 @@ func defaultDefinitionPaths(dir string) []string {
 type sourceDoc struct {
 	doc  any
 	file string
+	// index is where each part of doc was written, kept so a diagnostic the server reports by
+	// slot address becomes a line in this file. Nil for a .json source, which keeps its own
+	// decode. specs/language-server.md §3.
+	index *defdoc.Doc
 }
 
 // site is one directive occurrence. The exported fields are the manifest's; loc is how

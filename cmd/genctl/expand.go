@@ -4,18 +4,17 @@ package main
 // behind both, and the source documents they load. See cmd/genctl/CLAUDE.md.
 
 import (
-	"bytes"
+	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"genroc/internal/defdoc"
 	"genroc/internal/numeric"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"gopkg.in/yaml.v3"
 )
 
 // loadSourceDocs keeps the file each document came from: a directive's path resolves against
@@ -27,9 +26,7 @@ func loadSourceDocs(files []string) ([]sourceDoc, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		for _, d := range docs {
-			all = append(all, sourceDoc{doc: d, file: path})
-		}
+		all = append(all, docs...)
 	}
 	if len(all) == 0 {
 		return nil, fmt.Errorf("no process definitions found in provided files")
@@ -115,21 +112,69 @@ func expandPaths(paths []string) ([]string, error) {
 // resolvedDefs loads, resolves every import directive, and hands back the plain documents
 // the API takes. By this point no directive remains — the server has no resolver.
 func resolvedDefs(files []string) ([]any, error) {
+	defs, _, err := resolvedDefsLocated(files)
+	return defs, err
+}
+
+// resolvedDefsLocated is resolvedDefs keeping the sources, for a caller that will report a
+// failure and can point at the line it was written on.
+func resolvedDefsLocated(files []string) ([]any, []sourceDoc, error) {
 	docs, err := loadSourceDocs(files)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if _, err := resolveDocs(docs, "build"); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	out := make([]any, len(docs))
 	for i, d := range docs {
 		out[i] = d.doc
 	}
-	return out, nil
+	return out, docs, nil
 }
 
-func readFile(path string) ([]any, error) {
+// locate finds where a slot address was written among the loaded sources. Matching on the
+// address rather than on the process name in the error prose means nothing has to parse a
+// message: an address that resolves in exactly one document names that document.
+//
+// A missing REQUIRED field has no node of its own, so the search falls back to the shortest
+// enclosing path that does — `tasks[0].id` points at the task that lacks an id.
+func locate(docs []sourceDoc, address string) (string, defdoc.Span, bool) {
+	for a := address; a != ""; a = parentPath(a) {
+		var file string
+		var span defdoc.Span
+		found := 0
+		for _, d := range docs {
+			if d.index == nil {
+				continue
+			}
+			if sp, ok := d.index.Span(a); ok {
+				file, span, found = d.file, sp, found+1
+			}
+		}
+		if found == 1 {
+			return file, span, true
+		}
+	}
+	return "", defdoc.Span{}, false
+}
+
+// parentPath drops the last segment of either spelling: `a.b[0].c` → `a.b[0]` → `a.b` → `a`.
+func parentPath(address string) string {
+	dot := strings.LastIndexByte(address, '.')
+	br := strings.LastIndexByte(address, '[')
+	if br > dot {
+		return address[:br]
+	}
+	if dot < 0 {
+		return ""
+	}
+	return address[:dot]
+}
+
+// readFile parses one source file. The parsed position index travels with each document so a
+// failure the server reports by slot address can be printed as a line in this file.
+func readFile(path string) ([]sourceDoc, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -137,37 +182,29 @@ func readFile(path string) ([]any, error) {
 
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext == ".json" {
+		// No index: JSON allows tabs where YAML does not, so it keeps its own decode and
+		// gives up line numbers. A .json definition is generated far more often than written.
 		var doc any
 		if err := numeric.Decode(data, &doc); err != nil {
 			return nil, fmt.Errorf("parse JSON: %w", err)
 		}
 		if arr, ok := doc.([]any); ok {
-			return arr, nil
+			out := make([]sourceDoc, len(arr))
+			for i, d := range arr {
+				out[i] = sourceDoc{doc: d, file: path}
+			}
+			return out, nil
 		}
-		return []any{doc}, nil
+		return []sourceDoc{{doc: doc, file: path}}, nil
 	}
 
-	var docs []any
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	for {
-		// Decode into a node rather than an `any`: yaml collapses a number too
-		// large for int64 into a float64, which would corrupt a long id in a
-		// definition before it was ever uploaded. See yamlToAny.
-		var node yaml.Node
-		if err := dec.Decode(&node); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, fmt.Errorf("parse YAML: %w", err)
-		}
-		doc, err := yamlToAny(&node)
-		if err != nil {
-			return nil, fmt.Errorf("parse YAML: %w", err)
-		}
-		if doc == nil {
-			continue
-		}
-		docs = append(docs, doc)
+	parsed, err := defdoc.ParseAll(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse YAML: %w", err)
+	}
+	docs := make([]sourceDoc, len(parsed))
+	for i, d := range parsed {
+		docs[i] = sourceDoc{doc: d.Value, file: path, index: d}
 	}
 	return docs, nil
 }
@@ -208,4 +245,23 @@ func looksLikePath(s string) bool {
 		}
 	}
 	return false
+}
+
+// fatalLocated prints a rejected apply as one line per failing slot, each pointing at the
+// file and line it was written on — the payoff of the address travelling with the diagnostic.
+// A failure with no per-field detail, or a slot no source claims, falls back to the message.
+func fatalLocated(docs []sourceDoc, err error) {
+	var se *serverError
+	if !errors.As(err, &se) || len(se.Fields) == 0 {
+		fatal("%v", err)
+	}
+	for _, f := range se.Fields {
+		file, span, ok := locate(docs, f.Field)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "genctl: %s: %s\n", f.Field, f.Message)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "genctl: %s:%d:%d: %s\n", file, span.Value.Line, span.Value.Col, f.Message)
+	}
+	os.Exit(1)
 }

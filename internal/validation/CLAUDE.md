@@ -231,3 +231,21 @@ that boundary is made of.
 - The task scope's runtime half — [internal/engine/CLAUDE.md](../engine/CLAUDE.md).
 - The collapse that makes `outputs.a.v ?? outputs.b.v` imprecise, and the per-terminal walk
   that recovers it — [specs/path-sensitive-output.md](../../specs/path-sensitive-output.md).
+
+## Diagnostics: recovery and its own consequences
+
+`Check` collects; `Generate` is the same pass reporting the first as an error. Three
+couplings are silent when broken (`diagnostic.go`, specs/language-server.md §2):
+
+- **A failed output slot recovers as `{}` and poisons its task.** Returning the error instead
+  costs every diagnostic below it, because inference is sequential — that is the whole reason
+  recovery exists, so a "just propagate it" simplification undoes the feature.
+- **`bag.derived` needs `bag.observe`.** Suppression asks whether the diagnostic's own task
+  can SEE a poisoned output. Falling back to "any poison suppresses every unknown read" hides
+  real findings in tasks that never read the broken one.
+- **One diagnostic per address.** A slot is the unit a reader fixes, so the section wrappers
+  in `infer.go` stop at their first failure. Two findings under one address would be the same
+  problem twice.
+
+Addresses are the slot grammar of specs/schema-command.md §2, and must stay so: a diagnostic's
+address is what `genctl schema context` is asked, and what `defdoc` looks up to find a line.

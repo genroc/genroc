@@ -2,10 +2,17 @@ package schema
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 )
+
+// ErrUnknownValue marks every refusal to read THROUGH the top type ({}). A caller that put
+// the {} there itself — inference recovering from a task whose output failed — uses this to
+// tell its own consequence apart from a real error, rather than matching on prose.
+// specs/language-server.md §2.
+var ErrUnknownValue = errors.New("the value is unknown (its schema is {})")
 
 // pathStep is one segment of a navigation path. The kind is an explicit tag
 // rather than something inferred from the fields: a property key is an arbitrary
@@ -191,8 +198,8 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 			// declared", which is not one. Reading through it would be reading INTO unknown
 			// data, which is the one thing {} exists to prevent.
 			if isEmptyNode(rv) {
-				return nil, fmt.Errorf("cannot access .%s: one variant of the value is unknown (its schema is {}), "+
-					"so nothing can be read through it — declare that variant's shape, or read the whole value", name)
+				return nil, fmt.Errorf("cannot access .%s: one variant of %w, "+
+					"so nothing can be read through it — declare that variant's shape, or read the whole value", name, ErrUnknownValue)
 			}
 			r, err := lookupPropertyGuard(rv, name, defs, next)
 			if err != nil {
@@ -239,7 +246,7 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 			// and the one an author reaches deliberately, so it gets its own message —
 			// the more so because the empty schema does not announce its own intent.
 			if isEmptyNode(resolved) {
-				return nil, fmt.Errorf("cannot access .%s: the value is unknown (its schema is {})", name)
+				return nil, fmt.Errorf("cannot access .%s: %w", name, ErrUnknownValue)
 			}
 			return nil, fmt.Errorf("cannot access .%s: schema has no properties", name)
 		}
@@ -301,8 +308,8 @@ func inferIndexGuard(s *node, defs map[string]*node, visiting map[*node]bool) (*
 			// Same rule as a property access through a union: an unknown variant makes the
 			// element type undecidable rather than absent, so indexing through it is refused.
 			if isEmptyNode(rv) {
-				return nil, fmt.Errorf("cannot index: one variant of the value is unknown (its schema is {}), " +
-					"so nothing can be read through it — declare that variant's shape, or read the whole value")
+				return nil, fmt.Errorf("cannot index: one variant of %w, "+
+					"so nothing can be read through it — declare that variant's shape, or read the whole value", ErrUnknownValue)
 			}
 			r, err := inferIndexGuard(rv, defs, next)
 			if err != nil {
@@ -740,7 +747,7 @@ func anyKey(s *node, defs map[string]*node) (*node, string, error) {
 	case len(stripped.Properties) > 0:
 		return nil, "", fmt.Errorf("cannot read a computed key: the value declares named properties, so its type depends on which key is read; use a literal key")
 	case isEmptyNode(stripped):
-		return nil, "", fmt.Errorf("cannot read a computed key: the value is unknown (its schema is {})")
+		return nil, "", fmt.Errorf("cannot read a computed key: %w", ErrUnknownValue)
 	}
 	return nil, "", fmt.Errorf("cannot read a computed key: the value is not an array or a map")
 }

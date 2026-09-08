@@ -259,3 +259,29 @@ test("api errors — a bad external-task token is 400, a stale one is 409", asyn
   expect(unknown.status).toBe(404);
   expect(unknown.body.code).toBe("not_found");
 });
+
+test("api errors — an inference failure reports its slot address, not just prose", async () => {
+  // Struct-tag failures have carried `fields` all along; a type failure carried none, so a
+  // client submitting a definition got prose it could not attribute to a field.
+  // specs/language-server.md §2.
+  const name = `infer_${crypto.randomUUID()}`;
+  const { status, body } = await errorOf(`/definitions/validate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify([
+      {
+        name,
+        tasks: [
+          { id: "a", switch: "next", action: { type: "fetch", url: "$: nope.x" } },
+          { id: "b", switch: "end", action: { type: "fetch", url: "$: alsonope.y" } },
+        ],
+      },
+    ]),
+  });
+  expect(status).toBe(400);
+  const fields = body.fields as Field[];
+  // Both, not just the first: inference used to stop at the failure it found.
+  expect(fields.map((f) => f.field)).toEqual(["tasks.a.action", "tasks.b.action"]);
+  expect(new Set(fields.map((f) => f.rule))).toEqual(new Set(["def.expression"]));
+  expect(fields[0].message).toContain("nope");
+});
