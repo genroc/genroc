@@ -33,7 +33,7 @@
     "grammars": [
       {
         "language": "genroc",
-        "scopeName": "source.yaml",
+        "scopeName": "source.genroc",
         "path": "./syntaxes/genroc.tmLanguage.json"
       }
     ],

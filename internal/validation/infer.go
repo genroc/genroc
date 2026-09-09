@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 
 	"genroc/internal/delayspec"
 	"genroc/internal/model"
@@ -152,7 +153,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				// exported through an output, so a case that touches self.result gets the same
 				// actionable message the output slot gives.
 				untypedResult := s.Action != nil && !taskSchemas[s.ID].resultTyped
-				for _, c := range s.Switch {
+				for i, c := range s.Switch {
 					if c.Case == "" {
 						continue
 					}
@@ -167,7 +168,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					hooks.Roots = slotRoots(s, label, loops, !untypedResult, afterOutput)
 					shp := shape.Shape{Raw: c.Case, Schema: &boolSchema, Name: fmt.Sprintf("task %q switch case %q", s.ID, c.Case), Expr: true}
 					if _, err := shp.CheckWith(switchCtx, hooks); err != nil {
-						return err
+						return inField(strconv.Itoa(i)+"."+slotCase, err)
 					}
 				}
 				// A message is a template rendered when the clause fires, so it is checked in
@@ -206,7 +207,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					}
 					shp := shape.Shape{Raw: ec.Case, Schema: &boolSchema, Name: fmt.Sprintf("task %q %s case %q", s.ID, where, ec.Case), Expr: true}
 					if _, err := shp.CheckWith(ruleCtx, hooks); err != nil {
-						return err
+						return inField(slotCase, err)
 					}
 				}
 				if err := checkFaultClauses(ec.Raise, ec.Panic, ruleCtx, s.ID, where, rd); err != nil {
@@ -216,7 +217,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				// checked by the decoder, a $: expression is type-checked here — in the rule's own
 				// scope, like the case above it.
 				if err := checkRetrySlots(s.ID, i, ec, ruleCtx); err != nil {
-					return err
+					return inField(slotRetry, err)
 				}
 				return nil
 			}())

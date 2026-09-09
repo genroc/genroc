@@ -4,8 +4,8 @@
 
 `genctl apply` prints `file:line:col: message`, one line per broken slot;
 `POST /api/definitions/validate` returns `fields[]` for a type failure as it always did for a
-struct-tag one; and `genctl lsp` publishes diagnostics over stdio for `*.genroc.yaml`, answers **hover** (the type an expression infers to, the type of a slot, the
-scope governing it) and **completion** (scope members inside an expression, legal keys
+struct-tag one; and `genctl lsp` publishes diagnostics over stdio for `*.genroc.yaml`, answers **hover** (one line: the type of the symbol, expression or slot
+under the cursor, else what the key means) and **completion** (scope members inside an expression, legal keys
 everywhere else — discriminated, so a `fetch` is offered fetch's keys and not the union of
 six), navigates a `goto` to the task it names and a child action's process to the file that
 defines it, and ships as a VS Code extension that is a launcher for `genctl lsp` and nothing
@@ -219,10 +219,14 @@ an editor with no genroc extension will keep loading. Phase 0.
 no way to express "closed, except `raise`", and `Fault` was the one definition struct with no
 unknown-key check — reached through `ErrorCase`'s own `UnmarshalJSON`, where
 `DisallowUnknownFields` does not propagate. An exemption in the generator would have recorded
-the bug instead of the rule, so `Fault` was closed too. A user schema (`input_schema`,
-`$defs`) is the remaining divergence: `schema.Schema`'s node is private, so it reflects to an
-opaque object and the editor accepts a keyword the server refuses by allowlist. Recorded by a
-test rather than left to be rediscovered.
+the bug instead of the rule, so `Fault` was closed too. A user schema (`input_schema`, `$defs`) was the last
+divergence — `schema.Schema`'s node is private, so it reflected to an opaque object and the
+editor accepted a keyword the server refuses by allowlist. **Closed 2026-09-09**, once
+completion made it visible: an editor offered the document's own keys inside `input_schema:`,
+having nothing else to say. `allowedKeywords` now maps each keyword to its meaning and
+`Schema.JSONSchemaBytes` builds the meta-schema from it, so the allowlist and the vocabulary
+are one table. The gap's own test said to delete it and move the case into the agreement
+table, which is what happened.
 
 ### What happens to yaml-language-server
 
@@ -244,9 +248,16 @@ half-typed expression has no AST and a diagnostic inside one can only underline 
 scalar.
 
 Completion does not need it: scan back from the cursor over `[A-Za-z0-9_.]`, take the dotted
-prefix, hand it to `Navigate`. That is phase 2 and it is enough. Offsets in the AST are a
-real change to `parser.go` and are deferred until something needs a range *inside* an
-expression — precise squiggles, or semantic highlighting.
+prefix, hand it to `Navigate`. Hover reads the same way — `symbolUnder` truncates the path at
+the segment the cursor is in, so `self.result.<discount>` types as `number|null` where the
+whole leaf types as `number`, which is where the `?? 0` beside it comes from.
+
+The scan cannot tell a member path from a word inside a string literal, so a symbol that does
+not type is dropped rather than reported. That is the honest cost of no offsets, and it is
+cheap: the leaf's own line is authoritative either way.
+
+Offsets in the AST are still a real change to `parser.go`, deferred until something needs a
+range *inside* an expression — precise squiggles, or semantic highlighting.
 
 ## 7. Phases
 

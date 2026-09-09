@@ -3,6 +3,7 @@ package lsp
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -49,6 +50,43 @@ func TestTheVSCodeExtensionMatchesTheFilesThisServerAnswersFor(t *testing.T) {
 		}
 		if !isDefinitionURI("file:///w/x" + glob[strings.LastIndexByte(glob, '*')+1:]) {
 			t.Errorf("the extension activates on %q, which the server does not answer for", ev)
+		}
+	}
+}
+
+// VS Code loads a grammar only when the scopeName the extension contributes equals the one the
+// grammar file declares. On a mismatch it loads neither, the language falls back, and its
+// indentation rules go with it — which is how a cursor ends up at column 1 under a key.
+func TestTheGrammarsScopeNameMatchesTheContribution(t *testing.T) {
+	var pkg struct {
+		Contributes struct {
+			Grammars []struct {
+				ScopeName string `json:"scopeName"`
+				Path      string `json:"path"`
+			} `json:"grammars"`
+		} `json:"contributes"`
+	}
+	raw, err := os.ReadFile("../../editors/vscode/package.json")
+	if err != nil {
+		t.Skipf("extension not present: %v", err)
+	}
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		t.Fatalf("package.json: %v", err)
+	}
+	for _, g := range pkg.Contributes.Grammars {
+		body, err := os.ReadFile(filepath.Join("../../editors/vscode", g.Path))
+		if err != nil {
+			t.Fatalf("%s: %v", g.Path, err)
+		}
+		var grammar struct {
+			ScopeName string `json:"scopeName"`
+		}
+		if err := json.Unmarshal(body, &grammar); err != nil {
+			t.Fatalf("%s: %v", g.Path, err)
+		}
+		if grammar.ScopeName != g.ScopeName {
+			t.Errorf("package.json contributes %q for %s, which declares %q",
+				g.ScopeName, g.Path, grammar.ScopeName)
 		}
 	}
 }

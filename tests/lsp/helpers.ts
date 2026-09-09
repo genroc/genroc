@@ -86,7 +86,7 @@ export function edit(doc: Doc, changes: Record<string, string>): Doc {
 }
 
 export interface Diagnostic {
-  range: { start: { line: number; character: number } };
+  range: { start: { line: number; character: number }; end: { line: number } };
   message: string;
   code?: string;
 }
@@ -164,13 +164,21 @@ export class Lsp {
     return r?.contents?.value ?? "";
   }
 
-  /** Every diagnostic for a document, as `<line>: <message>` (1-based). */
+  /**
+   * Every diagnostic for a document, as `<line>: <message>` — or `<first>-<last>` when it
+   * spans lines. The span is part of the answer: underlining a whole `switch` and underlining
+   * the one case that is wrong both START on the same line, and only the end tells them apart.
+   */
   async diagnostics(doc: Doc): Promise<string[]> {
     const cursor: Cursor = { ...doc, line: 0, character: 0, quoted: "" };
     const waited = new Promise<Diagnostic[]>((resolve) => this.awaiting.set(doc.uri, resolve));
     this.sync(cursor);
     const ds = await waited;
-    return ds.map((d) => `${d.range.start.line + 1}: ${d.message}`);
+    return ds.map((d) => {
+      const first = d.range.start.line + 1;
+      const last = d.range.end.line + 1;
+      return `${first === last ? first : `${first}-${last}`}: ${d.message}`;
+    });
   }
 
   /** Diagnostics for a buffer a marker has edited. */

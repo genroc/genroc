@@ -49,11 +49,27 @@ func hoverOf(t *testing.T, text string, line, col int) string {
 	return md
 }
 
-// The reason to build hover: the type an author is guessing at, without leaving the file.
-func TestHoverOverAnExpressionGivesItsType(t *testing.T) {
-	md := hoverOf(t, hoverDoc, 14, 20)
-	if !strings.Contains(md, "self.result.total * 2") || !strings.Contains(md, "number") {
-		t.Errorf("want the expression and its inferred type, got:\n%s", md)
+// Line 14 is `      grand: "$: self.result.total * 2"`, so column 30 is inside `total`, 19 is
+// inside `self`, and 36 is the `*` — where there is no symbol and the leaf answers.
+
+// The reason to build hover: the type an author is otherwise guessing at.
+func TestHoverOverASymbolTypesThatSymbol(t *testing.T) {
+	if md := hoverOf(t, hoverDoc, 14, 32); md != "`self.result.total` → **number**" {
+		t.Errorf("got: %s", md)
+	}
+}
+
+// Truncated AT the segment, so walking a path shows each level rather than always the leaf.
+func TestHoverOverAnIntermediateSegmentTypesThePathUpToIt(t *testing.T) {
+	if md := hoverOf(t, hoverDoc, 14, 19); !strings.HasPrefix(md, "`self` → **object{") {
+		t.Errorf("got: %s", md)
+	}
+}
+
+// No symbol under the cursor: the expression it sits in is the answer.
+func TestHoverOnAnOperatorTypesTheWholeExpression(t *testing.T) {
+	if md := hoverOf(t, hoverDoc, 14, 36); md != "`self.result.total * 2` → **number**" {
+		t.Errorf("got: %s", md)
 	}
 }
 
@@ -61,37 +77,26 @@ func TestHoverOverAnExpressionGivesItsType(t *testing.T) {
 // nothing — but the interpolation being written has a type of its own, and a URL is where most
 // expressions in a definition live.
 func TestHoverInsideAnInterpolationTypesThatInterpolation(t *testing.T) {
-	md := hoverOf(t, hoverDoc, 10, 30)
-	if !strings.Contains(md, "input.amount") || !strings.Contains(md, "number") {
-		t.Errorf("want the interpolation typed, got:\n%s", md)
+	if md := hoverOf(t, hoverDoc, 10, 38); md != "`input.amount` → **number**" {
+		t.Errorf("got: %s", md)
 	}
 }
 
 func TestHoverOnASlotNamesItsType(t *testing.T) {
 	md := hoverOf(t, hoverDoc, 13, 6)
 	if !strings.Contains(md, "tasks.price.output") || !strings.Contains(md, "object{grand}") {
-		t.Errorf("want the slot address and its type, got:\n%s", md)
+		t.Errorf("want the slot address and its type, got: %s", md)
 	}
 }
 
-// The scope is the other half of "what could I write here", and it is the same answer
-// `genctl schema context` gives at that address.
-func TestHoverReportsTheScopeAndTheSlotItBelongsTo(t *testing.T) {
-	md := hoverOf(t, hoverDoc, 15, 13)
-	if !strings.Contains(md, "tasks.price.switch") {
-		t.Errorf("want the governing slot named, got:\n%s", md)
-	}
-	if !strings.Contains(md, "self") {
-		t.Errorf("a switch sees self; the scope must say so:\n%s", md)
-	}
-}
-
-// The action phase runs before the task has a result, so `self` is NOT in scope there — the
-// difference between the two scopes is most of why this view exists.
-func TestHoverDistinguishesTheActionScopeFromTheSwitchScope(t *testing.T) {
-	action := hoverOf(t, hoverDoc, 10, 30)
-	if strings.Contains(action, "self") {
-		t.Errorf("an action runs before its own result exists:\n%s", action)
+// One line. A hover is read at a glance, and the scope a slot carries is a different question
+// — `genctl schema context` is where that one is asked.
+func TestHoverIsOneLine(t *testing.T) {
+	for _, at := range [][2]int{{14, 32}, {14, 36}, {10, 38}, {13, 6}} {
+		md := hoverOf(t, hoverDoc, at[0], at[1])
+		if strings.Contains(md, "\n") {
+			t.Errorf("hover at %d:%d carries more than one line:\n%s", at[0], at[1], md)
+		}
 	}
 }
 
@@ -99,25 +104,26 @@ func TestHoverDistinguishesTheActionScopeFromTheSwitchScope(t *testing.T) {
 // another, and refusing until the file is clean is what §7b was written against.
 func TestHoverStillAnswersWhenAnotherPartOfTheFileIsBroken(t *testing.T) {
 	broken := strings.Replace(hoverDoc, "    switch: end\n", "    switch: end\n    on_eror: []\n", 1)
-	md := hoverOf(t, broken, 14, 20)
-	if !strings.Contains(md, "number") {
-		t.Errorf("a typo elsewhere must not silence hover:\n%s", md)
+	if md := hoverOf(t, broken, 14, 32); !strings.Contains(md, "number") {
+		t.Errorf("a typo elsewhere must not silence hover: %s", md)
 	}
 }
 
 // An expression that does not type is exactly when someone hovers it, so the reason has to be
 // the answer rather than an empty popup.
 func TestHoverOverABrokenExpressionSaysWhy(t *testing.T) {
-	broken := strings.Replace(hoverDoc, "self.result.total * 2", "self.result.nope", 1)
-	md := hoverOf(t, broken, 14, 20)
-	if !strings.Contains(md, "nope") {
-		t.Errorf("want the inference failure, got:\n%s", md)
+	broken := strings.Replace(hoverDoc, "self.result.total * 2", "self.result.nope * 2", 1)
+	if md := hoverOf(t, broken, 14, 36); !strings.Contains(md, "nope") {
+		t.Errorf("want the inference failure, got: %s", md)
 	}
 }
 
-func TestHoverOverNothingInParticularIsSilent(t *testing.T) {
-	if md, _, ok := hoverAt(hoverDoc, 1, 1); ok {
-		t.Errorf("the document name has no type and no scope; got a popup:\n%s", md)
+// A name the AUTHOR chose — a property in their own schema — is the one thing here that means
+// nothing to the definition language, so it is the one thing with no answer.
+func TestHoverOverAnAuthorsOwnNameIsSilent(t *testing.T) {
+	//	 4   properties: { amount: { type: number } }
+	if md, _, ok := hoverAt(hoverDoc, 4, 18); ok {
+		t.Errorf("`amount` is the author's own name; got a popup: %s", md)
 	}
 }
 
@@ -128,7 +134,8 @@ func TestHoverAdvertisedAndAnswered(t *testing.T) {
 		frame("textDocument/hover", 2, map[string]any{
 			"textDocument": map[string]any{"uri": uri},
 			// 0-based: line 14, the `grand:` expression.
-			"position": map[string]any{"line": 13, "character": 19},
+			// 0-based: line 14, inside `total`.
+			"position": map[string]any{"line": 13, "character": 31},
 		}),
 		frame("exit", nil, nil))
 
@@ -152,5 +159,53 @@ func TestHoverAdvertisedAndAnswered(t *testing.T) {
 	}
 	if hov.Range == nil || hov.Range.Start.Line != 13 {
 		t.Errorf("the range must cover the hovered value on line 14 (0-based 13), got %+v", hov.Range)
+	}
+}
+
+// symbolUnder reads raw text because the expression AST carries no offsets. The edges are
+// where that shows, and a wrong answer here is a hover about something the reader is not
+// pointing at.
+func TestSymbolUnderTruncatesAtTheSegmentTheCursorIsIn(t *testing.T) {
+	const expr = `  count: "$: (self.previous.count ?? 0) + 1"`
+	for _, c := range []struct {
+		name string
+		col  int
+		want string
+	}{
+		{"on the root", 16, "self"},
+		{"on a middle segment", 24, "self.previous"},
+		{"on the last segment", 31, "self.previous.count"},
+		{"just past the last segment", 34, "self.previous.count"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := symbolUnder(expr, c.col)
+			if !ok {
+				t.Fatalf("no symbol at column %d (%q)", c.col, string(expr[c.col-1]))
+			}
+			if got != c.want {
+				t.Errorf("column %d (%q) = %q, want %q", c.col, string(expr[c.col-1]), got, c.want)
+			}
+		})
+	}
+}
+
+// Nothing that is not a member path: reporting one would put an error in the popup for text
+// the reader is not asking about.
+func TestSymbolUnderReportsNothingWhereThereIsNoPath(t *testing.T) {
+	const expr = `  count: "$: (self.previous.count ?? 0) + 1"`
+	for _, c := range []struct {
+		name string
+		col  int
+	}{
+		{"on an operator", 36},
+		{"on a numeric literal", 38},
+		{"past the end of the line", 200},
+		{"before the start", 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got, ok := symbolUnder(expr, c.col); ok {
+				t.Errorf("column %d resolved to %q", c.col, got)
+			}
+		})
 	}
 }

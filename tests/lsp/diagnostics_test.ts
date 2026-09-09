@@ -60,3 +60,27 @@ test("a syntax error is reported on its own line", async () => {
   expect(ds).toHaveLength(1);
   expect(ds[0]).toMatch(/^3[0-9]: /);
 });
+
+// A switch is a list of routing clauses, and only one of them is wrong. Underlining the whole
+// slot squiggles the `goto`s below it, which are fine — reported from an editor.
+test("a broken switch case underlines that case, not the clauses around it", async () => {
+  const ds = await lsp.diagnostics(
+    edit(orders, { '- case: "self.output.charged > 1000"': '- case: "self.output.nope > 1000"' }),
+  );
+  expect(ds).toEqual([
+    `29: task "price" switch case "self.output.nope > 1000": field "nope" not found in schema`,
+  ]);
+});
+
+// The rule index is already in the address; `case` is the field within it. The case is put on
+// the line BELOW the rule's first key, so underlining the rule and underlining the case are
+// different answers — otherwise both start on line 33 and the test proves nothing.
+test("a broken on_error case underlines that rule's case", async () => {
+  const ds = await lsp.diagnostics(
+    edit(orders, {
+      "      - code: [http.500]\n": '      - code: [http.500]\n        case: "self.nope"\n',
+    }),
+  );
+  expect(ds).toHaveLength(1);
+  expect(ds[0]).toMatch(/^34: /);
+});

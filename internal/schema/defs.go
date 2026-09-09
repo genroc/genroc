@@ -221,9 +221,16 @@ func (d Defs) Flatten() (Defs, error) {
 	return FlattenNamed(named)
 }
 
-// JSONSchemaBytes returns a permissive JSON Schema for OpenAPI reflection.
+// JSONSchemaBytes types every definition in the pool as a schema, so an editor completes
+// keywords inside `$defs` as it does inside `input_schema`. The value schema is INLINED rather
+// than $ref'd: a `#/$defs/SchemaSchema` reference survives into openapi.json, where the
+// spec builder only rewrites the `Model` prefix and would leave it dangling.
 func (Defs) JSONSchemaBytes() ([]byte, error) {
-	return []byte(`{"type":"object","additionalProperties":true}`), nil
+	value, err := Schema{}.JSONSchemaBytes()
+	if err != nil {
+		return nil, err
+	}
+	return []byte(`{"type":"object","additionalProperties":` + string(value) + `}`), nil
 }
 
 // DefsHandle returns a handle over the schema's own root $defs, sharing its map: a Set

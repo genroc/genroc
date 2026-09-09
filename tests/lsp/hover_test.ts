@@ -1,8 +1,11 @@
 import { beforeAll, afterAll, expect, test } from "vitest";
-import { at, Lsp, useWorkspace } from "./helpers.ts";
+import { at, edit, Lsp, orders, useWorkspace } from "./helpers.ts";
 
 // What the server says about the thing under the cursor. `<^text>` puts the cursor inside
 // `text`, which stays — this is reading, not writing.
+//
+// A hover is ONE line: the type of what you are pointing at. The scope a slot carries is a
+// different question, and `genctl schema context` is where it is asked.
 
 let lsp: Lsp;
 beforeAll(async () => {
@@ -12,66 +15,146 @@ beforeAll(async () => {
 afterAll(async () => lsp?.stop());
 
 // The reason to build hover: the type an author is otherwise guessing at.
-test("an expression reports the type it infers to", async () => {
+test("a member types as itself, not as the expression it sits in", async () => {
   expect(
-    await lsp.hover(at(`      charged: "$: <^self.result.total> - (self.result.discount ?? 0)"`)),
-  ).toContain("`self.result.total - (self.result.discount ?? 0)` → **number**");
+    await lsp.hover(at(`      charged: "$: self.result.<^total> - (self.result.discount ?? 0)"`)),
+  ).toBe("`self.result.total` → **number**");
 });
 
-// Hover types the whole LEAF, not the sub-expression under the cursor: the two positions
-// below are inside different parts of one expression and answer the same. Worth pinning
-// because it is a limit someone will otherwise mistake for a bug.
-test("hover types the whole expression, wherever in it the cursor sits", async () => {
-  const onTotal = await lsp.hover(
-    at(`      charged: "$: self.result.<^total> - (self.result.discount ?? 0)"`),
-  );
-  const onDiscount = await lsp.hover(
-    at(`      charged: "$: self.result.total - (self.result.<^discount> ?? 0)"`),
-  );
-  expect(onTotal).toBe(onDiscount);
+// `discount` is optional, so its own type is where the `?? 0` beside it comes from — the
+// expression's `number` never shows that.
+test("an optional member is nullable, which the whole expression's type hides", async () => {
+  expect(
+    await lsp.hover(at(`      charged: "$: self.result.total - (self.result.<^discount> ?? 0)"`)),
+  ).toBe("`self.result.discount` → **number|null**");
+});
+
+// The path is truncated AT the segment hovered, so walking it shows each level's own type.
+test("an intermediate segment types the path up to it", async () => {
+  expect(
+    await lsp.hover(at(`      charged: "$: self.<^result>.total - (self.result.discount ?? 0)"`)),
+  ).toBe("`self.result` → **object{discount?, total}**");
+});
+
+// A `$ref` behind a null arm used to block resolution and read `unknown` — which is what a
+// looping task's `self.previous` said, being exactly the value someone hovers to find out.
+test("a nullable object still describes what it holds", async () => {
+  const looping = edit(orders, {
+    '      charged: "$: self.result.total - (self.result.discount ?? 0)"':
+      '      charged: "$: (self.previous.charged ?? 0) + self.result.total"',
+    '      - goto: "$fulfil"': '      - goto: "$price"',
+  });
+  expect(
+    await lsp.hover(at(`      charged: "$: (self.<^previous>.charged ?? 0) + self.result.total"`, looping)),
+  ).toBe("`self.previous` → **object{charged}|null**");
+});
+
+// No symbol under the cursor: the expression it sits in is the answer.
+test("on an operator, the whole expression is the answer", async () => {
+  expect(
+    await lsp.hover(at(`      charged: "$: self.result.total <|>- (self.result.discount ?? 0)"`)),
+  ).toBe("`self.result.total - (self.result.discount ?? 0)` → **number**");
 });
 
 // A `${ }` inside a longer string types as the string it renders into, so the leaf says
-// nothing useful — the interpolation being written is what has a type.
+// nothing — but the interpolation being written has a type of its own, and a URL is where most
+// expressions in a definition live.
 test("an interpolation inside a url is typed on its own", async () => {
   expect(
     await lsp.hover(
-      at(`      url: "https://api.example.com/price?customer=\${ <^input.customer_id> }"`),
+      at(`      url: "https://api.example.com/price?customer=\${ input.<^customer_id> }"`),
     ),
-  ).toContain("`input.customer_id` → **string**");
+  ).toBe("`input.customer_id` → **string**");
 });
 
 test("a slot reports its own type", async () => {
   expect(await lsp.hover(at(`    <^output>:`))).toContain("**tasks.price.output** — object{charged}");
 });
 
-// The scope is not one thing. An action runs before its own result exists; the switch after it
-// can read what the output produced. The same fixture shows both.
-test("the scope named on hover is the slot's, not the file's", async () => {
-  expect(await lsp.hover(at(`      method: <^GET>`))).toContain(
-    "_in scope at `tasks.price.action`_",
-  );
-  expect(await lsp.hover(at(`      - case: "<^self.output.charged> > 1000"`))).toContain(
-    "_in scope at `tasks.price.switch`_",
-  );
-});
-
-test("an action's scope has no self; the switch after it does", async () => {
-  expect(await lsp.hover(at(`      method: <^GET>`))).not.toContain("self");
-  expect(await lsp.hover(at(`      - case: "<^self.output.charged> > 1000"`))).toContain("self");
-});
-
 // `discount` is optional, so the `?? 0` is what makes the expression type at all. Taking it
 // back out is the mistake someone actually makes, and hovering it is when they ask why.
 test("an expression that does not type says why, instead of going quiet", async () => {
-  const md = await lsp.hover(
-    at(`      charged: "$: self.result.total - (self.result.discount<| ?? 0>)"`),
-  );
-  expect(md).toContain("operator requires non-nullable operands");
-  // And it still names the scope, so the fix (`?? 0`) is written with the same information.
-  expect(md).toContain("_in scope at \`tasks.price.output\`_");
+  expect(
+    // The snippet must match the EDITED document, which no longer has the `?? 0`.
+    await lsp.hover(at(`      charged: "$: self.result.total <|>- (self.result.discount)"`,
+      edit(orders, { " ?? 0": "" }))),
+  ).toContain("operator requires non-nullable operands");
 });
 
-test("there is nothing to say about the process name", async () => {
-  expect(await lsp.hover(at(`name: <^orders>`))).toBe("");
+// The scan reads raw text, so it cannot tell a member path from a word inside a string
+// literal. A symbol that does not type is dropped, and the expression's answer stands.
+test("a word inside a string literal reports no error of its own", async () => {
+  const literal = edit(orders, {
+    'X-Currency: "\${ input.currency }"': `X-Currency: "$: 'EUR'"`,
+  });
+  expect(await lsp.hover(at(`        X-Currency: "$: '<^EUR>'"`, literal))).toBe(
+    "`'EUR'` → **string**",
+  );
+});
+
+// A name the author chose means nothing to the definition language, so it is the one thing
+// with no answer.
+test("there is nothing to say about a name the author chose", async () => {
+  expect(await lsp.hover(at(`    <^customer_id>: { type: string }`))).toBe("");
+});
+
+// ── keys ─────────────────────────────────────────────────────────────────────────
+
+// Hover answered NOTHING on most of a file once the scope line was dropped — every key, every
+// literal. A key means something, and the schema already carries the prose.
+test("a key says what it means", async () => {
+  expect(await lsp.hover(at(`  - <^id>: price`))).toContain("Unique task identifier");
+  expect(await lsp.hover(at(`      <^method>: GET`))).toContain("HTTP method");
+});
+
+// The discriminator carries no prose of its own — `{"const": "fetch"}` says nothing. What a
+// reader is pointing at is the variant it selects.
+test("an action's type describes the action it selects", async () => {
+  expect(await lsp.hover(at(`      type: <^fetch>`))).toContain("HTTP call");
+  const child = await lsp.hover(at(`      type: <^child>`));
+  expect(child).toContain("child");
+  expect(child).not.toContain("HTTP call");
+});
+
+// Every line of a valid definition has something to say. A hover that is silent nine times out
+// of ten reads as a hover that does not work, which is how this was reported.
+test("every written line of the fixture answers", async () => {
+  const lines = orders.text.split("\n");
+  const silent: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i];
+    if (text.trim() === "") continue;
+    const character = text.length - text.trimStart().length + 2;
+    const md = await lsp.hover({ ...orders, line: i, character, quoted: text });
+    if (md === "") silent.push(`${i + 1}: ${text}`);
+  }
+  // What is left is exactly the author's own vocabulary — the property names in their schemas
+  // and the status pattern they chose. Everything the definition language owns has an answer.
+  expect(silent).toEqual([
+    "6:     customer_id: { type: string }",
+    "7:     amount: { type: number }",
+    "8:     currency: { type: string }",
+    '20:         "200":',
+    "23:             total: { type: number }",
+    "24:             discount: { type: number }",
+    "43:           approved: { type: boolean }",
+  ]);
+});
+
+// A `case` is an expression written BARE — an expression slot, not a Shape — so there is no
+// `$:` to recognise it by, and hover answered with what the `case` key means instead of what
+// the expression evaluates to.
+test("a switch case's expression is typed, not described as a key", async () => {
+  expect(await lsp.hover(at(`      - case: "self.output.<^charged> > 1000"`))).toBe(
+    "`self.output.charged` → **number**",
+  );
+});
+
+test("an on_error rule's case is the same kind of slot", async () => {
+  const withCase = edit(orders, {
+    "      - code: [http.500]\n": '      - code: [http.500]\n        case: "last_error.code == \'x\'"\n',
+  });
+  expect(await lsp.hover(at(`        case: "<^last_error>.code == 'x'"`, withCase))).toContain(
+    "last_error",
+  );
 });

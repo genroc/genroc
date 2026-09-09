@@ -1,6 +1,10 @@
 {
-  "$comment": "A definition IS YAML, so its highlighting is YAML's. This file exists only to give the `genroc` language id a grammar; the interesting colouring is semantic and comes from the server.",
+  "$comment": "A definition IS YAML, so its highlighting is YAML's. This file exists only to give the genroc language id a grammar; scopeName must equal the one package.json contributes, or VS Code loads neither and the language falls back to plain text \u2014 taking its indentation rules with it.",
   "scopeName": "source.genroc",
   "name": "genroc",
-  "patterns": [{ "include": "source.yaml" }]
+  "patterns": [
+    {
+      "include": "source.yaml"
+    }
+  ]
 }

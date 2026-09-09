@@ -25,6 +25,8 @@ const (
 	slotOutput        = "output"
 	slotSwitch        = "switch"
 	slotOnError       = "on_error"
+	slotCase          = "case"
+	slotRetry         = "retry"
 )
 
 // SlotContexts returns the expression context at every addressable slot, keyed by canonical

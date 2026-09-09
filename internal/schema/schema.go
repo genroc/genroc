@@ -35,6 +35,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+
 	"genroc/internal/numeric"
 )
 
@@ -72,19 +73,60 @@ func (t SchemaType) Contains(s string) bool {
 	return false
 }
 
-// allowedKeywords is the set of JSON Schema keywords accepted by node.
+// allowedKeywords is the set of JSON Schema keywords accepted by node, mapped to what each
+// one means. It is BOTH the allowlist UnmarshalJSON enforces and the schema an editor
+// completes from (JSONSchemaBytes), so a keyword cannot be accepted without being offered, or
+// offered without being accepted.
+//
 // "default" is the standard annotation; "secret" is a genroc extension that is only
-// meaningful inside a process config_schema (it drives log redaction) and ignored
-// elsewhere.
-var allowedKeywords = map[string]bool{
-	"type": true, "properties": true, "required": true, "items": true,
-	"additionalProperties": true,
-	"oneOf":                true, "anyOf": true, "enum": true,
-	"minimum": true, "maximum": true, "minLength": true, "maxLength": true,
-	"minItems": true, "maxItems": true,
-	"$ref": true, "$defs": true, "$anchor": true, "$id": true,
-	"default": true, "secret": true, "description": true,
+// meaningful inside a process config_schema (it drives log redaction) and ignored elsewhere.
+var allowedKeywords = map[string]string{
+	"type":                 "The value's JSON type, or a list of types it may take.",
+	"properties":           "The named members of an object, each a schema.",
+	"required":             "Which properties must be present. A property not listed here may be absent, and reading it yields null.",
+	"items":                "The schema every element of an array conforms to.",
+	"additionalProperties": "The schema undeclared keys conform to, making the object an open map. Omit to close the object: undeclared keys are stripped.",
+	"oneOf":                "The value conforms to exactly one of these schemas.",
+	"anyOf":                "The value conforms to at least one of these schemas.",
+	"enum":                 "The complete set of values allowed here.",
+	"minimum":              "Smallest allowed number, inclusive.",
+	"maximum":              "Largest allowed number, inclusive.",
+	"minLength":            "Shortest allowed string.",
+	"maxLength":            "Longest allowed string.",
+	"minItems":             "Fewest allowed array elements.",
+	"maxItems":             "Most allowed array elements.",
+	"$ref":                 "A reference to another schema, as `#/$defs/<name>`.",
+	"$defs":                "Named schemas this document's $refs resolve against.",
+	"$anchor":              "A name this schema can be referenced by.",
+	"$id":                  "An identifier for this schema.",
+	"default":              "The value used when this one is absent. Annotation only — it does not make a required property optional.",
+	"secret":               "Redacts the value from logs. Only meaningful in a process config_schema.",
+	"description":          "Free text. Shown in the editor, and never a constraint.",
 	// "allOf" is intentionally omitted — see the package doc.
+}
+
+// JSONSchemaBytes describes the JSON Schema subset a user may write, so an editor completes
+// the keywords this package will actually accept. Hand-written for the reason `model.Action`'s
+// is: `node` is unexported, so reflection over Schema sees no fields and produces an opaque
+// object — which is what an editor was offered before this existed.
+//
+// Sub-schemas stay permissive rather than recursing into this def: openapi-typescript turns a
+// self-$ref into an eager cycle tsc rejects, the same trap `shape.GenericValueSchema` documents
+// for arrays. Completion is therefore top-level only.
+func (Schema) JSONSchemaBytes() ([]byte, error) {
+	props := make(map[string]any, len(allowedKeywords))
+	for keyword, description := range allowedKeywords {
+		// Description only: an `enum` of the type names here would be right, and
+		// openapi-typescript turns it into a union that every inline `{type: "object"}` in a
+		// test fails to satisfy, because a bare object literal widens the field to `string`.
+		props[keyword] = map[string]any{"description": description}
+	}
+	return json.Marshal(map[string]any{
+		"type":                 "object",
+		"description":          "A JSON Schema, in the subset genroc supports.",
+		"properties":           props,
+		"additionalProperties": false,
+	})
 }
 
 // validTypes is the JSON Schema "simpleTypes" enum — the only names a type may take.
@@ -153,7 +195,7 @@ func (n *node) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	for k := range raw {
-		if !allowedKeywords[k] {
+		if _, ok := allowedKeywords[k]; !ok {
 			return fmt.Errorf("unsupported schema keyword %q", k)
 		}
 	}
@@ -309,13 +351,6 @@ func (s *Schema) UnmarshalJSON(data []byte) error {
 	}
 	s.n = &n
 	return nil
-}
-
-// JSONSchemaBytes returns a permissive JSON Schema for OpenAPI reflection: keyword
-// restrictions are enforced at parse/unmarshal time, not at the spec level, keeping the
-// API surface broad enough to accept standard JSON Schema syntax.
-func (Schema) JSONSchemaBytes() ([]byte, error) {
-	return []byte(`{"type":"object","additionalProperties":true}`), nil
 }
 
 // AsMap returns the schema as a plain map. Intended for compatibility and testing;

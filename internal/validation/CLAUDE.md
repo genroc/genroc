@@ -249,5 +249,11 @@ couplings are silent when broken (`diagnostic.go`, specs/language-server.md §2)
   in `infer.go` stop at their first failure. Two findings under one address would be the same
   problem twice.
 
+`inField` is what separates the two locations a diagnostic has: **Address** is the slot whose
+scope a reader can ask `genctl schema context` about, **Location** is the line to underline. A
+check that knows a finer name annotates with it — `url`, `headers`, a switch case's index, an
+`on_error` rule's `case` or `retry`. Without one the whole slot is underlined, which for a
+`switch` means squiggling every routing clause beside the one that is wrong.
+
 Addresses are the slot grammar of specs/schema-command.md §2, and must stay so: a diagnostic's
 address is what `genctl schema context` is asked, and what `defdoc` looks up to find a line.

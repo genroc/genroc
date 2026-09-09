@@ -40,6 +40,21 @@ A `${ }` inside a longer string types as the string it renders into, so the leaf
 raw, because a column is what the protocol hands over, and mapping it back through YAML's
 escaping would be a second grammar to keep true.
 
+**A hover is ONE line, and it always has one.** The answer order is: a type where the cursor is
+on an expression or a slot, else **what the key means** — the prose the struct tag already
+carries. Dropping the scope line without that fallback left hover silent on ten lines out of
+twelve, which reads as a hover that does not work, and was reported as one.
+
+**A hover is ONE line: the type of what the cursor is on.** It was three — the symbol, the
+expression around it, and the slot's scope — and the two extra lines answered questions nobody
+had asked at that moment. `genctl schema context` is where a scope is asked for.
+
+`symbolUnder` is the same trick one level down: the member path the cursor sits in, truncated
+at that segment, so walking `self.result.total` shows each level. It reads raw text because the
+expression AST carries no offsets (specs/language-server.md §6), which is also why a symbol
+that does not type is DROPPED rather than reported — the scan cannot tell a member path from a
+word inside a string literal, and the leaf's own line answers either way.
+
 ## Completion reads the schema; diagnostics read the server
 
 Not the reflection walk §5 first proposed. Seven model types decode by hand and carry their own
@@ -58,9 +73,44 @@ is typing in. `expressionPrefix` scans the RAW line, and `parseRepaired` retries
 only the cursor's line closed off (`"`, `}"`, `"}`, `: `). Repairing more would answer about a
 document the author is not looking at.
 
+**A `case` is an expression written BARE.** It is an expression slot, not a Shape, so there is
+no `$:` for the scan to find — and without `isBareExpression` the cursor reads as sitting on a
+key: hover answered with what `case` means and completion offered the clause's own `goto` and
+`raise`.
+
+**Completion computes the scope from the document WITHOUT the leaf under the cursor.** A
+half-typed expression does not type, its slot recovers as `{}`, and everything reading that
+slot then offers nothing — which is worst exactly where help was asked for. `self.previous` in
+a looping task is the case that proves it: the slot being written IS the one being read.
+
+**On a line with nothing before the cursor, indentation decides — not `At`.** An empty line is
+inside every ancestor at once, so `At` answers with the outermost container (the document
+root), which is what completing inside `input_schema:` used to offer. `keyAbove` walks up to
+the first line at the same indent (a sibling, so the mapping is its parent) or a smaller one
+(the key whose value the cursor is inside).
+
 **A cursor ON a key wants that key's siblings**, not its children — someone typing `respon` is
 choosing among the action's keys. `completeKey` decides with `span.Key.Contains`, not by
 guessing from the value's type.
+
+## The schema is repaired on load
+
+`processSchema` puts back two things the published document cannot carry, and neither is a
+guess — both are positions where a USER SCHEMA sits:
+
+- **A user schema nests user schemas.** `properties`, `$defs`, `items`, `additionalProperties`,
+  `oneOf`, `anyOf` all hold another one. The published schema leaves them permissive because
+  openapi-typescript turns a self-`$ref` into a cycle tsc rejects (internal/schema/CLAUDE.md).
+  Nothing here generates TypeScript.
+- **`responses` values and `result_schema`** are user schemas too, hand-written as permissive
+  objects in `model.Action`'s template.
+
+Without the repair, hover and completion go silent the moment a reader is inside an
+`input_schema` or a `responses` block — which is a third of a real definition.
+
+`choose` picks among union arms: the document's `type` where there is one, else the arm that
+can take the next step. A `switch` is a scalar shorthand OR a list of cases and nothing marks
+which, so the INDEX decides — `switch.0` is a case.
 
 ## The one shortcut
 

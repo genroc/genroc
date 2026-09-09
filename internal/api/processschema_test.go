@@ -32,6 +32,12 @@ func TestPublishedSchemaAgreesWithTheServerOnUnknownKeys(t *testing.T) {
 		{"retry", `{"name":"x","tasks":[{"id":"a","switch":"end","on_error":[{"retry":{"attempts":1,"zzz":1},"goto":"end"}]}]}`, true},
 		{"timeout object", `{"name":"x","tasks":[{"id":"a","switch":"end","timeout":{"for":"1s","zzz":1}}]}`, true},
 		{"raise", `{"name":"x","tasks":[{"id":"a","switch":[{"raise":{"code":"c","message":"m","zzz":1}}]}]}`, true},
+		// A user-supplied schema was the last divergence: it reflected to an opaque object, so
+		// the editor accepted a keyword the server refuses by allowlist. schema.JSONSchemaBytes
+		// derives the keywords from that same allowlist now.
+		{"input_schema", `{"name":"x","tasks":[],"input_schema":{"type":"object","zzz":1}}`, true},
+		{"a $defs entry", `{"name":"x","tasks":[],"$defs":{"D":{"type":"object","zzz":1}}}`, true},
+		{"a schema keyword that IS allowed", `{"name":"x","tasks":[{"id":"a","switch":"end"}],"input_schema":{"type":"object","properties":{"a":{"type":"string","minLength":1}},"required":["a"]}}`, false},
 
 		// The mirror-image bug: a schema stricter than the server underlines working code.
 		{"an output shape is free-form", `{"name":"x","tasks":[{"id":"a","switch":"end"}],"output":{"anything":"$: 1","nested":{"k":"v"}}}`, false},
@@ -49,22 +55,6 @@ func TestPublishedSchemaAgreesWithTheServerOnUnknownKeys(t *testing.T) {
 					verb[schema], verb[server], c.doc)
 			}
 		})
-	}
-}
-
-// The gap the table above cannot close. A user-supplied JSON Schema (`input_schema`,
-// `config_schema`, `$defs`) reflects to an opaque `{type: object, additionalProperties: true}`
-// because schema.Schema's node is private, so the editor accepts a keyword the server refuses
-// by allowlist. Closing it means generating a meta-schema for that allowlist; until then this
-// records which way the two disagree. specs/language-server.md §5.
-func TestUserSuppliedSchemasAreNotYetCheckedByThePublishedSchema(t *testing.T) {
-	const doc = `{"name":"x","tasks":[],"input_schema":{"type":"object","zzz":1}}`
-	if !serverRejects(doc) {
-		t.Fatal("the server no longer refuses an unsupported schema keyword")
-	}
-	if schemaRejects(t, doc) {
-		t.Fatal("the published schema now checks user schemas too - delete this test and add " +
-			"the case to the agreement table above")
 	}
 }
 

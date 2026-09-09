@@ -10,6 +10,7 @@ package lsp
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"genroc/internal/defdoc"
@@ -67,10 +68,9 @@ func legalKeys(doc *defdoc.Doc, path string) []completionItem {
 	return out
 }
 
-// walk follows a DOCUMENT path down the schema, resolving refs and choosing a oneOf branch by
-// the `type` the document actually carries — which is what `discriminator` meant.
+// walk follows a DOCUMENT path down the schema, resolving refs and choosing among union arms.
 //
-// It tracks the ABSOLUTE path as it descends, because the discriminator is read out of the
+// It tracks the ABSOLUTE path as it descends, because a discriminator is read out of the
 // document at the node being entered: a relative path would look up `type` at the root.
 func walk(root map[string]any, doc *defdoc.Doc, path string) (map[string]any, bool) {
 	node, ok := resolve(root, root)
@@ -80,11 +80,11 @@ func walk(root map[string]any, doc *defdoc.Doc, path string) (map[string]any, bo
 	here := ""
 	rest := path
 	for {
-		node = branchFor(root, node, doc, here)
+		seg, tail := cutSegment(rest)
+		node = choose(root, node, doc, here, seg)
 		if rest == "" {
 			return node, true
 		}
-		seg, tail := cutSegment(rest)
 		if items, isArray := node["items"].(map[string]any); isArray {
 			// A sequence has one `items` for every element, so the segment is spent getting
 			// inside it rather than selecting among alternatives.
@@ -98,7 +98,11 @@ func walk(root map[string]any, doc *defdoc.Doc, path string) (map[string]any, bo
 		props, _ := node["properties"].(map[string]any)
 		next, ok := props[seg].(map[string]any)
 		if !ok {
-			return nil, false
+			// An open map types every key the same way — a user schema's `properties`, a
+			// child_map's `children` — so an undeclared segment descends there.
+			if next, ok = node["additionalProperties"].(map[string]any); !ok {
+				return nil, false
+			}
 		}
 		node, ok = resolve(root, next)
 		if !ok {
@@ -108,15 +112,17 @@ func walk(root map[string]any, doc *defdoc.Doc, path string) (map[string]any, bo
 	}
 }
 
-// branchFor picks the oneOf arm whose `type` const matches the document's, so an action
-// completes as the action it is rather than as the union of six. An unset or unrecognised
-// `type` leaves the union, which is the honest answer while it is still being typed.
-func branchFor(root, node map[string]any, doc *defdoc.Doc, path string) map[string]any {
-	arms, ok := node["oneOf"].([]any)
-	if !ok {
+// choose picks among a union's arms. The document's own `type` decides where there is one —
+// that is what `discriminator` meant, and it is why a `fetch` completes as a fetch. Where there
+// is none, the arm that can take the NEXT step decides: a `switch` is a scalar shorthand or a
+// list of cases, and an index says which of those is being written.
+func choose(root, node map[string]any, doc *defdoc.Doc, path, next string) map[string]any {
+	arms := unionArms(node)
+	if arms == nil {
 		return node
 	}
 	kind, _ := valueField(doc, path, "type")
+	var indexed, keyed, object map[string]any
 	for _, arm := range arms {
 		m, ok := arm.(map[string]any)
 		if !ok {
@@ -126,12 +132,77 @@ func branchFor(root, node map[string]any, doc *defdoc.Doc, path string) map[stri
 			continue
 		}
 		props, _ := m["properties"].(map[string]any)
-		typ, _ := props["type"].(map[string]any)
-		if c, ok := typ["const"].(string); ok && c == kind {
-			return m
+		if typ, _ := props["type"].(map[string]any); typ != nil {
+			if c, ok := typ["const"].(string); ok && c == kind {
+				return m
+			}
+		}
+		if _, isArray := m["items"]; isArray && indexed == nil {
+			indexed = m
+		}
+		if len(props) > 0 {
+			if object == nil {
+				object = m
+			}
+			if _, has := props[next]; has && keyed == nil {
+				keyed = m
+			}
 		}
 	}
+	switch {
+	case next != "" && isIndex(next) && indexed != nil:
+		return indexed
+	case keyed != nil:
+		return keyed
+	case next == "" && object != nil:
+		return object
+	}
 	return node
+}
+
+func unionArms(node map[string]any) []any {
+	if arms, ok := node["oneOf"].([]any); ok {
+		return arms
+	}
+	arms, _ := node["anyOf"].([]any)
+	return arms
+}
+
+func isIndex(seg string) bool {
+	_, err := strconv.Atoi(seg)
+	return err == nil
+}
+
+// describeKey is what a key MEANS, read off the schema that declares it — the prose the struct
+// tag already carries, which is what a reader hovering `only_once:` is asking for.
+func describeKey(doc *defdoc.Doc, path string) string {
+	root, ok := processSchema()
+	if !ok || path == "" {
+		return ""
+	}
+	node, ok := walk(root, doc, defdoc.ParentPath(path))
+	if !ok {
+		return ""
+	}
+	props, _ := node["properties"].(map[string]any)
+	name := lastSegment(path)
+	field, _ := props[name].(map[string]any)
+	if d := describeNode(field); d != "" {
+		return d
+	}
+	// The discriminator carries no prose of its own — `{"const": "delay"}` says nothing a
+	// reader wants. What they are pointing at is the variant it selects, so answer with that.
+	if name == "type" {
+		return describeNode(node)
+	}
+	return ""
+}
+
+func lastSegment(path string) string {
+	if i := strings.LastIndexByte(path, '.'); i >= 0 {
+		return path[i+1:]
+	}
+	return path
 }
 
 func valueField(doc *defdoc.Doc, path, field string) (string, bool) {
@@ -182,12 +253,71 @@ func joinPath(prefix, name string) string {
 	return prefix + "." + name
 }
 
-// processSchema decodes the generated schema. It is a projection of the Go types, so it
-// cannot change while the process runs.
+// processSchema decodes the generated schema, and restores the one thing it cannot carry: a
+// user schema nests user schemas. The published document leaves those positions permissive
+// because openapi-typescript turns a self-$ref into a cycle tsc rejects (internal/schema), and
+// nothing here is generating TypeScript — so the recursion goes back in and hover and
+// completion work at every depth of an `input_schema`.
 func processSchema() (map[string]any, bool) {
 	var root map[string]any
 	if err := json.Unmarshal(defschema.Process(), &root); err != nil {
 		return nil, false
 	}
+	defs, _ := root["$defs"].(map[string]any)
+	user, _ := defs[userSchemaDef].(map[string]any)
+	props, _ := user["properties"].(map[string]any)
+	if props == nil {
+		return root, true
+	}
+	self := map[string]any{"$ref": "#/$defs/" + userSchemaDef}
+	list := map[string]any{"type": "array", "items": self}
+	for name, nested := range map[string]map[string]any{
+		"properties": {"type": "object", "additionalProperties": self},
+		"$defs":      {"type": "object", "additionalProperties": self},
+		"items":      self, "additionalProperties": self,
+		"oneOf": list, "anyOf": list,
+	} {
+		field, _ := props[name].(map[string]any)
+		for k, v := range nested {
+			field[k] = v
+		}
+	}
+	// The same repair where a user schema is written into an ACTION. Those slots are
+	// hand-written in model.Action's template as permissive objects, so nothing marks them as
+	// schemas for a reader standing in one.
+	pointAtUserSchema(defs, self)
 	return root, true
 }
+
+// pointAtUserSchema rewrites `responses` values and `result_schema` in every action variant to
+// the user-schema def, which is what they hold.
+func pointAtUserSchema(defs map[string]any, self map[string]any) {
+	action, _ := defs["ModelAction"].(map[string]any)
+	arms, _ := action["oneOf"].([]any)
+	nullable := map[string]any{"anyOf": []any{self, map[string]any{"type": "null"}}}
+	for _, arm := range arms {
+		m, _ := arm.(map[string]any)
+		props, _ := m["properties"].(map[string]any)
+		if r, ok := props["responses"].(map[string]any); ok {
+			r["additionalProperties"] = nullable
+		}
+		if r, ok := props["result_schema"].(map[string]any); ok {
+			for k, v := range self {
+				r[k] = v
+			}
+		}
+		// child_map nests one child spec per key, each with a result_schema of its own.
+		children, _ := props["children"].(map[string]any)
+		if inner, ok := children["additionalProperties"].(map[string]any); ok {
+			nested, _ := inner["properties"].(map[string]any)
+			if r, ok := nested["result_schema"].(map[string]any); ok {
+				for k, v := range self {
+					r[k] = v
+				}
+			}
+		}
+	}
+}
+
+// userSchemaDef is the generated name for schema.Schema. specs/language-server.md §5.
+const userSchemaDef = "SchemaSchema"

@@ -174,3 +174,28 @@ Do not "improve" it into a path through the refs that reach a node: a recursive 
 infinitely many, which is why `internal/validation`'s `explainer` needs `maxExplainDepth`.
 An access path needs something to bound it, and each thing that can (a value, an
 expression) already carries its own — `conformGuard`'s `path`, `Infer`'s `[]pathStep`.
+
+## `allowedKeywords` is also the editor's vocabulary
+
+It maps each keyword to what it means, and `Schema.JSONSchemaBytes` builds the meta-schema
+from it — so a keyword cannot be accepted by `UnmarshalJSON` without being offered in an
+editor, or offered without being accepted. Adding one is a single entry.
+
+`Defs.JSONSchemaBytes` INLINES that schema rather than `$ref`-ing it: a `#/$defs/SchemaSchema`
+reference survives into openapi.json, where the spec builder only rewrites the `Model` prefix
+and would leave it dangling.
+
+**No `enum` on `type`.** It would be correct, and openapi-typescript turns it into a union that
+every inline `{type: "object"}` in a test fails to satisfy — a bare object literal widens the
+field to `string`. The generated client not compiling costs more than value completion.
+
+## `Summary` describes through a null arm
+
+A nullable `$ref` — `anyOf[$ref, null]` — does not resolve, so `TypeName` reads it as
+`unknown`. That is what a looping task's `self.previous` reported: the defs pool held
+`object{count}` all along and the null beside it hid that. `Summary` strips the null, describes
+what is left, and appends `|null`; the walk is depth-bounded because a recursive type would
+otherwise describe itself forever.
+
+The same shape bites anything that reads a nullable value's members, not just `Summary`:
+completion's `membersOf` strips the null before resolving for exactly this reason.

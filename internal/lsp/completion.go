@@ -21,7 +21,27 @@ func completeAt(text string, line, col int) []completionItem {
 	if expr, ok := expressionPrefix(src, col); ok {
 		return completeExpression(text, line, col, expr)
 	}
+	// A `case` holds an expression written BARE, so there is no `$:` for the scan above to
+	// find and the cursor would otherwise be read as sitting on a key.
+	if inBareExpression(text, line, col) {
+		return completeExpression(text, line, col, dottedTail(src[:min(col-1, len(src))]))
+	}
 	return completeKey(text, line, col)
+}
+
+// inBareExpression reports whether the cursor is inside the VALUE of a slot that holds an
+// expression with no `$:` marker.
+func inBareExpression(text string, line, col int) bool {
+	doc, ok := parseRepaired(text, line)
+	if !ok {
+		return false
+	}
+	path, ok := doc.At(line, col)
+	if !ok || !isBareExpression(path) {
+		return false
+	}
+	span, ok := doc.Span(path)
+	return ok && span.Value.Contains(line, col)
 }
 
 // completeKey offers the keys legal in the mapping the cursor sits in. A cursor on a
@@ -31,33 +51,73 @@ func completeKey(text string, line, col int) []completionItem {
 	if !ok {
 		return nil
 	}
-	if path, ok := doc.At(line, col); ok {
-		// A cursor ON a key is someone typing that key, and what they want is its SIBLINGS —
-		// the keys legal beside it. Only a cursor in the whitespace of a mapping means
-		// "inside".
-		span, _ := doc.Span(path)
-		if span.Key.Contains(line, col) {
+	// On a line with nothing before the cursor, INDENTATION decides. `At` would answer with
+	// whichever container happens to span the line — the outermost one, not the mapping being
+	// filled in — because an empty line is inside every ancestor at once.
+	if blankBefore(text, line, col) {
+		anchorLine, anchorCol, sibling, found := keyAbove(text, line, col)
+		if !found {
+			// Nothing above sits at or outside this indent, so the cursor is at the top
+			// level of the document.
+			return legalKeys(doc, "")
+		}
+		path, ok := doc.At(anchorLine, anchorCol)
+		if !ok {
+			return nil
+		}
+		if sibling {
 			path = defdoc.ParentPath(path)
-		} else if v, found := doc.ValueAt(path); found {
-			if _, isMapping := v.(map[string]any); !isMapping {
-				path = defdoc.ParentPath(path)
-			}
 		}
 		return legalKeys(doc, path)
 	}
 
-	// A blank line below the last key is where the next key goes, and no node covers it. The
-	// nearest line above at the same indent names a SIBLING, so the mapping being filled in is
-	// that sibling's parent.
-	sibling, keyCol, found := sameIndentAbove(text, line, col)
-	if !found {
-		return nil
-	}
-	path, ok := doc.At(sibling, keyCol)
+	path, ok := doc.At(line, col)
 	if !ok {
 		return nil
 	}
-	return legalKeys(doc, defdoc.ParentPath(path))
+	// A cursor ON a key is someone typing that key, and what they want is its SIBLINGS — the
+	// keys legal beside it. Only a cursor in the whitespace of a mapping means "inside".
+	span, _ := doc.Span(path)
+	if span.Key.Contains(line, col) {
+		path = defdoc.ParentPath(path)
+	} else if v, found := doc.ValueAt(path); found {
+		if _, isMapping := v.(map[string]any); !isMapping {
+			path = defdoc.ParentPath(path)
+		}
+	}
+	return legalKeys(doc, path)
+}
+
+// blankBefore reports whether only whitespace precedes the cursor on its line.
+func blankBefore(text string, line, col int) bool {
+	src := lineAt(text, line)
+	if col-1 > len(src) {
+		return strings.TrimSpace(src) == ""
+	}
+	return strings.TrimSpace(src[:col-1]) == ""
+}
+
+// keyAbove finds what the cursor's indentation puts it under. The first line above at the SAME
+// indent is a sibling, so the mapping being filled in is that sibling's parent; the first at a
+// SMALLER indent is the key whose value the cursor is inside.
+func keyAbove(text string, line, col int) (int, int, bool, bool) {
+	lines := splitLines(text)
+	for i := line - 2; i >= 0; i-- {
+		if i >= len(lines) {
+			continue
+		}
+		start := indentOf(lines[i])
+		if start < 0 {
+			continue // blank
+		}
+		switch {
+		case start+1 == col:
+			return i + 1, col, true, true
+		case start+1 < col:
+			return i + 1, start + 1, false, true
+		}
+	}
+	return 0, 0, false, false
 }
 
 // expressionPrefix reports the dotted path being typed, when the cursor is inside an
@@ -122,6 +182,14 @@ func completeExpression(text string, line, col int, prefix string) []completionI
 }
 
 func membersOf(s schema.Schema) []completionItem {
+	// A value that may be absent is `anyOf[$ref, null]`, and the null arm blocks the $ref
+	// beside it from resolving — so an optional object offered no members at all. Same shape,
+	// same fix as schema.Summary.
+	if s.HasNull() {
+		if inner := s.StripNull(); !inner.IsZero() && !inner.IsNull() {
+			s = inner
+		}
+	}
 	if resolved, err := s.Resolve(); err == nil {
 		s = resolved
 	}
@@ -158,7 +226,18 @@ func scopeAt(text string, line, col int) (schema.Schema, bool) {
 	if !ok {
 		return schema.Schema{}, false
 	}
-	def, ok := definitionOf(doc)
+	path, ok := doc.At(line, col)
+	if !ok {
+		return schema.Schema{}, false
+	}
+	// The scope is the document WITHOUT the expression being written. A half-typed leaf does
+	// not type, its slot recovers as {}, and everything that reads the slot — `self.previous`
+	// most of all — then offers nothing, exactly where help was asked for.
+	source := doc
+	if blanked, ok := parseRepaired(blankValueAt(text, line), line); ok {
+		source = blanked
+	}
+	def, ok := definitionOf(source)
 	if !ok {
 		return schema.Schema{}, false
 	}
@@ -166,12 +245,24 @@ func scopeAt(text string, line, col int) (schema.Schema, bool) {
 	if err != nil {
 		return schema.Schema{}, false
 	}
-	path, ok := doc.At(line, col)
-	if !ok {
-		return schema.Schema{}, false
-	}
 	_, ctx, found := enclosingSlot(contexts, path)
 	return ctx, found
+}
+
+// blankValueAt empties the value on one line, keeping its key so the document still has the
+// same shape — and the same paths — as the one the cursor was resolved against.
+func blankValueAt(text string, line int) string {
+	lines := splitLines(text)
+	if line < 1 || line > len(lines) {
+		return text
+	}
+	src := lines[line-1]
+	colon := strings.Index(src, ": ")
+	if colon < 0 {
+		return text
+	}
+	lines[line-1] = src[:colon+2] + `""`
+	return strings.Join(lines, "\n")
 }
 
 // parseRepaired parses text, retrying with the cursor's line closed off when the document as
@@ -213,30 +304,6 @@ func soleDocContaining(text string, line int) (*defdoc.Doc, bool) {
 		return docs[0], true
 	}
 	return nil, false
-}
-
-// sameIndentAbove finds the nearest non-blank line above `line` whose first content sits at
-// the cursor's own column, and returns where that content starts. A sequence entry counts by
-// its first key (`- id: x` puts `id` at the indent its siblings use), which is why the search
-// is over the column rather than over the leading dash.
-func sameIndentAbove(text string, line, col int) (int, int, bool) {
-	lines := splitLines(text)
-	for i := line - 2; i >= 0; i-- {
-		if i >= len(lines) {
-			continue
-		}
-		start := indentOf(lines[i])
-		if start < 0 {
-			continue // blank
-		}
-		if start+1 == col {
-			return i + 1, col, true
-		}
-		if start+1 < col {
-			return 0, 0, false // an outer level: the cursor is deeper than anything above it
-		}
-	}
-	return 0, 0, false
 }
 
 // indentOf is the 0-based column of a line's first content, or -1 when it has none. A sequence

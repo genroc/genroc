@@ -5,7 +5,6 @@ package lsp
 // views, so the editor and the command cannot disagree. specs/schema-command.md.
 
 import (
-	"fmt"
 	"strings"
 
 	"genroc/internal/defdoc"
@@ -54,6 +53,9 @@ func definitionOf(doc *defdoc.Doc) (*model.ProcessDefinition, bool) {
 	return &def, true
 }
 
+// describe answers with ONE line: the type of the thing under the cursor. A hover is read at a
+// glance, and the scope a slot carries is a different question — `genctl schema context` is
+// where that one is asked.
 func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, line string, col int) string {
 	contexts, err := validation.SlotContexts(def)
 	if err != nil {
@@ -61,13 +63,11 @@ func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, line string, 
 	}
 	types, _ := validation.TypeSlots(def)
 
-	slot, ctx, found := enclosingSlot(contexts, path)
+	_, ctx, found := enclosingSlot(contexts, path)
 	if !found {
-		return typeOnly(types, path)
+		return firstOf(typeOnly(types, path), describeKey(doc, path))
 	}
 
-	var out []string
-	// An expression is the interesting case: its type is what the author is guessing at.
 	expr, ok := expressionAt(doc, path)
 	if !ok {
 		// A `${ }` inside a longer string types as the string it renders into, so the whole
@@ -75,26 +75,35 @@ func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, line string, 
 		// and that is the one being written.
 		expr, ok = interpolationUnder(line, col)
 	}
-	if ok {
-		if t, err := ctx.Infer(expr); err == nil {
-			out = append(out, "`"+expr+"` → **"+t.Summary()+"**")
-		} else {
-			out = append(out, "`"+expr+"` → _"+err.Error()+"_")
+	if !ok {
+		return firstOf(typeOnly(types, path), describeKey(doc, path))
+	}
+	// The symbol the cursor is actually on, when it is a member path and not the whole
+	// expression: pointing at `count` in `(self.previous.count ?? 0) + 1` asks about
+	// `self.previous.count`, and the leaf's own type answers a different question.
+	//
+	// Only when it types: the scan cannot tell a member path from a word inside a string
+	// literal, and an error for one would replace the answer the reader came for.
+	if symbol, found := symbolUnder(line, col); found && symbol != expr {
+		if t, err := ctx.Infer(symbol); err == nil {
+			return "`" + symbol + "` → **" + t.Summary() + "**"
 		}
 	}
-	if t, ok := types[path]; ok {
-		out = append(out, "**"+path+"** — "+t.Summary())
-	}
-	out = append(out, fmt.Sprintf("_in scope at `%s`_: %s", slot, ctx.MemberNames()))
-	return strings.Join(out, "\n\n")
+	return typed(ctx, expr)
 }
 
+// typeOnly names a slot and its type, unless that type is `unknown` — a slot nothing narrows
+// says nothing, and the key's own description is the better answer there.
 func typeOnly(types map[string]schema.Schema, path string) string {
 	t, ok := types[path]
 	if !ok {
 		return ""
 	}
-	return "**" + path + "** — " + t.Summary()
+	summary := t.Summary()
+	if summary == "unknown" {
+		return ""
+	}
+	return "**" + path + "** — " + summary
 }
 
 // enclosingSlot walks up from a path to the slot whose context governs it: an expression in
@@ -121,6 +130,11 @@ func expressionAt(doc *defdoc.Doc, path string) (string, bool) {
 		return "", false
 	}
 	trimmed := strings.TrimSpace(s)
+	// A `case` is written BARE — it is an expression slot, not a Shape, so it carries no `$:`
+	// and hover would otherwise answer with what the key means instead of what it evaluates to.
+	if isBareExpression(path) {
+		return trimmed, trimmed != ""
+	}
 	if inner, ok := strings.CutPrefix(trimmed, "$:"); ok {
 		return strings.TrimSpace(inner), true
 	}
@@ -162,4 +176,67 @@ func lineAt(text string, line int) string {
 		return ""
 	}
 	return lines[line-1]
+}
+
+func typed(ctx schema.Schema, expr string) string {
+	t, err := ctx.Infer(expr)
+	if err != nil {
+		return "`" + expr + "` → _" + err.Error() + "_"
+	}
+	return "`" + expr + "` → **" + t.Summary() + "**"
+}
+
+// symbolUnder returns the member path the cursor is on, truncated AT the segment it is in:
+// `previous` in `self.previous.count` answers `self.previous`, so walking a path shows each
+// level's own type. The scan is over raw text because the expression AST carries no offsets
+// (specs/language-server.md §6) — an indexed path like `a[0].b` is not spelled here and falls
+// back to the whole expression.
+func symbolUnder(line string, col int) (string, bool) {
+	i := col - 1
+	if i < 0 || i > len(line) {
+		return "", false
+	}
+	start := i
+	for start > 0 && isPathByte(line[start-1]) {
+		start--
+	}
+	end := i
+	for end < len(line) && isIdentByte(line[end]) {
+		end++
+	}
+	symbol := strings.Trim(line[start:end], ".")
+	// A member path never starts with a digit, so this drops the numeric literals an operator
+	// sits between — `0` types fine and says nothing anyone hovered to find out.
+	if symbol == "" || !isNameStart(symbol[0]) {
+		return "", false
+	}
+	return symbol, true
+}
+
+func isPathByte(c byte) bool { return c == '.' || isIdentByte(c) }
+
+func isIdentByte(c byte) bool { return isNameStart(c) || c >= '0' && c <= '9' }
+
+func isNameStart(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+// firstOf is the answer order: a type where there is one, else what the key means. Without the
+// second, hover was silent on most of a file — every key, every literal — because dropping the
+// scope line took the only thing it had to say there.
+func firstOf(answers ...string) string {
+	for _, a := range answers {
+		if a != "" {
+			return a
+		}
+	}
+	return ""
+}
+
+// isBareExpression reports whether a slot holds an expression written without `$:`. Only a
+// `case` does — in a switch clause or an on_error rule. specs/task-scopes.md.
+func isBareExpression(path string) bool {
+	seg := strings.Split(path, ".")
+	return len(seg) == 5 && seg[0] == "tasks" && seg[4] == "case" &&
+		(seg[2] == "switch" || seg[2] == "on_error")
 }
