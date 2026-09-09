@@ -25,7 +25,14 @@ ServerOnWhatIsRejected` is that claim as a test; a new check belongs on the serv
   nobody notices and a class of races nobody wants; `docs` is a plain map for that reason.
 
 **stdout belongs to the protocol.** `genctl lsp` prints nothing; a stray line is a frame the
-editor cannot parse.
+editor cannot parse. stderr is where a session that ENDS says why — a read error used to return
+1 in silence, which reads as a server that simply stopped.
+
+**A WASI host may hand the guest non-blocking stdio**, and Node's does on Linux while it does
+not on macOS: the second read returns EAGAIN, the loop ends the session one message in, and the
+same would happen to a write that filled the pipe. `blockStdio` (cmd/genctl, wasip1 only) clears
+the flag on all three fds. It passes on a laptop and fails on CI, which is the only place the
+non-blocking half exists.
 
 ## Hover decodes leniently; diagnostics do not
 

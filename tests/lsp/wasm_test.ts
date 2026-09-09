@@ -4,6 +4,10 @@ import { at, edit, Lsp, orders, useWorkspace } from "./helpers.ts";
 // The server the extension bundles for a machine with no genctl: the same code, compiled to
 // WebAssembly. Every test here is DIFFERENTIAL — the fallback has to answer what the binary
 // answers, because a fallback that quietly disagrees is worse than no fallback at all.
+//
+// It is also the only test of the host's stdio: Node's WASI hands the guest a NON-BLOCKING
+// stdin on Linux and a blocking one on macOS, so these pass on a laptop while failing on CI.
+// That asymmetry is the point of running them there — see blockStdio in cmd/genctl.
 
 let wasm: Lsp;
 let native: Lsp;

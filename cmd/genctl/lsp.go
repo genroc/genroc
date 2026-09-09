@@ -23,6 +23,7 @@ func runLSPCmd(args []string) {
 		}
 		fatal("lsp takes no arguments except --stdio; it speaks LSP over stdin and stdout")
 	}
+	blockStdio()
 	// stdout is the protocol's channel from here: anything else written to it is a frame the
 	// editor cannot parse, which is why nothing in this command prints.
 	os.Exit(lsp.New(os.Stdin, os.Stdout, versionString()).Run())

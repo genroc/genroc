@@ -3,6 +3,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { mkdtempSync, writeFileSync } from "fs";
 import { BASE_URL } from "./constants.ts";
+import { tmpPath } from "./server.ts";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 
@@ -20,7 +21,13 @@ export function buildGenctlBinary(): string {
   // build`, which also runs sqlc — and sqlc@v1.31.1 needs Go >= 1.26, triggering a
   // slow toolchain download on a fresh CI runner that blew the 10s test hook.
   // genctl is a pure client (no CGO needed), and gen/ is committed.
-  const bin = join(ROOT, "genctl");
+  //
+  // To a path no other worker can pick, for the reason tmpPath exists: seventeen test files
+  // build this, one worker each, and `go build -o` writes its output IN PLACE — so a shared
+  // path lets one worker exec what another is halfway through writing. That is an EPIPE the
+  // moment the harness writes to it, blamed on whichever suite drew the short straw. It also
+  // leaves the ./genctl a developer built alone.
+  const bin = tmpPath("genctl");
   const result = spawnSync("go", ["build", "-o", bin, "./cmd/genctl"], {
     cwd: ROOT,
     stdio: ["ignore", "ignore", "inherit"],
@@ -33,11 +40,10 @@ export function buildGenctlBinary(): string {
 let cachedWasm: string | null = null;
 
 // buildGenctlWasm builds what the VS Code extension BUNDLES: the same `genctl lsp`, for a
-// machine that has no genctl on it. Written to the path the extension packages from, so a test
-// run and `make extension` produce the same file.
+// machine that has no genctl on it. Its own path per worker, for the reason above.
 export function buildGenctlWasm(): string {
   if (cachedWasm) return cachedWasm;
-  const out = join(ROOT, "editors", "vscode", "bin", "genctl.wasm");
+  const out = tmpPath("genctl", ".wasm");
   const result = spawnSync("go", ["build", "-o", out, "./cmd/genctl"], {
     cwd: ROOT,
     env: { ...process.env, GOOS: "wasip1", GOARCH: "wasm" },

@@ -171,6 +171,10 @@ workspace folder is preopened at its own absolute path, so the `file://` URIs th
 need no translation into guest paths. The limit to remember is wasip1's: no sockets and no
 subprocesses, so a server that grows either stops being portable this way.
 
+The stdio a host hands the guest is its own choice, and Node's differs by platform — non-blocking
+on Linux, blocking on macOS — so the first thing the server does under wasip1 is clear the flag
+(`blockStdio`). Without it a session ends one message in, on the second read, with EAGAIN.
+
 ## 5. The structural layer is ours too
 
 The `# yaml-language-server: $schema=` comment in the templates is not a working baseline to

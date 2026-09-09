@@ -7,6 +7,7 @@ package lsp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -43,6 +44,10 @@ func (s *Server) Run() int {
 				_ = s.conn.replyErr(nil, codeParseError, "%s", err)
 				continue
 			}
+			// stderr, never stdout: stdout is the protocol. A session that ends on a read
+			// error said nothing at all, which reads as a server that simply stopped — and is
+			// how a non-blocking stdin cost an afternoon to find.
+			fmt.Fprintf(os.Stderr, "genroc: reading from the editor: %v\n", err)
 			return 1
 		}
 		if req.Method == "exit" {

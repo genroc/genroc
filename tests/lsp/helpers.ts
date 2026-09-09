@@ -1,4 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import type { Readable, Writable } from "node:stream";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -120,7 +121,8 @@ export function useWorkspace(): void {
 }
 
 export class Lsp {
-  private child: ChildProcessWithoutNullStreams;
+  // stderr is `null` in the type because it is inherited rather than piped.
+  private child: ChildProcessByStdio<Writable, Readable, null>;
   private buffer = Buffer.alloc(0);
   private pending = new Map<number, (result: unknown) => void>();
   private awaiting = new Map<string, (ds: Diagnostic[]) => void>();
@@ -129,7 +131,10 @@ export class Lsp {
   private version = 1;
 
   private constructor(command: string, args: string[]) {
-    this.child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    // stderr is INHERITED, not swallowed: the server prints there when a session ends on an
+    // error, and a swallowed line turns "it stopped after one message" into a bare timeout —
+    // which is what a non-blocking stdin under WASI looked like for an afternoon.
+    this.child = spawn(command, args, { stdio: ["pipe", "pipe", "inherit"] });
     this.child.stdout.on("data", (chunk: Buffer) => this.consume(chunk));
   }
 
