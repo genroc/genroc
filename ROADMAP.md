@@ -27,12 +27,13 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **long-poll** on the external-task queue (specs/external-task-queue.md)
 - [] **per-definition durability field** (specs/durability-levels.md §8)
 - [] **pause as a debugging tool** — start an instance paused, step it with `tick`
-- [] **language server** — built through phase 4 (`genctl lsp` + a VS Code extension); what is
-  left is navigation ACROSS files, which needs `.genroc` discovery out of `cmd/genctl`'s
-  `package main` (specs/language-server.md §7)
 - [] **docs** — the site ships four pages; the reference gap it was written to close is open
 
 ## Shipped
+- [x] **language server** — `genctl lsp` and a VS Code extension: diagnostics that agree with
+      the server, hover types, completion (scope members and discriminated keys) and
+      navigation. Rests on `internal/defdoc`, which gave every diagnostic a position
+      (specs/language-server.md)
 
 - [x] cancel — `cancelling`/`cancelled` as a terminal stop BESIDE `failed`, not a mode of
       `paused`: root-only, mirroring pause's leased/parked split, refused by retry

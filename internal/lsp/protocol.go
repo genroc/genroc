@@ -118,3 +118,12 @@ type location struct {
 	URI   string    `json:"uri"`
 	Range textRange `json:"range"`
 }
+
+// initializeParams is the slice of the handshake this server reads: where the workspace is,
+// so a reference to another process can be resolved to the file that defines it.
+type initializeParams struct {
+	RootURI          string `json:"rootUri"`
+	WorkspaceFolders []struct {
+		URI string `json:"uri"`
+	} `json:"workspaceFolders"`
+}

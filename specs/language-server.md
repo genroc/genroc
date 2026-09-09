@@ -1,15 +1,15 @@
 # `genctl lsp`: the definition language, in the editor
 
-**PROPOSAL 2026-09-08. BUILT 2026-09-08**, phases 0-4, less cross-file navigation (§7).
+**PROPOSAL 2026-09-08. BUILT** 2026-09-08, phases 0-4, cross-file navigation 2026-09-09 (§7).
 
 `genctl apply` prints `file:line:col: message`, one line per broken slot;
 `POST /api/definitions/validate` returns `fields[]` for a type failure as it always did for a
 struct-tag one; and `genctl lsp` publishes diagnostics over stdio for `*.genroc.yaml`, answers **hover** (the type an expression infers to, the type of a slot, the
 scope governing it) and **completion** (scope members inside an expression, legal keys
 everywhere else — discriminated, so a `fetch` is offered fetch's keys and not the union of
-six), navigates a `goto` to the task it names, and ships as a VS Code extension that is a
-launcher for `genctl lsp` and nothing else. What is left is navigation ACROSS files — a child
-action's `process:` — which needs the project config out of `cmd/genctl` (§7).
+six), navigates a `goto` to the task it names and a child action's process to the file that
+defines it, and ships as a VS Code extension that is a launcher for `genctl lsp` and nothing
+else.
 
 [schema-command.md](schema-command.md) §1 refused this on purpose — "not an editor protocol:
 it has no positions and no lenient parse, so it cannot underlie completion or diagnostics."
@@ -114,9 +114,14 @@ with it and keeps its tests.
   The fence guarded a hypothetical.
 - **It could not reach the project config.** `.genroc` discovery, `definitionPaths` and the
   resolver table live in `cmd/genctl/sources.go`, which is `package main` and therefore
-  importable by nothing. Cross-file navigation (§7 phase 3) needs exactly that file set, so
-  the module would have forced the move into `internal/` anyway — after which it bought only
-  the hypothetical above.
+  importable by nothing.
+
+  **This half was wrong, and building phase 3b showed it** (2026-09-09). Cross-file navigation
+  does not want `.genroc` at all: `definitions:` says which files an `apply` DEPLOYS, and
+  navigation asks which files EXIST — a different question, already answered by the
+  `workspaceFolders` the editor sends in `initialize`. Nothing moved out of `package main`.
+  The conclusion survives on the first bullet alone; the trigger to revisit is a feature that
+  genuinely needs the resolver table, `$import` resolution being the obvious one.
 
 This is the reasoning CLAUDE.md already applies to `genctl` itself: it shares its whole
 internal surface with the server, so **a module boundary would relocate the dependency rather
@@ -131,8 +136,7 @@ all") was therefore wrong about the mechanism — `ui` cannot reach it because `
 not require the root module, not because the rule forbids it. Fixed in phase 0.
 
 The trigger to reopen this: the server growing a dependency of its own that the engine has no
-use for — an incremental parser, a fuzzy matcher. Then the fence stops being hypothetical, and
-the project config has by then moved out of `package main` regardless.
+use for — an incremental parser, a fuzzy matcher. Then the fence stops being hypothetical.
 
 ## 5. The structural layer is ours too
 
@@ -254,7 +258,7 @@ expression — precise squiggles, or semantic highlighting.
 | 2a ✅ | hover: an expression's inferred type, a slot's type, the scope it is written in | the type an author is guessing at, without leaving the file |
 | 2b ✅ | completion: keys and action variants from the schema; scope members inside `$:` / `${ }`, on text that does not parse | the rest of the reason to build it |
 | 3a ✅ | goto-definition on `goto:` — the task it names, in this document | jump through a routing graph |
-| 3b | goto-definition on a child action's `process:`, across files | needs `.genroc` discovery out of `cmd/genctl`'s `package main` |
+| 3b ✅ | goto-definition on a child action's process, across files | jump into the definition a task spawns |
 | 4 ✅ | VS Code client — spawns `genctl lsp`, activates on `**/*.genroc.yaml` | distribution |
 
 Phase 0 is the one that can be got wrong, and it is the one whose value does not depend on

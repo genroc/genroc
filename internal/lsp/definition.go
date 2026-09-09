@@ -10,29 +10,70 @@ import (
 	"genroc/internal/defdoc"
 )
 
-// definitionAt resolves the reference under the cursor to where it is defined, in this
-// document. A cursor on anything else answers with nothing, which is most of a file.
-func definitionAt(text string, line, col int) (defdoc.Range, bool) {
+// reference is what the cursor names: a task in this document, or a process defined in some
+// other file. The two resolve differently, so which one it is has to survive the lookup.
+type reference struct {
+	taskPath string // a path within this document, when the reference is a `goto`
+	process  string // a process name, when it is a child action's `name`
+}
+
+// referenceAt reads the reference under the cursor. A cursor on anything else answers with
+// nothing, which is most of a file.
+func referenceAt(text string, line, col int) (reference, *defdoc.Doc, bool) {
 	docs, err := defdoc.ParseAll([]byte(text))
 	if err != nil {
-		return defdoc.Range{}, false
+		return reference{}, nil, false
 	}
 	for _, doc := range docs {
 		path, ok := doc.At(line, col)
 		if !ok {
 			continue
 		}
-		target, ok := gotoTarget(doc, path)
-		if !ok {
-			return defdoc.Range{}, false
+		if target, ok := gotoTarget(doc, path); ok {
+			return reference{taskPath: target}, doc, true
 		}
-		span, ok := doc.Span(target)
-		if !ok {
-			return defdoc.Range{}, false
+		if name, ok := childProcess(doc, path); ok {
+			return reference{process: name}, doc, true
 		}
-		return span.Value, true
+		return reference{}, nil, false
 	}
-	return defdoc.Range{}, false
+	return reference{}, nil, false
+}
+
+// childProcess reads the process a child action names. Three spellings reach one field:
+// `child` and `child_list` carry `name` on the action, `child_map` carries one per entry
+// under `children`.
+func childProcess(doc *defdoc.Doc, path string) (string, bool) {
+	if !strings.HasSuffix(path, ".name") || !strings.HasPrefix(path, "tasks.") {
+		return "", false
+	}
+	parent := defdoc.ParentPath(path)
+	if !strings.HasSuffix(parent, ".action") && !strings.Contains(parent, ".action.children.") {
+		return "", false
+	}
+	v, ok := doc.ValueAt(path)
+	if !ok {
+		return "", false
+	}
+	name, ok := v.(string)
+	if !ok || name == "" {
+		return "", false
+	}
+	return name, true
+}
+
+// definitionAt resolves a reference that stays inside this document. A child action's process
+// lives in another file, so the server resolves that one — see Server.definition.
+func definitionAt(text string, line, col int) (defdoc.Range, bool) {
+	ref, doc, ok := referenceAt(text, line, col)
+	if !ok || ref.taskPath == "" {
+		return defdoc.Range{}, false
+	}
+	span, ok := doc.Span(ref.taskPath)
+	if !ok {
+		return defdoc.Range{}, false
+	}
+	return span.Value, true
 }
 
 // gotoTarget reads a task reference and returns the path of the task it names. `$task-id` is

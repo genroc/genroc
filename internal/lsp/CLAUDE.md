@@ -69,6 +69,18 @@ reads the key out of the message and finds it in the index — matching by SPAN,
 is addressable twice (physically and logically) and counting paths finds two of everything.
 §5's reflection walk is what replaces it: every unknown key, with a path, in one pass.
 
+## The workspace comes from `initialize`, not from `.genroc`
+
+`workspaceFolders` (or the older `rootUri`) is what a child action's process is resolved
+against. `.genroc`'s `definitions:` answers a different question — which files an `apply`
+deploys, not which exist — and reaching it would mean moving `cmd/genctl`'s project config out
+of `package main` for nothing. specs/language-server.md §4.
+
+Open buffers are searched **before** disk: the file on disk may be older than what the reader
+is looking at, so renaming a process in the editor must not send them to the name it had. The
+walk skips `.git`/`node_modules`/`dist`/`build`/`vendor` and caps at `maxScanned`, because a
+workspace rooted somewhere enormous must not hang an editor.
+
 ## The extension is a launcher
 
 `editors/vscode` starts `genctl lsp` and contributes a language id. It implements no analysis,

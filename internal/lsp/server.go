@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"strings"
 )
 
@@ -20,6 +21,9 @@ type Server struct {
 	// other request is refused, as the protocol requires.
 	shutdown bool
 	version  string
+	// folders are the workspace roots from `initialize`, searched for a process a child
+	// action names. Empty means single-file mode: only open documents are reachable.
+	folders []string
 }
 
 func New(in io.Reader, out io.Writer, version string) *Server {
@@ -58,6 +62,10 @@ func (s *Server) exitCode() int {
 func (s *Server) handle(req *request) {
 	switch req.Method {
 	case "initialize":
+		var p initializeParams
+		if s.decode(req, &p) {
+			s.folders = workspaceRoots(p)
+		}
 		var res initializeResult
 		res.Capabilities.TextDocumentSync = 1 // Full: each change carries the whole document
 		res.Capabilities.HoverProvider = true
@@ -197,9 +205,51 @@ func (s *Server) definition(p hoverParams) any {
 		return nil
 	}
 	lines := splitLines(text)
-	r, ok := definitionAt(text, p.Position.Line+1, byteColumn(lines, p.Position))
+	ref, doc, ok := referenceAt(text, p.Position.Line+1, byteColumn(lines, p.Position))
 	if !ok {
 		return nil
 	}
-	return location{URI: p.TextDocument.URI, Range: toRange(lines, r)}
+	if ref.taskPath != "" {
+		span, found := doc.Span(ref.taskPath)
+		if !found {
+			return nil
+		}
+		return location{URI: p.TextDocument.URI, Range: toRange(lines, span.Value)}
+	}
+
+	uri, r, found := s.findProcess(ref.process)
+	if !found {
+		return nil
+	}
+	// The target's own text decides its columns, not this document's.
+	target, open := s.docs[uri]
+	if !open {
+		if path, ok := uriToPath(uri); ok {
+			if data, err := os.ReadFile(path); err == nil {
+				target = string(data)
+			}
+		}
+	}
+	return location{URI: uri, Range: toRange(splitLines(target), r)}
+}
+
+// workspaceRoots reads the roots out of the handshake. workspaceFolders is the current field
+// and rootUri the one before it; an editor sends one or the other and older ones send only
+// rootUri, so both are read and duplicates collapse.
+func workspaceRoots(p initializeParams) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(uri string) {
+		path, ok := uriToPath(uri)
+		if !ok || seen[path] {
+			return
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	for _, f := range p.WorkspaceFolders {
+		add(f.URI)
+	}
+	add(p.RootURI)
+	return out
 }
