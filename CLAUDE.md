@@ -96,6 +96,7 @@ rather than a wall: `archtest.TestBinariesKeepTheirImportBoundaries` refuses `in
 ## Build / test
 
     make build      # produces ./genroc, ./genctl and ./genroc-ui
+    make install    # replaces the genctl on PATH (renames into place -- see the target)
     make test       # go test across all three modules + integration tests
 
     # Run with SQLite (default):

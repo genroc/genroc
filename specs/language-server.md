@@ -302,6 +302,13 @@ is the failure mode — the schema is generated, the rules are hand-written, and
 compared them.
 
 Phases 1–3 drive the server over a pipe with recorded JSON-RPC sessions. No editor in the
-loop. Built that way, plus the claim §5 rests on as a test of its
+loop.
+
+Above them, `tests/lsp/` drives the real binary against one valid fixture and marks positions
+inline — `<|>` for the cursor, `<|text>` for text not yet typed, `<^text>` for a cursor inside
+text that stays. A test therefore quotes the line it is about rather than naming a number that
+drifts. It earns its keep: writing it found a cursor position nothing answered for (the blank
+line below a mapping's last key) and a cascade the suppression missed (a task re-reporting its
+own poisoned output through its own switch). Built that way, plus the claim §5 rests on as a test of its
 own — a table of documents run through both the editor's path and the server's two calls,
 asserting they refuse the same set.

@@ -23,8 +23,12 @@ const approval: any = loadYaml(
 
 // The sqlite and postgres vitest projects run this file in parallel, so offset the
 // dedicated server's port per project to keep the two from colliding.
+//
+// The base must be unique across the WHOLE suite, not just this file: vitest runs files
+// concurrently, and a shared base means the loser talks to the winner's server and fails on
+// state it never created. 20091 belonged to crash_recovery_test first.
 const PORT_OFFSET = (Number(process.env.GENROC_PORT ?? 8888) - 8888) * 4;
-const ESCALATE_PORT = 20091 + PORT_OFFSET;
+const ESCALATE_PORT = 20121 + PORT_OFFSET;
 
 let genrocBin: string;
 beforeAll(async () => {

@@ -8,7 +8,7 @@ log     ?= info
 
 # BUILD_FLAGS = CGO_ENABLED=1
 
-.PHONY: extension run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big bench-iterate swagger client clean generate docs docs-schema docs-build script-runner
+.PHONY: install extension run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big bench-iterate swagger client clean generate docs docs-schema docs-build script-runner
 
 run:
 	$(BUILD_FLAGS) go run ./cmd/genroc \
@@ -27,6 +27,27 @@ build: sqlc
 	$(BUILD_FLAGS) go build -tags "sqlite_omit_load_extension" -ldflags="-s -w" -o genroc ./cmd/genroc
 	$(BUILD_FLAGS) go build -ldflags="-s -w" -o genctl ./cmd/genctl
 	$(BUILD_FLAGS) go build -ldflags="-s -w" -o genroc-ui ./ui
+
+# Replace an installed genctl. `prefix` picks the directory; the default is where a `genctl`
+# already on PATH lives, and ~/.local/bin otherwise.
+#
+# Builds to a TEMPORARY name in the target directory and renames over the old one. Copying onto
+# the live file instead writes into the inode running processes have mapped, which invalidates
+# its signed pages -- macOS then SIGKILLs every new exec from that path (exit 137), while
+# `codesign -v` still passes and the file looks fine. A rename swaps the directory entry, so
+# anything still running keeps the old inode and the next exec gets the new one.
+#
+# The version is stamped the way the release build does, plus `-dirty` when the tree is: a
+# binary that cannot say which commit it is makes every bug report start with a guess.
+prefix ?= $(shell dirname "$$(command -v genctl 2>/dev/null || echo $$HOME/.local/bin/genctl)")
+install:
+	@mkdir -p "$(prefix)"
+	$(BUILD_FLAGS) go build -ldflags="-s -w \
+	  -X main.version=edge \
+	  -X main.commit=$$(git rev-parse --short HEAD)$$(git diff --quiet || echo -dirty)" \
+	  -o "$(prefix)/genctl.new" ./cmd/genctl
+	@mv -f "$(prefix)/genctl.new" "$(prefix)/genctl"
+	@echo "installed $$("$(prefix)/genctl" -v) -> $(prefix)/genctl"
 
 # The VS Code extension. It is a launcher for `genctl lsp` and ships separately from the
 # binaries, so it is not part of `build` -- packaging it needs npm.

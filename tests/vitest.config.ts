@@ -31,6 +31,16 @@ export default defineConfig({
       },
       ...pgProject,
       {
+        // The language server needs no genroc running: it answers from the definition
+        // language alone, which is the property the whole design rests on. No globalSetup
+        // here says so, and would break if that stopped being true.
+        test: {
+          name: "lsp",
+          include: ["lsp/**/*_test.ts"],
+          testTimeout: 60_000,
+        },
+      },
+      {
         // Stress tests spawn their own worker fleet, so no shared globalSetup
         // server. Runs the SQLite backend always and Postgres when DSN is set.
         //

@@ -193,3 +193,15 @@ func keysOf[V any](m map[string]V) []string {
 	sort.Strings(out)
 	return out
 }
+
+// A task reads its OWN output through `self.output` in the switch that routes on it. When that
+// output fails to type, the switch fails too — one mistake, and the second report is the
+// server explaining its own recovery back to the author.
+func TestATasksOwnPoisonedOutputDoesNotAlsoBreakItsSwitch(t *testing.T) {
+	ds := check(t, `{"name":"p","tasks":[
+		{"id":"a","action":{"type":"fetch","url":"u",
+		 "responses":{"200":{"type":"object","properties":{"n":{"type":"number"}}}}},
+		 "output":{"v":"$: self.result.missing"},
+		 "switch":[{"case":"self.output.v > 1","goto":"end"},{"goto":"end"}]}]}`)
+	assertAddresses(t, ds, "tasks.a.output")
+}

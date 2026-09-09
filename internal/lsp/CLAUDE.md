@@ -81,6 +81,23 @@ is looking at, so renaming a process in the editor must not send them to the nam
 walk skips `.git`/`node_modules`/`dist`/`build`/`vendor` and caps at `maxScanned`, because a
 workspace rooted somewhere enormous must not hang an editor.
 
+## The e2e suite is where the gaps showed up
+
+`tests/lsp/` drives the real binary against one valid fixture, and names a position by quoting
+the line it is on:
+
+    <|>        the cursor is here
+    <|text>    the cursor is here and `text` has NOT been typed yet — it is removed
+    <^text>    the cursor is inside `text`, which stays
+
+The fragment must appear exactly once in the document, or the helper refuses it: two
+identically-written `goto: "$review"` lines are what that guard is for. `edit()` is the same
+rule for diagnostics, which need a document that is wrong rather than a cursor.
+
+Writing them found two things unit tests had not: a cursor on the blank line **below** the
+last key (where the next key goes, and where nothing covers the position — `sameIndentAbove`),
+and a task whose own poisoned output was re-reported through its own switch.
+
 ## The extension is a launcher
 
 `editors/vscode` starts `genctl lsp` and contributes a language id. It implements no analysis,

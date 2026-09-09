@@ -162,6 +162,14 @@ func (b *bag) derived(address string) bool {
 	if len(seg) < 2 || seg[0] != slotTasks {
 		return false
 	}
+	// A task sees its OWN output through `self.output`, and `sees` lists only the other tasks
+	// whose outputs are in scope — so without this a task whose output failed reports the
+	// failure and then reports its own switch failing to read it. The output slot itself is
+	// excluded: that diagnostic is the CAUSE, and dropping it would leave the recovery
+	// explaining nothing.
+	if b.poisoned[seg[1]] && address != taskSlot(seg[1], slotOutput) {
+		return true
+	}
 	for id := range b.sees[seg[1]] {
 		if b.poisoned[id] {
 			return true

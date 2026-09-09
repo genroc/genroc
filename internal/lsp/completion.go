@@ -31,21 +31,33 @@ func completeKey(text string, line, col int) []completionItem {
 	if !ok {
 		return nil
 	}
-	path, ok := doc.At(line, col)
+	if path, ok := doc.At(line, col); ok {
+		// A cursor ON a key is someone typing that key, and what they want is its SIBLINGS —
+		// the keys legal beside it. Only a cursor in the whitespace of a mapping means
+		// "inside".
+		span, _ := doc.Span(path)
+		if span.Key.Contains(line, col) {
+			path = defdoc.ParentPath(path)
+		} else if v, found := doc.ValueAt(path); found {
+			if _, isMapping := v.(map[string]any); !isMapping {
+				path = defdoc.ParentPath(path)
+			}
+		}
+		return legalKeys(doc, path)
+	}
+
+	// A blank line below the last key is where the next key goes, and no node covers it. The
+	// nearest line above at the same indent names a SIBLING, so the mapping being filled in is
+	// that sibling's parent.
+	sibling, keyCol, found := sameIndentAbove(text, line, col)
+	if !found {
+		return nil
+	}
+	path, ok := doc.At(sibling, keyCol)
 	if !ok {
 		return nil
 	}
-	// A cursor ON a key is someone typing that key, and what they want is its SIBLINGS — the
-	// keys legal beside it. Only a cursor in the whitespace of a mapping means "inside".
-	span, _ := doc.Span(path)
-	if span.Key.Contains(line, col) {
-		path = defdoc.ParentPath(path)
-	} else if v, ok := doc.ValueAt(path); ok {
-		if _, isMapping := v.(map[string]any); !isMapping {
-			path = defdoc.ParentPath(path)
-		}
-	}
-	return legalKeys(doc, path)
+	return legalKeys(doc, defdoc.ParentPath(path))
 }
 
 // expressionPrefix reports the dotted path being typed, when the cursor is inside an
@@ -201,4 +213,47 @@ func soleDocContaining(text string, line int) (*defdoc.Doc, bool) {
 		return docs[0], true
 	}
 	return nil, false
+}
+
+// sameIndentAbove finds the nearest non-blank line above `line` whose first content sits at
+// the cursor's own column, and returns where that content starts. A sequence entry counts by
+// its first key (`- id: x` puts `id` at the indent its siblings use), which is why the search
+// is over the column rather than over the leading dash.
+func sameIndentAbove(text string, line, col int) (int, int, bool) {
+	lines := splitLines(text)
+	for i := line - 2; i >= 0; i-- {
+		if i >= len(lines) {
+			continue
+		}
+		start := indentOf(lines[i])
+		if start < 0 {
+			continue // blank
+		}
+		if start+1 == col {
+			return i + 1, col, true
+		}
+		if start+1 < col {
+			return 0, 0, false // an outer level: the cursor is deeper than anything above it
+		}
+	}
+	return 0, 0, false
+}
+
+// indentOf is the 0-based column of a line's first content, or -1 when it has none. A sequence
+// dash is skipped: `  - id: x` has its key at 4, the indent its siblings are written at.
+func indentOf(line string) int {
+	i := 0
+	for i < len(line) && line[i] == ' ' {
+		i++
+	}
+	if i < len(line) && line[i] == '-' {
+		i++
+		for i < len(line) && line[i] == ' ' {
+			i++
+		}
+	}
+	if i >= len(line) {
+		return -1
+	}
+	return i
 }

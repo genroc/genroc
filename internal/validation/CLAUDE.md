@@ -242,7 +242,9 @@ couplings are silent when broken (`diagnostic.go`, specs/language-server.md §2)
   recovery exists, so a "just propagate it" simplification undoes the feature.
 - **`bag.derived` needs `bag.observe`.** Suppression asks whether the diagnostic's own task
   can SEE a poisoned output. Falling back to "any poison suppresses every unknown read" hides
-  real findings in tasks that never read the broken one.
+  real findings in tasks that never read the broken one. A task also sees its OWN output
+  through `self.output`, which `observe` does not list — **except** the output slot itself,
+  whose diagnostic is the cause and must survive.
 - **One diagnostic per address.** A slot is the unit a reader fixes, so the section wrappers
   in `infer.go` stop at their first failure. Two findings under one address would be the same
   problem twice.
