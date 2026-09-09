@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, expect, test } from "vitest";
 import { at, edit, Lsp, orders, shipment, useWorkspace } from "./helpers.ts";
+import type { Doc } from "./helpers.ts";
 
 // What `genctl lsp` offers, at the places someone actually pauses while writing a definition.
 // Each test quotes the line it is about; `<|text>` is the cursor with `text` not yet typed.
@@ -302,7 +303,7 @@ test("a required key is offered first", async () => {
 test("a schema's type offers the JSON types", async () => {
   // The line above disambiguates: `  type: object` is also a prefix of the response schema's.
   expect(await lsp.completions(at(`input_schema:\n  type: <^object>`))).toEqual([
-    "array",
+    "[]",
     "boolean",
     "integer",
     "null",
@@ -310,6 +311,61 @@ test("a schema's type offers the JSON types", async () => {
     "object",
     "string",
   ]);
+});
+
+// `array` is ACCEPTED and not offered: beside `[]` it read as a second spelling of it, and the
+// two mean opposite things — one value that is a list, or one of several types.
+test("the type list leaves out array, which the list form was read as", async () => {
+  expect(await lsp.completions(at(`input_schema:\n  type: <^object>`))).not.toContain("array");
+});
+
+// Bare `null` is YAML's null VALUE, so `type: null` decodes as no type at all — silently. The
+// item is listed by the name a reader is looking for and writes the spelling that survives.
+test("null is listed by name and written quoted", async () => {
+  const items = await lsp.completionItems(at(`input_schema:\n  type: <^object>`));
+  expect(items.find((i) => i.label === "null")?.textEdit?.newText).toBe('"null"');
+  expect(items.find((i) => i.label === "string")?.textEdit?.newText).toBe("string");
+});
+
+// `type` takes a LIST of names as well as one, which is how a nullable property is declared —
+// so the list is offered as a value of its own, and it writes the brackets rather than its
+// label. Last, because one type is the common case.
+test("a schema's type offers the list form, which writes the brackets", async () => {
+  const items = await lsp.completionItems(at(`input_schema:\n  type: <^object>`));
+  const list = items.find((i) => i.label === "[]");
+  expect(list?.textEdit?.newText).toBe("[]");
+  const ordered = items
+    .slice()
+    .sort((a, b) => (a.sortText ?? "").localeCompare(b.sortText ?? ""))
+    .map((i) => i.label);
+  expect(ordered[ordered.length - 1]).toBe("[]");
+});
+
+const JSON_TYPES = ["boolean", "integer", "null", "number", "object", "string"];
+
+// An empty flow list has a zero-width node, so the cursor between the brackets does not resolve
+// through the index at all — it is the line's key that says where it is.
+test("inside the list form, the names come back and the brackets do not", async () => {
+  const nullable = edit(orders, { "    currency: { type: string }": "    currency:\n      type: []" });
+  expect(await lsp.completions(at(`      type: [<|>]`, nullable))).toEqual(JSON_TYPES);
+});
+
+// A cursor on an element resolves to `type.1`, one segment past the slot the closed set is read
+// from — so the index has to be stepped over rather than looked up.
+test("a name already written in the list still completes as a type", async () => {
+  const nullable = edit(orders, {
+    "    currency: { type: string }": '    currency:\n      type: [string, "null"]',
+  });
+  expect(await lsp.completions(at(`      type: [string, "<^null>"]`, nullable))).toEqual(JSON_TYPES);
+});
+
+// The state a list is in for as long as it takes to write one: an unclosed `[` swallows every
+// line below it, so the document does not parse and nothing at all was offered.
+test("a list still being written completes while it is unclosed", async () => {
+  const nullable = edit(orders, {
+    "    currency: { type: string }": "    currency:\n      type: [string,",
+  });
+  expect(await lsp.completions(at(`      type: [string,<|>`, nullable))).toEqual(JSON_TYPES);
 });
 
 // A task's `action.type` is a different closed set, and the schema says which: the variants of
@@ -328,6 +384,11 @@ test("an action's type offers the action types, with what each one is", async ()
   expect(byLabel["fetch"]).toBe("HTTP call");
 });
 
+// Only a schema's `type` takes several at once: an action is one kind of thing.
+test("an action's type does not offer the list form", async () => {
+  expect(await lsp.completions(at(`      type: <^fetch>`))).not.toContain("[]");
+});
+
 // They are offered in the order the schema declares them, not alphabetically — `fetch` is the
 // one an author reaches for most and it is written first.
 test("the action types keep the order the schema declares", async () => {
@@ -337,4 +398,81 @@ test("the action types keep the order the schema declares", async () => {
     .sort((a, b) => (a.sortText ?? "").localeCompare(b.sortText ?? ""))
     .map((i) => i.label);
   expect(ordered[0]).toBe("fetch");
+});
+
+// ── an array is indexed, not read by name ────────────────────────────────────────
+
+// The fixture has no array, and an array is the one type with nothing to offer by name.
+function withTags(expression: string): Doc {
+  return edit(orders, {
+    "    currency: { type: string }":
+      "    currency: { type: string }\n" +
+      "    tags:\n" +
+      "      type: array\n" +
+      "      items:\n" +
+      "        type: object\n" +
+      "        properties:\n" +
+      "          name: { type: string }",
+    '        X-Currency: "${ input.currency }"': '        X-Currency: "' + expression + '"',
+  });
+}
+
+// Reported from an editor: `input.who.` offered nothing at all, which reads as a server that
+// does not work rather than as a dot that does not belong there.
+test("an array offers the index, and the item replaces the dot", async () => {
+  const doc = withTags("${ input.tags. }");
+  const cursor = at('        X-Currency: "${ input.tags.<|> }"', doc);
+  const items = await lsp.completionItems(cursor);
+  expect(items.map((i) => i.label)).toEqual(["[0]"]);
+  expect(items[0].detail).toBe("object{name?}|null");
+  // `input.who.[0]` is not an expression: the edit starts ON the dot and swallows it.
+  expect(items[0].textEdit?.newText).toBe("[0]");
+  expect(items[0].textEdit?.range.start.character).toBe(cursor.character - 1);
+});
+
+// The tail scanner stopped at `[`, so the container came out empty and the ROOT scope was
+// offered — `input`, `self` and `outputs`, in a position where none of them is legal.
+test("members are found through an index", async () => {
+  const doc = withTags("${ input.tags[0]. }");
+  expect(await lsp.completions(at('        X-Currency: "${ input.tags[0].<|> }"', doc))).toEqual([
+    "name",
+  ]);
+});
+
+// ── a key is written with its colon ──────────────────────────────────────────────
+
+// Choosing a key used to leave the reader to type the `:` themselves, which is the one thing
+// that is never in doubt.
+test("a key writes its colon, and a block key writes only the colon", async () => {
+  const doc = edit(orders, { "  - id: review\n": "  - id: review\n    on\n" });
+  const cursor = at("    on<|>\n", doc);
+  const items = await lsp.completionItems(cursor);
+  // A value that goes beside the key gets the space; `on_error` opens a list below it.
+  expect(items.find((i) => i.label === "only_once")?.textEdit?.newText).toBe("only_once: ");
+  expect(items.find((i) => i.label === "on_error")?.textEdit?.newText).toBe("on_error:");
+  // The half-typed word is what it replaces, not the cursor.
+  expect(items.find((i) => i.label === "only_once")?.textEdit?.range.start.character).toBe(
+    cursor.character - 2,
+  );
+});
+
+// A key chosen over one that is already written: the line carries its own colon, and a second
+// would break it. The word being replaced also extends PAST the cursor.
+test("a key written over an existing one keeps the line's own colon", async () => {
+  const cursor = at(`      <^method>: GET`);
+  const body = (await lsp.completionItems(cursor)).find((i) => i.label === "body");
+  expect(body?.textEdit?.newText).toBe("body");
+  expect(body?.textEdit?.range.start.character).toBe(6);
+  expect(body?.textEdit?.range.end.character).toBe(12);
+});
+
+// An action variant carries a `oneOf` of ITS OWN — which of its keys go together — and reading
+// that as a choice of shape made `action` look like a key you write a value beside.
+test("an action opens a block, though its arms carry unions of their own", async () => {
+  const doc = edit(orders, {
+    [`    action:\n      type: child\n      name: shipment\n      input:\n        order: "$: input.customer_id"\n`]:
+      "    ac\n",
+  });
+  const items = await lsp.completionItems(at("    ac<|>\n", doc));
+  expect(items.find((i) => i.label === "action")?.textEdit?.newText).toBe("action:");
 });

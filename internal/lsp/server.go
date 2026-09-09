@@ -200,9 +200,17 @@ func (s *Server) complete(p completionParams) []completionItem {
 			continue
 		}
 		start := toPosition(lines, line, it.replaceFrom)
+		end := p.Position
+		if it.replaceTo > 0 {
+			end = toPosition(lines, line, it.replaceTo)
+		}
+		text := it.Label
+		if it.insert != "" {
+			text = it.insert
+		}
 		items[i].TextEdit = &textEdit{
-			Range:   textRange{Start: start, End: p.Position},
-			NewText: it.Label,
+			Range:   textRange{Start: start, End: end},
+			NewText: text,
 		}
 	}
 	return items

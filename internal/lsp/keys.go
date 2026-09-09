@@ -69,6 +69,9 @@ func legalKeys(doc *defdoc.Doc, path string) []completionItem {
 			Label:  name,
 			Kind:   kindProperty,
 			Detail: keyDetail(name, m, required[name]),
+			// Writing the colon is the point: the next keystroke after choosing a key is the
+			// value. `completeKey` clears this where the line already carries one.
+			insert: name + keySuffix(root, m),
 			// Editors sort on this string, and with none they fall back to a fuzzy score
 			// that ties across a whole vocabulary — leaving `$anchor` at the top of a list
 			// of JSON Schema keywords.
@@ -77,6 +80,45 @@ func legalKeys(doc *defdoc.Doc, path string) []completionItem {
 		})
 	}
 	return out
+}
+
+// keySuffix is what follows a key the moment it is written: a space where the value goes on the
+// same line, nothing where a block opens below it.
+func keySuffix(root, node map[string]any) string {
+	if canBeScalar(root, node, 4) {
+		return ": "
+	}
+	return ":"
+}
+
+// canBeScalar reports whether a slot's value may be written beside its key. A union counts if
+// ANY arm may be — a `switch` is a list of clauses or the word `end`, and `end` is the common
+// one. The depth bound is the schema's recursion (a user schema nests user schemas).
+func canBeScalar(root, node map[string]any, depth int) bool {
+	if depth <= 0 {
+		return true
+	}
+	node, ok := resolve(root, node)
+	if !ok {
+		return true
+	}
+	// A declared type settles it, and it is read BEFORE any union: an arm may carry a `oneOf`
+	// of its own to say which of ITS keys go together, and that is not a choice of shape.
+	switch node["type"] {
+	case "object", "array":
+		return false
+	case "string", "number", "integer", "boolean", "null":
+		return true
+	}
+	if arms := unionArms(node); arms != nil {
+		for _, arm := range arms {
+			if m, ok := arm.(map[string]any); ok && canBeScalar(root, m, depth-1) {
+				return true
+			}
+		}
+		return false
+	}
+	return node["properties"] == nil && node["items"] == nil && node["additionalProperties"] == nil
 }
 
 // walk follows a DOCUMENT path down the schema, resolving refs and choosing among union arms.

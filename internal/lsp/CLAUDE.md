@@ -70,7 +70,8 @@ silently offers the union — the first version did exactly that.
 
 **Completion runs on text that does not parse**, which is the normal state of a buffer someone
 is typing in. `expressionPrefix` scans the RAW line, and `parseRepaired` retries the parse with
-only the cursor's line closed off (`"`, `}"`, `"}`, `: `). Repairing more would answer about a
+only the cursor's line closed off (`"`, `}"`, `"}`, `: `, `]` — an unclosed `[` swallows every
+line below it, so a half-written list stops the whole document parsing). Repairing more would answer about a
 document the author is not looking at.
 
 **A `case` is an expression written BARE.** It is an expression slot, not a Shape, so there is
@@ -93,6 +94,14 @@ the first line at the same indent (a sibling, so the mapping is its parent) or a
 choosing among the action's keys. `completeKey` decides with `span.Key.Contains`, not by
 guessing from the value's type.
 
+**A key completion writes its colon.** The keystroke after choosing a key is the value, never
+punctuation — so an item writes `only_once: ` where the value goes beside the key and `on_error:`
+where a block opens below it; `canBeScalar` reads which from the schema, and takes the node's
+declared `type` BEFORE any union, since an arm may carry a `oneOf` saying which of ITS keys go
+together. Two things it must not do: write a second colon onto a line that already has one (a key
+chosen over one that is written), or replace only as far as the cursor — a key chosen from inside
+a word has to swallow the rest of it, which is what `replaceTo` is for.
+
 **A value completion REPLACES what is typed.** `$` is not a word character, so an editor given
 no range inserts beside it — choosing `$tick` after `goto: $` left `$$tick`. Every routing item
 carries a `textEdit` whose range starts at the token, which the server builds from
@@ -108,6 +117,25 @@ task in the document plus `end` and `next`, and a `type` is either the JSON type
 user schema) or the variants of the union it discriminates, read from the arms' own `const`s.
 Without `routingValues` and `typeValues` the cursor in `goto: $` or `type: ` reads as sitting on
 a key, and the node's own siblings come back.
+
+A user schema's `type` takes a LIST of those names as well as one of them — which is how a
+nullable property is declared — so `[]` is offered beside them, last, and dropped once the cursor
+is already inside one. An empty flow list has a ZERO-WIDTH node, so that cursor does not resolve
+through the index at all: `insideFlowList` reads the brackets off the raw line and the slot is
+the line's key, the same fallback `afterKey` is.
+
+Two things about that list depart from what the language ACCEPTS, on purpose. `array` is not
+offered — beside `[]` it read as a second spelling of it, and the two mean opposite things — and
+`null` is listed by name but WRITTEN as `"null"`, since bare null is YAML's null value and
+`type: null` decodes as no type at all, silently. `insert` on a completion item is that
+distinction between what a reader picks and what lands in the document.
+
+**An array is INDEXED, and the dot a reader has just typed is not legal after one.**
+`input.who.` offered nothing at all, which reads as a server that does not work; it offers `[0]`,
+whose edit starts ON the dot so the result is `input.who[0]` rather than `input.who.[0]`.
+`dottedTail` steps over a whole `[…]` group for the same reason: stopping at the bracket left the
+container empty, so `input.rows[0].` answered with the ROOT scope — `input`, `self`, `outputs` —
+in a position where none of them is legal.
 
 **Hover is silent where a DIAGNOSTIC already speaks.** An expression that does not type gets
 no hover line: the editor puts the diagnostic for that position at the top of the same popup,

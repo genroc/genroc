@@ -106,6 +106,16 @@ type completionItem struct {
 	// replaceFrom is the 1-based BYTE column the item overwrites from, which the server turns
 	// into TextEdit once it has the line to convert against. Unexported: it never goes out.
 	replaceFrom int
+
+	// insert is what the item WRITES where that differs from the label it is listed under —
+	// `null` is listed as a type name and written as `"null"`. It reaches the editor as the
+	// TextEdit's text, so an item that sets it must set replaceFrom too.
+	insert string
+
+	// replaceTo is the 1-based BYTE column the item overwrites TO, where that is past the
+	// cursor. A key completed from inside a word has to swallow the rest of it, or `respon|se`
+	// becomes `responsese`. Zero means "to the cursor", which is every value slot.
+	replaceTo int
 }
 
 type textEdit struct {
