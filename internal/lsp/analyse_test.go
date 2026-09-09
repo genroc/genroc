@@ -201,3 +201,157 @@ func TestASlotWithNoFinerFieldStillUnderlinesTheSlot(t *testing.T) {
 		t.Errorf("the output map is on line 6 (0-based 5), got %d", d.Range.Start.Line)
 	}
 }
+
+// A schema decodes before anything reads it, and encoding/json's own error named the outermost
+// slot it was inside ("input_schema.properties") — so a mistake in one property underlined the
+// whole schema, or, with nothing to resolve, the first line of the file.
+func TestAPropertyThatIsNotASchemaUnderlinesThatProperty(t *testing.T) {
+	//  1 name: demo
+	//  2 input_schema:
+	//  3   type: object
+	//  4   properties:
+	//  5     who: string
+	d := only(t, "name: demo\ninput_schema:\n  type: object\n  properties:\n    who: string\ntasks:\n  - id: a\n    switch: end\n")
+	if d.Message != "who: a schema must be an object, not a string" {
+		t.Errorf("message = %q", d.Message)
+	}
+	if d.Range.Start.Line != 4 || d.Range.Start.Character != 9 || d.Range.End.Character != 15 {
+		t.Errorf("want line 4 (0-based), columns 9-15 — the value written where a schema goes; got %d:%d-%d",
+			d.Range.Start.Line, d.Range.Start.Character, d.Range.End.Character)
+	}
+}
+
+func TestAnUnsupportedKeywordUnderlinesTheKeyword(t *testing.T) {
+	//  1 name: demo
+	//  2 input_schema:
+	//  3   type: object
+	//  4   properties:
+	//  5     who:
+	//  6       pattern: "^a"
+	d := only(t, "name: demo\ninput_schema:\n  type: object\n  properties:\n    who:\n      pattern: \"^a\"\ntasks:\n  - id: a\n    switch: end\n")
+	if d.Code != "def.unknown_key" {
+		t.Errorf("code = %q", d.Code)
+	}
+	// The key, not its value: the spelling is what is wrong.
+	if d.Range.Start.Line != 5 || d.Range.Start.Character != 6 || d.Range.End.Character != 13 {
+		t.Errorf("want line 5 (0-based), the keyword's own columns 6-13, got %d:%d-%d",
+			d.Range.Start.Line, d.Range.Start.Character, d.Range.End.Character)
+	}
+}
+
+// The one failure a schema cannot place itself: the slot IS the mistake, so there is no path
+// inside the schema to report and encoding/json adds context only to its own type errors.
+func TestASchemaSlotThatIsNotAnObjectUnderlinesTheSlot(t *testing.T) {
+	//  1 name: demo
+	//  2 input_schema: object
+	d := only(t, "name: demo\ninput_schema: object\ntasks:\n  - id: a\n    switch: end\n")
+	if d.Message != "a schema must be an object, not a string" {
+		t.Errorf("message = %q", d.Message)
+	}
+	if d.Range.Start.Line != 1 || d.Range.Start.Character != 14 || d.Range.End.Character != 20 {
+		t.Errorf("want line 1 (0-based), columns 14-20, got %d:%d-%d",
+			d.Range.Start.Line, d.Range.Start.Character, d.Range.End.Character)
+	}
+}
+
+// Two schemas, one broken: the scan that places a slot-shaped failure must not settle on the
+// first schema it meets.
+func TestASchemaSlotIsPlacedAmongOtherSchemas(t *testing.T) {
+	//  1 name: demo
+	//  2 input_schema:
+	//  3   type: object
+	//  4 tasks:
+	//  5   - id: a
+	//  6     action:
+	//  7       type: external
+	//  8       result_schema: object
+	d := only(t, "name: demo\ninput_schema:\n  type: object\ntasks:\n  - id: a\n    action:\n      type: external\n      result_schema: object\n    switch: end\n")
+	if d.Range.Start.Line != 7 || d.Range.Start.Character != 21 {
+		t.Errorf("want the task's result_schema on line 7 (0-based) at column 21, got %d:%d",
+			d.Range.Start.Line, d.Range.Start.Character)
+	}
+}
+
+// A response schema is declared as one arm of a nullable union, so a slot search that reads
+// only the node it lands on does not recognise it.
+func TestAResponseSchemaThatIsNotAnObjectUnderlinesThatResponse(t *testing.T) {
+	//  1 name: demo
+	//  2 tasks:
+	//  3   - id: a
+	//  4     action:
+	//  5       type: fetch
+	//  6       url: "https://x"
+	//  7       responses:
+	//  8         "200": object
+	d := only(t, "name: demo\ntasks:\n  - id: a\n    action:\n      type: fetch\n      url: \"https://x\"\n      responses:\n        \"200\": object\n    switch: end\n")
+	if d.Range.Start.Line != 7 || d.Range.Start.Character != 15 {
+		t.Errorf("want the response schema on line 7 (0-based) at column 15, got %d:%d",
+			d.Range.Start.Line, d.Range.Start.Character)
+	}
+}
+
+// A property with no schema under it is null, which decodes; it must not be mistaken for the
+// slot that failed to.
+func TestANullPropertyDoesNotStealTheSlotSearch(t *testing.T) {
+	//  1 name: demo
+	//  2 input_schema: object
+	//  3 tasks:
+	//  4   - id: a
+	//  5     action:
+	//  6       type: external
+	//  7       result_schema:
+	//  8         properties:
+	//  9           who:
+	d := only(t, "name: demo\ninput_schema: object\ntasks:\n  - id: a\n    action:\n      type: external\n      result_schema:\n        properties:\n          who:\n    switch: end\n")
+	if d.Range.Start.Line != 1 || d.Range.Start.Character != 14 {
+		t.Errorf("want input_schema's value on line 1 (0-based) at column 14, got %d:%d",
+			d.Range.Start.Line, d.Range.Start.Character)
+	}
+}
+
+// Two slots are scalars and the decoder stopped at one of them; which one it was is not in the
+// error. Underlining either is a guess, so the search declines — the same rule solePathEndingIn
+// follows.
+func TestTwoSlotShapedFailuresAreNotGuessedBetween(t *testing.T) {
+	//  1 name: demo
+	//  2 input_schema: object
+	//  3 tasks:
+	//  4   - id: a
+	//  5     action:
+	//  6       type: external
+	//  7       result_schema: object
+	d := only(t, "name: demo\ninput_schema: object\ntasks:\n  - id: a\n    action:\n      type: external\n      result_schema: object\n    switch: end\n")
+	if d.Range.Start.Line != 0 {
+		t.Errorf("want the fallback to the first line, got line %d", d.Range.Start.Line)
+	}
+}
+
+// encoding/json's prose names the Go type that could not hold the value ("of type bool") and a
+// field stack that skips the list index, so it resolved to the whole `tasks:` block.
+func TestAFieldGivenTheWrongKindOfValueSaysWhatItTakes(t *testing.T) {
+	//  1 name: demo
+	//  2 tasks:
+	//  3   - id: a
+	//  4     only_once: 5
+	d := only(t, "name: demo\ntasks:\n  - id: a\n    only_once: 5\n    switch: end\n")
+	if d.Message != "only_once must be a boolean, not a number" {
+		t.Errorf("message = %q", d.Message)
+	}
+	if d.Range.Start.Line != 3 || d.Range.Start.Character != 15 {
+		t.Errorf("want the value on line 3 (0-based) at column 15, got %d:%d",
+			d.Range.Start.Line, d.Range.Start.Character)
+	}
+}
+
+func TestATopLevelFieldGivenTheWrongKindOfValueIsPlacedToo(t *testing.T) {
+	//  1 name: demo
+	//  2 tasks: 5
+	d := only(t, "name: demo\ntasks: 5\n")
+	if d.Message != "tasks must be a list, not a number" {
+		t.Errorf("message = %q", d.Message)
+	}
+	if d.Range.Start.Line != 1 || d.Range.Start.Character != 7 {
+		t.Errorf("want the value on line 1 (0-based) at column 7, got %d:%d",
+			d.Range.Start.Line, d.Range.Start.Character)
+	}
+}

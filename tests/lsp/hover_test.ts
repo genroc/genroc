@@ -71,14 +71,22 @@ test("a slot reports its own type", async () => {
   expect(await lsp.hover(at(`    <^output>:`))).toContain("**tasks.price.output** — object{charged}");
 });
 
-// `discount` is optional, so the `?? 0` is what makes the expression type at all. Taking it
-// back out is the mistake someone actually makes, and hovering it is when they ask why.
-test("an expression that does not type says why, instead of going quiet", async () => {
+// An expression that does not type is left to the DIAGNOSTIC: the editor puts it at the top of
+// the same popup, and hover repeating it is what a reader sees twice.
+test("an expression that does not type is left to the diagnostic", async () => {
   expect(
-    // The snippet must match the EDITED document, which no longer has the `?? 0`.
     await lsp.hover(at(`      charged: "$: self.result.total <|>- (self.result.discount)"`,
       edit(orders, { " ?? 0": "" }))),
-  ).toContain("operator requires non-nullable operands");
+  ).toBe("");
+});
+
+// The symbol inside it still types, and THAT is what the diagnostic does not say — it is how a
+// reader finds out the `?? 0` was load-bearing.
+test("a symbol inside a broken expression is still typed", async () => {
+  expect(
+    await lsp.hover(at(`      charged: "$: self.result.total - (self.result.<^discount>)"`,
+      edit(orders, { " ?? 0": "" }))),
+  ).toBe("`self.result.discount` → **number|null**");
 });
 
 // The scan reads raw text, so it cannot tell a member path from a word inside a string
@@ -151,10 +159,36 @@ test("a switch case's expression is typed, not described as a key", async () => 
 });
 
 test("an on_error rule's case is the same kind of slot", async () => {
+  // `error` is the failure THIS rule caught — the scope an on_error case is written in.
   const withCase = edit(orders, {
-    "      - code: [http.500]\n": '      - code: [http.500]\n        case: "last_error.code == \'x\'"\n',
+    "      - code: [http.500]\n": '      - code: [http.500]\n        case: "error.code == \'x\'"\n',
   });
-  expect(await lsp.hover(at(`        case: "<^last_error>.code == 'x'"`, withCase))).toContain(
-    "last_error",
+  expect(await lsp.hover(at(`        case: "<^error>.code == 'x'"`, withCase))).toContain(
+    "`error` →",
   );
+});
+
+// A `default` is filled in when the value is absent, so the property is always there — which
+// is what reading it already typed as. The structured summary said `?` beside it anyway.
+test("a defaulted property is not marked absent, matching the type reading it gives", async () => {
+  const defaulted = edit(orders, {
+    "    currency: { type: string }": '    currency: { type: string, default: "EUR" }',
+    "  required: [customer_id, amount, currency]": "  required: [customer_id, amount]",
+  });
+  // The member list and the type of reading it must agree.
+  expect(await lsp.hover(at(`      url: "https://api.example.com/price?customer=\${ <^input>.customer_id }"`, defaulted)))
+    .toBe("`input` → **object{amount, currency, customer_id}**");
+  expect(await lsp.hover(at(`        X-Currency: "\${ input.<^currency> }"`, defaulted)))
+    .toBe("`input.currency` → **string**");
+});
+
+// Without a default it stays optional, and both halves say so.
+test("an optional property with no default is marked absent and types nullable", async () => {
+  const optional = edit(orders, {
+    "  required: [customer_id, amount, currency]": "  required: [customer_id, amount]",
+  });
+  expect(await lsp.hover(at(`      url: "https://api.example.com/price?customer=\${ <^input>.customer_id }"`, optional)))
+    .toBe("`input` → **object{amount, currency?, customer_id}**");
+  expect(await lsp.hover(at(`        X-Currency: "\${ input.<^currency> }"`, optional)))
+    .toBe("`input.currency` → **string|null**");
 });

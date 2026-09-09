@@ -5,7 +5,7 @@
 `genctl apply` prints `file:line:col: message`, one line per broken slot;
 `POST /api/definitions/validate` returns `fields[]` for a type failure as it always did for a
 struct-tag one; and `genctl lsp` publishes diagnostics over stdio for `*.genroc.yaml`, answers **hover** (one line: the type of the symbol, expression or slot
-under the cursor, else what the key means) and **completion** (scope members inside an expression, legal keys
+under the cursor, else what the key means) and **completion** (scope members, keys, and a routing slot's task ids) (scope members inside an expression, legal keys
 everywhere else — discriminated, so a `fetch` is offered fetch's keys and not the union of
 six), navigates a `goto` to the task it names and a child action's process to the file that
 defines it, and ships as a VS Code extension that is a launcher for `genctl lsp` and nothing
@@ -63,6 +63,21 @@ diagnostic's address, pasted into `schema context`, answers *what could I have w
 `tasks[0].id` is a **physical** path — index-based, so it moves when a task is inserted
 above it, and no human types it. It stays the index's internal key (it is what the YAML tree
 has); the id→index map is built once per document and the conversion lives in one place.
+
+### A fourth spelling: the decoder's
+
+`encoding/json` locates a failure by the Go type it was filling and the OUTERMOST slot it was
+inside — `ProcessDefinition.input_schema.properties of type map[string]json.RawMessage`, for one
+property written as a string — and inside a custom unmarshaler (every schema) it annotates
+nothing at all. So `internal/schema` reads a document's shape BEFORE decoding it, and reports in
+the prose-plus-`AtPath` pair `CheckDoc` already uses. Where the decoder still answers (every
+field that is not a schema), the stack's LAST segment is the field that failed and locates on its
+own; the Go type it names is translated into the words the document is written in.
+
+One failure still has no path: where the slot ITSELF is not an object, there is nothing inside
+the schema to name, and a sub-schema does not know which slot of which document holds it. The
+server places it by asking which schema position in the document is not an object — and declines
+where two are, like every other sole-match here.
 
 ### Collect, do not return first
 
@@ -320,6 +335,13 @@ inline — `<|>` for the cursor, `<|text>` for text not yet typed, `<^text>` for
 text that stays. A test therefore quotes the line it is about rather than naming a number that
 drifts. It earns its keep: writing it found a cursor position nothing answered for (the blank
 line below a mapping's last key) and a cascade the suppression missed (a task re-reporting its
-own poisoned output through its own switch). Built that way, plus the claim §5 rests on as a test of its
+own poisoned output through its own switch).
+
+**Positions are swept, not sampled.** Named tests pick positions by hand, and every bug
+reported from a real editor was at a position nobody picked — the fixture already contained the
+construct each time. `sweep_test.ts` visits every column of every line and asserts on the
+completion KIND (scope, key, or closed set), which is the only thing a name list cannot
+confuse; two of its checks are differential, because an absolute one would need a list of which
+mappings are open maps and that list would rot. Built that way, plus the claim §5 rests on as a test of its
 own — a table of documents run through both the editor's path and the server's two calls,
 asserting they refuse the same set.

@@ -85,6 +85,16 @@ export function edit(doc: Doc, changes: Record<string, string>): Doc {
   return { uri: doc.uri, text };
 }
 
+export interface CompletionItem {
+  label: string;
+  kind: number;
+  detail?: string;
+  documentation?: string;
+  sortText?: string;
+  /** Present when the item REPLACES text rather than being inserted at the cursor. */
+  textEdit?: { range: { start: { character: number }; end: { character: number } }; newText: string };
+}
+
 export interface Diagnostic {
   range: { start: { line: number; character: number }; end: { line: number } };
   message: string;
@@ -134,6 +144,11 @@ export class Lsp {
     await this.request("shutdown", null);
     this.notify("exit", null);
     this.child.kill();
+  }
+
+  /** Completion items with the kind the editor groups them by, and the edit each applies. */
+  async completionItems(cursor: Cursor): Promise<CompletionItem[]> {
+    return (await this.ask(cursor, "textDocument/completion")) as CompletionItem[];
   }
 
   /** Completion labels at the cursor, sorted — the set, not the order the server found it in. */

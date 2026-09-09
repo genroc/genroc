@@ -3,6 +3,7 @@ package schema
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -136,12 +137,12 @@ func checkDoc(nd *node, defs map[string]*node, seen map[*node]bool) error {
 	for sl, c := range children(nd) {
 		if c == nil {
 			if err := nullChildErr(sl); err != nil {
-				return err
+				return AtPath(pathLabel(sl), err)
 			}
 			continue
 		}
 		if err := checkDoc(c, defs, seen); err != nil {
-			return fmt.Errorf("%s: %w", errLabel(sl), err)
+			return AtPath(pathLabel(sl), fmt.Errorf("%s: %w", errLabel(sl), err))
 		}
 	}
 	return nil
@@ -173,6 +174,19 @@ func errLabel(sl childSlot) string {
 		return "$defs." + sl.key
 	case "oneOf", "anyOf", "allOf":
 		return fmt.Sprintf("%s[%d]", sl.kw, sl.idx)
+	}
+	return sl.kw
+}
+
+// pathLabel is errLabel's machine half: the same location, spelled as a path a document index
+// can resolve. They are separate because a reader reads `rows: items: oneOf[2]` and a client
+// looks up `properties.rows.items.oneOf.2`.
+func pathLabel(sl childSlot) string {
+	switch sl.kw {
+	case "properties", "$defs":
+		return sl.kw + "." + sl.key
+	case "oneOf", "anyOf", "allOf":
+		return sl.kw + "." + strconv.Itoa(sl.idx)
 	}
 	return sl.kw
 }

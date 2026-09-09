@@ -100,3 +100,14 @@ the `child_map` entry, and both slot lists.
   [internal/delayspec/CLAUDE.md](../delayspec/CLAUDE.md).
 - `Status.Terminal()` and what `paused` does *not* mean —
   [internal/db/CLAUDE.md](../db/CLAUDE.md).
+
+## Hand-written rules carry their slot
+
+`Validate`'s struct-tag failures have always carried a path; the ~60 hand-written rules report
+prose that names the task and the clause. `atPath` wraps at the few STRUCTURAL boundaries —
+the task loop, each switch case, each on_error rule — so a new rule inherits its path without
+touching its message, and `PathOf` reads it back.
+
+Without it a consumer has to guess from the prose, and guessing lands on whichever quoted word
+happens to be a value somewhere: `task "tick" switch case 0: set exactly one of "goto",
+"raise", "panic"` was underlined on the task's own id, because `tick` was the only one.

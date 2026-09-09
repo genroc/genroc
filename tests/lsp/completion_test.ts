@@ -74,7 +74,9 @@ test("inside a `child` action — child's keys, and not fetch's", async () => {
 });
 
 test("keys already written are not offered again", async () => {
-  const keys = await lsp.completions(at(`    switch: <^end>`));
+  // On the KEY: a cursor in the value of a `switch` is asking where to route, not what a task
+  // may hold.
+  const keys = await lsp.completions(at(`    <^switch>: end`));
   expect(keys).not.toContain("switch");
   expect(keys).not.toContain("id");
   expect(keys).toContain("on_error");
@@ -126,8 +128,9 @@ test("a key completion carries the prose the struct tag already wrote", async ()
 // back out to ask what the editor would say before it was written.
 test("a key that is required says so", async () => {
   const keys = await lsp.completionDetails(at(`    <|switch: end>`, shipment));
-  expect(keys["switch"].detail).toBe("required");
-  expect(keys["timeout"].detail).toBe("");
+  // The detail is what shows BESIDE the key: whether it is required, and what it takes.
+  expect(keys["switch"].detail).toBe("required object");
+  expect(keys["timeout"].detail).toBe("object");
 });
 
 // ── a union with no discriminator ────────────────────────────────────────────────
@@ -208,4 +211,130 @@ test("writing into a looping task's output still offers its own members", async 
     "charged",
     "running",
   ]);
+});
+
+// ── a value with a closed set ────────────────────────────────────────────────────
+
+// A routing slot is the one place a VALUE has a closed set. Without this the cursor read as
+// sitting on a key and the clause's own siblings were offered while typing `goto: $`.
+test("after `goto: $` — the tasks it could name", async () => {
+  expect(await lsp.completions(at(`        goto: "$<|review>"\n      - goto: "$fulfil"`))).toEqual([
+    "$fulfil",
+    "$price",
+    "$review",
+    "end",
+    "next",
+  ]);
+});
+
+test("a scalar switch offers the same set", async () => {
+  expect(await lsp.completions(at(`    switch: <^end>`))).toContain("$price");
+});
+
+// `end` and `next` are not tasks, and they are the two answers a reader forgets.
+test("the routing words that are not tasks are offered too", async () => {
+  const values = await lsp.completionDetails(at(`    switch: <^end>`));
+  expect(values["end"].detail).toBe("terminate the instance");
+  expect(values["next"].detail).toBe("advance to the next task in the list");
+});
+
+// `$` is not a word character, so an editor given no range inserts beside what was typed:
+// choosing `$tick` after `goto: $` left `$$tick`. The item replaces the token instead.
+test("a task name replaces the `$` already typed", async () => {
+  const typed = edit(orders, { '      - goto: "$fulfil"': "      - goto: $" });
+  const [first] = await lsp.completionItems(at(`      - goto: $<|>`, typed));
+  expect(first.textEdit).toBeDefined();
+  // The range covers the `$`: one character back from the cursor.
+  const { start, end } = first.textEdit!.range;
+  expect(end.character - start.character).toBe(1);
+  expect(first.textEdit!.newText).toBe(first.label);
+});
+
+// `goto:` with nothing after it is the moment help is wanted most, and it was the moment the
+// server answered with the clause's own keys — the empty value has a zero-width node, so the
+// cursor past it resolves to the sequence around it.
+test("an empty `goto:` still offers what it may name", async () => {
+  const typed = edit(orders, { '      - goto: "$fulfil"': "      - goto: " });
+  // The line above is quoted too: `- goto: ` is a prefix of `- goto: end` further down.
+  expect(
+    await lsp.completions(at(`        goto: "$review"\n      - goto: <|>`, typed)),
+  ).toEqual([
+    "$fulfil",
+    "$price",
+    "$review",
+    "end",
+    "next",
+  ]);
+});
+
+// Alphabetical put `$anchor` at the top of a list of JSON Schema keywords — the least useful
+// thing first. They are offered in the order a schema READS, which is the order
+// `genctl schema` prints one in.
+test("schema keywords are offered in the order a schema reads", async () => {
+  const items = await lsp.completionItems(at(`input_schema:\n  <|type: object>`));
+  const inListOrder = items
+    .slice()
+    .sort((a, b) => (a.sortText ?? "").localeCompare(b.sortText ?? ""))
+    .map((i) => i.label);
+  expect(inListOrder.slice(0, 6)).toEqual([
+    "description",
+    "$ref",
+    "type",
+    "oneOf",
+    "anyOf",
+    "enum",
+  ]);
+  expect(inListOrder.at(-1)).toBe("$defs");
+});
+
+// A key a definition cannot be registered without comes before the rest, whatever the order
+// says about the others.
+test("a required key is offered first", async () => {
+  const items = await lsp.completionItems(at(`    <|switch: end>`, shipment));
+  const first = items.slice().sort((a, b) => (a.sortText ?? "").localeCompare(b.sortText ?? ""))[0];
+  expect(first.label).toBe("switch");
+});
+
+// ── the two closed sets a `type` may take ────────────────────────────────────────
+
+// A `type:` inside a user schema takes JSON types. Without this the cursor after it read as
+// sitting on a key and the schema's own keywords came back.
+test("a schema's type offers the JSON types", async () => {
+  // The line above disambiguates: `  type: object` is also a prefix of the response schema's.
+  expect(await lsp.completions(at(`input_schema:\n  type: <^object>`))).toEqual([
+    "array",
+    "boolean",
+    "integer",
+    "null",
+    "number",
+    "object",
+    "string",
+  ]);
+});
+
+// A task's `action.type` is a different closed set, and the schema says which: the variants of
+// the union it discriminates, read from the arms themselves rather than a list kept here.
+test("an action's type offers the action types, with what each one is", async () => {
+  const items = await lsp.completionItems(at(`      type: <^fetch>`));
+  const byLabel = Object.fromEntries(items.map((i) => [i.label, i.detail]));
+  expect(Object.keys(byLabel).sort()).toEqual([
+    "child",
+    "child_list",
+    "child_map",
+    "delay",
+    "external",
+    "fetch",
+  ]);
+  expect(byLabel["fetch"]).toBe("HTTP call");
+});
+
+// They are offered in the order the schema declares them, not alphabetically — `fetch` is the
+// one an author reaches for most and it is written first.
+test("the action types keep the order the schema declares", async () => {
+  const items = await lsp.completionItems(at(`      type: <^fetch>`));
+  const ordered = items
+    .slice()
+    .sort((a, b) => (a.sortText ?? "").localeCompare(b.sortText ?? ""))
+    .map((i) => i.label);
+  expect(ordered[0]).toBe("fetch");
 });

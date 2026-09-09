@@ -84,3 +84,90 @@ test("a broken on_error case underlines that rule's case", async () => {
   expect(ds).toHaveLength(1);
   expect(ds[0]).toMatch(/^34: /);
 });
+
+// A rule that reports prose carries no path, and falling back to the document root painted
+// every line of the file red for one bad word — while the reader was still typing it.
+test("an error with no path underlines the value it names, not the file", async () => {
+  const ds = await lsp.diagnostics(
+    edit(orders, { '      - goto: "$fulfil"': '      - goto: "$nope"' }),
+  );
+  expect(ds).toEqual([`31: task "price" switch: goto "$nope" is not a known task`]);
+});
+
+// A rule that names the task, the clause and three key names in its prose used to be placed by
+// guessing which quoted word was a value somewhere — and `"tick"` won, so the error landed on
+// the task's id. The rules carry their slot now.
+test("a rule about one switch case underlines that case", async () => {
+  // Two `goto: "$review"` lines exist; the case above disambiguates which is removed.
+  const ds = await lsp.diagnostics(
+    edit(orders, {
+      '      - case: "self.output.charged > 1000"\n        goto: "$review"\n':
+        '      - case: "self.output.charged > 1000"\n',
+    }),
+  );
+  expect(ds).toEqual([
+    `29: task "price" switch case 0: set exactly one of "goto", "raise", "panic"`,
+  ]);
+});
+
+// A schema document's failures used to reach the editor as prose with no path, so they landed
+// on the first line — the furthest possible place from a property nested three levels down.
+test("a malformed property in input_schema underlines that property", async () => {
+  const ds = await lsp.diagnostics(
+    edit(orders, { "    customer_id: { type: string }": "    customer_id: { type: strng }" }),
+  );
+  expect(ds).toEqual([
+    `6: input_schema is not a valid JSON Schema: customer_id: unsupported schema type "strng"`,
+  ]);
+});
+
+test("a null sub-schema underlines the key that has no schema", async () => {
+  const ds = await lsp.diagnostics(edit(orders, { "    amount: { type: number }": "    amount:" }));
+  expect(ds).toEqual([`7: input_schema is not a valid JSON Schema: property "amount" is null`]);
+});
+
+// A response schema is a user schema too, and it sits under an action rather than at the root.
+test("a malformed response schema underlines it, not the file", async () => {
+  const ds = await lsp.diagnostics(edit(orders, { "            total: { type: number }": "            total: { type: nmber }" }));
+  expect(ds).toEqual([
+    `23: task "price" action.responses["200"] is not a valid JSON Schema: total: unsupported schema type "nmber"`,
+  ]);
+});
+
+// A schema is decoded before anything validates it, and the decoder's own error named the
+// outermost slot it was inside ("input_schema.properties") in the words of a Go type — so a
+// mistake in one property underlined the whole schema, and usually the first line of the file.
+test("a property written as something other than a schema underlines that property", async () => {
+  const ds = await lsp.diagnostics(
+    edit(orders, { "    customer_id: { type: string }": "    customer_id: string" }),
+  );
+  expect(ds).toEqual([`6: customer_id: a schema must be an object, not a string`]);
+});
+
+test("a keyword the subset does not have is named where it is written", async () => {
+  const ds = await lsp.diagnostics(
+    edit(orders, {
+      "            total: { type: number }": '            total: { type: number, pattern: "^d" }',
+    }),
+  );
+  expect(ds).toEqual([`23: total: unsupported schema keyword "pattern"`]);
+});
+
+// The one failure the schema cannot place itself: the slot IS the mistake, so there is no path
+// inside the schema to report. The server finds the slot by asking which one is not an object.
+test("a schema slot holding a scalar underlines that slot", async () => {
+  const ds = await lsp.diagnostics(
+    edit(orders, {
+      "      result_schema:\n        type: object\n        properties:\n          approved: { type: boolean }\n        required: [approved]":
+        "      result_schema: object",
+    }),
+  );
+  expect(ds).toEqual([`40: a schema must be an object, not a string`]);
+});
+
+// The decoder's own prose names a Go type and a field stack that skips the list index, so this
+// read as "cannot unmarshal array into Go struct field ... of type string" against `tasks:`.
+test("a field given the wrong kind of value says what it takes, where it is written", async () => {
+  const ds = await lsp.diagnostics(edit(orders, { "      method: GET": "      method: [GET]" }));
+  expect(ds).toEqual([`16: method must be a string, not a list`]);
+});

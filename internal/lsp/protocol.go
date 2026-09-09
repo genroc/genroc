@@ -96,15 +96,27 @@ type completionParams struct {
 }
 
 type completionItem struct {
-	Label         string `json:"label"`
-	Kind          int    `json:"kind,omitempty"`
-	Detail        string `json:"detail,omitempty"`
-	Documentation string `json:"documentation,omitempty"`
+	Label         string    `json:"label"`
+	Kind          int       `json:"kind,omitempty"`
+	Detail        string    `json:"detail,omitempty"`
+	Documentation string    `json:"documentation,omitempty"`
+	SortText      string    `json:"sortText,omitempty"`
+	TextEdit      *textEdit `json:"textEdit,omitempty"`
+
+	// replaceFrom is the 1-based BYTE column the item overwrites from, which the server turns
+	// into TextEdit once it has the line to convert against. Unexported: it never goes out.
+	replaceFrom int
+}
+
+type textEdit struct {
+	Range   textRange `json:"range"`
+	NewText string    `json:"newText"`
 }
 
 const (
 	kindField    = 5
 	kindProperty = 10
+	kindValue    = 12
 )
 
 // completionOpts asks the editor to re-request after a `.`, which is where a member list is

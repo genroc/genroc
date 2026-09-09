@@ -90,3 +90,34 @@ func TestTheGrammarsScopeNameMatchesTheContribution(t *testing.T) {
 		}
 	}
 }
+
+// Expressions live inside quoted strings, and VS Code suppresses suggestions there unless a
+// language says otherwise — which is why completion only appeared on Ctrl+Space. Nothing in
+// the protocol can override it; it has to be a default the extension contributes.
+func TestTheExtensionEnablesSuggestionsInsideStrings(t *testing.T) {
+	raw, err := os.ReadFile("../../editors/vscode/package.json")
+	if err != nil {
+		t.Skipf("extension not present: %v", err)
+	}
+	var pkg struct {
+		Contributes struct {
+			ConfigurationDefaults map[string]struct {
+				QuickSuggestions map[string]bool `json:"editor.quickSuggestions"`
+				ShowWords        *bool           `json:"editor.suggest.showWords"`
+			} `json:"configurationDefaults"`
+		} `json:"contributes"`
+	}
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		t.Fatalf("package.json: %v", err)
+	}
+	lang, ok := pkg.Contributes.ConfigurationDefaults["[genroc]"]
+	if !ok {
+		t.Fatal("the extension contributes no defaults for its own language")
+	}
+	if !lang.QuickSuggestions["strings"] {
+		t.Error("suggestions inside strings are off, so a `$:` expression completes only on Ctrl+Space")
+	}
+	if lang.ShowWords == nil || *lang.ShowWords {
+		t.Error("word-based suggestions are on, and they rank beside the vocabulary the server knows")
+	}
+}

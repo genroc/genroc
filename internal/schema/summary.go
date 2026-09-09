@@ -42,8 +42,8 @@ func (s Schema) summary(depth int) string {
 	return s.TypeName()
 }
 
-// MemberNames lists an object's properties, `?` on the optional ones. Empty for anything that
-// is not an object with declared properties.
+// MemberNames lists an object's properties, `?` on the ones that may be absent. Empty for
+// anything that is not an object with declared properties.
 func (s Schema) MemberNames() string {
 	if resolved, err := s.Resolve(); err == nil {
 		s = resolved
@@ -52,14 +52,10 @@ func (s Schema) MemberNames() string {
 	if len(props) == 0 {
 		return ""
 	}
-	required := map[string]bool{}
-	for _, name := range s.Required() {
-		required[name] = true
-	}
 	names := make([]string, 0, len(props))
 	for _, name := range slices.Sorted(maps.Keys(props)) {
 		label := name
-		if !required[name] {
+		if s.MayBeAbsent(name) {
 			label += "?"
 		}
 		// `=null` is what one arm says about an output another arm sets: present, and null
@@ -70,4 +66,24 @@ func (s Schema) MemberNames() string {
 		names = append(names, label)
 	}
 	return strings.Join(names, ", ")
+}
+
+// MayBeAbsent reports whether reading a property may find nothing — which is NOT the same as
+// "not required": conforming fills an absent optional's default, so a defaulted property is
+// always there. Navigation types it non-nullable for exactly this reason, and a summary that
+// said otherwise contradicted the type beside it.
+func (s Schema) MayBeAbsent(name string) bool {
+	if resolved, err := s.Resolve(); err == nil {
+		s = resolved
+	}
+	for _, r := range s.Required() {
+		if r == name {
+			return false
+		}
+	}
+	prop, ok := s.Properties()[name]
+	if !ok {
+		return true
+	}
+	return prop.Default() == nil
 }

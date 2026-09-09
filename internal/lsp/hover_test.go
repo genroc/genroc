@@ -109,12 +109,20 @@ func TestHoverStillAnswersWhenAnotherPartOfTheFileIsBroken(t *testing.T) {
 	}
 }
 
-// An expression that does not type is exactly when someone hovers it, so the reason has to be
-// the answer rather than an empty popup.
-func TestHoverOverABrokenExpressionSaysWhy(t *testing.T) {
+// An expression that does not type is silent, because the editor puts the DIAGNOSTIC for that
+// position at the top of the same popup — saying it twice is what a reader sees.
+func TestHoverOverABrokenExpressionLeavesItToTheDiagnostic(t *testing.T) {
 	broken := strings.Replace(hoverDoc, "self.result.total * 2", "self.result.nope * 2", 1)
-	if md := hoverOf(t, broken, 14, 36); !strings.Contains(md, "nope") {
-		t.Errorf("want the inference failure, got: %s", md)
+	if md, _, ok := hoverAt(broken, 14, 36); ok {
+		t.Errorf("the diagnostic already says this; hover added: %s", md)
+	}
+}
+
+// A symbol inside it still types, though, and that is what the diagnostic does NOT say.
+func TestHoverStillTypesAWorkingSymbolInsideABrokenExpression(t *testing.T) {
+	broken := strings.Replace(hoverDoc, "self.result.total * 2", "self.result.nope * 2", 1)
+	if md := hoverOf(t, broken, 14, 19); !strings.HasPrefix(md, "`self` → **object{") {
+		t.Errorf("got: %s", md)
 	}
 }
 

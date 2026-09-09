@@ -199,3 +199,36 @@ otherwise describe itself forever.
 
 The same shape bites anything that reads a nullable value's members, not just `Summary`:
 completion's `membersOf` strips the null before resolving for exactly this reason.
+
+## "Optional" is not "may be absent"
+
+`conformObject` fills an absent optional's default, so a property WITH a default is always
+there — and `inferProperty` has typed it non-nullable all along ("required, or defaulted").
+`MayBeAbsent` is that rule, named once: `MemberNames`, completion's member details and
+`genctl schema context` all read it rather than the `required` list.
+
+Reading `required` alone is the bug it exists to prevent: a summary said `object{who?}` beside
+a hover that typed the same read as `string`, which is the editor contradicting itself.
+
+## The shape is read before the decode
+
+`UnmarshalJSON` runs `checkRawNode` over the raw JSON first, because encoding/json's own error
+names a Go type and the outermost slot it was inside — a property written as a string reported
+against the whole `input_schema`. The check reports prose plus `AtPath`, as `checkDoc` does, and
+`rawSlots` is the raw-JSON half of `mapChildren` (`TestRawSlotsCoverEveryChildSlot` keeps the
+two in step). Null is tolerated exactly where it decodes today; `checkDoc` is what reports it.
+
+`ErrNotASchema` and `ErrUnknownKeyword` are exported for the two things a client must do
+differently: place a failure that has no path (the slot itself is the mistake), and underline a
+KEY rather than its value.
+
+## One keyword table, three consumers
+
+`allowedKeywords` is the allowlist `UnmarshalJSON` enforces, the vocabulary an editor completes
+from, and — with `keywordOrder` beside it — the order both `genctl schema` prints and an editor
+offers them in. Adding a keyword is one entry plus one line of order.
+
+`AtPath` / `PathOf` live here too, and `model` reuses them rather than keeping a second: a
+definition's failures and a schema document's are read by one consumer, so they cannot have two
+ideas of what a location is. `AtPath` keeps the wrapped error WHOLE — the levels between add
+the prose a reader follows, and only the path is recomposed.

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"genroc/internal/delayspec"
@@ -21,16 +22,16 @@ func (d *ProcessDefinition) Validate() error {
 	if err := fmtValidationErr(v.Struct(d)); err != nil {
 		return err
 	}
-	if err := d.validateDefs(); err != nil {
+	if err := atPath("$defs", d.validateDefs()); err != nil {
 		return err
 	}
-	if err := checkSchemaDoc("input_schema", d.InputSchema, d.Defs); err != nil {
+	if err := atPath("input_schema", checkSchemaDoc("input_schema", d.InputSchema, d.Defs)); err != nil {
 		return err
 	}
-	if err := checkSchemaDocAllowingSecrets("config_schema", d.ConfigSchema, schema.Defs{}); err != nil {
+	if err := atPath("config_schema", checkSchemaDocAllowingSecrets("config_schema", d.ConfigSchema, schema.Defs{})); err != nil {
 		return err
 	}
-	if err := validateConfigSchema(d.ConfigSchema); err != nil {
+	if err := atPath("config_schema", validateConfigSchema(d.ConfigSchema)); err != nil {
 		return err
 	}
 	taskIDs := make(map[string]struct{}, len(d.Tasks))
@@ -39,7 +40,7 @@ func (d *ProcessDefinition) Validate() error {
 	}
 	lastIdx := len(d.Tasks) - 1
 	for i, s := range d.Tasks {
-		if err := validateTask(s, taskIDs, i, lastIdx, d.Defs); err != nil {
+		if err := atPath("tasks."+s.ID, validateTask(s, taskIDs, i, lastIdx, d.Defs)); err != nil {
 			return err
 		}
 	}
@@ -280,47 +281,54 @@ func validateSwitch(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int) 
 		return fmt.Errorf("task %q: switch is required", s.ID)
 	}
 	for i, c := range s.Switch {
-		isLast := i == len(s.Switch)-1
-		if c.Case == "" && !isLast {
-			return fmt.Errorf("task %q switch: catch-all at index %d must be the last case (unreachable cases after it)", s.ID, i)
-		}
-		where := fmt.Sprintf("switch case %d", i)
+		// Each case carries its own index, so a failure names the clause rather than the
+		// whole switch. atPath nests it under the task the caller wrapped.
+		if err := atPath("switch."+strconv.Itoa(i), func() error {
+			isLast := i == len(s.Switch)-1
+			if c.Case == "" && !isLast {
+				return fmt.Errorf("task %q switch: catch-all at index %d must be the last case (unreachable cases after it)", s.ID, i)
+			}
+			where := fmt.Sprintf("switch case %d", i)
 
-		// R3: a case either routes or terminates, never both and never neither. This
-		// is checked here rather than on decode so it can name the task and the index.
-		set := 0
-		for _, on := range []bool{c.Goto != "", c.Raise != nil, c.Panic != nil} {
-			if on {
-				set++
+			// R3: a case either routes or terminates, never both and never neither. This
+			// is checked here rather than on decode so it can name the task and the index.
+			set := 0
+			for _, on := range []bool{c.Goto != "", c.Raise != nil, c.Panic != nil} {
+				if on {
+					set++
+				}
 			}
-		}
-		if set != 1 {
-			return fmt.Errorf("task %q %s: set exactly one of \"goto\", \"raise\", \"panic\"", s.ID, where)
-		}
-		if err := validateFault(c.Raise, s.ID, where, "raise"); err != nil {
-			return err
-		}
-		if err := validateFault(c.Panic, s.ID, where, "panic"); err != nil {
-			return err
-		}
-		if c.Goto == "" {
-			continue // a raise/panic case has no routing target to check
-		}
+			if set != 1 {
+				return fmt.Errorf("task %q %s: set exactly one of \"goto\", \"raise\", \"panic\"", s.ID, where)
+			}
+			if err := validateFault(c.Raise, s.ID, where, "raise"); err != nil {
+				return err
+			}
+			if err := validateFault(c.Panic, s.ID, where, "panic"); err != nil {
+				return err
+			}
+			if c.Goto == "" {
+				return nil // a raise/panic case has no routing target to check
+			}
 
-		switch {
-		case c.Goto == GotoEnd:
-			// always valid
-		case c.Goto == GotoNext:
-			if taskIdx == lastIdx {
-				return fmt.Errorf("task %q switch: 'next' is not allowed on the last task; use 'end' to terminate", s.ID)
+			switch {
+			case c.Goto == GotoEnd:
+				// always valid
+			case c.Goto == GotoNext:
+				if taskIdx == lastIdx {
+					return fmt.Errorf("task %q switch: 'next' is not allowed on the last task; use 'end' to terminate", s.ID)
+				}
+			case strings.HasPrefix(c.Goto, "$"):
+				taskID := c.Goto[1:]
+				if _, ok := taskIDs[taskID]; !ok {
+					return fmt.Errorf("task %q switch: goto %q is not a known task", s.ID, c.Goto)
+				}
+			default:
+				return fmt.Errorf("task %q switch: goto %q must be \"end\", \"next\", or a task reference like \"$task-id\"", s.ID, c.Goto)
 			}
-		case strings.HasPrefix(c.Goto, "$"):
-			taskID := c.Goto[1:]
-			if _, ok := taskIDs[taskID]; !ok {
-				return fmt.Errorf("task %q switch: goto %q is not a known task", s.ID, c.Goto)
-			}
-		default:
-			return fmt.Errorf("task %q switch: goto %q must be \"end\", \"next\", or a task reference like \"$task-id\"", s.ID, c.Goto)
+			return nil
+		}()); err != nil {
+			return err
 		}
 	}
 	if s.Switch[len(s.Switch)-1].Case != "" {
@@ -342,97 +350,102 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 	onlyOnce := s.OnlyOnce != nil && *s.OnlyOnce
 	child := isChildTask(s)
 	for i, ec := range s.OnError {
-		where := fmt.Sprintf("on_error[%d]", i)
+		if err := atPath("on_error."+strconv.Itoa(i), func() error {
+			where := fmt.Sprintf("on_error[%d]", i)
 
-		// R3, in its at-most-one form. Unlike a switch case, a rule setting none of the
-		// three is meaningful and long-standing: on an action task it exhausts its retries
-		// and then fails the instance with the engine's own code. What must not happen is
-		// two answers to "what does this rule do".
-		set := 0
-		for _, on := range []bool{ec.Goto != "", ec.Raise != nil, ec.Panic != nil} {
-			if on {
-				set++
+			// R3, in its at-most-one form. Unlike a switch case, a rule setting none of the
+			// three is meaningful and long-standing: on an action task it exhausts its retries
+			// and then fails the instance with the engine's own code. What must not happen is
+			// two answers to "what does this rule do".
+			set := 0
+			for _, on := range []bool{ec.Goto != "", ec.Raise != nil, ec.Panic != nil} {
+				if on {
+					set++
+				}
 			}
-		}
-		if set > 1 {
-			return fmt.Errorf("task %q %s: set at most one of \"goto\", \"raise\", \"panic\"", s.ID, where)
-		}
-		if err := validateFault(ec.Raise, s.ID, where, "raise"); err != nil {
-			return err
-		}
-		if err := validateFault(ec.Panic, s.ID, where, "panic"); err != nil {
-			return err
-		}
+			if set > 1 {
+				return fmt.Errorf("task %q %s: set at most one of \"goto\", \"raise\", \"panic\"", s.ID, where)
+			}
+			if err := validateFault(ec.Raise, s.ID, where, "raise"); err != nil {
+				return err
+			}
+			if err := validateFault(ec.Panic, s.ID, where, "panic"); err != nil {
+				return err
+			}
 
-		// Code shape: each entry is a non-empty LIKE pattern; an empty list is a catch-all
-		// and must be last. Common to both task kinds.
-		for _, pat := range ec.Code {
-			if !validLikePattern(pat) {
-				return fmt.Errorf("task %q %s: code pattern must not be empty", s.ID, where)
-			}
-		}
-		// A GUARDED rule is never a catch-all: `case` can decline, so rules after it are
-		// reachable and it promises nothing. Only an unguarded empty code list is total.
-		// specs/child-error-handling.md M2.
-		isLast := i == len(s.OnError)-1
-		if len(ec.Code) == 0 && ec.Case == "" && !isLast {
-			return fmt.Errorf("task %q %s: catch-all must be the last rule (unreachable rules after it)", s.ID, where)
-		}
-
-		if ec.Goto != "" && ec.Goto != GotoEnd {
-			if _, ok := taskIDs[ec.Goto]; !ok {
-				return fmt.Errorf("task %q %s: goto %q is not a known task", s.ID, where, ec.Goto)
-			}
-		}
-
-		if child {
-			// R4, reversed: a child task retries like any other, because a child is a call
-			// (specs/child-error-handling.md R4, D7). What stays refused is `not_reached`,
-			// and it is load-bearing rather than tidy -- see the only_once check below.
-			if ec.NotReached != nil {
-				return fmt.Errorf("task %q %s: not_reached has no meaning on a child task", s.ID, where)
-			}
-			// Refused at registration rather than dropped at runtime. isRetryAllowed would
-			// decline this silently: every code a child task can catch means the child ran,
-			// so nothing here is ever `not_reached`. A policy that can never fire is what D7
-			// meant by "rejecting beats silently ignoring".
-			if onlyOnce && !ec.Retry.IsZero() {
-				return fmt.Errorf("task %q %s: retry cannot run on an only_once child task -- every code a child task catches means the child already ran, so no attempt is safe to repeat", s.ID, where)
-			}
-			continue
-		}
-
-		// only_once retries in three tiers (specs/only-once-interrupted.md): pre.*-only patterns
-		// are safe; anything else needs not_reached AND exact codes; the unknowable set is refused
-		// however named. Per pattern, not per rule; tier 3 first so http.timeout gets the truth.
-		if err := validateRetry(ec.Retry, s.ID, where); err != nil {
-			return err
-		}
-
-		// An expression-valued attempts counts as "retries": its value is unknown here, and
-		// the conservative reading is the one that keeps the tiers below in force.
-		if onlyOnce && (ec.Retry.Attempts.IsExpr() || ec.Retry.Attempts.Literal() > 0) {
-			notReached := ec.NotReached != nil && *ec.NotReached
-			if len(ec.Code) == 0 {
-				return fmt.Errorf("task %q %s: a catch-all rule cannot have retries on an only_once task; restrict it to pre.%% patterns, or add not_reached:true and name the exact codes that are safe to retry", s.ID, where)
-			}
+			// Code shape: each entry is a non-empty LIKE pattern; an empty list is a catch-all
+			// and must be last. Common to both task kinds.
 			for _, pat := range ec.Code {
-				// Checked first, and irrespective of not_reached, so that naming one of
-				// these gets the reason it is hopeless rather than advice that leads
-				// nowhere.
-				if errcode.Code(pat).IsUnknowable() {
-					return fmt.Errorf("task %q %s: %s can never be retried on an only_once task, with or without not_reached: the request left and no response came back, so whether the call took effect is unknowable. Catch it with a goto and check the system of record instead", s.ID, where, pat)
-				}
-				if patternOnlyMatchesPre(pat) {
-					continue
-				}
-				if !notReached {
-					return fmt.Errorf("task %q %s: pattern %q can match errors where the call may have executed; restrict it to pre.%% patterns, or add not_reached:true and name the exact codes you know leave the remote untouched", s.ID, where, pat)
-				}
-				if strings.ContainsRune(pat, '%') {
-					return fmt.Errorf("task %q %s: not_reached:true asserts what one specific error means, so pattern %q cannot be a wildcard; name the exact codes instead (e.g. \"http.409\")", s.ID, where, pat)
+				if !validLikePattern(pat) {
+					return fmt.Errorf("task %q %s: code pattern must not be empty", s.ID, where)
 				}
 			}
+			// A GUARDED rule is never a catch-all: `case` can decline, so rules after it are
+			// reachable and it promises nothing. Only an unguarded empty code list is total.
+			// specs/child-error-handling.md M2.
+			isLast := i == len(s.OnError)-1
+			if len(ec.Code) == 0 && ec.Case == "" && !isLast {
+				return fmt.Errorf("task %q %s: catch-all must be the last rule (unreachable rules after it)", s.ID, where)
+			}
+
+			if ec.Goto != "" && ec.Goto != GotoEnd {
+				if _, ok := taskIDs[ec.Goto]; !ok {
+					return fmt.Errorf("task %q %s: goto %q is not a known task", s.ID, where, ec.Goto)
+				}
+			}
+
+			if child {
+				// R4, reversed: a child task retries like any other, because a child is a call
+				// (specs/child-error-handling.md R4, D7). What stays refused is `not_reached`,
+				// and it is load-bearing rather than tidy -- see the only_once check below.
+				if ec.NotReached != nil {
+					return fmt.Errorf("task %q %s: not_reached has no meaning on a child task", s.ID, where)
+				}
+				// Refused at registration rather than dropped at runtime. isRetryAllowed would
+				// decline this silently: every code a child task can catch means the child ran,
+				// so nothing here is ever `not_reached`. A policy that can never fire is what D7
+				// meant by "rejecting beats silently ignoring".
+				if onlyOnce && !ec.Retry.IsZero() {
+					return fmt.Errorf("task %q %s: retry cannot run on an only_once child task -- every code a child task catches means the child already ran, so no attempt is safe to repeat", s.ID, where)
+				}
+				return nil
+			}
+
+			// only_once retries in three tiers (specs/only-once-interrupted.md): pre.*-only patterns
+			// are safe; anything else needs not_reached AND exact codes; the unknowable set is refused
+			// however named. Per pattern, not per rule; tier 3 first so http.timeout gets the truth.
+			if err := validateRetry(ec.Retry, s.ID, where); err != nil {
+				return err
+			}
+
+			// An expression-valued attempts counts as "retries": its value is unknown here, and
+			// the conservative reading is the one that keeps the tiers below in force.
+			if onlyOnce && (ec.Retry.Attempts.IsExpr() || ec.Retry.Attempts.Literal() > 0) {
+				notReached := ec.NotReached != nil && *ec.NotReached
+				if len(ec.Code) == 0 {
+					return fmt.Errorf("task %q %s: a catch-all rule cannot have retries on an only_once task; restrict it to pre.%% patterns, or add not_reached:true and name the exact codes that are safe to retry", s.ID, where)
+				}
+				for _, pat := range ec.Code {
+					// Checked first, and irrespective of not_reached, so that naming one of
+					// these gets the reason it is hopeless rather than advice that leads
+					// nowhere.
+					if errcode.Code(pat).IsUnknowable() {
+						return fmt.Errorf("task %q %s: %s can never be retried on an only_once task, with or without not_reached: the request left and no response came back, so whether the call took effect is unknowable. Catch it with a goto and check the system of record instead", s.ID, where, pat)
+					}
+					if patternOnlyMatchesPre(pat) {
+						continue
+					}
+					if !notReached {
+						return fmt.Errorf("task %q %s: pattern %q can match errors where the call may have executed; restrict it to pre.%% patterns, or add not_reached:true and name the exact codes you know leave the remote untouched", s.ID, where, pat)
+					}
+					if strings.ContainsRune(pat, '%') {
+						return fmt.Errorf("task %q %s: not_reached:true asserts what one specific error means, so pattern %q cannot be a wildcard; name the exact codes instead (e.g. \"http.409\")", s.ID, where, pat)
+					}
+				}
+			}
+			return nil
+		}()); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -493,7 +506,8 @@ func validateResponses(s *Task, pool schema.Defs) error {
 			}
 			owner[p] = key
 		}
-		if err := checkSchemaDoc(fmt.Sprintf("task %q action.responses[%q]", s.ID, key), s.Action.Responses[key], pool); err != nil {
+		label := fmt.Sprintf("task %q action.responses[%q]", s.ID, key)
+		if err := atPath("action.responses."+key, checkSchemaDoc(label, s.Action.Responses[key], pool)); err != nil {
 			return err
 		}
 	}
@@ -532,7 +546,7 @@ func validateRaises(s *Task, pool schema.Defs) error {
 		}
 		return nil
 	}
-	if err := checkRaisesDoc(fmt.Sprintf("task %q action.raises", s.ID), s.Action.Raises, pool); err != nil {
+	if err := checkRaisesDoc(fmt.Sprintf("task %q action.raises", s.ID), "action.raises", s.Action.Raises, pool); err != nil {
 		return err
 	}
 	keys := make([]string, 0, len(s.Action.Children))
@@ -542,7 +556,8 @@ func validateRaises(s *Task, pool schema.Defs) error {
 	sort.Strings(keys)
 	for _, key := range keys {
 		where := fmt.Sprintf("task %q action.children[%q].raises", s.ID, key)
-		if err := checkRaisesDoc(where, s.Action.Children[key].Raises, pool); err != nil {
+		path := "action.children." + key + ".raises"
+		if err := checkRaisesDoc(where, path, s.Action.Children[key].Raises, pool); err != nil {
 			return err
 		}
 	}
@@ -552,7 +567,9 @@ func validateRaises(s *Task, pool schema.Defs) error {
 // checkRaisesDoc validates one raises map: R1-shaped keys, and a real schema document under
 // each key that has one. A nil value is `null` — a code declared to carry nothing — and has
 // no document to check.
-func checkRaisesDoc(where string, r Raises, pool schema.Defs) error {
+// The path argument is `where`'s machine half: a reader reads `task "a" action.raises["x"]`
+// and a client looks up `action.raises.x`.
+func checkRaisesDoc(where, path string, r Raises, pool schema.Defs) error {
 	for _, code := range sortedRaiseCodes(r) {
 		if !faultCodeRe.MatchString(code) {
 			return fmt.Errorf("%s: %q is not a raise code — codes are lower_snake_case with no dots (dots are reserved for engine codes, and no engine code carries a declared payload)", where, code)
@@ -560,7 +577,7 @@ func checkRaisesDoc(where string, r Raises, pool schema.Defs) error {
 		if r[code] == nil {
 			continue
 		}
-		if err := checkSchemaDoc(fmt.Sprintf("%s[%q]", where, code), r[code], pool); err != nil {
+		if err := atPath(path+"."+code, checkSchemaDoc(fmt.Sprintf("%s[%q]", where, code), r[code], pool)); err != nil {
 			return err
 		}
 	}
@@ -586,12 +603,13 @@ func validateActionSchemas(s *Task, pool schema.Defs) error {
 	if s.Action == nil {
 		return nil
 	}
-	if err := checkSchemaDoc(fmt.Sprintf("task %q action.result_schema", s.ID), s.Action.ResultSchema, pool); err != nil {
+	if err := atPath("action.result_schema", checkSchemaDoc(fmt.Sprintf("task %q action.result_schema", s.ID), s.Action.ResultSchema, pool)); err != nil {
 		return err
 	}
 	if s.Action.Type == ActionTypeChildMap {
 		for key, entry := range s.Action.Children {
-			if err := checkSchemaDoc(fmt.Sprintf("task %q action.children[%q].result_schema", s.ID, key), entry.ResultSchema, pool); err != nil {
+			label := fmt.Sprintf("task %q action.children[%q].result_schema", s.ID, key)
+			if err := atPath("action.children."+key+".result_schema", checkSchemaDoc(label, entry.ResultSchema, pool)); err != nil {
 				return err
 			}
 		}
@@ -727,6 +745,15 @@ var v = func() *validator.Validate {
 	})
 	return val
 }()
+
+// atPath and PathOf are schema's, reused: a definition's failures and a schema document's are
+// read by the same consumer, so they cannot have two ideas of what a location is. Wrapping is
+// done at the few structural boundaries rather than at the ~60 messages, so a new rule
+// inherits its path. specs/language-server.md §2.
+func atPath(path string, err error) error { return schema.AtPath(path, err) }
+
+// PathOf returns the slot a validation failure came from, or "" when the rule reported none.
+func PathOf(err error) string { return schema.PathOf(err) }
 
 // FieldError is one failed struct-tag rule, located by its path within the submitted
 // document. Field is the JSON path with the root struct name stripped, so it reads as

@@ -32,9 +32,9 @@
 package schema
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"genroc/internal/numeric"
 )
@@ -80,28 +80,28 @@ func (t SchemaType) Contains(s string) bool {
 //
 // "default" is the standard annotation; "secret" is a genroc extension that is only
 // meaningful inside a process config_schema (it drives log redaction) and ignored elsewhere.
-var allowedKeywords = map[string]string{
-	"type":                 "The value's JSON type, or a list of types it may take.",
-	"properties":           "The named members of an object, each a schema.",
-	"required":             "Which properties must be present. A property not listed here may be absent, and reading it yields null.",
-	"items":                "The schema every element of an array conforms to.",
-	"additionalProperties": "The schema undeclared keys conform to, making the object an open map. Omit to close the object: undeclared keys are stripped.",
-	"oneOf":                "The value conforms to exactly one of these schemas.",
-	"anyOf":                "The value conforms to at least one of these schemas.",
-	"enum":                 "The complete set of values allowed here.",
-	"minimum":              "Smallest allowed number, inclusive.",
-	"maximum":              "Largest allowed number, inclusive.",
-	"minLength":            "Shortest allowed string.",
-	"maxLength":            "Longest allowed string.",
-	"minItems":             "Fewest allowed array elements.",
-	"maxItems":             "Most allowed array elements.",
-	"$ref":                 "A reference to another schema, as `#/$defs/<name>`.",
-	"$defs":                "Named schemas this document's $refs resolve against.",
-	"$anchor":              "A name this schema can be referenced by.",
-	"$id":                  "An identifier for this schema.",
-	"default":              "The value used when this one is absent. Annotation only — it does not make a required property optional.",
-	"secret":               "Redacts the value from logs. Only meaningful in a process config_schema.",
-	"description":          "Free text. Shown in the editor, and never a constraint.",
+var allowedKeywords = map[string]keyword{
+	"type":                 {"string|array", "The value's JSON type, or a list of types it may take."},
+	"properties":           {"object", "The named members of an object, each a schema."},
+	"required":             {"array", "Which properties must be present. A property not listed here may be absent, and reading it yields null."},
+	"items":                {"object", "The schema every element of an array conforms to."},
+	"additionalProperties": {"object", "The schema undeclared keys conform to, making the object an open map. Omit to close the object: undeclared keys are stripped."},
+	"oneOf":                {"array", "The value conforms to exactly one of these schemas."},
+	"anyOf":                {"array", "The value conforms to at least one of these schemas."},
+	"enum":                 {"array", "The complete set of values allowed here."},
+	"minimum":              {"number", "Smallest allowed number, inclusive."},
+	"maximum":              {"number", "Largest allowed number, inclusive."},
+	"minLength":            {"integer", "Shortest allowed string."},
+	"maxLength":            {"integer", "Longest allowed string."},
+	"minItems":             {"integer", "Fewest allowed array elements."},
+	"maxItems":             {"integer", "Most allowed array elements."},
+	"$ref":                 {"string", "A reference to another schema, as `#/$defs/<name>`."},
+	"$defs":                {"object", "Named schemas this document's $refs resolve against."},
+	"$anchor":              {"string", "A name this schema can be referenced by."},
+	"$id":                  {"string", "An identifier for this schema."},
+	"default":              {"", "The value used when this one is absent. Annotation only — it does not make a required property optional."},
+	"secret":               {"boolean", "Redacts the value from logs. Only meaningful in a process config_schema."},
+	"description":          {"string", "Free text. Shown in the editor, and never a constraint."},
 	// "allOf" is intentionally omitted — see the package doc.
 }
 
@@ -115,11 +115,11 @@ var allowedKeywords = map[string]string{
 // for arrays. Completion is therefore top-level only.
 func (Schema) JSONSchemaBytes() ([]byte, error) {
 	props := make(map[string]any, len(allowedKeywords))
-	for keyword, description := range allowedKeywords {
-		// Description only: an `enum` of the type names here would be right, and
-		// openapi-typescript turns it into a union that every inline `{type: "object"}` in a
-		// test fails to satisfy, because a bare object literal widens the field to `string`.
-		props[keyword] = map[string]any{"description": description}
+	for name, k := range allowedKeywords {
+		// Description only. A `type` here would be right, and openapi-typescript turns the
+		// enriched def into one the generated client cannot satisfy — the same trap an `enum`
+		// on `type` sprang. KeywordKind carries the kind to a consumer that wants it instead.
+		props[name] = map[string]any{"description": k.description}
 	}
 	return json.Marshal(map[string]any{
 		"type":                 "object",
@@ -136,6 +136,43 @@ var validTypes = map[string]bool{
 	"null": true, "boolean": true, "string": true, "number": true,
 	"integer": true, "object": true, "array": true,
 }
+
+// TypeNames is the complete set a `type` may name, in the order a reader meets them: the
+// scalars first, then the two that hold other values.
+func TypeNames() []string {
+	return []string{"string", "number", "integer", "boolean", "null", "object", "array"}
+}
+
+// keyword is what one JSON Schema keyword is: the kind of value it takes, shown beside it in
+// an editor's completion list, and what it means.
+type keyword struct {
+	kind        string
+	description string
+}
+
+// keywordOrder is how a schema READS — what it is, then what it holds, then the pool it
+// resolves against. Neither encoding/json nor yaml.v3 will keep it for a map (both sort keys,
+// so `properties` lands before `type`), so every consumer that shows keywords to a person
+// orders by this: `genctl schema`'s printing and an editor's completion list alike.
+//
+// A keyword absent here follows, sorted, so a new one shows up rather than disappearing.
+var keywordOrder = []string{
+	"description", "$ref", "type", "oneOf", "anyOf", "allOf", "enum", "default",
+	"properties", "required", "additionalProperties", "items",
+	"minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems",
+	"secret", "$anchor", "$id", "$defs",
+}
+
+// KeywordOrder is the order keywords are read in, for a caller that prints or offers them.
+func KeywordOrder() []string { return slices.Clone(keywordOrder) }
+
+// KeywordRank is a keyword's place in that order, or -1 for a word the order does not name.
+func KeywordRank(name string) int { return slices.Index(keywordOrder, name) }
+
+// KeywordKind names the kind of value a JSON Schema keyword takes, or "" for a word this
+// package does not accept. It is what an editor shows beside the keyword in a completion list;
+// the published schema cannot carry it (see JSONSchemaBytes).
+func KeywordKind(name string) string { return allowedKeywords[name].kind }
 
 // node is the structural representation of the supported JSON Schema subset. It is
 // unexported: callers hold a Raw or a Schema and use their methods. The fields stay
@@ -180,33 +217,12 @@ type node struct {
 	pending *pendingEntry
 }
 
-// UnmarshalJSON implements strict decoding: any JSON key not in allowedKeywords
-// returns an error.
+// UnmarshalJSON implements strict decoding: the document's shape and keywords are checked
+// first (checkRawNode), so a mistake is reported against the sub-schema holding it rather
+// than as encoding/json's type error against the outermost slot.
 func (n *node) UnmarshalJSON(data []byte) error {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		// A bare boolean is JSON Schema's true/false schema, which genroc does not have (see
-		// additionalProperties below for the reason). Caught here so the author reads why
-		// rather than encoding/json's "cannot unmarshal bool into map[string]json.RawMessage",
-		// which names an internal type and no fix.
-		if b := bytes.TrimSpace(data); string(b) == "true" || string(b) == "false" {
-			return fmt.Errorf("boolean schemas are not supported: write {} for the top type (any value) rather than %s", b)
-		}
+	if err := checkRawNode(data); err != nil {
 		return err
-	}
-	for k := range raw {
-		if _, ok := allowedKeywords[k]; !ok {
-			return fmt.Errorf("unsupported schema keyword %q", k)
-		}
-	}
-	// Only the typed (schema-object) form of additionalProperties is supported; the
-	// boolean form is rejected so genroc never accepts untyped extra data (true) and
-	// so "closed" is always expressed by absence rather than an explicit false.
-	if ap, ok := raw["additionalProperties"]; ok {
-		var b bool
-		if json.Unmarshal(ap, &b) == nil {
-			return fmt.Errorf("additionalProperties must be a schema object; the boolean form is not supported")
-		}
 	}
 	// Decode preserving exact numeric literals: default/enum are any-typed, and a plain
 	// Unmarshal collapsed them to float64 — corrupting a big default and INVERTING an enum

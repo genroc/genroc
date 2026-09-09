@@ -190,9 +190,20 @@ func (s *Server) complete(p completionParams) []completionItem {
 		return []completionItem{}
 	}
 	lines := splitLines(text)
-	items := completeAt(text, p.Position.Line+1, byteColumn(lines, p.Position))
+	line := p.Position.Line + 1
+	items := completeAt(text, line, byteColumn(lines, p.Position))
 	if items == nil {
 		return []completionItem{}
+	}
+	for i, it := range items {
+		if it.replaceFrom == 0 {
+			continue
+		}
+		start := toPosition(lines, line, it.replaceFrom)
+		items[i].TextEdit = &textEdit{
+			Range:   textRange{Start: start, End: p.Position},
+			NewText: it.Label,
+		}
 	}
 	return items
 }

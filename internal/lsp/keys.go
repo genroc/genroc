@@ -10,11 +10,13 @@ package lsp
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"genroc/internal/defdoc"
 	"genroc/internal/defschema"
+	"genroc/internal/schema"
 )
 
 // legalKeys returns the keys allowed in the mapping at path, minus the ones already written.
@@ -26,6 +28,15 @@ func legalKeys(doc *defdoc.Doc, path string) []completionItem {
 	node, ok := walk(root, doc, path)
 	if !ok {
 		return nil
+	}
+	node = choose(root, node, doc, path, "")
+	// A cursor on a sequence is writing one of its ELEMENTS, and a sequence has no keys of its
+	// own — which is what a cursor on a list dash resolves to.
+	if items, isArray := node["items"].(map[string]any); isArray {
+		if node, ok = resolve(root, items); !ok {
+			return nil
+		}
+		node = choose(root, node, doc, path, "")
 	}
 	props, _ := node["properties"].(map[string]any)
 	if len(props) == 0 {
@@ -54,14 +65,14 @@ func legalKeys(doc *defdoc.Doc, path string) []completionItem {
 			continue
 		}
 		m, _ := sub.(map[string]any)
-		detail := ""
-		if required[name] {
-			detail = "required"
-		}
 		out = append(out, completionItem{
-			Label:         name,
-			Kind:          kindProperty,
-			Detail:        detail,
+			Label:  name,
+			Kind:   kindProperty,
+			Detail: keyDetail(name, m, required[name]),
+			// Editors sort on this string, and with none they fall back to a fuzzy score
+			// that ties across a whole vocabulary — leaving `$anchor` at the top of a list
+			// of JSON Schema keywords.
+			SortText:      sortKey(name, required[name]),
 			Documentation: describeNode(m),
 		})
 	}
@@ -80,11 +91,14 @@ func walk(root map[string]any, doc *defdoc.Doc, path string) (map[string]any, bo
 	here := ""
 	rest := path
 	for {
-		seg, tail := cutSegment(rest)
-		node = choose(root, node, doc, here, seg)
 		if rest == "" {
+			// The terminal node is returned AS DECLARED, union and all: a caller reading the
+			// keys wants the arm the document selects, and one reading the variants wants the
+			// union it selects from. `choose` is theirs to apply.
 			return node, true
 		}
+		seg, tail := cutSegment(rest)
+		node = choose(root, node, doc, here, seg)
 		if items, isArray := node["items"].(map[string]any); isArray {
 			// A sequence has one `items` for every element, so the segment is spent getting
 			// inside it rather than selecting among alternatives.
@@ -180,10 +194,12 @@ func describeKey(doc *defdoc.Doc, path string) string {
 	if !ok || path == "" {
 		return ""
 	}
-	node, ok := walk(root, doc, defdoc.ParentPath(path))
+	parent := defdoc.ParentPath(path)
+	node, ok := walk(root, doc, parent)
 	if !ok {
 		return ""
 	}
+	node = choose(root, node, doc, parent, lastSegment(path))
 	props, _ := node["properties"].(map[string]any)
 	name := lastSegment(path)
 	field, _ := props[name].(map[string]any)
@@ -269,6 +285,10 @@ func processSchema() (map[string]any, bool) {
 	if props == nil {
 		return root, true
 	}
+	// Marked so a consumer can tell "the author's own schema" from the definition language
+	// around it — the two have different closed sets for `type`. LSP-local: processSchema
+	// parses a fresh copy per request and nothing here is published.
+	user[userSchemaMarker] = true
 	self := map[string]any{"$ref": "#/$defs/" + userSchemaDef}
 	list := map[string]any{"type": "array", "items": self}
 	for name, nested := range map[string]map[string]any{
@@ -321,3 +341,118 @@ func pointAtUserSchema(defs map[string]any, self map[string]any) {
 
 // userSchemaDef is the generated name for schema.Schema. specs/language-server.md §5.
 const userSchemaDef = "SchemaSchema"
+
+// userSchemaMarker tags that def after the repair, so a walk can recognise it.
+const userSchemaMarker = "x-genroc-user-schema"
+
+// keyDetail is the line shown BESIDE a key in the list — its type, and whether it is required.
+// The description needs a panel opened; this is what a reader sees while scrolling.
+func keyDetail(name string, node map[string]any, required bool) string {
+	parts := []string{}
+	if required {
+		parts = append(parts, "required")
+	}
+	kind := typeName(node)
+	if kind == "" {
+		// A JSON Schema keyword: the published document cannot carry its type without
+		// breaking the generated client, so the kind comes from the package that owns it.
+		kind = schema.KeywordKind(name)
+	}
+	if kind != "" {
+		parts = append(parts, kind)
+	}
+	return strings.Join(parts, " ")
+}
+
+// typeName reads a node's type for display, following the one shape a union takes here: a
+// `oneOf` of variants, which reads as the alternatives it offers.
+func typeName(node map[string]any) string {
+	switch t := node["type"].(type) {
+	case string:
+		return t
+	case []any:
+		names := make([]string, 0, len(t))
+		for _, v := range t {
+			if name, ok := v.(string); ok {
+				names = append(names, name)
+			}
+		}
+		return strings.Join(names, "|")
+	}
+	if _, ok := node["$ref"]; ok {
+		return "object"
+	}
+	if arms := unionArms(node); len(arms) > 0 {
+		return "one of " + strconv.Itoa(len(arms))
+	}
+	return ""
+}
+
+// sortKey orders a completion list the way the thing being written is READ: a required key
+// first, then a JSON Schema keyword by schema.KeywordOrder — the same order `genctl schema`
+// prints one in — and anything else alphabetically after.
+func sortKey(name string, required bool) string {
+	if required {
+		return "0" + name
+	}
+	// A `default` takes any type, so it has no kind — its place in the order is what says it
+	// is a keyword at all.
+	if rank := schema.KeywordRank(name); rank >= 0 {
+		return fmt.Sprintf("1%03d", rank)
+	}
+	return "2" + name
+}
+
+// isUserSchema reports whether a slot holds the author's OWN JSON Schema rather than the
+// definition language around it. A nullable slot declares it as one arm of a union
+// (`responses`), so the arms count as much as the node itself.
+func isUserSchema(root, node map[string]any) bool {
+	if marked, _ := node[userSchemaMarker].(bool); marked {
+		return true
+	}
+	for _, arm := range unionArms(node) {
+		m, ok := arm.(map[string]any)
+		if !ok {
+			continue
+		}
+		if m, ok = resolve(root, m); !ok {
+			continue
+		}
+		if marked, _ := m[userSchemaMarker].(bool); marked {
+			return true
+		}
+	}
+	return false
+}
+
+// soleSchemaSlotNotAnObject finds the one slot holding a user schema whose value is not an
+// object. It answers "which schema was that about" for the one failure the schema decoder
+// cannot place: a slot that is a scalar has no path INSIDE the schema to report, and
+// encoding/json adds its own context only to its own type errors.
+func soleSchemaSlotNotAnObject(doc *defdoc.Doc) (string, bool) {
+	root, ok := processSchema()
+	if !ok {
+		return "", false
+	}
+	var found string
+	seen := map[defdoc.Span]bool{}
+	for _, p := range doc.Paths() {
+		// An object is a well-formed schema, and a null one decodes (checkDoc reports the ones
+		// that are meaningless) — neither can be what raised this.
+		v, _ := doc.ValueAt(p)
+		if _, isObject := v.(map[string]any); isObject || v == nil {
+			continue
+		}
+		node, ok := walk(root, doc, p)
+		if !ok || !isUserSchema(root, node) {
+			continue
+		}
+		span, ok := doc.Span(p)
+		if !ok || seen[span] {
+			continue
+		}
+		seen[span] = true
+		found = p
+	}
+	return found, len(seen) == 1
+}

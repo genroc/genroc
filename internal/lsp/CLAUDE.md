@@ -93,6 +93,47 @@ the first line at the same indent (a sibling, so the mapping is its parent) or a
 choosing among the action's keys. `completeKey` decides with `span.Key.Contains`, not by
 guessing from the value's type.
 
+**A value completion REPLACES what is typed.** `$` is not a word character, so an editor given
+no range inserts beside it — choosing `$tick` after `goto: $` left `$$tick`. Every routing item
+carries a `textEdit` whose range starts at the token, which the server builds from
+`replaceFrom` once it has the line to convert columns against.
+
+**An empty routing value resolves through the line's KEY.** `goto:` with nothing after it has a
+zero-width value node, so a cursor past it lands on the sequence enclosing it — which is a
+routing slot by name and holds clauses, not a name. `routingPath` tries the cursor first and
+the key second, and rejects a `switch` whose value is a list either way.
+
+**Two VALUE slots have a closed set**, and neither is declared as one: a routing slot is every
+task in the document plus `end` and `next`, and a `type` is either the JSON type names (inside a
+user schema) or the variants of the union it discriminates, read from the arms' own `const`s.
+Without `routingValues` and `typeValues` the cursor in `goto: $` or `type: ` reads as sitting on
+a key, and the node's own siblings come back.
+
+**Hover is silent where a DIAGNOSTIC already speaks.** An expression that does not type gets
+no hover line: the editor puts the diagnostic for that position at the top of the same popup,
+and a reader sees it twice. The symbol inside it still types, and that is the part the
+diagnostic does not say.
+
+**An unlocated diagnostic underlines the value its message names, not the file.** The
+hand-written rules in `model.Validate` and the decoders report prose with no path, and falling
+back to the document root painted every line red for one bad word — while the reader was still
+typing it. `nodeHoldingQuoted` looks for the sole node holding one of the message's quoted
+words, LAST first: a message names its subject before its complaint, so `task "tick" switch:
+goto "$" is not a known task` is about the `$`. Failing that, the first line.
+
+**A schema reports where it failed relative to its OWN root**, because a sub-schema does not know
+which slot of which document holds it — so `properties.who` is matched as a SUFFIX of a document
+path, the same sole-match rule as an unknown key. The one failure it cannot place at all is a
+slot that is not an object; `soleSchemaSlotNotAnObject` asks which schema position in the
+document is a scalar, which is what `x-genroc-user-schema` makes answerable.
+
+**A decode failure is rewritten before it is shown.** encoding/json names the Go type that could
+not hold the value, in a field stack that skips list indices and map keys — `only_once: 5` read
+as "cannot unmarshal number into Go struct field Task.tasks.only_once of type bool" and
+underlined the whole `tasks:` block. The stack's LAST segment is the field that actually failed,
+so it locates like an unknown key does, and `typeErrorMessage` says what that field takes in the
+words the document is written in.
+
 ## The schema is repaired on load
 
 `processSchema` puts back two things the published document cannot carry, and neither is a
@@ -108,7 +149,9 @@ guess — both are positions where a USER SCHEMA sits:
 Without the repair, hover and completion go silent the moment a reader is inside an
 `input_schema` or a `responses` block — which is a third of a real definition.
 
-`choose` picks among union arms: the document's `type` where there is one, else the arm that
+`walk` returns the TERMINAL node as declared, union and all, and `choose` is the caller's to
+apply: one caller wants the arm the document selects, another the variants it selects from.
+`choose` picks among union arms by the document's `type` where there is one, else the arm that
 can take the next step. A `switch` is a scalar shorthand OR a list of cases and nothing marks
 which, so the INDEX decides — `switch.0` is a case.
 
@@ -131,6 +174,25 @@ is looking at, so renaming a process in the editor must not send them to the nam
 walk skips `.git`/`node_modules`/`dist`/`build`/`vendor` and caps at `maxScanned`, because a
 workspace rooted somewhere enormous must not hang an editor.
 
+## Positions are swept, not sampled
+
+`tests/lsp/sweep_test.ts` is the file that would have caught what was reported from an editor.
+The named tests beside it pick cursor positions by hand, and **every bug a real user found was
+at a position nobody picked** — a `case`, a `goto`, a blank line under `input_schema:`. The
+fixture already contained all three.
+
+The sweep puts the cursor at every column of every line and asserts what must never happen. It
+checks the completion **kind**, not labels: a name list cannot work, because `headers` is a key
+on a fetch AND a member of that fetch's `self.result`, and a user's schema may name a field
+anything. What is never ambiguous is which QUESTION the server answered — scope (Field), keys
+(Property), or a closed set (Value).
+
+Two of the sweeps are DIFFERENTIAL, and that is deliberate: an absolute assertion needs a list
+of which mappings have keys to offer and which are open maps of the author's own names, and
+that list would rot. Pressing Enter adds no key and removes none, so the new blank line must
+answer as a sibling does; a list dash is beside its element's key, so it must answer as that
+key does.
+
 ## The e2e suite is where the gaps showed up
 
 `tests/lsp/` drives the real binary against one valid fixture, and names a position by quoting
@@ -147,6 +209,18 @@ rule for diagnostics, which need a document that is wrong rather than a cursor.
 Writing them found two things unit tests had not: a cursor on the blank line **below** the
 last key (where the next key goes, and where nothing covers the position — `sameIndentAbove`),
 and a task whose own poisoned output was re-reported through its own switch.
+
+**A completion list is ordered by `sortText`, or it is alphabetical.** Alphabetical put
+`$anchor` at the top of a list of JSON Schema keywords. Required keys come first, then
+`schema.KeywordOrder` — the order a schema READS, which is what `genctl schema` prints in.
+
+## Two editor defaults the protocol cannot set
+
+An expression lives inside a quoted string, and VS Code suppresses suggestions there unless the
+language says otherwise — so completion only appeared on Ctrl+Space. And word-based
+suggestions rank beside the vocabulary the server actually knows. Both are
+`configurationDefaults` in the extension, and `TestTheExtensionEnablesSuggestionsInsideStrings`
+is what notices if they go.
 
 ## The extension is a launcher
 

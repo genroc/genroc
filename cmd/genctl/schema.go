@@ -478,11 +478,10 @@ func inScope(ctx schema.Schema) string {
 		return strings.Join(lines, "\n")
 	}
 	props := ctx.Properties()
-	required := requiredSet(ctx)
 	var roots []string
 	for _, name := range slices.Sorted(maps.Keys(props)) {
 		root := name
-		if !required[name] {
+		if ctx.MayBeAbsent(name) {
 			root += "?"
 		}
 		if name == "self" || name == "outputs" {
@@ -502,26 +501,6 @@ func inScope(ctx schema.Schema) string {
 // which outputs and self differ by, and is the whole reason to look.
 func memberNamesOf(s schema.Schema) string { return s.MemberNames() }
 
-func requiredSet(s schema.Schema) map[string]bool {
-	out := make(map[string]bool)
-	for _, name := range s.Required() {
-		out[name] = true
-	}
-	return out
-}
-
-// A schema reads in a fixed order — what it IS, then what it holds, then the pool it resolves
-// against — which neither encoding/json nor yaml.v3 will do for a map: both sort keys, so
-// `properties` lands before `type` and `$defs` before either. The order below is the order the
-// keywords are usually read in; anything unrecognised follows, sorted, so a new keyword shows up
-// rather than disappearing.
-var keywordOrder = []string{
-	"description", "$ref", "type", "oneOf", "anyOf", "allOf", "enum", "default",
-	"properties", "required", "additionalProperties", "items",
-	"minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems",
-	"secret", "$anchor", "$id", "$defs",
-}
-
 // pair is one key and its value, in the order it is printed.
 type pair struct {
 	key string
@@ -529,7 +508,7 @@ type pair struct {
 }
 
 // document is an ordered object, and the only reason it exists is that encoding/json sorts. The
-// YAML half is yamlout.go's, which orders from the same keywordOrder.
+// YAML half is yamlout.go's, which orders from the same schema.KeywordOrder().
 type document []pair
 
 func (d document) MarshalJSON() ([]byte, error) {
@@ -563,7 +542,7 @@ func ordered(v any) any {
 	case map[string]any:
 		out := make(document, 0, len(node))
 		seen := make(map[string]bool, len(node))
-		for _, key := range keywordOrder {
+		for _, key := range schema.KeywordOrder() {
 			if val, ok := node[key]; ok {
 				out = append(out, pair{key, ordered(val)})
 				seen[key] = true
@@ -607,4 +586,4 @@ func printJSON(v any) {
 
 // printYAML is the default for a schema: it is the language definitions are written in, so an
 // answer can be pasted into one, and it spends no lines on punctuation.
-func printYAML(v any) { printYAMLDoc(v, keywordOrder) }
+func printYAML(v any) { printYAMLDoc(v, schema.KeywordOrder()) }

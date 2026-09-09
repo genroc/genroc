@@ -5,6 +5,7 @@ package lsp
 // anywhere else it is which KEYS are legal here (the generated schema). specs/language-server.md §5.
 
 import (
+	"fmt"
 	"strings"
 
 	"genroc/internal/defdoc"
@@ -20,6 +21,12 @@ func completeAt(text string, line, col int) []completionItem {
 	src := lineAt(text, line)
 	if expr, ok := expressionPrefix(src, col); ok {
 		return completeExpression(text, line, col, expr)
+	}
+	if refs, ok := routingValues(text, line, col); ok {
+		return refs
+	}
+	if types, ok := typeValues(text, line, col); ok {
+		return types
 	}
 	// A `case` holds an expression written BARE, so there is no `$:` for the scan above to
 	// find and the cursor would otherwise be read as sitting on a key.
@@ -51,10 +58,19 @@ func completeKey(text string, line, col int) []completionItem {
 	if !ok {
 		return nil
 	}
+	src := lineAt(text, line)
 	// On a line with nothing before the cursor, INDENTATION decides. `At` would answer with
 	// whichever container happens to span the line — the outermost one, not the mapping being
 	// filled in — because an empty line is inside every ancestor at once.
 	if blankBefore(text, line, col) {
+		// The cursor is in the indent, or on a list dash, of a line that HAS content: it is
+		// beside that line's key, so that key's mapping is the answer — including which of its
+		// keys are already written.
+		if strings.TrimSpace(src) != "" {
+			if path, ok := mappingUnder(doc, line, indentOf(src)+1); ok {
+				return legalKeys(doc, path)
+			}
+		}
 		anchorLine, anchorCol, sibling, found := keyAbove(text, line, col)
 		if !found {
 			// Nothing above sits at or outside this indent, so the cursor is at the top
@@ -71,21 +87,45 @@ func completeKey(text string, line, col int) []completionItem {
 		return legalKeys(doc, path)
 	}
 
-	path, ok := doc.At(line, col)
+	// A line with content: the cursor may be past its end, or in the gap a `- ` leaves, where
+	// nothing covers it but the sequence or the document itself. The line's own key is what it
+	// sits beside, so resolve from there instead of falling out to the root.
+	path, ok := mappingUnder(doc, line, col)
+	if !ok {
+		if start := indentOf(src) + 1; start != col {
+			path, ok = mappingUnder(doc, line, start)
+		}
+	}
 	if !ok {
 		return nil
 	}
-	// A cursor ON a key is someone typing that key, and what they want is its SIBLINGS — the
-	// keys legal beside it. Only a cursor in the whitespace of a mapping means "inside".
+	return legalKeys(doc, path)
+}
+
+// mappingUnder resolves a position to the mapping whose keys belong there, or reports that
+// none does. A cursor ON a key is someone typing that key, and what they want is its SIBLINGS;
+// only a cursor in the whitespace of a mapping means "inside".
+func mappingUnder(doc *defdoc.Doc, line, col int) (string, bool) {
+	path, ok := doc.At(line, col)
+	if !ok || path == "" {
+		return "", false
+	}
 	span, _ := doc.Span(path)
 	if span.Key.Contains(line, col) {
-		path = defdoc.ParentPath(path)
-	} else if v, found := doc.ValueAt(path); found {
-		if _, isMapping := v.(map[string]any); !isMapping {
-			path = defdoc.ParentPath(path)
-		}
+		return defdoc.ParentPath(path), true
 	}
-	return legalKeys(doc, path)
+	v, found := doc.ValueAt(path)
+	if !found {
+		return "", false
+	}
+	switch v.(type) {
+	case map[string]any:
+		return path, true
+	case []any:
+		// A sequence holds no keys of its own: the cursor is between its elements.
+		return "", false
+	}
+	return defdoc.ParentPath(path), true
 }
 
 // blankBefore reports whether only whitespace precedes the cursor on its line.
@@ -197,14 +237,10 @@ func membersOf(s schema.Schema) []completionItem {
 	if len(props) == 0 {
 		return nil
 	}
-	required := map[string]bool{}
-	for _, name := range s.Required() {
-		required[name] = true
-	}
 	out := make([]completionItem, 0, len(props))
 	for name, sub := range props {
 		detail := sub.Summary()
-		if !required[name] {
+		if s.MayBeAbsent(name) {
 			detail += " (may be absent)"
 		}
 		out = append(out, completionItem{
@@ -323,4 +359,183 @@ func indentOf(line string) int {
 		return -1
 	}
 	return i
+}
+
+// routingValues offers what a `goto` may name: every task in this document, plus the two words
+// that are not tasks. A routing slot is the one place a VALUE has a closed set, and without
+// this the cursor reads as sitting on a key and the clause's own siblings are offered instead.
+func routingValues(text string, line, col int) ([]completionItem, bool) {
+	src := lineAt(text, line)
+	doc, ok := parseRepaired(text, line)
+	if !ok {
+		return nil, false
+	}
+	if _, ok := valueSlot(doc, src, line, col, usableRouting); !ok {
+		return nil, false
+	}
+	// The token already typed is REPLACED, not appended to: `$` is not a word character, so an
+	// editor left with no range would insert `$tick` beside the `$` the reader just typed.
+	from := replaceFrom(src, col)
+	out := []completionItem{
+		{Label: "end", Kind: kindValue, Detail: "terminate the instance", replaceFrom: from},
+		{Label: "next", Kind: kindValue, Detail: "advance to the next task in the list", replaceFrom: from},
+	}
+	for _, id := range taskIDs(doc) {
+		out = append(out, completionItem{
+			Label: "$" + id, Kind: kindValue, Detail: "task", replaceFrom: from,
+		})
+	}
+	return out, true
+}
+
+// valueSlot resolves the cursor to a slot whose VALUE it is inside, trying the position itself
+// and then the line's own key. Both are needed: a key with nothing after it has a zero-width
+// value node, so the cursor past it resolves to whatever encloses it instead.
+func valueSlot(doc *defdoc.Doc, src string, line, col int, usable func(*defdoc.Doc, string) bool) (string, bool) {
+	if path, ok := doc.At(line, col); ok && usable(doc, path) {
+		if span, found := doc.Span(path); found && span.Value.Contains(line, col) {
+			return path, true
+		}
+	}
+	if !afterKey(src, col) {
+		return "", false
+	}
+	path, ok := doc.At(line, indentOf(src)+1)
+	if !ok || !usable(doc, path) {
+		return "", false
+	}
+	return path, true
+}
+
+// usableRouting reports whether a slot names a task. A `switch` written as a LIST holds routing
+// clauses, and a cursor among them is writing a clause's keys.
+func usableRouting(doc *defdoc.Doc, path string) bool {
+	if !isRoutingSlot(path) {
+		return false
+	}
+	switch v, _ := doc.ValueAt(path); v.(type) {
+	case []any, map[string]any:
+		return false
+	}
+	return true
+}
+
+// afterKey reports whether the cursor sits past `key:` on a line with no value yet — where the
+// value's own node has no extent to contain anything.
+func afterKey(src string, col int) bool {
+	i := strings.Index(src, ":")
+	return i >= 0 && col > i+1 && strings.TrimSpace(src[i+1:]) == ""
+}
+
+// replaceFrom is the 1-based column the completion should overwrite from: the start of the
+// token being typed, `$` included.
+func replaceFrom(src string, col int) int {
+	start := col - 1
+	if start > len(src) {
+		start = len(src)
+	}
+	for start > 0 && isRoutingToken(src[start-1]) {
+		start--
+	}
+	return start + 1
+}
+
+func isRoutingToken(c byte) bool { return c == '$' || c == '-' || isIdentByte(c) }
+
+func taskIDs(doc *defdoc.Doc) []string {
+	tasks, _ := doc.ValueAt("tasks")
+	list, _ := tasks.([]any)
+	out := make([]string, 0, len(list))
+	for _, t := range list {
+		m, _ := t.(map[string]any)
+		if id, ok := m["id"].(string); ok && id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// typeValues offers what a `type` may name. There are two closed sets and the schema says
+// which: a user schema's JSON types, and — where the node is a discriminated union — the
+// variants its arms declare. Without this the cursor after `type:` reads as sitting on a key
+// and the surrounding keys come back.
+func typeValues(text string, line, col int) ([]completionItem, bool) {
+	src := lineAt(text, line)
+	doc, ok := parseRepaired(text, line)
+	if !ok {
+		return nil, false
+	}
+	path, ok := valueSlot(doc, src, line, col, isTypeSlot)
+	if !ok {
+		return nil, false
+	}
+	names, detail := typeNamesAt(doc, path)
+	if len(names) == 0 {
+		return nil, false
+	}
+	from := replaceFrom(src, col)
+	out := make([]completionItem, 0, len(names))
+	for i, name := range names {
+		out = append(out, completionItem{
+			Label:       name,
+			Kind:        kindValue,
+			Detail:      detail[i],
+			SortText:    fmt.Sprintf("%03d", i),
+			replaceFrom: from,
+		})
+	}
+	return out, true
+}
+
+func isTypeSlot(doc *defdoc.Doc, path string) bool {
+	if lastSegment(path) != "type" {
+		return false
+	}
+	if v, found := doc.ValueAt(path); found {
+		if _, isString := v.(string); !isString && v != nil {
+			return false
+		}
+	}
+	names, _ := typeNamesAt(doc, path)
+	return len(names) > 0
+}
+
+// typeNamesAt reads the closed set a `type` at path may take, with what each one is.
+func typeNamesAt(doc *defdoc.Doc, path string) ([]string, []string) {
+	root, ok := processSchema()
+	if !ok {
+		return nil, nil
+	}
+	node, ok := walk(root, doc, defdoc.ParentPath(path))
+	if !ok {
+		return nil, nil
+	}
+	if marked, _ := node[userSchemaMarker].(bool); marked {
+		names := schema.TypeNames()
+		return names, make([]string, len(names))
+	}
+	// A discriminated union names its variants in the arms themselves, which is where the
+	// prose describing each one lives too.
+	var names, detail []string
+	for _, arm := range unionArms(node) {
+		m, _ := arm.(map[string]any)
+		if m, ok = resolve(root, m); !ok {
+			continue
+		}
+		props, _ := m["properties"].(map[string]any)
+		typ, _ := props["type"].(map[string]any)
+		if c, ok := typ["const"].(string); ok {
+			names = append(names, c)
+			detail = append(detail, firstSentence(describeNode(m)))
+		}
+	}
+	return names, detail
+}
+
+// firstSentence is as much of a description as fits beside a value in a list.
+func firstSentence(s string) string {
+	if i := strings.IndexAny(s, ".—\n"); i > 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return s
 }

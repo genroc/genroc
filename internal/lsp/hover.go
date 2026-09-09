@@ -178,10 +178,13 @@ func lineAt(text string, line int) string {
 	return lines[line-1]
 }
 
+// typed answers with the expression's type, and with NOTHING when it has none: the editor
+// already shows the diagnostic for that position at the top of the same popup, and saying it
+// twice is what a reader sees.
 func typed(ctx schema.Schema, expr string) string {
 	t, err := ctx.Infer(expr)
 	if err != nil {
-		return "`" + expr + "` → _" + err.Error() + "_"
+		return ""
 	}
 	return "`" + expr + "` → **" + t.Summary() + "**"
 }
