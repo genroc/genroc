@@ -8,7 +8,13 @@ the CLI cannot disagree about what is wrong.
 
 ## Requires
 
-`genctl` on your `PATH` (or set `genroc.server.path`). Check with `genctl lsp --help`.
+Nothing. The extension carries the server as WebAssembly and runs that where the machine has no
+genctl on it.
+
+A `genctl` on your `PATH` is preferred and picked up automatically: it is several times faster,
+and it is the version that will `apply` — the bundled one is whatever this extension shipped
+with. Check yours with `genctl lsp --help`, name a different one with `genroc.server.path`, or
+turn the fallback off with `genroc.server.bundled: false`.
 
 ## What it does
 
@@ -33,6 +39,15 @@ Turn it off for these files, or the two servers double-report:
 
 The `# yaml-language-server: $schema=` comment stays useful for anyone without this extension.
 
+## Installing it
+
+From the Marketplace, or — to track `main` — the `genroc-edge.vsix` attached to the
+[edge release](https://github.com/genroc/genroc/releases/tag/edge):
+
+```sh
+code --install-extension genroc-edge.vsix
+```
+
 ## Building it
 
 ```sh
@@ -40,5 +55,8 @@ cd editors/vscode
 npm install
 npm run compile
 npm run package     # produces genroc-<version>.vsix
-code --install-extension genroc-0.1.0.vsix
+code --install-extension genroc-0.0.0.vsix
 ```
+
+The version in this directory is a placeholder: a release takes its version from the git tag,
+the way the npm package does.

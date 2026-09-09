@@ -51,7 +51,12 @@ install:
 
 # The VS Code extension. It is a launcher for `genctl lsp` and ships separately from the
 # binaries, so it is not part of `build` -- packaging it needs npm.
+#
+# The wasm is the server the extension falls back to where the machine has no genctl. ONE module
+# for every platform is what keeps the extension a single universal .vsix; a native binary would
+# mean one package per platform. It is a plain `go build` -- genctl has no cgo and no sockets.
 extension:
+	GOOS=wasip1 GOARCH=wasm go build -ldflags="-s -w" -o editors/vscode/bin/genctl.wasm ./cmd/genctl
 	cd editors/vscode && npm install && npm run compile && npm run package
 
 test: test-unit test-int

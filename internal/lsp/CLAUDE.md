@@ -254,6 +254,16 @@ is what notices if they go.
 
 `editors/vscode` starts `genctl lsp` and contributes a language id. It implements no analysis,
 and must not: two implementations of "what is wrong with this file" is the defect this whole
-spec was written against. `TestTheVSCodeExtensionMatchesTheFilesThisServerAnswersFor` is the
+spec was written against.
+
+It launches one of two servers: the `genctl` on PATH, or — where there is none — the same
+program as WebAssembly, bundled in the .vsix and started by `wasi.mjs` on VS Code's own Electron
+(`ELECTRON_RUN_AS_NODE=1`, which is where `node:wasi` lives, so nothing extra is installed).
+Three things make that work, and the third is the one to keep: genctl has no cgo and opens no
+sockets, so `GOOS=wasip1` is a plain build; the server is one goroutine, and wasip1 is
+single-threaded; and each workspace folder is preopened AT ITS OWN ABSOLUTE PATH, so a path
+inside the module is the same string as outside it and the `file://` URIs need no translation.
+`tests/lsp/wasm_test.ts` is differential against the binary — a fallback that quietly disagrees
+is worse than no fallback. specs/language-server.md §4. `TestTheVSCodeExtensionMatchesTheFilesThisServerAnswersFor` is the
 one thing holding the two halves together — they are different languages and neither imports
 the other, so nothing else notices when one is edited and the other is not.

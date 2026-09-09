@@ -81,6 +81,11 @@ jobs:
         # It is the shipped artefact and nothing else checks it: `make test` covers the Go
         # engine and the test suite, and the evaluator only ever gets RUN.
         run: cd eval-node && npm run typecheck
+      - name: Compile the VS Code extension
+        # Shipped artefact, and `tsc` runs nowhere else: `make test` covers the server and the
+        # suite, and the extension only ever gets LAUNCHED. Without this a broken extension is
+        # discovered by the release that publishes it.
+        run: cd editors/vscode && npm ci && npm run compile
       - name: make test
         run: make test
 

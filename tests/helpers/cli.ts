@@ -30,6 +30,24 @@ export function buildGenctlBinary(): string {
   return cachedBin;
 }
 
+let cachedWasm: string | null = null;
+
+// buildGenctlWasm builds what the VS Code extension BUNDLES: the same `genctl lsp`, for a
+// machine that has no genctl on it. Written to the path the extension packages from, so a test
+// run and `make extension` produce the same file.
+export function buildGenctlWasm(): string {
+  if (cachedWasm) return cachedWasm;
+  const out = join(ROOT, "editors", "vscode", "bin", "genctl.wasm");
+  const result = spawnSync("go", ["build", "-o", out, "./cmd/genctl"], {
+    cwd: ROOT,
+    env: { ...process.env, GOOS: "wasip1", GOARCH: "wasm" },
+    stdio: ["ignore", "ignore", "inherit"],
+  });
+  if (result.status !== 0) throw new Error("Failed to build genctl.wasm");
+  cachedWasm = out;
+  return cachedWasm;
+}
+
 export interface CliResult {
   stdout: string;
   stderr: string;

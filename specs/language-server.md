@@ -153,6 +153,24 @@ not require the root module, not because the rule forbids it. Fixed in phase 0.
 The trigger to reopen this: the server growing a dependency of its own that the engine has no
 use for — an incremental parser, a fuzzy matcher. Then the fence stops being hypothetical.
 
+### Or the one the extension carries: `genctl.wasm`
+
+"One binary people already have" is not true of someone opening a `.genroc.yaml` for the first
+time, so the extension bundles the server as `GOOS=wasip1` WebAssembly and runs that when the
+machine has no genctl. It is a plain `go build` — genctl has no cgo and opens no sockets — and
+it costs one artifact, not one per platform, which is the whole reason it is wasm and not a
+native binary in nine packages.
+
+Measured on the 57-line fixture: 110 ms to start against 6 ms, 7 ms a completion against 1 ms.
+That is why it is the FALLBACK and not the server: a genctl on PATH is faster and is the version
+that will `apply`, while the bundled one is whatever the extension shipped with.
+
+The reason it needs nothing installed: VS Code's own Electron is a Node with `node:wasi` in it
+(`ELECTRON_RUN_AS_NODE=1`), so the extension launches a loader rather than a runtime. Each
+workspace folder is preopened at its own absolute path, so the `file://` URIs the editor sends
+need no translation into guest paths. The limit to remember is wasip1's: no sockets and no
+subprocesses, so a server that grows either stops being portable this way.
+
 ## 5. The structural layer is ours too
 
 The `# yaml-language-server: $schema=` comment in the templates is not a working baseline to

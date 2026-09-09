@@ -2,9 +2,15 @@
   "name": "genroc",
   "displayName": "genroc",
   "description": "Diagnostics, hover, completion and navigation for genroc process definitions.",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "publisher": "genroc",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/genroc/genroc.git",
+    "directory": "editors/vscode"
+  },
+  "homepage": "https://genroc.org",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -49,6 +55,11 @@
           "type": "boolean",
           "default": true,
           "description": "Run the genroc language server for *.genroc.yaml files."
+        },
+        "genroc.server.bundled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Fall back to the genctl bundled with this extension (WebAssembly) when there is none on PATH. Slower than the binary, and it carries the version the extension shipped with."
         }
       }
     },

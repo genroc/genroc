@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildGenctlBinary } from "../helpers/cli.ts";
+import { buildGenctlBinary, buildGenctlWasm } from "../helpers/cli.ts";
 import { ORDERS, SHIPMENT } from "./fixture.ts";
 
 // Driving `genctl lsp` the way an editor does: a real process, real framing, real binary.
@@ -128,13 +128,32 @@ export class Lsp {
   private opened = new Set<string>();
   private version = 1;
 
-  private constructor(bin: string) {
-    this.child = spawn(bin, ["lsp"], { stdio: ["pipe", "pipe", "pipe"] });
+  private constructor(command: string, args: string[]) {
+    this.child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
     this.child.stdout.on("data", (chunk: Buffer) => this.consume(chunk));
   }
 
   static async start(): Promise<Lsp> {
-    const lsp = new Lsp(buildGenctlBinary());
+    return Lsp.session(buildGenctlBinary(), ["lsp"]);
+  }
+
+  /**
+   * The server the VS Code extension falls back to where a machine has no genctl: the same code
+   * as WebAssembly, launched by the extension's own loader over the same stdio. The workspace is
+   * passed because a wasm module reaches no path that is not preopened for it.
+   */
+  static async startWasm(): Promise<Lsp> {
+    const loader = join(new URL("../../", import.meta.url).pathname, "editors/vscode/wasi.mjs");
+    return Lsp.session(process.execPath, [
+      "--no-warnings",
+      loader,
+      buildGenctlWasm(),
+      workspace,
+    ]);
+  }
+
+  private static async session(command: string, args: string[]): Promise<Lsp> {
+    const lsp = new Lsp(command, args);
     await lsp.request("initialize", { rootUri: `file://${workspace}` });
     lsp.notify("initialized", {});
     return lsp;
