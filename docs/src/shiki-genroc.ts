@@ -4,10 +4,10 @@ import { createRequire } from "node:module";
 // `injectTo` is how Shiki spells what package.json spells as `injectTo` too; the selector
 // inside each file still decides where within the target it applies.
 //
-// The site loads one grammar the EXTENSION does not: `markers`, which paints `$:` / `${ }`
-// wherever they are written. In the editor that question is the server's — it knows which
-// slots evaluate and a grammar cannot — but a static page has no server, and every sample
-// here is a valid definition, so the lexical answer is the right one and never wrong.
+// `markers` is injected into `source.genroc` here and into markdown in the extension, and the
+// difference is the root: Shiki tokenizes a fence AS the language, so an injection naming a
+// markdown scope would never fire. Same reason either way — no server reaches a static page or
+// a fence, and every sample in one is a valid definition, so the lexical answer is never wrong.
 const require = createRequire(import.meta.url);
 const load = (name: string) => require(`../../editors/vscode/syntaxes/${name}.tmLanguage.json`);
 
