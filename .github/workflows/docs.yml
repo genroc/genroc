@@ -43,7 +43,7 @@ jobs:
         run: |
           cd docs
           pnpm install --frozen-lockfile
-          pnpm -C docs run build
+          pnpm run build
           # Pages runs Jekyll on branch deploys, which drops _astro/ (underscore dirs).
           touch dist/.nojekyll
 
