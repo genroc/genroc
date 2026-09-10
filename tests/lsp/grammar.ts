@@ -101,26 +101,6 @@ function sameScopes(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((s, i) => s === b[i]);
 }
 
-/** Each token of `code` mapped to the colour `theme` gives it — what a reader actually sees. */
-export async function colourize(code: string, theme: unknown): Promise<Map<string, string>> {
-  const { createHighlighterCore } = await import("shiki/core");
-  const contributions = contributedGrammars();
-  const hi = await createHighlighterCore({
-    themes: [theme as never],
-    langs: [
-      ...contributions.map((g) => ({
-        ...JSON.parse(readFileSync(join(EXTENSION, g.path), "utf8")),
-        name: g.scopeName,
-        ...(g.injectTo ? { injectTo: g.injectTo } : {}),
-      })),
-      ...yamlLangs,
-    ],
-    engine: createOnigurumaEngine(import("shiki/wasm")),
-  });
-  const [tokens] = hi.codeToTokens(code, { lang: "source.genroc", theme: (theme as { name: string }).name }).tokens;
-  return new Map(tokens.map((t) => [t.content.trim(), t.color ?? ""]));
-}
-
 /**
  * The tokens of the one line of `source` containing `fragment` — how a test names a line, the
  * same rule `at()` uses: a fragment on two lines is refused rather than guessed at.

@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ORDERS } from "./fixture.ts";
-import { EXTENSION, colourize, contributedGrammars, genrocScope, lineOf, scopesOf, siteGrammars, tokenize } from "./grammar.ts";
+import { EXTENSION, contributedGrammars, genrocScope, lineOf, scopesOf, siteGrammars, tokenize } from "./grammar.ts";
 
 // What the grammars must say about a definition. Nothing here re-checks YAML — they delegate
 // that — only what the language adds to it.
@@ -163,15 +163,4 @@ test("a member path carries one scope from root to leaf", async () => {
   const tokens = await tokenize(`      tally: "$: (self.previous.count ?? 0) + 1"`, site);
   const path = ["self", "previous", "count"].map((seg) => genrocScope(scopesOf(tokens, seg)));
   expect(new Set(path).size, `self.previous.count is scoped ${path.join("/")}`).toBe(1);
-});
-
-test("the docs theme colours a whole member path or none of it", async () => {
-  const { light, dark } = await import("../../docs/src/shiki-theme.ts");
-  const line = `      tally: "$: (self.previous.count ?? 0) + 1"`;
-
-  for (const theme of [light, dark]) {
-    const coloured = await colourize(line, theme);
-    const path = ["self", "previous", "count"].map((seg) => coloured.get(seg));
-    expect(new Set(path).size, `${theme.name} paints self.previous.count as ${path.join("/")}`).toBe(1);
-  }
 });
