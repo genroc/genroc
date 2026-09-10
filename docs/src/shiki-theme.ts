@@ -14,6 +14,12 @@ const scopes = (c: Record<string, string>) => [
   { scope: ['keyword', 'storage', 'keyword.operator'], settings: { foreground: c.accent } },
   { scope: ['variable', 'variable.other', 'support.function'], settings: { foreground: c.fg } },
   { scope: ['punctuation', 'meta.brace'], settings: { foreground: c.muted } },
+  // The `$:` / `${` markers and the routing keywords carry the accent: they are the signal that
+  // a line computes. A member path does NOT — `self` is scoped variable.language and the
+  // segments after it variable.other.property, so tinting one leaves `self.previous.count`
+  // highlighted in its first word only. This palette has no second shade to tell them apart
+  // with, so both fall through to the rule above and the path reads as the one thing it is.
+  { scope: ['punctuation.definition.template-expression', 'keyword.control.flow'], settings: { foreground: c.accent } },
   { scope: ['entity.name.function', 'support.function.builtin'], settings: { foreground: c.accent } },
   { scope: ['markup.inserted', 'meta.diff.header.to-file'], settings: { foreground: c.added } },
   { scope: ['markup.deleted', 'meta.diff.header.from-file'], settings: { foreground: c.removed } },

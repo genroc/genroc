@@ -1,0 +1,59 @@
+{
+  "$comment": "The `$:` / `${ }` markers wherever they are written. Lexical, so it cannot tell an expression slot from a literal one \u2014 `id: \"$: tick\"` is plain text and this paints it anyway. That is why the EXTENSION does not load it: the server answers there. The docs site does, where every sample is a valid definition and the marker only ever appears in a slot that evaluates.",
+  "scopeName": "source.genroc.markers",
+  "injectionSelector": "L:source.genroc - comment",
+  "patterns": [
+    {
+      "include": "#escape"
+    },
+    {
+      "include": "#typed-leaf"
+    },
+    {
+      "include": "#interpolation"
+    }
+  ],
+  "repository": {
+    "escape": {
+      "match": "\\$\\$",
+      "name": "constant.character.escape.genroc"
+    },
+    "typed-leaf": {
+      "$comment": "Anchored to the scalar's start; a `$:` anywhere else is literal text. The region must end BEFORE the closing quote \u2014 only the innermost rule's end is tested, so swallowing it leaves the string open for the rest of the file.",
+      "begin": "(?:(?<=[\"'])|^)[ \\t]*(\\$:)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.template-expression.begin.genroc"
+        }
+      },
+      "end": "(?=[\"'])|$",
+      "name": "meta.embedded.expression.genroc",
+      "patterns": [
+        {
+          "include": "source.genroc.slots#expression"
+        }
+      ]
+    },
+    "interpolation": {
+      "$comment": "The real parser ends a block at the first `}` whose body PARSES; a grammar can only take the first `}` it is not already inside, which is what #braces is for.",
+      "begin": "(\\$\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.template-expression.begin.genroc"
+        }
+      },
+      "end": "(\\})|(?=[\"'])|$",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.template-expression.end.genroc"
+        }
+      },
+      "name": "meta.embedded.expression.genroc",
+      "patterns": [
+        {
+          "include": "source.genroc.slots#expression"
+        }
+      ]
+    }
+  }
+}

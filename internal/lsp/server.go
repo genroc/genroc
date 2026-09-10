@@ -76,6 +76,9 @@ func (s *Server) handle(req *request) {
 		res.Capabilities.HoverProvider = true
 		res.Capabilities.CompletionProvider = &completionOpts{TriggerCharacters: []string{".", "$"}}
 		res.Capabilities.DefinitionProvider = true
+		res.Capabilities.SemanticTokens = &semanticOpts{Full: true}
+		res.Capabilities.SemanticTokens.Legend.TokenTypes = semanticTokenTypes
+		res.Capabilities.SemanticTokens.Legend.TokenModifiers = []string{}
 		res.ServerInfo.Name = "genctl-lsp"
 		res.ServerInfo.Version = s.version
 		_ = s.conn.reply(req.ID, res)
@@ -113,6 +116,13 @@ func (s *Server) handle(req *request) {
 			return
 		}
 		_ = s.conn.reply(req.ID, s.complete(p))
+
+	case "textDocument/semanticTokens/full":
+		var p semanticTokensParams
+		if !s.decode(req, &p) {
+			return
+		}
+		_ = s.conn.reply(req.ID, semanticTokensResult{Data: semanticTokens(s.docs[p.TextDocument.URI])})
 
 	case "textDocument/definition":
 		var p hoverParams // same shape: a document and a position

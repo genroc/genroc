@@ -1,0 +1,213 @@
+{
+  "$comment": "What a KEY makes certain, and nothing else. A `case:` holds an expression and a `goto:` names a destination because of the key beside them \u2014 no schema knowledge needed, so this is safe wherever a definition is read. Whether any OTHER scalar computes depends on its slot, which only the server knows: internal/lsp/semantic.go answers that as semantic tokens.",
+  "scopeName": "source.genroc.slots",
+  "injectionSelector": "L:source.genroc - comment",
+  "patterns": [
+    {
+      "include": "#case-double"
+    },
+    {
+      "include": "#case-single"
+    },
+    {
+      "include": "#routing"
+    },
+    {
+      "include": "#routing-keyword"
+    },
+    {
+      "include": "#routing-keyword-quoted"
+    }
+  ],
+  "repository": {
+    "routing": {
+      "$comment": "A goto/switch target, sigil included: nothing styles `punctuation.definition.keyword`, so capturing the `$` apart from the name left it uncoloured beside a coloured name. Restricted to a scalar that is nothing but `$name`, so a stray `$word` inside a URL stays the literal text the parser makes it. Scoped as a function name because that is what themes colour.",
+      "match": "(?:(?<=[\"'])|(?<=:[ \\t])|^)[ \\t]*(\\$[A-Za-z_][A-Za-z0-9_]*)(?=[ \\t]*(?:[\"']|$))",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.genroc"
+        }
+      }
+    },
+    "expression": {
+      "patterns": [
+        {
+          "include": "#string-escape"
+        },
+        {
+          "include": "#string"
+        },
+        {
+          "include": "#braces"
+        },
+        {
+          "include": "#number"
+        },
+        {
+          "include": "#constant"
+        },
+        {
+          "include": "#lambda-parameter"
+        },
+        {
+          "include": "#root"
+        },
+        {
+          "include": "#property"
+        },
+        {
+          "include": "#builtin"
+        },
+        {
+          "include": "#arrow"
+        },
+        {
+          "include": "#operator"
+        },
+        {
+          "include": "#punctuation"
+        }
+      ]
+    },
+    "string-escape": {
+      "$comment": "YAML's own escape rule does not reach inside this region, and without this the `\"` of a `\\\"` reads as the end of the enclosing scalar.",
+      "match": "\\\\.",
+      "name": "constant.character.escape.yaml"
+    },
+    "string": {
+      "match": "'(?:[^'\\\\]|\\\\.)*'",
+      "name": "string.quoted.single.genroc"
+    },
+    "braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.braces.begin.genroc"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.braces.end.genroc"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#object-key"
+        },
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "number": {
+      "match": "\\b\\d+(?:\\.\\d+)?\\b",
+      "name": "constant.numeric.genroc"
+    },
+    "constant": {
+      "match": "\\b(?:true|false|null)\\b",
+      "name": "constant.language.genroc"
+    },
+    "root": {
+      "$comment": "The context roots evalEnv builds (internal/engine/evaluator.go); `last_error` precedes `error` so the longer name wins. It carries the SAME scope as the segments after it \u2014 a path is one referent, and `variable.language` is a different colour from `variable.other.property` in most themes.",
+      "match": "\\b(?:input|outputs|self|last_error|error|config)\\b",
+      "name": "variable.other.genroc"
+    },
+    "property": {
+      "match": "(\\.)([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "punctuation.accessor.genroc"
+        },
+        "2": {
+          "name": "variable.other.genroc"
+        }
+      }
+    },
+    "builtin": {
+      "match": "\\b(map)\\b(?=\\s*\\()",
+      "name": "support.function.builtin.genroc"
+    },
+    "arrow": {
+      "match": "=>",
+      "name": "keyword.operator.arrow.genroc"
+    },
+    "operator": {
+      "match": "\\?\\?|\\|\\||&&|[!=<>]=|[<>]|[-+*/%!]",
+      "name": "keyword.operator.genroc"
+    },
+    "punctuation": {
+      "match": "[()\\[\\],:]",
+      "name": "punctuation.separator.genroc"
+    },
+    "lambda-parameter": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=[ \\t]*=>)",
+      "name": "variable.parameter.genroc"
+    },
+    "object-key": {
+      "$comment": "Included only from #braces: elsewhere a bare word before a colon is not a key.",
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?=[ \\t]*:)",
+      "name": "variable.other.genroc"
+    },
+    "case-double": {
+      "$comment": "A `case` is the one expression written BARE (internal/lsp/CLAUDE.md), so it is found through its own key \u2014 by LOOKING BEHIND at it, never consuming it: an injection that takes over a key gives it a different stack from every other key in the file.",
+      "begin": "(?:(?<=\\bcase: )|(?<=\\bcase:))(\")",
+      "beginCaptures": {
+        "1": {
+          "name": "string.quoted.double.yaml punctuation.definition.string.begin.yaml"
+        }
+      },
+      "end": "(\")|$",
+      "endCaptures": {
+        "1": {
+          "name": "string.quoted.double.yaml punctuation.definition.string.end.yaml"
+        }
+      },
+      "name": "meta.embedded.expression.genroc",
+      "patterns": [
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "case-single": {
+      "$comment": "A `case` is the one expression written BARE (internal/lsp/CLAUDE.md), so it is found through its own key \u2014 by LOOKING BEHIND at it, never consuming it: an injection that takes over a key gives it a different stack from every other key in the file.",
+      "begin": "(?:(?<=\\bcase: )|(?<=\\bcase:))(')",
+      "beginCaptures": {
+        "1": {
+          "name": "string.quoted.single.yaml punctuation.definition.string.begin.yaml"
+        }
+      },
+      "end": "(')|$",
+      "endCaptures": {
+        "1": {
+          "name": "string.quoted.single.yaml punctuation.definition.string.end.yaml"
+        }
+      },
+      "name": "meta.embedded.expression.genroc",
+      "patterns": [
+        {
+          "include": "#expression"
+        }
+      ]
+    },
+    "routing-keyword": {
+      "$comment": "`end` and `next` are the rest of the destination vocabulary \u2014 a routing slot is every task plus these two \u2014 so they carry the SAME scope as `$name`. Scoping them as a keyword put two colours in one slot (#FF7B72 against #D2A8FF in Dark 2026). Matched through their key so an ordinary string reading \"end\" is left alone. Read behind the key rather than through it, so the key stays YAML's.",
+      "match": "(?:(?<=\\bgoto:)|(?<=\\bgoto: )|(?<=\\bswitch:)|(?<=\\bswitch: ))[ \\t]*(end|next)(?=[ \\t]*$)",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.genroc"
+        }
+      }
+    },
+    "routing-keyword-quoted": {
+      "$comment": "The same target written inside quotes, matched from within the string so YAML keeps it.",
+      "match": "(?:(?<=\\bgoto: [\"'])|(?<=\\bgoto:[\"'])|(?<=\\bswitch: [\"'])|(?<=\\bswitch:[\"']))(end|next)(?=[\"'])",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.genroc"
+        }
+      }
+    }
+  }
+}

@@ -41,6 +41,13 @@
         "language": "genroc",
         "scopeName": "source.genroc",
         "path": "./syntaxes/genroc.tmLanguage.json"
+      },
+      {
+        "scopeName": "source.genroc.slots",
+        "path": "./syntaxes/genroc-slots.tmLanguage.json",
+        "injectTo": [
+          "source.genroc"
+        ]
       }
     ],
     "configuration": {

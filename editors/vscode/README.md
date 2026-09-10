@@ -1,6 +1,6 @@
 # genroc for VS Code
 
-Diagnostics, hover, completion and go-to-definition for `*.genroc.yaml`.
+Diagnostics, hover, completion, go-to-definition and syntax highlighting for `*.genroc.yaml`.
 
 The extension is a launcher: it starts `genctl lsp` and speaks LSP to it. Every answer is the
 server's own analysis — the same `Validate` and inference an `apply` runs — so the editor and
@@ -24,9 +24,19 @@ turn the fallback off with `genroc.server.bundled: false`.
 | **Hover** | the type an expression infers to, a slot's type, and the scope it is written in |
 | **Completion** | scope members inside `$:` / `${ }`; legal keys elsewhere, discriminated — a `fetch` action offers fetch's keys, not the union of six |
 | **Go to definition** | `goto: "$task-id"` jumps to that task |
+| **Highlighting** | YAML's, plus what only the server can know: the scalars that actually **evaluate** get their expression lexed, and every routing destination — `$task`, `end`, `next` — is one colour |
 
 Completion and hover work on a document that does not parse yet, which is the state a file is
 in while you are typing in it.
+
+Highlighting comes from the server, as LSP semantic tokens, because whether a scalar computes
+depends on which slot holds it: `url: "$: input.x"` evaluates and `id: "$: x"` is the literal
+text `$: x`. A syntax grammar sees the same characters in both and paints them the same; the
+server knows the slot.
+
+Inside an expression there is no genroc scheme — identifiers, operators and numbers get the
+standard token types your theme already colours code with, so a `$:` leaf reads the way the
+same expression would in TypeScript.
 
 ## `yaml-language-server`
 

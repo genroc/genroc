@@ -64,11 +64,32 @@ type initializeResult struct {
 		HoverProvider      bool            `json:"hoverProvider"`
 		CompletionProvider *completionOpts `json:"completionProvider,omitempty"`
 		DefinitionProvider bool            `json:"definitionProvider"`
+		SemanticTokens     *semanticOpts   `json:"semanticTokensProvider,omitempty"`
 	} `json:"capabilities"`
 	ServerInfo struct {
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	} `json:"serverInfo"`
+}
+
+// semanticOpts is the legend plus what the server will answer. Only `full` is offered: a
+// definition is a screenful, and a range request would be the same work over less of it.
+type semanticOpts struct {
+	Legend struct {
+		TokenTypes     []string `json:"tokenTypes"`
+		TokenModifiers []string `json:"tokenModifiers"`
+	} `json:"legend"`
+	Full bool `json:"full"`
+}
+
+type semanticTokensParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+}
+
+type semanticTokensResult struct {
+	Data []uint32 `json:"data"`
 }
 
 type hoverParams struct {

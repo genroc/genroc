@@ -270,6 +270,48 @@ is what notices if they go.
 and must not: two implementations of "what is wrong with this file" is the defect this whole
 spec was written against.
 
+Highlighting is split between the two, and the line is what a KEY makes certain. `case:` holds
+an expression and `goto:` names a destination because of the key beside them, so
+`syntaxes/genroc-slots.tmLanguage.json` marks those and the extension injects it. Whether any
+OTHER scalar computes depends on its SLOT — `id: "$: tick"` is the literal text `$: tick` — and
+a grammar cannot see slots, so `semantic.go` answers that as semantic tokens and the extension
+does not inject `genroc-markers`. `docs/` loads both: a static page has no server, and every
+sample on it is a valid definition, so the lexical answer is never wrong there.
+
+**The injection carries no `language` in package.json.** That field names the grammar FOR a
+language; a second contribution claiming it replaces the first, and VS Code then tokenizes a
+definition with the injection alone — no `include: source.yaml`, so every key, value and quote
+in the file loses its colour while the expressions keep theirs. package.json spells the target
+as `injectTo`; `injectionSelector` is read from the grammar file and ignored here. And the
+rules read BEHIND a key rather than through it: an injection adds scopes, and one that consumes
+`case:` or `goto:` hands that key a different stack from every other key in the file.
+
+## Semantic tokens are the slot's answer, not the text's
+
+`semantic.go` marks what a grammar cannot: `isExpressionSlot` asks whether a task phase's
+context governs the leaf — the same test hover uses, so the two cannot disagree about what a
+scalar is — minus the leaves under a phase that hold text (`literalKeys`) and the user schemas
+that sit inside an action. The insides come from the language's own lexer, `syntax.Tokens`,
+and the marker positions from `template.Scan`; **neither is re-derived here**, and
+`TestScanAgreesWithParse` is what holds the scanner to the parser it was split from.
+
+Three things are silent when broken:
+
+- **Every segment of a member path gets ONE type.** `self` marked apart from the names after it
+  paints the path in two colours in any editor mapping them apart. Reported twice.
+- **Only STANDARD legend types.** A custom name is legal and goes uncoloured in most editors,
+  which is indistinguishable from the server not working.
+- **The stream is delta-encoded and must ascend.** An out-of-order token does not vanish; it
+  shifts every token after it, so the editor paints the wrong ranges.
+
+Containers are skipped, and so is a scalar spanning lines: a container's span covers its
+children, so scanning it finds the same `$:` a second time and emits a token overlapping the
+leaf's own.
+
+Semantic tokens are ordinary LSP, so this reaches any client that implements them — Neovim,
+Emacs, Kate, Sublime's LSP package — with no genroc-specific assets at all. A client that does
+not implement them ignores the capability and keeps plain YAML.
+
 It launches one of two servers: the `genctl` on PATH, or — where there is none — the same
 program as WebAssembly, bundled in the .vsix and started by `wasi.mjs` on VS Code's own Electron
 (`ELECTRON_RUN_AS_NODE=1`, which is where `node:wasi` lives, so nothing extra is installed).

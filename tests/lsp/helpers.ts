@@ -128,6 +128,7 @@ export class Lsp {
   private awaiting = new Map<string, (ds: Diagnostic[]) => void>();
   private nextId = 1;
   private opened = new Set<string>();
+  private legend: string[] | undefined;
   private version = 1;
 
   private constructor(command: string, args: string[]) {
@@ -159,7 +160,10 @@ export class Lsp {
 
   private static async session(command: string, args: string[]): Promise<Lsp> {
     const lsp = new Lsp(command, args);
-    await lsp.request("initialize", { rootUri: `file://${workspace}` });
+    const init = (await lsp.request("initialize", { rootUri: `file://${workspace}` })) as {
+      capabilities?: { semanticTokensProvider?: { legend?: { tokenTypes?: string[] } } };
+    };
+    lsp.legend = init.capabilities?.semanticTokensProvider?.legend?.tokenTypes;
     lsp.notify("initialized", {});
     return lsp;
   }
@@ -193,6 +197,34 @@ export class Lsp {
     return Object.fromEntries(
       items.map((i) => [i.label, { detail: i.detail ?? "", documentation: i.documentation ?? "" }]),
     );
+  }
+
+  /**
+   * Semantic tokens, decoded back into the text each one covers and its legend name. The wire
+   * form is five delta-encoded integers per token, so a decoder that disagrees with the server's
+   * encoder paints the wrong ranges rather than none — which is why the decoding lives here,
+   * shared by every test that asks.
+   */
+  async semanticTokens(doc: Doc): Promise<{ text: string; kind: string; line: number }[]> {
+    this.sync({ uri: doc.uri, text: doc.text, line: 0, character: 0, quoted: "" });
+    const legend = this.legend;
+    if (!legend) throw new Error("the server advertised no semanticTokensProvider");
+    const { data } = (await this.request("textDocument/semanticTokens/full", {
+      textDocument: { uri: doc.uri },
+    })) as { data: number[] };
+
+    const lines = doc.text.split("\n");
+    const out: { text: string; kind: string; line: number }[] = [];
+    let line = 0;
+    let start = 0;
+    for (let i = 0; i < data.length; i += 5) {
+      const [dl, ds, length, kind] = [data[i], data[i + 1], data[i + 2], data[i + 3]];
+      line += dl;
+      start = dl === 0 ? start + ds : ds;
+      // UTF-16 code units are what the protocol counts, and what a JS string is indexed in.
+      out.push({ text: lines[line].slice(start, start + length), kind: legend[kind], line });
+    }
+    return out;
   }
 
   /** The hover markdown, or "" where the server has nothing to say. */

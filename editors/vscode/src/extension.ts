@@ -57,6 +57,15 @@ export async function activate(context: vscode.ExtensionContext) {
   client = new LanguageClient("genroc", "genroc", server, client_options);
   await client.start();
   context.subscriptions.push(client);
+
+  // A genctl on PATH is preferred over the bundled one, so an OLD genctl silently costs
+  // whatever it does not implement. Highlighting is the one a reader notices and cannot
+  // explain — it simply looks like the extension does nothing.
+  if (!client.initializeResult?.capabilities.semanticTokensProvider) {
+    client.outputChannel.appendLine(
+      "this genctl has no semanticTokens support, so expressions are not highlighted. Update genctl.",
+    );
+  }
   if (fallback) {
     // The channel, not a notification: it changes nothing a reader has to act on, and it is
     // the first thing to know when an answer here disagrees with the genctl they install later.

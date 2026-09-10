@@ -4,6 +4,7 @@ import mdx from "@astrojs/mdx";
 import rehypeSlug from "rehype-slug";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import { light, dark } from "./src/shiki-theme.ts";
+import { genroc } from "./src/shiki-genroc.ts";
 
 // The live site serves from the apex of genroc.org (public/CNAME), so `base` is `/`;
 // the deploy workflow overrides DOCS_BASE only for an archived build at a versioned
@@ -49,6 +50,9 @@ export default defineConfig({
     ],
     shikiConfig: {
       themes: { light, dark },
+      // `genroc` is YAML plus the expression injection; `yaml` has to be named too, since
+      // the grammar reaches it by scope name rather than bundling it.
+      langs: [...genroc, "yaml"],
       defaultColor: false,
       wrap: false,
     },
