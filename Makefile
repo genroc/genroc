@@ -55,6 +55,10 @@ install:
 # The wasm is the server the extension falls back to where the machine has no genctl. ONE module
 # for every platform is what keeps the extension a single universal .vsix; a native binary would
 # mean one package per platform. It is a plain `go build` -- genctl has no cgo and no sockets.
+#
+# editors/vscode/LICENSE is a COPY of the root one, not a link: vsce reads the extension
+# directory alone, and without a license file there it warns and then stops on a terminal to ask.
+# npm packs eval-node/LICENSE for the same reason.
 extension:
 	GOOS=wasip1 GOARCH=wasm go build -ldflags="-s -w" -o editors/vscode/bin/genctl.wasm ./cmd/genctl
 	cd editors/vscode && npm install && npm run compile && npm run package

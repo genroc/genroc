@@ -4,7 +4,7 @@
   "description": "Diagnostics, hover, completion and navigation for genroc process definitions.",
   "version": "0.0.0",
   "publisher": "genroc",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/genroc/genroc.git",
