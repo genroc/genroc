@@ -2,6 +2,8 @@ package lsp
 
 import (
 	"encoding/json"
+	"image"
+	_ "image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,5 +121,42 @@ func TestTheExtensionEnablesSuggestionsInsideStrings(t *testing.T) {
 	}
 	if lang.ShowWords == nil || *lang.ShowWords {
 		t.Error("word-based suggestions are on, and they rank beside the vocabulary the server knows")
+	}
+}
+
+// The marketplace lists an extension by its icon, and vsce only checks the path when it
+// packages — which `make test` does not run. A missing or undersized icon therefore fails at
+// publish time, long after the change that broke it.
+func TestTheExtensionShipsTheIconItDeclares(t *testing.T) {
+	raw, err := os.ReadFile("../../editors/vscode/package.json")
+	if err != nil {
+		t.Skipf("extension not present: %v", err)
+	}
+	var pkg struct {
+		Icon string `json:"icon"`
+	}
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		t.Fatalf("package.json: %v", err)
+	}
+	if pkg.Icon == "" {
+		t.Fatal("the extension declares no icon, so the marketplace lists it with a placeholder")
+	}
+
+	f, err := os.Open(filepath.Join("../../editors/vscode", pkg.Icon))
+	if err != nil {
+		t.Fatalf("package.json points at %q, which is not there: %v", pkg.Icon, err)
+	}
+	defer f.Close()
+
+	// PNG specifically: vsce refuses an SVG, and a JPEG named .png would pass a path check.
+	cfg, format, err := image.DecodeConfig(f)
+	if err != nil {
+		t.Fatalf("%s does not decode as an image: %v", pkg.Icon, err)
+	}
+	if format != "png" {
+		t.Errorf("%s is a %s; the marketplace takes a PNG", pkg.Icon, format)
+	}
+	if cfg.Width < 128 || cfg.Height < 128 {
+		t.Errorf("%s is %dx%d; the marketplace minimum is 128x128", pkg.Icon, cfg.Width, cfg.Height)
 	}
 }

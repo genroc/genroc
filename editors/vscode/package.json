@@ -5,6 +5,7 @@
   "version": "0.0.0",
   "publisher": "genroc",
   "license": "Apache-2.0",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/genroc/genroc.git",
