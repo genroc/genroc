@@ -171,7 +171,13 @@ func anyStatusMatching(patterns []string, pred func(int) bool) bool {
 // would have typed it. A fetch types per status, so pointing its author at result_schema —
 // a field a fetch now refuses — would send them somewhere they cannot go.
 func untypedResultAdvice(a *model.Action) string {
-	if a != nil && a.Type == model.ActionTypeFetch {
+	if a == nil {
+		return "a task with no action has no result to read"
+	}
+	if a.Type == model.ActionTypeDelay {
+		return "a delay waits and hands nothing back — there is no result"
+	}
+	if a.Type == model.ActionTypeFetch {
 		return "the action declares no responses — add `responses: {\"2xx\": {...}}` to type the body, or `{}` (the top type) to export it opaquely for a caller to narrow"
 	}
 	return "the action has no result_schema — add a result_schema to type the response, or `result_schema: {}` (the top type) to export it opaquely for a caller to narrow"

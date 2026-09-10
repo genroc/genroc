@@ -34,6 +34,12 @@ func completeAt(text string, line, col int) []completionItem {
 	if inBareExpression(text, line, col) {
 		return completeExpression(text, line, col, dottedTail(src[:min(col-1, len(src))]))
 	}
+	// Past a `key:` the reader is writing that key's VALUE. The slots above are the ones with an
+	// answer there; anything else has none — and the keys `completeKey` would offer belong to
+	// the NEXT line, which is what a half-written `for: ` was answered with.
+	if inValuePosition(src, col) {
+		return nil
+	}
 	return completeKey(text, line, col)
 }
 
@@ -516,6 +522,31 @@ func usableRouting(doc *defdoc.Doc, path string) bool {
 func afterKey(src string, col int) bool {
 	i := strings.Index(src, ":")
 	return i >= 0 && col > i+1 && strings.TrimSpace(src[i+1:]) == ""
+}
+
+// inValuePosition reports whether the cursor sits where this line's VALUE goes: past the key's
+// colon, and not inside a flow collection opened after it — `{ type: string, |}` is a key
+// position of its own and `[string, |]` an element one, both of which have answers.
+func inValuePosition(src string, col int) bool {
+	colon := strings.Index(src, ":")
+	if colon < 0 || col <= colon+1 {
+		return false
+	}
+	return flowDepth(src, colon+1, col) == 0
+}
+
+// flowDepth is how many flow collections are still open between two columns of a line.
+func flowDepth(src string, from, col int) int {
+	depth := 0
+	for i := from; i < col-1 && i < len(src); i++ {
+		switch src[i] {
+		case '[', '{':
+			depth++
+		case ']', '}':
+			depth--
+		}
+	}
+	return depth
 }
 
 // insideFlowList reports whether the cursor is between the brackets of a list written after a

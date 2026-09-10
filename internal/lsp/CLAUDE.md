@@ -101,6 +101,13 @@ the first line at the same indent (a sibling, so the mapping is its parent) or a
 choosing among the action's keys. `completeKey` decides with `span.Key.Contains`, not by
 guessing from the value's type.
 
+**A cursor PAST the colon wants the value**, which is a different question and usually has no
+answer. An empty value has no extent, so `At` falls out to the mapping around it and answered
+with that mapping's remaining keys — the NEXT line's answer, offered while `for: ` was being
+typed (reported from an editor). `inValuePosition` ends the chain there, after the value slots
+that do have answers. Its one exception is a flow collection: `{ attempts: 3, |}` takes another
+KEY and `[string, |]` another element, and the cursor is past a colon in both.
+
 **A key completion writes its colon.** The keystroke after choosing a key is the value, never
 punctuation — so an item writes `only_once: ` where the value goes beside the key and `on_error:`
 where a block opens below it; `canBeScalar` reads which from the schema, and takes the node's

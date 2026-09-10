@@ -18,6 +18,11 @@ already exist where it sits.
 
 `self.status` / `self.headers` are siblings of `self.result` and exist on a fetch only.
 
+**A result nothing declares does not exist** [2026-09-10]. Not typed `null` — absent, so naming
+it is refused and the message says which declaration was missing. A delay is the case that read
+oddest: it typed as `null`, so a switch reading it answered "comparison requires non-nullable
+operands", which sends the author to `?? 0` rather than to the reference that cannot work.
+
 ## The slots
 
 | slot | `previous` | `result` | `output` |

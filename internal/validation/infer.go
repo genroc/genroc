@@ -714,12 +714,12 @@ func addSelfSchema(ctx schema.Schema, s *model.Task, loops bool, resultType sche
 	return ctx.WithProperty("self", self, true)
 }
 
-// actionResultType types self.result; the bool is "typed" — true for delay/no-action
-// (null) and schema-declared results, false otherwise. An untyped result stays usable in
-// the switch (transient routing) but never exports through an output; no permissive fallback.
+// actionResultType types self.result; the bool is "typed", and it is true only where a
+// DECLARATION types the result. Nothing declared means no self.result at all — reading it is a
+// mistake with its own sentence (untypedResultAdvice), not a slot that reads null forever.
 func actionResultType(s *model.Task, defs schema.Defs) (schema.Schema, bool, error) {
 	if s.Action == nil {
-		return schema.Type("null"), true, nil
+		return schema.Schema{}, false, nil
 	}
 	switch s.Action.Type {
 	case model.ActionTypeChildMap:
@@ -736,7 +736,11 @@ func actionResultType(s *model.Task, defs schema.Defs) (schema.Schema, bool, err
 		sc, err := childListOutputSchema(s, defs)
 		return sc, true, err
 	case model.ActionTypeDelay:
-		return schema.Type("null"), true, nil
+		// A delay waits; it hands nothing back. Typing it `null` put a self.result in scope
+		// that could only ever BE null, so a switch reading it answered "comparison requires
+		// non-nullable operands" — which sends the author to `?? 0` instead of to the
+		// reference that cannot work.
+		return schema.Schema{}, false, nil
 	case model.ActionTypeFetch:
 		// The body is typed per status, so the result is the union over the statuses that can
 		// be accepted — plus null where an accepted status is described by no pattern.

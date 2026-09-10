@@ -1,8 +1,12 @@
 package validationtest
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"genroc/internal/model"
+	"genroc/internal/validation"
 )
 
 // delayDef builds a one-task definition whose delay carries the given slot and raw JSON
@@ -171,5 +175,66 @@ func TestGenerate_TimeoutSlots_ErrorNamesTheTimeout(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "delay") {
 		t.Errorf("error = %q; it must not call a timeout a delay", err)
+	}
+}
+
+// A delay waits and hands nothing back, so `self.result` is not a thing to read there. It used
+// to type as `null`, which put a slot in scope that could only ever be null: reading it in a
+// switch answered "comparison requires non-nullable operands", sending the author to `?? 0`
+// instead of to the reference that cannot work. Reported from an editor.
+func TestGenerate_DelayHasNoResult(t *testing.T) {
+	for _, tc := range []struct{ name, def string }{
+		{"in a switch", `{
+			"name": "d",
+			"tasks": [{"id": "wait", "action": {"type": "delay", "for": "10s"},
+			  "switch": [{"case": "self.result < 3", "goto": "end"}, {"goto": "end"}]}]
+		}`},
+		// This one was ACCEPTED: the output exported a value that is null by construction.
+		{"in an output", `{
+			"name": "d",
+			"tasks": [{"id": "wait", "action": {"type": "delay", "for": "10s"},
+			  "output": {"x": "$: self.result"}, "switch": "end"}]
+		}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runGenerateErr(t, tc.def)
+			if err == nil {
+				t.Fatal("a delay has no result, so reading self.result must be refused")
+			}
+			if !strings.Contains(err.Error(), "a delay waits and hands nothing back") {
+				t.Errorf("the message must say why there is no result, not that it is null: %v", err)
+			}
+		})
+	}
+}
+
+// The other half of the same rule, and the half a reader SEES: the scope an expression is
+// written against. `self.result` used to be listed there for a delay, typed null — which is
+// what a hover reported and what completion offered.
+func TestSlotContexts_ADelaySelfHasNoResult(t *testing.T) {
+	var def model.ProcessDefinition
+	if err := json.Unmarshal([]byte(`{"name":"d","tasks":[{"id":"wait",
+	  "action":{"type":"delay","for":"10s"},"output":{"x":"$: 1"},"switch":"end"}]}`), &def); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	slots, err := validation.SlotContexts(&def)
+	if err != nil {
+		t.Fatalf("SlotContexts: %v", err)
+	}
+	scope, ok := slots["tasks.wait.switch"]
+	if !ok {
+		t.Fatalf("no switch scope to read; the view knows %v", keysOf(slots))
+	}
+	self, err := scope.Property("self")
+	if err != nil {
+		t.Fatalf("self is not in the switch scope at all: %v", err)
+	}
+	members := self.Properties()
+	if _, ok := members["result"]; ok {
+		t.Errorf("self offers %q in a delay's switch — a delay hands nothing back", self.MemberNames())
+	}
+	// The scope was read at all: a delay's own output IS there to route on.
+	if _, ok := members["output"]; !ok {
+		t.Fatalf("self has no output here either, so the assertion above proves nothing: %q", self.MemberNames())
 	}
 }

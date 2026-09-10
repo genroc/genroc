@@ -191,6 +191,12 @@ engine never populates reads `null` where the schema promised a value; one popul
 typed is simply unreadable. `TestPreOutputSlotsCoversEveryActionSlot` reflects over
 `model.Action` so a new slot fails here rather than acquiring the wrong scope quietly.
 
+**A result exists only where a DECLARATION types it**, and that is `actionResultType`'s bool:
+no `result_schema`, no `responses`, and — since it hands nothing back at all — no delay. The
+member is then absent from the scope rather than typed `null`, and `untypedResultAdvice` words
+the refusal per action type, since the field to add differs (`responses` on a fetch, nothing at
+all on a delay).
+
 **`outputs.<own id>` is `self.previous`, in every slot.** Free everywhere except the switch,
 where the engine has already written the new output — `engine.buildEnv` shadows the entry so
 the name means one thing. Both are refused where the task has no output or nothing routes back

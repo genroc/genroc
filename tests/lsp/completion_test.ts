@@ -59,7 +59,8 @@ test("an unclosed interpolation still answers", async () => {
 // `discriminator` is an OpenAPI keyword a JSON Schema validator ignores, which is why
 // yaml-language-server offers the union of every action shape here. This one reads `type`.
 test("inside a `fetch` action — fetch's keys, and no other action's", async () => {
-  const keys = await lsp.completions(at(`      method: <^GET>`));
+  // On the KEY, like the `switch` case below: in the VALUE the reader is writing GET.
+  const keys = await lsp.completions(at(`      <^method>: GET`));
   expect(keys).toContain("body");
   expect(keys).toContain("query");
   expect(keys).not.toContain("name"); // child's
@@ -68,7 +69,7 @@ test("inside a `fetch` action — fetch's keys, and no other action's", async ()
 });
 
 test("inside a `child` action — child's keys, and not fetch's", async () => {
-  const keys = await lsp.completions(at(`      name: <^shipment>`));
+  const keys = await lsp.completions(at(`      <^name>: shipment`));
   expect(keys).toContain("version");
   expect(keys).toContain("raises");
   expect(keys).not.toContain("url");
@@ -119,7 +120,7 @@ test("a schema keyword carries what it means", async () => {
 // tags — the schema carries it through.
 test("a key completion carries the prose the struct tag already wrote", async () => {
   // `price` has everything but these two, so these two are what is left to offer.
-  const keys = await lsp.completionDetails(at(`  - id: <^price>`));
+  const keys = await lsp.completionDetails(at(`  - <^id>: price`));
   expect(Object.keys(keys).sort()).toEqual(["only_once", "timeout"]);
   expect(keys["only_once"].documentation).toContain("at-most-once");
   expect(keys["timeout"].documentation).toContain("Maximum execution time");
@@ -475,4 +476,35 @@ test("an action opens a block, though its arms carry unions of their own", async
   });
   const items = await lsp.completionItems(at("    ac<|>\n", doc));
   expect(items.find((i) => i.label === "action")?.textEdit?.newText).toBe("action:");
+});
+
+// ── a value position is not a key position ───────────────────────────────────────
+
+// Reported from an editor: a half-written `for: ` answered with the task's remaining KEYS —
+// `on_error`, `only_once`, `timeout`. An empty value has no extent, so the cursor fell out to
+// the mapping around it and got the answer for the NEXT line while this one was being written.
+test("after a key's colon, nothing belonging to the next line is offered", async () => {
+  const doc = edit(orders, { "      method: GET": "      method: " });
+  expect(await lsp.completions(at("      method: <|>", doc))).toEqual([]);
+});
+
+test("the same once the value is written — the cursor is still in it", async () => {
+  expect(await lsp.completions(at("      method: GET<|>"))).toEqual([]);
+});
+
+// The rule must not swallow a flow collection: `{ attempts: 3, | }` takes another KEY, and the
+// cursor is past a colon there too. (Which keys it offers is a separate imprecision — the
+// enclosing rule's rather than retry's own.)
+test("inside an inline map, keys are still offered", async () => {
+  const items = await lsp.completionItems(at("        retry: { attempts: 3,<|> delay: 2s }"));
+  expect(items.length).toBeGreaterThan(0);
+  expect(items.every((i) => i.kind === 10)).toBe(true);
+});
+
+// A value slot that HAS an answer still gives it: those run before the rule above.
+test("a value position with a closed set still answers", async () => {
+  const doc = edit(orders, { '      - goto: "$fulfil"': "      - goto: " });
+  // The line above disambiguates: `      - goto: ` is a prefix of `      - goto: end` too.
+  const cursor = at('        goto: "$review"\n      - goto: <|>', doc);
+  expect(await lsp.completions(cursor)).toContain("end");
 });
