@@ -13,7 +13,7 @@ import { BASE_URL } from "../helpers/constants.ts";
 // the evaluator moved its message from `data` onto `error.message`.
 
 const ROOT = new URL("../../", import.meta.url).pathname;
-const script: any = loadYaml(readFileSync(join(ROOT, "tests/playground/script-node.yaml"), "utf8"));
+const script: any = loadYaml(readFileSync(join(ROOT, "tests/playground/script-node.genroc.yaml"), "utf8"));
 
 let worker: ChildProcess;
 

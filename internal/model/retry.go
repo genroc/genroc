@@ -180,16 +180,16 @@ func (Retry) JSONSchemaBytes() ([]byte, error) {
 			{
 				"type": "integer",
 				"minimum": 0,
-				"description": "Shorthand for 'attempts': the number of retries before following goto or failing, on the default backoff curve (1s, doubling, capped at 5m)."
+				"description": "Shorthand for 'attempts', on the default backoff curve (1s, doubling, capped at 5m)."
 			},
 			{
 				"type": "object",
-				"description": "The long form, naming the attempt count and any part of the backoff curve. Every slot also accepts a $: expression, so a policy can be driven from config.",
+				"description": "The long form: attempt count plus any part of the backoff curve. Every slot takes a $: expression.",
 				"properties": {
-					"attempts":  {"type": ["integer", "string"], "minimum": 0, "description": "Number of retries before following goto or failing. 0 = no retries. A $: expression must evaluate to a whole number."},
-					"delay":     {"type": ["string", "number"], "description": "Wait before the first retry: a duration such as \"30s\" (units ms, s, m, h only — the curve scales this), a bare number of milliseconds, or a $: expression. Defaults to 1s."},
-					"factor":    {"type": ["number", "string"], "minimum": 1, "description": "Multiplier applied to the wait after each further attempt. 1 keeps the delay constant. A $: expression must evaluate to a number of at least 1. Defaults to 2."},
-					"max_delay": {"type": ["string", "number"], "description": "Ceiling the growing wait is clamped to, in the same grammar as 'delay'. Defaults to 5m, or to 'delay' when that is longer. Must not be shorter than 'delay'."}
+					"attempts":  {"type": ["integer", "string"], "minimum": 0, "description": "Number of retries before following goto or failing. 0 = no retries."},
+					"delay":     {"type": ["string", "number"], "description": "Wait before the first retry: \"30s\", a number of milliseconds, or a $: expression. Defaults to 1s."},
+					"factor":    {"type": ["number", "string"], "minimum": 1, "description": "Multiplier applied to the wait after each attempt. 1 keeps it constant. Defaults to 2."},
+					"max_delay": {"type": ["string", "number"], "description": "Ceiling the growing wait is clamped to. Defaults to 5m, or to 'delay' when that is longer."}
 				},
 				"additionalProperties": false
 			}
@@ -408,7 +408,7 @@ func (d *RetryDuration) UnmarshalJSON(data []byte) error {
 func (RetryDuration) JSONSchemaBytes() ([]byte, error) {
 	return []byte(`{
 		"type": ["string", "number"],
-		"description": "A fixed duration: \"30s\", \"2h30m\" (units ms, s, m, h), a bare number of milliseconds, or a $: expression evaluating to milliseconds."
+		"description": "A fixed duration: \"30s\", a bare number of milliseconds, or a $: expression."
 	}`), nil
 }
 

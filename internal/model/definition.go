@@ -33,9 +33,9 @@ const (
 type ChildEntry struct {
 	Name         string         `json:"name"                    description:"Name of the child process to invoke."`
 	Version      int            `json:"version,omitempty"       description:"Version to run; 0 means latest published version."`
-	Input        *Shape         `json:"input,omitempty"         description:"Templated value building the child's input payload. Of self, only self.previous is in scope — the action has not run yet."`
-	ResultSchema *schema.Schema `json:"result_schema,omitempty" description:"JSON Schema validating and exposing this child's output; declaring a shape narrows what the child left untyped."`
-	Raises       Raises         `json:"raises,omitempty"        description:"Shapes this child's raised faults carry, keyed by raise code. A declared code is readable as error.data in a rule that catches it; an undeclared one leaves it absent."`
+	Input        *Shape         `json:"input,omitempty"         description:"Templated value building the child's input payload."`
+	ResultSchema *schema.Schema `json:"result_schema,omitempty" description:"JSON Schema validating and exposing this child's output."`
+	Raises       Raises         `json:"raises,omitempty"        description:"Shapes this child's raised faults carry, keyed by raise code. Read as error.data."`
 }
 
 // Raises maps a raise code to the shape that code's fault data carries, declared by the
@@ -244,18 +244,18 @@ var actionSchemaTemplate = `{
 		"oneOf": [
 			{
 				"type": "object",
-				"description": "HTTP call. URL, method, headers and body are all expressions, so the whole request can be driven from the context.",
+				"description": "HTTP call. URL, method, headers and body are all expressions.",
 				"properties": {
 					"type":            {"type": "string", "const": "fetch"},
-					"url":             {"type": "string", "description": "Request URL. May contain ${ } interpolations evaluated against the current context (e.g. ${ config.server_url }/path)."},
+					"url":             {"type": "string", "description": "Request URL. May contain ${ } interpolations, e.g. ${ config.server_url }/path."},
 					"method":          {"type": "string", "description": "HTTP method, a template (e.g. GET, POST, ${ input.method }). Defaults to POST."},
 					"headers":         __HEADERS_SCHEMA__,
 					"query":           __QUERY_SCHEMA__,
 					"accepted_status": __ACCEPTED_STATUS_SCHEMA__,
-					"body":            {"$ref": "#/$defs/ModelShape", "description": "Templated value building the request body; an object is sent as JSON. Of self, only self.previous is in scope — the action has not run yet."},
+					"body":            {"$ref": "#/$defs/ModelShape", "description": "Templated value building the request body; an object is sent as JSON."},
 					"responses": {
 						"type": "object",
-						"description": "Status pattern -> JSON Schema for that status's body. Keys are exact codes or hundred-ranges (\"200\", \"400, 401\", \"5xx\"). A 2xx key types self.result and accepts the status; a non-2xx key types error.data.",
+						"description": "Status pattern -> JSON Schema for that body. A 2xx key types self.result and accepts the status.",
 						"propertyNames": {"pattern": "^\\s*[1-5](\\d\\d|xx)(\\s*,\\s*[1-5](\\d\\d|xx))*\\s*$"},
 						"additionalProperties": {"type": ["object", "null"], "additionalProperties": true}
 					}
@@ -265,16 +265,16 @@ var actionSchemaTemplate = `{
 			},
 			{
 				"type": "object",
-				"description": "Single child-process call: runs one named process and waits. The result is the child's output directly, as outputs.taskID.",
+				"description": "Single child call: runs one named process and waits. The result is its output, unwrapped.",
 				"properties": {
 					"type":          {"type": "string", "const": "child"},
 					"name":          {"type": "string", "description": "Name of the child process to invoke."},
 					"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
-					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value building the child's input payload. Of self, only self.previous is in scope — the action has not run yet."},
-					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing the child's output. Without it the output is only self.result, in this task's switch."},
+					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value building the child's input payload."},
+					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing the child's output."},
 					"raises": {
 						"type": "object",
-						"description": "Raise code -> JSON Schema for that code's payload, readable as error.data in a rule that catches it. null declares a code carrying no data; omitting one leaves error.data absent.",
+						"description": "Raise code -> JSON Schema for that code's payload, read as error.data by a rule that catches it.",
 						"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
 						"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
 					}
@@ -284,7 +284,7 @@ var actionSchemaTemplate = `{
 			},
 			{
 				"type": "object",
-				"description": "Keyed child-process call: runs named processes concurrently and waits for all. The result is keyed by child name, as outputs.taskID.childKey.",
+				"description": "Keyed child call: named processes run concurrently. The result is keyed by child name.",
 				"properties": {
 					"type": {"type": "string", "const": "child_map"},
 					"children": {
@@ -295,11 +295,11 @@ var actionSchemaTemplate = `{
 							"properties": {
 								"name":          {"type": "string", "description": "Name of the child process to invoke."},
 								"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
-								"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value building the child's input payload. Of self, only self.previous is in scope — the action has not run yet."},
-								"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing this child's output; declaring a shape narrows what the child left untyped."},
+								"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value building the child's input payload."},
+								"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing this child's output."},
 								"raises": {
 									"type": "object",
-									"description": "Raise code -> JSON Schema for that code's payload, per entry since entries can be different processes. Readable as error.data in a rule that catches it.",
+									"description": "Raise code -> JSON Schema for that code's payload, declared per entry.",
 									"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
 									"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
 								}
@@ -315,16 +315,16 @@ var actionSchemaTemplate = `{
 			},
 			{
 				"type": "object",
-				"description": "List fan-out: one child per element of 'over', run concurrently. The result is an array of their outputs in 'over' order, as outputs.taskID.",
+				"description": "List fan-out: one child per element of 'over'. The result is an array in 'over' order.",
 				"properties": {
 					"type":          {"type": "string", "const": "child_list"},
 					"name":          {"type": "string", "description": "Name of the child process to invoke for every element."},
 					"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
-					"over":          {"type": "string", "description": "A $: expression evaluating to an array; one child is spawned per element, with that element as its input. An empty array yields an empty result."},
-					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing EACH child's output; the collected result is an array of values conforming to it."},
+					"over":          {"type": "string", "description": "A $: expression evaluating to an array; one child is spawned per element, with it as input."},
+					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing EACH child's output; the result is an array."},
 					"raises": {
 						"type": "object",
-						"description": "Raise code -> JSON Schema for that code's payload, readable as error.data in a rule that catches it. null declares a code carrying no data; omitting one leaves error.data absent.",
+						"description": "Raise code -> JSON Schema for that code's payload, read as error.data by a rule that catches it.",
 						"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
 						"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
 					}
@@ -334,12 +334,12 @@ var actionSchemaTemplate = `{
 			},
 			{
 				"type": "object",
-				"description": "Delay action: parks the instance until a duration elapses (for) or an instant arrives (until), holding no worker. Exactly one of for / until.",
+				"description": "Delay action: parks the instance until a duration elapses (for) or an instant arrives (until).",
 				"properties": {
 					"type":  {"type": "string", "const": "delay"},
-					"for":   {"type": ["string", "number"], "description": "A duration from when the task is reached: a literal such as \"2h30m\" (units ms, s, m, h, d, w, mo, y), a bare number of milliseconds, or a $: expression yielding milliseconds."},
-					"until": {"type": ["string", "number"], "description": "An instant: RFC 3339, \"2026-09-01 08:00\", \"+2d 08:00\", a calendar or clock pattern (\"mon 09:00\", \"*:*:00\"), unix milliseconds, or a $: expression. A past instant resolves immediately."},
-					"tz":    {"type": "string", "description": "IANA name (\"Europe/Prague\") or fixed offset (\"+02:00\") for calendar units and wall clocks; defaults to UTC. Abbreviations like \"CET\" are rejected as ambiguous across DST."}
+					"for":   {"type": ["string", "number"], "description": "A duration from when the task is reached: \"2h30m\", a number of milliseconds, or a $: expression."},
+					"until": {"type": ["string", "number"], "description": "An instant: RFC 3339, \"+2d 08:00\", a calendar pattern, unix milliseconds, or a $: expression."},
+					"tz":    {"type": "string", "description": "IANA name (\"Europe/Prague\") or fixed offset (\"+02:00\"); defaults to UTC. Abbreviations are rejected."}
 				},
 				"required": ["type"],
 				"oneOf": [
@@ -350,14 +350,14 @@ var actionSchemaTemplate = `{
 			},
 			{
 				"type": "object",
-				"description": "External task: parks the instance until an outside caller submits a result, holding no worker. An absent timeout waits forever; a timeout raises the catchable external.timeout.",
+				"description": "External task: parks the instance until an outside caller submits a result. No worker is held.",
 				"properties": {
 					"type":          {"type": "string", "const": "external"},
-					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value snapshotted for the resolver — the only context the queue exposes. Of self, only self.previous is in scope."},
-					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema the submitted result is validated against before the instance resumes. Without it any JSON result is accepted, available as self.result."},
+					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value snapshotted for the resolver — the only context the queue exposes."},
+					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema the submitted result is validated against. Without it any JSON is accepted."},
 					"raises": {
 						"type": "object",
-						"description": "Code -> JSON Schema for the payload a worker submits to /external-tasks/fail, readable as error.data in a rule that catches it. An undeclared code is still accepted.",
+						"description": "Code -> JSON Schema for a payload submitted to /external-tasks/fail, read as error.data.",
 						"propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
 						"additionalProperties": {"anyOf": [{"type": "object", "additionalProperties": true}, {"type": "null"}]}
 					}
@@ -384,11 +384,11 @@ var actionSchemaTemplate = `{
 type Task struct {
 	ID       string      `json:"id"                 validate:"required" description:"Task identifier, unique within the definition."`
 	Action   *Action     `json:"action,omitempty"                        description:"Describes the action to perform. Omit for switch-only (routing) tasks."`
-	Timeout  Timeout     `json:"timeout,omitempty,omitzero"            description:"Maximum execution time for fetch and external tasks: a duration shorthand, or an object naming one of 'for' / 'until' plus 'tz'. 'until' is external-only. Omit for the engine default."`
-	OnlyOnce *bool       `json:"only_once,omitempty"                   description:"At-most-once execution: retries are allowed only for pre.* errors or rules with not_reached:true, and never where nothing came back. A crash raises the catchable only_once.interrupted. Defaults to false."`
+	Timeout  Timeout     `json:"timeout,omitempty,omitzero"            description:"Maximum execution time for fetch and external tasks. Omit for the engine default."`
+	OnlyOnce *bool       `json:"only_once,omitempty"                   description:"At-most-once execution: only errors that never reached the remote may retry. Defaults to false."`
 	OnError  []ErrorCase `json:"on_error,omitempty"                    description:"Ordered error-routing rules evaluated when the call fails. First match wins."`
-	Output   *Shape      `json:"output,omitempty"                      description:"Templated value remapping this task's output, evaluated with self.result and self.previous in scope. When set it is what outputs.taskID holds and the switch sees as self.output."`
-	Switch   SwitchMap   `json:"switch"                                description:"Required. Routing: a scalar shorthand (\"next\", \"end\", \"$task-id\") or an ordered list of cases whose last entry is a catch-all."`
+	Output   *Shape      `json:"output,omitempty"                      description:"Templated value remapping this task's output; it becomes outputs.taskID and self.output."`
+	Switch   SwitchMap   `json:"switch"                                description:"Required. Routing: a shorthand (\"next\", \"end\", \"$task-id\") or an ordered list of cases."`
 }
 
 // ProcessDefinition is the immutable versioned blueprint for a process.
@@ -397,9 +397,9 @@ type ProcessDefinition struct {
 	Name         string         `json:"name"         validate:"required" description:"Unique process identifier."`
 	Tasks        []*Task        `json:"tasks"        validate:"required,min=1,dive" description:"Ordered list of execution tasks. Control advances linearly unless a switch case redirects."`
 	InputSchema  *schema.Schema `json:"input_schema,omitempty"          description:"JSON Schema used to validate the input payload when starting a new instance."`
-	ConfigSchema *schema.Schema `json:"config_schema,omitempty"         description:"JSON Schema — a flat object of primitive properties — declaring config variables, each resolved from GENROC_<PROCESS>_<NAME> (or GENROC_GLOBAL_<NAME>) and exposed as config.<NAME>. secret:true redacts it from logs."`
-	Defs         schema.Defs    `json:"$defs,omitempty,omitzero"        description:"Shared schema definitions referenced as \"#/$defs/<name>\", which may reference each other. A name colliding with a generated one is kept but renamed with a suffix."`
-	Output       *Shape         `json:"output,omitempty"                description:"Templated value (a string expression or nested object of expressions) evaluated at completion to produce the process output."`
+	ConfigSchema *schema.Schema `json:"config_schema,omitempty"         description:"Flat object of primitive config variables, resolved from the server environment and read as config.<NAME>."`
+	Defs         schema.Defs    `json:"$defs,omitempty,omitzero"        description:"Shared schema definitions, referenced as \"#/$defs/<name>\"."`
+	Output       *Shape         `json:"output,omitempty"                description:"Templated value evaluated at completion to produce the process output."`
 }
 
 // OnlyOnceAction reports whether this task is an action the engine must never run twice.

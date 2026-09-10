@@ -7,15 +7,17 @@ input_schema:
 tasks:
   - id: location
     action:
-      type: child
-      name: script-node
-      input:
-        code: "$import: ./location.ts"
-        input:
-          place: "$: input.place"
-      result_schema:
-        $ref: "#/$defs/geo_response"
-    output: "$: self.result"
+      type: fetch
+      url: https://geocoding-api.open-meteo.com/v1/search
+      method: get
+      query:
+        name: "$: input.place"
+        count: 1
+        format: json
+      responses:
+        200:
+          $ref: "#/$defs/geo_response"
+    output: "$: self.result.results[0]"
     switch: next
 
   # Parks the instance until the next whole 10 seconds, holding no worker.
@@ -78,11 +80,16 @@ $defs:
   geo_response:
     type: object
     properties:
-      latitude: { type: number }
-      longitude: { type: number }
-      name: { type: string }
-      country: { type: string }
-    required: [latitude, longitude, name]
+      results:
+        type: array
+        items:
+          type: object
+          properties:
+            latitude: { type: number }
+            longitude: { type: number }
+            name: { type: string }
+            country: { type: string }
+          required: [latitude, longitude, name]
 
   reading:
     type: object

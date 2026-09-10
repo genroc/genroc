@@ -72,15 +72,15 @@ func (Timeout) JSONSchemaBytes() ([]byte, error) {
 		"oneOf": [
 			{
 				"type": ["string", "number"],
-				"description": "Shorthand for 'for', resolved in UTC: a duration such as \"2h30m\", a bare number of milliseconds, or a $: expression yielding milliseconds."
+				"description": "Shorthand for 'for', resolved in UTC: \"2h30m\", a number of milliseconds, or a $: expression."
 			},
 			{
 				"type": "object",
 				"description": "The long form, naming exactly one of 'for' or 'until' plus an optional 'tz'.",
 				"properties": {
-					"for":   {"type": ["string", "number"], "description": "A duration from when the task is reached, e.g. \"2h30m\", a bare number of milliseconds, or a $: expression."},
-					"until": {"type": ["string", "number"], "description": "An absolute deadline, external tasks only. Accepts the same instants as a delay's 'until': RFC 3339, a calendar pattern, unix milliseconds, or a $: expression."},
-					"tz":    {"type": "string", "description": "IANA name (\"Europe/Prague\") or fixed offset (\"+02:00\") for calendar units and wall clocks; defaults to UTC. Abbreviations like \"CET\" are rejected as ambiguous across DST."}
+					"for":   {"type": ["string", "number"], "description": "A duration from when the task is reached: \"2h30m\", a number of milliseconds, or a $: expression."},
+					"until": {"type": ["string", "number"], "description": "An absolute deadline, external tasks only. The same instants as a delay's 'until'."},
+					"tz":    {"type": "string", "description": "IANA name (\"Europe/Prague\") or fixed offset (\"+02:00\"); defaults to UTC. Abbreviations are rejected."}
 				},
 				"oneOf": [
 					{"required": ["for"]},

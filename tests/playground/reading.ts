@@ -1,6 +1,6 @@
 // The whole measurement: read open-meteo, convert the WMO code, print the line. `Input` is
-// the type genroc INFERRED for what process.yaml passes; `Output` is what its result_schema
-// declares. Both are generated — run `genctl types -f script.yaml -f process.yaml`, or just
+// the type genroc INFERRED for what process.genroc.yaml passes; `Output` is what its result_schema
+// declares. Both are generated — run `genctl types -f script-node.genroc.yaml -f process.genroc.yaml`, or just
 // apply.
 //
 // `fetch`, `console` and the node builtins typecheck because the authoring sandbox is a
@@ -70,7 +70,7 @@ export default async function (input: Input): Promise<Output> {
 
   console.log(new Date().toISOString(), summary);
 
-  // The whole history, not just the latest: process.yaml feeds the last run's array back in
+  // The whole history, not just the latest: process.genroc.yaml feeds the last run's array back in
   // as `prev`, so the accumulation lives here rather than in an output map.
   return { time: current.time, condition, temperature_c, summary };
 }
