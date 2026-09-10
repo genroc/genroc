@@ -1,0 +1,68 @@
+---
+title: An example
+order: 2
+---
+
+Let's imagine a new user registers on your website and you want to gently push him to activate his email.
+
+```genroc
+name: welcome-drip
+
+# JSON-Schema definition for process input
+input_schema:
+  type: object
+  properties:
+    user_id: { type: string }
+  required: [user_id]
+
+# list of tasks - what should the process do
+tasks:
+  - id: wait_a_day
+    action:
+      type: delay
+      for: 1d
+    # routing to next task
+    switch: next
+
+  - id: load_user
+    # fetching user info
+    action:
+      type: fetch
+      method: GET
+      url: "https://api.example.com/users/${ input.user_id }"
+      # defining what should the endpoint return with JSON-Schema
+      responses:
+        200:
+          type: object
+          properties:
+            email: { type: string }
+            activated: { type: boolean }
+          required: [email, activated]
+    timeout: 5000
+    on_error:
+      - retry: 3
+    # mapping the task output (what parts of the response we need)
+    output:
+      email: "$: self.result.email"
+      activated: "$: self.result.activated"
+    # routing - the fork (ending the process if account is already activated)
+    switch:
+      - case: "self.output.activated"
+        goto: end
+      - goto: $nudge
+
+  - id: nudge
+    # remind the user of the activation
+    action:
+      type: fetch
+      url: "https://api.example.com/emails"
+      body:
+        to: "$: outputs.load_user.email"
+        template: welcome-nudge
+    switch: end
+
+# defining the process output
+output:
+  user_id: "$: input.user_id"
+  email: "$: outputs.load_user.email"
+```

@@ -1,0 +1,83 @@
+---
+title: Basics
+order: 1
+---
+
+Genroc uses `*.genroc.yaml` files to describe processes.
+
+Each process has a unique name, which is used to identify it.
+
+Process can optionally also have input, which is defined by [JSON-Schema](https://json-schema.org/) and is always validated.
+
+Then there is a required list of tasks, which represent the executable body.
+
+So the skeleton looks something like this:
+
+```genroc
+name: process-name
+input_schema:
+  type: object
+  properties:
+    user_name:
+      type: string
+  required: [user_name]
+
+tasks:
+  - id: task-1
+    ...
+  - id: task-2
+    ...
+```
+
+This process would require input of an object with field `user_name`. Input is something that can be used inside the process.
+
+
+## The tasks
+
+Tasks represent a unit of work that needs to be done. Process always starts with a first task from the array.
+Each task then needs to specify what should be the following task with a `switch` statement.
+
+The syntax allows you to use keywords `next` or `end` to go to next task or end the process.
+Or you can reference task by id with `$` prefix.
+
+```genroc
+...
+tasks:
+  - id: task-1          # this is a first task
+    switch: $task-2     # next task referenced by id
+
+  - id: task-2
+    switch: next        # same as `$task-3` in this case
+
+  - id: task-3
+    switch: end         # end of the process
+```
+
+The switch field is required in every task, there is no default value.
+
+## Branching and looping
+
+The switch statement can also be conditional.
+
+```genroc
+...
+tasks:
+  - id: task-1
+    switch:
+        # expression to check the name
+      - case: "$: input.user_name == 'Brenda'"
+        goto: $only-brenda
+        # the default case
+      - goto: $others
+
+  - id: only-brenda
+    switch: end
+
+  - id: others
+    switch: end
+```
+
+Cases are evaluated top to bottom and first one that evaluates to true wins.
+Last one always need to be "catch-all" - without the `case` expression.
+
+

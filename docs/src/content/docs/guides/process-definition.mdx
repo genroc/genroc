@@ -1,24 +1,4 @@
 ---
 title: Process definition
-description: Learn how to define your own process.
 order: 2
 ---
-
-Genroc uses *.genroc.yaml files to describe processes. Let's start with an example.
-
-```genroc
-name: ticker
-tasks:
-  - id: tick
-    action:
-      type: delay
-      for: "10s"
-    output:
-      count: "$: (self.previous.count ?? 0) + 1"
-    switch:
-      - case: "self.output.count < 3"
-        goto: $tick
-      - goto: end
-output:
-  ticks: "$: outputs.tick.count"
-```
