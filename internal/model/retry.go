@@ -184,10 +184,10 @@ func (Retry) JSONSchemaBytes() ([]byte, error) {
 			},
 			{
 				"type": "object",
-				"description": "The long form, naming the attempt count and any part of the backoff curve to override. Every slot also accepts a $: expression, evaluated when the rule fires — so a policy can be driven from config.",
+				"description": "The long form, naming the attempt count and any part of the backoff curve. Every slot also accepts a $: expression, so a policy can be driven from config.",
 				"properties": {
 					"attempts":  {"type": ["integer", "string"], "minimum": 0, "description": "Number of retries before following goto or failing. 0 = no retries. A $: expression must evaluate to a whole number."},
-					"delay":     {"type": ["string", "number"], "description": "Wait before the first retry: a fixed duration such as \"30s\" or \"2h30m\" (units ms, s, m, h — calendar units d/w/mo/y are not accepted, since the curve scales this value), a bare number of milliseconds, or a $: expression evaluating to milliseconds. Defaults to 1s."},
+					"delay":     {"type": ["string", "number"], "description": "Wait before the first retry: a duration such as \"30s\" (units ms, s, m, h only — the curve scales this), a bare number of milliseconds, or a $: expression. Defaults to 1s."},
 					"factor":    {"type": ["number", "string"], "minimum": 1, "description": "Multiplier applied to the wait after each further attempt. 1 keeps the delay constant. A $: expression must evaluate to a number of at least 1. Defaults to 2."},
 					"max_delay": {"type": ["string", "number"], "description": "Ceiling the growing wait is clamped to, in the same grammar as 'delay'. Defaults to 5m, or to 'delay' when that is longer. Must not be shorter than 'delay'."}
 				},

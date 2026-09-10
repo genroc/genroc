@@ -122,7 +122,7 @@ test("a key completion carries the prose the struct tag already wrote", async ()
   // `price` has everything but these two, so these two are what is left to offer.
   const keys = await lsp.completionDetails(at(`  - <^id>: price`));
   expect(Object.keys(keys).sort()).toEqual(["only_once", "timeout"]);
-  expect(keys["only_once"].documentation).toContain("at-most-once");
+  expect(keys["only_once"].documentation).toContain("At-most-once");
   expect(keys["timeout"].documentation).toContain("Maximum execution time");
 });
 

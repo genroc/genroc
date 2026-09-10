@@ -36,6 +36,12 @@ func (d *ProcessDefinition) Validate() error {
 	}
 	taskIDs := make(map[string]struct{}, len(d.Tasks))
 	for _, s := range d.Tasks {
+		// A duplicate is invisible from here down — this set collapses it, and so does every
+		// map keyed by task id after it: `outputs.<id>` names one of them, a `goto` reaches one
+		// of them, and nothing says which.
+		if _, dup := taskIDs[s.ID]; dup {
+			return atPath("tasks."+s.ID, fmt.Errorf("task ID %q is used more than once", s.ID))
+		}
 		taskIDs[s.ID] = struct{}{}
 	}
 	lastIdx := len(d.Tasks) - 1
@@ -93,10 +99,6 @@ func (d *ProcessDefinition) validateFaultCodeKinds() error {
 }
 
 func validateTask(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int, pool schema.Defs) error {
-	// Reserved task IDs.
-	if s.ID == GotoEnd || s.ID == GotoNext {
-		return fmt.Errorf("task ID %q is reserved", s.ID)
-	}
 	if err := validateActionRequiredFields(s); err != nil {
 		return err
 	}

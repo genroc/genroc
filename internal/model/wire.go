@@ -21,8 +21,8 @@ import (
 // and specs/error-extensions.md §X2-c for what a parent may read of Data.
 type Fault struct {
 	Code    string `json:"code"    validate:"required" description:"Error code, lower_snake_case, no dots (dots are reserved for engine-produced codes). A literal — never an expression."`
-	Message string `json:"message" validate:"required" description:"Human-readable message explaining the condition. A template: ${ } interpolations are rendered when the clause fires, and must produce a non-null string. Unlike the code, it is not required to be a literal."`
-	Data    *Shape `json:"data,omitempty" description:"Structured payload this fault carries: an expression, or an object of expressions, evaluated when the clause fires in the same scope as the message. It lands on this instance's error.data, which an operator reads on the instance detail and in logs. Omit to carry nothing — the slot is then cleared rather than left holding the error this instance caught."`
+	Message string `json:"message" validate:"required" description:"Human-readable message. A template: ${ } interpolations render when the clause fires and must produce a non-null string."`
+	Data    *Shape `json:"data,omitempty" description:"Structured payload this fault carries, evaluated when the clause fires. It lands on error.data, which an operator reads on the instance detail and in logs."`
 }
 
 // UnmarshalJSON rejects unknown keys, as `switch` and `on_error` do around it: a raise clause
@@ -138,11 +138,11 @@ func (SwitchMap) JSONSchemaBytes() ([]byte, error) {
 		"oneOf": [
 			{
 				"type": "string",
-				"description": "Shorthand for a single unconditional route. \"next\" advances to the next task (not valid on the last task), \"end\" terminates the instance, \"$task-id\" jumps to a named task."
+				"description": "Shorthand for a single unconditional route: \"next\" (not valid on the last task), \"end\", or \"$task-id\"."
 			},
 			{
 				"type": "array",
-				"description": "Ordered routing rules evaluated after the call. Cases are evaluated in order; first match wins. The last entry must be a catch-all (omit 'case'). Each case sets exactly one of 'goto', 'raise' or 'panic'.",
+				"description": "Ordered routing rules; first match wins and the last entry must be a catch-all (omit 'case'). Each case sets exactly one of 'goto', 'raise' or 'panic'.",
 				"items": {
 					"type": "object",
 					"properties": {
@@ -173,13 +173,13 @@ type Shape = shape.Shape
 // (Panic) — at most one of the three; setting none fails the instance, which is the
 // default when a rule exists only to document a code or to cap retries.
 type ErrorCase struct {
-	Code       []string `json:"code,omitempty"        description:"Patterns matched against the error code. '%' is the only wildcard (matches any run of characters); every other character, including '_' and '.', is literal — so 'order_%' matches 'order_placed' but not 'order.placed'. Empty list = catch-all. Catchable engine codes (an action task's call reports these): http.NNN (e.g. http.500), http.timeout, http.disconnected, pre.error, pre.timeout, output.parse, output.too_large, output.invalid, external.timeout, external.lost. pre.* codes mean the call never reached the remote; http.disconnected means it did go out and the connection broke before a response, so whether it took effect is unknowable. Internal engine.* failures (engine.spawn, engine.collect, engine.expression, …) are terminal and are NOT routed through on_error. On a child/child_map/child_list task the codes instead match what the child processes can raise, plus output.invalid (a child completed, but its output failed the result_schema this task narrowed it with); each pattern is checked at registration against that set. A child that failed (rather than raised) is never catchable — convert the failure into a raise inside the child."`
-	Case       string   `json:"case,omitempty"        description:"Boolean expression checked in ADDITION to code, against the error this rule matched — the same predicate a switch case is, on the error channel. The rule applies only when both hold; a false case falls through to the next rule. Because code has already narrowed which error this is, error.data here is that code's declared shape rather than the union a routed task sees. Omit to match on the code alone. NOTE: with a case, naming a code no longer guarantees the error is handled — an error every rule declines is unmatched, and an unmatched raise fails the instance."`
-	Retry      Retry    `json:"retry,omitempty,omitzero" description:"Retry policy applied before the rule routes: a bare attempt count, or an object naming any of attempts / delay / factor / max_delay. Omit for no retries. On only_once:true tasks only pre.* codes (or rules with not_reached:true) may have attempts > 0. On a child task a retry re-spawns the raised slot with its input rebuilt from this definition, so a fix published as a new version is what the next attempt runs; it is refused on an only_once child task, where every catchable code means the child already ran."`
+	Code       []string `json:"code,omitempty"        description:"Patterns matched against the error code. '%' is the only wildcard; every other character, '_' and '.' included, is literal. Empty list = catch-all. On a child task they match what the child can raise, plus output.invalid."`
+	Case       string   `json:"case,omitempty"        description:"Boolean expression checked in ADDITION to code — the same predicate a switch case is, on the error channel. A false case falls through to the next rule, and an error every rule declines is unmatched."`
+	Retry      Retry    `json:"retry,omitempty,omitzero" description:"Retry policy applied before the rule routes: a bare attempt count, or an object naming attempts / delay / factor / max_delay. Omit for no retries."`
 	Goto       string   `json:"goto,omitempty"        description:"Task to route to when retries are exhausted. '$task-id' or 'end'. Omit to fail the instance."`
-	Raise      *Fault   `json:"raise,omitempty"       description:"Terminate as 'raised' with this code and message instead of routing — an anticipated condition a parent process may react to. Mutually exclusive with goto and panic."`
-	Panic      *Fault   `json:"panic,omitempty"       description:"Terminate as 'failed' with this code and message instead of routing — a defect. Nothing can catch a panic; the code exists to classify the failure, not to branch on it. Mutually exclusive with goto and raise."`
-	NotReached *bool    `json:"not_reached,omitempty" description:"Assert that this error code means the remote call was never reached. When true, retries are allowed even on only_once:true tasks. On an only_once task it must name exact codes rather than a wildcard -- an assertion is about one specific error -- and it cannot be made at all about http.timeout, http.disconnected, external.timeout or only_once.interrupted, since nothing came back from those to interpret. Omit to use the engine's default classification (pre.* = not reached, everything else = potentially reached)."`
+	Raise      *Fault   `json:"raise,omitempty"       description:"Terminate as 'raised' with this code and message instead of routing — an anticipated condition a parent can catch. Exclusive with goto and panic."`
+	Panic      *Fault   `json:"panic,omitempty"       description:"Terminate as 'failed' with this code and message instead of routing — a defect. Nothing catches a panic. Exclusive with goto and raise."`
+	NotReached *bool    `json:"not_reached,omitempty" description:"Assert this code means the remote was never reached, allowing retries on only_once tasks. Omit to use the engine's default (pre.* = not reached)."`
 }
 
 // errorCaseWire is the JSON wire form of an ErrorCase, shared by its MarshalJSON and

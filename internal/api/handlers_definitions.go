@@ -19,11 +19,13 @@ func (h *Handlers) putDefinition(raw json.RawMessage, actor string) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	// Validate returns a *model.ValidationError for struct-tag failures, which codeOf
-	// maps to invalid and errReply expands into per-field detail; the schema/goto
-	// checks below it are plain errors and classify the same way via invalid().
+	// Everything Validate judges is the submitted document, so every failure it reports is
+	// invalid — including the hand-written rules (an unknown goto, a duplicate task id), which
+	// return PLAIN errors and classified as internal until this wrap: a client saw a 500 for a
+	// definition it had written wrong. The *model.ValidationError struct-tag failures stay
+	// walkable through it, so errReply still expands them into per-field detail.
 	if err := req.Validate(); err != nil {
-		return errReply(err)
+		return errReply(invalid("%w", err))
 	}
 	latestV, _ := h.db.LatestVersion(req.Name)
 	version := latestV + 1

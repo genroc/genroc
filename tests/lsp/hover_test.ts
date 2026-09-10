@@ -111,7 +111,7 @@ test("there is nothing to say about a name the author chose", async () => {
 // Hover answered NOTHING on most of a file once the scope line was dropped — every key, every
 // literal. A key means something, and the schema already carries the prose.
 test("a key says what it means", async () => {
-  expect(await lsp.hover(at(`  - <^id>: price`))).toContain("Unique task identifier");
+  expect(await lsp.hover(at(`  - <^id>: price`))).toContain("Task identifier");
   expect(await lsp.hover(at(`      <^method>: GET`))).toContain("HTTP method");
 });
 

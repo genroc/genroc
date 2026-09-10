@@ -72,15 +72,15 @@ func (Timeout) JSONSchemaBytes() ([]byte, error) {
 		"oneOf": [
 			{
 				"type": ["string", "number"],
-				"description": "Shorthand for 'for', resolved in UTC: a duration such as \"30s\" or \"2h30m\" (units ms, s, m, h, d, w, mo, y), a bare number of milliseconds, or a $: expression evaluating to milliseconds. A quoted number without a unit is rejected as ambiguous."
+				"description": "Shorthand for 'for', resolved in UTC: a duration such as \"2h30m\", a bare number of milliseconds, or a $: expression yielding milliseconds."
 			},
 			{
 				"type": "object",
-				"description": "The long form, naming exactly one of 'for' or 'until' plus an optional 'tz'. Use it for a timeout with a timezone, or for an absolute deadline on an external task.",
+				"description": "The long form, naming exactly one of 'for' or 'until' plus an optional 'tz'.",
 				"properties": {
-					"for":   {"type": ["string", "number"], "description": "A duration measured from the moment the task is reached, e.g. \"30s\" or \"2h30m\", a bare number of milliseconds, or a $: expression evaluating to milliseconds."},
-					"until": {"type": ["string", "number"], "description": "An absolute deadline — external tasks only, since a fetch deadline already in the past would report a timeout for a request that was never sent. Accepts the same instants as a delay's 'until': \"2026-09-01T08:00:00+02:00\", \"fri 17:00\", \"*-*-01 08:00\", a bare number of unix milliseconds, or a $: expression evaluating to unix milliseconds."},
-					"tz":    {"type": "string", "description": "IANA name (\"Europe/Prague\") or fixed offset (\"+02:00\") that for's calendar units and until's wall clocks resolve in; defaults to UTC. Abbreviations such as \"CET\" are rejected — they are ambiguous across DST."}
+					"for":   {"type": ["string", "number"], "description": "A duration from when the task is reached, e.g. \"2h30m\", a bare number of milliseconds, or a $: expression."},
+					"until": {"type": ["string", "number"], "description": "An absolute deadline, external tasks only. Accepts the same instants as a delay's 'until': RFC 3339, a calendar pattern, unix milliseconds, or a $: expression."},
+					"tz":    {"type": "string", "description": "IANA name (\"Europe/Prague\") or fixed offset (\"+02:00\") for calendar units and wall clocks; defaults to UTC. Abbreviations like \"CET\" are rejected as ambiguous across DST."}
 				},
 				"oneOf": [
 					{"required": ["for"]},

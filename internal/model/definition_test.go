@@ -408,18 +408,35 @@ func TestProcessDefinition_Validate(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			name: "task ID 'end' is reserved",
+			// The `$` sigil is what a routing slot reads to tell a task from a keyword, which is
+			// the whole reason it is there — so `end` and `next` need no reserving. `goto: $end`
+			// reaches the task and `goto: end` terminates, in the same definition.
+			name: "'end' and 'next' are usable as task IDs",
 			def: ProcessDefinition{Name: "p", Tasks: []*Task{
-				{ID: "end", Action: &Action{Type: ActionTypeFetch, URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}},
+				{ID: "first", Action: &Action{Type: ActionTypeFetch, URL: "http://x"}, Switch: SwitchMap{{Goto: "$end"}}},
+				{ID: "next", Action: &Action{Type: ActionTypeFetch, URL: "http://y"}, Switch: SwitchMap{{Goto: "$end"}}},
+				{ID: "end", Action: &Action{Type: ActionTypeFetch, URL: "http://z"}, Switch: SwitchMap{{Goto: GotoEnd}}},
 			}},
-			wantErr: `task ID "end" is reserved`,
+			wantErr: "",
 		},
 		{
-			name: "task ID 'next' is reserved",
+			name: "a goto naming a task that does not exist is still rejected",
 			def: ProcessDefinition{Name: "p", Tasks: []*Task{
-				{ID: "next", Action: &Action{Type: ActionTypeFetch, URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}},
+				{ID: "first", Action: &Action{Type: ActionTypeFetch, URL: "http://x"}, Switch: SwitchMap{{Goto: "$end"}}},
 			}},
-			wantErr: `task ID "next" is reserved`,
+			wantErr: `"$end" is not a known task`,
+		},
+		{
+			// The id doc has always CLAIMED uniqueness and nothing enforced it, so two tasks
+			// could share a name: `outputs.<id>` then names one of them and a `goto` reaches
+			// one of them, with nothing in the definition saying which. Reported from a hover
+			// that read "Unique task identifier" over a document where it was not true.
+			name: "a task ID used twice is rejected",
+			def: ProcessDefinition{Name: "p", Tasks: []*Task{
+				{ID: "tick", Action: &Action{Type: ActionTypeFetch, URL: "http://x"}, Switch: SwitchMap{{Goto: GotoNext}}},
+				{ID: "tick", Action: &Action{Type: ActionTypeFetch, URL: "http://y"}, Switch: SwitchMap{{Goto: GotoEnd}}},
+			}},
+			wantErr: `task ID "tick" is used more than once`,
 		},
 
 		// ── only_once: true static validation ───────────────────────────────
