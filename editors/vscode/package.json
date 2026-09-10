@@ -47,8 +47,29 @@
         "scopeName": "source.genroc.slots",
         "path": "./syntaxes/genroc-slots.tmLanguage.json",
         "injectTo": [
-          "source.genroc"
+          "source.genroc",
+          "text.html.markdown",
+          "source.mdx"
         ]
+      },
+      {
+        "scopeName": "source.genroc.markers",
+        "path": "./syntaxes/genroc-markers.tmLanguage.json",
+        "injectTo": [
+          "text.html.markdown",
+          "source.mdx"
+        ]
+      },
+      {
+        "scopeName": "markdown.genroc.codeblock",
+        "path": "./syntaxes/genroc-codeblock.tmLanguage.json",
+        "injectTo": [
+          "text.html.markdown",
+          "source.mdx"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.genroc": "genroc"
+        }
       }
     ],
     "configuration": {

@@ -1,0 +1,46 @@
+{
+  "$comment": "A ```genroc fence in markdown or MDX, so a definition in the docs reads as one. The inner rule ends on `while`, not `end`: the fence's close belongs to the outer rule, and a nested `end` would take the closing ``` as YAML.",
+  "scopeName": "markdown.genroc.codeblock",
+  "injectionSelector": "L:text.html.markdown, L:source.mdx",
+  "patterns": [
+    {
+      "include": "#fence"
+    }
+  ],
+  "repository": {
+    "fence": {
+      "begin": "(^|\\G)([ \\t]*)(`{3,}|~{3,})[ \\t]*(?i:(genroc)((\\s+|:|,|\\{|\\?)[^`~]*)?$)",
+      "beginCaptures": {
+        "3": {
+          "name": "punctuation.definition.markdown"
+        },
+        "4": {
+          "name": "fenced_code.block.language.markdown"
+        },
+        "5": {
+          "name": "fenced_code.block.language.attributes.markdown"
+        }
+      },
+      "end": "(^|\\G)(\\2|\\s{0,3})(\\3)\\s*$",
+      "endCaptures": {
+        "3": {
+          "name": "punctuation.definition.markdown"
+        }
+      },
+      "name": "markup.fenced_code.block.markdown",
+      "patterns": [
+        {
+          "$comment": "Both scopes are load-bearing: `meta.embedded.block.genroc` is the `embeddedLanguages` key package.json maps to the language, and `source.genroc` is what `genroc-slots` and `genroc-markers` select on — an `include` does not push the included grammar's own scopeName, so without it neither injection fires.",
+          "begin": "(^|\\G)(\\s*)(.*)",
+          "while": "(^|\\G)(?![ \\t]*([`~]{3,})[ \\t]*$)",
+          "contentName": "meta.embedded.block.genroc source.genroc",
+          "patterns": [
+            {
+              "include": "source.genroc"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

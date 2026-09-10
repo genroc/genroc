@@ -1,5 +1,5 @@
 {
-  "$comment": "The `$:` / `${ }` markers wherever they are written. Lexical, so it cannot tell an expression slot from a literal one \u2014 `id: \"$: tick\"` is plain text and this paints it anyway. That is why the EXTENSION does not load it: the server answers there. The docs site does, where every sample is a valid definition and the marker only ever appears in a slot that evaluates.",
+  "$comment": "The `$:` / `${ }` markers wherever they are written. Lexical, so it cannot tell an expression slot from a literal one \u2014 `id: \"$: tick\"` is plain text and this paints it anyway. Which is why it is injected into MARKDOWN alone, never into `source.genroc`: a fence and the docs site have no server, and every sample in one is a valid definition, while a real definition gets this answer from semantic tokens.",
   "scopeName": "source.genroc.markers",
   "injectionSelector": "L:source.genroc - comment",
   "patterns": [

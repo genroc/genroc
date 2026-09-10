@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { ORDERS } from "./fixture.ts";
-import { EXTENSION, contributedGrammars, genrocScope, lineOf, scopesOf, siteGrammars, tokenize } from "./grammar.ts";
+import { EXTENSION, contributedGrammars, genrocScope, lineOf, scopesOf, siteGrammars, tokenize, tokenizeIn } from "./grammar.ts";
 
 // What the grammars must say about a definition. Nothing here re-checks YAML — they delegate
 // that — only what the language adds to it.
@@ -134,15 +134,76 @@ test("the extension does not inject the marker layer", async () => {
 test("the injection is contributed under the scope name it declares", () => {
   const grammars = contributedGrammars();
   const injections = grammars.filter((g) => g.injectTo);
-  expect(injections.length, "nothing is injected, so a definition is highlighted as plain YAML").toBe(1);
+  expect(injections.length, "nothing is injected, so a definition is highlighted as plain YAML").toBeGreaterThan(0);
   for (const g of injections) {
     const declared = JSON.parse(readFileSync(join(EXTENSION, g.path), "utf8"));
     expect(declared.scopeName).toBe(g.scopeName);
-    expect(g.injectTo).toContain("source.genroc");
     // The selector lives in the grammar file; package.json has no such field and ignores it.
-    expect(declared.injectionSelector).toContain("source.genroc");
+    expect(declared.injectionSelector, `${g.scopeName} is injected but selects on nothing`).toBeTruthy();
   }
 });
+
+// Injections are collected for the ROOT scope, never an embedded one, so a grammar naming only
+// `source.genroc` is invisible inside a fence however well its selector matches there. And .mdx
+// is a language of its own to VS Code — `text.html.markdown` alone leaves every docs page dark.
+test("the slot and marker layers reach a fence in both markdown and MDX", () => {
+  const grammars = contributedGrammars();
+  const into = (scope: string) =>
+    grammars.filter((g) => (g.injectTo ?? []).includes(scope)).map((g) => g.scopeName);
+  expect(into("source.genroc"), "a definition is highlighted as plain YAML").toContain("source.genroc.slots");
+  expect(into("source.mdx"), "an .mdx page gets what a .md page does, or neither").toEqual(into("text.html.markdown"));
+  expect(into("text.html.markdown"), "a fence needs the block, its slots and its markers").toHaveLength(3);
+});
+
+// The map and the grammar are in different files and neither reads the other. Without the map a
+// fence still colours, but VS Code keeps markdown's brackets, comments and indentation inside it.
+test("the fence's content scope is the one package.json maps to the language", () => {
+  const block = contributedGrammars().find((g) => g.scopeName === "markdown.genroc.codeblock");
+  expect(Object.entries(block!.embeddedLanguages ?? {})).toEqual([["meta.embedded.block.genroc", "genroc"]]);
+  const declared = JSON.parse(readFileSync(join(EXTENSION, block!.path), "utf8"));
+  const scopes = declared.repository.fence.patterns[0].contentName.split(" ");
+  expect(scopes, "the language map keys off this").toContain("meta.embedded.block.genroc");
+  // An `include` does not push the included grammar's own scopeName, so the two injections find
+  // nothing on the stack unless the fence names it here.
+  expect(scopes, "the slot and marker injections select on this").toContain("source.genroc");
+});
+
+// A fence is the docs site's case inside an editor: no server reaches it, and a sample in one is
+// a valid definition, so the marker layer is the right answer there and only there.
+const FENCED = [
+  "Prose **before**.",
+  "",
+  "```genroc",
+  "name: ticker",
+  "tasks:",
+  "  - id: tick",
+  '    goto: "$review"',
+  '    url: "https://x?c=${ input.customer_id }"',
+  '    tally: "$: self.previous ?? 0"',
+  "```",
+  "",
+  "Prose after.",
+].join("\n");
+
+test.each([["markdown", "text.html.markdown"], ["MDX", "source.mdx"]])(
+  "a ```genroc fence in %s is highlighted as a definition",
+  async (_name, root) => {
+    const tokens = await tokenizeIn(root, FENCED);
+    expect(scopesOf(tokens, "ticker"), "the fence never opened: check the language name in `begin`")
+      .toContain("meta.embedded.block.genroc");
+    expect(scopesOf(tokens, "name")).toContain("entity.name.tag.yaml");
+    expect(genrocScope(scopesOf(tokens, "$review")), "the slot layer is not injected into this root")
+      .toBe("entity.name.function.genroc");
+    expect(genrocScope(scopesOf(tokens, "customer_id")), "the marker layer is not injected into this root")
+      .toBe("variable.other.genroc");
+    expect(genrocScope(scopesOf(tokens, "$:"))).toBe("punctuation.definition.template-expression.begin.genroc");
+
+    // And it closes. A fence that runs on takes the rest of the page with it.
+    const after = lineOf(tokens, FENCED, "Prose after");
+    expect(after.flatMap((t) => t.scopes).filter((s) => s.includes("genroc")), "the fence ran past its own close")
+      .toEqual([]);
+  },
+);
 
 // `language` names the grammar FOR a language. A second contribution claiming it replaces the
 // first, so VS Code tokenized definitions with the injection alone — no `include: source.yaml`,

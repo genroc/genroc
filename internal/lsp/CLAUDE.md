@@ -278,6 +278,13 @@ a grammar cannot see slots, so `semantic.go` answers that as semantic tokens and
 does not inject `genroc-markers`. `docs/` loads both: a static page has no server, and every
 sample on it is a valid definition, so the lexical answer is never wrong there.
 
+A ```genroc **fence in markdown or MDX** is the docs site's case inside an editor, so it loads
+both — `genroc-codeblock` opens the fence and `markers` goes with it. Two things are silent:
+injections are collected for the **root** scope, so slots and markers reach a fence only by
+naming `text.html.markdown` and `source.mdx` in `injectTo` (and `.mdx` is its own language, not
+markdown); and an `include` does not push the included grammar's scopeName, so the fence's
+`contentName` spells `source.genroc` itself or neither injection has anything to select on.
+
 **The injection carries no `language` in package.json.** That field names the grammar FOR a
 language; a second contribution claiming it replaces the first, and VS Code then tokenizes a
 definition with the injection alone — no `include: source.yaml`, so every key, value and quote
