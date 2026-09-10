@@ -94,12 +94,10 @@ func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInst
 	}
 }
 
-// admitRetries decides which raised slots get another attempt. Each slot is its own call
-// with its own budget: it conforms its own payload first -- a payload that fails its
-// declaration REPLACES the code, and the code is what picks the rule -- then matches that
-// code and compares its own `_spawn_attempt` against the limit the matched rule names.
-// A slot whose code matches no retry rule is simply never re-spawned, so a permanently
-// broken one stops dragging the batch through rounds. specs/child-error-handling.md s5.5.
+// admitRetries decides which raised slots get another attempt. Each slot conforms its own
+// payload first -- a payload that fails its declaration REPLACES the code, and the code picks
+// the rule -- then compares its own `_spawn_attempt` against that rule's limit. A code
+// matching no retry rule is never re-spawned. specs/child-error-handling.md s5.5.
 func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, task *model.Task, raised []*model.ProcessInstance) (retired []string, replacements []*model.ProcessInstance, logs []string, fail *advanceOutcome) {
 	// Built lazily: a batch with nothing admissible must not pay for a rebuild, and the
 	// rebuild can fail the instance (an upgraded parent may no longer declare the slot).

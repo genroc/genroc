@@ -77,12 +77,10 @@ func logData(raw json.RawMessage, objects []objectEntry) string {
 	return string(b)
 }
 
-// spliceObjects fetches every value a response listed under `objects` and puts it back at the
-// path it named, which is the whole of what a recipient owes the objects protocol.
-//
-// The paths are arrays of keys, so walking one needs no parser and no unescaping — that is why
-// they are arrays and not JSON Pointers. Client-side because the server materializing every
-// value behind a query parameter is an unbounded response nobody asked the size of.
+// spliceObjects fetches every value a response listed under `objects` and puts it back at the path
+// it named -- the whole of what a recipient owes the objects protocol. The paths are arrays of
+// keys, so walking one needs no parser and no unescaping. Client-side, because the server
+// materializing every value behind a query parameter is an unbounded response.
 func spliceObjects(server string, raw json.RawMessage) json.RawMessage {
 	var body map[string]any
 	if err := numeric.Decode(raw, &body); err != nil {

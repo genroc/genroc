@@ -15,14 +15,10 @@ import (
 	"strings"
 )
 
-// authToken is the credential every request presents, resolved ONCE in main from
-// $GENROC_TOKEN or the config file, before any command runs. A package var rather than a
-// parameter through 30-odd call sites: genctl is a single-shot process that sets this before
-// dispatch and never writes it again, so it is startup configuration in the same sense the
-// server URL is. Nothing here runs concurrently.
-//
-// (internal/ forbids package-level state for reasons that turn on goroutines and GC roots;
-// cmd/ is outside that boundary, and neither reason applies to a CLI invocation.)
+// authToken is the credential every request presents, resolved ONCE in main before any command
+// runs. A package var rather than a parameter through 30-odd call sites: genctl is a single-shot
+// process that sets this before dispatch and never writes it again. internal/'s ban on
+// package-level state turns on goroutines and GC roots, neither of which applies to a CLI.
 var authToken string
 
 // authGet is http.Get plus the credential. Go attaches basic-auth from URL userinfo on its

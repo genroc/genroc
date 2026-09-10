@@ -1,20 +1,6 @@
-// Package expression provides runtime evaluation and reference analysis for the
-// genroc expression language. The grammar lives in internal/expression/syntax;
-// the matching static type inference lives on schema.Schema.Infer, which must
-// accept exactly the same constructs:
-//
-//   - Literals: integer, float, string, bool, null
-//   - Field access via dot notation: input.x, outputs.task.y
-//   - Field access by string key: self.headers["retry-after"]
-//   - Indexing: input.items[0], and a computed key input.items[i] / headers[k]
-//     where every key shares one type (an array, or a map of additionalProperties)
-//   - Object and array literals: {a: x, b: y}, [x, y]
-//   - map with a lambda: map(input.items, item => {id: item.id})
-//   - Arithmetic: +, -, *, /, % (numbers; + also concatenates strings)
-//   - Comparison: ==, !=, <, >, <=, >= → boolean
-//   - Logical: &&, || → boolean (short-circuit); ! → boolean
-//   - Conditional: cond ? a : b
-//   - Null coalescing: a ?? b (returns a if non-nil, else b)
+// Package expression provides runtime evaluation and reference analysis for the genroc expression
+// language. The grammar lives in internal/expression/syntax, which lists the constructs; the
+// matching static type inference lives on schema.Schema.Infer and must accept exactly the same set.
 package expression
 
 import (
@@ -120,8 +106,6 @@ func evalNode(node syntax.Node, e env) (any, error) {
 	}
 }
 
-// evalMember reads a property. A null, missing, or non-object base yields null,
-// mirroring the optional-chaining semantics of type inference.
 // externalValue is an unresolved reference to a value stored outside the context
 // (model.ObjectRef). Declared as a local interface rather than imported: model imports
 // expression, not the reverse.
@@ -143,6 +127,8 @@ func checkResolved(v any, what string) error {
 	return fmt.Errorf("%s reads externalized object %s, which the reference analysis did not load (engine bug)", what, hash)
 }
 
+// evalMember reads a property. A null, missing, or non-object base yields null, mirroring the
+// optional-chaining semantics of type inference.
 func evalMember(n *syntax.MemberNode, e env) (any, error) {
 	base, err := evalNode(n.Base, e)
 	if err != nil || base == nil {

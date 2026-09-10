@@ -1,24 +1,13 @@
-// Package delayspec parses the human-facing literals of the delay action: `for` (a
-// duration from arm time) and `until` (an instant), plus the `tz` both resolve against.
+// Package delayspec parses the human-facing literals of the delay action: `for` (a duration from
+// arm time) and `until` (an instant), plus the `tz` both resolve against. No engine or database
+// dependency, so the calendar cases are table-testable in isolation.
+//
+// Three rules govern everything here: calendar units (d, w, mo, y) are calendar arithmetic in the
+// target location while fixed units (ms, s, m, h) are absolute elapsed time; calendar units apply
+// before fixed ones whatever order they were written in; and a nonexistent wall clock normalizes
+// forward while an ambiguous one takes the first occurrence. Resolution never fails on a target in
+// the past — the caller clamps to now, since timers keep running while an instance is paused.
 // Grammars, decisions and edge cases: specs/delay-syntax.md.
-//
-// No engine or database dependency, so the calendar cases are table-testable in isolation.
-//
-// Three rules govern everything here:
-//
-//   - Calendar units (d, w, mo, y) are calendar arithmetic in the target location: "1d" is
-//     the same wall clock tomorrow, 23 or 25 hours across a DST boundary. Fixed units
-//     (ms, s, m, h) are always absolute elapsed time. With no tz the location is UTC,
-//     which has no transitions, so the "without tz they are fixed" rule falls out of the
-//     general case rather than being a separate one.
-//   - Calendar units apply before fixed ones whatever order they were written in, so a
-//     spec's meaning does not depend on how it was typed.
-//   - A nonexistent wall clock (spring forward) normalizes forward; an ambiguous one
-//     (autumn fall-back) takes the first occurrence — or the second where a pattern's next
-//     match is sought and the first has gone by.
-//
-// Resolution never fails on a target in the past; the caller clamps to now. Timers keep
-// running while an instance is paused, so an `until` behind now is legitimate on resume.
 
 package delayspec
 
@@ -45,13 +34,10 @@ const maxClockRetries = 4
 // Locations
 // ---------------------------------------------------------------------------
 
-// LoadLocation resolves a `tz` slot to a location: an IANA name ("Europe/Prague"), the
-// literal "UTC", or a fixed offset ("+02:00"). An empty tz is UTC.
-//
-// Abbreviations are rejected by design. "CET" denotes the wrong thing for half the year
-// (CET vs CEST) and Go's time.LoadLocation resolves abbreviations from the host's zone
-// database, so the same definition would mean different things on different workers.
-// "Local" is rejected for the same reason.
+// LoadLocation resolves a `tz` slot to a location: an IANA name, the literal "UTC", or a fixed
+// offset ("+02:00"); an empty tz is UTC. Abbreviations and "Local" are rejected by design --
+// "CET" denotes the wrong thing for half the year, and Go resolves abbreviations from the host's
+// zone database, so the same definition would mean different things on different workers.
 func LoadLocation(tz string) (*time.Location, error) {
 	tz = strings.TrimSpace(tz)
 	if tz == "" || tz == "UTC" {
@@ -253,12 +239,9 @@ var durUnits = []struct {
 	{"y", func(d *Duration, n int64) error { return addCalendar(&d.months, n, 12) }},
 }
 
-// ParseDuration parses a `for` literal: unit-suffixed counts, concatenated, whitespace
-// optional — "2h30m", "90m", "1d 12h", "3mo".
-//
-// A unitless string is rejected on purpose. "5000" is exactly the ambiguity this syntax
-// exists to remove, so it errors and names both readings; the bare JSON number `for: 5000`
-// is the way to say milliseconds.
+// ParseDuration parses a `for` literal: unit-suffixed counts, concatenated, whitespace optional --
+// "2h30m", "90m", "1d 12h", "3mo". A unitless string is rejected on purpose, naming both readings;
+// the bare JSON number `for: 5000` is the way to say milliseconds.
 func ParseDuration(s string) (*Duration, error) {
 	raw := strings.TrimSpace(s)
 	if raw == "" {
@@ -395,18 +378,11 @@ var wallLayouts = []string{
 	"2006-01-02",
 }
 
-// ParseInstant parses an `until` literal in one of three closed forms:
-//
-//  1. absolute — RFC 3339, RFC 9557 with an IANA annotation
-//     ("2026-09-01T08:00:00+02:00[Europe/Prague]"), or relaxed "2026-09-01 08:00"
-//  2. offset + wall clock — "+2d 08:00": two days from now, at 08:00 in tz
-//  3. calendar pattern — a systemd OnCalendar subset: "*-*-01 08:00", "mon 09:00",
-//     "*:*:00" (every whole minute), "*:*:*" (every second), "*:*:0/5" (every five
-//     seconds), "*:2/5:00" (every five minutes, from :02)
-//
-// Natural language is deliberately absent: a definition is stored, versioned and replayed,
-// and a locale-dependent parser would let an upgrade silently change what rows already in
-// the database mean.
+// ParseInstant parses an `until` literal in one of three closed forms: an absolute instant (RFC
+// 3339, RFC 9557, or relaxed "2026-09-01 08:00"), an offset plus wall clock ("+2d 08:00"), or a
+// calendar pattern from the systemd OnCalendar subset ("*-*-01 08:00", "mon 09:00", "*:*:0/5").
+// Natural language is deliberately absent: a locale-dependent parser would let an upgrade
+// silently change what rows already in the database mean.
 func ParseInstant(s string) (*Instant, error) {
 	raw := strings.TrimSpace(s)
 	if raw == "" {

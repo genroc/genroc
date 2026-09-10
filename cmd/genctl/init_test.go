@@ -43,12 +43,9 @@ func TestInitPrompt_EOFTakesDefaults(t *testing.T) {
 	}
 }
 
-// The wiring from an answer to what gets written. A pty harness could not drive this
-// reliably, and "did the eval-node answer reach the file set and the next steps" is exactly
-// the part that silently regresses.
-// A flag answers its own question and the prompt must not reopen it — nor override it with its
-// own default, which is how `genctl init --postgres` used to come back as SQLite. Each case
-// presses enter through every prompt, so only the flag can survive.
+// A flag answers its own question and the prompt must not reopen it — nor override it with its own
+// default, which is how `genctl init --postgres` used to come back as SQLite. Each case presses
+// enter through every prompt, so only the flag can survive.
 func TestInitOptions_AFlagIsNotReopenedByThePrompt(t *testing.T) {
 	enter := "\n\n\n\n\n\n"
 	if got := (options{dir: ".", postgres: true, setPostgres: true}).prompt(newPrompter(enter)); !got.postgres {

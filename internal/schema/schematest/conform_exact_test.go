@@ -7,14 +7,10 @@ import (
 	"genroc/internal/schema"
 )
 
-// The REMOVE half of ConformToSchemaExactly, and the relation that promises it. absent_test.go
-// holds the add half — a required nullable that is missing gets its null written in. This file
-// does the other direction: a stored null the new schema will not hold, where the property is
-// optional, so absence is valid and dropping the key reconciles the row.
-//
-// The pairing is the whole point. IsSubsetAsStored must accept exactly what this can close:
-// tolerate more and an upgrade the report blessed fails at the conform; close more and the
-// relation is refusing something that works.
+// The REMOVE half of ConformToSchemaExactly (absent_test.go holds the add half): a stored null the
+// new schema will not hold, where the property is optional so dropping the key reconciles the row.
+// The pairing is the point -- IsSubsetAsStored must accept exactly what this can close, or an
+// upgrade the report blessed fails at the conform, or the relation refuses something that works.
 
 // closable is a version gap the strict relation refuses and IsSubsetAsStored accepts, written
 // as the whole transformation — the two schemas, the row stored under `old`, and the exact row

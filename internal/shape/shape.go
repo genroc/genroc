@@ -1,15 +1,11 @@
-// Package shape is the self-contained "templated value" unit: a Shape is a value
-// authored with expressions at its leaves, which the package can type-check against a
-// context schema (Infer) and evaluate against runtime data (Eval), independently of the
-// process model, validation, or engine packages.
-//
-// A Shape is recursively:
+// Package shape is the self-contained "templated value" unit: a value authored with expressions
+// at its leaves, type-checked against a context schema (Infer) and evaluated against runtime data
+// (Eval), independently of the process model, validation and engine packages.
 //
 //	Shape = string | number | boolean | null | Shape[] | Record<string, Shape>
 //
-// A string leaf is a template or a $: typed expression (see the template package); a
-// scalar/array/object is a literal built recursively. The authoring structure fixes each
-// node's kind, but a string leaf may evaluate to any type.
+// The authoring structure fixes each node's kind, but a string leaf — a template or a $: typed
+// expression — may evaluate to any type.
 package shape
 
 import (
@@ -19,14 +15,10 @@ import (
 	"genroc/internal/schema"
 )
 
-// Shape is a templated value together with the optional structure it must produce and a
-// name locating it in errors. It has two phases: Check validates it statically against a
-// ContextSchema (roots' types), and Eval computes its value against a State (roots'
-// data). The two contexts are provided independently — static validation at registration,
-// evaluation per run.
-//
-// Only Raw is populated by JSON (un)marshaling; Schema, Name and Expr are attached at the
-// slot the shape belongs to.
+// Shape is a templated value together with the optional structure it must produce and a name
+// locating it in errors. Two phases, given their contexts independently: Check validates it
+// against a ContextSchema at registration, Eval computes it against a State per run. Only Raw is
+// populated by JSON (un)marshaling; Schema, Name and Expr are attached at the owning slot.
 type Shape struct {
 	Raw    any            // the templated value: string | float64 | bool | nil | []any | map[string]any
 	Schema *schema.Schema // optional: the required structure Check verifies conformance to

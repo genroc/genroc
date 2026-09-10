@@ -177,12 +177,11 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 	}
 }
 
-// The verdict that moved out of advance with the write: spawning is part of the step, so a
-// refused spawn is the instance's failure, not the worker's. SpawnChildrenAndWait reads
-// wait_state from the ROW inside its transaction, so parking the row on 'external' (with an
-// expired deadline, which keeps it claimable) and clearing the in-memory copy makes the
-// spawn refuse. The refusal rolls its transaction back, which is what leaves the lease
-// held — and holding it is now what lets the failure write land at all.
+// The verdict that moved out of advance with the write: spawning is part of the step, so a refused
+// spawn is the instance's failure, not the worker's. SpawnChildrenAndWait reads wait_state from
+// the ROW, so parking it on 'external' with an expired deadline and clearing the in-memory copy
+// makes the spawn refuse -- and the rolled-back transaction leaves the lease held, which is what
+// lets the failure write land at all.
 func TestRunAdvance_SpawnFailureFailsTheInstance(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)
@@ -220,12 +219,10 @@ func TestRunAdvance_SpawnFailureFailsTheInstance(t *testing.T) {
 	}
 }
 
-// The other half of the same branch: once the advance has persisted, the lease is
-// released, and a second advance off the same in-memory instance holds no grant. Its
-// spawn is refused, and the failure write that would follow is refused too — so the
-// instance stays running for its next claim rather than being failed by a doubled
-// advance. Before worker_id joined the fence this wrote through, because releasing a
-// lease does not move the epoch. specs/durability-levels.md §7.
+// The other half of the same branch: once the advance has persisted the lease is released, so a
+// second advance off the same in-memory instance holds no grant and both its spawn and the failure
+// write that would follow are refused. Before worker_id joined the fence this wrote through,
+// because releasing a lease does not move the epoch. specs/durability-levels.md §7.
 func TestRunAdvance_DoubledAdvanceCannotFailTheInstance(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)
@@ -253,13 +250,10 @@ func TestRunAdvance_DoubledAdvanceCannotFailTheInstance(t *testing.T) {
 	}
 }
 
-// A signal that beat the process to the task is consumed on ARRIVAL at the task, in one advance:
-// runExternal checks the buffer before it arms, so the instance never parks and no second claim
-// is needed. The old shape consumed it in the arm and yielded, costing a claim cycle.
-//
-// The arm's own not-parking branch still exists and is not this: it is the race where a signal
-// lands between this check and the park write, and it is covered at the DB level
-// (TestSignals_BufferThenConsumeFIFO). specs/external-outcome-as-signal.md.
+// A signal that beat the process to the task is consumed on ARRIVAL, in one advance: runExternal
+// checks the buffer before it arms, so the instance never parks. Not the arm's own not-parking
+// branch, which is the race where a signal lands between that check and the park write and is
+// covered at the DB level (TestSignals_BufferThenConsumeFIFO). specs/external-outcome-as-signal.md.
 func TestExternal_BufferedAnswerIsConsumedWithoutParking(t *testing.T) {
 	database := openTestDB(t)
 	eng := tickEngine(t, database)

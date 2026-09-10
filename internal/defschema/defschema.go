@@ -1,9 +1,6 @@
-// Package defschema projects the definition language into a JSON Schema.
-//
-// It lives beside the language rather than in internal/api because it describes a definition,
-// not an endpoint: the API serves the bytes, the docs site publishes them, and completion
-// reads them. Seven model types decode by hand and carry their own JSONSchemaBytes, which is
-// why this is the only machine-readable description of them there is.
+// Package defschema projects the definition language into a JSON Schema. It lives beside the
+// language rather than in internal/api because it describes a definition, not an endpoint: the
+// API serves the bytes, the docs site publishes them, completion reads them.
 // specs/language-server.md §5.
 package defschema
 
@@ -82,14 +79,11 @@ func Process() []byte {
 	return processSchemaBytes
 }
 
-// closeStructs rejects unknown keys on every object reflected from a Go struct, because the
-// server already does: decodeBody is numeric.DecodeStrict, and DisallowUnknownFields is
-// recursive. Without it the published schema accepted `on_eror:` on a task and `tsaks:` at the
-// root — a typo the editor passed and the server refused. specs/language-server.md §5.
-//
-// A struct whose fields are open (a map, a Shape) is left alone: it already carries an
-// additionalProperties of its own, and a schema stricter than the server underlines working
-// code, which is the same bug facing the other way.
+// closeStructs rejects unknown keys on every object reflected from a Go struct, because the server
+// already does; without it the published schema accepted `on_eror:` on a task, a typo the editor
+// passed and the server refused. A struct whose fields are open is left alone -- it carries its
+// own additionalProperties, and a schema stricter than the server underlines working code.
+// specs/language-server.md §5.
 func closeStructs(params jsonschema.InterceptSchemaParams) (bool, error) {
 	if !params.Processed || params.Schema == nil || params.Schema.AdditionalProperties != nil {
 		return false, nil

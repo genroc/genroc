@@ -105,14 +105,10 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 }
 
 // freshBatch is the batch phase 1 would spawn from the parent AS IT STANDS NOW — versions
-// re-resolved against its current task, inputs re-evaluated against its context and
-// re-validated — indexed by slot. Built ONCE per retry round rather than per slot, so a
-// hundred-slot fan-out retrying forty of them still evaluates each input once.
-//
-// A replacement must not re-send what its attempt was given. A definition upgrade is how a
-// caller changes what a child receives, and a `$import`ed script IS an input, so copying
-// makes a fix impossible to deliver: the operator edits the code, applies, upgrades, retries,
-// and the old string is handed to the replacement.
+// re-resolved, inputs re-evaluated and re-validated — indexed by slot, and built ONCE per retry
+// round. A replacement must not re-send what its attempt was given: a definition upgrade is how a
+// caller changes what a child receives, and a `$import`ed script IS an input, so copying would
+// make a fix impossible to deliver.
 func (e *Engine) freshBatch(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (map[string]*model.ProcessInstance, *advanceOutcome) {
 	callStack := append(inst.CallStack, inst.ID)
 	var built []*model.ProcessInstance
@@ -313,17 +309,11 @@ func (e *Engine) evalChildInput(inst *model.ProcessInstance, taskID, label strin
 	return e.concrete(inst, val)
 }
 
-// concrete materializes the references left in an evaluated value, for the two boundaries a
-// marker must not cross. specs/lazy-context.md.
-//
-//   - A CONFORM inspects and normalizes the value (strips undeclared keys, fills defaults), and
-//     cannot do either inside an object it would have to load to see.
-//   - The value lands on ANOTHER instance's row, and a claim is written only for an object this
-//     write produced -- a passed-through marker would leave the child referencing content it
-//     never claimed, which the sweep is entitled to delete.
-//
-// Cross-instance sharing does not need the marker anyway: the child re-cuts the value, the
-// content is identical, and content addressing lands it on the same object with a second claim.
+// concrete materializes the references left in an evaluated value, for the two boundaries a marker
+// must not cross: a CONFORM cannot inspect inside an object it would have to load to see, and a
+// value landing on ANOTHER instance's row would reference content it never claimed, which the
+// sweep is entitled to delete. Sharing survives anyway -- the child re-cuts the value and content
+// addressing lands it on the same object with a second claim. specs/lazy-context.md.
 func (e *Engine) concrete(inst *model.ProcessInstance, v any) (any, error) {
 	return e.context(inst).Materialize(v)
 }

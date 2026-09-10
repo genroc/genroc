@@ -44,14 +44,10 @@ func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 	if ev.Actor == "" {
 		ev.Actor = model.ActorEngine
 	}
-	// Redaction is a RECORDING concern and its one sink is stdout, where a value is read by an
-	// operator who did not ask for it. The durable trail and every API response carry what
-	// actually happened: protecting a value at rest is encryption's job, and redacting on read
-	// was never that. specs/object-store.md §Redaction.
-	//
-	// Scrubbing works by replacing the secret VALUES: expressions have no functions, so a secret
-	// always appears verbatim in anything logged, and nothing reaches a line in a form a
-	// string-replace would miss.
+	// Redaction is a RECORDING concern with one sink, stdout; the durable trail and every API
+	// response carry what actually happened. Scrubbing replaces the secret VALUES, which works
+	// because expressions have no functions -- a secret always appears verbatim in anything
+	// logged. specs/object-store.md §Redaction.
 	consoleEv := ev
 	text := dataText(ev.Data)
 	if secrets := e.contextSecrets(inst); len(secrets) > 0 {
@@ -75,15 +71,10 @@ func (e *Engine) audit(inst *model.ProcessInstance, ev logEvent) {
 	}
 }
 
-// contextSecrets gathers the secret values to keep out of stdout. `secret: true` is valid only
-// in config_schema (model.validate refuses it anywhere else), so this is the config and nothing
-// more -- no schema walk over the context, no taint to follow.
-//
-// That narrowing is what removed the whole second redaction mechanism. A fetch RESPONSE BODY
-// never enters the context, so a value-based scrub could not see it and a schema-driven pass had
-// to blank it structurally while building the log snippet -- before audit was called, leaving
-// nothing unredacted to store. With no `secret: true` outside config there is nothing for it to
-// blank. specs/object-store.md §secret: true is CONFIG-ONLY.
+// contextSecrets gathers the secret values to keep out of stdout. `secret: true` is valid only in
+// config_schema, so this is the config and nothing more -- no schema walk over the context, no
+// taint to follow. That narrowing is what removed the second, schema-driven redaction pass.
+// specs/object-store.md §secret: true is CONFIG-ONLY.
 func (e *Engine) contextSecrets(inst *model.ProcessInstance) []string {
 	def, err := e.definition(inst.ProcessName, inst.ProcessVersion)
 	if err != nil {
@@ -217,13 +208,10 @@ func statusMeta(status int) map[string]any {
 	return map[string]any{"status": status}
 }
 
-// AuditCreated records the instance_created milestone, capturing the instance's process
-// input (subject to payload-logging config). Called by the API for a root instance and by
-// the engine for each spawned child; it bookends the trail with instance_completed.
-//
-// actor is who asked for this run. A child passes none: the engine spawns it on the parent's
-// behalf, so audit records model.ActorEngine rather than the operator who started the root, who did
-// not address that row. specs/api-auth.md section 7.
+// AuditCreated records the instance_created milestone, capturing the instance's process input
+// (subject to payload-logging config), and bookends the trail with instance_completed. actor is
+// who asked for this run; a child passes none, so audit records model.ActorEngine rather than the
+// operator who started the root and never addressed that row. specs/api-auth.md section 7.
 func (e *Engine) AuditCreated(inst *model.ProcessInstance, actor string) {
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceCreated,
 		Actor: actor, Data: e.snippet(inst.State["input"])})

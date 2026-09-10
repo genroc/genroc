@@ -17,12 +17,10 @@ type DefinitionGetter interface {
 	LatestVersion(name string) (int, error)
 }
 
-// ValidateChildProcessRefs checks every child/child_map/child_list task in def:
-//  1. The referenced process exists (version 0 resolves to latest).
-//  2. The schema inferred from the input expressions is a subset of the child's InputSchema.
-//
-// currentVersion is the server-assigned version of def (used for self-reference detection).
-// def must already be normalised (Generate calls Normalize internally, so call this after Generate).
+// ValidateChildProcessRefs checks, for every child/child_map/child_list task in def, that the
+// referenced process exists (version 0 resolves to latest) and that the schema inferred from its
+// input expressions is a subset of the child's InputSchema. currentVersion is def's own
+// server-assigned version, for self-reference detection; def must already be normalised.
 func ValidateChildProcessRefs(def *model.ProcessDefinition, currentVersion int, getter DefinitionGetter) error {
 	defs, tasks, processInput, configSchema, err := buildSchemaContext(def)
 	if err != nil {

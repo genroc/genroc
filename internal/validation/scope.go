@@ -9,14 +9,11 @@ import (
 	"genroc/internal/shape"
 )
 
-// The task scope in one place: which members of `self` each slot may name, and what
-// outputs.<own id> means. The three members come into existence at different moments —
-// previous when the task is entered, result when the action answers, output when the output
-// map has run — so a slot may only name the ones that already exist where it is evaluated.
-// specs/task-scopes.md.
-//
-// outputs.<own id> is previous at EVERY slot, the switch included: engine.buildEnv shadows the
-// stored value there, because a task is not complete until its switch has routed.
+// The task scope in one place: which members of `self` each slot may name. The three come into
+// existence at different moments — previous on entry, result when the action answers, output
+// when the output map has run — so a slot may only name those that already exist where it is
+// evaluated. outputs.<own id> is previous at EVERY slot, the switch included, because a task is
+// not complete until its switch has routed. specs/task-scopes.md.
 type selfScope struct{ result, output bool }
 
 var (

@@ -43,18 +43,11 @@ const (
 	HeaderTaskID     = "X-Genroc-Task-Id"
 )
 
-// Response carries the result of a Send call.
-// Body holds the decoded JSON body, on an unaccepted status as much as on an accepted one —
-// whether an error body is readable is the caller's decision, not the transport's.
-// BodyCode reports why Body is absent when the bytes could not be decoded ("output.parse",
-// "output.too_large"); it is NOT a verdict, because a status nobody declared a schema for is
-// entitled to answer with HTML.
-// ErrorCode is non-empty ONLY when the status was not accepted ("http.404"); a body problem
-// never lands here, so the caller can tell "the remote refused" from "the body was unreadable"
-// and apply the declaration to each.
-// ErrorMessage is a human-readable description of the failure (may include trimmed response body).
-// Headers are the response headers, lowercased and comma-joined (see responseHeaders).
-// Status is the HTTP status code for a REST call (success or failure); 0 for non-HTTP transports.
+// Response carries the result of a Send call. Body holds the decoded JSON body on an unaccepted
+// status as much as on an accepted one -- whether an error body is readable is the caller's
+// decision. BodyCode says why Body is absent and is NOT a verdict, since a status nobody declared
+// a schema for may answer with HTML; ErrorCode is non-empty ONLY when the status was not
+// accepted, so the caller can tell "the remote refused" from "the body was unreadable".
 type Response struct {
 	Body         any
 	Headers      map[string]string
@@ -235,13 +228,10 @@ func methodAllowsBody(method string) bool {
 	return true
 }
 
-// ClassifyGoError maps a transport-level Go error (a REST call that never got an HTTP
-// response) to an error code. The split is retry safety, not diagnosis: pre.* asserts the
-// remote CANNOT have seen the request, so only a failure sendHTTP marked notSent earns it —
-// an outcome merely believed not to have happened is unknowable and stays that way.
-// Everything else is unknowable — a connection that breaks once the bytes are out cannot
-// say whether the remote already acted, and a reset is indistinguishable at the client
-// from a server that processed the request and died answering it.
+// ClassifyGoError maps a transport-level Go error (a REST call that never got an HTTP response)
+// to an error code. The split is retry safety, not diagnosis: pre.* asserts the remote CANNOT
+// have seen the request, so only a failure sendHTTP marked notSent earns it. Everything else is
+// unknowable — a connection breaking once the bytes are out cannot say whether the remote acted.
 func ClassifyGoError(err error) errcode.Code {
 	var unsent notSent
 	sent := !errors.As(err, &unsent)

@@ -1222,19 +1222,13 @@ func TestChildrenForStep_StepScoped(t *testing.T) {
 	}
 }
 
-// TestRetryProcess_ClearsBothErrors pins that reviving an instance clears the error it was
-// REPORTING (all three columns) and the error it was HANDLING, and that what those slots held
-// in the object store is not stranded by the clear.
+// Reviving an instance clears the error it was REPORTING and the one it was HANDLING, without
+// stranding what those slots held in the object store. The claims outlive the write by design --
+// `objects` is the LOADED list, released by the next persistState -- but the cleared slots must
+// not come BACK, or a decode resurrects an error the revival exists to drop.
 //
-// The claims outlive the write itself, and that is the design: `objects` is the LOADED list,
-// and the next persistState releases every hash in it that the context no longer references.
-// What must not happen is the cleared slots coming BACK -- their entries still name paths in a
-// row that no longer has them, and a decode that recreated those paths would resurrect an
-// error the revival exists to drop.
-//
-// This pins what the code DOES, and one half of it is disputed: clearing `error` costs a task
-// reached through on_error the input its layer says it is guaranteed. Revisit this test with
-// that, not around it.
+// This pins what the code DOES, and one half is disputed: clearing `error` costs a task reached
+// through on_error the input its layer says it is guaranteed. Revisit with that, not around it.
 func TestRetryProcess_ClearsBothErrors(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

@@ -10,15 +10,11 @@ import "fmt"
 type ObjectRef struct {
 	Ref  string `json:"ref"`
 	Size int64  `json:"size"`
-	// Path is where the value belongs inside the slot, as keys from the slot's root: object
-	// keys as strings, array indices as numbers. Empty means the whole slot.
-	//
-	// It is what lets a composite carry a reference for ONE of its leaves -- a task input whose
-	// code is a definition-owned object and whose other fields are per-instance data. Without
-	// it the only way to record that is a marker inside the value, which does not survive the
-	// round trip: a *ObjectRef marshals to {"ref":…,"size":…} and comes back a plain map, and
-	// recovering the type means guessing from the shape, which misreads user data that
-	// legitimately has those keys. specs/object-store.md.
+	// Path is where the value belongs inside the slot, as keys from the slot's root; empty means
+	// the whole slot. It is what lets a composite carry a reference for ONE of its leaves. The
+	// alternative -- a marker inside the value -- does not survive the round trip: it comes back
+	// a plain map, and recovering the type means guessing from the shape, which misreads user
+	// data that legitimately has those keys. specs/object-store.md.
 	Path []any `json:"path,omitempty"`
 }
 

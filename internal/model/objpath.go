@@ -1,13 +1,9 @@
 package model
 
 // Extract removes every *ObjectRef from v and reports where each one was, as a path of keys
-// rooted at v. Place is its inverse.
-//
-// The pair is here rather than in one of its callers because all three need the same answer and
-// must agree exactly: the API builds a response's objects section with it, the DB stores an
-// external task's refs beside its input with it, and a client (genctl, a worker) puts the values
-// back with it. Three implementations of one traversal is three chances to disagree about where
-// a value belongs. specs/object-store.md.
+// rooted at v; Place is its inverse. The pair lives here because three callers -- the API's
+// objects section, the DB's external-task refs, and a client putting the values back -- must
+// agree exactly about where a value belongs. specs/object-store.md.
 func Extract(v any, at []any, out *[]*ObjectRef) any {
 	switch t := v.(type) {
 	case *ObjectRef:

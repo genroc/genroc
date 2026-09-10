@@ -58,13 +58,9 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 }
 
 // buildOutcome validates a submitted outcome against what the task declares and returns the
-// value to store. Both addressing modes go through it, so resolve (by token) and signal (by
-// instance + task) cannot drift on what they accept — the drift that left signal able to
-// report success and not failure in the first place.
-//
-// The failure payload is conformed HERE rather than in the engine: unlike a child's raise,
-// whose producer is another process that cannot be told, the submitter is an HTTP caller
-// holding the connection, so a mismatch is a 400 it can act on and answer again after.
+// value to store. Both addressing modes go through it so resolve and signal cannot drift on
+// what they accept. The failure payload is conformed HERE rather than in the engine: the
+// submitter is an HTTP caller holding the connection, so a mismatch is a 400 it can act on.
 func buildOutcome(task *model.Task, result any, fail *FailureReq) (model.ExternalOutcome, *Error) {
 	if fail != nil && result != nil {
 		return model.ExternalOutcome{}, invalid("a submission carries one outcome: `result` or `error`, not both")
@@ -302,11 +298,9 @@ func (h *Handlers) claimExternalTasks(raw json.RawMessage) Reply {
 			continue // a concurrent transition; the claim expires on its own
 		}
 		// An only_once task whose previous holder let its claim lapse must NOT be handed out
-		// again: the first worker may already have done the work, which is the whole guarantee.
-		// The decision lives here rather than in the claim's SQL because only_once is a
-		// property of the definition, and this loop already has it in hand. The grant is undone
-		// and the arming marked instead, so the engine reports external.lost rather than the
-		// instance sitting unclaimable with nothing saying why.
+		// again -- the first worker may already have done the work. Here rather than in the
+		// claim's SQL because only_once is a property of the definition, which this loop has in
+		// hand. The grant is undone and the arming marked, so the engine reports external.lost.
 		if inst.ExternalReclaimed && task.OnlyOnce != nil && *task.OnlyOnce {
 			// A conflict here means the row moved on between the grant and this write -- the
 			// lapsed holder came back late and answered, which is allowed and is the whole
@@ -326,14 +320,10 @@ func (h *Handlers) claimExternalTasks(raw json.RawMessage) Reply {
 	return okReply(map[string]any{"items": resp, "renew_before_ms": renewBefore(lease)})
 }
 
-// renewExternalClaims extends this worker's claims. Renewing is scoped to the holder and never
-// bumps the claim epoch: a renewal extends a grant, and bumping would fence the worker out of
-// its own answer.
-//
-// The answer is per TOKEN, not a count, because a count is one bit short of usable: a worker
-// holding four claims would learn it lost one and not which. It is also the only channel that
-// reaches a running worker at all -- workers dial genroc, never the reverse -- so `cancelled`
-// rides it, and a worker must treat renewal as mandatory rather than as an optimisation.
+// renewExternalClaims extends this worker's claims, scoped to the holder and never bumping the
+// claim epoch, which would fence the worker out of its own answer. The answer is per TOKEN, not
+// a count: a worker holding four claims must learn WHICH it lost. It is also the only channel
+// that reaches a running worker, so `cancelled` rides it and renewal is mandatory.
 // specs/external-task-queue.md.
 func (h *Handlers) renewExternalClaims(raw json.RawMessage) Reply {
 	req, err := decodeBody[RenewExternalClaimsReq](raw)

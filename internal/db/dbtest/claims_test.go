@@ -7,13 +7,9 @@ import (
 	"genroc/internal/model"
 )
 
-// An instance claims what its slots REFERENCE, not what its write produced.
-//
-// The two differ as soon as a marker can be copied rather than loaded: an expression carries a
-// reference from one slot into another, or a value crosses onto a second instance's row. Claiming
-// only newly written objects leaves such a row pointing at content nothing there holds, and the
-// sweep deletes content when no claim remains -- so the row survives and its value does not.
-// specs/lazy-context.md, specs/object-store.md.
+// An instance claims what its slots REFERENCE, not what its write produced -- the two differ as
+// soon as a marker is copied rather than loaded. Claiming only newly written objects leaves a row
+// pointing at content nothing there holds, and the sweep takes it. specs/object-store.md.
 func TestClaims_FollowReferencesNotWrites(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

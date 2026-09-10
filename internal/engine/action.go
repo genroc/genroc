@@ -378,15 +378,10 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 		return outcome.Result, nil
 	}
 
-	// Phase 3: still parked at 'external' — the claim only returns us because the wait ended
-	// without an answer, either way round:
-	//   - a holder's claim lapsed on an only_once task, which the claim API marked rather than
-	//     hand the work out twice (external.lost), or
-	//   - the deadline passed (external.timeout).
-	// Both are in errcode.Unknowable(): the work may or may not have taken effect, and only the
-	// definition can find out. They are separate codes so an on_error rule can tell "a worker
-	// died holding this" from "nobody answered in time" — different questions to ask the system
-	// of record, and different people to page.
+	// Phase 3: still parked at 'external' — the wait ended without an answer, either because a
+	// holder's claim lapsed on an only_once task (external.lost) or because the deadline passed
+	// (external.timeout). Both are in errcode.Unknowable(); they stay separate codes so an
+	// on_error rule can tell the two apart.
 	if inst.WaitState == model.WaitStateExternal {
 		ext, _ := inst.State[model.StateExternal].(map[string]any)
 		lost, _ := ext[model.StateExternalLost].(bool)
@@ -536,19 +531,11 @@ func (e *Engine) resolveHeaders(inst *model.ProcessInstance, call *model.Action)
 	return resolved, nil
 }
 
-// appendQuery evaluates the fetch query shape and appends it to rawURL, URL-encoded. Three
-// fixed semantics (specs/fetch-http-surface.md §1): a null value OMITS its parameter, so an
-// optional one needs no conditional; the parameters are APPENDED, since the url may already
-// carry its own `?a=1`; and a value is a scalar or an ARRAY of scalars, the latter repeating
-// the parameter once per element.
-//
-// Parameter order is by key and does not depend on Go's map iteration — url.Values.Encode
-// sorts, which is what keeps the same definition and input producing a byte-identical url on
-// every attempt. Do not replace Encode with hand-built concatenation without restoring that.
-//
-// Encoding is the point of the slot. Interpolating a value into the url escapes nothing, so a
-// term carrying `&`, `=`, `#` or a space corrupts the url or injects a parameter — reachable
-// from untrusted input, which is why this exists rather than being an ergonomic nicety.
+// appendQuery evaluates the fetch query shape and appends it to rawURL, URL-encoded: a null value
+// omits its parameter, an array repeats it once per element, and the parameters are appended
+// because the url may already carry its own `?a=1`. Do not replace url.Values.Encode with
+// hand-built concatenation without restoring its key sort -- it is what keeps the url
+// byte-identical across attempts. specs/fetch-http-surface.md §1.
 func (e *Engine) appendQuery(inst *model.ProcessInstance, call *model.Action, rawURL string) (string, error) {
 	if !call.Query.Present() {
 		return rawURL, nil
@@ -587,12 +574,10 @@ func (e *Engine) appendQuery(inst *model.ProcessInstance, call *model.Action, ra
 	if strings.Contains(rawURL, "?") {
 		sep = "&"
 	}
-	// url.Values.Encode is form-urlencoded, which renders a space as `+`. Every mainstream
-	// decoder reads that back as a space, but RFC 3986 says a query is just a string and `+`
-	// is a literal plus — a server reading it that way receives the wrong value SILENTLY,
-	// which is the failure class this slot exists to prevent. %20 decodes to a space under
-	// both readings. The replacement is exact: QueryEscape emits `+` only for a space, and a
-	// literal plus is already `%2B`.
+	// Encode is form-urlencoded, rendering a space as `+`, which a server reading RFC 3986
+	// takes as a literal plus and receives the wrong value SILENTLY. %20 decodes to a space
+	// under both readings, and the replacement is exact: QueryEscape emits `+` only for a
+	// space, and a literal plus is already `%2B`.
 	return rawURL + sep + strings.ReplaceAll(values.Encode(), "+", "%20"), nil
 }
 

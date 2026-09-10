@@ -183,13 +183,10 @@ func untypedResultAdvice(a *model.Action) string {
 	return "the action has no result_schema — add a result_schema to type the response, or `result_schema: {}` (the top type) to export it opaquely for a caller to narrow"
 }
 
-// fetchResultContract is the schema a fetch's result is compared AS: the merged union, not
-// the per-status parts. The statuses are not separately observable — every declared body
-// feeds the one self.result — so comparing them one at a time judges something no consumer
-// can read, and it goes wrong in both directions. Dropping a bodyless status narrows the
-// union (harmless) while reading per-status as a removed declaration; adding one widens it
-// to `T | null` (a real break for every consumer) while carrying no schema to compare at all.
-// nil means the fetch declares nothing, which is what an absent result_schema always meant.
+// fetchResultContract is the schema a fetch's result is compared AS: the merged union, not the
+// per-status parts. Every declared body feeds the one self.result, so comparing statuses one at
+// a time judges something no consumer can read -- and goes wrong in both directions. nil means
+// the fetch declares nothing, as an absent result_schema always meant.
 func fetchResultContract(a *model.Action) (*schema.Schema, error) {
 	if a == nil || a.Type != model.ActionTypeFetch || len(a.Responses) == 0 {
 		return nil, nil
@@ -391,12 +388,10 @@ func sortedDeclaredCodes(decl map[string][]*schema.Schema) []string {
 	return codes
 }
 
-// errorDataSchema types error.data at a task: the union over every on_error rule that can
-// have set the `error` visible there. One rule reaching one handler gives exactly that rule's
-// schema; widening the patterns, or letting a second rule reach the same handler, widens the
-// type — which is the narrowing story the design leans on, done by the rules themselves
-// rather than by any type-system machinery. A zero schema means no reaching rule declares a
-// body, and error.data is then absent entirely (undeclared data is never accessible).
+// errorDataSchema types error.data at a task: the union over every on_error rule that can have
+// set the `error` visible there, so narrowing is done by the rules themselves rather than by
+// type-system machinery. A zero schema means no reaching rule declares a body, and error.data
+// is then absent entirely.
 func errorDataSchema(tasks []*model.Task, srcs []errSource, defs schema.Defs) (schema.Schema, error) {
 	var arms []schema.Schema
 	nullable, any := false, false
@@ -463,12 +458,10 @@ type errAt struct {
 	data schema.Schema
 }
 
-// errContexts resolves the per-task error facts once, so every context built for a task
-// agrees about what `error` holds there — an output projection and a switch case that
-// disagreed would accept an expression in one slot and reject it in the other.
-// A schema that fails to merge leaves the slot ABSENT rather than taking the caller down:
-// an expression reading it then fails loudly as "not in schema", which is the safe
-// direction, and the same merge runs on the success channel where the error does surface.
+// errContexts resolves the per-task error facts once, so every context built for a task agrees
+// about what `error` holds there. A schema that fails to merge leaves the slot ABSENT rather
+// than taking the caller down: an expression reading it then fails loudly as "not in schema",
+// and the same merge runs on the success channel where the error does surface.
 func errContexts(tasks []*model.Task, mustErr, mayErr map[string]bool, errSrc map[string][]errSource, defs schema.Defs) map[string]errAt {
 	out := make(map[string]errAt, len(tasks))
 	for _, t := range tasks {

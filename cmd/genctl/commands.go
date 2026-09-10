@@ -92,12 +92,9 @@ func runApplyCmd(server string, args []string) {
 	}
 }
 
-// runTypesCmd generates the declarations a resolver's authoring layer needs, without
-// building or applying anything. It exists because the editor needs them to exist BEFORE an
-// apply ever runs - without it an author's file is red until they apply once.
-//
-// It contacts no server: the types are inferred locally (inferSchemas), so this runs on every
-// edit whether or not one is reachable.
+// runTypesCmd generates the declarations a resolver's authoring layer needs, without building or
+// applying anything -- without it an author's file is red until they apply once. It contacts no
+// server, so it runs on every edit whether or not one is reachable.
 func runTypesCmd(args []string) {
 	fs := newFlagSet("types", args)
 	fs.String("f", "", "definition file or glob; an existing path is never globbed. Takes several, "+
@@ -339,14 +336,11 @@ func runRunCmd(server string, args []string) {
 	fmt.Printf("started: %s  %s@v%d  (%s)\n", resp.ID, resp.Process, resp.Version, resp.Status)
 }
 
-// runResolveCmd submits an outcome for an external task, addressed either way it can be: by
-// the queue token a worker claimed it with, or by instance id + --task. The second may arrive
-// BEFORE the task arms, in which case the server buffers it FIFO -- which is why the line it
-// prints names what happened rather than just the id.
-//
-// One command because the two are one submission: same payload flags, same error channel,
-// same conforming against what the task declares. A token is `<id>.<epoch>`, an instance ref
-// a bare id or @last, so the argument says which endpoint it is for.
+// runResolveCmd submits an outcome for an external task, addressed by the queue token a worker
+// claimed it with or by instance id + --task. The second may arrive BEFORE the task arms, in
+// which case the server buffers it FIFO -- which is why the printed line names what happened.
+// One command because the two are one submission, and the argument's shape (`<id>.<epoch>` or a
+// bare id) says which endpoint it is for.
 func runResolveCmd(server string, args []string) {
 	if len(args) == 0 {
 		fatal("usage: genctl resolve <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]\n" +

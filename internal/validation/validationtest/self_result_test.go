@@ -5,12 +5,9 @@ import (
 	"testing"
 )
 
-// A fetch with no `responses` has no self.result at all: the result is undeclared,
-// ambiguous data, so it does not exist in the context. Referencing it — in an output OR a
-// switch — is a "not in schema" error. Declaring a status types it and makes it accessible.
-// The message must name the slot that would FIX it, which differs by action type: a fetch is
-// sent to `responses`, and pointing it at result_schema would send it to a field a fetch
-// refuses.
+// A fetch with no `responses` has no self.result at all, so referencing it -- in an output or a
+// switch -- is a "not in schema" error. The message must name the slot that would FIX it, which
+// differs by action type: a fetch is sent to `responses`, and result_schema is a field it refuses.
 func TestGenerate_OutputOfUntypedResult_Errors(t *testing.T) {
 	// Bare self.result in an output, no result_schema → error mentioning result_schema.
 	err := runGenerateErr(t, `{

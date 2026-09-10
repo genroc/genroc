@@ -6,15 +6,11 @@ import (
 	"genroc/internal/schema"
 )
 
-// IsSubsetAsStored reads both schemas as descriptions of data a conform already produced.
-// Its one extra rule over IsSubsetAbsentAsNull — a defaulted property is guaranteed present —
-// is the only relaxation in the package that needs NO migration behind it, and the tests are
-// organised around exactly that claim: what the sub side guarantees is tolerated, what only
-// the super side declares is not. specs/compat-command.md §2e.
-//
-// Getting the sides the wrong way round is the failure this file exists to catch. It would
-// promise an upgrade over a row that never held the value, and nothing downstream would
-// notice until an expression read null.
+// IsSubsetAsStored reads both schemas as descriptions of data a conform already produced. Its one
+// extra rule -- a defaulted property is guaranteed present -- is the only relaxation in the package
+// needing no migration behind it, and the tests are organised around that claim: what the SUB side
+// guarantees is tolerated, what only the SUPER side declares is not. Getting the sides the wrong
+// way round promises an upgrade over a row that never held the value. specs/compat-command.md §2e.
 
 // ── the sub side guarantees it: tolerated, and no fill is involved ────────────
 

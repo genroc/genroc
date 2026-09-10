@@ -106,12 +106,10 @@ func (s Schema) WithMergedDefs(d Defs) Schema {
 	return wrap(s.n, merged)
 }
 
-// MergeInto hoists the schema's root $defs into the handle (mutated in place) and
-// returns a defs-free copy of the schema with its refs pointing at the merged
-// locations. Collisions are safe: a content-equal existing definition (under any name)
-// is reused, a genuinely different one is renamed with a unique suffix, and every $ref
-// in the returned schema and moved bodies is rewritten to match. Existing handle
-// entries keep their names, so definitions seeded first take precedence.
+// MergeInto hoists the schema's root $defs into the handle (mutated in place) and returns a
+// defs-free copy with its refs pointing at the merged locations. Collisions are safe: a
+// content-equal definition is reused, a different one renamed with a unique suffix, and every
+// $ref rewritten. Existing handle entries keep their names, so those seeded first take precedence.
 func (s Schema) MergeInto(d Defs) (Schema, error) {
 	if s.n == nil || len(s.n.Defs) == 0 {
 		return s, nil

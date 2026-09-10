@@ -142,13 +142,9 @@ func TestClaim_ExternalNoTimeoutNotClaimable(t *testing.T) {
 }
 
 // A large submitted outcome arrives CUT: externalized, declared in the instance's objects and
-// claimed, exactly like a value the process produced itself.
-//
-// It could not be, before. The resolve API holds only the instance row lock and has no reference
-// set to reconcile, so it wrote the outcome onto the row inline whatever its size -- no cut, no
-// `objects` entry, no claim -- and it stayed that way until some later full write tidied it.
-// Routed through the buffer, the engine pops it under lease and writes it through the ordinary
-// context encode, which is the only path that can do any of that.
+// claimed, exactly like a value the process produced itself. The resolve API cannot do that -- it
+// holds only the row lock and has no reference set to reconcile -- so the outcome goes through the
+// buffer, and the engine writes it under lease through the ordinary context encode.
 // specs/external-outcome-as-signal.md.
 func TestResolveExternalTask_LargeOutcomeIsCutWhenConsumed(t *testing.T) {
 	for _, b := range testBackends(t) {

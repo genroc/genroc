@@ -43,18 +43,15 @@ func (c ClaimBinding) check(current int64, worker sql.NullString, expires sql.Nu
 	return nil
 }
 
-// ResolveExternalTask atomically delivers an outcome -- a result or a failure -- to an
-// instance parked on an external task, and un-parks it. The engine consumes it on the next
-// claim; a failure is routed through on_error there rather than here, because resolving a
-// retry policy and moving retry_count/wake_at are writes on a leased row and this call holds
-// no lease. See specs/external-task-queue.md.
+// ResolveExternalTask atomically delivers an outcome -- a result or a failure -- to an instance
+// parked on an external task, and un-parks it. The engine consumes it on the next claim; a
+// failure routes through on_error there rather than here, since that would be a write on a
+// leased row and this call holds no lease.
 //
-// Under the row lock (FOR UPDATE on Postgres; SQLite single-writer) it rejects an
-// expired/absent wait, a live lease (a timeout claim in flight -- the timeout wins), and an
-// epoch mismatch (an outcome submitted against a PRIOR arming -- the exact-occurrence
-// guarantee). The epoch comes off the row rather than a token copied into external_data:
-// task_epoch is already the number of the occurrence, so storing it twice only creates two
-// things that can disagree. See internal/db/CLAUDE.md.
+// Under the row lock it rejects an expired/absent wait, a live lease (the timeout wins), and an
+// epoch mismatch (an outcome against a PRIOR arming). The epoch comes off the row rather than a
+// token copied into external_data, which would only be a second thing that can disagree.
+// See specs/external-task-queue.md and internal/db/CLAUDE.md.
 func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch int64, claim ClaimBinding, outcome model.ExternalOutcome) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
@@ -75,12 +72,10 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch 
 			return fmt.Errorf("lock instance: %w", err)
 		}
 
-		// A pause suspends execution, not delivery: an answer to work already handed out is
-		// always accepted, and only the CLAIM side refuses a suspended tree. Refusing here
-		// would leave the instance parked with its deadline still running, and on an
-		// only_once task the external.timeout that follows can never be retried -- so the
-		// work would be lost after it had already taken effect. Mirrors the status set
-		// DeliverSignal accepts. specs/external-task-queue.md §Pause.
+		// A pause suspends execution, not delivery: only the CLAIM side refuses a suspended
+		// tree. Refusing here would leave the deadline running, and on an only_once task the
+		// external.timeout that follows can never be retried -- losing work that already took
+		// effect. specs/external-task-queue.md §Pause.
 		if !model.Status(status).AcceptsExternalOutcome() || model.WaitState(waitState) != model.WaitStateExternal {
 			return fmt.Errorf("task is not waiting for an external result: %w", ErrConflict)
 		}

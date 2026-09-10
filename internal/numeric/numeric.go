@@ -1,31 +1,12 @@
-// Package numeric holds the one definition of what a number is at runtime.
+// Package numeric holds the one definition of what a number is at runtime: JSON decoded with
+// UseNumber, every value carried as its exact literal, base-10 arithmetic. float64 corrupts both
+// the order ids and the monetary amounts genroc forwards. Evaluation and validation both compare
+// numbers and must agree, which is what this package is shared for.
 //
-// genroc forwards order ids and monetary amounts, and float64 corrupts both: 0.1+0.2 !=
-// 0.3, and integers lose precision above 2^53 on decode alone. So JSON is decoded with
-// UseNumber and every value is carried as its exact literal, with base-10 arithmetic.
-// Evaluation and validation both compare numbers and must agree; sharing this package is
-// what stops them drifting. Rationale and the rejected alternatives:
-// specs/number-precision.md.
-//
-// # Precision
-//
-// There is deliberately no single global precision — four policies, so nothing is rounded
-// unless the mathematics forces it:
-//
-//	literals   exact, bounded by MaxDigits
-//	+ - *      exact, never approximated; bounded only by MaxDigits, which exists because
-//	           a looping task feeds its own output back, so x*x doubles the digits a tick
-//	/          rounds at 34 significant digits (decimal128) — the only rounding point in
-//	           the language, since a non-terminating quotient must stop somewhere
-//	%          sized to the operands, floored at the division precision; a remainder is
-//	           smaller than its divisor, so nothing is rounded
-//
-// The division precision is a constant, not a setting: genroc retries tasks and re-runs
-// children, so a precision that varied between runs or between two workers mid-deploy
-// would make the same expression yield different values on replay.
-//
-// MaxDigits is a safety bound, not a precision setting: nothing is rounded to fit it, and
-// a value that exceeds it is an error.
+// Nothing is rounded unless the mathematics forces it: literals and + - * are exact (bounded only
+// by MaxDigits), / rounds at 34 significant digits, and % is sized to its operands. The division
+// precision is a CONSTANT, since a precision varying between runs or workers would make the same
+// expression yield different values on replay. specs/number-precision.md.
 package numeric
 
 import (
@@ -37,19 +18,11 @@ import (
 	"github.com/cockroachdb/apd/v3"
 )
 
-// MaxDigits is the largest number of significant digits a value may carry.
-//
-// It exists because looping tasks iterate. A task whose output multiplies its own
-// previous value doubles its digit count every tick, so a 54-digit id reaches
-// ~55,000 digits in ten iterations — where apd's own exponent limit finally trips
-// with "exponent out of range", after the value has already been materialised and
-// pushed to the object store. This bound stops that far earlier and says what
-// actually happened.
-//
-// 1000 digits is far past any legitimate payload: a monetary amount needs ~20, a
-// 256-bit hash rendered as decimal 78. Nothing is rounded to fit — exceeding it is
-// an error, because silently truncating a number is the failure this package
-// exists to prevent.
+// MaxDigits is the largest number of significant digits a value may carry. A looping task whose
+// output multiplies its own previous value doubles its digits every tick, and without this bound
+// it trips apd's exponent limit only after the value has been materialised and pushed to the
+// object store. 1000 is far past any legitimate payload, and nothing is rounded to fit it --
+// exceeding it is an error, since silently truncating a number is what this package prevents.
 const MaxDigits = 1000
 
 // ExceedsMaxDigits reports whether d carries more significant digits than a value
@@ -135,14 +108,10 @@ func Format(d *apd.Decimal) (json.Number, bool) {
 	return json.Number(reduced.Text('f')), true
 }
 
-// Decode unmarshals JSON runtime data with numbers preserved as their exact
-// literal (json.Number) instead of collapsed into float64.
-//
-// This is the boundary that matters: plain json.Unmarshal corrupts a large
-// integer on decode alone, so a definition that merely forwards an order id
-// mangles it before any expression runs. UseNumber only affects values decoded
-// into interface{}, so applying it to a typed struct is a no-op — the risk is
-// only ever the reverse, forgetting it somewhere data flows in.
+// Decode unmarshals JSON runtime data with numbers preserved as their exact literal (json.Number)
+// instead of collapsed into float64 -- plain json.Unmarshal corrupts a large integer on decode
+// alone. UseNumber only affects values decoded into interface{}, so applying it to a typed struct
+// is a no-op: the risk is only ever forgetting it somewhere data flows in.
 func Decode(data []byte, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
@@ -156,14 +125,10 @@ func DecodeReader(r io.Reader, v any) error {
 	return dec.Decode(v)
 }
 
-// DecodeStrict is Decode that also rejects fields v has no home for.
-//
-// It is deliberately a separate function rather than a flag on Decode: Decode also
-// reads rows already written to the database and payloads already accepted from the
-// network, where an unrecognised field is history and rejecting it would make stored
-// data undecodable. Strictness belongs only at the *entry* boundary, where the sender
-// is still there to be told — an API request body, where a misspelled field silently
-// becoming a default is a bug the client cannot see.
+// DecodeStrict is Decode that also rejects fields v has no home for. A separate function rather
+// than a flag because Decode also reads rows already written, where an unrecognised field is
+// history and rejecting it would make stored data undecodable. Strictness belongs only at the
+// entry boundary, where the sender is still there to be told.
 func DecodeStrict(data []byte, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()

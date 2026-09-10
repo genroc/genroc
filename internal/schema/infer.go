@@ -1,20 +1,6 @@
-// Static type inference for the genroc expression language, evaluated against a
-// Schema context. The grammar lives in internal/expression/syntax and the
-// matching runtime evaluator in internal/expression (Eval); the two must accept
-// the same constructs:
-//
-//   - Literals: integer, float, string, bool, null
-//   - Field access via dot notation: input.x, outputs.task.y
-//   - Field access by string key, for keys no identifier can spell:
-//     self.headers["retry-after"] — the same access, not a distinct construct
-//   - Constant indexing: input.items[0]
-//   - Object and array literals: {a: x, b: y}, [x, y]
-//   - map with a lambda: map(input.items, item => {id: item.id})
-//   - Arithmetic: +, -, *, /, % (numbers; + also concatenates strings)
-//   - Comparison: ==, !=, <, >, <=, >= → boolean
-//   - Logical: &&, || → boolean (short-circuit); ! → boolean
-//   - Conditional: cond ? a : b
-//   - Null coalescing: a ?? b (returns a if non-nil, else b)
+// Static type inference for the genroc expression language, evaluated against a Schema context.
+// The grammar lives in internal/expression/syntax and the matching runtime evaluator in
+// internal/expression (Eval); the two must accept the same constructs.
 package schema
 
 import (
@@ -118,16 +104,11 @@ func (s Schema) Infer(expression string) (Schema, error) {
 	return s.InferNode(node)
 }
 
-// InferNode is Infer over an already-parsed expression. Callers that hold a
-// parsed tree — internal/template — use this to avoid re-parsing the source.
-//
-// A context that is a UNION is one of several possible states, so the expression is typed
-// under each and the results joined. That is what keeps a CORRELATION between two properties
-// — `a` is null exactly where `b` is not — which flattening the arms destroys: `a ?? b` types
-// nullable against the flattened view and non-null under every arm. The process output's
-// context is such a union, one arm per way the process can end
-// (specs/path-sensitive-output.md). Every arm must type: the expression runs in one of the
-// states and nothing says which.
+// InferNode is Infer over an already-parsed expression, for callers holding a parsed tree.
+// A UNION context is one of several possible states, so the expression is typed under each arm
+// and the results joined -- flattening instead destroys the CORRELATION that types `a ?? b`
+// non-null when `a` is null exactly where `b` is not. Every arm must type, since nothing says
+// which state the expression runs in. specs/path-sensitive-output.md.
 func (s Schema) InferNode(node syntax.Node) (Schema, error) {
 	arms := s.contextStates()
 	if len(arms) < 2 {

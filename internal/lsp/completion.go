@@ -109,12 +109,9 @@ func completeKey(text string, line, col int) []completionItem {
 	return keyEdits(legalKeys(doc, path), src, col)
 }
 
-// keyEdits gives each key the range it replaces: the whole word the cursor is in, which is
-// wider than the cursor itself — a key chosen from inside one must swallow the rest of it.
-//
-// The colon the item carries is written only where the line ENDS at that word. Anywhere else
-// something is already there — the key's own `: value`, or the content of the line the cursor
-// is merely indented on — and a second colon would break it.
+// keyEdits gives each key the range it replaces: the whole word the cursor is in, so a key chosen
+// from inside one swallows the rest of it. The colon the item carries is written only where the
+// line ENDS at that word -- anywhere else something is already there and a second colon breaks it.
 func keyEdits(items []completionItem, src string, col int) []completionItem {
 	from, to := wordAround(src, col)
 	writesColon := strings.TrimSpace(src[to-1:]) == ""

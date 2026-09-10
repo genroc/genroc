@@ -32,12 +32,10 @@ type Config struct {
 	Login Login `yaml:"login"`
 	Token Token `yaml:"token"`
 
-	// Roles maps a group asserted by a provider to permissions; `*` applies to anyone who
-	// logged in. Users maps a subject, for providers that carry no groups at all.
-	//
-	// This is the map that used to live in the genroc server. It is here because the token this
-	// component mints carries PERMISSIONS, so the resolution has to happen before signing.
-	// specs/ui-issued-tokens.md §1.
+	// Roles maps a group asserted by a provider to permissions (`*` is anyone who logged in);
+	// Users maps a subject, for providers carrying no groups. Here rather than in the genroc
+	// server because the token this component mints carries PERMISSIONS, so the resolution has
+	// to happen before signing. specs/ui-issued-tokens.md §1.
 	Roles map[string][]string `yaml:"roles"`
 	Users map[string][]string `yaml:"users"`
 }

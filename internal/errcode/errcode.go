@@ -1,11 +1,8 @@
-// Package errcode is the single source of truth for genroc's engine-produced error codes:
-// the machine-readable discriminators stored in an instance's error_code and matched by
-// on_error rules. It has no genroc dependencies, so every layer — transport, engine,
-// validation — references the same constants without an import cycle.
-//
-// Authored codes (raise / panic) are deliberately NOT here: those are user-defined,
-// lower_snake_case, and forbidden from containing a dot — which is exactly what keeps them
-// distinct from the dotted engine codes below. See specs/child-error-handling.md.
+// Package errcode is the single source of truth for genroc's engine-produced error codes, stored
+// in an instance's error_code and matched by on_error rules. It has no genroc dependencies, so
+// every layer references the same constants without an import cycle. Authored codes (raise /
+// panic) are NOT here: those are lower_snake_case and may not contain a dot, which is what keeps
+// them distinct from the dotted engine codes. See specs/child-error-handling.md.
 package errcode
 
 import (
@@ -77,12 +74,9 @@ func (c Code) IsUnknowable() bool {
 	return false
 }
 
-// MatchCode reports whether the error code s matches the pattern p. '%' is the only
-// wildcard; every other character is literal.
-//
-// Deliberately NOT full SQL LIKE: LIKE's '_' single-char wildcard is a footgun for codes
-// that contain underscores, so here `order_%` matches `order_placed` but not
-// `order.placed`.
+// MatchCode reports whether the error code s matches the pattern p. '%' is the only wildcard;
+// every other character is literal. Deliberately NOT full SQL LIKE, whose '_' wildcard is a
+// footgun for codes that contain underscores.
 func MatchCode(p, s string) bool {
 	for len(p) > 0 {
 		switch p[0] {

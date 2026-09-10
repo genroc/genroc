@@ -123,13 +123,10 @@ func (v *VersionRef) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// CompatSelector resolves to one version per process name. A triple of
-// {process, from, to} cannot name a graph, so each side of a comparison is a selector and
-// the two are paired by process name. Exactly one field may be set.
-//
-// Whatever a selector names is closed over the child versions those definitions were
-// registered against, so a parent is never judged without the children it calls. An
-// entry named here wins over one a dependency pins.
+// CompatSelector resolves to one version per process name: a triple of {process, from, to}
+// cannot name a graph, so each side of a comparison is a selector and the two pair by name.
+// Exactly one field may be set. What it names is closed over the child versions those
+// definitions were registered against, and an entry named here wins over one a dependency pins.
 type CompatSelector struct {
 	Channel     string                    `json:"channel,omitempty"      description:"Every process on this channel, at the version the channel points at."`
 	Versions    map[string]VersionRef     `json:"versions,omitempty"     description:"Process name → version number, or a channel name to resolve it through."`
@@ -378,13 +375,10 @@ type InstanceStatusResp struct {
 	Objects []ObjectEntry `json:"objects,omitempty"`
 }
 
-// InstanceDetailResp is the whole row: the instance's STATE exactly as stored -- bookkeeping
-// slots included, nothing hidden or renamed -- plus the columns around it. It is the debugging
-// and upgrade view; `context` on the status response is the authoring one, and the difference
-// is deliberate. State is internal, and a caller reading it is reading engine internals.
-//
-// Config is absent on purpose. It is resolved per tick from the environment, never persisted,
-// and never returned over the API, because it is where secrets live (model.ProcessInstance).
+// InstanceDetailResp is the whole row: the instance's STATE exactly as stored, bookkeeping slots
+// included, plus the columns around it. The debugging and upgrade view; `context` on the status
+// response is the authoring one. Config is absent on purpose -- resolved per tick from the
+// environment, never persisted, and where secrets live.
 type InstanceDetailResp struct {
 	ID          string   `json:"id"`
 	Process     string   `json:"process"`
@@ -457,11 +451,9 @@ type LogEntryResp struct {
 	Data  any            `json:"data,omitempty"` // payload (input/output/request/response body) as a value; parts the cut moved out are absent here and listed in Objects
 	Meta  map[string]any `json:"meta,omitempty"` // small, complete, parseable metadata (e.g. {"url":…}, {"status":200})
 	// Objects lists this ENTRY's externalized values, with paths rooted at the entry —
-	// ["data"], not ["items", 3, "data"]. A section belongs to whatever object owns the values
-	// it names, which is what keeps it correct in a list: a path containing a position is valid
-	// only for one unmodified page, and a client that accumulates pages or reverses rows (as
-	// genctl does) has already invalidated it. Rooted at the entry, the section travels with
-	// its owner. specs/object-store.md §The wire.
+	// ["data"], not ["items", 3, "data"]. A path containing a position is valid only for one
+	// unmodified page; rooted at the entry, the section travels with its owner.
+	// specs/object-store.md §The wire.
 	Objects []ObjectEntry `json:"objects,omitempty"`
 }
 

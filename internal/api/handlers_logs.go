@@ -26,11 +26,9 @@ func childPath(root []any, rest []any) []any {
 }
 
 // logData is the stored payload as a value. A malformed column reads back as the raw string
-// rather than failing the listing: an audit row is best-effort, and a trail that will not render
-// is worse than one entry that reads oddly.
-//
-// numeric.Decode, not json.Unmarshal: the column holds the payload's literals, and a plain
-// decode rounds them through float64 on the way back out. specs/number-precision.md.
+// rather than failing the listing -- a trail that will not render is worse than one odd entry.
+// numeric.Decode, not json.Unmarshal: a plain decode rounds the payload's literals through
+// float64 on the way back out. specs/number-precision.md.
 func logData(raw string) any {
 	if raw == "" {
 		return nil

@@ -12,28 +12,23 @@ import (
 	"genroc/internal/model"
 )
 
-// claimableWhere is the external-task claim predicate. A row is claimable when it is parked on
-// an external wait, its tree is running, no live claim holds it, and its own deadline has not
-// already fired -- handing out work the engine is about to time out would spend a worker on an
-// answer that can no longer be accepted.
-//
-// It reads NONE of the engine's lease columns, which is what keeps the two claims independent:
-// ClaimInstances still takes the row at wake_at however long a worker holds it, and the
-// external.timeout it raises stays on time. specs/external-task-queue.md.
+// claimableWhere is the external-task claim predicate: parked on an external wait, tree running,
+// no live claim, and its own deadline not already fired -- handing out work the engine is about
+// to time out spends a worker on an answer that can no longer be accepted. It reads NONE of the
+// engine's lease columns, which is what keeps the two claims independent.
+// specs/external-task-queue.md.
 const claimableWhere = `wait_state = 'external' AND status = 'running'
 		  AND (external_worker_id IS NULL OR external_lease_expires_at <= ?)
 		  AND (wake_at IS NULL OR wake_at > ?)`
 
 // ClaimExternalTasks atomically leases up to limit parked external tasks to workerID, oldest
-// park first (FIFO). Claiming is the only way to enumerate the queue: the listing endpoint that
-// once did it was removed, having been the polling shape this replaced.
-// Filters are the queue's own: process name, version and task id, each empty/0 for any.
+// park first (FIFO), filtered by process name, version and task id (each empty/0 for any).
+// Claiming is the only way to enumerate the queue.
 //
-// The ONLY place external_claim_epoch moves: a claim is a grant, and the bump fences out
-// whoever held the previous one. Three things it must not do, each of which breaks silently:
-// touch task_epoch (a claim is not a new occurrence, and bumping it invalidates every handle
-// already given out), touch the engine's lease columns (above), or clear external_worker_id on
-// expiry (that is the evidence a lost claim is recognised by).
+// The ONLY place external_claim_epoch moves, fencing out the previous holder. Three things it
+// must not do, each breaking silently: touch task_epoch (invalidating every handle given out),
+// touch the engine's lease columns, or clear external_worker_id on expiry (the evidence a lost
+// claim is recognised by).
 func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit int, processName string, processVersion int, task string) ([]*model.ProcessInstance, error) {
 	now := nowMillis()
 	leaseExpiry := now + leaseDur.Milliseconds()
@@ -162,31 +157,25 @@ func (db *DB) ClaimExternalTasks(workerID string, leaseDur time.Duration, limit 
 	return result, tx.Commit()
 }
 
-// RenewOutcome is what one renewal round decided about each id the worker asked about.
-// Every requested id lands in exactly one list, which is the whole point of the shape: a
-// worker holding several claims cannot act on a count. specs/external-task-queue.md.
-//
-// Lost and Cancelled are different instructions, not two words for failure. Lost means the
-// claim is already someone else's -- stop, and do NOT release, because releasing would bump
-// the new holder's epoch out from under it. Cancelled means the work is still yours and
-// nobody wants it -- stop, and DO release, so the row does not wait out a lease nobody is
-// serving.
+// RenewOutcome is what one renewal round decided about each id the worker asked about; every
+// requested id lands in exactly one list, because a worker holding several claims cannot act on
+// a count. Lost and Cancelled are different instructions: Lost means the claim is someone
+// else's -- stop, do NOT release, or the new holder's epoch is bumped out from under it --
+// while Cancelled means stop and DO release. specs/external-task-queue.md.
 type RenewOutcome struct {
 	Renewed   []string
 	Lost      []string
 	Cancelled []string
 }
 
-// RenewExternalClaims re-stamps this worker's claims on the listed instances to now+leaseDur,
-// in chunks so one contended row stalls only its chunk. Mirrors RenewWorkerLeases, including
-// the two rules that break silently: it must NOT bump external_claim_epoch (a renewal extends a
-// grant; bumping would fence the worker out of its own answer) and must NOT clear
-// external_worker_id (an unlisted row expires with the holder intact, which is the hand-back).
+// RenewExternalClaims re-stamps this worker's claims on the listed instances to now+leaseDur, in
+// chunks so one contended row stalls only its chunk. Two rules that break silently: it must NOT
+// bump external_claim_epoch (which would fence the worker out of its own answer) and must NOT
+// clear external_worker_id (an unlisted row expires with the holder intact -- the hand-back).
 //
-// Renew is also the only channel that reaches a worker at all -- a worker dials genroc and
-// never the reverse -- so cancellation rides it. That is why the classifying read shares the
-// renewal's transaction: a row that turns cancelled between the two would otherwise be
-// reported renewed, and the answer to a cancel is the one answer that must not be late.
+// Renew is the only channel that reaches a worker, so cancellation rides it: the classifying
+// read shares the renewal's transaction, or a row turning cancelled between the two is reported
+// renewed.
 func (db *DB) RenewExternalClaims(ctx context.Context, workerID string, ids []string, leaseDur time.Duration) (RenewOutcome, error) {
 	out := RenewOutcome{}
 	if len(ids) == 0 {
@@ -242,11 +231,9 @@ func (db *DB) RenewExternalClaims(ctx context.Context, workerID string, ids []st
 }
 
 // ReleaseExternalClaim hands a claimed task straight back to the queue rather than waiting out
-// its lease -- the nack, and what makes a graceful worker shutdown possible.
-//
-// It bumps the claim epoch, unlike an expiry, which writes nothing: releasing is a deliberate
-// hand-back, so the releasing worker's own handle must stop working immediately. The holder is
-// verified by claim epoch, so a worker already fenced out cannot release the new holder's work.
+// its lease -- the nack. It bumps the claim epoch, unlike an expiry: a deliberate hand-back must
+// stop the releasing worker's own handle immediately. The holder is verified by claim epoch, so
+// a fenced-out worker cannot release the new holder's work.
 func (db *DB) ReleaseExternalClaim(ctx context.Context, instanceID string, taskEpoch, claimEpoch int64) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 		res, err := raw.ExecContext(ctx,
@@ -290,13 +277,9 @@ func scanInstanceWithPrevHolder(s interface{ Scan(...any) error }) (dbgen.Proces
 }
 
 // MarkExternalClaimLost records that an only_once task's holder let its claim lapse without
-// answering, and wakes the engine to report it. It is written INSTEAD of handing the work out
-// again: the whole point of only_once is that the second worker must not run what the first may
-// already have done.
-//
-// wake_at is moved to now (never later than a deadline already set) so the engine picks the row
-// up on its next poll and runExternal turns the marker into external.lost. Without it a task
-// with no timeout would sit unclaimable forever, with nothing reporting why.
+// answering, INSTEAD of handing the work out again. wake_at moves to now (never later than a
+// deadline already set) so the engine's next poll turns the marker into external.lost --
+// without it a task with no timeout would sit unclaimable forever, with nothing reporting why.
 func (db *DB) MarkExternalClaimLost(ctx context.Context, instanceID string, taskEpoch int64) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 		var externalData string

@@ -1,22 +1,15 @@
-// Package idgen mints every id genroc stores: instances, log rows, buffered signals, API tokens.
-// One opaque token, eight characters and widening only when the numbers behind it do: `6fah8w2p`.
+// Package idgen mints every id genroc stores, as one opaque token widening only when the numbers
+// behind it do: `6fah8w2p`. It is a (worker, counter) pair, scattered — the worker number comes
+// from a database counter that only increases, so the pair is unique by construction, and every
+// step is INJECTIVE, so two mints cannot meet the way two hashes can.
 //
-// It is a (worker, counter) pair, scattered. The worker number comes from a database counter that
-// only increases (db.open), so the pair is unique by construction -- no randomness, no clock, and
-// neither number bounded -- and every step is INJECTIVE: a suffix-free pairing, a Feistel
-// permutation, a positional rendering. Two mints cannot meet the way two hashes can.
+// THE CONSTANTS CAN NEVER CHANGE: ids on disk came from this exact map. Scattering hides the pair
+// and nothing more; an id is not secret-grade (specs/api-auth.md).
 //
-// THE CONSTANTS CAN NEVER CHANGE. Ids on disk came from this exact map, and a different one can
-// land on them. Scattering hides the pair and nothing more -- the constants are right here, and
-// an id is not secret-grade (specs/api-auth.md).
-//
-// Three properties the rendering carries, each load-bearing elsewhere:
-//
-//   - It SORTS AS NOTHING. Ordering rows that share a millisecond is `seq`'s job (migration 042).
-//   - The leading character is a DIGIT, so a process name cannot be mistaken for an id where
-//     `upgrade` and `compat` read either in one positional -- `catcher` is otherwise a fine id.
-//   - No `.`, which would split an external task's `<instance-id>.<task_epoch>` token, and no
-//     I, L, O or U, so an id survives being read aloud.
+// Three load-bearing properties of the rendering: it SORTS AS NOTHING (ordering rows within a
+// millisecond is `seq`'s job), its leading character is a DIGIT so a process name cannot be
+// mistaken for an id, and it excludes `.` (which would split an external task's token) and
+// I, L, O, U (so an id survives being read aloud).
 package idgen
 
 import (
@@ -30,17 +23,11 @@ const (
 	// round constants are arbitrary and chosen for spread, not secrecy.
 	rounds = 4
 
-	// Both hold the id WIDTH still, which is worth more than the characters they cost: one
-	// process gets 1.3M ids before its widen, and the floor does not move for 32k process
-	// starts (a restart every ten minutes for seven months).
-	//
+	// Both hold the id WIDTH still, which is worth more than the characters they cost.
 	// minValue is the first value that renders minChars wide, added to every pair so none is
-	// narrower -- without it a fresh install's ids widen four times inside 42k mints. An offset
-	// and not a padded string: render's leading character is base 10 and may be `0`, so
-	// "0"+<narrower id> would collide with an id that starts with one.
-	//
-	// minGroups pads the worker's code so the counter sits at a fixed height for every worker
-	// under 32768; without it the width drops 64-fold each time the worker grows a group.
+	// narrower. An offset and not a padded string: render's leading character is base 10 and may
+	// be `0`, so "0"+<narrower id> would collide with an id that starts with one. minGroups pads
+	// the worker's code so the counter sits at a fixed height for every worker under 32768.
 	minChars  = 8
 	minValue  = 10 * (1<<(5*(minChars-1)) - 1) / 31
 	minGroups = 3
@@ -64,19 +51,14 @@ func NewMinter(worker int64) (*Minter, error) {
 }
 
 // Stream returns an independent counter under the same worker number, so one kind of row does not
-// run another's numbers up -- an instance follows the previous instance, not the fifteen log rows
-// written between them.
-//
-// Ids from two streams can therefore be EQUAL. Nothing resolves a bare id without knowing its
-// table; the one place kinds meet is object_refs, keyed (hash, owner_kind, owner_id).
+// run another's numbers up. Ids from two streams can therefore be EQUAL: nothing resolves a bare
+// id without knowing its table, and the one place kinds meet is object_refs, keyed by owner kind.
 func (m *Minter) Stream() *Minter { return &Minter{worker: m.worker} }
 
 // Next returns an id no other process can mint and this one has not minted before, with the
-// counter behind it -- what a row stores in `seq` when its order has to survive a millisecond it
-// shares with another row.
-//
-// The counter starts at zero on every construction BECAUSE the worker number is fresh on every
-// one, which is what makes it safe to keep in memory.
+// counter behind it -- what a row stores in `seq` when its order must survive a shared
+// millisecond. The counter starts at zero on every construction BECAUSE the worker number is
+// fresh on every one, which is what makes it safe to keep in memory.
 func (m *Minter) Next() (string, int64) {
 	n := m.counter.Add(1)
 	return render(scatter(pair(m.worker, n))), int64(n)
@@ -108,12 +90,9 @@ func pair(worker, counter uint64) uint64 {
 }
 
 // scatter permutes v inside the base32 width it already has, so consecutive pairs render as
-// unrelated ids of the same length. Widths do not overlap and each permutation is bijective, so
-// the whole map is injective -- the property ids need and hashes lack.
-//
-// A Feistel network, not a multiply: consecutive pairs differ by 2^workerBits, and multiplying
-// by a constant carries that stride straight through, leaving every id in a run sharing its
-// tail. Feistel is invertible whatever its round function, so non-linearity costs nothing.
+// unrelated ids of the same length; widths do not overlap and each permutation is bijective, so
+// the whole map stays injective. A Feistel network, not a multiply: multiplying by a constant
+// carries the 2^workerBits stride straight through, leaving every id in a run sharing its tail.
 func scatter(v uint64) uint64 {
 	lo, size := widthOf(v)
 

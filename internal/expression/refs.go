@@ -44,12 +44,10 @@ type Roots struct {
 	LastError, LastErrorData bool
 
 	// Through marks the roots the expression reads INTO or operates on, as against the ones it
-	// merely COPIES. A copied root can stay an *ObjectRef: the value flows into the result and
-	// on into the next write as the reference it already was, never loaded. One read through
-	// must be materialized, or the read finds a marker where the data should be.
-	//
-	// Same conservatism as Roots itself and for a sharper reason: over-reporting costs a load,
-	// under-reporting hands a marker to an operation. specs/lazy-context.md.
+	// merely COPIES: a copied root can stay an *ObjectRef, while one read through must be
+	// materialized or the read finds a marker where the data should be. Conservative, because
+	// over-reporting costs a load and under-reporting hands a marker to an operation.
+	// specs/lazy-context.md.
 	Through Through
 }
 

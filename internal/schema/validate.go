@@ -8,13 +8,11 @@ import (
 	"unicode/utf8"
 )
 
-// Validate checks data against the schema and returns a normalized copy: undeclared
-// object properties are dropped; an absent declared property is filled from its
-// (conformed) default or omitted, and a missing required property is an error; retained
-// values are type- and constraint-checked. Types are strict, except an "integer" schema
-// accepts any number with no fractional part (JSON decodes all numbers to float64). The
-// result shares no maps or slices with the input. A nil or empty {} schema passes data
-// through; $refs resolve against the schema's own $defs, so it should be normalized first.
+// Validate checks data against the schema and returns a normalized copy: undeclared properties
+// are dropped, an absent declared one is filled from its conformed default or omitted, a missing
+// required one is an error, and retained values are type- and constraint-checked. Types are
+// strict, except that "integer" accepts any number with no fractional part. The result shares no
+// maps or slices with the input; a nil or empty {} schema passes data through.
 func (s Schema) Validate(data any, mode ...ConformMode) (any, error) {
 	return conformGuard(s.n, s.rootDefs(), data, "", nil, firstMode(mode))
 }
@@ -58,30 +56,19 @@ const (
 	// is rejected whatever its type, and undeclared keys are stripped.
 	Strict ConformMode = iota
 
-	// ConformToSchemaExactly turns the walk into a MIGRATION: it reconciles a stored value
-	// with a schema it was not written against, so that the result satisfies that schema.
-	// It is the other half of IsSubsetAsStored, and the two must accept exactly the same
-	// gaps — a relation tolerating more promises a migration that then fails to conform.
+	// ConformToSchemaExactly turns the walk into a MIGRATION: it reconciles a stored value with
+	// a schema it was not written against. The other half of IsSubsetAsStored, and the two must
+	// accept exactly the same gaps -- a relation tolerating more promises a migration that then
+	// fails to conform.
 	//
-	// The whole of the difference from Strict is the null-versus-missing distinction, in
-	// BOTH directions, because a version change can open the gap either way:
+	// The whole difference from Strict is the null-versus-missing distinction, in BOTH
+	// directions: an absent required property admitting null gets the null written in, and a
+	// present null in an optional property that admits none has its key removed.
 	//
-	//   absent, required, admits null   → the null is written in
-	//   present null, optional, admits  → the key is REMOVED; the value cannot stay, and
-	//   no null                           the property is optional, so absence is valid
-	//
-	// Undeclared keys are STRIPPED, as in every other mode: a key the target schema does not
-	// name is one nothing on the new version can read -- validation rejects the reference --
-	// so keeping it stores weight that only grows, and pins whatever it references in the
-	// object store for as long as the instance lives. A caller whose schema is deliberately
-	// PARTIAL is the one that must put the rest back; see validation.MigrateState, where the
-	// layer describes a definition's own slots and the engine's bookkeeping is not its
-	// business.
-	//
-	// One thing it deliberately does not do. **Defaults are NOT filled**: a default filled at
-	// creation is filled before anything reads it, so every value derived from it agrees;
-	// filling one into a half-run instance disagrees with the values already computed in its
-	// absence, and nothing recomputes them (specs/compat-command.md §2d).
+	// Undeclared keys are STRIPPED as in every other mode; a caller whose schema is deliberately
+	// PARTIAL must put the rest back (validation.MigrateState). Defaults are NOT filled: one
+	// filled into a half-run instance disagrees with the values already computed in its absence,
+	// and nothing recomputes them. specs/compat-command.md §2d.
 	ConformToSchemaExactly
 )
 

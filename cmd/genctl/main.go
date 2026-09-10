@@ -1,25 +1,15 @@
-// genctl is a command-line gateway to a running genroc server, inspired by kubectl. It reads
-// process definition files (YAML or JSON, multi-document via ---) and forwards them to the
-// server in a single API call.
+// genctl is a command-line gateway to a running genroc server. It reads process definition files
+// (YAML or JSON, multi-document via ---) and forwards them in a single API call.
 //
-// THE USER-FACING SURFACE IS help.go. Every command's grammar, its prose and its one-line
-// summary live in `commandDocs`; `genctl <cmd> -h` prints that page plus the flags the
-// command's own flag set declares. A usage line repeated here would be a second copy to keep
-// true. Conventions and the deliberate exceptions: cmd/genctl/CLAUDE.md.
+// THE USER-FACING SURFACE IS help.go: every command's grammar and prose live in `commandDocs`, so
+// a usage line repeated here would be a second copy to keep true. Conventions and the deliberate
+// exceptions: cmd/genctl/CLAUDE.md.
 //
-// Two notes about the CODE rather than the surface:
-//
-// --since/--until are CLI-side helpers only. Each resolves to unix millis and goes out as the
-// endpoint's created_after/updated_after -- whichever column the active sort keys on -- with
-// order=asc, so past the cap the read walks forward toward now, printing pages as they
-// arrive, in the direction it displays. A *duration* resolves against this machine's clock
-// rather than the server's; see parseWhen for when that distinction bites.
-//
-// compat answers two questions about a pair of versions and gives each its own column:
-// UPGRADE, could an instance running the older one continue under the newer; CONTRACT, does
-// the newer still produce what consumers of the older were written against. It is a shape
-// check -- a change of meaning (dollars to cents) compares equal -- so the per-slot detail
-// under the table is the deliverable.
+// Two notes about the CODE: --since/--until are CLI-side helpers that resolve to unix millis and
+// go out as created_after/updated_after with order=asc, and a *duration* resolves against this
+// machine's clock rather than the server's (see parseWhen). compat's two columns are UPGRADE
+// (could a running instance continue) and CONTRACT (does the newer still produce what consumers
+// expect), both shape checks, so the per-slot detail under the table is the deliverable.
 //
 // Environment: GENROC_SERVER (default http://localhost:8448), GENROC_TOKEN, TZ.
 package main
@@ -178,13 +168,10 @@ func instanceIDsAndFlags(fs *flag.FlagSet, args []string) []string {
 	if len(pos) == 0 {
 		pos = []string{""} // resolveInstanceID carries the message naming what is missing
 	}
-	// EVERY positional is shape-checked before the first call goes out. A list that is not
-	// id-shaped is a malformed command, not a job that half applies — the distinction is
-	// the same conflict-vs-mistake one the outcomes draw, moved one step earlier: what can
-	// be known without asking the server must not be discovered halfway through mutating.
-	// The case this exists for is a table pasted in where ids were meant (`instances`
-	// without -q), which otherwise pauses whichever cell happens to parse as an id while
-	// reporting a "not found" for every other word on the screen.
+	// EVERY positional is shape-checked before the first call goes out: a list that is not
+	// id-shaped is a malformed command, not a job that half applies. The case this exists for
+	// is a table pasted in where ids were meant, which otherwise pauses whichever cell happens
+	// to parse as an id while reporting "not found" for every other word on the screen.
 	var bad []string
 	for _, ref := range pos {
 		if ref != "" && !isInstanceRef(ref) {

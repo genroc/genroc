@@ -128,12 +128,9 @@ func (ctx *subsetCtx) check(sub, super *node, at *pathLink) bool {
 	if isEmptyNode(super) {
 		return true
 	}
-	// So does a union with a top-type ARM — anyOf only. `anyOf[{}, T]` denotes exactly the
-	// same set as `{}`, and without this the relation refuses a pair that is genuinely
-	// equivalent: declaring a second status beside an opaque one reported "unknown is not
-	// accepted where untyped is expected" for a change that turns nobody away, which is the
-	// refusal internal/validation/CLAUDE.md says must never be manufactured. oneOf is
-	// deliberately excluded: there a value matching two arms is REJECTED, so a top-type arm
+	// So does a union with a top-type ARM — anyOf only. `anyOf[{}, T]` denotes the same set as
+	// `{}`, and without this the relation manufactures a refusal for a change that turns nobody
+	// away. oneOf is excluded: there a value matching two arms is REJECTED, so a top-type arm
 	// narrows rather than absorbs.
 	for _, v := range super.AnyOf {
 		if isEmptyNode(derefSubset(v, ctx.superDefs)) {

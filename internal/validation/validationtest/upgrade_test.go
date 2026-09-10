@@ -56,12 +56,10 @@ func TestMigrateState_ClosesTheNullGap(t *testing.T) {
 	}
 }
 
-// The layer is PARTIAL at the top and complete below it, and the migration has to treat those
-// two halves oppositely. Inside `outputs` the schema names every task the target has, so a task
-// it does not name is gone: nothing on the new version can read that output -- an expression
-// naming it is refused at registration -- and keeping it stores weight that only grows and pins
-// whatever it references. At the top the layer names only a definition's own slots, so the
-// engine's bookkeeping is not undeclared-and-dead, it is simply none of the layer's business.
+// The layer is PARTIAL at the top and complete below it, and the migration treats the two halves
+// oppositely. Inside `outputs` a task the schema does not name is gone -- nothing on the new
+// version can read it, and keeping it stores weight that only grows. At the top the layer names
+// only a definition's own slots, so the engine's bookkeeping is simply none of its business.
 func TestMigrateState_PrunesDeadOutputsAndKeepsBookkeeping(t *testing.T) {
 	to := defFrom(t, twoTaskDef(false))
 	state := stateAtWork()

@@ -7,23 +7,14 @@ import (
 	dbpkg "genroc/internal/db"
 )
 
-// Content must survive a sweep that runs while a writer is resurrecting it.
+// Content must survive a sweep that runs while a writer is resurrecting it: an object released,
+// its grace lapsed, and the same content written again before the sweep reaches it.
 //
-// The scenario is ordinary: an object is released, its grace lapses, and before the sweep gets
-// to it the same content is written again. The writer's upsert takes the conflict path, and the
-// sweep is mid-flight.
-//
-// No amount of concurrency testing pins this. TestObjects_ResurrectionAgainstALiveSweeper
-// describes the race and does not reproduce it -- eight runs of it, and two full passes of this
-// suite, stayed green with the store's two defences dismantled. The window is the microseconds
-// between two adjacent statements inside one transaction, so it has to be interleaved on purpose.
-//
-// The SWEEP here is production code. Only the writer is hand-driven, and it has to be: the real
-// write runs its object upsert and its claim in one transaction, so nothing outside can step
-// between them. Being the transaction is the only way to look.
-//
-// Postgres only, and that is the point -- SQLite's single writer serializes the two whatever the
-// store does, which is exactly how this hides in development. specs/object-store.md.
+// No amount of concurrency testing pins this -- TestObjects_ResurrectionAgainstALiveSweeper stayed
+// green with both of the store's defences dismantled -- because the window is the microseconds
+// between two adjacent statements inside one transaction. So the writer is hand-driven (being the
+// transaction is the only way to look) while the SWEEP is production code. Postgres only, since
+// SQLite's single writer serializes the two whatever the store does. specs/object-store.md.
 func TestObjects_ContentSurvivesASweepRacingItsResurrection(t *testing.T) {
 	if sharedPgRaw == nil || sharedPgDB == nil {
 		t.Skip("needs POSTGRES_DSN: SQLite's single writer hides this race")

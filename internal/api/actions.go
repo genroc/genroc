@@ -26,25 +26,15 @@ type altResp struct {
 	Body   any
 }
 
-// actionDef is the single source of truth for one API action.
-// It drives HTTP routing (Method + Path) and OpenAPI documentation
-// (schemas reflected from Go types).
-// apiPrefix namespaces every action except the probes. It exists so a deployment can route
-// humans and machines apart by path on ONE hostname — the API under this prefix reached
-// directly, everything else through an SSO proxy — which is what keeps a browser hitting the
-// bare domain from receiving a 401 body instead of a login page. specs/api-auth.md §1, §5.1.
-//
-// It is NOT repeated in Path: the registry holds the logical path and the spec declares the
-// prefix once in `servers`, which is where OpenAPI puts a base path. Duplicating it into 28
-// literals would put it in two places that must agree.
+// apiPrefix namespaces every action except the probes, so a deployment can route humans and
+// machines apart by path on ONE hostname and a browser hitting the bare domain gets a login
+// page rather than a 401 body. It is NOT repeated in Path: the spec declares it once in
+// `servers`. specs/api-auth.md §1, §5.1.
 const apiPrefix = "/api"
 
 // publicPrefix carries what is served WITHOUT authentication and is not derived from a user's
-// data: the API documentation, the OpenAPI spec and the process-definition schema. It exists so
-// "unauthenticated" is visible in the path — a deployment writes ingress rules from prefixes,
-// and a route that reads as gated but is not is the mismatch specs/api-auth.md §1 is about.
-// `/healthz` is the ONE thing outside it, on the idiom: a probe path is configured from muscle
-// memory by whoever runs the platform, not by whoever reads these docs.
+// data, so "unauthenticated" is visible in the path a deployment writes ingress rules from.
+// `/healthz` is the ONE thing outside it, on the idiom. specs/api-auth.md §1.
 const publicPrefix = "/public"
 
 // mountPath is where this action is actually served.
@@ -55,6 +45,8 @@ func (a actionDef) mountPath() string {
 	return apiPrefix + a.Path
 }
 
+// actionDef is the single source of truth for one API action: HTTP routing (Method + Path) and
+// OpenAPI documentation reflected from the Go types.
 type actionDef struct {
 	Name    string
 	Method  string
@@ -116,8 +108,6 @@ type pageQuery struct {
 	Before string `query:"before" description:"Cursor from a previous page's page.previous_cursor — fetch the previous page"`
 }
 
-// millisQuery reads a unix-millis time bound. An absent or unparseable value is 0, which
-// every list reads as "unbounded on that side" — the same as omitting the parameter.
 // intQuery reads an optional integer query parameter; absent or unparseable is 0, which
 // every caller treats as "no filter".
 func intQuery(r *http.Request, key string) int {
@@ -125,6 +115,8 @@ func intQuery(r *http.Request, key string) int {
 	return n
 }
 
+// millisQuery reads a unix-millis time bound. An absent or unparseable value is 0, which every
+// list reads as "unbounded on that side" — the same as omitting the parameter.
 func millisQuery(r *http.Request, key string) int64 {
 	ms, _ := strconv.ParseInt(r.URL.Query().Get(key), 10, 64)
 	return ms

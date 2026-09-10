@@ -147,14 +147,11 @@ func joinPath(root []any, rest []any) []any {
 	return append(out, rest...)
 }
 
-// encodeState splits inst.State into the value columns plus ONE objects list, collecting
-// the content to write (pending) and the hashes the context still references (referenced) so the
-// write transaction can claim new objects and release dropped ones.
-//
-// Each context key is cut as its own slot against its own budget, and every reference the cut
-// produced goes into the same list with its path rooted at the CONTEXT -- ["outputs","x","code"],
-// not ["code"] beside a column. One place to read what this instance references, and the shape
-// the API already puts on the wire. specs/object-store.md.
+// encodeState splits inst.State into the value columns plus ONE objects list, collecting the
+// content to write (pending) and the hashes the context still references (referenced) so the
+// write transaction can claim new objects and release dropped ones. Every reference is rooted
+// at the CONTEXT -- ["outputs","x","code"], not ["code"] beside a column -- so there is one
+// place to read what this instance references. specs/object-store.md.
 func encodeState(inst *model.ProcessInstance) (cols stateCols, pending []*pendingObject, referenced map[string]struct{}, err error) {
 	referenced = map[string]struct{}{}
 	var refs []*model.ObjectRef
@@ -495,14 +492,11 @@ func (db *DB) UpdateInstance(inst *model.ProcessInstance) error {
 	})
 }
 
-// UpdateInstanceProgress writes the mutable task state (context, retry counters,
-// wait_state) without overwriting status or error, so a concurrent FailAncestors result
-// survives to the next tick. The one status transition it does make is landing a pending
-// pause ('pausing' → 'paused'), which has to happen on this write: a checkpoint may park
-// the instance on a wait_state that removes it from the claim predicate, after which no
-// later claim could settle it. wait_state IS written: it is owned by the lease-holding
-// worker, and the post-collect reset to ” must persist or a stale 'collecting' would make
-// the next spawn task skip phase 1.
+// UpdateInstanceProgress writes the mutable task state without overwriting status or error, so
+// a concurrent FailAncestors result survives to the next tick. It does land a pending pause
+// ('pausing' → 'paused'), which must happen on this write: a checkpoint may park the instance
+// outside the claim predicate, after which no later claim could settle it. wait_state IS
+// written -- a stale 'collecting' would make the next spawn task skip phase 1.
 func (db *DB) UpdateInstanceProgress(inst *model.ProcessInstance) error {
 	ctx := context.Background()
 	now := nowMillis()
@@ -528,15 +522,11 @@ func (db *DB) GetInstance(id string) (*model.ProcessInstance, error) {
 	return toInstance(r)
 }
 
-// ListInstances returns a page of instance summaries, optionally filtered by status
-// (empty = all), error code, process name, process version (0 = any), roots only, and a Window on
-// either timestamp (zero =
-// unbounded). The two windows are separate rather than one resolved against the active
-// sort: a caller walking forward pairs its bound with the sort it ordered by, and naming
-// the column keeps that pairing the caller's to state instead of this function's to guess.
-// Summaries omit the context blob — use GetInstance for full detail.
-// rootsOnly is the DEFAULT at every layer above this one: a tree is one unit of work, and
-// a child_list fan-out otherwise buries the roots it belongs to. specs/id-list-commands.md.
+// ListInstances returns a page of instance summaries, filtered by status, error code, process
+// name, version (0 = any), roots only, and a Window on either timestamp (zero = unbounded). The
+// two windows stay separate so the caller pairs its bound with the sort it ordered by rather
+// than this function guessing. Summaries omit the context blob — use GetInstance. rootsOnly is
+// the DEFAULT at every layer above. specs/id-list-commands.md.
 func (db *DB) ListInstances(status, errorCode, process string, version int, rootsOnly bool, created, updated Window, req PageReq) ([]*model.InstanceSummary, PageInfo, error) {
 	q := instancePaginator.query(req).
 		EqIf("status", status, status != "").

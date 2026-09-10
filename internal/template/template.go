@@ -1,32 +1,13 @@
-// Package template parses and evaluates template strings.
+// Package template parses and evaluates template strings in three modes, fixed at parse time:
+// a "$: expr" leaf is one expression whose result type is preserved, "text${expr}text"
+// stringifies and concatenates, and anything else is a literal. Escaping is $-doubling in
+// literal text only ("$$" is one "$"), never a backslash, so it cannot collide with JSON or
+// YAML escaping; a ${ } or $: body reaches the expression lexer raw.
 //
-// Modes:
-//   - Typed expression "$: expr": the leaf is one expression whose result type is
-//     preserved (leading whitespace before the marker is tolerated). Bypasses block
-//     splitting; this is the type-preserving form for a data leaf.
-//   - Plain string (no ${ }): returned as a string literal.
-//   - Interpolation "text${expr}text": each ${expr} is evaluated, must be
-//     string/number/bool, and is stringified and concatenated with the literal text.
-//     Interpolation always yields a string — to preserve a value's type use $:.
-//
-// Escaping uses $-doubling (never a backslash, so it does not collide with JSON/YAML
-// string escaping): in literal text "$$" is a literal "$", so "$${" is a literal "${" and
-// a leaf-leading "$$:" is a literal "$:". Escaping is a template-layer concern — inside a
-// ${ } or $: body the raw source is handed to the expression lexer, which does its own.
-//
-// A template is parsed once into a Template — literal chunks interleaved with
-// parsed expression ASTs — and then evaluated or type-inferred against a context
-// any number of times. Which mode applies is fixed at parse time rather than
-// re-derived per call. Get memoises parsing, since templates are static strings
-// carried on process definitions.
-//
-// Where an interpolation ends is decided by the expression parser, not by scanning
-// for the next "}": at each "${" the candidate terminators are tried in order and
-// the first body that parses wins. A "}" nested inside an object literal
-// (${ {a: {b: 1}} }) or inside a string literal (${ "x}y" }) therefore does not end
-// the block, because a candidate that cuts through either fails to parse. That keeps
-// the lexical rules in one place instead of duplicating a string-and-bracket scanner
-// here, where it could silently drift.
+// Where an interpolation ends is decided by the expression parser, not by scanning for the
+// next "}": candidate terminators are tried in order and the first body that parses wins, so a
+// "}" inside an object or string literal does not end the block. That keeps the lexical rules
+// in one place. specs/typed-values.md.
 package template
 
 import (
@@ -74,16 +55,9 @@ func leadingWS(s string) int {
 	return i
 }
 
-// Parse splits s into literal and expression chunks. A leaf whose first non-whitespace
-// content is an unescaped "$:" is one typed expression (type-preserving); everything else
-// is a template whose ${ } interpolations are stringified into the surrounding text.
-//
-// Escaping uses $-doubling, not a backslash, so it never collides with JSON or YAML string
-// escaping ('$' is not an escape character in either, in any quoting style). In literal
-// text "$$" renders one literal "$": thus "$${" is a literal "${", and a leaf-leading
-// "$$:" is a literal "$:". A single "$" not forming a marker is already literal, so no
-// escape is needed there. Escaping applies only to literal text — inside a ${ } or $: body
-// the raw source is handed to the expression lexer, which does its own escapes.
+// Parse splits s into literal and expression chunks. A leaf whose first non-whitespace content
+// is an unescaped "$:" is one typed expression; everything else is a template whose ${ }
+// interpolations are stringified into the surrounding text. See the package doc for escaping.
 func Parse(s string) (*Template, error) {
 	ws := leadingWS(s)
 	if body, ok := strings.CutPrefix(s[ws:], exprMarker); ok {
@@ -182,12 +156,9 @@ func (t *Template) Static() (string, bool) {
 }
 
 // IsExpr reports whether the leaf is a single $: typed expression rather than a template.
-// Together with Static this gives the three-way split a slot needs when a literal and an
-// expression mean different things in it — pure literal, $: expression, ${ } interpolation
-// — decidable syntactically, before any inference runs. The `for` / `until` slots of a
-// delay and of a task timeout are the case that motivates exposing it: a literal is parsed
-// at registration, a $: leaf must infer to a number, and an interpolation is rejected
-// outright.
+// With Static it gives the three-way split — literal, $: expression, ${ } interpolation —
+// decidable syntactically, which is what a delay's `for` / `until` slot needs: each of the
+// three is handled differently, and an interpolation is rejected outright.
 func (t *Template) IsExpr() bool { return t.expr }
 
 // EvalAny evaluates the template against ctx. A $: expression returns the raw value,
@@ -273,16 +244,10 @@ func (t *Template) RootRefs() expression.Roots {
 	return out
 }
 
-// cache memoises Parse: template strings are static definition content, so the key set is
-// bounded like the DB's definition cache. Failures are cached too — a bad template must
-// not re-parse every tick.
-//
-// The one package-level mutable value left in internal/ by choice: everything else that
-// changes after init hangs off an owner. Giving this one an owner would mean threading a
-// cache through shape.Eval/Roots/infer and every recursive call, for a memo of a pure
-// function with no correctness role. template_bench_test.go is the standing justification
-// (~12ns and no allocations against 0.6-3.2us and 8-38 allocations); it is also the reason
-// an in-process crash simulation cannot restore this package by dropping an object.
+// cache memoises Parse (failures too — a bad template must not re-parse every tick). The one
+// package-level mutable value left in internal/ by choice: an owner would mean threading a
+// cache through shape.Eval/Roots/infer and every recursive call, for a memo of a pure function
+// with no correctness role. template_bench_test.go is the standing justification.
 var cache sync.Map // string -> parsed
 
 type parsed struct {

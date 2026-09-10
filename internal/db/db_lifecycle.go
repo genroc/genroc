@@ -11,14 +11,10 @@ import (
 	"genroc/internal/model"
 )
 
-// FinishChild atomically saves the child as terminal and, if all siblings are now done,
-// wakes the waiting parent — to 'collecting' if healthy (outputs will be merged, whether
-// it is running or paused), to ” if draining ('failing'; just settles). The parent row is
-// locked first (FOR UPDATE on PostgreSQL; SQLite single-writer) to serialize concurrent
-// sibling completions — the same lock order as PauseProcess/FailInstanceAndAncestors.
-// Root instances (no parent) only save the child; failed children use FailAncestors instead.
-// The child is terminal here, so the write carries the "a finished process stays
-// finished" floor — and the parent wake that rides the same transaction inherits it.
+// FinishChild atomically saves the child as terminal and, if all siblings are now done, wakes
+// the waiting parent — to 'collecting' if healthy, to ” if draining. The parent row is locked
+// first to serialize concurrent sibling completions, the same lock order as PauseProcess.
+// Root instances only save the child; failed children use FailAncestors instead.
 func (db *DB) FinishChild(child *model.ProcessInstance) error {
 	if child.ParentID == "" {
 		return db.UpdateInstance(child)
@@ -177,14 +173,10 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 	})
 }
 
-// inTree selects a whole tree by the root id stored on every row (migration 040), replacing a
-// WITH RECURSIVE walk over parent_id. It takes NO row locks: mutating callers lock the
-// enumerated rows in a SEPARATE step, ORDER BY id FOR UPDATE (the shared global order) --
-// Postgres deadlocks otherwise.
-//
-// **The bound id must be a ROOT.** A child matches nothing here, where the walk would have
-// returned the subtree under it; every caller is gated by requireRoot (the upgrade path by the
-// handler's own parent check), which is the same rule the operations themselves enforce.
+// inTree selects a whole tree by the root id stored on every row (migration 040). It takes NO
+// row locks: mutating callers lock the enumerated rows in a separate step, ORDER BY id FOR
+// UPDATE (the shared global order), or Postgres deadlocks. The bound id must be a ROOT -- a
+// child matches nothing, which is why every caller is gated by requireRoot.
 const inTree = `root_id = ?`
 
 // forUpdate is the lock clause appended to the subtree-locking SELECT on Postgres;
@@ -196,19 +188,11 @@ func (db *DB) forUpdate() string {
 	return ""
 }
 
-// PauseProcess atomically suspends a process tree (root + every running descendant),
-// leaving wait_state, wake_at, retry_count and context untouched. Root-only: a descendant
-// id is rejected in favour of the root's. See specs/pause-resume.md.
-//
-// An assertion, so a tree that is already stopped is OutcomeUnchanged rather than an error
-// -- the no-op is still REPORTED, which is what the conflict it replaced was for, and a
-// no-op that fails cannot converge when a group of ids is re-run.
-// specs/id-list-commands.md.
-//
-// Only a *leased* row may be marked 'pausing' — it lands in 'paused' when that task's
-// write releases the lease. Anything parked (on children, a delay, an external task) must
-// go straight to 'paused', because a parked row is excluded from ClaimInstances and would
-// otherwise hang in the draining state forever.
+// PauseProcess atomically suspends a process tree (root + every running descendant), leaving
+// wait_state, wake_at, retry_count and context untouched. Root-only, and an assertion: an
+// already-stopped tree is OutcomeUnchanged, not an error. Only a *leased* row may be marked
+// 'pausing'; a parked one is excluded from ClaimInstances and must go straight to 'paused'.
+// See specs/pause-resume.md and specs/id-list-commands.md.
 func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -383,11 +367,8 @@ func (db *DB) logInstances(ids []string, event, msg, actor string) {
 
 // ResumeProcess atomically un-suspends a paused tree — a plain status flip, because
 // PauseProcess preserved everything else. 'pausing' rows are included, so a resume issued
-// before a pause landed simply un-requests it. Root-only, same lock order as PauseProcess.
-//
-// The precondition is on the subtree, not the root's own status: a branch that dies while
-// the tree is paused leaves a failing root over paused descendants, and resuming is how
-// the operator unblocks it. See specs/pause-resume.md.
+// before a pause landed un-requests it. The precondition is on the subtree, not the root's own
+// status: a failing root over paused descendants is exactly what an operator resumes.
 func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -492,23 +473,14 @@ func requireRoot(row dbgen.ProcessInstance, op string) error {
 	return fmt.Errorf("instance %q is not a root instance; %s root instance %q instead: %w", row.ID, op, stack[0], ErrInvalid)
 }
 
-// CancelProcess stops a process tree for good: root + every live descendant, terminal, with
-// no way back. It is the one settled outcome an operator produces rather than the definition,
-// which is why it is a status beside 'failed' and not a mode of 'paused' -- pause exists to be
-// reversible and must stay that way. Root-only, same lock order as PauseProcess.
-// See specs/pause-resume.md.
+// CancelProcess stops a process tree for good: root + every live descendant, terminal, with no
+// way back. Root-only, same lock order as PauseProcess. The selector is every LIVE status, not
+// pause's 'running' alone -- a paused or draining tree is exactly what an operator disposes of
+// -- while terminal rows are left alone.
 //
-// The selector is every LIVE status, not 'running' alone as pause's is, and that difference is
-// the feature: a paused tree is exactly what an operator needs to dispose of, and a 'failing'
-// one draining a dead branch is the other. Terminal rows are left alone -- a finished process
-// stays finished.
-//
-// A row parked on an external task settles here immediately. The engine holds no lease on it,
-// so there is nothing to drain; the WORKER still holds a claim, and the only channel that
-// reaches it is its next renewal -- which reports the row cancelled and gets the claim
-// released. That is why nothing here clears external_worker_id: cleared, the renewal would
-// answer "lost", which tells the worker to stop WITHOUT releasing.
-// specs/external-task-queue.md.
+// Nothing here clears external_worker_id: a claim is released by the worker's next renewal
+// reporting the row cancelled, and a cleared id would answer "lost" instead, which stops the
+// worker WITHOUT releasing. specs/external-task-queue.md.
 func (db *DB) CancelProcess(ctx context.Context, id, actor string) (LifecycleResult, error) {
 	row, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -602,10 +574,9 @@ func (db *DB) CancelProcess(ctx context.Context, id, actor string) (LifecycleRes
 }
 
 // RetryProcess revives a failed root from where its tree died: failed nodes on the current
-// path are revived in place (leaves re-run their pending task; parents reconstructed as
-// waiting or collecting), and completed work is never redone. force overrides only_once
-// protection. Root-only, failed-only — it is an override of the definition's on_error
-// budget, which is why it must not merge with ResumeProcess. See specs/pause-resume.md.
+// path are revived in place (leaves re-run their pending task, parents are reconstructed as
+// waiting or collecting) and completed work is never redone. force overrides only_once.
+// Root-only, failed-only. See specs/pause-resume.md.
 func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor string) (LifecycleResult, error) {
 	rootRow, err := db.loadInstanceRow(ctx, id)
 	if err != nil {
@@ -746,11 +717,9 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 		newWaitState := model.WaitStateNone
 		hasBatch := false
 		if node.Task != "" {
-			// Scoped to the epoch that identifies THIS batch: children live under
-			// (parent_id, spawn_task_id), which a spawn task re-entered by a loop reuses,
-			// so an unscoped lookup hands the walk two generations at once. Retired
-			// attempts are already out -- the tree read excludes superseded rows, which are
-			// terminal history no revival may treat as the slot's live occupant.
+			// Scoped to the epoch that identifies THIS batch: a spawn task re-entered by a
+			// loop reuses (parent_id, spawn_task_id), so an unscoped lookup hands the walk
+			// two generations at once.
 			var kids []*model.ProcessInstance
 			for _, k := range children[node.ID][node.Task] {
 				if k.ParentTaskEpoch == node.TaskEpoch {
@@ -764,12 +733,10 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 				// only for spawn tasks: SpawnChildrenAndWait is atomic.)
 				anyActive := false
 				for _, k := range kids {
-					// A raise concluded by design, so reviving it would re-run the very task
-					// whose switch decided to raise; the slot needs a FRESH child. That is not
-					// done here: the replacement's input must be re-evaluated against the
-					// parent's current definition, which is how an upgraded fix reaches the
-					// child, and this layer cannot evaluate expressions. The parent is marked
-					// instead and the engine re-spawns on its next collect (s12).
+					// A raise concluded by design, so the slot needs a FRESH child rather
+					// than a revival. The replacement's input must be re-evaluated against
+					// the parent's current definition, which this layer cannot do -- mark the
+					// parent and let the engine re-spawn on its next collect (s12).
 					if k.Status == model.StatusRaised {
 						overriddenID = node.ID
 						continue
@@ -838,12 +805,10 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 			Task:        raw.Task,
 			OutputsData: raw.OutputsData,
 			OutputData:  raw.OutputData,
-			// Only the REPORTED slots clear; the CAUGHT one is kept. error_internal is this
-			// instance's state at the task it stopped on (migration 034), and a revived node
-			// can stand on a task reachable only through on_error -- where mustErr/mayErr
-			// promises an `error` exists. Clearing it there hands that task a null it was
-			// analysed as never seeing: the handler takes the wrong branch, and any message
-			// interpolating `error` degrades to its raw source text.
+			// Only the REPORTED slots clear; the CAUGHT one is kept. A revived node can stand
+			// on a task reachable only through on_error, where mustErr/mayErr promises an
+			// `error` exists -- clearing it there hands that task a null it was analysed as
+			// never seeing.
 			ErrorInternal: raw.ErrorInternal,
 			// A revived instance has concluded nothing, so the fault it was reporting goes with the
 			// status that carried it.
@@ -888,10 +853,8 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 }
 
 // SpawnChildrenAndWait atomically inserts child instances and transitions the parent to
-// wait_state='waiting'. Children inherit the parent's current status, so a
-// concurrently-paused parent spawns paused children rather than work that would run on
-// behalf of a suspended tree. Zero children is a no-op (the parent does not enter the
-// wait state).
+// wait_state='waiting'. Children inherit the parent's current status, so a concurrently-paused
+// parent spawns paused children. Zero children is a no-op.
 func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessInstance, children []*model.ProcessInstance) error {
 	if len(children) == 0 {
 		return nil
@@ -950,11 +913,9 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 }
 
 // RespawnSlotsAndWait retires raised slots and fills them in one transaction, parking the
-// parent back on 'waiting'. It is SpawnChildrenAndWait for a batch already in flight, and it
-// is separate for two reasons that are not stylistic: the parent is mid-resolution, so its row
-// reads 'collecting' where that primitive requires an empty wait_state, and the retire must
-// join the inserts -- a crash between them leaves a slot with no live occupant, and the next
-// collect merges a batch short of it, silently for a keyed or list shape.
+// parent back on 'waiting'. Separate from SpawnChildrenAndWait because the parent reads
+// 'collecting' here, and because a crash between the retire and the inserts would leave a slot
+// with no live occupant -- silently short in a keyed or list shape.
 // specs/child-error-handling.md s5.5.
 func (db *DB) RespawnSlotsAndWait(ctx context.Context, parent *model.ProcessInstance, retired []string, children []*model.ProcessInstance) error {
 	if len(children) == 0 {
@@ -1049,14 +1010,10 @@ func (db *DB) parkParentWaiting(ctx context.Context, qtx *dbgen.Queries, parent 
 	return nil
 }
 
-// engineStateWithOverride sets (or leaves) the one-shot marker that tells the engine's next
-// collect to grant this parent's raised slots one attempt past their budget.
-//
-// It is the one place this package edits context JSON, and deliberately narrow: a boolean
-// flag, never a value. The re-spawn it stands in for belongs to the engine, because a
-// replacement's input is re-evaluated against the parent's current definition — which is how
-// a fix published as a new version actually reaches the child — and nothing here can evaluate
-// an expression. specs/child-error-handling.md s12.
+// engineStateWithOverride sets the one-shot marker telling the engine's next collect to grant
+// this parent's raised slots one attempt past their budget. The one place this package edits
+// context JSON, and deliberately a boolean flag rather than a value: the re-spawn itself needs
+// expression evaluation, which belongs to the engine. specs/child-error-handling.md s12.
 func engineStateWithOverride(raw string, set bool) string {
 	if !set {
 		return raw

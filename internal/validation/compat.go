@@ -167,11 +167,9 @@ func analyze(def *model.ProcessDefinition) (analysis, error) {
 
 // Compare answers, for two versions of one process, whether an instance running the old one
 // could continue under the new one, and separately whether the new version still honours the
-// output contract its consumers were written against.
-//
-// It is a shape check over inferred schemas, not meaning: dollars → cents is `number` on
-// both sides and comes back compatible. specs/version-compatibility.md §5 lists what it
-// cannot see; internal/validation/CLAUDE.md has why it is a conservative floor.
+// output contract its consumers were written against. A shape check over inferred schemas, not
+// meaning: dollars → cents is `number` on both sides and comes back compatible.
+// specs/version-compatibility.md §5 and internal/validation/CLAUDE.md.
 func Compare(old, new *model.ProcessDefinition) (Report, error) {
 	oldA, err := analyze(old)
 	if err != nil {
@@ -403,12 +401,9 @@ func resultContracts(old, new *model.Task) []resultContract {
 	return pair(old.ID+":"+actionType+".result", old.Action.ResultSchema, new.Action.ResultSchema)
 }
 
-// raiseContract is resultContract for the ERROR channel: what one code promises, on a task
-// whose answer may already be on its way. The relation and the direction are the result's --
-// old ⊆ new, strictly -- because the answer comes from OUTSIDE and nothing migrates it: a
-// worker submitting a failure was handed the old declaration, and a child that raised carries
-// a payload its parent conforms against whichever declaration the parent is on when it
-// collects.
+// raiseContract is resultContract for the ERROR channel: what one code promises, on a task whose
+// answer may already be on its way. Same relation and direction as the result's -- old ⊆ new,
+// strictly -- because the answer comes from OUTSIDE and nothing migrates it.
 type raiseContract struct {
 	address  string
 	task     string
@@ -765,14 +760,10 @@ func (e explainer) word(b *schema.SubsetBreak) string {
 	return fmt.Sprintf("%s → %s", from, to)
 }
 
-// ApplySelection marks every issue gating or excused and computes Passes. Only contract
-// findings may be excused — the upgrade check is not negotiable (§5) — and an `unanalysable`
-// row cannot be, being the absence of a verdict rather than one. A verdict never moves: only
-// Gating and Passes answer to the selection.
-//
-// `contract` is the only token. A finer grammar -- per process, task or field -- was designed
-// and dropped (specs/compat-command.md s0), so this is not a restriction of something larger
-// waiting to arrive. An unknown token is an error, never a no-op.
+// ApplySelection marks every issue gating or excused and computes Passes. Only contract findings
+// may be excused — the upgrade check is not negotiable (§5) — and an `unanalysable` row cannot
+// be, being the absence of a verdict. A verdict never moves: only Gating and Passes answer to
+// the selection. `contract` is the only token, and an unknown one is an error, never a no-op.
 func (r *SetReport) ApplySelection(ignore []string) error {
 	excused := map[Member]bool{}
 	for _, token := range ignore {

@@ -200,12 +200,10 @@ func (e *Engine) renewLeases() error {
 }
 
 // leaseGate, before every claim: on stale renewal evidence it repairs its own leases and
-// declines takeovers for one lease period, as a cutoff pinned to the instant the evidence
-// was read (a delayed claim cannot widen it). It reads the RENEWAL gap, in the CLAIMANT —
-// each wrong-looking choice here is argued in specs/lease-fencing.md and CLAUDE.md.
-//
-// graceUntilMs is the caller's own state, read and extended here: the pump owns it as a
-// local, so the window belongs to one goroutine by construction rather than by convention.
+// declines takeovers for one lease period, pinned to the instant the evidence was read so a
+// delayed claim cannot widen it. It reads the RENEWAL gap, in the CLAIMANT — each
+// wrong-looking choice is argued in specs/lease-fencing.md. graceUntilMs is the pump's own
+// local, so the window belongs to one goroutine by construction.
 func (e *Engine) leaseGate(graceUntilMs *int64) db.Takeover {
 	now := db.Now()
 	nowMs := now.UnixMilli()
@@ -358,18 +356,11 @@ func (e *Engine) runPump(ctx context.Context) {
 	}
 }
 
-// hardenClaims makes this batch's claims durable if any of them is about to run an
-// only_once task. Prefix durability means one flush covers every claim behind it, so this
-// is one fsync per batch rather than per instance -- and none at all for the ordinary case
-// where nothing in the batch carries the flag.
-//
-// The flag is read off the row (next_replayable), never resolved from the definition: this
-// runs per claimed instance on the hottest path, and outside the panic barrier that exists
-// because definitions are user data and can be malformed.
-//
-// A failure here is not fatal: the flush is what would let recovery report
-// only_once.interrupted rather than re-run, so losing it costs that distinction, and the
-// batch is still correct work to do.
+// hardenClaims makes this batch's claims durable if any of them is about to run an only_once
+// task -- one fsync per batch, none at all when nothing carries the flag. The flag is read off
+// the row (next_replayable), never resolved from the definition: this runs on the hottest path
+// and outside the panic barrier that malformed definitions need. A failure is not fatal; it
+// costs only the only_once.interrupted distinction, not the batch.
 func (e *Engine) hardenClaims(ctx context.Context, insts []*model.ProcessInstance) {
 	for _, inst := range insts {
 		if inst.NextReplayable {
@@ -452,12 +443,9 @@ func (e *Engine) pruneLogs() {
 }
 
 // collectObjects retires expired claims and deletes content nothing claims any more.
-//
-// Deliberately NOT inside pruneLogs, and not gated on log retention. Objects are released by
-// ordinary work -- a task overwriting a big output -- and wait on a grace claim rather than
-// being deleted on the spot, so a run with retention disabled ("keep logs forever") would
-// otherwise never collect anything and grow without bound. The two sweeps share a tick and
-// nothing else.
+// Deliberately not inside pruneLogs and not gated on log retention: objects are released by
+// ordinary work, so a run with retention disabled would otherwise grow without bound. The two
+// sweeps share a tick and nothing else.
 func (e *Engine) collectObjects() {
 	if n, err := e.db.CollectObjects(db.Now().UnixMilli()); err != nil {
 		e.logOnly(logEvent{Level: model.LogError, Msg: "collect objects: " + err.Error()})

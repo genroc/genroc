@@ -261,13 +261,10 @@ func (s Schema) IsSecret() bool {
 	return isSecret(s.n)
 }
 
-// ContainsSecret reports whether `secret: true` appears anywhere in the document, at any depth.
-//
-// It exists so registration can refuse the marker outside config_schema. `secret: true` keeps a
-// value out of the server's stdout, and the only values the log scrubber can find are the config
-// values it knows verbatim -- so the marker elsewhere would promise a protection nothing
-// delivers, which is worse than not offering it. specs/object-store.md §secret: true is
-// CONFIG-ONLY.
+// ContainsSecret reports whether `secret: true` appears anywhere in the document, so registration
+// can refuse the marker outside config_schema: the log scrubber can only find config values it
+// knows verbatim, so the marker elsewhere promises a protection nothing delivers.
+// specs/object-store.md §secret: true is CONFIG-ONLY.
 func (s Schema) ContainsSecret() bool { return containsSecret(s.n, map[*node]bool{}) }
 
 func containsSecret(n *node, seen map[*node]bool) bool {

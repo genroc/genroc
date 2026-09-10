@@ -62,15 +62,10 @@ type Principal struct {
 }
 
 // Actor renders this principal for an audit trail, as `source:subject` -- `token:ci`,
-// `jwt:ada@example.com`, `no-auth:anonymous`.
-//
-// The source is IN the string rather than beside it because the two facts are only useful
-// together: `ada@example.com` alone cannot say whether genroc authenticated that identity or
-// merely wrote down what a proxy asserted, and a reader who has to join a second column to
-// find out is a reader who will not. specs/api-auth.md section 7.
-//
-// Nil yields "", so an Open action that reaches a write path records no actor rather than
-// panicking -- there is no identity to record and inventing one would be worse.
+// `jwt:ada@example.com`, `no-auth:anonymous`. The source is IN the string because a subject
+// alone cannot say whether genroc authenticated it or wrote down what a proxy asserted. Nil
+// yields "", so an Open action reaching a write path records no actor rather than panicking.
+// specs/api-auth.md section 7.
 func (p *Principal) Actor() string {
 	if p == nil {
 		return ""
@@ -78,24 +73,16 @@ func (p *Principal) Actor() string {
 	return p.Source + ":" + p.Subject
 }
 
-// anonymousAdmin is the principal `mode: none` produces. It is the pre-auth behaviour written
-// down rather than a special case in the check: with auth off every caller is an operator, and
-// the startup warning (not this) is what says so out loud.
-//
-// The source is `no-auth`, not `none`: beside `startup:` and `cli:` on a token row (migration
-// 043) `none:` read as a missing value rather than as the statement it is.
+// anonymousAdmin is the principal `mode: none` produces -- the pre-auth behaviour written down
+// rather than a special case in the check. The source is `no-auth`, not `none`: beside
+// `startup:` and `cli:` on a token row, `none:` reads as a missing value.
 func anonymousAdmin() *Principal {
 	return &Principal{Subject: "anonymous", Grants: []Grant{{Perm: PermAdmin}}, Source: "no-auth"}
 }
 
-// Allows reports whether this principal may take an action admitted by any of `allow`.
-//
-// An EMPTY allow list means admin-only. That is the fail-closed default: an endpoint added to
-// the registry without a permission is closed rather than open, which is the direction a
-// mistake here has to fall. `internal/api/CLAUDE.md` states the rule; TestEveryActionDeclares-
-// APermission is what stops it being reached by accident rather than by intent.
-//
-// A nil Principal is refused. Callers that have not established one yet must not reach here.
+// Allows reports whether this principal may take an action admitted by any of `allow`. An EMPTY
+// allow list means admin-only -- the fail-closed default, so an endpoint added to the registry
+// without a permission is closed rather than open. A nil Principal is refused.
 func (p *Principal) Allows(allow []Perm) bool {
 	if p == nil {
 		return false
@@ -148,26 +135,19 @@ func describeAllow(allow []Perm) string {
 
 // ── identity ─────────────────────────────────────────────────────────────────────
 
-// Authenticator turns a presented credential into a Principal. A nil Authenticator on the
-// Server is `mode: none`, and every request is anonymousAdmin.
-//
-// (nil, nil) means "not authenticated" and is not an error: the credential was absent or did
-// not match, which authorize turns into 401. An error is reserved for a failure to DECIDE — a
-// database that cannot be reached — because answering "unauthenticated" to a caller who
-// presented a valid token would be a lie the operator never sees.
+// Authenticator turns a presented credential into a Principal; a nil one on the Server is
+// `mode: none`. (nil, nil) means "not authenticated" and is not an error, which authorize turns
+// into 401. An error is reserved for a failure to DECIDE — answering "unauthenticated" to a
+// caller who presented a valid token would be a lie the operator never sees.
 type Authenticator interface {
 	Authenticate(ctx context.Context, credential string) (*Principal, error)
 }
 
 // chainAuth tries each authenticator in order and takes the first that recognises the
-// credential. This is what lets §2's "a real deployment runs two at once" be true of the bearer
-// header specifically: a browser presents a JWT and a CI job presents a `genroc_sk_*`, both
-// arrive in `Authorization`, and only one mode can answer for either.
-//
-// An error from any link stops the chain rather than falling through. A mode that cannot DECIDE
-// (its database or JWKS is unreachable) must not be silently downgraded to "not authenticated" by
-// the next one — that turns an outage into a 401 storm the operator cannot distinguish from a
-// misconfigured client.
+// credential: a browser's JWT and a CI job's `genroc_sk_*` both arrive in `Authorization`, and
+// only one mode can answer for either. An error from any link stops the chain rather than
+// falling through -- a mode that cannot DECIDE must not be downgraded to "not authenticated",
+// which turns an outage into a 401 storm. specs/api-auth.md §2.
 type chainAuth []Authenticator
 
 // Chain combines identity modes that all read the same bearer credential. One authenticator is

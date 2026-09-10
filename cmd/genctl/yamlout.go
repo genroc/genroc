@@ -11,12 +11,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The one YAML rendering path: `get`/`detail` print a payload, `schema` prints a document, and
-// both must survive the same two ways YAML can lie about a value it was handed -- a number that
-// comes out quoted is a string, and a string that comes out bare may be read back as something
-// else. Not yaml.Marshal, because numbers arrive as json.Number to keep large literals exact
-// (specs/number-precision.md) and json.Number is a string type: the default encoder quotes
-// every one of them.
+// The one YAML rendering path, surviving the two ways YAML can lie about a value it was handed: a
+// number that comes out quoted is a string, and a string that comes out bare may be read back as
+// something else. Not yaml.Marshal, because numbers arrive as json.Number to keep large literals
+// exact and json.Number is a string type, which the default encoder quotes.
 
 // yamlBlock renders with keys sorted, which is the order they are looked up in.
 func yamlBlock(v any) string { return yamlDoc(v, nil) }

@@ -87,14 +87,11 @@ func instanceWriteFloor(status interface{ Terminal() bool }) Durability {
 	return syncStrict
 }
 
-// Flush makes every commit made so far durable, whatever level the write paths ran at.
-// Both engines append to one WAL, so one flushed commit hardens the commits behind it
-// (specs/durability-levels.md s3) -- which is why writing an otherwise meaningless row is
-// enough, and why the caller does not have to name what it wants hardened.
-//
-// The only_once bracket is the caller: the claim is a task's at-most-once evidence and has
-// to outlive a power cut before the request leaves, and the result has to outlive one after
-// it comes back. At `strict` every commit is already flushed and this is a no-op.
+// Flush makes every commit made so far durable, whatever level the write paths ran at. Both
+// engines append to one WAL, so one flushed commit hardens the commits behind it -- which is
+// why writing an otherwise meaningless row is enough and the caller names nothing. The
+// only_once bracket is the caller; at `strict` this is a no-op.
+// specs/durability-levels.md s3.
 func (db *DB) Flush(ctx context.Context) error {
 	if db.level() == DurabilityStrict {
 		return nil

@@ -10,13 +10,10 @@ import (
 	"genroc/internal/template"
 )
 
-// Infer returns the static type (a JSON Schema) of a templated value evaluated against
-// context ctx: a string leaf yields its template's inferred type (a $: leaf preserving
-// the expression's type), an array joins its element types, an object infers each value
-// (all keys required), and a scalar/null types as its JSON kind. label prefixes errors.
-//
-// It operates on a raw value so a bare templated string (a fetch url/method) can be typed
-// the same way as a full Shape; the Shape.Infer method is the sugar over a Shape's Raw.
+// Infer returns the static type of a templated value evaluated against context ctx: a string
+// leaf yields its template's inferred type, an array joins its element types, an object infers
+// each value (all keys required), and a scalar/null types as its JSON kind. It operates on a raw
+// value so a bare templated string can be typed like a full Shape. label prefixes errors.
 func Infer(node any, ctx schema.Schema, label string) (schema.Schema, error) {
 	switch n := node.(type) {
 	case string:
@@ -117,15 +114,11 @@ func (s *Shape) inferType(ctxSchema schema.Schema, label string) (schema.Schema,
 	return Infer(s.Raw, ctxSchema, label)
 }
 
-// CheckWith is the static-validation phase. ctxSchema is an object schema whose properties
-// are the roots (input, config, outputs, self, …) expressions may navigate; referencing an
-// undeclared root or a bad path is an error. It runs in order: the Roots hook (reference
-// availability), then inference (every leaf type-checked), then — if the shape declares a
-// required Schema — a conformance check whose failure is handed to the Result hook. It
-// returns the inferred type, which is the whole answer when Schema is nil (free projection).
-//
-// The required Schema and ctxSchema are assumed normalized; the inferred type is normalized
-// against ctxSchema's $defs before the subset check so ref-bearing schemas compare cleanly.
+// CheckWith is the static-validation phase. ctxSchema is an object schema whose properties are
+// the roots expressions may navigate. It runs in order: the Roots hook, then inference, then — if
+// the shape declares a required Schema — a conformance check handed to the Result hook, and
+// returns the inferred type, which is the whole answer when Schema is nil. Both schemas are
+// assumed normalized; the inferred type is normalized against ctxSchema's $defs first.
 func (s *Shape) CheckWith(ctxSchema schema.Schema, hooks CheckHooks) (schema.Schema, error) {
 	label := s.Name
 	if label == "" {

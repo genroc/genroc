@@ -11,23 +11,15 @@ import (
 	"time"
 )
 
-// Google Workspace groups, which an ID token never carries.
+// Google Workspace groups, which an ID token never carries, so membership has to be fetched. Cloud
+// Identity rather than the Admin SDK Directory: `admin.directory.group.readonly` is a RESTRICTED
+// scope needing app verification and an admin allowlist, while `cloud-identity.groups.readonly` is
+// merely sensitive. The call is made ONCE, at login, with the person's own access token, which is
+// then dropped -- genroc-ui stores no Google credential.
 //
-// Google's discovery document lists `openid email profile` and no groups claim, so membership
-// has to be fetched. Of the two APIs that expose it, this uses Cloud Identity rather than the
-// Admin SDK Directory: `admin.directory.group.readonly` is a RESTRICTED scope, which means app
-// verification and an admin allowlisting the client, while `cloud-identity.groups.readonly` is
-// merely sensitive and a person can read their own memberships with it.
-//
-// The call is made ONCE, at login, with the person's own access token — which is why that token
-// is returned by the exchange and then dropped. genroc-ui stores no Google credential.
-//
-// TRANSITIVE, not direct: nesting is how groups are actually organised, so someone in `oncall@`
-// inside `platform@` has to inherit what `platform@` grants or the role map has to enumerate the
-// tree by hand. `searchDirectGroups` was tried first and answers INVALID_ARGUMENT to this query
-// — its reference describes the query grammar of the transitive method, down to calling its own
-// parent "transitive memberships", and only the transitive one is documented with a worked
-// example. Reading either description as authoritative for the other costs an afternoon.
+// TRANSITIVE, not direct: nesting is how groups are organised, so someone in `oncall@` inside
+// `platform@` must inherit what `platform@` grants. `searchDirectGroups` answers INVALID_ARGUMENT
+// to this query despite a reference that describes the transitive method's grammar.
 
 const (
 	googleGroupsScope   = "https://www.googleapis.com/auth/cloud-identity.groups.readonly"

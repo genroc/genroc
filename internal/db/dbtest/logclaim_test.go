@@ -12,19 +12,11 @@ import (
 	"genroc/internal/model"
 )
 
-// A log's object and its claim must be written in ONE transaction, so no observer -- and no
-// sweep -- can ever see the object unclaimed.
-//
-// Unlike the resurrection race this needs no luck to hit. The log path wrote its content and its
-// claim as two autocommit statements, leaving the object committed and held by nobody in
-// between; a sweep landing there deletes content the claim about to commit will point at, and
-// SQLite's single writer does not help, because two autocommit statements are two transactions
-// on any engine. Polling for "an object nobody claims" caught the gap 452 times across 200 log
-// writes -- more than twice per write.
-//
-// Postgres only for the instrument, not the bug: the observer needs a second connection, and
-// dbtest only keeps a raw one for Postgres. The fix (db.withTx) is engine-agnostic.
-// specs/object-store.md.
+// A log's object and its claim must be written in ONE transaction, so no observer -- and no sweep
+// -- can ever see the object unclaimed. Unlike the resurrection race this needs no luck: two
+// autocommit statements are two transactions on any engine, and polling caught the gap 452 times
+// across 200 log writes. Postgres only for the INSTRUMENT (the observer needs a second
+// connection), not the bug. specs/object-store.md.
 func TestLogObjects_ContentAndClaimAreWrittenAtomically(t *testing.T) {
 	if sharedPgDB == nil || sharedPgRaw == nil {
 		t.Skip("needs POSTGRES_DSN for the second connection the observer needs")
@@ -74,13 +66,10 @@ func TestLogObjects_ContentAndClaimAreWrittenAtomically(t *testing.T) {
 	}
 }
 
-// A log's object lives exactly as long as its log ROW, and then gets the grace window.
-//
-// The claim's owner IS the row (`(hash, 'log', <log id>)`), so nothing about the object's life is
-// expressed in time: prune the row and the sweep notices the owner is gone, releases the claim
-// and stamps grace, which is the same release an instance value gets. Before this the owner was
-// the INSTANCE, so a row's deletion said nothing about whether the claim was still wanted, and
-// the object's life had to be guessed with a retention horizon instead.
+// A log's object lives exactly as long as its log ROW, and then gets the grace window. The claim's
+// owner IS the row, so nothing about the object's life is expressed in time: prune the row and the
+// sweep notices the owner is gone and releases. With the INSTANCE as owner, the object's life had
+// to be guessed with a retention horizon instead.
 // specs/object-store.md.
 func TestLogObjects_LiveAsLongAsTheirRowThenGetGrace(t *testing.T) {
 	for _, b := range testBackends(t) {

@@ -1,12 +1,9 @@
 package lsp
 
-// Which keys are legal where, read out of the generated schema.
-//
-// The schema rather than reflection over the Go types, because seven of them decode by hand
-// and carry a hand-written JSONSchemaBytes: reflection sees no fields on an Action, a
-// SwitchMap or a Retry, which are the nodes most worth completing. The discriminator JSON
-// Schema cannot express is no obstacle to a consumer that is us — each variant carries
-// `type: {const: fetch}`, and we read it. specs/language-server.md §5.
+// Which keys are legal where, read out of the generated schema rather than by reflection over the
+// Go types: several decode by hand and carry a hand-written JSONSchemaBytes, so reflection sees no
+// fields on an Action, a SwitchMap or a Retry -- the nodes most worth completing. The
+// discriminator is no obstacle to a consumer that is us. specs/language-server.md §5.
 
 import (
 	"encoding/json"

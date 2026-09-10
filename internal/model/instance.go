@@ -7,23 +7,12 @@ import (
 	"time"
 )
 
-// Status represents the lifecycle state of a process instance.
-//
-// failing is a draining state: the outcome is decided but descendants are still
-// settling. A node only becomes failed once all its direct children are terminal,
-// so a failed root implies the whole tree has settled — which is what makes failed
-// roots retryable.
-//
-// paused is not an outcome: it means only "does not continue automatically". The
-// instance keeps its wait_state, wake_at, retry_count and context verbatim, and its
-// timers keep running, so resuming is a status flip rather than a revival. pausing
-// is its draining state — a leased instance that lands in paused once the in-flight
-// task it is holding finishes.
-//
-// raised is the third settled outcome, produced by a `raise` clause: an anticipated
-// condition a parent may react to by naming the code. Neither completed (it produced no
-// output) nor failed (it does not poison ancestors), and not retryable — a raise is a
-// conclusion, not an interruption. See specs/child-error-handling.md.
+// Status represents the lifecycle state of a process instance. failing and pausing are
+// draining states: the outcome is decided but descendants (or an in-flight task) are still
+// settling, so a failed root implies the whole tree has settled. paused is not an outcome —
+// the instance keeps its wait state and timers verbatim, so resuming is a status flip.
+// raised is the third settled outcome: a concluded, non-poisoning, non-retryable condition a
+// parent may catch by code. specs/child-error-handling.md.
 type Status string
 
 const (
@@ -42,13 +31,10 @@ const (
 	StatusCancelled  Status = "cancelled"
 )
 
-// Terminal reports whether the status is a settled outcome. paused and pausing are
-// not terminal: a paused instance is live work that simply is not being advanced.
-//
-// raised counts: it is settled work, which is what RetryProcess's wait-state
-// reconstruction asks about. Omitting it parks a revived parent in 'waiting' forever,
-// waiting on a child that has already concluded. The SQL copies of this predicate are
-// separate and must be kept in step by hand — see CountActiveSiblings in queries.sql.
+// Terminal reports whether the status is a settled outcome. paused is live work that simply
+// is not being advanced; raised counts, or RetryProcess parks a revived parent in 'waiting'
+// forever. The SQL copies of this predicate must be kept in step by hand — see
+// CountActiveSiblings in queries.sql.
 func (s Status) Terminal() bool {
 	return s == StatusCompleted || s == StatusFailed || s == StatusRaised || s == StatusCancelled
 }
@@ -71,27 +57,18 @@ const (
 	OutcomeUnchanged Outcome = "unchanged"
 )
 
-// AcceptsExternalOutcome reports whether a submitted result or failure may be delivered to
-// an instance in this status. A pause suspends execution, not delivery: refusing here would
-// discard work an outside caller has already performed, and on an only_once task the
-// external.timeout that follows can never be retried. The claim side refuses a suspended
-// tree instead. specs/external-task-queue.md §Pause.
-//
-// The cancel states are absent, and the contrast with pause is the reason: work delivered to
-// a paused tree is work that will still be read when it resumes, and work delivered to a
-// cancelled one never will be. Refusing is what tells the worker to stop -- accepting would
-// take an answer nobody would ever look at.
+// AcceptsExternalOutcome reports whether a submitted result or failure may be delivered to an
+// instance in this status. A pause suspends execution, not delivery — the claim side refuses a
+// suspended tree instead. The cancel states are absent because that answer would never be
+// read, and refusing is what tells the worker to stop. specs/external-task-queue.md §Pause.
 func (s Status) AcceptsExternalOutcome() bool {
 	return s == StatusRunning || s == StatusPaused || s == StatusPausing
 }
 
-// ErrorDataKey is the slot holding the payload a `raise` or `panic` attached. Its code and
-// message are plain columns beside it (error_code, error_message) so a code can be filtered on;
-// only the payload needs a slot, because only the payload is arbitrarily large.
-//
-// It is never the `last_error` slot, which is the failure that routed the instance to the task
-// it stopped on: that one belongs to the instance's state, so a concluding fault editing it
-// leaves a context no layer describes. specs/error-extensions.md.
+// ErrorDataKey is the slot holding the payload a `raise` or `panic` attached; its code and
+// message are plain columns beside it. It is never the `last_error` slot, which belongs to the
+// instance's state — a concluding fault editing that leaves a context no layer describes.
+// specs/error-extensions.md.
 const StateErrorData = "_error_data"
 
 // The two failures a task's expressions can name, kept apart because they are different
@@ -114,33 +91,24 @@ const (
 	WaitStateExternal   WaitState = "external"   // parked on an external task, waiting for a submitted result (or timeout)
 )
 
-// ExternalToken is the handle a caller submits to answer an external task: the instance, plus
-// the epoch of the ARMING the answer belongs to. Derived on demand and never stored --
-// task_epoch on the instance row is the occurrence, so a copy in external_data would only be a
-// second thing that can disagree with it. Not a secret: the queue endpoint hands it to any
-// caller, and it is an occurrence discriminator rather than a capability.
-//
-// This two-part form is the UNCLAIMED handle. A claim grants the three-part ClaimToken, and a
-// row under a live claim accepts only that -- see ParseExternalToken.
+// ExternalToken is the handle a caller submits to answer an external task: the instance plus
+// the epoch of the arming the answer belongs to. Derived on demand, never stored, and not a
+// secret — it discriminates occurrences rather than granting anything. This unclaimed form is
+// refused by a row under a live claim, which accepts only the three-part ClaimToken.
 func ExternalToken(instanceID string, taskEpoch int64) string {
 	return fmt.Sprintf("%s.%d", instanceID, taskEpoch)
 }
 
 // ClaimToken is the handle ClaimExternalTasks grants: ExternalToken plus the claim epoch.
-// The extra field is not decoration. Two workers can claim the same ARMING in sequence -- the
-// first claim expires, the second is granted -- and task_epoch does not move for either, so
-// without the claim epoch the dead worker's handle stays valid and its late answer would be
-// accepted over the live holder's.
+// Two workers can claim the same arming in sequence without task_epoch moving, so the claim
+// epoch is what keeps the expired holder's late answer out.
 func ClaimToken(instanceID string, taskEpoch, claimEpoch int64) string {
 	return fmt.Sprintf("%s.%d.%d", instanceID, taskEpoch, claimEpoch)
 }
 
-// ParseExternalToken accepts both forms. hasClaim distinguishes them: false is a caller
-// answering unclaimed work (the queue-then-resolve path a UI uses), true a claim holder
-// naming the grant it is answering under.
-//
-// An id carries no '.' (internal/idgen's alphabet excludes it), so the first dot is the
-// instance boundary.
+// ParseExternalToken accepts both forms; hasClaim=false is a caller answering unclaimed work,
+// true a claim holder naming its grant. An id carries no '.' (internal/idgen's alphabet
+// excludes it), so the first dot is the instance boundary.
 func ParseExternalToken(token string) (instanceID string, taskEpoch, claimEpoch int64, hasClaim, ok bool) {
 	id, rest, found := strings.Cut(token, ".")
 	if !found || id == "" {
@@ -188,25 +156,17 @@ type ProcessInstance struct {
 	// moves this pointer. Empty means the instance ran off the end.
 	Task string
 
-	// ExternalWorkerID / ExternalLeaseExpiresAt / ExternalClaimEpoch are the external-task
-	// CLAIM: a worker holding a parked task for a visibility timeout. Deliberately not the
-	// engine's WorkerID/LeaseExpiresAt/LeaseEpoch, which mean an engine worker is ADVANCING
-	// this instance -- a claim means the opposite, that it is parked and no worker is held.
-	// specs/external-task-queue.md.
+	// The external-task CLAIM: a worker holding a parked task for a visibility timeout.
+	// Deliberately not the engine's WorkerID/LeaseExpiresAt/LeaseEpoch, which mean the
+	// opposite -- that a worker is advancing this instance. specs/external-task-queue.md.
 	ExternalWorkerID       *string
 	ExternalLeaseExpiresAt *time.Time
 	ExternalClaimEpoch     int64
 
-	// State is everything this instance holds: the slots a definition reads (input, outputs,
-	// output, error) and the engine's own bookkeeping (_error_data, _external, _spawn_*). The
-	// set is CLOSED -- storage names these keys and drops the rest.
-	//
-	// Nothing derivable belongs here. A parent's children are not a slot: the child rows carry
-	// parent_id, and a copy on the parent is a second source to keep in step (see
-	// db.ChildrenOfInstance). Neither is completion order, which the log already records.
-	//
-	// Not "context": context is the EXPRESSION scope, which is state's readable slots plus
-	// config (never stored) and self (per-task). specs/version-compatibility.md.
+	// State is everything this instance holds: the slots a definition reads plus the engine's
+	// bookkeeping (_error_data, _external, _spawn_*). The set is CLOSED -- storage names these
+	// keys and drops the rest -- and nothing derivable belongs here. Not "context", which is
+	// the expression scope: these slots plus config and self.
 	State map[string]any
 
 	// ParentID is set when this instance was started by a child_process task.
@@ -246,15 +206,10 @@ type ProcessInstance struct {
 	WorkerID       *string
 	LeaseExpiresAt *time.Time
 
-	// NextReplayable is whether the task Task names may simply be re-run after a crash --
-	// i.e. it is NOT only_once. Denormalised from the definition so the claim path can
-	// decide whether to harden the claim without resolving one: that path runs per claimed
-	// instance and outside the panic barrier. Derived from Task on every write, so it
-	// cannot drift from it.
-	//
-	// Stated in the replayable direction on purpose: false is the SAFE value, so an
-	// instance built by a caller that never set it gets the flush rather than silently
-	// losing at-most-once. specs/durability-levels.md s4.
+	// NextReplayable is whether the task Task names may simply be re-run after a crash (i.e.
+	// it is NOT only_once), denormalised so the claim path can decide to harden without
+	// resolving a definition. Stated in the replayable direction so that false -- what a
+	// caller that never set it gets -- is the safe value. specs/durability-levels.md s4.
 	NextReplayable bool
 
 	// LeaseEpoch is the fencing token this instance was granted under: bound into every
@@ -334,17 +289,10 @@ type InstanceSummary struct {
 	UpdatedAt time.Time
 }
 
-// Holds is what an action leaves persisted when it does not finish inside one advance —
-// the state an instance is SITTING in, as opposed to the entry context every task has.
-//
-// It is one declaration for a fact three places used to encode separately: the engine's
-// advance switch, the version comparison's rules about what may change under an instance,
-// and this file's own WaitState vocabulary. A replay or a time-travel debugger needs the
-// same answer — what must be stored to resume at a point — so it belongs here rather than
-// in whichever caller asked first.
-//
-// The zero value means the action runs to completion inside one advance and leaves nothing:
-// an instance at such a task is always at ENTRY.
+// Holds is what an action leaves persisted when it does not finish inside one advance — the
+// state an instance is SITTING in, as opposed to the entry context every task has. One
+// declaration shared by the advance switch, the version comparison and WaitState. The zero
+// value means the action finishes inside one advance, so the instance is always at ENTRY.
 type Holds struct {
 	// Wait is the state the instance parks in, or WaitStateNone for an action that does not.
 	Wait WaitState

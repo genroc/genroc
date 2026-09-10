@@ -11,15 +11,10 @@ import (
 	"genroc/internal/model"
 )
 
-// TestCollectObjects_RunsWithLogRetentionDisabled pins a coupling that was harmless until it
-// was not. The object sweep used to live inside pruneLogs(), which returns early when log
-// retention is disabled ("keep logs forever"). That cost nothing while a released object was
-// deleted on the spot; once releases only leave a grace claim and the sweep is what collects
-// them, the same early return means a run with `--log-retention 0` never collects anything and
-// grows without bound.
-//
-// LogConfig{} below is exactly that configuration — retention zero — which is why the assertion
-// is worth making here rather than in a run that happens to have retention on.
+// The object sweep used to live inside pruneLogs(), which returns early when log retention is
+// disabled. Harmless while a released object was deleted on the spot; once releases only leave a
+// grace claim, that early return means `--log-retention 0` never collects anything and grows
+// without bound. LogConfig{} below is exactly that configuration.
 func TestCollectObjects_RunsWithLogRetentionDisabled(t *testing.T) {
 	database := openTestDB(t)
 	database.SetObjectGrace(0) // released content is collectable at once

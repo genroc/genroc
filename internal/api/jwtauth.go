@@ -10,12 +10,9 @@ import (
 )
 
 // JWTAuth is `mode: jwt` -- a token minted by genroc-ui (or anything else able to produce a
-// conforming one) and signed with a secret shared with this server.
-//
-// It VERIFIES and it RESOLVES NOTHING. The token already carries the permissions its issuer
-// computed, so there is no role map here, no group claim, and no per-provider quirk. What this
-// server owns is which endpoint needs which permission (`actionDef.Allow`), and that never
-// left. specs/ui-issued-tokens.md §1.
+// conforming one) and signed with a secret shared with this server. It VERIFIES and RESOLVES
+// NOTHING: the token carries the permissions its issuer computed, so there is no role map, no
+// group claim and no per-provider quirk here. specs/ui-issued-tokens.md §1.
 type JWTAuth struct {
 	cfg    JWTModeConfig
 	secret []byte
@@ -48,12 +45,10 @@ func NewJWTAuth(cfg JWTModeConfig) (*JWTAuth, error) {
 	}, nil
 }
 
-// Authenticate verifies a bearer token and reads the permissions off it.
-//
-// A credential that is not a JWT returns (nil, nil) rather than an error: a deployment runs this
-// beside `token` mode, and a `genroc_sk_*` presented here is simply not this mode's to answer. A
-// token that IS a JWT but fails verification also returns (nil, nil) -- it did not authenticate,
-// and authorize turns that into 401. Only a failure to DECIDE is an error.
+// Authenticate verifies a bearer token and reads the permissions off it. A credential that is
+// not a JWT, and a JWT that fails verification, both return (nil, nil) rather than an error --
+// this mode runs beside `token` mode, and authorize turns "not authenticated" into 401. Only a
+// failure to DECIDE is an error.
 func (a *JWTAuth) Authenticate(ctx context.Context, credential string) (*Principal, error) {
 	if credential == "" || strings.HasPrefix(credential, "genroc_sk_") {
 		return nil, nil

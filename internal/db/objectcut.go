@@ -25,16 +25,10 @@ type node struct {
 }
 
 // cutForSize decides which parts of v move to the object store so the stored slot fits target,
-// and returns the value with those parts removed plus a ref for each.
-//
-// It externalizes the FEWEST, LARGEST leaves that get under the target, rather than everything
-// over a per-piece threshold. Leaves first is what preserves sharing: a task input holding a
-// bundle beside per-instance data must cut the bundle alone, or every instance hashes a
-// different value and stores its own copy.
-//
-// The selection is SPLICED AND MEASURED before any ref is made. Node sizes drive the search --
-// measuring at every step is quadratic in the value's bytes -- but they are an estimate, and the
-// one that decides is the encoded size of the value that will actually be stored.
+// returning the value with those parts removed plus a ref for each. It externalizes the FEWEST,
+// LARGEST leaves that get under the target: cutting a bundle alone, rather than everything over
+// a threshold, is what lets instances sharing it hash the same value. Node sizes drive the
+// search but only estimate; the selection is spliced and MEASURED before any ref is made.
 func cutForSize(v any, target int64) (any, []*model.ObjectRef, []*pendingObject, error) {
 	root, err := buildTree(v, nil, 0, nil)
 	if err != nil {

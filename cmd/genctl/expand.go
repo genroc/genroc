@@ -34,18 +34,11 @@ func loadSourceDocs(files []string) ([]sourceDoc, error) {
 	return all, nil
 }
 
-// definitionPaths is the file list a command operates on. There are exactly two sources, and
-// every command that reads definitions uses both: `-f`, and `definitions:` in the nearest
-// `.genroc` when no `-f` was given. Files are never taken positionally -- `-f` accepts several
-// values, so an unquoted `defs/*.yaml` needs no second syntax, and one rule covers apply,
-// validate, types and compat alike.
-//
-// `-f` is LITERAL FIRST: a value naming an existing file is that file, never a pattern. Only a
-// value naming nothing is globbed. That keeps `a[1].genroc.yaml` reachable when `a1.genroc.yaml`
-// also exists and a pattern would have matched the wrong one, silently.
-//
-// `definitions:` entries are patterns outright: there is no filename to prefer, and a pattern
-// matching nothing is a mistake worth reporting.
+// definitionPaths is the file list a command operates on: `-f`, or `definitions:` in the nearest
+// `.genroc` when no `-f` was given. Files are never taken positionally. `-f` is LITERAL FIRST --
+// a value naming an existing file is that file, and only one naming nothing is globbed, which
+// keeps `a[1].genroc.yaml` reachable beside `a1.genroc.yaml`. `definitions:` entries are patterns
+// outright, and one matching nothing is a mistake worth reporting.
 func definitionPaths(files []string) ([]string, error) {
 	if len(files) == 0 {
 		return expandPaths(defaultDefinitionPaths("."))
@@ -70,13 +63,10 @@ func expandFileFlags(files []string) ([]string, error) {
 	return out, nil
 }
 
-// expandPaths turns every argument into files. There is no path-versus-pattern distinction:
-// a pattern with no metacharacters matches itself, so a plain filename is just the trivial
-// case. `**` matches any depth (doublestar; the stdlib has none).
-//
-// A DIRECTORY is refused, pointing at the pattern that would do it: walking one implicitly
-// hides both the depth and the filename filter, so it would silently differ from the pattern
-// meant to replace it. Sorted, so a batch is deterministic.
+// expandPaths turns every argument into files; a pattern with no metacharacters matches itself,
+// so a plain filename is the trivial case, and `**` matches any depth. A DIRECTORY is refused,
+// pointing at the pattern that would do it -- walking one hides both the depth and the filename
+// filter. Sorted, so a batch is deterministic.
 func expandPaths(paths []string) ([]string, error) {
 	var out []string
 	for _, p := range paths {
@@ -133,12 +123,9 @@ func resolvedDefsLocated(files []string) ([]any, []sourceDoc, error) {
 	return out, docs, nil
 }
 
-// locate finds where a slot address was written among the loaded sources. Matching on the
-// address rather than on the process name in the error prose means nothing has to parse a
-// message: an address that resolves in exactly one document names that document.
-//
-// A missing REQUIRED field has no node of its own, so the search falls back to the shortest
-// enclosing path that does — `tasks[0].id` points at the task that lacks an id.
+// locate finds where a slot address was written among the loaded sources: matching on the address
+// rather than on prose means nothing has to parse a message. A missing REQUIRED field has no node
+// of its own, so the search falls back to the shortest enclosing path that does.
 func locate(docs []sourceDoc, address string) (string, defdoc.Span, bool) {
 	// Exactly one document may claim the address: two that both resolve it are two processes
 	// with the same task id, and pointing at either would be a guess.
@@ -199,12 +186,10 @@ func readFile(path string) ([]sourceDoc, error) {
 	return docs, nil
 }
 
-// takeFileValues pulls `-f`/`--f` and every following argument up to the next flag into one
-// list, and returns the rest. That makes `-f a b c` one flag with three values -- which is what
-// an unquoted `-f defs/*.yaml` expands to -- while `-f a b --channel prod` still stops at the
-// flag, so nothing after it is swallowed.
-//
-// Done here rather than by flag.Value because the stdlib gives a Value exactly one argument.
+// takeFileValues pulls `-f`/`--f` and every following argument up to the next flag into one list,
+// so `-f a b c` is one flag with three values -- what an unquoted `-f defs/*.yaml` expands to --
+// while `-f a b --channel prod` stops at the flag. Here rather than in a flag.Value because the
+// stdlib gives a Value exactly one argument.
 func takeFileValues(args []string) (files, rest []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]

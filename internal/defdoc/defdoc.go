@@ -1,9 +1,7 @@
-// Package defdoc parses a definition document into the JSON-native values the model decodes
-// from, and records where in the source each part of it was written.
-//
-// One walk produces both. A second walk would have to repeat the merge-key precedence rule to
-// stay aligned with the first, and a location that disagrees with the value it locates is
-// worse than no location. specs/language-server.md §3.
+// Package defdoc parses a definition document into the JSON-native values the model decodes from,
+// and records where in the source each part was written. One walk produces both: a second would
+// repeat the merge-key precedence rule to stay aligned, and a location that disagrees with the
+// value it locates is worse than no location. specs/language-server.md §3.
 package defdoc
 
 import (
@@ -49,15 +47,11 @@ type Doc struct {
 	values map[string]any
 }
 
-// Span returns where path was written. Two spellings address the same node:
-//
-//	physical   tasks[0].on_error[1].case
-//	logical    tasks.fetch.on_error.1.case
-//
-// The physical one is what a validator namespace produces (model.FieldError.Field); the
-// logical one is the slot-address grammar of specs/schema-command.md, which names a task by
-// its id and so survives a task being inserted above it. Both are registered, because a
-// conversion between them is a rule that can be wrong, and a second map entry cannot.
+// Span returns where path was written, under either spelling: the physical
+// `tasks[0].on_error[1].case` a validator namespace produces, or the logical
+// `tasks.fetch.on_error.1.case` of specs/schema-command.md, which names a task by its id and so
+// survives an insertion above it. Both are registered, because a conversion between them is a
+// rule that can be wrong and a second map entry cannot.
 func (d *Doc) Span(path string) (Span, bool) {
 	s, ok := d.spans[path]
 	return s, ok
@@ -334,12 +328,9 @@ func scalar(n *yaml.Node) (any, error) {
 // correctly, so the two readers of one file disagreed.
 const mergeKey = "<<"
 
-// mergeTarget resolves a `<<` value to the mapping it contributes.
-//
-// The SEQUENCE form is refused rather than implemented: YAML 1.1 gives EARLIER entries
-// precedence, the opposite of every other merge in use (`{...a, ...b}`, `{**a, **b}`, the CSS
-// cascade), so `<<: [*base, *override]` would silently do the reverse of what it reads as. One
-// anchor, or nesting, covers the same ground with no ambiguity.
+// mergeTarget resolves a `<<` value to the mapping it contributes. The SEQUENCE form is refused:
+// YAML 1.1 gives EARLIER entries precedence, so `<<: [*base, *override]` would silently do the
+// reverse of what it reads as. One anchor, or nesting, covers the same ground.
 func mergeTarget(n *yaml.Node) (*yaml.Node, error) {
 	if n.Kind == yaml.SequenceNode {
 		return nil, fmt.Errorf("line %d: `<<` takes a single mapping - a sequence is refused "+

@@ -69,13 +69,10 @@ func TestObjects_BigValueRoundTrip(t *testing.T) {
 	}
 }
 
-// TestObjects_DerefKeepsItForTheGraceWindow is the REVERSE of what this test asserted before
-// the object store was re-architected. It used to pin "a dereferenced object is deleted
-// immediately", which existed so a replaced secret did not linger. That property was given up
-// deliberately: reading now hands out references and fetching them is a second call, so
-// deleting at dereference means a client 404s on a reference the server gave it moments earlier.
-// Secret protection moved to recording and, ultimately, encryption at rest.
-// specs/object-store.md §Collection.
+// The REVERSE of what this test asserted before the object store was re-architected: "deleted
+// immediately at dereference" was given up, because reading now hands out references and fetching
+// them is a second call, so a client would 404 on a reference given moments earlier. Secret
+// protection moved to recording. specs/object-store.md §Collection.
 func TestObjects_DerefKeepsItForTheGraceWindow(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -360,17 +357,10 @@ func TestObjects_ReleasedObjectIsResurrectedByAReWrite(t *testing.T) {
 	}
 }
 
-// TestObjects_ResurrectionAgainstALiveSweeper drives release-then-resurrect concurrently with the
-// collector and asserts the invariant that matters: no instance is left holding a claim on
-// content that is gone.
-//
-// What it does NOT prove, stated so the coverage is not overread: that `PutObject` must be
-// ON CONFLICT DO UPDATE rather than DO NOTHING. That rule guards a specific interleaving — the
-// sweep deleting between a writer taking the conflict path and its claim becoming visible — and
-// swapping DO UPDATE for DO NOTHING does not fail this test, on either engine. The lock is
-// reasoned about in specs/object-store.md and would be pinned only by a deterministic
-// two-transaction interleaving, which needs a hook this package does not have. Kept because it
-// exercises the path and catches grosser breakage, not because it catches that.
+// Drives release-then-resurrect concurrently with the collector and asserts the invariant that
+// matters: no instance is left holding a claim on content that is gone. It does NOT prove that
+// `PutObject` must be ON CONFLICT DO UPDATE rather than DO NOTHING -- swapping them does not fail
+// this test on either engine; that interleaving is pinned by objectlock_test.go instead.
 func TestObjects_ResurrectionAgainstALiveSweeper(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -528,17 +518,11 @@ func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
 	}
 }
 
-// A resurrected object gets a FRESH window when it is released again -- the mark from its previous
-// release must not survive the re-claim.
-//
-// Without the clear, release -> sweep (marks) -> re-claim -> release leaves a mark already older
-// than the window, so the next sweep collects the content on the spot and a reference handed out
-// moments earlier resolves to nothing. The object is safe while it is CLAIMED (the delete checks
-// claims first), which is exactly why a stale mark stays invisible until the second release.
-//
-// Two things clear it, deliberately: PutObject's conflict path, which is the moment a writer
-// re-claims content and already writes the row to take its lock, and the sweep's own pass for a
-// claim added without re-writing content. specs/object-store.md.
+// A resurrected object gets a FRESH window when it is released again. Without the clear, release
+// -> sweep -> re-claim -> release leaves a mark already older than the window, and a stale mark
+// stays invisible until that second release because the object is safe while CLAIMED. Two things
+// clear it, deliberately: PutObject's conflict path and the sweep's own pass.
+// specs/object-store.md.
 func TestObjects_ResurrectionClearsTheReleaseMark(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -583,14 +567,10 @@ func TestObjects_ResurrectionClearsTheReleaseMark(t *testing.T) {
 }
 
 // The claim the sweeper never sees: marked, re-claimed and released again all BETWEEN two sweeps.
-//
-// Only the content upsert can catch this one. The sweep's own clear runs when it observes a live
-// claim, and here there is no observation to make — by the time the next sweep looks, the object
-// is unclaimed again and carrying a mark from before the claim it never saw. Left alone that mark
-// is already older than the window, so the content goes with no grace at all.
-//
-// PutObject's conflict path clears it because that is the instant the claim is made, and the row
-// is being written anyway to take the sweep's lock. specs/object-store.md.
+// Only the content upsert can catch this one -- the sweep's own clear needs a live claim to
+// observe, and by the next sweep the object is unclaimed again carrying a mark older than the
+// window. PutObject's conflict path clears it at the instant the claim is made.
+// specs/object-store.md.
 func TestObjects_AClaimBetweenTwoSweepsStillEarnsAWindow(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -620,17 +600,10 @@ func TestObjects_AClaimBetweenTwoSweepsStillEarnsAWindow(t *testing.T) {
 	}
 }
 
-// TestState_RoundTripsWhole pins that state is RECONSTRUCTIBLE: everything an instance holds
-// comes back from a write and a read unchanged -- the slots a definition declares, the slots
-// only the engine writes, and the values too large to sit inline.
-//
-// The set is CLOSED: encodeState handles these keys and no others, so a slot added to storage
-// without being added here has nothing asserting it survives, and a key outside the set is
-// dropped rather than stored. Both halves are checked, because the second is what makes the
-// first exhaustive rather than merely long.
-//
-// Values go in through the SAME decoder storage uses, so the comparison is of what was stored
-// against what came back, not of Go literals against decoded JSON.
+// State is RECONSTRUCTIBLE: everything an instance holds comes back from a write and a read
+// unchanged. The set is CLOSED, and both halves are checked -- a key outside it is dropped rather
+// than stored, which is what makes the first half exhaustive rather than merely long. Values go in
+// through the SAME decoder storage uses, so the comparison is of stored against read.
 func TestState_RoundTripsWhole(t *testing.T) {
 	// Past the 2 KiB cutoff, so at least one slot is reconstructed FROM THE OBJECT STORE rather
 	// than from the row -- a round trip that never externalizes anything proves the easy half.

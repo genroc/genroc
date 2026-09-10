@@ -130,19 +130,11 @@ func TestTokens_BootstrapIgnoresNonAdminTokens(t *testing.T) {
 	}
 }
 
-// The fleet race. Genroc runs as N workers against one database, so N replicas starting
-// together each see an empty table — without a transaction each mints an admin token, and N-1
-// are orphaned, unrevoked, and printed into logs nobody reads.
-//
-// **Two conditions, and it is worth knowing both.** It bites on POSTGRES ONLY: SQLite's single
-// writer serialises the two statements, so a green SQLite run says nothing here — the same
-// caveat internal/db/CLAUDE.md records for the object-store resurrection race. And it needs the
-// pool WARM, which in practice means the whole package running: dropping to READ COMMITTED was
-// caught in 4 of 4 full runs and 0 of 1 filtered `-run` runs, because 8 goroutines against a
-// cold pool serialise on connection acquisition instead of racing.
-//
-// So this is a real guard under `make test`-shaped runs and a weak one in isolation. Reproduce
-// a suspected regression with the full package, not with -run.
+// The fleet race: N replicas starting together each see an empty table and each mint an admin
+// token, N-1 of them orphaned and unrevoked. Two conditions to know -- it bites on POSTGRES ONLY
+// (SQLite's single writer serialises the two statements) and it needs the pool WARM, which in
+// practice means the whole package running: READ COMMITTED was caught in 4 of 4 full runs and 0 of
+// 1 `-run` runs. Reproduce a suspected regression with the full package, not with -run.
 func TestTokens_BootstrapRaceMintsExactlyOne(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

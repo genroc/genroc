@@ -28,13 +28,9 @@ func (e *Engine) context(inst *model.ProcessInstance) *model.Context {
 }
 
 // buildEnv assembles the expression environment for inst, resolving only what the expression
-// actually reads. Two axes, both from the static analysis in expression.Roots:
-//
-//   - a slot the expression never names is not included at all (the slot-level laziness);
-//   - a slot it only COPIES keeps its references, and one it reads THROUGH is materialized.
-//
-// The second is what lets a value pass through an advance untouched: the marker flows into the
-// evaluated result and on into the next write as the reference it already was, never loaded.
+// actually reads: a slot it never names is not included at all, and one it only COPIES keeps its
+// references where one read THROUGH is materialized. The second is what lets a value pass through
+// an advance untouched, reaching the next write as the reference it already was.
 // specs/lazy-context.md.
 func (e *Engine) buildEnv(inst *model.ProcessInstance, self any, roots expression.Roots) (map[string]any, error) {
 	ctx := e.context(inst)

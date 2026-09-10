@@ -14,10 +14,9 @@ import (
 // specs/language-server.md §2.
 var ErrUnknownValue = errors.New("the value is unknown (its schema is {})")
 
-// pathStep is one segment of a navigation path. The kind is an explicit tag
-// rather than something inferred from the fields: a property key is an arbitrary
-// JSON string, and once expressions can spell one (a["…"]) the empty key is
-// reachable and would otherwise be indistinguishable from index 0.
+// stepKind tags a pathStep explicitly rather than inferring it from the fields: a property key is
+// an arbitrary JSON string, so once expressions can spell one (a["…"]) the empty key is reachable
+// and would otherwise be indistinguishable from index 0.
 type stepKind uint8
 
 const (
@@ -30,6 +29,7 @@ const (
 	stepKey
 )
 
+// pathStep is one segment of a navigation path.
 type pathStep struct {
 	kind  stepKind
 	prop  string

@@ -272,21 +272,19 @@ func (e *Engine) prepareAdvance(inst *model.ProcessInstance) (*model.ProcessDefi
 	return def, idx, nil
 }
 
-// advance executes the next task in the instance's queue and returns the outcome to
-// persist (it does no lease-releasing write — runAdvance does). Each task may have a call
-// and/or a switch: the call runs first, then the switch evaluates with the call's output
-// as "self"; a matching case jumps to the named task, else the next task in the queue runs.
-// enterTask moves the instance to a task and counts the entry. EVERY transition goes
-// through it -- next, a goto, and a goto back to the task just run -- because TaskEpoch is
-// what addresses a spawned batch: assigning inst.Task directly leaves a re-entered child
-// task spawning a second batch under the epoch its predecessor already claimed, and the
-// collect then gathers both. Pointing at the task about to run (advance's loop head) is NOT
-// an entry: a parked parent resumes there to collect and must keep the epoch it spawned under.
+// enterTask moves the instance to a task and counts the entry. EVERY transition goes through
+// it -- next, a goto, and a goto back to the task just run -- because TaskEpoch is what
+// addresses a spawned batch: assigning inst.Task directly leaves a re-entered child task
+// spawning a second batch under the epoch its predecessor claimed. Pointing at the task about
+// to run (advance's loop head) is not an entry.
 func enterTask(inst *model.ProcessInstance, taskID string) {
 	inst.Task = taskID
 	inst.TaskEpoch++
 }
 
+// advance executes the next task in the instance's queue and returns the outcome to persist
+// (it does no lease-releasing write — runAdvance does). A task's call runs first, then its
+// switch evaluates with the call's output as "self".
 func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advanceOutcome {
 	if inst.Status == model.StatusFailing {
 		return e.settleFailing(inst)
@@ -347,18 +345,10 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 			}
 		}
 
-		// An only_once action is never executed in the same advance that MOVED to it. The
-		// row still names the task this advance was claimed at, and that name is all
-		// recovery has: reaching this one inline and running it would leave a crash
-		// indistinguishable from "never started", so prepareAdvance would re-run a request
-		// that already left. Checkpointing here makes the row name this task, which is the
-		// case the bracket already protects -- the next claim sees only_once, hardens, and
-		// runs it. Costs one claim round trip, and only for definitions that put an
-		// only_once action behind a call-less chain.
-		//
-		// The checkpoint itself need not be durable: losing it rewinds to before the action
-		// ran, and re-running the chain that led here is free.
-		// specs/durability-levels.md s4.
+		// An only_once action is never executed in the same advance that MOVED to it: the row
+		// still names the task this advance was claimed at, so a crash here would be
+		// indistinguishable from "never started". Checkpointing makes the row name this task,
+		// which the bracket already protects. specs/durability-levels.md s4.
 		if hasCall && i > 0 && interruptedOnlyOnce(task) {
 			return advanceOutcome{kind: outcomeProgress}
 		}
@@ -548,18 +538,10 @@ func (e *Engine) evalSwitch(inst *model.ProcessInstance, task *model.Task, selfO
 	return nil, nil
 }
 
-// Returns nil when there is no current task or the definition cannot be read. Callers
-// that must fail on a missing definition use prepareAdvance instead; this is for the
-// settle paths, which must not turn a transient read error into a failed process.
-// taskIsOnlyOnce resolves the flag from the definition, for the write that stores it. This
-// is the ONE place a definition is resolved for durability -- the claim path reads the
-// stored flag instead, which is the point of storing it.
-//
-// It recovers, and recovers to TRUE: persist runs after advanceGuarded, so a definition
-// malformed enough to panic (a null in `tasks`) reaches it having already failed the
-// instance, and must not take the worker down on the way out. True is the safe answer for
-// the same reason an unclassified write path syncs -- not knowing costs an fsync, never a
-// guarantee.
+// taskIsOnlyOnce resolves the flag from the definition, for the write that stores it -- the
+// ONE place a definition is resolved for durability. It recovers to TRUE: persist runs after
+// advanceGuarded, so a definition malformed enough to panic has already failed the instance
+// and must not take the worker down, and not knowing costs an fsync, never a guarantee.
 func (e *Engine) taskIsOnlyOnce(inst *model.ProcessInstance) (onlyOnce bool) {
 	defer func() {
 		if recover() != nil {
@@ -569,6 +551,9 @@ func (e *Engine) taskIsOnlyOnce(inst *model.ProcessInstance) (onlyOnce bool) {
 	return interruptedOnlyOnce(e.lookupTask(inst))
 }
 
+// lookupTask returns nil when there is no current task or the definition cannot be read: it
+// serves the settle paths, which must not turn a transient read error into a failed process.
+// Callers that must fail on a missing definition use prepareAdvance instead.
 func (e *Engine) lookupTask(inst *model.ProcessInstance) *model.Task {
 	if inst.Task == "" {
 		return nil

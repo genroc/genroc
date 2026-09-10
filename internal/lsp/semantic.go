@@ -1,14 +1,10 @@
 package lsp
 
-// Semantic tokens: which scalars in a definition actually compute, and what is inside them.
-//
-// This is the half a TextMate grammar cannot do. A grammar sees `"$: tick"` and nothing else —
-// whether that scalar evaluates depends on WHICH SLOT holds it, which is schema knowledge, so a
-// grammar highlights `id: "$: tick"` as an expression and is simply wrong. The server knows the
-// slot. specs/language-server.md §5.
-//
-// The expression's insides come from the language's own lexer (`syntax.Tokens`) and the marker
-// positions from the template scanner (`template.Scan`), so nothing here re-derives a rule.
+// Semantic tokens: which scalars in a definition actually compute, and what is inside them -- the
+// half a TextMate grammar cannot do, since whether a scalar evaluates depends on WHICH SLOT holds
+// it. The insides come from the language's own lexer (`syntax.Tokens`) and the marker positions
+// from the template scanner (`template.Scan`), so nothing here re-derives a rule.
+// specs/language-server.md §5.
 
 import (
 	"sort"

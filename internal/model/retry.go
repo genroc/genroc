@@ -19,20 +19,11 @@ const (
 	DefaultRetryMaxDelay = 5 * time.Minute
 )
 
-// Retry is an on_error rule's retry policy: how many attempts to make, and the backoff
-// curve between them. Three wire forms, the scalar desugaring to `attempts`:
-//
-//	retry: 3
-//	retry: {attempts: 5, delay: "30s", factor: 2, max_delay: "1h"}
-//	retry: {attempts: "$: config.retry_attempts", delay: "$: config.retry_delay_ms"}
-//
-// Every slot is optional and every slot also accepts a "$:" expression, which has no value
-// until the rule fires. Nothing may read a slot for its number: call Resolve once per error
-// and read the ResolvedRetry it returns, which carries the defaults already applied.
-//
-// Nothing may embed this type: an UnmarshalJSON on an embedded struct is promoted to the
-// outer one and silently eats the whole object (see Timeout, and the DelaySpec note in
-// CLAUDE.md).
+// Retry is an on_error rule's retry policy: how many attempts, and the backoff curve between
+// them. The scalar form desugars to `attempts`; every slot is optional and also accepts a "$:"
+// expression, which has no value until the rule fires. Nothing may read a slot for its number --
+// call Resolve once per error and read the ResolvedRetry, which carries the defaults. Nothing may
+// EMBED this type: the promoted UnmarshalJSON would silently eat the whole outer object.
 type Retry struct {
 	Attempts RetryNumber
 	Delay    RetryDuration
@@ -287,12 +278,9 @@ func (RetryNumber) JSONSchemaBytes() ([]byte, error) {
 }
 
 // RetryDuration is a fixed duration in a retry policy: "30s", "2h30m", a bare number of
-// milliseconds, or a "$:" expression evaluating to milliseconds. It keeps the literal it
-// was written as so a stored definition round-trips as authored.
-//
-// Calendar units are refused rather than resolved: the backoff curve scales this value and
-// compares it against a ceiling, and "1mo" is not a length until a timezone and a start
-// instant say so.
+// milliseconds, or a "$:" expression evaluating to milliseconds. It keeps the literal it was
+// written as, so a stored definition round-trips as authored. Calendar units are refused: the
+// backoff curve scales and compares this value, and "1mo" is not a length until a timezone says so.
 type RetryDuration struct {
 	src  any
 	d    time.Duration

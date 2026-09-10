@@ -39,87 +39,22 @@ type ChildEntry struct {
 }
 
 // Raises maps a raise code to the shape that code's fault data carries, declared by the
-// CALLER rather than the child — which is what keeps a generic child generic: it emits a
-// payload, and each caller says what it expects of it, exactly as result_schema narrows an
-// untyped output. specs/error-extensions.md §X2-c.
-//
-// The value is a schema, or **null** for a code whose fault carries no data. Null rather than
-// a boolean because this is a schema position and genroc has no boolean schemas: `true` there
-// is JSON Schema's "any value validates", the opposite of what it would mean here, and
-// `internal/schema` rejects the boolean form outright so that "closed" is always spelled by
-// absence. No payload is the absence of a schema.
-//
-// Null is DISTINCT from omitting the code, which declares nothing at all — no weight on a
-// child, where the raisable set comes from the child's own definition, but load-bearing on an
-// external task, whose raises IS the closed set of codes a worker may submit.
+// caller rather than the child. A nil value declares a code whose fault carries no payload,
+// which is distinct from omitting the code — on an external task the declared set is the
+// closed set of codes a worker may submit. specs/error-extensions.md §X2-c.
 type Raises map[string]*schema.Schema
 
-// Action describes how to invoke a task's action. It is a discriminated union on Type.
-//   - "fetch":      URL (required), Method (optional, default POST), Headers (optional),
-//     Query (optional), AcceptedStatus (optional), Body (optional), Responses (optional) — an HTTP call
-//     like fetch(url, {method, headers, body}); every field is an expression/shape, so the
-//     whole request can come from the context. The body is sent raw (an object as JSON).
-//     A fetch has no ResultSchema: Responses types the body per status instead.
-//   - "child":      Name (required), Version (optional), Input (optional), ResultSchema (optional),
-//     Raises (optional) —
-//     runs one named child process and waits for it; the result is that child's output directly
-//     (unwrapped), unlike child_map's keyed object. Use it when a task delegates to a single child.
-//   - "child_map":  Children (required, keyed map) — concurrent named child processes; the result is
-//     an object keyed by child name.
-//   - "child_list": Name (required), Over (required), Version (optional), ResultSchema (optional),
-//     Raises (optional) —
-//     runs one child per element of the Over array; each element is that child's input, and the
-//     collected result is an array of the children's outputs in the same order as Over.
-//   - "delay":      exactly one of For / Until (required), TZ (optional) — pauses the instance
-//     without holding a worker, then routes via switch. For is a duration from arm time
-//     ("2h30m", "1d 12h"); Until is an instant ("+2d 08:00", "*-*-01 08:00", "*:*:00" for
-//     every whole minute, RFC 3339). Both
-//     also accept a bare number (milliseconds for For, unix milliseconds for Until) and a
-//     "$:" expression inferring to number; a "${ }" interpolation is rejected, because it
-//     would produce a string at runtime. See internal/delayspec for the literal grammars.
-//   - "external":   Input (optional), ResultSchema (optional), Raises (optional) — parks the
-//     instance until an outside caller submits a result (or a failure) via the external-tasks
-//     API; no worker is held while waiting.
-//     An optional Task.Timeout (absent = wait forever) raises a catchable "external.timeout"
-//     error. It is the one place `until` is accepted: a deadline for a parked task is a real
-//     instant ("approve by Friday 17:00"), which no duration from arm time can express.
+// Action describes how to invoke a task's action, a discriminated union on Type. Required
+// per type: fetch — URL; child — Name; child_list — Name and Over; child_map — Children;
+// delay — exactly one of For/Until; external — nothing. Every other field belongs to the
+// types its own comment names, and validation rejects it elsewhere.
 //
-// Body (fetch) / Input (external): templated value evaluated against the current context —
-// the raw HTTP request body (fetch), or the snapshot exposed to the resolver via the
-// external-tasks queue (external).
+// The result differs per type: child yields the child's output unwrapped, child_map an object
+// keyed by child name, child_list an array in Over's order, fetch the response body typed by
+// Responses (a fetch has no ResultSchema), external whatever the worker submits.
 //
-// ResultSchema (child/child_list/external): when set, the result is validated before the
-// instance resumes (the submitted result, for external). Without it the result is available
-// only as "self" in this task's switch.
-//
-// Raises (child/child_list/external; child_map declares it per entry): raise code -> schema
-// for the payload that code's fault carries. A declared code makes it readable as error.data
-// in a rule that catches the code, an undeclared one leaves the slot absent, and the payload is
-// conformed when the fault resolves — a mismatch reports output.invalid in place of the code.
-// On an external task the code comes from the worker's /external-tasks/fail submission rather
-// than from a child, so the declared set is a contract with the worker, not a knowable set:
-// an undeclared code is accepted and reads as an absent slot, exactly as a child's does.
-// See specs/error-extensions.md §X2-c and specs/external-task-queue.md.
-//
-// Responses (fetch only): status pattern -> schema for the body that status carries. A 2xx
-// key types self.result AND makes that status accepted; a non-2xx key types error.data and
-// leaves the status routing through on_error. A present key with a nil schema ("202": null)
-// declares that the status carries no body; an empty schema ({}) declares one of unknown
-// shape. See specs/fetch-http-surface.md §2.
-//
-// A result_schema is also the one place an unknown is narrowed: a slot left as `{}`
-// (the top type — carried, never read) becomes readable when a consumer restates its
-// shape here, and the value is conformed against that shape at runtime.
-// See specs/unknown-type.md.
-//
-// Query (fetch only): a shape evaluating to a map of scalars, URL-encoded and APPENDED to the
-// url (which may already carry its own `?a=1`). A null value omits its parameter, so an
-// optional parameter needs no conditional; this is deliberately unlike Headers, where a null
-// is an error. Interpolating into the url instead escapes nothing, which is the bug class
-// this slot exists to close.
-//
-// AcceptedStatus (fetch only): a shape evaluating to an array of HTTP status patterns
-// treated as non-errors ("2xx".."5xx" or a 3-digit code). Defaults to any 2xx.
+// See specs/fetch-http-surface.md, specs/error-extensions.md §X2-c,
+// specs/external-task-queue.md, specs/unknown-type.md and internal/delayspec.
 type Action struct {
 	Type           ActionType                `json:"type"`
 	URL            string                    `json:"url,omitempty"`             // fetch: request URL (an expression)
@@ -139,38 +74,28 @@ type Action struct {
 	DelaySpec                                // delay: exactly one of for / until, plus tz
 }
 
-// DelaySpec is a target instant named by exactly one of two slots: `for` (a duration
-// measured from now) or `until` (an instant), both resolved in `tz`. It is the delay
-// action's entire payload and the object form of a task's Timeout, so a deadline is
-// written the same way wherever it appears. Grammars: internal/delayspec.
+// DelaySpec is a target instant named by exactly one of `for` (a duration from now) or
+// `until` (an instant), resolved in `tz`. Grammars: internal/delayspec.
 //
-// Do not give this type an UnmarshalJSON. Action embeds it, so the method would be
-// promoted and json would hand it the whole action object instead of the three slots —
-// every other action field would decode to nothing. Timeout wraps it precisely because
-// the wrapper can carry a decoder without Action inheriting one.
+// Do not give this type an UnmarshalJSON: Action embeds it, so the promoted method would be
+// handed the whole action object and every other action field would decode to nothing.
 type DelaySpec struct {
 	For   any    `json:"for,omitempty"`   // a duration — literal ("2h30m"), bare number of milliseconds, or $: numeric expression
 	Until any    `json:"until,omitempty"` // an instant — literal ("+2d 08:00"), bare number of unix milliseconds, or $: numeric expression
 	TZ    string `json:"tz,omitempty"`    // IANA name or fixed offset the calendar units of `for` / wall clocks of `until` resolve in
 }
 
-// JSONSchemaBytes returns Action's schema as a discriminated union so OpenAPI reflection
-// emits a proper oneOf. The headers slot's schema is GENERATED from the runtime target
-// via shape.RelaxedSchema ("literal or expression" at every node) so editor and validator
-// cannot drift; the slot description is merged onto the generated node.
-// queryValueSchema is what one query parameter may evaluate to: a scalar, null to omit it, or
-// an ARRAY of scalars, which repeats the parameter once per element (`?tag=a&tag=b`).
-// Scalars rather than strings-only because the null-omit is the point of the slot and does not
-// compose with `${ }` — interpolating a nullable is refused at registration — so a strings-only
-// target would make an optional NUMBER parameter unwritable.
+// queryValueSchema is what one query parameter may evaluate to: a scalar, null to omit the
+// parameter, or an array of scalars repeating it once per element (`?tag=a&tag=b`). Null is
+// allowed at either level; elements may be null because there is no filter builtin.
 func queryValueSchema() schema.Schema {
 	scalarOrNull := schema.Type("string", "number", "boolean", "null")
-	// null omits, at either level: as the whole value it drops the parameter, as an element it
-	// drops that repetition. Elements may be null because there is no filter builtin — refusing
-	// them would leave an author holding an array they cannot send.
 	return schema.AnyOf(scalarOrNull, schema.Array(scalarOrNull))
 }
 
+// JSONSchemaBytes returns Action's schema as a discriminated union so OpenAPI reflection emits
+// a oneOf. The relaxed slots are generated from their runtime targets so editor and validator
+// cannot drift.
 func (Action) JSONSchemaBytes() ([]byte, error) {
 	headers, err := relaxedHeadersSchema()
 	if err != nil {
@@ -369,18 +294,10 @@ var actionSchemaTemplate = `{
 		"discriminator": {"propertyName": "type"}
 	}`
 
-// Task is a single unit of work in a process definition.
-// Every task must have a switch (and optionally a call).
-//
-//   - Action-only (Action set, Switch present): executes the call, then routes via switch.
-//   - Switch-only (Action nil, Switch present): pure routing task with no external call.
-//   - Both: executes the call first, then evaluates the switch (with this task's output as "self").
-//
-// Switch is always required. Use the scalar shorthand ("next", "end", "$task-id") for
-// simple linear flow, or an array of cases for conditional branching.
-// The last case must always be a catch-all (no "case" expression).
-// "end" terminates the instance; "next" advances to the next task in the list
-// (invalid on the last task — use "end" instead); "$task-id" jumps to a named task.
+// Task is a single unit of work: an optional action, then a switch that routes on its result.
+// Switch is required — a task with no action is pure routing. Its scalar shorthand is "end"
+// (terminate), "next" (the following task, invalid on the last) or "$task-id" (jump); as an
+// array of cases the last must be a catch-all with no "case" expression.
 type Task struct {
 	ID       string      `json:"id"                 validate:"required" description:"Task identifier, unique within the definition."`
 	Action   *Action     `json:"action,omitempty"                        description:"Describes the action to perform. Omit for switch-only (routing) tasks."`
@@ -408,21 +325,10 @@ func (t *Task) OnlyOnceAction() bool {
 	return t != nil && t.Action != nil && t.OnlyOnce != nil && *t.OnlyOnce
 }
 
-// Raises returns the set of error codes this definition can raise, sorted. It is a
-// purely syntactic scan over every raise clause on every switch case and on_error rule
-// — Fault.Code is a literal (R2), so there is no dataflow and no fixpoint, and a
-// self-referencing (recursive) process terminates like any other.
-//
-// The set is statically exact, and where imprecise it errs safe: a raise on an
-// unreachable task inflates it, never the reverse. Callers use it two ways — R5 checks
-// a parent's on_error rules against the union over its children's raise sets, and the
-// definition endpoint publishes it, since with no `errors:` declaration block it is the
-// only answer to "what can this process raise?".
-//
-// Panic codes are deliberately excluded even though panics carry codes. This set is
-// what a parent may write rules against, and no rule can ever match a panic: a
-// panicking child is 'failed', so it poisons its ancestors and the parent never reaches
-// resolution. Including them would let R5 bless rules that can never fire.
+// Raises returns the set of error codes this definition can raise, sorted — a syntactic scan
+// over every raise clause, so it errs safe (a raise on an unreachable task inflates it).
+// Panic codes are excluded: a panicking child is 'failed', so no parent rule can ever match
+// one and including them would let R5 bless rules that cannot fire.
 func (d *ProcessDefinition) Raises() []string {
 	seen := map[string]struct{}{}
 	for _, t := range d.Tasks {
@@ -445,11 +351,10 @@ func (d *ProcessDefinition) Raises() []string {
 	return codes
 }
 
-// Normalize normalizes InputSchema and all task result schemas in-place (flatten $defs,
-// drop unused definitions, rewrite $refs). Process-level $defs are flattened first and
-// made visible to each schema, which comes out self-contained — the shared definitions
-// it uses baked into its own root $defs. A schema-local definition wins over a
-// process-level one of the same name (nearest-wins).
+// Normalize normalizes InputSchema and all task result schemas in-place (flatten $defs, drop
+// unused definitions, rewrite $refs). Each schema comes out self-contained, with the
+// process-level $defs it uses baked into its own root; a schema-local definition of the same
+// name wins.
 func (d *ProcessDefinition) Normalize() error {
 	if !d.Defs.IsZero() {
 		flat, err := d.Defs.Flatten()
@@ -565,11 +470,10 @@ func (c *Action) ResultRedactionSchema(status int) *schema.Schema {
 	return c.ResultSchema
 }
 
-// ValidateResponse validates a fetch response body against the schema declared for its
-// status and returns the normalized value. declared=false means no key covered the status,
-// which is not an error: an accepted status nobody described carries an untyped body, and an
-// unaccepted one simply has no error.data. Enforcement is uniform — a declared status whose
-// body does not conform is a failure on both channels, which is the caller's to raise.
+// ValidateResponse validates a fetch response body against the schema declared for its status
+// and returns the normalized value. declared=false means no key covered the status, which is
+// not an error — the body is simply untyped. A declared status whose body does not conform is
+// a failure on both channels, which is the caller's to raise.
 func (c *Action) ValidateResponse(status int, body any) (value any, declared bool, err error) {
 	sc, ok := c.ResponseFor(status)
 	if !ok {

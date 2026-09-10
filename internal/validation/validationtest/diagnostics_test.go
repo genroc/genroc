@@ -149,11 +149,8 @@ func TestAValidDefinitionHasNoDiagnostics(t *testing.T) {
 }
 
 // The test the whole address decision rests on: a diagnostic's address, handed to the lookup
-// `genctl schema context` answers from, names a slot that exists — so "what is wrong here" and
+// `genctl schema context` answers from, names a slot that exists -- so "what is wrong here" and
 // "what could I have written here" are asked of one place, in one grammar.
-//
-// This could not be written until SlotContexts stopped going through Generate: it refused every
-// document that did not infer, which is every document a diagnostic describes.
 // specs/language-server.md §2, §7b.
 func TestEveryDiagnosticAddressIsASlotTheContextViewNames(t *testing.T) {
 	for _, defJSON := range []string{twoBrokenActions, brokenOutputThenBrokenAction,

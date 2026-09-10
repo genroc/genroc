@@ -12,14 +12,10 @@ import (
 )
 
 // ArmExternalUnlessSignalled parks the instance on an external wait -- unless an answer is
-// already buffered for the task, in which case it leaves the row claimable so the next claim
-// consumes it through runExternal phase 2.
-//
-// It does NOT consume. The decision it makes is only park-or-not, and it must be atomic against a
-// concurrent delivery: a signal landing between "the buffer looked empty" and "we parked" would
-// find the row unparked, buffer without un-parking, and leave the instance asleep until its
-// timeout. Hence the row lock -- the same one DeliverSignal takes.
-// specs/external-outcome-as-signal.md.
+// already buffered, in which case it leaves the row claimable so the next claim consumes it.
+// It does NOT consume; the park-or-not decision must be atomic against a concurrent delivery,
+// which would otherwise buffer without un-parking and leave the instance asleep until its
+// timeout. Hence the row lock DeliverSignal also takes. specs/external-outcome-as-signal.md.
 func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.ProcessInstance, taskID string, input any, wakeAt *time.Time) (armed bool, err error) {
 	// Parking is an ordinary mid-process write. What must survive is the DELIVERY into
 	// this park, which is inbound and syncs on its own path (DeliverSignal, §4).
@@ -131,12 +127,9 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID string, outc
 	// tested: delivering to a paused instance stores the result and leaves it unclaimable —
 	// treating it as unarmed would buffer a result no re-arm will ever read.
 	armed := model.WaitState(waitState) == model.WaitStateExternal && currentTask == taskID
-	// A live lease means a worker is mid-advance on this row (a timeout firing); don't race
-	// it — buffer instead, and the signal is consumed if the task re-arms. A live external
-	// CLAIM is the same situation with a different holder — someone is working on this answer
-	// right now — so it gets the same treatment rather than a rule of its own. A signal is
-	// deliberately the unclaimed push route: it carries no handle to fence with, so deferring
-	// is the only way it cannot answer over a worker mid-flight.
+	// A live lease or a live external CLAIM both mean someone is mid-flight on this row; don't
+	// race either — buffer instead, and the signal is consumed if the task re-arms. A signal
+	// carries no handle to fence with, so deferring is the only way it cannot answer over them.
 	liveLeased := (workerID.Valid && leaseExpiresAt.Valid && leaseExpiresAt.Int64 > nowMillis()) ||
 		(extWorkerID.Valid && extLeaseExpiresAt.Valid && extLeaseExpiresAt.Int64 > nowMillis())
 

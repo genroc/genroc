@@ -81,13 +81,10 @@ func nullMillis(ms int64) sql.NullInt64 {
 // refusing anything a person could have typed.
 const minSecretBody = 32
 
-// ValidateTokenSecret refuses a secret genroc could never authenticate.
-//
-// This exists because a supplied secret is NOT symmetric with a generated one: LookupToken
-// requires the prefix, so storing a prefix-less value creates a row that can never be used —
-// while still counting as a live admin token, which permanently satisfies the bootstrap
-// condition. The result is a silent lockout with no way back except `genroc token create`.
-// Refusing at the boundary is the only place that cannot be forgotten.
+// ValidateTokenSecret refuses a secret genroc could never authenticate. LookupToken requires
+// the prefix, so a prefix-less row can never be used while still counting as a live admin token
+// -- a silent lockout that permanently satisfies the bootstrap condition. Refusing at the
+// boundary is the only place that cannot be forgotten.
 func ValidateTokenSecret(secret string) error {
 	if !strings.HasPrefix(secret, TokenPrefix) {
 		return fmt.Errorf("a token must start with %q (generate one with `genctl token generate`)", TokenPrefix)
@@ -128,12 +125,9 @@ func (db *DB) MintToken(ctx context.Context, label string, perms []string, expir
 }
 
 // LookupToken resolves a presented secret to the permissions it grants. ok=false covers both
-// "no such token" and "revoked" without saying which: a caller learning that a token EXISTED
-// but was revoked learns something about the deployment it has not authenticated to.
-//
-// The constant-time compare is belt-and-braces over an indexed equality lookup on a hash — the
-// query cannot leak a timing signal about the secret, and this stops one being introduced by a
-// later change to how the row is found.
+// "no such token" and "revoked" without saying which, so an unauthenticated caller learns
+// nothing about the deployment. The constant-time compare is belt-and-braces over an indexed
+// lookup on a hash: it stops a later change to how the row is found introducing a timing leak.
 func (db *DB) LookupToken(ctx context.Context, secret string) (APIToken, bool, error) {
 	if !strings.HasPrefix(secret, TokenPrefix) {
 		return APIToken{}, false, nil
@@ -198,26 +192,14 @@ func (db *DB) RevokeToken(ctx context.Context, id string, actor string) error {
 	return nil
 }
 
-// EnsureBootstrapToken mints an admin token when the deployment has no live one, and does
-// nothing otherwise. specs/api-auth.md §5.3.
+// EnsureBootstrapToken mints an admin token when the deployment has no live ADMIN one (a
+// deployment holding only worker tokens has locked its operators out). created reports whether
+// this call minted, so only the winner prints a credential. specs/api-auth.md §5.3.
 //
-// The condition is "no live ADMIN token", not "no tokens": a deployment holding only worker
-// tokens has locked its operators out and still needs a way back in.
-//
-// **A transaction is not enough, and SERIALIZABLE is the mechanism.** Genroc runs as a fleet
-// against one database, so N replicas start together and all count zero. Wrapping the count and
-// the insert in an ordinary transaction does NOT stop that: under Postgres's default READ
-// COMMITTED a COUNT takes no lock on rows that do not exist yet, so both transactions see zero
-// and both insert. Measured, not reasoned about — 8 replicas minted 8 admin tokens with the
-// plain transaction in place, and 1 with this. SQLite's single writer hides the whole problem,
-// which is why TestTokens_BootstrapRaceMintsExactlyOne is meaningless without POSTGRES_DSN.
-//
-// A loser therefore fails at COMMIT with a serialization error rather than returning cleanly,
-// and retrying is how it learns it lost: the next pass counts the winner's row and reports
-// created=false. A replica must not exit because it lost this race.
-//
-// created reports whether this call was the one that minted, so only the winner prints a
-// credential.
+// SERIALIZABLE is the mechanism, and a plain transaction is not enough: under READ COMMITTED a
+// COUNT takes no lock on rows that do not exist yet, so N starting replicas all see zero and
+// all insert. A loser fails at COMMIT and must retry rather than exit -- the next pass counts
+// the winner's row and reports created=false.
 func (db *DB) EnsureBootstrapToken(ctx context.Context, label string, secret string) (APIToken, bool, error) {
 	// Bounded: a loser needs one more pass to see the winner's row. More attempts than
 	// replicas would be a busy-wait on a contended row for no gain.
@@ -283,17 +265,11 @@ func (db *DB) tryBootstrapToken(ctx context.Context, label string, secret string
 	return tok, true, nil
 }
 
-// SeedToken ensures a token with this exact secret exists, granting perms under label. It is
-// how an operator supplies credentials they generated themselves — the secret never originates
-// inside genroc, so it never reaches its logs or rests in its container.
-//
-// Idempotent by SECRET, not by label: re-running with the same value is a no-op, and changing
-// the value mints a second token rather than mutating the first. Rotation is therefore additive
-// — the old credential keeps working until it is revoked, which is what lets a fleet roll
-// without a window where half the workers are refused.
-//
-// created reports whether this call inserted, so a caller can log the difference between
-// provisioning and a restart.
+// SeedToken ensures a token with this exact secret exists, granting perms under label -- how an
+// operator supplies credentials genroc never generated and so never logs. Idempotent by SECRET,
+// not by label: changing the value mints a second token rather than mutating the first, so
+// rotation is additive and a fleet can roll without a window where half the workers are
+// refused. created reports whether this call inserted.
 func (db *DB) SeedToken(ctx context.Context, label string, perms []string, secret string) (created bool, err error) {
 	if err := ValidateTokenSecret(secret); err != nil {
 		return false, fmt.Errorf("seed token %q: %w", label, err)

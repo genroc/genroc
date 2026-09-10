@@ -42,12 +42,9 @@ func n(o model.ExternalOutcome) float64 {
 	return f
 }
 
-// TestSignals_BufferThenConsumeFIFO covers the push/early case: signals delivered before the task
-// arms are buffered, the arm declines to park while any is waiting, and they are consumed in FIFO
-// order -- one per advance, each delete riding the write that acted on it. Runs on both engines.
-// FIFO has to hold when the outcomes arrive faster than created_at can tell them apart, which
-// is the normal case: two calls land in one millisecond and `seq` is the only thing separating
-// them. Ids do not sort, so a signal written without its seq falls back to nothing.
+// FIFO has to hold when the outcomes arrive faster than created_at can tell them apart, which is
+// the normal case: two calls land in one millisecond and `seq` is the only thing separating them.
+// Ids do not sort, so a signal written without its seq falls back to nothing.
 func TestSignals_ArrivingInOneMillisecondStayInOrder(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {

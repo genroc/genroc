@@ -13,18 +13,9 @@ import (
 	"testing"
 )
 
-// Package-level mutable state is reachable from every goroutine, and in Go a goroutine can
-// be created anywhere — so it must be synchronised whether or not anything is actually
-// shared, the synchronisation is invisible at the call site, and it is a GC root, which
-// turns "forgot to clean up" from a self-correcting bug into a permanent leak. It also
-// creates dependencies no signature declares, and cannot be reset by dropping an owner.
-//
-// The rule is narrower than "avoid globals": package-level is fine for VALUES (lookup
-// tables, compiled regexes, error sentinels, embedded files) and wrong for STATE. If it
-// changes after init, it wants an owner.
-//
-// Each exception below is a decision someone made on purpose. Adding one means writing
-// down which owner it could have had and why it does not — not appending a line.
+// Package-level is fine for VALUES and wrong for STATE: if it changes after init, it wants an
+// owner. The argument is in CLAUDE.md. Each exception below is a decision someone made on
+// purpose, so adding one means writing down which owner it could have had and why it does not.
 var allowed = map[string]string{
 	"template.cache": "memo of a pure function on the eval hot path; an owner would mean threading a " +
 		"cache through shape.Eval/Roots/infer and every recursive call. template_bench_test.go is the justification.",

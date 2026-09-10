@@ -300,12 +300,9 @@ func reachableDefs(pool map[string]any, from ...any) map[string]any {
 }
 
 // collapseAliases rewrites a ref to an alias-only definition — one whose whole document is a
-// `$ref` — as a ref to what it names, and drops it. Inference declares `<id>_output` for every
-// task because that name is what a self-referencing output resolves through; where the output
-// simply IS another definition, the leftover becomes a generated type alias saying nothing.
-//
-// pool and docs are rewritten IN PLACE, and docs must be EVERY document that can reference the
-// pool — one left out keeps a ref to a name no longer there.
+// `$ref` — as a ref to what it names, and drops it: inference declares `<id>_output` for every
+// task, and where the output simply IS another definition the leftover says nothing. pool and docs
+// are rewritten IN PLACE, and docs must be EVERY document that can reference the pool.
 func collapseAliases(pool map[string]any, docs ...any) {
 	alias := map[string]string{}
 	for name, def := range pool {

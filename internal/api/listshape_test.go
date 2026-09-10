@@ -5,20 +5,11 @@ import (
 	"testing"
 )
 
-// A LIST response must not carry a value that can be externalized, and therefore must not carry
-// an `objects` listing to explain one. A row that came back with a slot silently emptied is a
-// row a caller computes on and gets wrong -- and unlike a single-instance fetch there is no
-// obvious place to notice it. The single-instance endpoints are where an incomplete value
-// belongs, because they can list what was cut and the caller is asking about one thing.
-//
-// Two endpoints are exempt, and for the same reason: the externalized value IS what the caller
-// came for, so omitting it does not make the response complete, it makes it useless.
-//
-//	external-tasks  a worker claims a task to get its input
-//	logs            a log entry exists to carry its payload
-//
-// Anything else growing an `objects` field is a new exception and needs to argue for itself
-// here rather than arrive by inheritance from a shared struct.
+// A LIST response must not carry a value that can be externalized, and so must not carry an
+// `objects` listing to explain one: a silently emptied slot is a row a caller computes on and
+// gets wrong, with no obvious place to notice it. The two exemptions below are the cases where
+// the externalized value IS what the caller came for. Anything else growing an `objects` field
+// is a new exception and must argue for itself here.
 var listRowsMayBeIncomplete = map[string]bool{
 	"ExternalTaskResp": true,
 	"LogEntryResp":     true,

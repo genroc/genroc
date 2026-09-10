@@ -22,14 +22,10 @@ func externalTask(rs *schema.Schema) *model.Task {
 	return &model.Task{ID: "hold", Action: &model.Action{Type: model.ActionTypeExternal, ResultSchema: rs}}
 }
 
-// A result in flight is judged by CONTRACT optics, not storage optics, and the difference is
-// the whole point of this test.
-//
-// Stored state gets the tolerant relation because a migration can repair it: a required
-// nullable that the old version left absent is a gap MigrateState closes by writing the null
-// in. Nobody does that to a worker's submission — it arrives from outside, is conformed once
-// at the boundary, and an absent key is simply refused. So the relation for an in-flight
-// result must be the strict one, and this is the gap where the two disagree.
+// A result in flight is judged by CONTRACT optics, not storage optics. Stored state gets the
+// tolerant relation because MigrateState can repair the gap; nobody does that to a worker's
+// submission, which is conformed once at the boundary and refused if a key is absent. The case
+// below is where the two relations disagree.
 func TestInFlightResultBreaks_JudgesByContractNotByStorage(t *testing.T) {
 	// `a` optional becomes required-and-nullable.
 	from := schemaOf(t, `{"type":"object","properties":{"a":{"type":"string"}}}`)

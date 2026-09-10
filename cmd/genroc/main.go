@@ -131,12 +131,10 @@ func main() {
 	handlers := api.NewHandlers(database, eng)
 	srv := api.NewServer(handlers, log)
 
-	// The two credential types are independent and compose: genroc-ui's JWT identifies people,
-	// genroc's own tokens identify machines, and both arrive on `Authorization: Bearer`.
-	// specs/ui-issued-tokens.md.
-	//
-	// humanAuthOn suppresses the unauthenticated-exposure warning and the bootstrap mint: either
-	// means an operator already has a way in that does not need a printed credential.
+	// The two credential types compose: genroc-ui's JWT identifies people, genroc's own tokens
+	// identify machines, and both arrive on `Authorization: Bearer`. humanAuthOn suppresses the
+	// exposure warning and the bootstrap mint -- either means an operator already has a way in
+	// that needs no printed credential. specs/ui-issued-tokens.md.
 	humanAuthOn := false
 	var auths []api.Authenticator
 	if secret := os.Getenv("GENROC_JWT_SECRET"); secret != "" || *jwtSecretFile != "" {
@@ -334,8 +332,6 @@ func newLogger(level string, mode logview.Mode) *slog.Logger {
 	return slog.New(logview.NewHandler(os.Stderr, l, mode))
 }
 
-// exposedAddr reports whether a listen address can be reached from off-host. An empty host
-// (":8448") binds every interface, which is what a container publishes.
 // envOr is the fallback for the flags a container sets. A container passes environment, not
 // argv: an `environment:` block is one key per line and composes, where a `command:` array has
 // to restate every flag whenever one changes. The flag still wins when both are given.
@@ -346,6 +342,8 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+// exposedAddr reports whether a listen address can be reached from off-host. An empty host
+// (":8448") binds every interface, which is what a container publishes.
 func exposedAddr(addr string) bool {
 	if addr == "" {
 		return false

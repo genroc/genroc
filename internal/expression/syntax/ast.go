@@ -1,9 +1,6 @@
-// Package syntax defines the genroc expression AST and its parser.
-//
-// The language is small and every construct is an expression — there are no
-// statements. That is what lets `{...}` mean an object literal everywhere,
-// including directly as a lambda body, without JavaScript's `({...})`
-// workaround.
+// Package syntax defines the genroc expression AST and its parser. Every construct is an
+// expression — there are no statements — which is what lets `{...}` mean an object literal
+// everywhere, including directly as a lambda body.
 //
 //	literals    1, 1.5, "s", 'r', true, false, null
 //	identifier  input, outputs, config, self, error
@@ -15,17 +12,11 @@
 //	binary      ?? || && == != < > <= >= + - * / %
 //	ternary     c ? a : b
 //
-// Lexing is delegated to expr-lang's lexer, so string, number and escape rules
-// stay identical to expr-lang's across upgrades; only the grammar is ours. The
-// grammar diverges deliberately in two places: lambdas (expr-lang has no `=>`)
-// and `{...}` as an object literal in every position (expr-lang reads a leading
-// `{` in a predicate as a statement block). expr-lang's `#` pointer and the `.x`
-// predicate shorthand are rejected — a lambda names its parameter instead, which
-// is also the only way to reach an outer element from a nested lambda.
-//
-// Node types deliberately carry no source positions: parse errors report a
-// position from the token stream, while evaluation and inference errors are
-// reported against the whole expression, as they always have been.
+// Lexing is delegated to expr-lang's lexer, so string, number and escape rules cannot drift; only
+// the grammar is ours, diverging in lambdas and in `{...}` as an object literal in every position.
+// expr-lang's `#` pointer and `.x` shorthand are rejected — a lambda names its parameter, which is
+// also the only way to reach an outer element from a nested one. Nodes carry no source positions:
+// parse errors report from the token stream, everything else against the whole expression.
 package syntax
 
 type Node interface{ isNode() }

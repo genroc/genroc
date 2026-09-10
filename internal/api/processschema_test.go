@@ -10,13 +10,10 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 )
 
-// The published schema is what an editor loads (`# yaml-language-server: $schema=`), and it is
-// generated while the rules it describes are hand-written — so nothing but this compares them.
-// It drifted: `on_eror:` on a task and `tsaks:` at the root were accepted by the schema and
-// rejected by the server. specs/language-server.md §5.
-//
-// Scope is unknown keys, the one thing both can decide. Cross-field rules (a goto naming a real
-// task, catch-all-last) are not expressible in JSON Schema and are deliberately absent here.
+// The published schema is generated while the rules it describes are hand-written, so nothing
+// but this compares them — and it drifted (`on_eror:`, `tsaks:` accepted by one, rejected by the
+// other). Scope is unknown keys, the one thing both can decide; cross-field rules are not
+// expressible in JSON Schema. specs/language-server.md §5.
 func TestPublishedSchemaAgreesWithTheServerOnUnknownKeys(t *testing.T) {
 	for _, c := range []struct {
 		where  string

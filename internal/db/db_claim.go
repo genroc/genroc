@@ -16,13 +16,11 @@ import (
 // single bulk UPDATE would block all renewals behind one contended row).
 const renewChunkSize = 100
 
-// RenewWorkerLeases re-stamps this worker's leases on the listed instances (its held
-// set) to now+leaseDur, in small chunks so an advance's row lock stalls only its chunk.
-// An unlisted row expires with worker_id intact — the hand-back path. An empty list
-// still runs one no-op chunk, so success always proves the database was reachable.
-//
-// It returns the instant the expiries were derived from; record that, never the clock
-// after the call — the renewal can outlast the margin a staleness check leaves itself.
+// RenewWorkerLeases re-stamps this worker's leases on the listed instances to now+leaseDur, in
+// small chunks so an advance's row lock stalls only its chunk. An unlisted row expires with
+// worker_id intact — the hand-back path — and an empty list still runs one no-op chunk, so
+// success always proves the database was reachable. Record the instant it RETURNS, never the
+// clock after the call: the renewal can outlast the margin a staleness check leaves itself.
 func (db *DB) RenewWorkerLeases(workerID string, ids []string, leaseDur time.Duration) (time.Time, error) {
 	idsJSON, err := json.Marshal(ids)
 	if err != nil {
@@ -53,19 +51,15 @@ func (db *DB) RenewWorkerLeases(workerID string, ids []string, leaseDur time.Dur
 	}
 }
 
-// Takeover is how far back a claim may reach for rows some worker still holds: such a row
-// is claimable only if its lease expired at or before this instant (db-clock millis).
-// A worker that has just discovered it was not running passes SkipTakeover for a while, so
-// it does not steal rows from co-resident workers that froze with it and are about to
-// repair their own leases. See Engine.leaseGate.
+// Takeover is how far back a claim may reach for rows some worker still holds: such a row is
+// claimable only if its lease expired at or before this instant (db-clock millis). A worker
+// that has just discovered it was not running passes SkipTakeover for a while. See
+// Engine.leaseGate.
 //
-// It is an instant supplied by the caller rather than a flag the claim resolves against its
-// own clock, and that is the whole point: the caller decides from evidence that ages (the
-// pump pins it to the moment it last proved its own leases alive), so anything scheduled in
-// between — a GC pause, a descheduled goroutine — delays the claim without widening what it
-// may take. Re-reading the clock here would let that delay re-claim rows this worker is
-// still advancing — dooming the in-flight advance's write for nothing (the fence refuses
-// it as ErrLeaseLost).
+// It is an instant from the caller rather than a flag resolved against this clock, and that is
+// the point: the caller pins it to evidence that ages, so a GC pause between then and here
+// delays the claim without widening what it may take. Re-reading the clock would let that
+// delay re-claim rows this worker is still advancing.
 type Takeover int64
 
 // SkipTakeover claims only rows with no worker_id at all: no stamped lease can be at or
@@ -81,13 +75,10 @@ func AllowTakeover() Takeover { return TakeoverBefore(Now()) }
 // TakeoverBefore claims rows whose lease expired at or before t, alongside unheld rows.
 func TakeoverBefore(t time.Time) Takeover { return Takeover(t.UnixMilli()) }
 
-// ClaimInstances atomically leases up to limit runnable instances to workerID.
-// PostgreSQL appends FOR UPDATE SKIP LOCKED so concurrent workers never block;
-// SQLite's single-writer model needs no such clause. wait_state <> 'waiting'
-// excludes parents suspended for children; both ” (none) and 'collecting' are claimable.
-//
-// The ONLY place lease_epoch moves: a claim is a grant, and the bump fences out
-// whoever held the previous one. specs/lease-fencing.md.
+// ClaimInstances atomically leases up to limit runnable instances to workerID. PostgreSQL
+// appends FOR UPDATE SKIP LOCKED so concurrent workers never block; SQLite needs no such
+// clause. wait_state <> 'waiting' excludes parents suspended for children. The ONLY place
+// lease_epoch moves, fencing out whoever held the previous one. specs/lease-fencing.md.
 func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int, takeover Takeover) ([]*model.ProcessInstance, error) {
 	now := nowMillis()
 	leaseExpiry := now + leaseDur.Milliseconds()
@@ -100,13 +91,9 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 	ctx := context.Background()
 
 	// The two `?` are now (timer) and leaseCutoff (pinned by the caller — see Takeover).
-	// 'paused' is live-but-not-advanced and keeps wake_at; the draining states ignore theirs.
 	// The wake_at IS NULL branch excludes 'external': a no-timeout wait is the resolve API's.
-	//
-	// This list and migration 045's partial index are one predicate written twice: a status
-	// here but not there is never scanned, and a status there but not here is index churn on
-	// rows nothing claims. 'cancelling' is in both for the reason 'pausing' is -- a draining
-	// row is leased, so only a reclaim can settle one whose worker died.
+	// This list and migration 045's partial index are one predicate written twice -- a status
+	// in one but not the other is either never scanned or pure index churn.
 	const where = `status IN ('running', 'failing', 'pausing', 'cancelling')
 			  AND wait_state <> 'waiting'
 			  AND (status IN ('failing', 'pausing', 'cancelling')

@@ -71,12 +71,10 @@ func (db *DB) AppendLog(entry *model.LogEntry) error {
 }
 
 // AppendLogValue stores one audit row whose payload is a VALUE, cutting it like any other and
-// claiming each externalized piece for the row itself.
-//
-// A row with objects is written synchronously, row and claims in ONE transaction, rather than
-// through the buffer. The claim's owner is the row, so a buffered row would leave a claim whose
-// owner does not exist yet -- and the sweep, which retires exactly those, would take it. Rows
-// without objects (nearly all of them) keep the buffered path and its batching.
+// claiming each externalized piece for the row itself. A row with objects is written
+// synchronously, row and claims in ONE transaction: a buffered row would leave a claim whose
+// owner does not exist yet, and the sweep retires exactly those. Rows without objects keep the
+// buffered path.
 func (db *DB) AppendLogValue(entry *model.LogEntry, v any, target int64) error {
 	if v == nil {
 		return db.AppendLog(entry) // no payload, no envelope: the column stays empty
@@ -214,14 +212,10 @@ func (db *DB) detachLogs() []dbgen.InsertLogParams {
 	return batch
 }
 
-// writeLogBatch inserts rows in chunks of logBatchRows, one multi-row INSERT per chunk
-// (one round-trip per chunk instead of per event).
-//
-// syncStrict, not the always-sync default: the trail is best-effort by contract already —
-// a crash drops whatever was still buffered — so flushing each 5ms batch below `strict`
-// would buy a durability the rest of the audit path does not offer. It was also the single
-// largest remaining fsync source once instance writes were classified, because the flusher
-// commits far more often than instances complete.
+// writeLogBatch inserts rows in chunks of logBatchRows, one multi-row INSERT per chunk.
+// syncStrict, not the always-sync default: the trail is best-effort by contract already -- a
+// crash drops whatever was still buffered -- so flushing each 5ms batch would buy a durability
+// the rest of the audit path does not offer, at the cost of the largest fsync source left.
 func (db *DB) writeLogBatch(rows []dbgen.InsertLogParams) error {
 	ctx := context.Background()
 	// One transaction rather than one per chunk, so a batch is also all-or-nothing.
@@ -289,13 +283,9 @@ func (db *DB) ListLogs(instanceID string, opts LogQuery) ([]*model.LogEntry, Pag
 }
 
 // LogsFor answers a trail for one id: the whole TREE when the id names a root, that instance's
-// own rows otherwise. A tree is addressed by its ROOT here as it is everywhere else (requireRoot
-// gates pause/resume/retry/upgrade the same way), so a child id is a question about that child --
-// there is no walk left to answer a subtree hanging off one, which is the cost this removed.
-// flat asks a root for its own rows alone.
-//
-// An id whose instance is gone reads as not-a-root: its rows are still addressable by their own
-// instance_id, which is the most that can be said about them.
+// own rows otherwise (there is no walk left to answer a subtree hanging off a child). flat asks
+// a root for its own rows alone. An id whose instance is gone reads as not-a-root, its rows
+// still addressable by their own instance_id.
 func (db *DB) LogsFor(id string, flat bool, opts LogQuery) ([]*model.LogEntry, PageInfo, error) {
 	if !flat {
 		if root, err := db.q.GetInstanceRoot(context.Background(), id); err == nil && root == id {

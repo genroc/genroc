@@ -216,19 +216,11 @@ func parseInitArgs(args []string) (opts options, tag string, assumeYes bool) {
 	}, tag, assumeYes
 }
 
-// releaseTag names what a generated project pulls: the image tag AND the npm dist-tag, which are
-// published under the same names by release.yml. One rule for both, because two rules is what let
-// them disagree -- the images said `preview` (published only from a prerelease tag, so it named
-// nothing) while npm said `latest`.
-//
-// EXACT for a release, not a range. The resolver and genctl speak a manifest protocol
-// (specs/source-resolution.md), so the bundler that runs must be the one this genctl shipped
-// with -- a caret would let npm pick a newer resolver than the binary invoking it.
-//
-// A CHANNEL is not a version: `edge` is published from main and pins the matching bundler. A
-// plain `go build` has no counterpart of its own and takes `latest`, which is the right default
-// for anyone who is not developing genroc itself; `--version edge` is how they get main. Pinned
-// by TestReleaseTag, because this was wrong twice.
+// releaseTag names what a generated project pulls: the image tag AND the npm dist-tag, published
+// under the same names by release.yml -- one rule, because two let them disagree. EXACT for a
+// release, not a range: genctl and the resolver speak a manifest protocol, so a caret would let
+// npm pick a newer resolver than the binary invoking it. A plain `go build` takes `latest`, and
+// `--version edge` is how someone developing genroc gets main. Pinned by TestReleaseTag.
 func releaseTag() string {
 	switch {
 	case isSemver(version):
@@ -332,13 +324,10 @@ func randomPassword() (string, error) {
 	return string(out), nil
 }
 
-// writeSecrets generates what the stack cannot commit. This is the whole reason `--ui` exists as
-// a mode rather than one more template: the compose file it replaces ran a container as root
-// purely to mint these and chown them.
-//
-// 0644, so the images can read them as whatever uid they run as. That is a development default
-// and is stated as one in init's output -- the alternative is either a root container or a uid
-// pinned into a committed compose file.
+// writeSecrets generates what the stack cannot commit -- the whole reason `--ui` is a mode rather
+// than one more template. 0644, so the images can read them as whatever uid they run as: a
+// development default, stated as one in init's output, since the alternative is a root container
+// or a uid pinned into a committed compose file.
 func writeSecrets(dir string, evalNode bool) ([]string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err

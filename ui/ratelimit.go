@@ -7,15 +7,10 @@ import (
 	"time"
 )
 
-// Failure throttling for the password endpoint.
-//
-// It is the only guessable secret reachable from outside: a `genroc_sk_*` and the HMAC key are
-// both 256 bits of randomness, but a password is whatever someone chose. bcrypt slows a guess to
-// tens of milliseconds, which is not a limit -- it is a constant factor an attacker parallelises
-// away.
-//
-// Two keys, because they stop different attacks. Per-EMAIL stops one account being ground down;
-// per-ADDRESS stops one attacker spraying many accounts, which per-email counting never sees.
+// Failure throttling for the password endpoint -- the only guessable secret reachable from
+// outside, since bcrypt is a constant factor an attacker parallelises away rather than a limit.
+// Two keys, because they stop different attacks: per-EMAIL stops one account being ground down,
+// per-ADDRESS stops one attacker spraying many, which per-email counting never sees.
 
 const (
 	// Ten rather than five, and five minutes rather than fifteen. A person typing a generated
@@ -94,12 +89,10 @@ func (l *limiter) succeed(key string) {
 	delete(l.windows, key)
 }
 
-// clientIP is the address to count against, taken from the CONNECTION and never from a header.
-//
-// X-Forwarded-For is written by the client on a direct connection, so counting it would let an
-// attacker reset their own budget on every request -- worse than not limiting, because it looks
-// like a limit. Behind a proxy this collapses to one key for everyone, which throttles more than
-// intended rather than less, and the per-email limit is unaffected either way.
+// clientIP is the address to count against, taken from the CONNECTION and never from a header:
+// X-Forwarded-For is the client's to write on a direct connection, so counting it would let an
+// attacker reset their own budget every request. Behind a proxy this collapses to one key for
+// everyone, which throttles more than intended rather than less.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {

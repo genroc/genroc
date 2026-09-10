@@ -451,12 +451,9 @@ func runResolver(cfg projectConfig, rc resolverConfig, m manifest) ([]string, er
 
 // ── the pass ───────────────────────────────────────────────────────────────────
 
-// resolveDocs resolves every code-phase directive in docs, mutating them in place. mode
-// "build" splices the returned strings; mode "types" stops after the resolver has written
-// its declarations, which is what `genctl types` runs between applies.
-//
-// It returns the number of sites resolved; zero means nothing was imported and — the point
-// of the check — no work was done.
+// resolveDocs resolves every code-phase directive in docs, mutating them in place. mode "build"
+// splices the returned strings; mode "types" stops after the resolver has written its
+// declarations. It returns the number of sites resolved, so zero means nothing was imported.
 func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 	if len(docs) == 0 {
 		return 0, nil

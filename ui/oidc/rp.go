@@ -17,12 +17,10 @@ import (
 	"genroc/ui/jwks"
 )
 
-// The relying-party half of OIDC: discovery, the authorization-code exchange, and verifying an
-// ID token. This lives under ui/ and not in internal/ because the genroc SERVER has no use for
-// it -- it verifies tokens, it never obtains them. specs/ui-component.md.
-//
-// It RELAYS and never issues: there is no signing key here and no token minted. A provider that
-// cannot produce an ID token needs a broker in front (ui-component.md §5.1).
+// The relying-party half of OIDC: discovery, the authorization-code exchange, and verifying an ID
+// token. Under ui/ and not internal/ because the genroc SERVER verifies tokens and never obtains
+// them. It RELAYS and never issues -- no signing key here -- so a provider that cannot produce an
+// ID token needs a broker in front. specs/ui-component.md §5.1.
 
 // Provider is a discovered OIDC issuer plus the client credentials to talk to it.
 type Provider struct {
@@ -43,15 +41,11 @@ type discovery struct {
 	JWKSURI  string `json:"jwks_uri"`
 }
 
-// Config is what a deployment tells this component about its provider.
-//
-// Issuer is the only required endpoint field, and the three overrides exist for one real shape:
-// an issuer whose URL resolves differently from the browser than from this process. That is the
-// normal case for an IdP in Docker or behind split-horizon DNS -- the browser must reach a
-// front-channel address for the login form, while token exchange and key fetching happen from
-// here. Discovery publishes ONE set of URLs and cannot satisfy both, so the back-channel ones
-// are nameable. Issuer stays the front-channel value, because that is what `iss` carries and
-// what every token is validated against.
+// Config is what a deployment tells this component about its provider. Issuer is the only required
+// endpoint field; the three overrides exist for an issuer whose URL resolves differently from the
+// browser than from this process (an IdP in Docker, or split-horizon DNS), which discovery's one
+// set of URLs cannot satisfy. Issuer stays the FRONT-channel value, because that is what `iss`
+// carries and what every token is validated against.
 type Config struct {
 	Issuer       string // pinned; what `iss` must say
 	DiscoveryURL string // where to FETCH the document; defaults to Issuer + /.well-known/...
@@ -62,13 +56,10 @@ type Config struct {
 	Scopes       []string
 }
 
-// Discover reads the issuer's well-known document.
-//
-// The `issuer` it advertises is checked against the one configured, because discovery is fetched
-// over the network and a document that renames its own issuer would quietly move the value every
-// later token is validated against. That check is why DiscoveryURL is separate rather than the
-// issuer simply being rewritten: the document is fetched from wherever it lives, and still has
-// to name the issuer we pinned.
+// Discover reads the issuer's well-known document, checking the `issuer` it advertises against the
+// configured one: fetched over the network, a document that renames its own issuer would quietly
+// move the value every later token is validated against. That is why DiscoveryURL is separate --
+// the document is fetched from wherever it lives and still has to name the issuer we pinned.
 func Discover(ctx context.Context, cfg Config) (*Provider, error) {
 	issuer, clientID, clientSecret, scopes := cfg.Issuer, cfg.ClientID, cfg.ClientSecret, cfg.Scopes
 	u := cfg.DiscoveryURL
@@ -247,13 +238,10 @@ type verified struct {
 	raw    jwt.MapClaims
 }
 
-// Verify checks the signature, issuer, audience and expiry of an ID token. When nonce is
-// non-empty it must match the claim, which is what binds a token to the login that requested it.
-//
-// genroc-ui verifies even though the genroc server will verify again. The duplication is not
-// belt-and-braces: without it a tampered cookie claiming a future expiry would be attached to
-// every request, refused by the server, and drive the browser into a redirect loop that looks
-// like a broken login rather than a bad cookie.
+// Verify checks the signature, issuer, audience and expiry of an ID token; a non-empty nonce must
+// match the claim, which binds a token to the login that requested it. genroc-ui verifies even
+// though the server will verify again: without it a tampered cookie claiming a future expiry would
+// drive the browser into a redirect loop that looks like a broken login rather than a bad cookie.
 func (p *Provider) verify(ctx context.Context, raw, nonce string) (*verified, error) {
 	claims := jwt.MapClaims{}
 	parser := jwt.NewParser(

@@ -157,12 +157,9 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 	if err != nil {
 		return errReply(err)
 	}
-	// No redaction here. `secret: true` keeps a value out of the server's stdout, where an
-	// operator reads it without asking; an API response is someone asking. specs/object-store.md
-	// §Redaction.
-	//
-	// Rooted at "state", the field these paths point into on THIS response. Externalized slots
-	// leave it entirely and are listed instead, at the path they belong to.
+	// No redaction here: `secret: true` keeps a value out of stdout, where an operator reads it
+	// without asking; an API response is someone asking. Paths are rooted at "state", the field
+	// they point into on THIS response. specs/object-store.md §Redaction.
 	var objects []ObjectEntry
 	state, _ := extractObjects(inst.State, []any{"state"}, &objects).(map[string]any)
 	if state == nil {
@@ -381,14 +378,9 @@ func instanceSummaryToResp(s *model.InstanceSummary) InstanceSummaryResp {
 
 // spawnPlaceholder shapes the child rows the way the spawning action does: a bare id for a
 // single child, an object keyed by entry for a child_map, an array in spawn order for a
-// child_list. One task, one shape -- so a reader branches on the action type it already knows
-// from the definition, never on what the value happens to look like.
-//
-// RETIRED ATTEMPTS ARE SKIPPED. A retried slot has more than one row (s5.5/s12) and only the
-// live one occupies it; including them makes a child_list longer than its fan-out and hands a
-// single `child` the attempt it replaced, because the retired row is the older of the two.
-// The attempts themselves stay discoverable through the instance listing, which returns every
-// row carrying this parent_id.
+// child_list -- so a reader branches on the action type, never on what the value looks like.
+// RETIRED ATTEMPTS ARE SKIPPED, or a child_list comes out longer than its fan-out; they stay
+// discoverable through the instance listing.
 func spawnPlaceholder(kids []db.ChildSpawn, shape map[string]model.ActionType) map[string]any {
 	if len(kids) == 0 {
 		return nil

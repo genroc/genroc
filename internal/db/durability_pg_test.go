@@ -85,15 +85,11 @@ func TestDurability_PostgresStrictNeverRelaxes(t *testing.T) {
 // fsync counter, because "it committed" is not the same claim as "it reached the disk" --
 // and if it did not, the only_once bracket silently stops protecting anything.
 
-// A test that Flush's Postgres path reaches the disk is deliberately absent, with the
-// reason recorded so nobody spends the afternoon I spent on it. pg_stat_wal is published
-// asynchronously (a live pooled backend's flushes are invisible until it reports) AND it
-// counts the whole cluster (autovacuum and the WAL writer move it on their own), so the
-// obvious before/after assertion passes unchanged with the flush removed. What the path
-// rests on is a Postgres guarantee rather than genroc behaviour -- a transaction that has
-// assigned an XID is flushed at commit when synchronous_commit is on -- and
-// TestDurability_PostgresStrictNeverRelaxes already pins the half that is ours: that Flush
-// does not run relaxed. Verified by hand instead, and reproducible:
+// A test that Flush's Postgres path reaches the disk is deliberately absent: pg_stat_wal is
+// published asynchronously AND counts the whole cluster, so the obvious before/after assertion
+// passes unchanged with the flush removed. The path rests on a Postgres guarantee rather than
+// genroc behaviour, and TestDurability_PostgresStrictNeverRelaxes pins the half that is ours.
+// Verified by hand instead, and reproducible:
 //
 //	psql -c "select pg_stat_reset_shared('wal')"
 //	for i in $(seq 1 20); do psql -c "begin; select pg_current_xact_id(); commit;"; done

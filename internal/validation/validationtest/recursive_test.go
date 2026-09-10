@@ -6,12 +6,10 @@ import (
 	"testing"
 )
 
-// A self-referential output types by fixpoint: the task's own previous output is in scope while
-// its type is still being solved, so the estimate has to converge. specs/recursive-type-inference.md.
-//
-// Each case is a whole PROCESS, run through Generate — the path that actually types a definition.
-// The recursion is what a loop back to the task creates: its own output becomes readable and
-// optional, which is what makes `?? <default>` the base case and its absence a refusal.
+// A self-referential output types by fixpoint: the task's own previous output is in scope while its
+// type is still being solved, so the estimate has to converge. Each case is a whole PROCESS run
+// through Generate, and the recursion is what a loop back to the task creates -- which is what
+// makes `?? <default>` the base case and its absence a refusal. specs/recursive-type-inference.md.
 
 // loopingDef builds a process whose task `id` outputs exprs and routes back to itself. A sibling
 // runs first when one is given, so `outputs.<sibling>` is available and required where the task's

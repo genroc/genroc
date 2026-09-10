@@ -117,14 +117,11 @@ func Generate(def *model.ProcessDefinition) (SchemaFile, error) {
 	return sf, nil
 }
 
-// Check runs inference and returns every diagnostic it found, addressed by slot, AND the view
-// it managed to build. A slot whose own analysis failed types as {} for everything downstream,
-// so one broken expression costs its own diagnostic and not the rest of the pass.
-//
-// The partial view is the point, not a leftover: a document mid-edit is what an editor asks
-// about, and schema-command.md §1 has always said this side answers "as far as inference gets".
-// Only the two failures that leave nothing to describe — a definition that will not normalise,
-// or a context that will not build — return an empty one. specs/language-server.md §2, §7b.
+// Check runs inference and returns every diagnostic it found, addressed by slot, AND the view it
+// managed to build. A slot whose own analysis failed types as {} downstream, so one broken
+// expression costs its own diagnostic and not the pass. The partial view is the point — a
+// document mid-edit is what an editor asks about — and only a definition that will not normalise
+// or a context that will not build returns an empty one. specs/language-server.md §2, §7b.
 func Check(def *model.ProcessDefinition) (SchemaFile, Diagnostics) {
 	b := newBag()
 	if err := def.Normalize(); err != nil {

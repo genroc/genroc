@@ -1,19 +1,13 @@
 package main
 
 // genctl upgrade: move every live tree of a process to another version, or the one tree an
-// instance id names.
+// instance id names. There is no --dry-run -- compat answers the question before anything is
+// applied, and a per-instance rehearsal is stale the moment it prints. What stands in for it is
+// the shape of the real run: one atomic transaction per tree, idempotent.
 //
-// There is no --dry-run: compat answers "is this change safe to deploy" over two
-// documents, before anything is applied, and a per-instance rehearsal over RUNNING
-// instances is stale the moment it prints -- they advance to another task and the answer
-// changes. What stands in for it is the shape of the real run: one atomic transaction per
-// tree, idempotent, so a partial sweep is repaired by running it again.
-//
-// The server moves ONE tree per call and only settles instances (paused or failed), so the
-// sweep is the client's job: find the roots still on the old version, pause the running
-// ones, move them, and put back the ones it paused. Doing it here rather than server-side
-// keeps the endpoint a single transaction over a single tree -- a server-side sweep would
-// hold one open across an unbounded number of them.
+// The server moves ONE tree per call and only settles instances, so the sweep is the client's job:
+// find the roots still on the old version, pause the running ones, move them, put back the ones it
+// paused. Server-side, that sweep would hold a transaction open across unboundedly many trees.
 
 import (
 	"encoding/json"

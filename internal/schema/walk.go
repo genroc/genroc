@@ -29,20 +29,15 @@ type childSlot struct {
 	kind slotKind
 }
 
-// mapChildren applies fn to every direct sub-schema of n and returns a copy carrying the
-// results; n is not modified. It is the single definition of where sub-schemas live — a
-// new sub-schema keyword is added HERE and every structural walk picks it up, which is
-// the point: five walks used to enumerate the keywords independently and a missed one
-// failed silently (an unstripped $defs cycles the marshaler, an uncanonicalized subtree
-// stops the inference fixpoint converging).
+// mapChildren applies fn to every direct sub-schema of n and returns a copy carrying the results;
+// n is not modified. It is the single definition of where sub-schemas live, so a new sub-schema
+// keyword is added HERE and every structural walk picks it up -- enumerating them per walk failed
+// silently when one was missed.
 //
-// fn drives its own recursion and steers by slot — `if sl.kind != slotBare { return c }`
-// leaves a subtree alone. It sees nil children, which only malformed input has (checkDoc
-// rejects them). A nil result drops the entry from a list slot and clears a single-valued
-// one, but keeps a map key with a nil value; that is what each walk did by hand.
-//
-// Map slots are visited in sorted key order, so a walk that accumulates or reports the
-// first error is deterministic without having to say so.
+// fn drives its own recursion and steers by slot. It sees nil children, which only malformed
+// input has. A nil result drops the entry from a list slot and clears a single-valued one, but
+// keeps a map key with a nil value. Map slots are visited in sorted key order, so a walk that
+// reports the first error is deterministic.
 func mapChildren(n *node, fn func(childSlot, *node) *node) *node {
 	m := *n
 	if n.Properties != nil {

@@ -271,12 +271,10 @@ func renderSegments(segs []schema.Segment) string {
 	return out
 }
 
-// newTaskScopes rebuilds the checker's own scope builder off a finished SchemaFile. These are
-// not contexts LIKE the ones it used: they come from the same constructors it calls.
-// newTaskScopes builds the context view from what inference MANAGED, not from a clean pass:
-// the document an editor asks about is usually mid-edit, and refusing to answer for it is what
-// schema-command.md §1 says this side does not do. A slot inference could not type reads as {},
-// which navigates and answers like any other unknown.
+// newTaskScopes rebuilds the checker's own scope builder off a finished SchemaFile — not
+// contexts LIKE the ones it used, but the same constructors. It builds from what inference
+// MANAGED, since the document an editor asks about is usually mid-edit; a slot inference could
+// not type reads as {}. specs/schema-command.md §1.
 func newTaskScopes(def *model.ProcessDefinition) (taskScopes, error) {
 	// Diagnostics are DISCARDED, not swallowed: this view answers "what can be read here",
 	// and Check has already recovered every slot it could not type as {}. A caller that also
@@ -292,14 +290,10 @@ func newTaskScopes(def *model.ProcessDefinition) (taskScopes, error) {
 }
 
 // CheckSlotRoots reports whether an expression written at address may READ what it names, with
-// the message registration would give: `self.result` before the action answers, a previous
-// output no path returns to, a result the action never types. Inference alone answers those with
-// "field not found", which names the member and not the rule.
-//
-// The availability half only, and only where the address names a SLOT: past that it has walked
-// inside one, where no expression is being written and there is nothing to check. A slot's
-// required TYPE is never checked — that is per slot, and one context serves many
-// (specs/schema-command.md §2).
+// the message registration would give rather than inference's "field not found". The
+// availability half only, and only where the address names a SLOT: past that it has walked
+// inside one, where no expression is being written. A slot's required TYPE is never checked --
+// that is per slot, and one context serves many. specs/schema-command.md §2.
 func CheckSlotRoots(def *model.ProcessDefinition, address, expr string) error {
 	segs, err := schema.ParsePath(address)
 	if err != nil {
@@ -348,12 +342,9 @@ func taskSlot(id, phase string) string {
 }
 
 // ruleSlot keys a rule by its index rather than indexing an array: `items` is one schema for
-// every element, so an array could not carry a different context per rule.
-//
-// Dotted, not JoinPath's `["0"]`: a bare segment is always a property name, so `.0` round-trips,
-// and an address is not an expression — `tasks.my task.output` is not one either. The reason to
-// prefer it is the shell: `[0]` is a glob, and zsh refuses the whole command with "no matches
-// found" before genctl sees it. Both bracket forms still parse.
+// every element, so an array could not carry a different context per rule. Dotted, not
+// JoinPath's `["0"]`, because `[0]` is a shell glob zsh refuses before genctl sees it; both
+// bracket forms still parse.
 func ruleSlot(id string, i int) string {
 	return taskSlot(id, slotOnError) + "." + strconv.Itoa(i)
 }

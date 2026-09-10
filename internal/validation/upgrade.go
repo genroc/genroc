@@ -1,14 +1,9 @@
 package validation
 
-// Moving an instance to another version of its definition.
-//
-// compat builds a schema per task -- one layer for each state an instance could be sitting
-// in, because a report has to speak about all of them at once. An upgrade is the opposite
-// situation: the instance is in exactly one state, so exactly one layer applies. Take that
-// layer from the version it is moving TO and conform the stored state through it. The
-// result is the state to write, and the validator's refusal is the reason it cannot move --
-// there is no second predicate beside it to fall out of step.
-// specs/version-compatibility.md s1.
+// Moving an instance to another version of its definition. compat builds a layer per task
+// because a report speaks about every state at once; an upgrade's instance is in exactly one,
+// so one layer from the version it moves TO conforms the stored state, and the validator's
+// refusal is the reason it cannot move. specs/version-compatibility.md s1.
 
 import (
 	"fmt"
@@ -17,22 +12,15 @@ import (
 	"genroc/internal/schema"
 )
 
-// MigrateState conforms an instance's stored state to `to`, returning the state to write.
+// MigrateState conforms an instance's stored state to `to`, returning the state to write. The
+// mode is ConformToSchemaExactly, not Strict: this is data already written, so it closes the
+// null-versus-missing gap and fills no defaults (one filled into a half-run instance disagrees
+// with every value computed in its absence).
 //
-// The mode is ConformToSchemaExactly, not Strict: this is a migration of data already written,
-// not a document arriving at a boundary. It closes the null-versus-missing gap in both
-// directions and does NOT fill defaults (one filled into a half-run instance disagrees with
-// every value already computed in its absence).
-//
-// The layer is deliberately PARTIAL: it describes the slots a definition owns -- input, outputs,
-// error -- and the engine's own bookkeeping is not its business. So the conform strips what the
-// layer cannot see, and this puts the untouched half back. Inside what it CAN see the schema is
-// complete, which is what prunes the output of a task the target version no longer has: nothing
-// on the new version can read it (an expression naming it is refused at registration), so
-// carrying it forward stores weight that only grows and pins whatever it references.
-// load resolves an externalized value by content hash. It is a PARAMETER rather than a
-// contract on the caller because the conform below is what makes it necessary, and a caller
-// that forgot got a type error naming *model.ObjectRef instead of an answer.
+// The layer is deliberately PARTIAL -- the slots a definition owns, not the engine's
+// bookkeeping -- so the conform strips what it cannot see and this puts the untouched half back.
+// Inside what it CAN see the schema is complete, which prunes the output of a task the target
+// version no longer has. load resolves an externalized value by content hash.
 func MigrateState(to *model.ProcessDefinition, task string, state map[string]any, load func(hash string) (any, error)) (map[string]any, error) {
 	if task == "" {
 		return nil, fmt.Errorf("instance holds no task to resume at")
@@ -74,20 +62,13 @@ func MigrateState(to *model.ProcessDefinition, task string, state map[string]any
 }
 
 // InFlightResultBreaks reports why a task that is PARKED MID-FLIGHT cannot move between two
-// versions. It is the half MigrateState cannot see: a layer describes the state an instance
-// HOLDS, and a parked task also has a result on its way back that nothing on the row records.
-// A worker was handed the old version's contract and will answer against it, so the new
-// version has to accept what the old one promised -- `old ⊆ new`, the same relation and the
-// same direction registration uses.
+// versions -- the half MigrateState cannot see, since a parked task has a result on its way back
+// that nothing on the row records. The new version must accept what the old one promised:
+// `old ⊆ new`, registration's relation and direction. Only the UPGRADE member is returned.
 //
-// Only the UPGRADE member is returned. The same difference is also a contract break for
-// callers, but that is registration's business and gates a different thing.
-//
-// What it CANNOT check is the request. `input` is an expression, the worker already holds the
-// value it produced under the old version, and deciding whether the new one would have asked
-// the same question means evaluating it against this instance's state -- which only the engine
-// can do, at arm time. So this guarantees a result the worker was entitled to produce is still
-// accepted, never that it was asked the right question.
+// It cannot check the REQUEST: deciding whether the new version would have asked the same
+// question means evaluating `input` against this instance's state, which only the engine can do
+// at arm time.
 func InFlightResultBreaks(from, to *model.Task) []Issue {
 	if from == nil || to == nil {
 		return nil

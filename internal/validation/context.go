@@ -38,9 +38,6 @@ type terminalEnd struct {
 	errMax bool
 }
 
-// outputTerminals: one entry per way of ending. Kept apart because outputContextSets
-// INTERSECTS must-sets, destroying the correlation that lets `outputs.a.v ?? outputs.b.v`
-// type non-null when a and b cover every terminal. specs/path-sensitive-output.md.
 // taskScopes is everything a context at a task is built from, so the checker and the
 // addressable view (slots.go) cannot build one differently: one constructor per phase, and the
 // phases are specs/task-scopes.md's. Held together by TestSlotContextsAreTheCheckersOwn.
@@ -172,6 +169,9 @@ func (sc taskScopes) rule(t *model.Task, ec model.ErrorCase) schema.Schema {
 	return addPreviousOnly(ctx, t, sc.loops(t)).WithDefs(sc.defs)
 }
 
+// outputTerminals: one entry per way of ending. Kept apart because outputContextSets
+// INTERSECTS must-sets, destroying the correlation that lets `outputs.a.v ?? outputs.b.v` type
+// non-null when a and b cover every terminal. specs/path-sensitive-output.md.
 func outputTerminals(def *model.ProcessDefinition) []terminalEnd {
 	tasks := def.Tasks
 	n := len(tasks)
@@ -366,10 +366,6 @@ func checkReachability(tasks []*model.Task) error {
 	return nil
 }
 
-// computeContextSets computes, for each task, which prior task outputs are
-// always available (required) and which are only sometimes available (optional).
-// It also returns mustErr and mayErr maps indicating whether the `error` context
-// key is always / sometimes present at each task.
 // errSource names one on_error rule that can have set the `error` a task reads: the task the
 // rule belongs to, and its index in that task's OnError slice.
 type errSource struct {
@@ -377,6 +373,9 @@ type errSource struct {
 	rule int
 }
 
+// computeContextSets computes, per task, which prior task outputs are always available
+// (required) and which only sometimes (optional), plus whether the `error` key is always
+// (mustErr) or sometimes (mayErr) present there.
 func computeContextSets(tasks []*model.Task) (required, optional map[string][]string, mustErr, mayErr map[string]bool, errSrc map[string][]errSource) {
 	n := len(tasks)
 	required = make(map[string][]string, n)

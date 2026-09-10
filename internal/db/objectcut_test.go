@@ -126,14 +126,10 @@ func TestCut_CoarsensAndNeverNestsARefInsideAnObject(t *testing.T) {
 	}
 }
 
-// Dedup depends on two processes choosing the SAME cut for the same value. Go's map iteration is
-// randomized, so a tie resolved by iteration order would produce different objects for identical
-// content and share nothing -- quietly, since both still work.
-//
-// There are TWO independent defences and this catches losing both, not either: children are
-// built in sorted key order, and equal candidates break their tie on path. Verified by removing
-// each in turn (still deterministic) and then both (fails here). Keep both -- a single defence
-// with no second is one edit from silent unsharing.
+// Dedup depends on two processes choosing the SAME cut for the same value, and Go's map iteration
+// is randomized, so a tie resolved by iteration order shares nothing -- quietly, since both still
+// work. TWO independent defences (sorted key order, ties broken on path) and this catches losing
+// BOTH, not either. Keep both: a single defence is one edit from silent unsharing.
 func TestCut_IsDeterministicAcrossEqualCandidates(t *testing.T) {
 	build := func() map[string]any {
 		m := map[string]any{}
@@ -199,13 +195,10 @@ func TestCut_DoesNotMutateTheCallerValue(t *testing.T) {
 	}
 }
 
-// A ref must never end up inside an object's CONTENT. Content is opaque — nothing walks into it
-// to resolve a marker, and the marker also drops out of the referenced set the next write diffs
-// against, so its claim is released while the content still points at it. The cut therefore may
-// not coarsen over a value that was already external when it was read.
-//
-// This is the shape an accumulator reaches: each element externalized on an earlier write, one
-// new element inline, and a slot still over target. specs/object-store.md.
+// A ref must never end up inside an object's CONTENT: content is opaque, so nothing resolves the
+// marker, and it drops out of the referenced set the next write diffs against -- releasing its
+// claim while the content still points at it. The shape below is what an accumulator reaches.
+// specs/object-store.md.
 func TestCutForSize_NeverBuriesAnAlreadyExternalRefInsideAnObject(t *testing.T) {
 	arr := make([]any, 0, 25)
 	for i := 0; i < 24; i++ {

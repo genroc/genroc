@@ -478,12 +478,10 @@ func TestStress_CancelProcess_vs_FailInstanceAndAncestors(t *testing.T) {
 	t.Logf("ran %d iterations: %d ok, %d deadlock", iterations, successCount, deadlockCount)
 }
 
-// Cancel racing pause on ONE tree. Both take the same rows in the same order under FOR UPDATE,
-// so they serialize — and either serial order ends the same way, which is the precedence the
-// design claims: pause first leaves 'paused', which cancel's selector then takes; cancel first
-// leaves 'cancelled', which pause's 'running'-only selector cannot touch. So the tree is
-// ALWAYS cancelled, whichever won. A run where some interleave left it merely paused would
-// mean an operator's final stop had been silently downgraded to a reversible one.
+// Cancel racing pause on ONE tree. Both take the same rows in the same order under FOR UPDATE, and
+// either serial order ends cancelled: pause first leaves 'paused', which cancel's selector takes;
+// cancel first leaves 'cancelled', which pause's 'running'-only selector cannot touch. An
+// interleave leaving it merely paused would downgrade an operator's final stop to a reversible one.
 func TestStress_CancelProcess_vs_PauseProcess(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")
@@ -526,13 +524,10 @@ func TestStress_CancelProcess_vs_PauseProcess(t *testing.T) {
 	t.Logf("ran %d iterations; cancel won every interleave", iterations)
 }
 
-// A cancel moves the whole tree or none of it. Postgres-gated because that is where the
-// question is real: the per-row UPDATEs are indivisible only because they share one
-// transaction, whereas SQLite's single writer would make this pass however it was written.
-//
-// The reader takes the tree in ONE statement, which is what makes it a snapshot -- reading
-// row by row can straddle a commit and see a mix that was never committed, so it could not
-// tell an atomicity bug from its own sampling.
+// A cancel moves the whole tree or none of it. Postgres-gated, because SQLite's single writer
+// would make this pass however it was written. The reader takes the tree in ONE statement, which
+// is what makes it a snapshot -- row by row it could not tell an atomicity bug from its own
+// sampling.
 func TestStress_CancelProcess_IsAtomic(t *testing.T) {
 	if sharedPgDB == nil {
 		t.Skip("PostgreSQL not available (set POSTGRES_DSN)")

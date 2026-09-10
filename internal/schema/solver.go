@@ -5,23 +5,13 @@ import (
 	"sort"
 )
 
-// The Solver resolves a system of named definitions whose bodies are computed
-// rather than given: each Declare'd name maps to a closure that infers its
-// schema (e.g. a task's output map inferred against a context). Resolution is
-// demand-driven — when a computation looks inside a `$ref` to a definition that
-// has not been computed yet, the solver computes it right there, so definitions
-// are solved in exact dependency order without a separately-maintained graph.
-//
-// Cycles are detected on contact: re-entering a definition that is currently
-// being computed collapses the demand-stack segment between the two into a
-// cluster (the strongly-connected component, discovered Gabow-style), which is
-// then resolved by a joint fixpoint: every member seeded null, re-computed,
-// joined and canonicalized until stable — the same semantics the previous
-// per-SCC fixpoint had, now driven by the refs the computations actually
-// follow. While a member is mid-computation, readers inside the cycle see its
-// running estimate wrapped nullable (the null seed before the first pass) —
-// nullability lives at the use site; the finalized definition is the exact
-// type. See specs/recursive-type-inference.md.
+// The Solver resolves a system of named definitions whose bodies are computed rather than given.
+// Resolution is demand-driven: a computation looking inside a `$ref` to an uncomputed definition
+// computes it right there, so definitions are solved in dependency order without a maintained
+// graph. Cycles are detected on contact -- re-entering a definition mid-computation collapses the
+// demand-stack segment into an SCC, resolved by a joint fixpoint seeded null. Readers inside a
+// cycle see the running estimate wrapped nullable; the finalized definition is the exact type.
+// See specs/recursive-type-inference.md.
 type Solver struct {
 	defs    Defs
 	members map[string]*solverMember

@@ -174,12 +174,9 @@ func TestChildRaises_ForwardedPayloadKeepsItsTypeAcrossTheHop(t *testing.T) {
 		"code: declared required, never set")
 }
 
-// A recursive payload is the one that arrives as a $ref into the definition's own $defs, so it
-// is only comparable if checkDeclaredRaises re-attaches the pool — and the relation's cycle
-// guard is what stops the walk. Both are silent failures: a lost pool reads as "unknown", which
-// NARROWS to anything, so the check would pass everything.
-// Self-contained: normalizedSchema resolves each document on its own, the way a stored
-// definition carries the definitions it uses baked into its own root $defs.
+// A recursive payload arrives as a $ref into the definition's own $defs, so it is only comparable
+// if checkDeclaredRaises re-attaches the pool, and the relation's cycle guard is what stops the
+// walk. Both fail silently: a lost pool reads as "unknown", which narrows to anything.
 const recursiveDefs = `"$defs":{"node":{"type":"object","properties":{"v":{"type":"string"},` +
 	`"kid":{"$ref":"#/$defs/node"}},"required":["v"]}}`
 const recursiveNode = `{"$ref":"#/$defs/node",` + recursiveDefs + `}`
@@ -222,14 +219,10 @@ func TestChildRaises_RecursivePayloadComparesThroughItsPool(t *testing.T) {
 
 // ── a known imprecision, inherited ───────────────────────────────────────────────────────
 
-// The context at a task COLLAPSES the paths into it, so an output set on every branch of a
-// join is still merely optional there and `a ?? b` types nullable. A payload built that way
-// gets a null arm it can never carry at runtime, and a caller declaring the non-null shape is
-// refused. specs/path-sensitive-output.md — the process output slot recovers this with a
-// per-terminal walk, and a raise clause has no equivalent.
-//
-// Pinned rather than fixed: the remedy is the one every other read in the collapsed context
-// takes (`?? ""`, or declaring the slot nullable), and the break names the slot and both types.
+// The context at a task COLLAPSES the paths into it, so an output set on every branch of a join is
+// still merely optional there and `a ?? b` types nullable -- the process output slot recovers this
+// with a per-terminal walk and a raise clause has no equivalent. Pinned rather than fixed: the
+// remedy is the one every other read in a collapsed context takes. specs/path-sensitive-output.md.
 func TestChildRaises_JoinedBranchPayloadTypesNullable(t *testing.T) {
 	child := &model.ProcessDefinition{
 		Name:        "kid",

@@ -35,12 +35,10 @@ const slotFixture = `{
   "output": {"fee": "$: outputs.call.fee ?? 0"}
 }`
 
-// The contexts `genctl schema context` reports are the ones the checker used, and the way that
-// is guaranteed is that both go through taskScopes. What could still drift is what each FEEDS
-// it: SlotContexts reads a finished SchemaFile (post-hoist defs, sf.Tasks, sf.ProcessInput,
-// buildConfigSchema) where buildInputs reads the pool mid-flight. This runs the checker's own
-// preparation and compares slot for slot, so a substitution that stops meaning the same thing
-// fails here rather than being reported to an author as a context nothing checked.
+// Both `genctl schema context` and the checker go through taskScopes; what can still drift is
+// what each FEEDS it -- SlotContexts reads a finished SchemaFile where buildInputs reads the pool
+// mid-flight. This runs the checker's own preparation and compares slot for slot, so a
+// substitution that stops meaning the same thing fails here rather than reaching an author.
 func TestSlotContextsAreTheCheckersOwn(t *testing.T) {
 	var def model.ProcessDefinition
 	if err := json.Unmarshal([]byte(slotFixture), &def); err != nil {
@@ -71,12 +69,9 @@ func TestSlotContextsAreTheCheckersOwn(t *testing.T) {
 		t.Fatalf("inferOutputs: %v", err)
 	}
 
-	// The two agree on the context and on every definition it can reach. They are NOT
-	// byte-identical: SlotContexts reads the pool after Generate hoisted the task inputs and
-	// the process output into it, so the reported pool is a superset. That is the claim being
-	// tested — it may GROW, but a name that resolved during the check must still resolve to
-	// the same thing, or a reported `$ref` would mean something the author was never checked
-	// against.
+	// Not byte-identical: SlotContexts reads the pool after Generate hoisted the task inputs
+	// and process output into it, so it is a superset. The claim tested is that it may GROW,
+	// but a name that resolved during the check still resolves to the same thing.
 	same := func(address string, want schema.Schema) {
 		t.Helper()
 		got, ok := reported[address]
@@ -298,12 +293,10 @@ func marshal(t *testing.T, v any) string {
 	return string(b)
 }
 
-// The type view reports what the checker CHECKED. Nothing guarantees that by construction the
-// way taskScopes does for contexts — TypeSlots reads a finished SchemaFile — so what could drift
-// is a second computation of a value the checker already made. Every pair below is one value
-// read twice: once as a type, once out of the context the checker built and typed expressions
-// against. A `result` computed beside `self.result`, an `output` beside `outputs.<id>`, and this
-// fails rather than an author generating a client from a shape nothing checked.
+// The type view reports what the checker CHECKED, but nothing guarantees that by construction
+// the way taskScopes does for contexts. Every pair below is one value read twice — once as a
+// type, once out of the context the checker typed expressions against — so a drifting second
+// computation fails here rather than an author generating a client from an unchecked shape.
 func TestTypeSlotsAreTheCheckersOwn(t *testing.T) {
 	var def model.ProcessDefinition
 	if err := json.Unmarshal([]byte(slotFixture), &def); err != nil {

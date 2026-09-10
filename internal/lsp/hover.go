@@ -80,10 +80,8 @@ func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, line string, 
 	}
 	// The symbol the cursor is actually on, when it is a member path and not the whole
 	// expression: pointing at `count` in `(self.previous.count ?? 0) + 1` asks about
-	// `self.previous.count`, and the leaf's own type answers a different question.
-	//
-	// Only when it types: the scan cannot tell a member path from a word inside a string
-	// literal, and an error for one would replace the answer the reader came for.
+	// `self.previous.count`. Only when it types -- the scan cannot tell a member path from a
+	// word inside a string literal, and an error would replace the answer the reader came for.
 	if symbol, found := symbolUnder(line, col); found && symbol != expr {
 		if t, err := ctx.Infer(symbol); err == nil {
 			return "`" + symbol + "` → **" + t.Summary() + "**"

@@ -1,10 +1,8 @@
 // genroc-ui serves the genroc web UI, logs a person in, and mints the token the genroc server
-// verifies. specs/ui-component.md, specs/ui-issued-tokens.md.
-//
-// It ISSUES. It authenticates a person against an OIDC provider or a password in its own
-// config, resolves their groups to permissions through the role map, and signs a short-lived
-// token carrying those permissions. The genroc server verifies it and applies them; it has no
-// role map and never learns what a group is.
+// verifies. It ISSUES: it authenticates against an OIDC provider or a password in its own config,
+// resolves groups to permissions through the role map, and signs a short-lived token carrying
+// them. The server verifies and applies them, and never learns what a group is.
+// specs/ui-component.md, specs/ui-issued-tokens.md.
 package main
 
 import (
@@ -196,13 +194,10 @@ func isUpstream(p string) bool {
 	return isOpen(p) || strings.HasPrefix(p, "/api/")
 }
 
-// isOpen names the paths the SERVER serves without a credential, and genroc-ui must not gate
-// what the server does not: a probe has to answer before any identity exists, and the public
-// docs disclose nothing stored. api-auth.md §1.
-//
-// Gating these is not a theoretical mistake -- it made `/healthz` return 401 through the UI
-// while answering 200 on the server, which is exactly the shape that gets a container marked
-// unhealthy for reasons nobody can find.
+// isOpen names the paths the SERVER serves without a credential, and genroc-ui must not gate what
+// the server does not: a probe has to answer before any identity exists. Gating these once made
+// `/healthz` return 401 through the UI while answering 200 on the server -- the shape that gets a
+// container marked unhealthy for reasons nobody can find. api-auth.md §1.
 func isOpen(p string) bool {
 	return p == "/healthz" || strings.HasPrefix(p, "/public/")
 }
@@ -419,11 +414,9 @@ func (s *uiServer) establish(w http.ResponseWriter, r *http.Request, id identity
 }
 
 // logout clears the session. POST, not GET: its whole job is changing state, and a GET would be
-// reachable from any page that can make the browser follow a link.
-//
-// It is also how a person picks up a change to their own GROUPS. Those are captured at login and
-// carried in the cookie, so an edit at the identity provider is invisible until a new one --
-// unlike the role map, which is read from config on every request. specs/ui-issued-tokens.md §4.
+// reachable from any page that can make the browser follow a link. It is also how a person picks
+// up a change to their own GROUPS, which are captured at login and carried in the cookie -- unlike
+// the role map, read from config on every request. specs/ui-issued-tokens.md §4.
 func (s *uiServer) logout(w http.ResponseWriter, r *http.Request) {
 	s.clearTemp(w, r, sessionCookie)
 	w.WriteHeader(http.StatusNoContent)
@@ -440,12 +433,9 @@ func safeReturn(rd string) string {
 }
 
 // secure reports whether cookies should carry the Secure attribute. Derived from the request
-// rather than configured, because the two are never independent: over HTTP a Secure cookie is
-// silently dropped and nothing works, over HTTPS its absence is a downgrade. Guessing wrong is a
-// footgun in both directions, and the request already knows.
-//
-// `secure_cookie` overrides it, for the one case the request cannot see: a proxy terminating TLS
-// that does not set X-Forwarded-Proto.
+// rather than configured: over HTTP a Secure cookie is silently dropped, over HTTPS its absence is
+// a downgrade, and the request already knows. `secure_cookie` overrides it for the one case the
+// request cannot see -- a proxy terminating TLS that does not set X-Forwarded-Proto.
 func (s *uiServer) secure(r *http.Request) bool {
 	if s.cfg.SecureCookie != nil {
 		return *s.cfg.SecureCookie
@@ -460,14 +450,10 @@ func isHTTPS(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
-// callbackURL is where a provider sends the browser back. Derived from the request, so a
-// deployment states its own address once -- at the provider, where it must be registered
-// anyway -- rather than twice.
-//
-// The Host header is the client's to set, so this is not a value to trust. It is not trusted: it
-// goes to the provider, which accepts only redirect URIs registered with it in advance and
-// rejects anything else. `redirect_url` pins it for a deployment behind a proxy that rewrites
-// Host.
+// callbackURL is where a provider sends the browser back, derived from the request so a deployment
+// states its address once -- at the provider, where it must be registered anyway. The Host header
+// is the client's to set and is not trusted here: it goes to the provider, which accepts only
+// pre-registered redirect URIs. `redirect_url` pins it behind a proxy that rewrites Host.
 func (s *uiServer) callbackURL(r *http.Request) string {
 	if s.cfg.RedirectURL != "" {
 		return s.cfg.RedirectURL

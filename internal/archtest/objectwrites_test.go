@@ -9,19 +9,11 @@ import (
 	"testing"
 )
 
-// Object content and its claim must be written by claimObjects, inside a transaction.
-//
-// This is not style. The content upsert's ON CONFLICT DO UPDATE exists to take a row lock, and
-// the sweep's lock-then-delete depends on that lock still being held when the claim commits. A
-// lock lasts exactly as long as its statement, so a caller that writes content and claims it in
-// two transactions -- or in autocommit -- leaves the object committed and held by nobody in
-// between, and the sweep is entitled to take it. Both defences in the store assume one
-// transaction; neither survives without it.
-//
-// The mistake has been made twice: CutLogValue hand-rolled the pair on db.q (no transaction at
-// all, and the gap was observable on essentially every log write), and before that it claimed
-// only what it had written rather than what the value referenced. Both were copies of a loop
-// that now has one home. specs/object-store.md.
+// Object content and its claim must be written by claimObjects, inside a transaction. The content
+// upsert's ON CONFLICT DO UPDATE exists to take a row lock, which lasts exactly as long as its
+// statement: content written and claimed in two transactions sits committed and held by nobody in
+// between, where the sweep is entitled to take it. The mistake has been made twice, both times by
+// copying the loop that now has one home. specs/object-store.md.
 func TestObjectWritesGoThroughClaimObjects(t *testing.T) {
 	const (
 		file   = "internal/db/db_objects.go"

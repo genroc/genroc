@@ -9,16 +9,11 @@ import (
 	"genroc/internal/shape"
 )
 
-// Fault is a terminal error: a machine-readable code, a human-readable message, and an
-// optional structured payload. Used by both `raise` and `panic` — they carry the same
-// thing for the same reasons and differ only in what they do, so one type serves both and
-// there is no pair of near-identical structs to drift apart. The distinction lives in
-// the field name at the use site (Raise / Panic), which is where a reader looks anyway.
-//
-// Only the CODE is a literal: a computed one would make a definition's raise set
-// uncomputable and error_code unqueryable. Message and Data are evaluated when the clause
-// fires, in the scope of the clause itself. See specs/child-error-handling.md §2.1 and R2,
-// and specs/error-extensions.md §X2-c for what a parent may read of Data.
+// Fault is a terminal error: a machine-readable code, a human-readable message, and an optional
+// structured payload. One type serves both `raise` and `panic`, which differ only in what they
+// do; the distinction lives in the field name at the use site. Only the CODE is a literal -- a
+// computed one would make a definition's raise set uncomputable -- while Message and Data are
+// evaluated when the clause fires. specs/child-error-handling.md R2, specs/error-extensions.md.
 type Fault struct {
 	Code    string `json:"code"    validate:"required" description:"Error code, lower_snake_case with no dots. A literal — never an expression."`
 	Message string `json:"message" validate:"required" description:"Human-readable message. A template: ${ } renders when the clause fires."`
@@ -36,17 +31,11 @@ func (f *Fault) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, (*alias)(f))
 }
 
-// SwitchCase is a single entry in a Task's switch list: a boolean expression
-// evaluated against the process context (and this task's own output as "self"),
-// and what to do when the expression is true.
-// An empty Case means "catch-all" — it matches unconditionally and must be last.
-//
-// Exactly one of Goto, Raise and Panic is set (enforced at registration, not on
-// decode, so the rejection message can name the task and case index):
-//   - Goto routes, storing the raw wire value: "end", "next", or "$task-id".
-//   - Raise concludes the process as 'raised' — an anticipated condition its parent
-//     may react to by naming the code.
-//   - Panic fails the process — a defect nothing may react to, ever.
+// SwitchCase is one entry in a Task's switch list: a boolean expression over the process context
+// (with this task's own output as "self") and what to do when it is true. An empty Case is the
+// catch-all and must be last. Exactly one of Goto (route), Raise (conclude as 'raised', which a
+// parent may catch) and Panic (fail as a defect nothing may catch) is set — enforced at
+// registration, not on decode, so the message can name the task and case index.
 type SwitchCase struct {
 	Case  string
 	Goto  string
@@ -59,13 +48,9 @@ func (c SwitchCase) Terminates() bool {
 	return c.Goto == GotoEnd || c.Raise != nil || c.Panic != nil
 }
 
-// SwitchMap is an ordered list of SwitchCase entries. It marshals as a plain
-// JSON object so the wire format is readable:
-//
-//	{"self.paid == true": "ship", "self.paid == false": "refund"}
-//
-// JSON object key order is preserved on unmarshal by reading tokens sequentially
-// rather than decoding into a map.
+// SwitchMap is an ordered list of SwitchCase entries, marshalled as a plain JSON object
+// ({"self.paid == true": "ship", …}) so the wire format reads well. Key order is preserved on
+// unmarshal by reading tokens sequentially rather than decoding into a map.
 type SwitchMap []SwitchCase
 
 // switchWireCase is the JSON wire form of a SwitchCase, shared by SwitchMap's
@@ -165,13 +150,10 @@ func (SwitchMap) JSONSchemaBytes() ([]byte, error) {
 // model.Shape.
 type Shape = shape.Shape
 
-// ErrorCase is a single error-routing rule evaluated when a task's call fails.
-// Rules are evaluated in order; the first match applies.
-// An empty Code list is a catch-all matching any error.
-//
-// A rule may route (Goto), conclude the process (Raise), or declare the error a defect
-// (Panic) — at most one of the three; setting none fails the instance, which is the
-// default when a rule exists only to document a code or to cap retries.
+// ErrorCase is a single error-routing rule evaluated when a task's call fails, in order, first
+// match winning; an empty Code list is a catch-all. A rule may route (Goto), conclude the process
+// (Raise) or declare the error a defect (Panic) — at most one, and setting none fails the
+// instance, which is what a rule existing only to cap retries wants.
 type ErrorCase struct {
 	Code       []string `json:"code,omitempty"        description:"Error code patterns. '%' is the only wildcard; every other character is literal. Empty = catch-all."`
 	Case       string   `json:"case,omitempty"        description:"Extra condition on the matched error, checked alongside code. A false case falls to the next rule."`

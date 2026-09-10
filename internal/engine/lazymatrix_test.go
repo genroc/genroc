@@ -11,12 +11,9 @@ import (
 )
 
 // The dereferencing matrix: one context carrying references at known places, and a table of
-// expressions over it asserting BOTH axes -- the value the expression produces, and exactly
-// which objects had to be loaded to produce it.
-//
-// Both axes or neither. The value alone passes whether or not the reference was needlessly
-// loaded (content addressing makes a copied reference and a re-loaded one indistinguishable
-// downstream), and the load set alone passes if the expression quietly returns nil.
+// expressions over it asserting BOTH axes -- the value produced, and exactly which objects had to
+// be loaded to produce it. Both or neither: the value alone passes whether or not a reference was
+// needlessly loaded, and the load set alone passes if the expression quietly returns nil.
 // specs/lazy-context.md.
 
 // The fixture. Each big value is distinct, so its object has its own hash and the load set

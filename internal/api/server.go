@@ -16,14 +16,14 @@ import (
 	"genroc/internal/model"
 )
 
-// HTTP listener limits. Deliberately no WriteTimeout: /tick blocks until its claimed
-// instances finish, so any useful ceiling would sever legitimate long ticks.
-// readHeaderTimeout is what bounds a connection that opens and sends nothing.
-// actorHeader reports the calling principal's identity back to it, as `source:subject`.
-// HTTP only: TCP and UDS encode a Reply and have no header channel, which is right — this is a
+// actorHeader reports the calling principal's identity back to it, as `source:subject`. HTTP
+// only: TCP and UDS encode a Reply and have no header channel, which is right — this is a
 // presentation affordance, not part of the API contract those clients share.
 const actorHeader = "X-Genroc-Actor"
 
+// HTTP listener limits. Deliberately no WriteTimeout: /tick blocks until its claimed instances
+// finish, so any useful ceiling would sever legitimate long ticks; readHeaderTimeout is what
+// bounds a connection that opens and sends nothing.
 const (
 	readHeaderTimeout = 10 * time.Second
 	readTimeout       = 60 * time.Second
@@ -117,16 +117,11 @@ func (s *Server) ListenHTTP(ctx context.Context, addr string) error {
 					return
 				}
 				env.principal = p
-				// Told, not inferred. A caller cannot work out its own identity from the
-				// responses it gets: behind a proxy the browser holds no credential of its
-				// own, so "it worked and I sent nothing" means either `-auth none` or "the
-				// proxy authenticated me", which are opposite things. The header is the same
-				// `source:subject` the audit trail records, so what a UI shows is what a
-				// deploy will be attributed to.
-				//
-				// Set before any body is written, and only when an identity exists — its
-				// absence on a 401 is what tells a client to ask for a credential. A 403
-				// carries it, because "you are alice and alice may not" is the useful message.
+				// Told, not inferred: behind a proxy a browser holds no credential of its
+				// own, so "it worked and I sent nothing" cannot distinguish `-auth none` from
+				// "the proxy authenticated me". Set before any body is written, and only when
+				// an identity exists -- its absence on a 401 is what tells a client to ask for
+				// a credential, while a 403 carries it.
 				if p != nil {
 					w.Header().Set(actorHeader, p.Actor())
 				}

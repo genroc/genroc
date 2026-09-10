@@ -76,15 +76,11 @@ func TestMigration040BackfillsTheTree(t *testing.T) {
 	}
 }
 
-// The indexes are what the tree read bought -- 23 buffers per page against 18,616 -- and
-// losing one makes no noise: every query still returns the right rows, by scanning. Not
-// hypothetical here: migration 012 had to hand-recreate a partial index because SQLite's
-// ALTER TABLE forced a table rebuild, and the next migration that rebuilds either table has
-// the same line to remember. Asserted on the SCHEMA rather than on a query plan, which is the
-// optimiser's business and not a promise anyone made.
-//
-// The columns must be the SORT KEY, end to end: a page whose ORDER BY runs past the index is
-// sorted rather than read in order, which costs the table instead of the page.
+// The indexes are what the tree read bought -- 23 buffers per page against 18,616 -- and losing
+// one makes no noise, since every query still returns the right rows by scanning. Migration 012
+// had to hand-recreate a partial index after SQLite's ALTER TABLE rebuilt the table, and the next
+// rebuild has the same line to remember. Asserted on the SCHEMA, not on a query plan; the columns
+// must be the SORT KEY end to end, or the page is sorted rather than read in order.
 func TestTreeIndexesCoverTheSortKey(t *testing.T) {
 	dir := t.TempDir()
 	sqldb, err := sql.Open("sqlite3", dir+"/idx.db")

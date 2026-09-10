@@ -76,17 +76,10 @@ type PageReq struct {
 	Before string
 }
 
-// Window bounds a list on one timestamp column, in unix millis. Either end may be zero,
-// meaning unbounded on that side.
-//
-// The range is half-open — After <= t < Before. Both ends inclusive would double-count a
-// row sitting exactly on a boundary when a caller walks a trail window by window (14:00,
-// 15:00, 16:00 …), which is the main reason to name both ends at once. Note the field
-// names read as the query params they come from (created_after / created_before), so
-// "after" here is "at or after".
-//
-// A column is bounded by naming it: Window is not tied to a particular one, so a list with
-// two timestamps takes two Windows rather than one the query has to guess a column for.
+// Window bounds a list on one timestamp column, in unix millis; either end may be zero for
+// unbounded. The range is half-open — After <= t < Before — so a caller walking window by
+// window does not double-count a row on a boundary. The names read as the query params they
+// come from, so "after" is "at or after". A list with two timestamps takes two Windows.
 type Window struct {
 	After  int64
 	Before int64
@@ -98,15 +91,11 @@ func (w Window) apply(q *listQuery, col string) *listQuery {
 	return q.GteIf(col, w.After, w.After > 0).LtIf(col, w.Before, w.Before > 0)
 }
 
-// PageInfo is the navigation metadata returned alongside a page of items. Sort and
-// Order echo the effective sort key and direction (so a caller sees what the
-// defaults resolved to). ItemsBefore/ItemsAfter are how many rows fall outside the
-// page in display order, each counted up to pageCountCap+1 — a value of
-// pageCountCap+1 means "more than that" (render as "1000+"). After/Before are the
-// cursors to pass back as ?after / ?before; each is set only in a direction that
-// has more rows (After iff ItemsAfter>0, Before iff ItemsBefore>0), so cursor
-// presence is itself the has-more signal and a page-to-end loop ends when After is
-// absent.
+// PageInfo is the navigation metadata returned alongside a page of items. Sort and Order echo
+// what the defaults resolved to. ItemsBefore/ItemsAfter count rows outside the page in display
+// order, up to pageCountCap+1, where that value means "more than that". After/Before are the
+// cursors to pass back, each set only in a direction that has more rows — so cursor presence is
+// itself the has-more signal.
 type PageInfo struct {
 	Size        int    `json:"size"`
 	ItemsBefore int64  `json:"items_before"`

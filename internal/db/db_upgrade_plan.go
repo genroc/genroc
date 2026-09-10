@@ -15,15 +15,11 @@ type PlannedMove struct {
 	ToVersion int
 }
 
-// PlanUpgrade works out the whole move from a root and the version the ROOT goes to. Only
-// the root's target is a choice: every descendant's is DERIVED from the definition its
-// parent is moving to, through the same rule the engine resolves at spawn. Letting a caller
-// name a child's version is how a parent ends up running one its own definition never
-// mentions -- the instance-level twin of registry drift.
-//
-// The unit is the non-terminal closure, so a tree moves whole or not at all. Terminal
-// descendants stay put: their outputs are frozen, and a moved parent reads them as they
-// stand.
+// PlanUpgrade works out the whole move from a root and the version the ROOT goes to. Only the
+// root's target is a choice: every descendant's is DERIVED from the definition its parent is
+// moving to, or a parent ends up running a child version its own definition never mentions. The
+// unit is the non-terminal closure, so a tree moves whole or not at all; terminal descendants
+// stay put with their outputs frozen.
 func (db *DB) PlanUpgrade(ctx context.Context, rootID string, rootVersion int) ([]PlannedMove, error) {
 	tree, err := db.NonTerminalSubtree(ctx, rootID)
 	if err != nil {

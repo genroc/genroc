@@ -44,14 +44,9 @@ func matchOnError(task *model.Task, errCode errcode.Code) *model.ErrorCase {
 }
 
 // matchOnErrorWith is matchOnError with M2's predicate: a rule carrying a `case` applies only
-// when the code matches AND the case is true, and a false case falls THROUGH to the next rule
-// — without that the guard could only ever turn a match into a failure.
-//
-// eval is nil where no case can appear (the caller has no scope to evaluate one in); a rule
-// with a case is then skipped rather than silently treated as matching. A case that will not
-// evaluate is an error, never a non-match: it is type-checked at registration, so a runtime
-// failure means that guarantee did not hold, and quietly declining would route the error
-// somewhere the author never wrote. specs/child-error-handling.md M2.
+// when the code matches AND the case is true, and a false case falls THROUGH to the next rule.
+// eval is nil where no case can appear, and a rule with a case is then skipped; a case that
+// fails to evaluate is an error, never a non-match. specs/child-error-handling.md M2.
 func matchOnErrorWith(task *model.Task, errCode errcode.Code, eval func(string) (bool, error)) (*model.ErrorCase, error) {
 	for i := range task.OnError {
 		c := &task.OnError[i]
@@ -196,15 +191,11 @@ func (e *Engine) completeViaErrorHandler(inst *model.ProcessInstance, task *mode
 	return advanceOutcome{kind: outcomeTerminal}
 }
 
-// faultMessage renders a fault's message against the scope its clause fires in: a switch
-// case passes `self`, an on_error or collect rule passes nil and reads the `error` already
-// written to the context. The CODE is never rendered — it stays a literal so the raise set
-// remains computable (model.faultCodeRe).
-//
-// A render failure falls back to the source text rather than escalating. This runs while the
-// instance is already concluding, so there is nowhere to report a second error to; the
-// unrendered template is then visible in the message, where turning a clean raise into an
-// engine fault would lose the outcome the author asked for.
+// faultMessage renders a fault's message against the scope its clause fires in: a switch case
+// passes `self`, an on_error or collect rule passes nil and reads the `error` already in the
+// context. The CODE is never rendered — it stays a literal so the raise set stays computable.
+// A render failure falls back to the source text: the instance is already concluding, so there
+// is nowhere to report a second error to.
 func (e *Engine) faultMessage(inst *model.ProcessInstance, f *model.Fault, self any) string {
 	rendered, err := e.evalShape(inst, shape.Shape{Raw: f.Message}, self)
 	if err != nil {
@@ -260,12 +251,9 @@ func (e *Engine) panicInstance(inst *model.ProcessInstance, task *model.Task, f 
 }
 
 // evalFaultData evaluates a clause's `data` in the scope its message renders in. It must run
-// BEFORE the clause concludes: the scope includes the `error` this instance is handling, which
-// a fault reached through on_error reads to recompose its own payload.
-//
-// A failed evaluation is not degraded the way a message is: the payload is a contract, so
-// dropping it silently would report the loss at the caller's conform rather than here.
-// specs/error-extensions.md §X2-c.
+// BEFORE the clause concludes, since the scope includes the `error` this instance is handling.
+// Unlike a message, a failed evaluation is not degraded: the payload is a contract, and
+// dropping it would report the loss at the caller's conform. specs/error-extensions.md §X2-c.
 func (e *Engine) evalFaultData(inst *model.ProcessInstance, f *model.Fault, self any) (any, error) {
 	if !f.Data.Present() {
 		return nil, nil
@@ -273,13 +261,10 @@ func (e *Engine) evalFaultData(inst *model.ProcessInstance, f *model.Fault, self
 	return e.evalShape(inst, *f.Data, self)
 }
 
-// setErrorData lands the clause's payload in its own slot; the code and message it concluded
-// with are already on the row. The slot is ABSENT where the clause carried nothing, which is
-// what tells a parent's collect there is no payload to conform.
-//
-// It must not touch `error`: that slot is the error this instance CAUGHT and is part of its
-// state at this task, so a fault editing it leaves a concluded instance holding a context no
-// layer describes -- the shape an upgrade validates against.
+// setErrorData lands the clause's payload in its own slot, ABSENT where the clause carried
+// nothing -- which is what tells a parent's collect there is no payload to conform. It must
+// not touch `error`, the error this instance CAUGHT: that is part of its state at this task,
+// which an upgrade validates against.
 func setErrorData(inst *model.ProcessInstance, data any) {
 	if data == nil {
 		delete(inst.State, model.StateErrorData)
@@ -313,13 +298,9 @@ func (e *Engine) settlePausing(inst *model.ProcessInstance) advanceOutcome {
 }
 
 // settleCancelling lands 'cancelling' in the terminal 'cancelled'; reached only when a worker
-// died holding the instance (a live cancel lands in SQL on the owner's write, like a pause).
-//
-// Unlike settlePausing this does NOT resolve an interrupted only_once first, and the
-// difference is the point: that resolution exists to route only_once.interrupted into
-// on_error so the process can ASK the system of record and carry on. Carrying on is what an
-// operator just forbade. The interruption is still evidence, and it is in the trail -- what it
-// must not do is restart the tree. specs/only-once-interrupted.md, specs/pause-resume.md.
+// died holding the instance. Unlike settlePausing it does NOT resolve an interrupted only_once
+// first: that resolution exists to route only_once.interrupted into on_error so the process
+// carries on, which is what the operator just forbade. specs/only-once-interrupted.md.
 func (e *Engine) settleCancelling(inst *model.ProcessInstance) advanceOutcome {
 	// Status only, like settlePausing and unlike settleFailing: a cancel abandons a wait
 	// rather than ending one, so wait_state and wake_at stay as the record of what this

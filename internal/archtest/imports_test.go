@@ -10,23 +10,14 @@ import (
 	"testing"
 )
 
-// Import boundaries inside the ROOT module. `ui` and `jwks` are separate modules and are fenced
-// by go.mod rather than by this test: their go.mod does not require the root module. NOT by the
-// internal rule -- that is path-prefix, not module-scoped, so `genroc/ui` clears it and a module
-// that did require the root could import `genroc/internal` freely (specs/language-server.md §4).
-// genctl shares a module with the server, so its boundary is a rule rather than a wall, and this
-// is the wall. specs/ui-component.md.
+// Import boundaries inside the ROOT module. `ui` and `jwks` are fenced by go.mod instead -- NOT
+// by the internal rule, which is path-prefix and not module-scoped.
 //
-// The rule: genctl is a CLIENT. It speaks HTTP to a genroc server, and it infers the types a
-// source resolver typechecks against before sending anything, which is why it legitimately
-// depends on the definition language -- model, schema, expression, shape, template, and the
-// inference over them in validation. It has no business linking the engine, the
-// database, the API server or the outbound transport, and every one of those would arrive with
-// dependencies (drivers, migrations, OpenAPI generation) that a CLI has no use for.
-//
-// This is what a `genctl` module would enforce if the split went further. It does not, because
-// genctl shares its entire internal surface with the server, so a module boundary would relocate
-// the dependency rather than remove it -- measured before deciding.
+// The rule here: genctl is a CLIENT. It speaks HTTP and infers the types a source resolver
+// typechecks against, so it legitimately depends on the definition language, and has no business
+// linking the engine, the database, the API server or the outbound transport -- each of which
+// arrives with dependencies a CLI has no use for. A `genctl` module would relocate the dependency
+// rather than remove it. specs/ui-component.md, specs/language-server.md §4.
 var forbiddenImports = map[string][]string{
 	"cmd/genctl": {
 		"genroc/internal/db",

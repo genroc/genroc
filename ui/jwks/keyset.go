@@ -17,15 +17,10 @@ import (
 	"time"
 )
 
-// JWKS handling: fetch an issuer's public keys and serve them by `kid`. The ONE thing the
-// genroc server and genroc-ui share -- the server verifies a caller's JWT, genroc-ui verifies the
-// one it holds in a session cookie. Everything else about the login lives in ui/.
-// specs/api-auth.md §2.1, §2.4; specs/ui-component.md.
-//
-// Parsed here with the standard library rather than by a second dependency: turning a JWK into
-// a *rsa.PublicKey is base64 and big.Int, not cryptography -- the cryptography is the signature
-// check, which is golang-jwt's. genroc's dep list is small and deliberate, and §2.1 budgeted one
-// addition for this mode.
+// JWKS handling: fetch an issuer's public keys and serve them by `kid`. The ONE thing the genroc
+// server and genroc-ui share -- the server verifies a caller's JWT, genroc-ui the one in a session
+// cookie. Parsed with the standard library rather than a second dependency: turning a JWK into a
+// *rsa.PublicKey is base64 and big.Int, not cryptography. specs/api-auth.md §2.1, §2.4.
 
 // jwk is the subset of RFC 7517 a verifier needs. `alg` is deliberately NOT read: the accepted
 // algorithms come from configuration (§2.4), so a key that names its own would let the token's
@@ -121,12 +116,10 @@ func b64uint(s string) (*big.Int, error) {
 	return new(big.Int).SetBytes(b), nil
 }
 
-// keySet serves verification keys by `kid`, from a file or a URL.
-//
-// A file is re-read on every miss and a URL re-fetched at most once per refreshInterval, which
-// is what makes rotation work without a restart: an issuer publishes the new key before signing
-// with it, so a `kid` genroc has not seen is the signal to look again. Rate-limiting that is
-// what stops a stream of garbage `kid`s from turning into a stream of outbound requests.
+// keySet serves verification keys by `kid`, from a file or a URL. A file is re-read on every miss
+// and a URL re-fetched at most once per refreshInterval, which is what makes rotation work without
+// a restart: an unseen `kid` is the signal to look again, and rate-limiting it stops a stream of
+// garbage `kid`s becoming a stream of outbound requests.
 type KeySet struct {
 	url    string
 	file   string

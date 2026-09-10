@@ -7,13 +7,10 @@ import (
 	"genroc/internal/numeric"
 )
 
-// ExternalOutcome is an answer to a parked external task: a result, or a failure. The two
-// travel as one value because they are one event — the wait is over — and every layer below
-// the API already treated them that way (SetExternalOutcome, runExternal phase 2). Splitting
-// them at the edge is what left /instances/{id}/signal able to report success and not failure.
-//
-// Failure nil means this is a result; Result is then the submitted value, which may itself be
-// null. Nothing else distinguishes them, so a decoder must discriminate on key PRESENCE.
+// ExternalOutcome is an answer to a parked external task: a result, or a failure. The two travel
+// as one value because they are one event — the wait is over — and splitting them at the edge is
+// what left /instances/{id}/signal able to report success and not failure. Failure nil means this
+// is a result, whose value may itself be null, so a decoder must discriminate on key PRESENCE.
 type ExternalOutcome struct {
 	Failure *ExternalFailure
 	Result  any

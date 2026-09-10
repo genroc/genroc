@@ -81,12 +81,10 @@ type defKey struct {
 	version int
 }
 
-// OpenSQLite opens (or creates) the SQLite database at path and runs migrations.
-// synchronous is the PRAGMA synchronous level (empty = NORMAL): NORMAL fsyncs the WAL
-// only at checkpoints (fast; recent commits can be lost on power loss, DB stays
-// consistent), FULL fsyncs per commit (power-loss durable, matching Postgres). The
-// genroc binary defaults its flag to FULL; OFF and EXTRA are also accepted.
-// Pass WithFullFsync to make FULL mean what it says on macOS.
+// OpenSQLite opens (or creates) the SQLite database at path and runs migrations. synchronous is
+// the PRAGMA synchronous level (empty = NORMAL): NORMAL fsyncs the WAL only at checkpoints,
+// FULL per commit (matching Postgres); OFF and EXTRA are also accepted. Pass WithFullFsync to
+// make FULL mean what it says on macOS.
 func OpenSQLite(path, synchronous string, opts ...SQLiteOption) (*DB, error) {
 	sync, err := sqliteSynchronous(synchronous)
 	if err != nil {
@@ -222,12 +220,10 @@ func (c pgConfig) sessionSettings() []string {
 	return []string{fmt.Sprintf("SET commit_delay = %d", c.commitDelayUs)}
 }
 
-// WithCommitDelay holds each WAL flush back by us microseconds so more commits coalesce
-// into it — throughput bought with latency, and no durability: every commit is still
-// flushed before it is acknowledged. Postgres applies it only while at least
-// commit_siblings (default 5) transactions are open, so it disables itself on the narrow,
-// causally-sequential workloads it would otherwise slow down. Zero leaves it off.
-// specs/durability-levels.md §6.
+// WithCommitDelay holds each WAL flush back by us microseconds so more commits coalesce into it
+// — throughput bought with latency, never durability. Postgres applies it only while at least
+// commit_siblings transactions are open, so it disables itself on causally-sequential
+// workloads. Zero leaves it off. specs/durability-levels.md §6.
 func WithCommitDelay(us int) PostgresOption {
 	return func(c *pgConfig) { c.commitDelayUs = us }
 }
@@ -360,7 +356,6 @@ func bootstrapPostgres(sqldb *sql.DB) error {
 // unreachable can claim nothing, so a worker in that state should not be routed to.
 func (db *DB) Ping(ctx context.Context) error { return db.sqldb.PingContext(ctx) }
 
-// Dialect reports the engine backing this DB: "sqlite" or "postgres".
 // NextID mints an instance id; each kind of row counts on its own stream (internal/idgen).
 func (db *DB) NextID() string {
 	id, _ := db.ids.instances.Next()
@@ -377,6 +372,7 @@ func (db *DB) nextTokenID() string {
 func (db *DB) nextLogID() (string, int64)    { return db.ids.logs.Next() }
 func (db *DB) nextSignalID() (string, int64) { return db.ids.signals.Next() }
 
+// Dialect reports the engine backing this DB: "sqlite" or "postgres".
 func (db *DB) Dialect() string { return db.dialect }
 
 // Close flushes buffered audit-log rows, stops the flusher, and closes the pool.

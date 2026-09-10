@@ -3,21 +3,10 @@ package model
 import "fmt"
 
 // Context reads an instance's decoded context by PATH, loading externalized values only where a
-// walk has to step through one. specs/lazy-context.md.
-//
-// The decoded context already carries an *ObjectRef at the path it was cut from, so the three
-// cases fall out of an ordinary walk with no path comparison:
-//
-//   - the walk meets a marker and must continue past it  -> load it, walk on
-//   - the walk ends above a marker                       -> return the subtree, marker intact
-//   - the walk never meets one                           -> load nothing
-//
-// The second is what lets an untouched value reach the next write as the reference it already
-// was: whoever copies that subtree copies the marker, and the write re-emits it.
-//
-// Context NEVER writes a loaded value back into the data. Materializing into the context would
-// destroy exactly the markers the write path needs, and the next write would re-marshal and
-// re-hash a value to arrive at the hash it came off disk with.
+// walk has to step through one: a walk ending ABOVE a marker returns the subtree with the marker
+// intact, which is what lets an untouched value reach the next write as the reference it already
+// was. Context NEVER writes a loaded value back into the data -- that would destroy exactly the
+// markers the write path needs. specs/lazy-context.md.
 type Context struct {
 	data map[string]any
 	load func(hash string) (any, error)

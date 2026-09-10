@@ -1,11 +1,9 @@
 package engine
 
-// The at-most-once bracket: below `strict` a claim's own commit is not flushed, so the
-// engine flushes once per claim batch when something in it is about to run an only_once
-// task, and again after the write that records the result.
-//
-// Keyed on the CLAIMED task, because that is what the row records and the row is all
-// recovery can read. specs/durability-levels.md s4.
+// The at-most-once bracket: below `strict` a claim's own commit is not flushed, so the engine
+// flushes once per claim batch when something in it is about to run an only_once task, and again
+// after the write that records the result. Keyed on the CLAIMED task, because that is what the
+// row records and the row is all recovery can read. specs/durability-levels.md s4.
 
 import (
 	"context"
@@ -133,14 +131,10 @@ func TestOnlyOnce_UnsetFlagFlushes(t *testing.T) {
 }
 
 func TestOnlyOnce_FlagIsRederivedOnEveryWrite(t *testing.T) {
-	// The denormalisation's one invariant: the flag describes the task the row NAMES. It is
-	// recomputed in persist rather than wherever Task is assigned, so a task change cannot
-	// leave it behind -- the classic way a denormalised column goes quietly wrong.
-	//
-	// The instance has to still be RUNNABLE afterwards for this to mean anything: `goto: end`
-	// completes at the task it was on, leaving Task naming the only_once task forever, and a
-	// completed instance is never claimed again. So the only_once task is followed by a delay,
-	// which parks the instance at a task that is replayable.
+	// The denormalisation's one invariant: the flag describes the task the row NAMES, recomputed
+	// in persist so a task change cannot leave it behind. The instance must still be RUNNABLE
+	// afterwards for this to mean anything, which is why the only_once task is followed by a
+	// delay -- `goto: end` would leave Task naming it forever on an instance never claimed again.
 	database := openTestDB(t)
 	database.SetDurability(db.DurabilityOnlyOnce)
 	eng := tickEngine(t, database)

@@ -62,14 +62,11 @@ func (db *DB) beginTx(ctx context.Context, opts *sql.TxOptions) (*syncTx, *dbgen
 	return db.beginTxAt(ctx, syncAlways, opts)
 }
 
-// beginTxAt starts a transaction whose commit is flushed only when the configured level is
-// at or above floor, returning the raw handle, a *dbgen.Queries, and a DBTX executor (the
-// latter two pgRewriter-wrapped on Postgres). Use the returned executor, not the raw
-// *sql.Tx, for hand-written SQL so ? placeholders work on both engines.
-//
-// The two engines relax a commit in different places and neither is portable: Postgres
-// takes SET LOCAL inside the transaction, SQLite a PRAGMA on the connection — which is why
-// SQLite pins one (specs/durability-levels.md §5).
+// beginTxAt starts a transaction whose commit is flushed only when the configured level is at
+// or above floor, returning the raw handle, a *dbgen.Queries, and a DBTX executor. Use the
+// returned executor, not the raw *sql.Tx, for hand-written SQL so ? placeholders work on both
+// engines. Postgres relaxes a commit with SET LOCAL inside the transaction and SQLite with a
+// PRAGMA on the connection, which is why SQLite pins one. specs/durability-levels.md §5.
 func (db *DB) beginTxAt(ctx context.Context, floor Durability, opts *sql.TxOptions) (*syncTx, *dbgen.Queries, dbgen.DBTX, error) {
 	relaxed := !db.level().syncs(floor)
 

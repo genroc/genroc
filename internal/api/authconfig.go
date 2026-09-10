@@ -6,13 +6,9 @@ import (
 	"strings"
 )
 
-// How the server accepts JWTs. specs/ui-issued-tokens.md.
-//
-// FLAGS, not a config file. api-auth.md §4 argued for a file because the auth config held the
-// ROLE MAP — policy, which must not be editable through the API it governs. The role map moved
-// to genroc-ui, and what is left is four scalars describing which tokens to accept. A file for
-// that is a parser, a schema and a mount for no benefit; it is also how the server ended up
-// depending on a YAML library.
+// How the server accepts JWTs. FLAGS, not a config file: api-auth.md §4 argued for a file
+// because the auth config held the role map, and that moved to genroc-ui. What is left is four
+// scalars. specs/ui-issued-tokens.md.
 type JWTModeConfig struct {
 	// Issuer and Audience are pinned. Unpinned, a token minted for a different application by
 	// the same issuer verifies here too, which is the most common real-world JWT bug.

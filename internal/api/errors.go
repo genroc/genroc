@@ -11,15 +11,10 @@ import (
 	"genroc/internal/validation"
 )
 
-// Code is the machine-readable classification carried by every error reply.
-//
-// It lives on Reply rather than being an HTTP concern because all three transports
-// share Reply: a TCP or UDS client never sees a status line, so the code is the only
-// classification it gets. HTTP renders the same code as a status as well (statusOf).
-//
-// The set is deliberately small. These are the distinctions a *client* can act on —
-// fix the request, look elsewhere, wait and retry, give up — not a taxonomy of what
-// went wrong internally. Engine failure detail belongs in errcode, on the instance.
+// Code is the machine-readable classification carried by every error reply. It lives on Reply
+// rather than being an HTTP concern because a TCP or UDS client never sees a status line. The
+// set is deliberately small: distinctions a *client* can act on, not a taxonomy of what went
+// wrong internally — engine failure detail belongs in errcode, on the instance.
 type Code string
 
 const (
@@ -161,13 +156,10 @@ func codeOf(err error) Code {
 	return CodeInternal
 }
 
-// fieldsOf returns the per-field detail of a definition-validation failure, or nil.
-// It looks through wrapping, so a handler's "%s: %w" context prefix does not lose it.
-//
-// Inference reports the same way: a client submitting a definition should not have to tell a
-// struct-tag failure from a type failure to find out which field to fix. Rule carries the
-// diagnostic's code, Field its slot address — the one `genctl schema context` answers to.
-// specs/language-server.md §2.
+// fieldsOf returns the per-field detail of a definition-validation failure, or nil, looking
+// through wrapping so a handler's "%s: %w" prefix does not lose it. Inference reports the same
+// way, so a client need not tell a struct-tag failure from a type failure to find the field to
+// fix. specs/language-server.md §2.
 func fieldsOf(err error) []model.FieldError {
 	var ve *model.ValidationError
 	if errors.As(err, &ve) {

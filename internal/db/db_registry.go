@@ -43,13 +43,10 @@ type VersionedDef struct {
 
 // ── Process Definitions ───────────────────────────────────────────────────────
 
-// DefinitionWrite is one definition's outcome in a batch apply, as decided before any of
-// them is written. Def nil means the content already exists at Version and only the
-// channel pointers move; otherwise Version is inserted with Deps.
-//
-// Channels are listed rather than derived because whether the default channel needs
-// setting is a question about state *before* the batch — answering it mid-commit would
-// read rows the same commit is writing.
+// DefinitionWrite is one definition's outcome in a batch apply, decided before any of them is
+// written. Def nil means the content already exists at Version and only the channel pointers
+// move. Channels are listed rather than derived: whether the default channel needs setting is a
+// question about state *before* the batch, which mid-commit could not answer.
 type DefinitionWrite struct {
 	Def      *model.ProcessDefinition
 	Name     string
@@ -61,13 +58,10 @@ type DefinitionWrite struct {
 	Actor string
 }
 
-// ApplyDefinitions commits a whole planned batch in one transaction: either every
-// definition, dependency and channel pointer lands, or none does.
-//
-// A batch is one logical change — an apply that half-succeeds leaves a registry whose
-// parents point at children that were never written. Callers must therefore decide and
-// validate every entry first; nothing here judges a definition, it only writes what it
-// is given.
+// ApplyDefinitions commits a whole planned batch in one transaction: either every definition,
+// dependency and channel pointer lands, or none does -- an apply that half-succeeds leaves
+// parents pointing at children that were never written. Nothing here judges a definition, so
+// callers must decide and validate every entry first.
 func (db *DB) ApplyDefinitions(writes []DefinitionWrite) error {
 	if len(writes) == 0 {
 		return nil
@@ -316,16 +310,12 @@ func (db *DB) FindVersionByHash(name, hash string) (int, error) {
 	return int(v.(int64)), nil
 }
 
-// ResolveChildVersion answers which version of `childName` a parent at
-// (parentName, parentVersion) spawns from taskID: a non-zero declared version wins; else a
-// self-reference inherits the parent's own version; else the version pinned at
-// registration, falling back to the child's latest. depKey is the child_map key ("" for
-// child and child_list).
-//
-// One rule, two callers. The engine resolves it at spawn; an upgrade resolves it against
-// the version a parent is moving TO, so the children it moves are the ones its new
-// definition names. Two copies would drift, and the drift is silent -- a parent running a
-// child version its definition never mentions. specs/version-compatibility.md s3c.
+// ResolveChildVersion answers which version of `childName` a parent at (parentName,
+// parentVersion) spawns from taskID: a non-zero declared version wins; else a self-reference
+// inherits the parent's own version; else the version pinned at registration, falling back to
+// the child's latest. depKey is the child_map key ("" for child and child_list). One rule for
+// two callers -- the engine at spawn and an upgrade against the version a parent moves TO --
+// because a second copy would drift silently. specs/version-compatibility.md s3c.
 func (db *DB) ResolveChildVersion(parentName string, parentVersion int, taskID, childName string, declared int, depKey string) (int, error) {
 	if declared != 0 {
 		return declared, nil

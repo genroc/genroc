@@ -8,19 +8,14 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// The two tokens genroc-ui signs, and the role map that sits between them.
-// specs/ui-issued-tokens.md §2, §4.
+// The two tokens genroc-ui signs, and the role map between them. Both are HS256 with the same
+// secret; they are separate because they answer different questions and want different lifetimes:
 //
-// Both are HS256 with the same secret, and only one of them ever leaves this process for the
-// genroc server. They are separate because they answer different questions and want different
-// lifetimes:
-//
-//	SESSION  {sub, groups}  hours   in an HttpOnly cookie; never sent to the server
+//	SESSION  {sub, groups}  hours     in an HttpOnly cookie; never sent to the server
 //	ACCESS   {sub, perms}   a minute  attached to each proxied request
 //
-// The upstream provider's ID token is used ONCE, at login, to learn who this is. It is then
-// discarded: it never reaches a cookie and never leaves this process, which is the point of
-// minting rather than relaying.
+// The upstream provider's ID token is used ONCE, at login, then discarded -- the point of minting
+// rather than relaying. specs/ui-issued-tokens.md §2, §4.
 
 // sessionAudience separates the two audiences so a session cookie can never be replayed as an
 // access token. Without it both are `iss: genroc-ui` HS256 tokens signed with one key, and the
@@ -91,12 +86,9 @@ func (s *signer) mintAccess(id identity, perms []string) (string, error) {
 	}).SignedString(s.secret)
 }
 
-// resolve turns a person's groups into permissions. This is the map that used to live in the
-// genroc server (api-auth.md §4); it is here because the token carries the answer rather than
-// the question.
-//
-// `*` applies to anyone who logged in at all, which is how a deployment says "everyone who gets
-// past the IdP may read". A subject entry is unioned on top, for providers carrying no groups.
+// resolve turns a person's groups into permissions -- here rather than in the genroc server
+// because the token carries the answer rather than the question. `*` applies to anyone who logged
+// in at all, and a subject entry is unioned on top for providers carrying no groups.
 func resolve(roles, users map[string][]string, id identity) []string {
 	seen := map[string]bool{}
 	var out []string

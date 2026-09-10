@@ -12,12 +12,9 @@ const (
 	LogError LogLevel = "error"
 )
 
-// LogLevelsAtLeast returns min and every level above it, or nil when min names no level.
-//
-// A level filter is a FLOOR, never an equality: `--level warn` that hid the errors above it
-// would answer "is anything wrong here?" with silence. The severity order lives here because
-// the stored value is the WORD -- 'error' < 'info' sorts wrong in every collation, so the
-// column cannot answer this and a caller must turn the floor into the set.
+// LogLevelsAtLeast returns min and every level above it, or nil when min names no level. A level
+// filter is a FLOOR, never an equality. The order lives here because the stored value is the WORD
+// -- 'error' < 'info' sorts wrong in every collation -- so a caller must turn the floor into a set.
 func LogLevelsAtLeast(min LogLevel) []LogLevel {
 	order := []LogLevel{LogDebug, LogInfo, LogWarn, LogError}
 	for i, l := range order {
@@ -28,13 +25,10 @@ func LogLevelsAtLeast(min LogLevel) []LogLevel {
 	return nil
 }
 
-// Log event kinds emitted by the engine as it advances an instance. These are
-// the stable machine-readable identifiers; the human message lives in Message.
-//
-// The LEVEL an event is written at says who is asking: info is the run's own story (what it was
-// asked to do, what it sent, what came back, how it ended), debug is how the engine did it (which
-// worker, the per-instance fan-out of a tree-wide call). Verbosity is not the test -- a payload
-// too big for a line is the renderer's problem, not the level's. genctl logs floors at info.
+// Log event kinds emitted by the engine as it advances an instance -- the stable machine-readable
+// identifiers; the human message lives in Message. The LEVEL says who is asking: info is the
+// run's own story, debug is how the engine did it. Verbosity is not the test -- a payload too big
+// for a line is the renderer's problem. genctl logs floors at info.
 const (
 	EventInstanceCreated = "inst_created"
 	EventWorkStarted     = "work_started"     // debug: one per ADVANCE -- a retry or resume emits it again
@@ -82,15 +76,11 @@ const (
 // actor. It is stored on every such row but not rendered -- see logview.Record.Detail.
 const ActorEngine = "engine:self"
 
-// LogEntry is one persisted line of an instance's execution audit trail.
-//
-// Data carries the single raw payload an event is about — a process/task input,
-// output, or request/response/error body — as valid JSON: a value too large to sit
-// inline is replaced by a reference listed in Objects, never truncated. Meta carries
-// small, complete, structured metadata about the event (e.g. {"url":…} /
-// {"status":200}). Message is the human-readable summary; the same fact may appear
-// in both Message (prose) and Meta (structured) by design. Small facts with no payload
-// (attempt counts, goto target, child counts) live in Message.
+// LogEntry is one persisted line of an instance's execution audit trail. Data carries the single
+// raw payload an event is about, as valid JSON -- a value too large to sit inline is replaced by
+// a reference listed in Objects, never truncated. Meta carries small structured metadata, Message
+// the human summary; the same fact may appear in both by design, and a small fact with no payload
+// lives in Message alone.
 type LogEntry struct {
 	ID         string   `json:"id"`
 	InstanceID string   `json:"instance_id"`

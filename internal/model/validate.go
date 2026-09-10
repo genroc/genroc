@@ -199,13 +199,10 @@ func validateActionRequiredFields(s *Task) error {
 	return nil
 }
 
-// faultCodeRe is the R1 shape for an authored error code: lower_snake_case. The two
-// excluded characters are load-bearing — '.' spells engine codes, so forbidding it keeps
-// the namespaces distinct and stops a raise mirroring a system code; '%' is the on_error
-// wildcard, so keeping it out means no pattern ever needs escaping.
-//
-// It is also what enforces R2: a computed code would make the raise set uncomputable and
-// error_code unqueryable, and no expression can be spelled in lower_snake_case.
+// faultCodeRe is the R1 shape for an authored error code: lower_snake_case. The two excluded
+// characters are load-bearing — '.' spells engine codes, keeping the namespaces distinct, and
+// '%' is the on_error wildcard, so no pattern ever needs escaping. It also enforces R2, since no
+// expression can be spelled in lower_snake_case.
 var faultCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // ValidFaultCode reports whether s is a well-formed authored error code. Exported for the
@@ -214,14 +211,10 @@ var faultCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 // engine code, including the unknowable ones an only_once task can never retry.
 func ValidFaultCode(s string) bool { return faultCodeRe.MatchString(s) }
 
-// validateFault enforces R1 (code shape, message present) on one raise or panic clause.
-// where locates the case ("switch case 0", "on_error[1]") and clause names it, so the
-// message points at the offending line without the author having to count.
-//
-// R2 (the code is a literal) needs no check here: no expression survives faultCodeRe. The
-// MESSAGE and DATA are evaluated when the clause fires, so they are type-checked where
-// their scope is known — validation.checkFaultClauses, not this package. See
-// specs/child-error-handling.md R2.
+// validateFault enforces R1 (code shape, message present) on one raise or panic clause; where
+// and clause locate it, so the message points at the offending line. R2 needs no check -- no
+// expression survives faultCodeRe -- and the MESSAGE and DATA are type-checked where their scope
+// is known, in validation.checkFaultClauses. specs/child-error-handling.md R2.
 func validateFault(f *Fault, taskID, where, clause string) error {
 	if f == nil {
 		return nil

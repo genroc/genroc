@@ -285,14 +285,11 @@ func checkMessageTemplate(expr string, ctx schema.Schema, label string) error {
 	return err
 }
 
-// checkFaultClauses checks whichever of a clause's raise/panic is set: the message renders
-// to a non-null string, and `data` type-checks against the same scope — any type will do
-// there, since a caller declares the shape it expects. Ordered rather than ranged over a
-// map so a definition with both reports the same one every run.
-//
-// A `raise` also RECORDS what its data inferred to. This is the only place the scope a clause
-// fires in is still in hand, and rd carries the answer out to the caller's check; a panic
-// records nothing, for the reason ProcessDefinition.Raises excludes its code.
+// checkFaultClauses checks whichever of a clause's raise/panic is set: the message renders to a
+// non-null string, and `data` type-checks against the same scope. Ordered rather than ranged
+// over a map so a definition with both reports the same one every run. A `raise` also RECORDS
+// what its data inferred to -- the only place the clause's scope is still in hand -- while a
+// panic records nothing, for the reason ProcessDefinition.Raises excludes its code.
 func checkFaultClauses(raise, panics *model.Fault, ctx schema.Schema, taskID, where string, rd *raiseData) error {
 	for _, c := range []struct {
 		name     string
@@ -758,17 +755,10 @@ func actionResultType(s *model.Task, defs schema.Defs) (schema.Schema, bool, err
 	}
 }
 
-// outputMapContext: the base context plus self.result, plus self.previous ONLY when the
-// task loops — only then is there a prior iteration, and previous and outputs.<id> both
-// resolve through $defs[<id>_output], the placeholder the fixpoint drives.
 // withFetchMeta adds self.status / self.headers, and only for a fetch. They are SIBLINGS of
-// self.result, never a wrapper around it: re-shaping the result into {body, status, headers}
-// would be tidier and would break every definition that reads it. The gate keeps a delay or a
-// child from growing an always-null self.status — a slot every context would then carry for
-// nothing — and the runtime builds its map under the same gate (engine.taskSelf). A slot in
-// one and not the other is either unreadable or reads null where the type promised a value.
-// Header keys are lowercased by the transport; reading one yields `string | null`, since any
-// key may be absent.
+// self.result, never a wrapper around it. The runtime builds its map under the same gate
+// (engine.taskSelf): a slot in one and not the other is either unreadable or reads null where
+// the type promised a value. Header keys are lowercased by the transport.
 func withFetchMeta(self schema.Schema, a *model.Action) schema.Schema {
 	if a == nil || a.Type != model.ActionTypeFetch {
 		return self
@@ -777,6 +767,9 @@ func withFetchMeta(self schema.Schema, a *model.Action) schema.Schema {
 	return self.WithProperty("headers", schema.Map(schema.Type("string")), true)
 }
 
+// outputMapContext: the base context plus self.result, plus self.previous ONLY when the task
+// loops — only then is there a prior iteration, and previous and outputs.<id> both resolve
+// through $defs[<id>_output], the placeholder the fixpoint drives.
 func outputMapContext(base schema.Schema, resultType schema.Schema, typed bool, taskID string, loops bool, action *model.Action) schema.Schema {
 	self := withFetchMeta(schema.Object(), action)
 	// An untyped result (fetch/external with no result_schema) is omitted here, so an

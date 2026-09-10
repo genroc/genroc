@@ -149,13 +149,10 @@ func TestGenerate_Unknown_UnreadableInEveryPosition(t *testing.T) {
 	}
 }
 
-// `query` is `headers` with the differences that carry the feature: a null VALUE is legal and
-// omits its parameter, so an optional parameter needs no conditional. The MAP may still not be
-// null — that is a mistake, not an empty query. Scalars rather than strings-only, because the
-// null-omit does not compose with `${ }` (interpolating a nullable is refused), so a
-// strings-only target would make an optional NUMBER parameter unwritable. An array of scalars
-// is legal too and repeats the parameter; an array of objects is not, for the same reason a
-// bare object is not — it has no url encoding.
+// `query` is `headers` with the differences that carry the feature: a null VALUE is legal and omits
+// its parameter, while the MAP may still not be null. Scalars rather than strings-only, or an
+// optional NUMBER parameter would be unwritable; an array of scalars repeats the parameter, and an
+// array of objects is refused for the same reason a bare object is -- it has no url encoding.
 func TestGenerate_QueryShape(t *testing.T) {
 	def := func(query string) string {
 		return `{"name":"p","input_schema":{"type":"object","properties":{

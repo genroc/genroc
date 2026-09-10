@@ -5,20 +5,11 @@ import (
 	"fmt"
 )
 
-// Timeout is a task's execution deadline, written in either of two forms:
-//
-//	timeout: "30s"                                  // the `for` grammar, resolved in UTC
-//	timeout: {until: "fri 17:00", tz: "Europe/Prague"}
-//
-// The scalar desugars to `for` at decode, the way SwitchMap's string shorthand desugars to
-// a single case, so everything downstream sees one shape and the stored definition is
-// canonical.
-//
-// Absent means "no deadline of its own": a fetch falls back to the engine's default, an
-// external waits indefinitely. 0 no longer spells "forever" the way the old timeout_ms did,
-// because a slot whose zero means the opposite of its smallest value cannot also carry a
-// duration grammar — a zero or past deadline is refused on a fetch and clamps to "due now"
-// on an external.
+// Timeout is a task's execution deadline, written as a scalar ("30s", the `for` grammar in UTC)
+// or an object ({until: "fri 17:00", tz: …}). The scalar desugars to `for` at decode, so
+// everything downstream sees one shape. Absent means no deadline of its own — a fetch falls back
+// to the engine default, an external waits indefinitely — and 0 does NOT spell forever: a zero or
+// past deadline is refused on a fetch and clamps to "due now" on an external.
 type Timeout struct {
 	DelaySpec
 }

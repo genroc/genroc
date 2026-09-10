@@ -1,18 +1,11 @@
-// Package logview is the single source of truth for how an instance's audit trail
-// is presented, shared by the two surfaces that show it: the server console
-// (engine → slog, streaming) and genctl logs (CLI → batch). Both build the same
-// fields and render them through the same fixed-width column layout, so a row looks
-// identical in either place. The CLI adds a header (it has the whole page); the
-// streaming server can't, and its operational (non-event) logs render free-form. The
-// one width that varies is the time column (TimeStyle) — the console is pinned to
-// TimeClock, so the two stay identical unless the CLI is asked for something else. The CLI
-// also cuts each line to a width (Clamp): it renders into a terminal it can be told the size
-// of, and the console renders into whatever its stdout is.
+// Package logview is the single source of truth for how an instance's audit trail is presented,
+// shared by the server console (streaming) and genctl logs (batch): same fields, same fixed-width
+// columns, so a row looks identical in either place. The CLI adds what only a whole page allows —
+// a header, a Clamp width, a chosen TimeStyle — while the console is pinned to TimeClock.
 //
-// The one thing that does differ is the zone: the console is UTC (a fleet's logs must
-// collate), the CLI is the reader's local (an operator correlates against their own
-// clock). So the same event reads at two clock times, by design — each surface says so,
-// the CLI on every DateBreak and the console by being invariably UTC.
+// The zone does differ by design: the console is UTC (a fleet's logs must collate), the CLI the
+// reader's local (an operator correlates against their own clock). Each surface says so — the CLI
+// on every DateBreak, the console by being invariably UTC.
 package logview
 
 import (
@@ -240,24 +233,15 @@ func Header(style TimeStyle, withID bool) string {
 	return strings.TrimRight(columnPrefix(style, "TIME", "LEVEL", "ID", "EVENT", "TASK", withID), " ")
 }
 
-// DateBreak is the day marker the CLI prints above the first row of each calendar day
-// under TimeClock, whose column holds no date — without it a trail read days later is a
-// wall of undated times. It costs no column width, which is why it is the default rather
-// than TimeFull: widening the column would desynchronize the CLI from the server
-// console, which streams and cannot re-align. Callers emit the first break
-// unconditionally (an all-yesterday page needs it most) and none at all under a style
-// that CarriesDate.
+// DateBreak is the day marker the CLI prints above the first row of each calendar day under
+// TimeClock, whose column holds no date. It costs no column width, which is why it is preferred
+// to TimeFull: widening the column would desynchronize the CLI from the streaming console.
+// Callers emit the first break unconditionally and none at all under a style that CarriesDate.
 //
-// It carries the zone because it is the only place TimeClock can: repeating it on every
-// row is noise, and it does not fit the 8-wide TIME header cell. Timestamps render in the
-// reader's local zone (TZ), so a trail read from another machine is dated differently —
-// saying which zone once per day is what makes that legible.
-//
-// As an offset, never an abbreviation: "CST" is both Shanghai and Chicago, fourteen hours
-// apart, and Go emits a numeric form anyway for zones tzdata gives no abbreviation (
-// "+0545"), so the token would not even keep one shape. delayspec.LoadLocation rejects
-// abbreviations in `tz` for the same reason — one vocabulary for zones, both directions.
-// The offset comes from t, so a trail spanning a DST change reports each day's own.
+// It carries the zone because it is the only place TimeClock can, and as an OFFSET, never an
+// abbreviation: "CST" is both Shanghai and Chicago, and Go emits a numeric form anyway for zones
+// tzdata gives no abbreviation. The offset comes from t, so a trail spanning a DST change reports
+// each day's own.
 func DateBreak(t time.Time) string {
 	return "--- " + t.Format("2006-01-02 -07:00") + " ---"
 }

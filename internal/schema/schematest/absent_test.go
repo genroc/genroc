@@ -324,12 +324,9 @@ func TestAbsentAsNull_RefusesWhatCannotBeClosed(t *testing.T) {
 }
 
 // A presence gap is closable exactly when the missing property's type admits null, and that
-// question is answered TWICE — once by the relation, once by the fill. The two must give the
-// same answer or the pair's promise breaks, so these pin the awkward spellings against both.
-//
-// One case is deliberately absent: a `required` name with no declared property. The relation
-// refuses it (see the HasNull test below) while the fill walks declared properties only and
-// never sees it — the relation being the stricter half, which is the harmless direction.
+// question is answered TWICE -- once by the relation, once by the fill -- so these pin the awkward
+// spellings against both. One case is deliberately absent: a `required` name with no declared
+// property, which the relation refuses and the fill never sees -- the harmless direction.
 func TestAbsentAsNull_BothHalvesAgreeOnWhichNamesAreFillable(t *testing.T) {
 	cases := []struct {
 		name  string

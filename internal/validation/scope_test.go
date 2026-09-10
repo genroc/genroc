@@ -8,12 +8,10 @@ import (
 	"genroc/internal/model"
 )
 
-// Every expression-bearing slot of an action is evaluated before the task's own output
-// exists, so preOutputSlots must list it. A slot missing from that list is type-checked in a
-// scope the engine never populates at runtime: it accepts self.previous and then reads null.
-//
-// The reflection half is the point — a field added to model.Action fails here rather than
-// quietly acquiring the wrong scope.
+// Every expression-bearing slot of an action is evaluated before the task's own output exists,
+// so preOutputSlots must list it: a slot missing from that list is type-checked in a scope the
+// engine never populates, accepting self.previous and then reading null. The reflection half is
+// the point — a field added to model.Action fails here rather than acquiring the wrong scope.
 func TestPreOutputSlotsCoversEveryActionSlot(t *testing.T) {
 	// Fields that carry no expression. Each is data the engine reads directly, so there is
 	// nothing to type-check against a context.

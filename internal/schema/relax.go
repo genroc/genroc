@@ -1,16 +1,10 @@
 package schema
 
-// Relaxed returns a copy of s in which every node also admits a plain string, applied
-// recursively via mapChildren so it is exhaustive over nested objects, arrays, unions and
-// $defs — not a special-cased handful of keywords. This is the editor's "any value may be
-// written as its literal, or at any level as an expression (a string)" transform: a Shape
-// leaf is an expression, and an expression is authored as a string. A pure string leaf is
-// left as a string (literal and expression coincide); every other node becomes `node | string`.
-//
-// stringNote, when non-empty, is attached as the description of every string position (a
-// string leaf, or the string alternative added to a non-string node) that does not already
-// carry one — so the caller can label the expression escape hatch without a second pass. The
-// node type carries descriptions natively, so no post-processing of the JSON is needed.
+// Relaxed returns a copy of s in which every node also admits a plain string, recursively via
+// mapChildren so it is exhaustive rather than a special-cased handful of keywords. This is the
+// editor's "any value may be written as its literal, or at any level as an expression" transform:
+// a pure string leaf is left alone, every other node becomes `node | string`. stringNote, when
+// non-empty, labels every string position that does not already carry a description.
 func (s Schema) Relaxed(stringNote string) Schema {
 	if s.n == nil {
 		return s

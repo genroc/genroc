@@ -99,12 +99,9 @@ func at(doc *defdoc.Doc, lines []string, address, code, message string) diagnost
 	}
 }
 
-// locatedRange is where to underline. An address resolves directly; without one — the
-// hand-written rules in model.Validate and the decoders report prose — the message names the
-// offending VALUE instead, so look for the node holding it.
-//
-// Failing both, the FIRST LINE. Falling back to the document root underlines every line of the
-// file for one bad word, which is what a reader sees while still typing it.
+// locatedRange is where to underline. An address resolves directly; without one, the message
+// names the offending VALUE instead, so look for the node holding it. Failing both, the FIRST
+// LINE -- the document root would underline every line of the file for one bad word.
 func locatedRange(doc *defdoc.Doc, address, message string) defdoc.Range {
 	if address != "" {
 		if span, ok := doc.Locate(address); ok {
@@ -285,10 +282,10 @@ func solePathEndingIn(doc *defdoc.Doc, key string) (string, bool) {
 	return found, len(seen) == 1
 }
 
-// yamlErrorRange reads the line out of a yaml.v3 parse failure, which reports it only in
-// prose. An unreadable one falls back to the top of the file rather than to nothing.
 var yamlLineRe = regexp.MustCompile(`line (\d+):`)
 
+// yamlErrorRange reads the line out of a yaml.v3 parse failure, which reports it only in prose.
+// An unreadable one falls back to the top of the file rather than to nothing.
 func yamlErrorRange(err error) defdoc.Range {
 	r := defdoc.Range{Line: 1, Col: 1, EndLine: 1, EndCol: 1}
 	if m := yamlLineRe.FindStringSubmatch(err.Error()); m != nil {

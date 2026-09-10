@@ -52,12 +52,10 @@ func (s *uiServer) serveLoginPage(w http.ResponseWriter, r *http.Request) {
 	w.Write(page)
 }
 
-// passwordLogin checks a bcrypt hash from the config. specs/ui-issued-tokens.md §5 -- the
-// `staticPasswords` trade: one file, no directory, no registration, no reset.
-//
-// It answers JSON rather than re-rendering, because the caller is the login bundle's `fetch`.
-// The session cookie rides on this response and the page then navigates, which is what makes
-// the browser pick it up.
+// passwordLogin checks a bcrypt hash from the config -- the `staticPasswords` trade: one file, no
+// directory, no registration, no reset. It answers JSON rather than re-rendering, because the
+// caller is the login bundle's `fetch`; the session cookie rides on that response and the page
+// then navigates. specs/ui-issued-tokens.md §5.
 func (s *uiServer) passwordLogin(w http.ResponseWriter, r *http.Request) {
 	if s.sign == nil || len(s.cfg.Login.Passwords) == 0 {
 		writeJSONError(w, http.StatusNotImplemented, "password login is not configured")
