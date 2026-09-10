@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Process definition — genroc</title><meta name="description" content="The definition language — tasks, routing, expressions, actions, and what a process does when something fails."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Process definition — genroc</title><meta name="description" content="Learn how to define your own process."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
       const stored = localStorage.getItem('theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
     </script><link rel="expect" href="#page-end" blocking="render"><script type="application/json" id="vt-data">{"tree":{"/":"00","/guides/getting-started":"00.01.01","/guides/getting-started/installation":"00.01.01.01","/guides/getting-started/first-process":"00.01.01.02","/guides/getting-started/surviving-a-restart":"00.01.01.03","/guides/process-definition":"00.01.02","/api-reference/http-api":"00.02.01"},"chrome":[{"attr":"vtBanner","selector":".banner-strip"},{"attr":"vtDrawer","selector":".nav-drawer"},{"attr":"vtSidebar","selector":".shell > .sidebar"},{"attr":"vtToc","selector":".toc"},{"attr":"vtFooter","selector":"footer"}]}</script> <script>
@@ -144,99 +144,18 @@
     root.dataset.theme = dark ? 'light' : 'dark'
     localStorage.setItem('theme', root.dataset.theme)
   })
-</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="group"> <a href="/guides/getting-started/installation/"> Getting started </a>  </li><li> <a href="/guides/process-definition/" aria-current="page"> Process definition </a>  </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="group"> <a href="/guides/getting-started/installation/"> Getting started </a>  </li><li> <a href="/guides/process-definition/" aria-current="page"> Process definition </a>  </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/guides/">Guides</a> </p> <h1>Process definition</h1> <p>The definition language — tasks, routing, expressions, actions, and what a process does when something fails.</p> </div>  <p>A definition is a YAML document describing what a process does. <code>genctl apply</code> registers one and
-the engine runs instances of it. This page walks the language in the order you meet it; each
-section assumes the one above.</p>
-<p>TODO: skeleton. Every heading below is a section to write, not a section that exists.</p>
-<h2 id="the-shape-of-a-definition">The shape of a definition<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-shape-of-a-definition"><span></span></a></h2>
-<p>TODO: the whole surface on one page — <code>name</code>, <code>tasks</code>, and the optional <code>input_schema</code>,
-<code>config_schema</code>, <code>output</code>, <code>$defs</code>. One small definition annotated, so the rest of the page has
-something to point at.</p>
-<h2 id="tasks">Tasks<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#tasks"><span></span></a></h2>
-<p>TODO: <code>id</code>, <code>action</code>, <code>output</code>, <code>switch</code>. A task is the unit of work AND the unit of durability —
-what is committed between steps is what a restart resumes from. A task with no <code>action</code> is
-routing only.</p>
-<h2 id="routing-with-switch">Routing with <code>switch</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#routing-with-switch"><span></span></a></h2>
-<p>TODO: the shorthand (<code>end</code>, <code>next</code>, <code>$task-id</code>) and the list form of <code>case</code> / <code>goto</code>. The last
-case must be a catch-all. Jumping backwards is how a loop is written, with <code>self.output</code> as the
-counter — and why that is <code>self.output</code> and not <code>outputs.&lt;id&gt;</code>, which in a switch is still the
-PREVIOUS value.</p>
-<h2 id="expressions">Expressions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#expressions"><span></span></a></h2>
-<p>TODO: <code>$:</code> is a typed leaf, <code>${}</code> interpolates into a string, <code>$$</code> escapes a literal dollar.
-What is in scope: <code>input</code>, <code>outputs</code>, <code>self</code> (<code>result</code>, <code>previous</code>, <code>output</code>), <code>config</code>, <code>error</code>.
-Types are inferred and checked at apply time — the “may be null; use ??” refusal belongs here,
-since it is the first one most people hit.</p>
-<h2 id="actions">Actions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#actions"><span></span></a></h2>
-<p>TODO: an action is what a task DOES. Six types; a task has at most one.</p>
-<h3 id="fetch"><code>fetch</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#fetch"><span></span></a></h3>
-<p>TODO: <code>url</code>, <code>method</code>, <code>headers</code>, <code>query</code>, <code>body</code>, <code>accepted_status</code>, <code>responses</code>.</p>
-<h3 id="child-child_map-child_list"><code>child</code>, <code>child_map</code>, <code>child_list</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#child-child_map-child_list"><span></span></a></h3>
-<p>TODO: one child, a keyed batch, and a fan-out over an array. What the parent reads back, and
-<code>result_schema</code> / <code>raises</code> as the contract across the boundary.</p>
-<h3 id="delay"><code>delay</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#delay"><span></span></a></h3>
-<p>TODO: <code>for</code> and <code>until</code>, exactly one of them. A delay is not a sleep — nothing is held open.</p>
-<h3 id="external"><code>external</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#external"><span></span></a></h3>
-<p>TODO: the task parks and something outside answers it with <code>genctl resolve</code>. Queue tokens.</p>
-<h2 id="schemas">Schemas<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#schemas"><span></span></a></h2>
-<p>TODO: <code>input_schema</code> validates what starts an instance; <code>result_schema</code> narrows what an action
-returns; <code>$defs</code> is the shared pool. Inference means most things need no schema at all — say
-where declaring one actually buys something.</p>
-<h2 id="configuration">Configuration<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#configuration"><span></span></a></h2>
-<p>TODO: <code>config_schema</code>, resolved per tick from <code>GENROC_&lt;PROCESS&gt;_&lt;NAME&gt;</code> (falling back to
-<code>GENROC_GLOBAL_&lt;NAME&gt;</code>), never persisted, and <code>secret: true</code> to keep a value out of the logs.</p>
-<h2 id="when-a-task-fails">When a task fails<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#when-a-task-fails"><span></span></a></h2>
-<p>TODO: <code>on_error</code> rules matching on <code>code</code> and <code>case</code>, in order, first match wins. Retry tiers.
-<code>raises</code> for faults a process reports outward. <code>only_once</code> and <code>only_once.interrupted</code> — the
-honest answer to “will my payment run twice”, which
-<a href="../getting-started/surviving-a-restart/">Surviving a restart</a> currently defers.</p>
-<h2 id="timeouts">Timeouts<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#timeouts"><span></span></a></h2>
-<p>TODO: <code>timeout</code> is the same <code>for</code> / <code>until</code> grammar aimed at a deadline instead of a wake-up,
-plus <code>tz</code>. Which action types honour which form, and what a past instant means.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/getting-started/surviving-a-restart/"> <span>previous</span> <strong>Surviving a restart</strong> </a> <a class="next" href="/api-reference/http-api/"> <span>next</span> <strong>HTTP API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-shape-of-a-definition">The shape of a definition</a></li><li class="depth-2"><a href="#tasks">Tasks</a></li><li class="depth-2"><a href="#routing-with-switch">Routing with switch</a></li><li class="depth-2"><a href="#expressions">Expressions</a></li><li class="depth-2"><a href="#actions">Actions</a></li><li class="depth-3"><a href="#fetch">fetch</a></li><li class="depth-3"><a href="#child-child_map-child_list">child, child_map, child_list</a></li><li class="depth-3"><a href="#delay">delay</a></li><li class="depth-3"><a href="#external">external</a></li><li class="depth-2"><a href="#schemas">Schemas</a></li><li class="depth-2"><a href="#configuration">Configuration</a></li><li class="depth-2"><a href="#when-a-task-fails">When a task fails</a></li><li class="depth-2"><a href="#timeouts">Timeouts</a></li></ul><script>
-        ;(function () {
-          const links = [...document.querySelectorAll('.toc a[href^="#"]')]
-          const targets = links
-            .map((a) => ({ a: a, el: document.getElementById(decodeURIComponent(a.hash.slice(1))) }))
-            .filter((t) => t.el)
-          if (!targets.length) return
-
-          // The line a heading crosses to become current: just under the sticky topbar, which
-          // is measured rather than assumed -- it is where the readable area actually starts.
-          const line = () => {
-            const bar = document.querySelector('.topbar')
-            return (bar ? bar.getBoundingClientRect().height : 0) + 24
-          }
-
-          let current = null
-          function update() {
-            const y = line()
-            let active = targets[0]
-            for (const t of targets) {
-              if (t.el.getBoundingClientRect().top <= y) active = t
-            }
-            // A last section too short to reach the line would never be current, so the
-            // bottom of the page elects it.
-            if (innerHeight + scrollY >= document.documentElement.scrollHeight - 2) {
-              active = targets[targets.length - 1]
-            }
-            if (active === current) return
-            if (current) current.a.removeAttribute('aria-current')
-            active.a.setAttribute('aria-current', 'location')
-            current = active
-          }
-
-          let queued = false
-          function onScroll() {
-            if (queued) return
-            queued = true
-            requestAnimationFrame(function () {
-              queued = false
-              update()
-            })
-          }
-          addEventListener('scroll', onScroll, { passive: true })
-          addEventListener('resize', onScroll)
-          // A hash in the URL scrolls after this script parses, so re-read once settled.
-          addEventListener('load', update)
-          update()
-        })()
-      </script></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
+</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="group"> <a href="/guides/getting-started/installation/"> Getting started </a>  </li><li> <a href="/guides/process-definition/" aria-current="page"> Process definition </a>  </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> </details> <div class="shell no-toc"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="group"> <a href="/guides/getting-started/installation/"> Getting started </a>  </li><li> <a href="/guides/process-definition/" aria-current="page"> Process definition </a>  </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/guides/">Guides</a> </p> <h1>Process definition</h1> <p>Learn how to define your own process.</p> </div>  <p>Genroc uses *.genroc.yaml files to describe processes. Let’s start with an example.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ticker</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">tasks</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> tick</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> delay</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      for</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">10s</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      count</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> (</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">self</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">previous</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">count</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> ??</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 0</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">)</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> +</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 1</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">      -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> case</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">self</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">count </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&lt;</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 3</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> $tick</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">      -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> end</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  ticks</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> outputs</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">tick</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">count</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span></code></pre>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/getting-started/surviving-a-restart/"> <span>previous</span> <strong>Surviving a restart</strong> </a> <a class="next" href="/api-reference/http-api/"> <span>next</span> <strong>HTTP API</strong> </a> </nav> </div> </main>  </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>

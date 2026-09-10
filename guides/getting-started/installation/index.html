@@ -160,6 +160,9 @@
 <span class="line"><span>├─ .genroc                 # genroc configuration</span></span>
 <span class="line"><span>├─ compose.yaml            # docker compose file for starting the server</span></span>
 <span class="line"><span>└─ .gitignore</span></span></code></pre>
+<h2 id="editor-support">Editor support<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#editor-support"><span></span></a></h2>
+<p>If you use VS Code, we recommend installing <a href="https://marketplace.visualstudio.com/items?itemName=genroc.genroc">genroc extension</a>.
+It provides language support for <code>*.genroc.yaml</code> files.</p>
 <h2 id="running-with-docker">Running with docker<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#running-with-docker"><span></span></a></h2>
 <blockquote>
 <p>To continue you need to have <a href="https://docs.docker.com/desktop/">docker installed</a> on your system.</p>
@@ -178,7 +181,7 @@ If you need to prune database just delete the folder and restart the server with
 <h2 id="uninstalling">Uninstalling<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#uninstalling"><span></span></a></h2>
 <p>To uninstall genctl:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">curl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> -fsSL</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> https://genroc.org/install.sh</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> |</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> sh</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> -s</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --uninstall</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> [--purge]</span></span></code></pre>
-<p><code>--purge</code> also deletes your settings (config directory)</p>  <nav class="page-nav" aria-label="reading order">  <a class="next" href="/guides/getting-started/first-process/"> <span>next</span> <strong>Your first process</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-cli">The CLI</a></li><li class="depth-2"><a href="#starting-a-project">Starting a project</a></li><li class="depth-2"><a href="#running-with-docker">Running with docker</a></li><li class="depth-2"><a href="#data-folder">data folder</a></li><li class="depth-2"><a href="#uninstalling">Uninstalling</a></li></ul><script>
+<p><code>--purge</code> also deletes your settings (config directory)</p>  <nav class="page-nav" aria-label="reading order">  <a class="next" href="/guides/getting-started/first-process/"> <span>next</span> <strong>Your first process</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-cli">The CLI</a></li><li class="depth-2"><a href="#starting-a-project">Starting a project</a></li><li class="depth-2"><a href="#editor-support">Editor support</a></li><li class="depth-2"><a href="#running-with-docker">Running with docker</a></li><li class="depth-2"><a href="#data-folder">data folder</a></li><li class="depth-2"><a href="#uninstalling">Uninstalling</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
