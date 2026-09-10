@@ -28,9 +28,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: pnpm
 
       # Into docs/public/, so the built site serves it at /process-schema.json. Must run
       # before the Astro build — public/ is copied into dist/ at build time.
@@ -40,8 +42,8 @@ jobs:
       - name: Build site
         run: |
           cd docs
-          npm ci
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm -C docs run build
           # Pages runs Jekyll on branch deploys, which drops _astro/ (underscore dirs).
           touch dist/.nojekyll
 

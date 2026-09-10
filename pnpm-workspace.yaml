@@ -1,0 +1,17 @@
+# The Node projects, listed rather than globbed: cmd/genctl/templates/scripts is a package.json
+# `genctl init` SCAFFOLDS for a user, not one of ours, and a glob would adopt it into the
+# workspace and rewrite its lockfile.
+packages:
+  - docs
+  - editors/vscode
+  - eval-node
+  - tests
+  - ui/frontend
+
+# pnpm 10 refuses postinstall scripts unless a dependency is named here. Both of these need
+# theirs: esbuild links its platform binary, and sharp is what Astro's image pipeline runs on.
+onlyBuiltDependencies:
+  - '@vscode/vsce-sign'
+  - esbuild
+  - keytar
+  - sharp

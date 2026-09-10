@@ -1,0 +1,6 @@
+{
+  "name": "genroc-workspace",
+  "private": true,
+  "description": "Workspace root. The Go modules are the product; these are the Node projects beside them.",
+  "packageManager": "pnpm@10.33.2"
+}

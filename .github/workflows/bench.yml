@@ -46,11 +46,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: pnpm
       - name: Install test dependencies
-        run: cd tests && npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Run bench
         run: BENCH_JSON="$RUNNER_TEMP/${{ matrix.workload }}.json" make bench-${{ matrix.workload }}

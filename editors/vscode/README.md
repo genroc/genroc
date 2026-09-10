@@ -62,9 +62,9 @@ code --install-extension genroc-edge.vsix
 
 ```sh
 cd editors/vscode
-npm install
-npm run compile
-npm run package     # produces genroc-<version>.vsix
+pnpm install                    # from the repo root; this is a workspace
+pnpm run compile
+pnpm run package                # produces genroc-<version>.vsix
 code --install-extension genroc-0.0.0.vsix
 ```
 

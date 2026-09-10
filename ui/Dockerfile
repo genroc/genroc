@@ -7,11 +7,17 @@
 #     docker build -f ui/Dockerfile -t genroc-ui .
 
 FROM --platform=$BUILDPLATFORM node:24-alpine AS assets
-WORKDIR /spa
-COPY ui/frontend/package*.json ./
-RUN npm ci
-COPY ui/frontend/ ./
-RUN npm run build
+# Pinned rather than corepack-enabled: an exact version is what the lockfile was written by, and
+# it does not depend on which Node still bundles corepack.
+RUN npm install -g pnpm@10.33.2
+WORKDIR /repo
+# The lockfile is the WORKSPACE's, so the manifests come first and `--filter` narrows the
+# install to this one package -- the layer then caches on a dependency change alone.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY ui/frontend/package.json ./ui/frontend/
+RUN pnpm install --frozen-lockfile --filter genroc-ui
+COPY ui/frontend/ ./ui/frontend/
+RUN pnpm -C ui/frontend run build
 
 FROM golang:1.25-alpine AS build
 ARG VERSION=dev
@@ -28,7 +34,7 @@ COPY ui/ ./ui/
 # The compiled SPA replaces the committed placeholder that keeps `go build` working without a
 # JavaScript toolchain. Removed first so a stale file cannot survive into the image.
 RUN rm -rf ./ui/web
-COPY --from=assets /spa/dist ./ui/web
+COPY --from=assets /repo/ui/frontend/dist ./ui/web
 # No cgo: nothing here touches SQLite, which is half of why this image is a fraction of the
 # server's and can be built for any architecture without a cross toolchain.
 RUN cd ui && CGO_ENABLED=0 go build -trimpath \

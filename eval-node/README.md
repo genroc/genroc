@@ -26,7 +26,7 @@ resolver's exit code, so a stored definition cannot hold code that failed to typ
 
 ## Building
 
-    npm run build       # tsc -p tsconfig.build.json -> dist/
+    pnpm run build      # tsc -p tsconfig.build.json -> dist/
 
 The published package is JavaScript, not TypeScript. **Node refuses to strip types for files
 under `node_modules`**, so shipping `.ts` works from a checkout and fails for every consumer —

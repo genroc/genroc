@@ -2,9 +2,9 @@
 
 A small React app for watching instances. Vite dev server, no styling framework.
 
-    cd ui/frontend && npm install && npm run dev   # http://localhost:5173
+    pnpm install && pnpm -C ui/frontend run dev   # http://localhost:5173
 
-It expects genroc on `http://localhost:8448`; override with `GENROC_SERVER=… npm run dev`.
+It expects genroc on `http://localhost:8448`; override with `GENROC_SERVER=… pnpm run dev`.
 
 ## The proxy is why there is no CORS anywhere
 

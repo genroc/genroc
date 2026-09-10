@@ -53,23 +53,25 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Install test dependencies
-        run: cd tests && npm ci
-      - name: Install eval-node dependencies
-        # The import resolver shells out to typescript/bin/tsc and to rollup, resolved from
-        # the evaluator's OWN node_modules (import.meta.resolve, relative to import.ts) —
-        # which is gitignored, so without this every resolver test fails with "Cannot find
-        # module".
-        run: cd eval-node && npm ci
+          cache: pnpm
+      - name: Install Node dependencies
+        # One workspace, one install: it populates tests/ AND eval-node/, whose resolver shells
+        # out to typescript/bin/tsc and rollup resolved from its OWN node_modules
+        # (import.meta.resolve, relative to import.ts) — without them every resolver test fails
+        # with "Cannot find module".
+        run: pnpm install --frozen-lockfile
       - name: Build eval-node
         # The published package must be JavaScript: Node refuses to strip types for files under
         # node_modules, so shipping .ts works from a checkout and fails for every consumer.
-        run: cd eval-node && npm run build
+        run: pnpm -C eval-node run build
       - name: The package works when INSTALLED, not just from the repo
         # The only shape that catches the above — every other test runs eval-node from source.
+        # Deliberately npm, not pnpm: this simulates a CONSUMER installing from the registry,
+        # and they will not be using our workspace.
         run: |
           cd eval-node && npm pack --silent
           tmp=$(mktemp -d) && cd "$tmp" && npm init -y >/dev/null
@@ -80,12 +82,12 @@ jobs:
       - name: Typecheck eval-node
         # It is the shipped artefact and nothing else checks it: `make test` covers the Go
         # engine and the test suite, and the evaluator only ever gets RUN.
-        run: cd eval-node && npm run typecheck
+        run: pnpm -C eval-node run typecheck
       - name: Compile the VS Code extension
         # Shipped artefact, and `tsc` runs nowhere else: `make test` covers the server and the
         # suite, and the extension only ever gets LAUNCHED. Without this a broken extension is
         # discovered by the release that publishes it.
-        run: cd editors/vscode && npm ci && npm run compile
+        run: pnpm -C editors/vscode run compile
       - name: make test
         run: make test
 

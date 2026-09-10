@@ -50,7 +50,11 @@ install:
 	@echo "installed $$("$(prefix)/genctl" -v) -> $(prefix)/genctl"
 
 # The VS Code extension. It is a launcher for `genctl lsp` and ships separately from the
-# binaries, so it is not part of `build` -- packaging it needs npm.
+# binaries, so it is not part of `build`.
+#
+# `compile` BUNDLES with esbuild rather than emitting a tsc tree: vsce reads npm's node_modules
+# layout to collect runtime dependencies and will not learn pnpm's (vscode-vsce#421), so the one
+# dependency is inlined into dist/ and vsce is told `--no-dependencies`.
 #
 # The wasm is the server the extension falls back to where the machine has no genctl. ONE module
 # for every platform is what keeps the extension a single universal .vsix; a native binary would
@@ -58,10 +62,10 @@ install:
 #
 # editors/vscode/LICENSE is a COPY of the root one, not a link: vsce reads the extension
 # directory alone, and without a license file there it warns and then stops on a terminal to ask.
-# npm packs eval-node/LICENSE for the same reason.
+# eval-node/LICENSE is a copy for the same reason -- npm publishes that one.
 extension:
 	GOOS=wasip1 GOARCH=wasm go build -ldflags="-s -w" -o editors/vscode/bin/genctl.wasm ./cmd/genctl
-	cd editors/vscode && npm install && npm run compile && npm run package
+	pnpm install && pnpm -C editors/vscode run compile && pnpm -C editors/vscode run package
 
 test: test-unit test-int
 
@@ -80,10 +84,10 @@ schema:
 	$(BUILD_FLAGS) go run ./cmd/genrocschema $(ARGS)
 
 client: swagger
-	cd tests && npm run generate
+	pnpm -C tests run generate
 
 test-int: client
-	cd tests && npm run typecheck && npm test
+	pnpm -C tests run typecheck && pnpm -C tests test
 
 # Spawn benchmarks: YAML-defined workloads (tests/bench/workloads/), SQLite vs Postgres.
 # bench-recursive — full binary tree (wide); measures concurrent throughput ceiling.
@@ -95,21 +99,21 @@ test-int: client
 # recursive/deep defaults are sized to the same instance count (~8k) so the shapes
 # compare directly. Set POSTGRES_DSN to also benchmark Postgres.
 bench-recursive: client
-	cd tests && npm run bench-recursive
+	pnpm -C tests run bench-recursive
 
 bench-deep: client
-	cd tests && npm run bench-deep
+	pnpm -C tests run bench-deep
 
 bench-drain: client
-	cd tests && npm run bench-drain
+	pnpm -C tests run bench-drain
 
 bench-drain-big: client
-	cd tests && npm run bench-drain-big
+	pnpm -C tests run bench-drain-big
 
 # bench-iterate — one process that parks many times; the shape that separates
 # --durability=terminal from strict (a per-process flush vs a per-yield one).
 bench-iterate: client
-	cd tests && npm run bench-iterate
+	pnpm -C tests run bench-iterate
 
 sqlc:
 	go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
@@ -117,7 +121,7 @@ sqlc:
 # The script-task evaluator (eval-node/). A script task is an `external` task; this is the
 # worker that claims them off the queue. See eval-node/README.md.
 script-runner:
-	cd eval-node && npm install && GENROC_SERVER=$(genroc_server) node worker.ts
+	pnpm install && cd eval-node && GENROC_SERVER=$(genroc_server) node worker.ts
 
 # The process-definition JSON Schema, as a static file the site serves at
 # genroc.org/process-schema.json — the same bytes GET /public/process-schema.json returns, so a
@@ -129,10 +133,10 @@ docs-schema:
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
 # per-version build is served from; unset means the site root.
 docs: docs-schema
-	cd docs && npm install && npm run dev
+	pnpm install && pnpm -C docs run dev
 
 docs-build: docs-schema
-	cd docs && npm install && npm run build
+	pnpm install && pnpm -C docs run build
 
 clean:
 	rm -f genroc genctl genroc-ui $(db)

@@ -28,6 +28,7 @@
 openapi.json
 /docs/public/process-schema.json
 tests/generated/
+/node_modules/
 tests/node_modules/
 eval-node/node_modules/
 docs/node_modules/
@@ -44,7 +45,7 @@ go.work.sum
 examples/ui/data/
 
 # VS Code extension build output
-/editors/vscode/out/
+/editors/vscode/dist/
 /editors/vscode/bin/
 /editors/vscode/node_modules/
 /editors/vscode/*.vsix
