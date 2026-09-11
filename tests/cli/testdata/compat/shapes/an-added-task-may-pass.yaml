@@ -22,10 +22,10 @@ apply:
         input_schema: {type: object, properties: {flag: {type: boolean}}, required: [flag]}
         tasks:
           - id: start
-            action: {type: fetch, url: http://x/start}
+            action: {type: fetch, method: post, url: http://x/start}
             switch: next
           - id: finish
-            action: {type: fetch, url: http://x/finish}
+            action: {type: fetch, method: post, url: http://x/finish}
             switch: end
   - channel: addok_b
     definitions:
@@ -33,19 +33,19 @@ apply:
         input_schema: {type: object, properties: {flag: {type: boolean}}, required: [flag]}
         tasks:
           - id: start
-            action: {type: fetch, url: http://x/start}
+            action: {type: fetch, method: post, url: http://x/start}
             switch:
               - {case: 'input.flag == true', goto: $side}
               - {goto: $audit}
           - id: side
-            action: {type: fetch, url: http://x/side}
+            action: {type: fetch, method: post, url: http://x/side}
             output: {note: '$: 1'}
             switch: $audit
           - id: audit
-            action: {type: fetch, url: http://x/audit}
+            action: {type: fetch, method: post, url: http://x/audit}
             switch: next
           - id: finish
-            action: {type: fetch, url: http://x/finish}
+            action: {type: fetch, method: post, url: http://x/finish}
             switch: end
 run: [--from, addok_a, --to, addok_b]
 expect: |

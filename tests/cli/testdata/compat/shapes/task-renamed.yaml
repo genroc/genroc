@@ -9,6 +9,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x
             switch: end
   - channel: taskren_b
@@ -18,6 +19,7 @@ apply:
           - id: dispatch
             action:
               type: fetch
+              method: post
               url: http://x
             switch: end
 run: [--from, taskren_a, --to, taskren_b]

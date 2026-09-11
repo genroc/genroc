@@ -14,7 +14,7 @@ apply:
           required: [tags]
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
   - channel: itemc_b
     definitions:
@@ -26,7 +26,7 @@ apply:
           required: [tags]
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
 run: [--from, itemc_a, --to, itemc_b]
 

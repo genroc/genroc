@@ -8,6 +8,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x/ship
             switch: end
   - channel: optin_b
@@ -18,6 +19,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x/ship
             switch: end
 run: [--from, optin_a, --to, optin_b]

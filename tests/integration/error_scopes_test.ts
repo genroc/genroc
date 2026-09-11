@@ -25,7 +25,7 @@ test("a rule sees the error it caught and the one that routed it here, at once",
           action: {
             type: "fetch" as const,
             url: `http://localhost:${upstream.port}/`,
-            method: "GET",
+            method: "get",
             responses: { 200: {}, 404: BODY },
           },
           timeout: 2000,
@@ -37,7 +37,7 @@ test("a rule sees the error it caught and the one that routed it here, at once",
           action: {
             type: "fetch" as const,
             url: `http://localhost:${downstream.port}/`,
-            method: "GET",
+            method: "get",
             responses: { 200: {}, 500: BODY },
           },
           timeout: 2000,
@@ -93,7 +93,7 @@ test("a rule catching a raised child still sees the failure that routed the task
           action: {
             type: "fetch" as const,
             url: `http://localhost:${upstream.port}/`,
-            method: "GET",
+            method: "get",
             responses: { 200: {}, 404: BODY },
           },
           timeout: 2000,
@@ -134,7 +134,7 @@ function routed(name: string, task: Record<string, unknown>, body: unknown = BOD
     tasks: [
       {
         id: "call",
-        action: { type: "fetch" as const, url: "http://127.0.0.1:1/", method: "GET", responses: { 200: {}, 404: body } },
+        action: { type: "fetch" as const, url: "http://127.0.0.1:1/", method: "get", responses: { 200: {}, 404: body } },
         timeout: 2000,
         on_error: [{ code: ["http.404"], goto: "$handler" }],
         switch: [{ goto: "end" }],
@@ -183,7 +183,7 @@ test("a retry policy reads the failure it is retrying", async () => {
           action: {
             type: "fetch" as const,
             url: `http://localhost:${busy.port}/`,
-            method: "GET",
+            method: "get",
             responses: {
               200: {},
               503: { type: "object", properties: { wait: { type: "number" } }, required: ["wait"] },

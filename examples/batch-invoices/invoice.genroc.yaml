@@ -25,6 +25,7 @@ tasks:
   - id: send
     action:
       type: fetch
+      method: post
       url: "${ input.base_url }/invoices/send"
       body:
         invoice_id: "$: input.invoice_id"

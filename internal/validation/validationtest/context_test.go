@@ -12,6 +12,7 @@ func TestGenerate_ContextSets_LinearChain_RequiredOutputNonNullable(t *testing.T
       "id": "A",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -31,6 +32,7 @@ func TestGenerate_ContextSets_LinearChain_RequiredOutputNonNullable(t *testing.T
       "id": "B",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": {
           "flag": "$: outputs.A.ok"
@@ -78,6 +80,7 @@ func TestGenerate_ContextSets_ExclusiveBranch_SkippedStepOutputNullable(t *testi
       "id": "fast",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -97,6 +100,7 @@ func TestGenerate_ContextSets_ExclusiveBranch_SkippedStepOutputNullable(t *testi
       "id": "slow",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x"
       }
     },
@@ -104,6 +108,7 @@ func TestGenerate_ContextSets_ExclusiveBranch_SkippedStepOutputNullable(t *testi
       "id": "merge",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": {
           "s": "$: outputs.fast.speed"
@@ -128,6 +133,7 @@ func TestGenerate_ContextSets_PreBranchStepRequiredAtAllMergePoints(t *testing.T
       "id": "pre",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -159,6 +165,7 @@ func TestGenerate_ContextSets_PreBranchStepRequiredAtAllMergePoints(t *testing.T
       "id": "path_a",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x"
       }
     },
@@ -166,6 +173,7 @@ func TestGenerate_ContextSets_PreBranchStepRequiredAtAllMergePoints(t *testing.T
       "id": "path_b",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x"
       }
     },
@@ -173,6 +181,7 @@ func TestGenerate_ContextSets_PreBranchStepRequiredAtAllMergePoints(t *testing.T
       "id": "post",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": {
           "pre_id": "$: outputs.pre.id"
@@ -197,6 +206,7 @@ func TestGenerate_ContextSets_DefaultEndSwitch_SuccessorRequiredNotOptional(t *t
       "id": "decide",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -225,6 +235,7 @@ func TestGenerate_ContextSets_DefaultEndSwitch_SuccessorRequiredNotOptional(t *t
       "id": "work",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": {
           "flag": "$: outputs.decide.ok"
@@ -249,6 +260,7 @@ func TestGenerate_OnError_MixedPath_FailingStepOutputNullable(t *testing.T) {
       "id": "start",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -274,6 +286,7 @@ func TestGenerate_OnError_MixedPath_FailingStepOutputNullable(t *testing.T) {
       "id": "finale",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": {
           "val": "$: outputs.start.ok",
@@ -302,6 +315,7 @@ func TestGenerate_OnError_ExclusivePath_ErrorRequiredOutputAbsent(t *testing.T) 
       "id": "worker",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -331,6 +345,7 @@ func TestGenerate_OnError_ExclusivePath_ErrorRequiredOutputAbsent(t *testing.T) 
       "id": "handler",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": {
           "code": "$: last_error.code"
@@ -358,6 +373,7 @@ func TestGenerate_Switch_ScalarNext_CreatesSequentialEdge(t *testing.T) {
       "id": "a",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -378,6 +394,7 @@ func TestGenerate_Switch_ScalarNext_CreatesSequentialEdge(t *testing.T) {
       "id": "b",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": {
           "flag": "$: outputs.a.ok"
@@ -410,6 +427,7 @@ func TestGenerate_Switch_ScalarStepRef_CreatesJumpEdge(t *testing.T) {
       "id": "fast",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -430,6 +448,7 @@ func TestGenerate_Switch_ScalarStepRef_CreatesJumpEdge(t *testing.T) {
       "id": "merge",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": {
           "s": "$: outputs.fast.speed"
@@ -455,6 +474,7 @@ func TestGenerate_OnError_EndTerminal_RecognisedAsTerminal(t *testing.T) {
       "id": "task",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",

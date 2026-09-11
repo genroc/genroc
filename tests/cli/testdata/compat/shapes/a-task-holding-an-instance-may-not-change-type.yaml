@@ -22,7 +22,7 @@ apply:
       - name: holds_kid
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/kid}
+            action: {type: fetch, method: post, url: http://x/kid}
             switch: end
         output: {done: '$: true'}
       - name: holds_proc
@@ -40,29 +40,29 @@ apply:
             action: {type: delay, for: 1h}
             switch: next
           - id: entry
-            action: {type: fetch, url: http://x/entry}
+            action: {type: fetch, method: post, url: http://x/entry}
             switch: end
   - channel: holds_b
     definitions:
       - name: holds_kid
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/kid}
+            action: {type: fetch, method: post, url: http://x/kid}
             switch: end
         output: {done: '$: true'}
       - name: holds_proc
         tasks:
           - id: waiting
-            action: {type: fetch, url: http://x/w}
+            action: {type: fetch, method: post, url: http://x/w}
             switch: next
           - id: collecting
             action: {type: child_list, name: holds_kid, over: '$: [1, 2]'}
             switch: next
           - id: external
-            action: {type: fetch, url: http://x/e}
+            action: {type: fetch, method: post, url: http://x/e}
             switch: next
           - id: timer
-            action: {type: fetch, url: http://x/t}
+            action: {type: fetch, method: post, url: http://x/t}
             switch: next
           - id: entry
             action: {type: external}

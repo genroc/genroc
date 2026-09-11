@@ -8,7 +8,7 @@ apply:
       - name: novers_proc
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/ship}
+            action: {type: fetch, method: post, url: http://x/ship}
             switch: end
 run: [--from, novers_proc@1, --to, novers_proc@9]
 expect: |

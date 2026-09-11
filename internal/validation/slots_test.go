@@ -19,7 +19,7 @@ const slotFixture = `{
   "config_schema": {"type": "object", "properties": {"base": {"type": "string"}}, "required": ["base"]},
   "tasks": [
     {"id": "call",
-     "action": {"type": "fetch", "url": "${config.base}/x", "method": "POST",
+     "action": {"type": "fetch", "url": "${config.base}/x", "method": "post",
                 "body": {"amount": "$: input.amount"},
                 "responses": {"200": {"type": "object", "properties": {"fee": {"type": "number"}}, "required": ["fee"]},
                               "429": {"type": "object", "properties": {"wait": {"type": "number"}}, "required": ["wait"]},

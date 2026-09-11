@@ -8,13 +8,13 @@ apply:
       - name: badexpr_proc
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x}
+            action: {type: fetch, method: post, url: http://x}
             switch: end
 submit:
   - name: badexpr_proc
     tasks:
       - id: ship
-        action: {type: fetch, url: "http://x/${ outputs.nope.v }"}
+        action: {type: fetch, method: post, url: "http://x/${ outputs.nope.v }"}
         switch: end
 run: [--from, badexpr_a]
 

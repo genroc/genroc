@@ -44,7 +44,7 @@ test("apply — a YAML merge key folds the anchored map in, and an explicit key 
       "  - id: one",
       "    action: &defaults",
       "      type: fetch",
-      "      method: GET",
+      "      method: get",
       '      url: "https://example.test/a"',
       "    timeout: 7s",
       "    switch: [{ goto: $two }]",

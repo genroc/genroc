@@ -8,6 +8,7 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x/charge
               responses:
                 200: {type: object, properties: {amount: {type: number}}, required: [amount]}
@@ -16,6 +17,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x/ship
             switch: end
   - channel: outtype_b
@@ -25,6 +27,7 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x/charge
               responses:
                 200: {type: object, properties: {amount: {type: string}}, required: [amount]}
@@ -33,6 +36,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x/ship
             switch: end
 run: [--from, outtype_a, --to, outtype_b]

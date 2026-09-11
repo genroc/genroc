@@ -10,17 +10,18 @@ apply:
           - id: fetch
             action:
               type: fetch
+              method: post
               url: http://x/w
               responses:
                 200: {type: object, properties: {time: {type: string}}, required: [time]}
             output: {time: "$: self.result.time"}
             switch: next
           - id: report
-            action: {type: fetch, url: http://x/r}
+            action: {type: fetch, method: post, url: http://x/r}
             output: {seen: "$: outputs.fetch.time"}
             switch: next
           - id: archive
-            action: {type: fetch, url: http://x/a}
+            action: {type: fetch, method: post, url: http://x/a}
             switch: end
   - channel: nullfield_b
     definitions:
@@ -29,6 +30,7 @@ apply:
           - id: fetch
             action:
               type: fetch
+              method: post
               url: http://x/w
               responses:
                 200:
@@ -36,11 +38,11 @@ apply:
             output: {time: "$: self.result.time", extra: "$: self.result.extra"}
             switch: next
           - id: report
-            action: {type: fetch, url: http://x/r}
+            action: {type: fetch, method: post, url: http://x/r}
             output: {seen: "$: outputs.fetch.time"}
             switch: next
           - id: archive
-            action: {type: fetch, url: http://x/a}
+            action: {type: fetch, method: post, url: http://x/a}
             switch: end
 run: [--from, nullfield_a, --to, nullfield_b]
 

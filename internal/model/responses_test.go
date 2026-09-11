@@ -28,29 +28,29 @@ func TestValidate_Responses(t *testing.T) {
 	}{
 		{
 			name:   "a status declared twice across keys",
-			action: `{"type":"fetch","url":"http://x","responses":{"400, 401":` + body + `,"401, 402":` + body + `}}`,
+			action: `{"type":"fetch","method":"post","url":"http://x","responses":{"400, 401":` + body + `,"401, 402":` + body + `}}`,
 			// Two schemas for one status has no answer; picking one silently would make the
 			// report a guess about which the author meant.
 			wantErr: `declares "401" twice`, wantHint: "one status, one schema",
 		},
 		{
 			name:    "a status repeated inside one key",
-			action:  `{"type":"fetch","url":"http://x","responses":{"400, 400":` + body + `}}`,
+			action:  `{"type":"fetch","method":"post","url":"http://x","responses":{"400, 400":` + body + `}}`,
 			wantErr: `"400" is listed twice`,
 		},
 		{
 			name:    "a key mixing success and failure statuses",
-			action:  `{"type":"fetch","url":"http://x","responses":{"200, 404":` + body + `}}`,
+			action:  `{"type":"fetch","method":"post","url":"http://x","responses":{"200, 404":` + body + `}}`,
 			wantErr: "mixes success and failure statuses", wantHint: "split it into two keys",
 		},
 		{
 			name:    "a malformed pattern",
-			action:  `{"type":"fetch","url":"http://x","responses":{"2xxx":` + body + `}}`,
+			action:  `{"type":"fetch","method":"post","url":"http://x","responses":{"2xxx":` + body + `}}`,
 			wantErr: "is not a status pattern", wantHint: `hundred-range`,
 		},
 		{
 			name:    "an empty element in a list",
-			action:  `{"type":"fetch","url":"http://x","responses":{"400,":` + body + `}}`,
+			action:  `{"type":"fetch","method":"post","url":"http://x","responses":{"400,":` + body + `}}`,
 			wantErr: "empty status pattern",
 		},
 		{
@@ -62,7 +62,7 @@ func TestValidate_Responses(t *testing.T) {
 			name: "result_schema on a fetch",
 			// Not a compatibility shim: nothing reads the field on a fetch, and a field
 			// nothing reads is dropped in silence.
-			action:  `{"type":"fetch","url":"http://x","result_schema":` + body + `}`,
+			action:  `{"type":"fetch","method":"post","url":"http://x","result_schema":` + body + `}`,
 			wantErr: "not valid on a fetch", wantHint: `responses: {"200": {...}}`,
 		},
 	} {
@@ -82,10 +82,10 @@ func TestValidate_Responses(t *testing.T) {
 
 	// The shapes that must stay legal, so the rules above cannot drift into refusing them.
 	for _, ok := range []string{
-		`{"type":"fetch","url":"http://x","responses":{"200":` + body + `,"404":` + body + `}}`,
-		`{"type":"fetch","url":"http://x","responses":{"400, 401":` + body + `,"5xx":` + body + `}}`,
-		`{"type":"fetch","url":"http://x","responses":{"202":null}}`,
-		`{"type":"fetch","url":"http://x","responses":{"404":` + body + `,"4xx":` + body + `}}`,
+		`{"type":"fetch","method":"post","url":"http://x","responses":{"200":` + body + `,"404":` + body + `}}`,
+		`{"type":"fetch","method":"post","url":"http://x","responses":{"400, 401":` + body + `,"5xx":` + body + `}}`,
+		`{"type":"fetch","method":"post","url":"http://x","responses":{"202":null}}`,
+		`{"type":"fetch","method":"post","url":"http://x","responses":{"404":` + body + `,"4xx":` + body + `}}`,
 		`{"type":"external","result_schema":` + body + `}`,
 	} {
 		if err := responsesDef(t, ok).Validate(); err != nil {
@@ -101,7 +101,8 @@ func TestResponseFor_ExactBeatsRange(t *testing.T) {
 	exact := schema.Object().WithProperty("exact", schema.Type("boolean"), true)
 	wide := schema.Object().WithProperty("wide", schema.Type("boolean"), true)
 	a := &Action{
-		Type: ActionTypeFetch,
+		Type:   ActionTypeFetch,
+		Method: "post",
 		Responses: map[string]*schema.Schema{
 			"404": &exact,
 			"4xx": &wide,
@@ -150,7 +151,7 @@ func TestResponseFor_ExactBeatsRange(t *testing.T) {
 func TestValidate_FetchOnlySlots(t *testing.T) {
 	for _, slot := range []string{
 		`"url":"http://x"`,
-		`"method":"GET"`,
+		`"method":"get"`,
 		`"headers":{"a":"1"}`,
 		`"query":{"a":"1"}`,
 		`"accepted_status":["200"]`,
@@ -175,7 +176,7 @@ func TestValidate_FetchOnlySlots(t *testing.T) {
 		}
 	}
 	// And they stay legal on the action that reads them.
-	ok := `{"type":"fetch","url":"http://x","method":"GET","headers":{"a":"1"},"query":{"b":"2"},"accepted_status":["200"]}`
+	ok := `{"type":"fetch","url":"http://x","method":"get","headers":{"a":"1"},"query":{"b":"2"},"accepted_status":["200"]}`
 	if err := responsesDef(t, ok).Validate(); err != nil {
 		t.Errorf("a fetch carrying all of them must be accepted: %v", err)
 	}

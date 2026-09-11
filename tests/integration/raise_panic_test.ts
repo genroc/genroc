@@ -81,6 +81,7 @@ test("raise — on_error rule raises instead of routing", async () => {
           id: "charge",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${failMock.port}/charge`,
           },
           on_error: [
@@ -183,6 +184,7 @@ test("panic — an on_error rule panics on an action task", async () => {
           id: "call",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${failMock.port}/action`,
           },
           on_error: [
@@ -240,6 +242,7 @@ test("on_error → end computes the process output, like a normal completion", a
           id: "call",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${failMock.port}/action`,
           },
           on_error: [{ code: ["http.404"], goto: "end" }],
@@ -279,6 +282,7 @@ test("error_code — engine failures carry their own dotted code", async () => {
           id: "call",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${failMock.port}/action`,
           },
           timeout: 2000,
@@ -508,6 +512,7 @@ test("raise message — an on_error rule reads the error it caught", async () =>
             id: "call",
             action: {
               type: "fetch",
+              method: "post",
               url: `http://localhost:${svc.port}/boom`,
               responses: {
                 "200": {},

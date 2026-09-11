@@ -12,7 +12,7 @@ apply:
         input_schema: {type: object, properties: {tier: {type: string}}, required: [tier]}
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             output: {t: '$: input.tier'}
             switch: end
   - channel: narrowc_b
@@ -21,7 +21,7 @@ apply:
         input_schema: {type: object, properties: {tier: {type: string, enum: [free, paid]}}, required: [tier]}
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             output: {t: '$: input.tier'}
             switch: end
 run: [--from, narrowc_a, --to, narrowc_b]

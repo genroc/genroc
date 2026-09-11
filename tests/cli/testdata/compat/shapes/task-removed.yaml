@@ -7,11 +7,13 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x/charge
             switch: next
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x/ship
             switch: end
   - channel: taskrm_b
@@ -21,6 +23,7 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x/charge
             switch: end
 run: [--from, taskrm_a, --to, taskrm_b]

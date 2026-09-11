@@ -21,7 +21,7 @@ apply:
         input_schema: {type: object, properties: {user: {$ref: '#/$defs/User'}}, required: [user]}
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             output: {u: '$: input.user'}
             switch: end
   - channel: defsuse_b
@@ -32,7 +32,7 @@ apply:
         input_schema: {type: object, properties: {user: {$ref: '#/$defs/User'}}, required: [user]}
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             output: {u: '$: input.user'}
             switch: end
 run: [--from, defsuse_a, --to, defsuse_b]

@@ -137,7 +137,7 @@ test("a signal to an already-armed task resolves it immediately", async () => {
 
 test("signals are rejected for unknown, non-external, or schema-violating targets", async () => {
   await ctx.env.define("sig_reject", [
-    { id: "fetch", action: { type: "fetch", url: "http://localhost:1/none" }, switch: "$wait" },
+    { id: "fetch", action: { type: "fetch", method: "post", url: "http://localhost:1/none" }, switch: "$wait" },
     { id: "wait", action: { type: "external", result_schema: approvedSchema }, switch: "end" },
   ]);
   const id = await ctx.env.start("sig_reject");

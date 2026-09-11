@@ -16,6 +16,7 @@ test("on_error — HTTP failure routes to recovery task", async () => {
           id: "call",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${failMock.port}/action`,
           },
           on_error: [{ code: ["http.%"], goto: "$recovery" }],
@@ -26,6 +27,7 @@ test("on_error — HTTP failure routes to recovery task", async () => {
           id: "recovery",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${recoveryMock.port}/action`,
             responses: { 200: {
               type: "object",
@@ -72,6 +74,7 @@ test("on_error — error context available in recovery task input", async () => 
           id: "call",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${failMock.port}/action`,
           },
           on_error: [{ code: ["http.%"], goto: "$recovery" }],
@@ -82,6 +85,7 @@ test("on_error — error context available in recovery task input", async () => 
           id: "recovery",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${recoveryMock.port}/action`,
             body: { error_code: "$: last_error.code" },
             responses: { 200: {
@@ -127,6 +131,7 @@ test("on_error — unmatched code fails instance", async () => {
           id: "call",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${failMock.port}/action`,
           },
           on_error: [{ code: ["network.%"], goto: "$unreachable" }],
@@ -137,6 +142,7 @@ test("on_error — unmatched code fails instance", async () => {
           id: "unreachable",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${failMock.port}/action`,
           },
           timeout: 500,

@@ -23,6 +23,7 @@ apply:
           - id: ask
             action:
               type: fetch
+              method: post
               url: http://x/ask
               responses:
                 200: {type: object, properties: {ok: {type: boolean}}, required: [ok]}
@@ -47,6 +48,7 @@ apply:
           - id: wait
             action:
               type: fetch
+              method: post
               url: http://x/wait
               responses:
                 200: {type: object, properties: {note: {type: string}}, required: [note]}

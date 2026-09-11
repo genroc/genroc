@@ -26,13 +26,14 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x/charge
               responses:
                 200: {type: object, properties: {fee: {type: number}}, required: [fee]}
             output: {fee: '$: self.result.fee'}
             switch: next
           - id: settle
-            action: {type: fetch, url: http://x/settle}
+            action: {type: fetch, method: post, url: http://x/settle}
             switch: end
   - channel: wirefull_b
     definitions:
@@ -41,16 +42,17 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://y/charge
               responses:
                 200: {type: object, properties: {fee: {type: string}}, required: [fee]}
             output: {fee: '$: self.result.fee'}
             switch: next
           - id: audit
-            action: {type: fetch, url: http://x/audit}
+            action: {type: fetch, method: post, url: http://x/audit}
             switch: next
           - id: settle
-            action: {type: fetch, url: http://x/settle}
+            action: {type: fetch, method: post, url: http://x/settle}
             switch: end
 run: [--from, wirefull_a, --to, wirefull_b, --json]
 expect: |

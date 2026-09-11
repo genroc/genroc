@@ -15,10 +15,10 @@ apply:
       - name: errctx_proc
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: next
           - id: handle
-            action: {type: fetch, url: http://x/handle}
+            action: {type: fetch, method: post, url: http://x/handle}
             output: {n: '$: 1'}
             switch: end
   - channel: errctx_b
@@ -26,13 +26,13 @@ apply:
       - name: errctx_proc
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             on_error:
               - code: [http.%]
                 goto: $handle
             switch: end
           - id: handle
-            action: {type: fetch, url: http://x/handle}
+            action: {type: fetch, method: post, url: http://x/handle}
             output: {n: '$: 1', code: '$: last_error.code'}
             switch: end
 run: [--from, errctx_a, --to, errctx_b]

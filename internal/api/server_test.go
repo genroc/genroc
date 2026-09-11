@@ -160,7 +160,7 @@ func putDefinition(t *testing.T, addr, body string) (int, string) {
 // made the first version of this test pass with MaxBytesReader removed.
 func oversizedDefinition(pad int) string {
 	return fmt.Sprintf(
-		`{"name":"size_probe","tasks":[{"id":"t","action":{"type":"fetch","url":"http://127.0.0.1:1/%s"},"switch":"end"}]}`,
+		`{"name":"size_probe","tasks":[{"id":"t","action":{"type":"fetch","method":"post","url":"http://127.0.0.1:1/%s"},"switch":"end"}]}`,
 		strings.Repeat("x", pad))
 }
 

@@ -28,7 +28,7 @@ tasks:
     # fetching user info
     action:
       type: fetch
-      method: GET
+      method: get
       url: "https://api.example.com/users/${ input.user_id }"
       # defining what should the endpoint return with JSON-Schema
       responses:
@@ -55,6 +55,7 @@ tasks:
     # remind the user of the activation
     action:
       type: fetch
+      method: post
       url: "https://api.example.com/emails"
       body:
         to: "$: outputs.load_user.email"

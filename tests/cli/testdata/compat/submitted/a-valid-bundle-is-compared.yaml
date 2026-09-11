@@ -6,13 +6,13 @@ apply:
       - name: bundle_proc
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/ship}
+            action: {type: fetch, method: post, url: http://x/ship}
             switch: end
 submit:
   - name: bundle_proc
     tasks:
       - id: ship
-        action: {type: fetch, url: http://y/ship}
+        action: {type: fetch, method: post, url: http://y/ship}
         switch: end
 run: [--from, bundle_a]
 

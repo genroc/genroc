@@ -76,8 +76,8 @@ func TestASyntaxErrorIsReportedOnItsOwnLine(t *testing.T) {
 
 func TestEveryBrokenSlotIsUnderlinedNotJustTheFirst(t *testing.T) {
 	ds := analyse("name: demo\ntasks:\n" +
-		"  - id: a\n    action:\n      type: fetch\n      url: \"$: nope.x\"\n    switch: next\n" +
-		"  - id: b\n    action:\n      type: fetch\n      url: \"$: alsonope.y\"\n    switch: end\n")
+		"  - id: a\n    action:\n      type: fetch\n      method: post\n      url: \"$: nope.x\"\n    switch: next\n" +
+		"  - id: b\n    action:\n      type: fetch\n      method: post\n      url: \"$: alsonope.y\"\n    switch: end\n")
 	if len(ds) != 2 {
 		t.Fatalf("two broken slots, got %d: %+v", len(ds), ds)
 	}
@@ -89,7 +89,7 @@ func TestEveryBrokenSlotIsUnderlinedNotJustTheFirst(t *testing.T) {
 // A `.genroc.yaml` may hold several definitions; each is indexed on its own, so a position in
 // the second is not read out of the first's index.
 func TestEachDocumentInAMultiDocumentFileIsAnalysed(t *testing.T) {
-	ds := analyse(valid + "---\n" + "name: other\ntasks:\n  - id: z\n    action:\n      type: fetch\n      url: \"$: nope.x\"\n    switch: end\n")
+	ds := analyse(valid + "---\n" + "name: other\ntasks:\n  - id: z\n    action:\n      type: fetch\n      method: post\n      url: \"$: nope.x\"\n    switch: end\n")
 	if len(ds) != 1 {
 		t.Fatalf("the second document is broken and the first is not, got %d: %+v", len(ds), ds)
 	}
@@ -180,11 +180,12 @@ func TestADiagnosticUnderlinesTheFieldNotTheWholeSlot(t *testing.T) {
 	//	 3   - id: a
 	//	 4     action:
 	//	 5       type: fetch
-	//	 6       url: "$: nope.x"
-	//	 7     switch: end
-	d := only(t, "name: demo\ntasks:\n  - id: a\n    action:\n      type: fetch\n      url: \"$: nope.x\"\n    switch: end\n")
-	if d.Range.Start.Line != 5 {
-		t.Fatalf("the url is on line 6 (0-based 5); the action block starts on line 5, and "+
+	//	 6       method: post
+	//	 7       url: "$: nope.x"
+	//	 8     switch: end
+	d := only(t, "name: demo\ntasks:\n  - id: a\n    action:\n      type: fetch\n      method: post\n      url: \"$: nope.x\"\n    switch: end\n")
+	if d.Range.Start.Line != 6 {
+		t.Fatalf("the url is on line 7 (0-based 6); the action block starts on line 5, and "+
 			"underlining that is what this test exists to prevent. got line %d", d.Range.Start.Line)
 	}
 	if d.Range.Start.Character != 11 {
@@ -280,12 +281,13 @@ func TestAResponseSchemaThatIsNotAnObjectUnderlinesThatResponse(t *testing.T) {
 	//  3   - id: a
 	//  4     action:
 	//  5       type: fetch
-	//  6       url: "https://x"
-	//  7       responses:
-	//  8         "200": object
-	d := only(t, "name: demo\ntasks:\n  - id: a\n    action:\n      type: fetch\n      url: \"https://x\"\n      responses:\n        \"200\": object\n    switch: end\n")
-	if d.Range.Start.Line != 7 || d.Range.Start.Character != 15 {
-		t.Errorf("want the response schema on line 7 (0-based) at column 15, got %d:%d",
+	//  6       method: post
+	//  7       url: "https://x"
+	//  8       responses:
+	//  9         "200": object
+	d := only(t, "name: demo\ntasks:\n  - id: a\n    action:\n      type: fetch\n      method: post\n      url: \"https://x\"\n      responses:\n        \"200\": object\n    switch: end\n")
+	if d.Range.Start.Line != 8 || d.Range.Start.Character != 15 {
+		t.Errorf("want the response schema on line 8 (0-based) at column 15, got %d:%d",
 			d.Range.Start.Line, d.Range.Start.Character)
 	}
 }

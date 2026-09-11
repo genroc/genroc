@@ -12,7 +12,7 @@ apply:
         input_schema: {type: object, properties: {a: {type: string}}, required: [a]}
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x}
+            action: {type: fetch, method: post, url: http://x}
             switch: end
   - channel: ghost_b
     definitions:
@@ -20,7 +20,7 @@ apply:
         input_schema: {type: object, properties: {a: {type: string}}, required: [a, ghost]}
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x}
+            action: {type: fetch, method: post, url: http://x}
             switch: end
 run: [--from, ghost_a, --to, ghost_b]
 

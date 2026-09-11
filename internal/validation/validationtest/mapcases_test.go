@@ -48,11 +48,11 @@ const mapNullableRowsInput = `{
 
 // mapPrepareTask is an inert first task, for the error-attribution tests where
 // the *second* task must be named as the broken one.
-const mapPrepareTask = `{"id": "prepare", "action": {"type": "fetch", "url": "http://x"}, "switch": "next"}`
+const mapPrepareTask = `{"id": "prepare", "action": {"type": "fetch", "method": "post", "url": "http://x"}, "switch": "next"}`
 
 // mapNoopTask is an inert only-task, for definitions whose subject is the
 // process-level output rather than anything a task does.
-const mapNoopTask = `{"id": "noop", "action": {"type": "fetch", "url": "http://x"}, "switch": "end"}`
+const mapNoopTask = `{"id": "noop", "action": {"type": "fetch", "method": "post", "url": "http://x"}, "switch": "end"}`
 
 // --- map definition builders ------------------------------------------------
 
@@ -217,7 +217,7 @@ type inferTask struct {
 func (tk inferTask) json() string {
 	parts := []string{`"id":"` + tk.id + `"`}
 	if tk.fetch || tk.result != "" || tk.body != "" {
-		action := `{"type":"fetch","url":"http://x"`
+		action := `{"type":"fetch","method":"post","url":"http://x"`
 		if tk.result != "" {
 			action += `,"responses":{"200":` + tk.result + `}`
 		}

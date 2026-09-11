@@ -26,7 +26,7 @@ apply:
             action: {type: external}
             switch: next
           - id: call
-            action: {type: fetch, url: http://x/call}
+            action: {type: fetch, method: post, url: http://x/call}
             switch: next
           - id: note
             action: {type: external}
@@ -43,6 +43,7 @@ apply:
           - id: call
             action:
               type: fetch
+              method: post
               url: http://x/call
               responses:
                 200: {type: object, properties: {fee: {type: number}}, required: [fee]}

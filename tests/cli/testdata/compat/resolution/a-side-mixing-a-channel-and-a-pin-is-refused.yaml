@@ -8,6 +8,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x
             switch: end
 run: [--from, mixsel_a, --from, mixsel_proc@1, --to, mixsel_proc@1]

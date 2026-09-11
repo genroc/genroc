@@ -96,7 +96,7 @@ func TestTimeout_AbsentOmittedFromDefinition(t *testing.T) {
 // that: if DelaySpec ever gains an UnmarshalJSON, url and type below go empty.
 func TestAction_DelaySpecDoesNotHijackDecode(t *testing.T) {
 	var a Action
-	if err := json.Unmarshal([]byte(`{"type":"fetch","url":"http://x/y","for":"1h"}`), &a); err != nil {
+	if err := json.Unmarshal([]byte(`{"type":"fetch","method":"post","url":"http://x/y","for":"1h"}`), &a); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if a.Type != ActionTypeFetch || a.URL != "http://x/y" {
@@ -116,7 +116,7 @@ func TestProcessDefinition_Validate_Timeout(t *testing.T) {
 			{ID: "t", Action: a, Timeout: timeout, Switch: SwitchMap{{Goto: GotoEnd}}},
 		}}
 	}
-	fetch := &Action{Type: ActionTypeFetch, URL: "http://x/y"}
+	fetch := &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x/y"}
 	external := &Action{Type: ActionTypeExternal}
 	child := &Action{Type: ActionTypeChild, Name: "c"}
 	delay := &Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{For: "1h"}}

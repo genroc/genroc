@@ -134,7 +134,7 @@ func TestValidateChildProcessRefs_noChildProcessSteps(t *testing.T) {
 	def := &model.ProcessDefinition{
 		Name: "parent",
 		Tasks: []*model.Task{
-			{ID: "fetch", Action: &model.Action{Type: model.ActionTypeFetch, URL: "http://example.com"}},
+			{ID: "fetch", Action: &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://example.com"}},
 		},
 	}
 	assertValidateOK(t, def, stubGetter{})

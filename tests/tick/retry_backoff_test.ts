@@ -23,7 +23,7 @@ async function defineFailing(name: string, retry: unknown) {
   await ctx.env.define(name, [
     {
       id: "call",
-      action: { type: "fetch", url: `http://localhost:${mock.port}/boom` },
+      action: { type: "fetch", method: "post", url: `http://localhost:${mock.port}/boom` },
       on_error: [{ code: ["http.5%"], retry }],
       switch: "end",
     },

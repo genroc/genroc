@@ -7,7 +7,7 @@ apply:
       - name: badref_boss
         tasks:
           - id: work
-            action: {type: fetch, url: http://x}
+            action: {type: fetch, method: post, url: http://x}
             switch: end
 submit:
   - name: badref_boss

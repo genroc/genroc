@@ -58,7 +58,7 @@ type Raises map[string]*schema.Schema
 type Action struct {
 	Type           ActionType                `json:"type"`
 	URL            string                    `json:"url,omitempty"`             // fetch: request URL (an expression)
-	Method         string                    `json:"method,omitempty"`          // fetch: HTTP method (an expression); defaults to POST
+	Method         string                    `json:"method,omitempty"`          // fetch: HTTP method, lowercase (an expression); required
 	Headers        *Shape                    `json:"headers,omitempty"`         // fetch: request headers (a shape evaluating to a string map)
 	Query          *Shape                    `json:"query,omitempty"`           // fetch: query parameters appended to the url; a null value omits its parameter
 	AcceptedStatus *Shape                    `json:"accepted_status,omitempty"` // fetch: a shape evaluating to an array of HTTP status patterns accepted as non-errors
@@ -173,7 +173,7 @@ var actionSchemaTemplate = `{
 				"properties": {
 					"type":            {"type": "string", "const": "fetch"},
 					"url":             {"type": "string", "description": "Request URL. May contain ${ } interpolations, e.g. ${ config.server_url }/path."},
-					"method":          {"type": "string", "description": "HTTP method, a template (e.g. GET, POST, ${ input.method }). Defaults to POST."},
+					"method":          {"type": "string", "description": "HTTP method, lowercase (e.g. get, post) or a template such as ${ input.method }. Required — the verb is never guessed."},
 					"headers":         __HEADERS_SCHEMA__,
 					"query":           __QUERY_SCHEMA__,
 					"accepted_status": __ACCEPTED_STATUS_SCHEMA__,
@@ -185,7 +185,7 @@ var actionSchemaTemplate = `{
 						"additionalProperties": {"type": ["object", "null"], "additionalProperties": true}
 					}
 				},
-				"required": ["type", "url"],
+				"required": ["type", "url", "method"],
 				"additionalProperties": false
 			},
 			{

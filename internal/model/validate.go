@@ -156,6 +156,9 @@ func validateActionRequiredFields(s *Task) error {
 		if s.Action.URL == "" {
 			return fmt.Errorf("task %q: action.url is required for type %q", s.ID, s.Action.Type)
 		}
+		if s.Action.Method == "" {
+			return fmt.Errorf("task %q: action.method is required for type %q — name the verb, e.g. %s or %s", s.ID, s.Action.Type, "method: get", "method: post")
+		}
 	case ActionTypeChildMap:
 		if len(s.Action.Children) == 0 {
 			return fmt.Errorf("task %q: action.children is required for type %q", s.ID, s.Action.Type)

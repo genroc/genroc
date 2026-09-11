@@ -18,7 +18,7 @@ test("on_error — a code list under \"case\" is rejected by name", async () => 
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           on_error: [{ case: ["pre.4%"], not_reached: true, retry: 3, goto: "end" } as any],
           switch: [{ goto: "end" }],
@@ -37,7 +37,7 @@ test("switch — an on_error's \"code\" key is rejected by name", async () => {
       tasks: [
         {
           id: "charge",
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           switch: [{ code: ["http.500"], goto: "end" } as any],
         },
@@ -56,7 +56,7 @@ test("only_once:true — rejects retries on http.% pattern", async () => {
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [{ code: ["http.%"], retry: 3 }],
           switch: [{ goto: "end" }],
         },
@@ -75,7 +75,7 @@ test("only_once:true — rejects retries on exact http.500", async () => {
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [{ code: ["http.500"], retry: 1 }],
           switch: [{ goto: "end" }],
         },
@@ -94,7 +94,7 @@ test("only_once:true — rejects catch-all with retries", async () => {
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [{ retry: 2 }],
           switch: [{ goto: "end" }],
         },
@@ -113,7 +113,7 @@ test("only_once:true — rejects wildcard crossing namespaces", async () => {
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [{ code: ["s%"], retry: 3 }],
           switch: [{ goto: "end" }],
         },
@@ -132,7 +132,7 @@ test("only_once:true — accepts retries on pre.%", async () => {
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [
             { code: ["pre.%"], retry: 3 },
             { goto: "end" },
@@ -153,7 +153,7 @@ test("only_once:true — accepts retries on exact pre.* codes", async () => {
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [{ code: ["pre.error", "pre.timeout"], retry: 3 }],
           switch: [{ goto: "end" }],
         },
@@ -171,7 +171,7 @@ test("only_once:true — accepts not_reached:true override for http.422", async 
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [
             { code: ["http.422"], not_reached: true, retry: 2 },
             { code: ["http.%"], goto: "end" },
@@ -196,7 +196,7 @@ test("only_once:true — not_reached:true does not rescue a catch-all with retri
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [{ not_reached: true, retry: 2 }],
           switch: [{ goto: "end" }],
         },
@@ -219,7 +219,7 @@ test("only_once:true — not_reached:true cannot be asserted through a wildcard"
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [{ code: ["http.%"], not_reached: true, retry: 2 }],
           switch: [{ goto: "end" }],
         },
@@ -240,7 +240,7 @@ test("only_once:true — an unknowable code cannot be retried even when named ex
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [{ code: ["http.timeout"], not_reached: true, retry: 2 }],
           switch: [{ goto: "end" }],
         },
@@ -262,7 +262,7 @@ test("only_once:true — exact codes asserted with not_reached:true are retryabl
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [
             { code: ["pre.%"], retry: 3 },
             { code: ["http.409", "http.422"], not_reached: true, retry: 2 },
@@ -285,7 +285,7 @@ test("only_once:true — routing only_once.interrupted without retries is accept
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [
             {
               code: ["only_once.interrupted", "http.timeout"],
@@ -296,7 +296,7 @@ test("only_once:true — routing only_once.interrupted without retries is accept
         },
         {
           id: "verify",
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           switch: [{ goto: "end" }],
         },
       ],
@@ -313,13 +313,13 @@ test("only_once:true — next-only rule on http.% is accepted (no retries)", asy
         {
           id: "charge",
           only_once: true,
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [{ code: ["http.%"], goto: "$handler" }],
           switch: [{ goto: "next" }],
         },
         {
           id: "handler",
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           switch: [{ goto: "end" }],
         },
       ],
@@ -344,6 +344,7 @@ test("only_once:true — http.500 routes to handler and is called exactly once",
           only_once: true,
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${failMock.port}/action`,
           },
           on_error: [
@@ -358,6 +359,7 @@ test("only_once:true — http.500 routes to handler and is called exactly once",
           id: "handler",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${handlerMock.port}/action`,
             responses: { 200: {
               type: "object",
@@ -399,6 +401,7 @@ test("only_once:true — connection refused triggers pre.% retries", async () =>
           only_once: true,
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${port}/action`,
           },
           on_error: [
@@ -438,6 +441,7 @@ test("only_once:true — not_reached:true allows retry on http.422", async () =>
           only_once: true,
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${mock.port}/action`,
             responses: { 200: {
               type: "object",
@@ -475,6 +479,7 @@ test("default task (no only_once) — http.500 retries normally", async () => {
           // No only_once:true — default behaviour
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${failMock.port}/action`,
           },
           on_error: [{ code: ["http.%"], retry: 1, goto: "end" }],

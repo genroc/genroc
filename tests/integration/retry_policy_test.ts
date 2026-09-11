@@ -21,7 +21,7 @@ async function define(
       tasks: [
         {
           id: "call",
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           on_error: [{ code: ["http.5%"], retry }],
           switch: "end",
           ...task,
@@ -40,7 +40,7 @@ test("retry — the pre-policy \"retries\" key is rejected by name", async () =>
       tasks: [
         {
           id: "call",
-          action: { type: "fetch" as const, url: "http://localhost:19990/x" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/x" },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           on_error: [{ code: ["http.5%"], retries: 3 } as any],
           switch: "end",
@@ -178,7 +178,7 @@ test("retry — the environment drives how many attempts are made", async () => 
           id: "call",
           // Nothing listens here, so every attempt fails pre.error — the code a cold
           // start produces, and the one that is safe to retry.
-          action: { type: "fetch" as const, url: "http://localhost:19991/gone" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19991/gone" },
           on_error: [
             {
               code: ["pre.%"],

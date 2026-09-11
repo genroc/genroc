@@ -83,6 +83,7 @@ test("a released context object is carried by its release mark, and every claim 
             id: "gen",
             action: {
               type: "fetch",
+              method: "post",
               url: `http://localhost:${mockPort}/gen`,
               responses: { 200: {
                 type: "object",

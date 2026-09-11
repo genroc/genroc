@@ -9,7 +9,7 @@ apply:
         input_schema: {type: object, properties: {order_id: {type: integer}}, required: [order_id]}
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/ship}
+            action: {type: fetch, method: post, url: http://x/ship}
             switch: end
   - channel: nullin_b
     definitions:
@@ -19,7 +19,7 @@ apply:
            required: [order_id, note]}
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/ship}
+            action: {type: fetch, method: post, url: http://x/ship}
             switch: end
 run: [--from, nullin_a, --to, nullin_b]
 expect: |

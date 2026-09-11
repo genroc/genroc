@@ -10,6 +10,7 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x/charge
               responses:
                 200: {type: object, properties: {amount: {type: number}}, required: [amount]}
@@ -23,6 +24,7 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x/charge
               responses:
                 200: {type: object, properties: {amount: {type: string}}, required: [amount]}

@@ -79,7 +79,7 @@ func TestOnlyARoutingSlotResolvesEvenWhenTheValueLooksLikeOne(t *testing.T) {
 	//	 7       type: fetch
 	//	 8       url: "$second"
 	doc := "name: demo\ntasks:\n  - id: first\n    switch: end\n  - id: second\n    action:\n" +
-		"      type: fetch\n      url: \"$first\"\n    switch: end\n"
+		"      type: fetch\n      method: post\n      url: \"$first\"\n    switch: end\n"
 	if _, ok := definitionAt(doc, 8, 15); ok {
 		t.Error("a url holding `$first` is a string, not a task reference")
 	}

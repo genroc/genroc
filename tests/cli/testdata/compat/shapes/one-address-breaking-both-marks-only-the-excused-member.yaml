@@ -11,7 +11,7 @@ apply:
         input_schema: {type: object, properties: {age: {type: [integer, "null"]}}}
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             output: {a: '$: input.age'}
             switch: end
   - channel: bothign_b
@@ -20,7 +20,7 @@ apply:
         input_schema: {type: object, properties: {age: {type: integer}}, required: [age]}
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             output: {a: '$: input.age'}
             switch: end
 run: [--from, bothign_a, --to, bothign_b, --ignore, contract]

@@ -21,7 +21,7 @@ tasks:
     action:
       type: fetch
       url: "https://api.example.com/price?customer=\${ input.customer_id }"
-      method: GET
+      method: get
       headers:
         X-Currency: "\${ input.currency }"
       responses:
@@ -71,6 +71,7 @@ tasks:
   - id: dispatch
     action:
       type: fetch
+      method: post
       url: "https://api.example.com/ship"
     switch: end
 `;

@@ -353,7 +353,7 @@ func TestValidateOnError_ExpressionAttemptsKeepsOnlyOnceTiers(t *testing.T) {
 	yes := true
 	task := &Task{
 		ID:       "call",
-		Action:   &Action{Type: ActionTypeFetch, URL: "http://x"},
+		Action:   &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"},
 		OnlyOnce: &yes,
 		OnError:  []ErrorCase{{Retry: r}},
 		Switch:   SwitchMap{{Goto: GotoEnd}},

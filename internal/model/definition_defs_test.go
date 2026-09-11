@@ -27,7 +27,7 @@ func defsDef(t *testing.T) *ProcessDefinition {
 			"User":{"type":"object","properties":{"name":{"type":"string"},"role":{"type":"string","default":"member"}},"required":["name"]}
 		}`),
 		InputSchema: mustSchemaPtr(`{"type":"object","properties":{"user":{"$ref":"#/$defs/User"}},"required":["user"]}`),
-		Tasks:       []*Task{{ID: "s1", Action: &Action{Type: ActionTypeFetch, URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}}},
+		Tasks:       []*Task{{ID: "s1", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}}},
 	}
 }
 
@@ -39,7 +39,7 @@ func TestDefsNamesCollidingWithGeneratedAreAccepted(t *testing.T) {
 		def := &ProcessDefinition{
 			Name:  "p",
 			Defs:  mustDefs(t, `{"`+name+`":{"type":"string"}}`),
-			Tasks: []*Task{{ID: "charge", Action: &Action{Type: ActionTypeFetch, URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}}},
+			Tasks: []*Task{{ID: "charge", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}}},
 		}
 		if err := def.Validate(); err != nil {
 			t.Errorf("$defs %q: expected acceptance (generation renames), got %v", name, err)
@@ -53,7 +53,7 @@ func TestDefsValidateChecksPoolDocs(t *testing.T) {
 	bad := &ProcessDefinition{
 		Name:  "p",
 		Defs:  mustDefs(t, `{"A":{"$ref":"#/$defs/Nowhere"}}`),
-		Tasks: []*Task{{ID: "s1", Action: &Action{Type: ActionTypeFetch, URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}}},
+		Tasks: []*Task{{ID: "s1", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}}},
 	}
 	if err := bad.Validate(); err == nil {
 		t.Error("expected error for pool def with unresolvable $ref")
@@ -61,7 +61,7 @@ func TestDefsValidateChecksPoolDocs(t *testing.T) {
 	good := &ProcessDefinition{
 		Name:  "p",
 		Defs:  mustDefs(t, `{"A":{"$ref":"#/$defs/B"},"B":{"type":"string"}}`),
-		Tasks: []*Task{{ID: "s1", Action: &Action{Type: ActionTypeFetch, URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}}},
+		Tasks: []*Task{{ID: "s1", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}}},
 	}
 	if err := good.Validate(); err != nil {
 		t.Errorf("pool cross-ref rejected: %v", err)
@@ -164,7 +164,7 @@ func TestDefsJSONRoundTrip(t *testing.T) {
 		"name":"p",
 		"$defs":{"User":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}},
 		"input_schema":{"type":"object","properties":{"u":{"$ref":"#/$defs/User"}},"required":["u"]},
-		"tasks":[{"id":"s1","action":{"type":"fetch","url":"http://x"}}]
+		"tasks":[{"id":"s1","action":{"type":"fetch","method":"post","url":"http://x"}}]
 	}`
 	var def ProcessDefinition
 	if err := json.Unmarshal([]byte(src), &def); err != nil {
@@ -181,7 +181,7 @@ func TestDefsJSONRoundTrip(t *testing.T) {
 		t.Errorf("marshal dropped $defs: %s", b)
 	}
 	// A definition without $defs omits the field entirely.
-	plain := ProcessDefinition{Name: "p", Tasks: []*Task{{ID: "s1", Action: &Action{Type: ActionTypeFetch, URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}}}}
+	plain := ProcessDefinition{Name: "p", Tasks: []*Task{{ID: "s1", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"}, Switch: SwitchMap{{Goto: GotoEnd}}}}}
 	pb, _ := json.Marshal(&plain)
 	if strings.Contains(string(pb), `"$defs"`) {
 		t.Errorf("empty $defs not omitted: %s", pb)

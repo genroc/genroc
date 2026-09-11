@@ -8,6 +8,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x
             switch: end
   - channel: twice_b
@@ -17,6 +18,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://y
             switch: end
 run: [--from, twice_proc@1, --from, twice_proc@2, --to, twice_proc@2]

@@ -20,10 +20,10 @@ func TestPublishedSchemaAgreesWithTheServerOnUnknownKeys(t *testing.T) {
 		doc    string
 		reject bool
 	}{
-		{"a valid definition", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","url":"u"}}]}`, false},
+		{"a valid definition", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","method":"post","url":"u"}}]}`, false},
 		{"root", `{"name":"x","tasks":[],"zzz":1}`, true},
 		{"task", `{"name":"x","tasks":[{"id":"a","switch":"end","zzz":1}]}`, true},
-		{"action.fetch", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","url":"u","zzz":1}}]}`, true},
+		{"action.fetch", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","method":"post","url":"u","zzz":1}}]}`, true},
 		{"on_error rule", `{"name":"x","tasks":[{"id":"a","switch":"end","on_error":[{"goto":"end","zzz":1}]}]}`, true},
 		{"switch case", `{"name":"x","tasks":[{"id":"a","switch":[{"goto":"end","zzz":1}]}]}`, true},
 		{"retry", `{"name":"x","tasks":[{"id":"a","switch":"end","on_error":[{"retry":{"attempts":1,"zzz":1},"goto":"end"}]}]}`, true},
@@ -38,7 +38,7 @@ func TestPublishedSchemaAgreesWithTheServerOnUnknownKeys(t *testing.T) {
 
 		// The mirror-image bug: a schema stricter than the server underlines working code.
 		{"an output shape is free-form", `{"name":"x","tasks":[{"id":"a","switch":"end"}],"output":{"anything":"$: 1","nested":{"k":"v"}}}`, false},
-		{"a task body is free-form", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","url":"u","body":{"any":"thing"}}}]}`, false},
+		{"a task body is free-form", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","method":"post","url":"u","body":{"any":"thing"}}}]}`, false},
 	} {
 		t.Run(c.where, func(t *testing.T) {
 			server := serverRejects(c.doc)

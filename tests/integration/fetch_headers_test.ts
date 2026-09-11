@@ -33,6 +33,7 @@ test("fetch stamps X-Genroc-Instance-Id and X-Genroc-Task-Id, and caller headers
             id: "call",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${mock.port}/x`,
               headers: { "X-Trace": "abc" },
             },

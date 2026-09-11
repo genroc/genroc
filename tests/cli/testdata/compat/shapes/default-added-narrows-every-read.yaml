@@ -10,11 +10,11 @@ apply:
         input_schema: {type: object, properties: {retries: {type: integer}}}
         tasks:
           - id: plan
-            action: {type: fetch, url: http://x/plan}
+            action: {type: fetch, method: post, url: http://x/plan}
             output: {retries: "$: input.retries"}
             switch: next
           - id: run
-            action: {type: fetch, url: http://x/run}
+            action: {type: fetch, method: post, url: http://x/run}
             output: {seen: "$: outputs.plan.retries"}
             switch: end
   - channel: defadd_b
@@ -23,11 +23,11 @@ apply:
         input_schema: {type: object, properties: {retries: {type: integer, default: 3}}}
         tasks:
           - id: plan
-            action: {type: fetch, url: http://x/plan}
+            action: {type: fetch, method: post, url: http://x/plan}
             output: {retries: "$: input.retries"}
             switch: next
           - id: run
-            action: {type: fetch, url: http://x/run}
+            action: {type: fetch, method: post, url: http://x/run}
             output: {seen: "$: outputs.plan.retries"}
             switch: end
 run: [--from, defadd_a, --to, defadd_b]

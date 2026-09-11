@@ -8,6 +8,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x
             switch: end
   - channel: pinchan_b
@@ -17,6 +18,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://y
             switch: end
 run: [--from, pinchan_proc@pinchan_a, --to, pinchan_proc@pinchan_b]

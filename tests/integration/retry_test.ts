@@ -39,13 +39,13 @@ test("retry failed instance — resumes from the failed task", async () => {
         tasks: [
           {
             id: "step1",
-            action: { type: "fetch" as const, url: `http://localhost:${step1Mock.port}/action` },
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${step1Mock.port}/action` },
             timeout: 2000,
             switch: [{ goto: "next" }],
           },
           {
             id: "step2",
-            action: { type: "fetch" as const, url: `http://localhost:${step2Port}/action` },
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${step2Port}/action` },
             timeout: 2000,
             switch: [{ goto: "end" }],
           },
@@ -93,13 +93,13 @@ test("retry on a paused instance — rejected, pointing at resume", async () => 
         tasks: [
           {
             id: "step1",
-            action: { type: "fetch" as const, url: `http://localhost:${step1Mock.port}/action` },
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${step1Mock.port}/action` },
             timeout: 2000,
             switch: [{ goto: "next" }],
           },
           {
             id: "step2",
-            action: { type: "fetch" as const, url: `http://localhost:${step2Mock.port}/action` },
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${step2Mock.port}/action` },
             timeout: 2000,
             switch: [{ goto: "end" }],
           },
@@ -150,7 +150,7 @@ test("retry only_once task — rejected without force, allowed with force", asyn
           {
             id: "charge",
             only_once: true,
-            action: { type: "fetch" as const, url: `http://localhost:${chargePort}/action` },
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${chargePort}/action` },
             timeout: 2000,
             switch: [{ goto: "end" }],
           },
@@ -197,7 +197,7 @@ test("retry and pause on non-root instance — rejected naming the root", async 
         tasks: [
           {
             id: "work",
-            action: { type: "fetch" as const, url: `http://localhost:${failMock.port}/action` },
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${failMock.port}/action` },
             timeout: 2000,
             switch: [{ goto: "end" }],
           },
@@ -259,7 +259,7 @@ test("retry with parallel children — only the failed child re-runs", async () 
         tasks: [
           {
             id: "work",
-            action: { type: "fetch" as const, url: `http://localhost:${goodMock.port}/action` },
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${goodMock.port}/action` },
             timeout: 2000,
             switch: [{ goto: "end" }],
           },
@@ -273,7 +273,7 @@ test("retry with parallel children — only the failed child re-runs", async () 
         tasks: [
           {
             id: "work",
-            action: { type: "fetch" as const, url: `http://localhost:${badPort}/action` },
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${badPort}/action` },
             timeout: 2000,
             switch: [{ goto: "end" }],
           },
@@ -371,6 +371,7 @@ test("retry re-spawns a raised child once its cause is fixed", async () => {
             id: "call",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${port}/action`,
               responses: { "200": {} },
             },
@@ -452,6 +453,7 @@ test("child task retry — a raised slot is re-spawned until its budget is spent
             id: "call",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${mock.port}/action`,
               responses: { "200": {} },
             },
@@ -520,7 +522,7 @@ test("child task retry — one slot retries while its completed sibling stands",
           tasks: [
             {
               id: "call",
-              action: { type: "fetch" as const, url: `http://localhost:${port}/action`, responses: { "200": {} } },
+              action: { type: "fetch" as const, method: "post", url: `http://localhost:${port}/action`, responses: { "200": {} } },
               timeout: 2000,
               ...(raises
                 ? { on_error: [{ code: ["http.5%"], raise: { code: "svc_down", message: "down" } }] }

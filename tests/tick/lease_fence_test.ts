@@ -86,7 +86,7 @@ function defineAndStart(mockPort: number, onlyOnce: boolean) {
           {
             id: "charge",
             ...(onlyOnce ? { only_once: true } : {}),
-            action: { type: "fetch" as const, url: `http://localhost:${mockPort}/x` },
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${mockPort}/x` },
             switch: [{ goto: "end" }],
           },
         ],

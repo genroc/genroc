@@ -47,6 +47,7 @@ beforeAll(async () => {
       id: "first",
       action: {
         type: "fetch" as const,
+        method: "post",
         url: `http://localhost:${okMockPort}/action`,
         responses: { 200: {
           type: "object",
@@ -60,6 +61,7 @@ beforeAll(async () => {
       id: "second",
       action: {
         type: "fetch" as const,
+        method: "post",
         url: `http://localhost:${okMockPort}/action`,
       },
       timeout: 5_000,
@@ -73,6 +75,7 @@ beforeAll(async () => {
       id: "work",
       action: {
         type: "fetch" as const,
+        method: "post",
         url: `http://localhost:${failMockPort}/action`,
       },
       on_error: [{ code: ["http.%"], retry: 1 }],

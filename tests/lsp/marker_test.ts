@@ -7,9 +7,9 @@ import { at, edit, orders, useWorkspace } from "./helpers.ts";
 beforeAll(() => useWorkspace());
 
 test("<|> puts the cursor where it stands and changes nothing", () => {
-  const c = at(`      method: <|>GET`);
+  const c = at(`      method: <|>get`);
   expect(c.text).toBe(orders.text);
-  expect(orders.text.split("\n")[c.line].slice(c.character)).toBe("GET");
+  expect(orders.text.split("\n")[c.line].slice(c.character)).toBe("get");
 });
 
 test("<|text> takes the text back out and leaves the cursor in its place", () => {
@@ -30,7 +30,7 @@ test("<^text> keeps the text and lands inside it", () => {
 });
 
 test("a fragment that matches nothing is refused, not guessed at", () => {
-  expect(() => at(`      method: <^POST>`)).toThrow(/not in/);
+  expect(() => at(`      method: <^put>`)).toThrow(/not in/);
 });
 
 // Two `goto: "$review"` lines are written identically. Picking either would make the test mean
@@ -40,7 +40,7 @@ test("a fragment that matches twice is refused", () => {
 });
 
 test("a snippet with no marker is a mistake, not a no-op", () => {
-  expect(() => at(`      method: GET`)).toThrow(/no <\|> or/);
+  expect(() => at(`      method: get`)).toThrow(/no <\|> or/);
 });
 
 test("edit refuses an ambiguous replacement the same way", () => {

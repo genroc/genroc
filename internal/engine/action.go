@@ -492,18 +492,18 @@ func (e *Engine) resolveURL(inst *model.ProcessInstance, call *model.Action) (st
 	return fmt.Sprintf("%v", val), nil
 }
 
-// resolveMethod evaluates the fetch method expression, upper-cased, defaulting to POST.
+// resolveMethod evaluates the fetch method expression and upper-cases it: definitions are
+// written lowercase (`method: post`), the wire is case-sensitive. An expression resolving to
+// nothing is an error rather than a fallback — net/http reads an empty method as GET, which
+// would be the silent verb-guessing `method` is required to prevent.
 func (e *Engine) resolveMethod(inst *model.ProcessInstance, call *model.Action) (string, error) {
-	if call.Method == "" {
-		return "POST", nil
-	}
 	val, err := e.evalShape(inst, shape.Shape{Raw: call.Method}, e.selfBeforeOutput(inst))
 	if err != nil {
 		return "", err
 	}
 	m := strings.ToUpper(strings.TrimSpace(fmt.Sprintf("%v", val)))
 	if m == "" {
-		return "POST", nil
+		return "", fmt.Errorf("resolved to empty — name the verb, e.g. %s", "method: post")
 	}
 	return m, nil
 }

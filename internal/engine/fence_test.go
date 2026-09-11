@@ -158,7 +158,7 @@ func seedOnlyOnceInstance(t *testing.T, database *db.DB, prefix, url string) str
 	tasks := []*model.Task{{
 		ID:       "charge",
 		OnlyOnce: &yes,
-		Action:   &model.Action{Type: model.ActionTypeFetch, URL: url},
+		Action:   &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: url},
 		Switch:   model.SwitchMap{{Goto: model.GotoEnd}},
 	}}
 	if err := database.SaveDefinition(&model.ProcessDefinition{Name: name, Tasks: tasks}, 1, nil, name+"-hash", "", ""); err != nil {

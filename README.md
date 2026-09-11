@@ -189,6 +189,7 @@ tasks:
   - id: call
     action:
       type: fetch                       # an HTTP call; every field is templated
+      method: post
       url: "${ input.url }/hello"       # ${ } interpolates into a string
       body:
         greeting: "Hello, ${ input.name }"

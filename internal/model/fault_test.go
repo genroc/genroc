@@ -122,7 +122,7 @@ func TestFault_R3_TerminalClauseArity(t *testing.T) {
 	})
 	t.Run("on_error rule with goto and raise rejected", func(t *testing.T) {
 		d := def(&Task{
-			ID: "t", Action: &Action{Type: ActionTypeFetch, URL: "http://x"},
+			ID: "t", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"},
 			OnError: []ErrorCase{{Code: []string{"http.%"}, Goto: GotoEnd, Raise: f}},
 			Switch:  SwitchMap{{Goto: GotoEnd}},
 		})
@@ -133,7 +133,7 @@ func TestFault_R3_TerminalClauseArity(t *testing.T) {
 	})
 	t.Run("on_error rule with none accepted", func(t *testing.T) {
 		d := def(&Task{
-			ID: "t", Action: &Action{Type: ActionTypeFetch, URL: "http://x"},
+			ID: "t", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"},
 			OnError: []ErrorCase{{Code: []string{"http.%"}, Retry: RetryAttempts(3)}},
 			Switch:  SwitchMap{{Goto: GotoEnd}},
 		})
@@ -212,7 +212,7 @@ func TestFault_R4_ChildTaskOnError(t *testing.T) {
 		// The same fields are legal on an action task — R4 must not leak across.
 		d := def(&Task{
 			ID:      "call",
-			Action:  &Action{Type: ActionTypeFetch, URL: "http://x"},
+			Action:  &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"},
 			OnError: []ErrorCase{{Code: []string{"http.5%"}, Retry: RetryAttempts(3), Goto: GotoEnd}},
 			Switch:  SwitchMap{{Goto: GotoEnd}},
 		})
@@ -257,7 +257,7 @@ func TestRaises_SortedDedupedAndPanicFree(t *testing.T) {
 			{Goto: GotoEnd},
 		}},
 		&Task{
-			ID: "b", Action: &Action{Type: ActionTypeFetch, URL: "http://x"},
+			ID: "b", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"},
 			// A duplicate of a's code, and one only reachable through on_error.
 			OnError: []ErrorCase{
 				{Code: []string{"http.500"}, Raise: &Fault{Code: "zebra", Message: "m"}},

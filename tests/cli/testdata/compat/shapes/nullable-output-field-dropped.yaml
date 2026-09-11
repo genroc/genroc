@@ -11,6 +11,7 @@ apply:
           - id: fetch
             action:
               type: fetch
+              method: post
               url: http://x/w
               responses:
                 200: {type: object, properties: {id: {type: string}, note: {type: string}}, required: [id]}
@@ -24,6 +25,7 @@ apply:
           - id: fetch
             action:
               type: fetch
+              method: post
               url: http://x/w
               responses:
                 200: {type: object, properties: {id: {type: string}, note: {type: string}}, required: [id]}

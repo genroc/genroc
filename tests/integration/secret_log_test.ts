@@ -73,6 +73,7 @@ test("a secret config value is scrubbed from stdout and kept verbatim everywhere
           id: "call",
           action: {
             type: "fetch" as const,
+            method: "post",
             // In the URL, so the secret reaches the log line through meta rather than only
             // through a payload snippet, which a deployment can turn off.
             url: `http://localhost:${mock.port}/\${ config.log_token }`,
@@ -127,6 +128,7 @@ test("secret: true is refused outside config_schema", async () => {
             id: "t",
             action: {
               type: "fetch",
+              method: "post",
               url: "http://localhost:1/x",
               responses: { 200: { type: "object", properties: { tok: { type: "string", secret: true } } } },
             },

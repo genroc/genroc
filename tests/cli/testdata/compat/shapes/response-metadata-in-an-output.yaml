@@ -16,6 +16,7 @@ apply:
           - id: call
             action:
               type: fetch
+              method: post
               url: http://x/call
               responses:
                 "2xx": {}
@@ -33,6 +34,7 @@ apply:
           - id: call
             action:
               type: fetch
+              method: post
               url: http://x/call
               responses:
                 "2xx": {}

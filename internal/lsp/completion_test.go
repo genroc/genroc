@@ -15,13 +15,14 @@ import (
 //	7   - id: price
 //	8     action:
 //	9       type: fetch
+// 10       method: post
 //
-// 10       url: "https://x/p?a=${ input. }"
-// 11       responses:
-// 12         "200": { type: object, properties: { total: { type: number } }, required: [total] }
-// 13     output:
-// 14       grand: "$: self.result."
-// 15     switch: end
+// 11       url: "https://x/p?a=${ input. }"
+// 12       responses:
+// 13         "200": { type: object, properties: { total: { type: number } }, required: [total] }
+// 14     output:
+// 15       grand: "$: self.result."
+// 16     switch: end
 const completionDoc = `name: demo
 input_schema:
   type: object
@@ -31,6 +32,7 @@ tasks:
   - id: price
     action:
       type: fetch
+      method: post
       url: "https://x/p?a=${ input. }"
       responses:
         "200": { type: object, properties: { total: { type: number } }, required: [total] }
@@ -60,14 +62,14 @@ func completed(t *testing.T, text string, line, col int) []string {
 // ── expressions: the scope, which no schema can describe ─────────────────────────
 
 func TestCompletingAfterADotOffersThatValuesMembers(t *testing.T) {
-	got := completed(t, completionDoc, 10, 36) // after `input.`
+	got := completed(t, completionDoc, 11, 36) // after `input.`
 	if !slices.Equal(got, []string{"amount", "currency"}) {
 		t.Errorf("want the input's members, got %v", got)
 	}
 }
 
 func TestCompletingIntoAnActionResultUsesItsDeclaredShape(t *testing.T) {
-	got := completed(t, completionDoc, 14, 30) // after `self.result.`
+	got := completed(t, completionDoc, 15, 30) // after `self.result.`
 	if !slices.Equal(got, []string{"total"}) {
 		t.Errorf("want the 200 response's members, got %v", got)
 	}
@@ -76,7 +78,7 @@ func TestCompletingIntoAnActionResultUsesItsDeclaredShape(t *testing.T) {
 // A bare `$: ` offers the roots of the scope — and which roots depend on the slot, which is
 // the whole reason completion consults the context view rather than the schema.
 func TestABareExpressionOffersTheScopeRoots(t *testing.T) {
-	got := completed(t, completionDoc, 14, 18)
+	got := completed(t, completionDoc, 15, 18)
 	if !slices.Contains(got, "self") || !slices.Contains(got, "input") {
 		t.Errorf("an output sees self and input, got %v", got)
 	}
@@ -84,7 +86,7 @@ func TestABareExpressionOffersTheScopeRoots(t *testing.T) {
 
 func TestTheActionScopeHasNoSelf(t *testing.T) {
 	// Column 32 is inside `${ }` on the url, before `input`.
-	got := completed(t, completionDoc, 10, 32)
+	got := completed(t, completionDoc, 11, 32)
 	if slices.Contains(got, "self") {
 		t.Errorf("an action runs before its own result exists, got %v", got)
 	}
@@ -94,7 +96,7 @@ func TestTheActionScopeHasNoSelf(t *testing.T) {
 // not valid YAML. Refusing until the quote is closed refuses exactly when help is wanted.
 func TestCompletionWorksOnTextThatDoesNotParse(t *testing.T) {
 	midTyping := strings.Replace(completionDoc, `      grand: "$: self.result."`, `      grand: "$: self.result.`, 1)
-	got := completed(t, midTyping, 14, 30)
+	got := completed(t, midTyping, 15, 30)
 	if !slices.Equal(got, []string{"total"}) {
 		t.Errorf("want the result's members while the quote is still open, got %v", got)
 	}
@@ -102,7 +104,7 @@ func TestCompletionWorksOnTextThatDoesNotParse(t *testing.T) {
 
 func TestCompletionWorksInsideAnUnclosedInterpolation(t *testing.T) {
 	midTyping := strings.Replace(completionDoc, `      url: "https://x/p?a=${ input. }"`, `      url: "https://x/p?a=${ input.`, 1)
-	got := completed(t, midTyping, 10, 36)
+	got := completed(t, midTyping, 11, 36)
 	if !slices.Equal(got, []string{"amount", "currency"}) {
 		t.Errorf("want the input's members with the interpolation still open, got %v", got)
 	}
@@ -113,18 +115,18 @@ func TestCompletionWorksInsideAnUnclosedInterpolation(t *testing.T) {
 // What yaml-language-server cannot do: `discriminator` is an OpenAPI keyword it ignores, so it
 // offers the union of six action shapes. We read the `type` and descend into one.
 func TestAFetchActionOffersFetchKeysOnly(t *testing.T) {
-	got := completed(t, completionDoc, 11, 7) // on `responses:`, so the action is the mapping
+	got := completed(t, completionDoc, 12, 7) // on `responses:`, so the action is the mapping
 	if slices.Contains(got, "process") || slices.Contains(got, "children") {
 		t.Errorf("a fetch was offered another action's keys: %v", got)
 	}
-	if !slices.Contains(got, "headers") || !slices.Contains(got, "method") {
+	if !slices.Contains(got, "headers") || !slices.Contains(got, "query") {
 		t.Errorf("want fetch's own keys, got %v", got)
 	}
 }
 
 func TestAChildActionOffersChildKeys(t *testing.T) {
 	child := strings.Replace(completionDoc,
-		"      type: fetch\n      url: \"https://x/p?a=${ input. }\"\n", "      type: child\n", 1)
+		"      type: fetch\n      method: post\n      url: \"https://x/p?a=${ input. }\"\n", "      type: child\n", 1)
 	got := completed(t, child, 9, 7)
 	if !slices.Contains(got, "name") || slices.Contains(got, "url") {
 		t.Errorf("want the child action's keys and not fetch's, got %v", got)
@@ -134,7 +136,7 @@ func TestAChildActionOffersChildKeys(t *testing.T) {
 // A key already written is not a suggestion. This is the half that silently did nothing while
 // only scalars carried a value in the index.
 func TestKeysAlreadyWrittenAreNotOffered(t *testing.T) {
-	got := completed(t, completionDoc, 15, 5) // on `switch:`, so the task is the mapping
+	got := completed(t, completionDoc, 16, 5) // on `switch:`, so the task is the mapping
 	for _, written := range []string{"id", "action", "switch"} {
 		if slices.Contains(got, written) {
 			t.Errorf("%q is already written and was offered anyway: %v", written, got)
@@ -155,7 +157,7 @@ func TestTheDocumentRootOffersDefinitionKeys(t *testing.T) {
 // A description is what makes a completion list readable rather than a guessing game, and the
 // schema already carries the prose from the struct tags.
 func TestKeyCompletionsCarryTheirDocumentation(t *testing.T) {
-	for _, it := range completeAt(completionDoc, 15, 5) {
+	for _, it := range completeAt(completionDoc, 16, 5) {
 		if it.Label == "on_error" {
 			if !strings.Contains(it.Documentation, "error") {
 				t.Errorf("on_error came with no usable documentation: %q", it.Documentation)
@@ -172,7 +174,7 @@ func TestCompletionIsAdvertisedAndAnswered(t *testing.T) {
 		openDoc(uri, completionDoc),
 		frame("textDocument/completion", 2, map[string]any{
 			"textDocument": map[string]any{"uri": uri},
-			"position":     map[string]any{"line": 13, "character": 29}, // after `self.result.`
+			"position":     map[string]any{"line": 14, "character": 29}, // after `self.result.`
 		}),
 		frame("exit", nil, nil))
 

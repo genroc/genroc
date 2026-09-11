@@ -44,7 +44,7 @@ test("a fetch timeout resolving into the past fails rather than reporting a time
     await ctx.env.define("fetch_past_timeout", [
       {
         id: "call",
-        action: { type: "fetch", url: `http://localhost:${mock.port}/action` },
+        action: { type: "fetch", method: "post", url: `http://localhost:${mock.port}/action` },
         timeout: 0,
         on_error: [{ goto: "$handled" }],
         switch: "end",
@@ -77,7 +77,7 @@ test("a fetch timeout is not stretched by the test clock offset", async () => {
     await ctx.env.define("fetch_offset_timeout", [
       {
         id: "call",
-        action: { type: "fetch", url: `http://localhost:${mock.port}/action` },
+        action: { type: "fetch", method: "post", url: `http://localhost:${mock.port}/action` },
         timeout: "300ms",
         on_error: [{ code: ["http.timeout"], goto: "$handler" }],
         switch: "end",

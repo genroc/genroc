@@ -160,7 +160,7 @@ test("child — no on_error cascades to parent failure", async () => {
       tasks: [
         {
           id: "action",
-          action: { type: "fetch" as const, url: `http://localhost:${failMock.port}/action` },
+          action: { type: "fetch" as const, method: "post", url: `http://localhost:${failMock.port}/action` },
           timeout: 2000,
           switch: [{ goto: "end" }],
         },
@@ -201,7 +201,7 @@ test("child — failure propagates through the entire ancestor chain", async () 
       tasks: [
         {
           id: "action",
-          action: { type: "fetch" as const, url: `http://localhost:${failMock.port}/action` },
+          action: { type: "fetch" as const, method: "post", url: `http://localhost:${failMock.port}/action` },
           timeout: 2000,
           switch: [{ goto: "end" }],
         },
@@ -257,7 +257,7 @@ test("child — parent error contains child's error message when child fails", a
       tasks: [
         {
           id: "action",
-          action: { type: "fetch" as const, url: `http://localhost:${failMock.port}/action` },
+          action: { type: "fetch" as const, method: "post", url: `http://localhost:${failMock.port}/action` },
           timeout: 2000,
           switch: [{ goto: "end" }],
         },
@@ -383,7 +383,7 @@ test("child — two sequential child tasks both spawn and collect", async () => 
         tasks: [
           {
             id: "work",
-            action: { type: "fetch" as const, url: `http://localhost:${mock.port}/action` },
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/action` },
             timeout: 2000,
             switch: [{ goto: "end" }],
           },

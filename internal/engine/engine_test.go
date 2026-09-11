@@ -194,7 +194,7 @@ func TestIsRetryAllowed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			task := &model.Task{ID: "s", OnlyOnce: tt.onlyOnce,
-				Action: &model.Action{Type: model.ActionTypeFetch, URL: "http://x"}}
+				Action: &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://x"}}
 			got := isRetryAllowed(task, tt.errCode, tt.matched)
 			if got != tt.want {
 				t.Errorf("isRetryAllowed(%q) = %v, want %v", tt.errCode, got, tt.want)

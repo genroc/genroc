@@ -18,6 +18,7 @@ test("output map remaps an action result — only the projection is exported", a
           id: "create",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${mock.port}/action`,
             responses: { 200: {
               type: "object",
@@ -72,6 +73,7 @@ test("single-expression output passes the action result through", async () => {
           id: "create",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${mock.port}/action`,
             responses: { 200: {
               type: "object",
@@ -118,6 +120,7 @@ test("nested output shapes data with nested objects", async () => {
           id: "create",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${mock.port}/action`,
             responses: { 200: {
               type: "object",

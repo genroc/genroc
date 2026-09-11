@@ -13,7 +13,7 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 	def := func(onlyOnce bool, ec ErrorCase) ProcessDefinition {
 		task := &Task{
 			ID:      "charge",
-			Action:  &Action{Type: ActionTypeFetch, URL: "http://x"},
+			Action:  &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"},
 			Switch:  SwitchMap{{Goto: GotoEnd}},
 			OnError: []ErrorCase{ec},
 		}
@@ -21,7 +21,7 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 			task.OnlyOnce = &yes
 		}
 		return ProcessDefinition{Name: "p", Tasks: []*Task{task, {
-			ID: "handler", Action: &Action{Type: ActionTypeFetch, URL: "http://x"},
+			ID: "handler", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"},
 			Switch: SwitchMap{{Goto: GotoEnd}},
 		}}}
 	}

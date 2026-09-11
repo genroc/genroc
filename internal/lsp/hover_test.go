@@ -17,12 +17,13 @@ import (
 //	 7   - id: price
 //	 8     action:
 //	 9       type: fetch
-//	10       url: "https://x/p?a=${ input.amount }"
-//	11       responses:
-//	12         "200": { type: object, properties: { total: { type: number } }, required: [total] }
-//	13     output:
-//	14       grand: "$: self.result.total * 2"
-//	15     switch: end
+//	10       method: post
+//	11       url: "https://x/p?a=${ input.amount }"
+//	12       responses:
+//	13         "200": { type: object, properties: { total: { type: number } }, required: [total] }
+//	14     output:
+//	15       grand: "$: self.result.total * 2"
+//	16     switch: end
 const hoverDoc = `name: demo
 input_schema:
   type: object
@@ -32,6 +33,7 @@ tasks:
   - id: price
     action:
       type: fetch
+      method: post
       url: "https://x/p?a=${ input.amount }"
       responses:
         "200": { type: object, properties: { total: { type: number } }, required: [total] }
@@ -49,26 +51,26 @@ func hoverOf(t *testing.T, text string, line, col int) string {
 	return md
 }
 
-// Line 14 is `      grand: "$: self.result.total * 2"`, so column 30 is inside `total`, 19 is
+// Line 15 is `      grand: "$: self.result.total * 2"`, so column 30 is inside `total`, 19 is
 // inside `self`, and 36 is the `*` — where there is no symbol and the leaf answers.
 
 // The reason to build hover: the type an author is otherwise guessing at.
 func TestHoverOverASymbolTypesThatSymbol(t *testing.T) {
-	if md := hoverOf(t, hoverDoc, 14, 32); md != "`self.result.total` → **number**" {
+	if md := hoverOf(t, hoverDoc, 15, 32); md != "`self.result.total` → **number**" {
 		t.Errorf("got: %s", md)
 	}
 }
 
 // Truncated AT the segment, so walking a path shows each level rather than always the leaf.
 func TestHoverOverAnIntermediateSegmentTypesThePathUpToIt(t *testing.T) {
-	if md := hoverOf(t, hoverDoc, 14, 19); !strings.HasPrefix(md, "`self` → **object{") {
+	if md := hoverOf(t, hoverDoc, 15, 19); !strings.HasPrefix(md, "`self` → **object{") {
 		t.Errorf("got: %s", md)
 	}
 }
 
 // No symbol under the cursor: the expression it sits in is the answer.
 func TestHoverOnAnOperatorTypesTheWholeExpression(t *testing.T) {
-	if md := hoverOf(t, hoverDoc, 14, 36); md != "`self.result.total * 2` → **number**" {
+	if md := hoverOf(t, hoverDoc, 15, 36); md != "`self.result.total * 2` → **number**" {
 		t.Errorf("got: %s", md)
 	}
 }
@@ -77,13 +79,13 @@ func TestHoverOnAnOperatorTypesTheWholeExpression(t *testing.T) {
 // nothing — but the interpolation being written has a type of its own, and a URL is where most
 // expressions in a definition live.
 func TestHoverInsideAnInterpolationTypesThatInterpolation(t *testing.T) {
-	if md := hoverOf(t, hoverDoc, 10, 38); md != "`input.amount` → **number**" {
+	if md := hoverOf(t, hoverDoc, 11, 38); md != "`input.amount` → **number**" {
 		t.Errorf("got: %s", md)
 	}
 }
 
 func TestHoverOnASlotNamesItsType(t *testing.T) {
-	md := hoverOf(t, hoverDoc, 13, 6)
+	md := hoverOf(t, hoverDoc, 14, 6)
 	if !strings.Contains(md, "tasks.price.output") || !strings.Contains(md, "object{grand}") {
 		t.Errorf("want the slot address and its type, got: %s", md)
 	}
@@ -92,7 +94,7 @@ func TestHoverOnASlotNamesItsType(t *testing.T) {
 // One line. A hover is read at a glance, and the scope a slot carries is a different question
 // — `genctl schema context` is where that one is asked.
 func TestHoverIsOneLine(t *testing.T) {
-	for _, at := range [][2]int{{14, 32}, {14, 36}, {10, 38}, {13, 6}} {
+	for _, at := range [][2]int{{15, 32}, {15, 36}, {11, 38}, {14, 6}} {
 		md := hoverOf(t, hoverDoc, at[0], at[1])
 		if strings.Contains(md, "\n") {
 			t.Errorf("hover at %d:%d carries more than one line:\n%s", at[0], at[1], md)
@@ -104,7 +106,7 @@ func TestHoverIsOneLine(t *testing.T) {
 // another, and refusing until the file is clean is what §7b was written against.
 func TestHoverStillAnswersWhenAnotherPartOfTheFileIsBroken(t *testing.T) {
 	broken := strings.Replace(hoverDoc, "    switch: end\n", "    switch: end\n    on_eror: []\n", 1)
-	if md := hoverOf(t, broken, 14, 32); !strings.Contains(md, "number") {
+	if md := hoverOf(t, broken, 15, 32); !strings.Contains(md, "number") {
 		t.Errorf("a typo elsewhere must not silence hover: %s", md)
 	}
 }
@@ -113,7 +115,7 @@ func TestHoverStillAnswersWhenAnotherPartOfTheFileIsBroken(t *testing.T) {
 // position at the top of the same popup — saying it twice is what a reader sees.
 func TestHoverOverABrokenExpressionLeavesItToTheDiagnostic(t *testing.T) {
 	broken := strings.Replace(hoverDoc, "self.result.total * 2", "self.result.nope * 2", 1)
-	if md, _, ok := hoverAt(broken, 14, 36); ok {
+	if md, _, ok := hoverAt(broken, 15, 36); ok {
 		t.Errorf("the diagnostic already says this; hover added: %s", md)
 	}
 }
@@ -121,7 +123,7 @@ func TestHoverOverABrokenExpressionLeavesItToTheDiagnostic(t *testing.T) {
 // A symbol inside it still types, though, and that is what the diagnostic does NOT say.
 func TestHoverStillTypesAWorkingSymbolInsideABrokenExpression(t *testing.T) {
 	broken := strings.Replace(hoverDoc, "self.result.total * 2", "self.result.nope * 2", 1)
-	if md := hoverOf(t, broken, 14, 19); !strings.HasPrefix(md, "`self` → **object{") {
+	if md := hoverOf(t, broken, 15, 19); !strings.HasPrefix(md, "`self` → **object{") {
 		t.Errorf("got: %s", md)
 	}
 }
@@ -143,7 +145,7 @@ func TestHoverAdvertisedAndAnswered(t *testing.T) {
 			"textDocument": map[string]any{"uri": uri},
 			// 0-based: line 14, the `grand:` expression.
 			// 0-based: line 14, inside `total`.
-			"position": map[string]any{"line": 13, "character": 31},
+			"position": map[string]any{"line": 14, "character": 31},
 		}),
 		frame("exit", nil, nil))
 
@@ -165,8 +167,8 @@ func TestHoverAdvertisedAndAnswered(t *testing.T) {
 	if !strings.Contains(hov.Contents.Value, "number") {
 		t.Errorf("hover said: %q", hov.Contents.Value)
 	}
-	if hov.Range == nil || hov.Range.Start.Line != 13 {
-		t.Errorf("the range must cover the hovered value on line 14 (0-based 13), got %+v", hov.Range)
+	if hov.Range == nil || hov.Range.Start.Line != 14 {
+		t.Errorf("the range must cover the hovered value on line 15 (0-based 14), got %+v", hov.Range)
 	}
 }
 

@@ -7,7 +7,7 @@ const validDef = {
   tasks: [
     {
       id: "step1",
-      action: { type: "fetch" as const, url: "http://localhost:19990/action" },
+      action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/action" },
       timeout: 1000,
       switch: [{ goto: "end" }],
     },
@@ -101,7 +101,7 @@ test("PUT /definitions — rejects schema default that violates its own schema",
       tasks: [
         {
           id: "s1",
-          action: { type: "fetch" as const, url: "http://localhost:19990/action" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/action" },
           switch: [{ goto: "end" }],
         },
       ],
@@ -118,7 +118,7 @@ test("PUT /definitions — rejects missing process name", async () => {
       tasks: [
         {
           id: "s1",
-          action: { type: "fetch" as const, url: "http://localhost:19990/action" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/action" },
           switch: [{ goto: "end" }],
         },
       ],

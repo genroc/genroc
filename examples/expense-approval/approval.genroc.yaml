@@ -25,6 +25,7 @@ tasks:
   - id: notify
     action:
       type: fetch
+      method: post
       url: "${ input.base_url }/notify"
       body:
         to: reviewer
@@ -69,6 +70,7 @@ tasks:
   - id: pay
     action:
       type: fetch
+      method: post
       url: "${ input.base_url }/reimburse"
       body:
         requester: "$: input.requester"
@@ -89,6 +91,7 @@ tasks:
   - id: escalate
     action:
       type: fetch
+      method: post
       url: "${ input.base_url }/notify"
       body:
         to: manager

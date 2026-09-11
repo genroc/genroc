@@ -18,7 +18,7 @@ async function defineWith(query: unknown, urlSuffix = "/search") {
           action: {
             type: "fetch" as const,
             url: `http://localhost:${svc.port}${urlSuffix}`,
-            method: "GET",
+            method: "get",
             query,
             responses: { 200: { type: "object", properties: { ok: { type: "boolean" } } } },
           },
@@ -142,7 +142,7 @@ test("query — an array repeats the parameter, in order", async () => {
         action: {
           type: "fetch" as const,
           url: `http://localhost:${svc.port}/s`,
-          method: "GET",
+          method: "get",
           query: { tag: "$: input.tags", fixed: "1" },
           responses: { 200: { type: "object" } },
         },
@@ -203,7 +203,7 @@ test("query — parameters are ordered by key, and a null element is skipped", a
         action: {
           type: "fetch" as const,
           url: `http://localhost:${svc.port}/s`,
-          method: "GET",
+          method: "get",
           // Declared out of alphabetical order on purpose.
           query: { zebra: "1", alpha: "2", middle: "3", tag: "$: input.tags" },
           responses: { 200: { type: "object" } },

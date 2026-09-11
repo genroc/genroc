@@ -21,7 +21,7 @@ apply:
         input_schema: {type: object, properties: {head: {$ref: '#/$defs/Node'}}, required: [head]}
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
   - channel: recur_b
     definitions:
@@ -36,7 +36,7 @@ apply:
         input_schema: {type: object, properties: {head: {$ref: '#/$defs/Node'}}, required: [head]}
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
 run: [--from, recur_a, --to, recur_b]
 expect: |

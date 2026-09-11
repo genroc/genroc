@@ -17,6 +17,7 @@ test("self.status / self.headers — readable beside the body", async () => {
           id: "kick",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${svc.port}/jobs`,
             accepted_status: ["200", "202"],
             responses: { "2xx": { type: "object", properties: { job: { type: "string" } } } },

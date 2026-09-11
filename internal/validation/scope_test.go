@@ -21,7 +21,7 @@ func TestPreOutputSlotsCoversEveryActionSlot(t *testing.T) {
 		"TZ": true, // an IANA name, parsed by delayspec rather than evaluated
 	}
 
-	action := &model.Action{Type: model.ActionTypeFetch}
+	action := &model.Action{Type: model.ActionTypeFetch, Method: "post"}
 	want := map[string]string{} // field name -> the sentinel planted in it
 	av := reflect.ValueOf(action).Elem()
 	at := av.Type()

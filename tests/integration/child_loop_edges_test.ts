@@ -109,7 +109,7 @@ test("loop re-entered through a call error's on_error route", async () => {
       {
         id: "probe",
         // Nothing listens on port 1, so this is a pre.* error every time.
-        action: { type: "fetch", url: "http://localhost:1/x", method: "GET" },
+        action: { type: "fetch", url: "http://localhost:1/x", method: "get" },
         timeout: 2000,
         // error.go's goto is the third enterTask site.
         on_error: [{ code: ["pre.%", "http.%"], goto: "$again" }],

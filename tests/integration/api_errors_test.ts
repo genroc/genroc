@@ -92,7 +92,7 @@ test("api errors — resuming a SETTLED process is 409 conflict (a live one is 2
       tasks: [
         {
           id: "call",
-          action: { type: "fetch" as const, url: `http://localhost:${mock.port}/x` },
+          action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/x` },
           timeout: 2000,
           switch: [{ goto: "end" }],
         },
@@ -120,7 +120,7 @@ test("api errors — retrying a completed process is 409 conflict", async () => 
       tasks: [
         {
           id: "call",
-          action: { type: "fetch" as const, url: `http://localhost:${mock.port}/x` },
+          action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/x` },
           timeout: 2000,
           switch: [{ goto: "end" }],
         },
@@ -272,8 +272,8 @@ test("api errors — an inference failure reports its slot address, not just pro
       {
         name,
         tasks: [
-          { id: "a", switch: "next", action: { type: "fetch", url: "$: nope.x" } },
-          { id: "b", switch: "end", action: { type: "fetch", url: "$: alsonope.y" } },
+          { id: "a", switch: "next", action: { type: "fetch", method: "post", url: "$: nope.x" } },
+          { id: "b", switch: "end", action: { type: "fetch", method: "post", url: "$: alsonope.y" } },
         ],
       },
     ]),

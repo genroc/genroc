@@ -30,7 +30,7 @@ const compatParentDef = `{"name":"parent","tasks":[
 // compatChildDef is a minimal child: one task, one projected output.
 func compatChildDef() string {
 	return `{"name":"child","tasks":[
-		{"id":"run","action":{"type":"fetch","url":"http://x",
+		{"id":"run","action":{"type":"fetch","method":"post","url":"http://x",
 		 "responses": { "200": {"type":"object","properties":{"id":{"type":"string"}},"required":["id"]} }},
 		 "output":{"id":"$: self.result.id"},
 		 "switch":"end"}],
@@ -100,8 +100,8 @@ func TestCompareSet_ProcessOnlyOnTheTargetSideIsNew(t *testing.T) {
 }
 
 func TestCompareSet_UnanalysableVersionMakesTheRollupFalse(t *testing.T) {
-	broken := `{"name":"p","tasks":[{"id":"go","action":{"type":"fetch","url":"http://x/${ outputs.nope.v }"},"switch":"end"}]}`
-	ok := `{"name":"p","tasks":[{"id":"go","action":{"type":"fetch","url":"http://x"},"switch":"end"}]}`
+	broken := `{"name":"p","tasks":[{"id":"go","action":{"type":"fetch","method":"post","url":"http://x/${ outputs.nope.v }"},"switch":"end"}]}`
+	ok := `{"name":"p","tasks":[{"id":"go","action":{"type":"fetch","method":"post","url":"http://x"},"switch":"end"}]}`
 	// Called directly: compareSetDefs rejects an unanalysable entry, which is what this
 	// test is about.
 	r, err := validation.CompareSet(
@@ -132,7 +132,7 @@ func TestCompareSet_UnanalysableVersionMakesTheRollupFalse(t *testing.T) {
 func TestTaskContexts_StripsConfigBecauseItIsNotInstanceState(t *testing.T) {
 	def := defFrom(t, `{"name":"p",
 		"config_schema":{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]},
-		"tasks":[{"id":"go","action":{"type":"fetch","url":"${ config.url }"},"switch":"end"}]}`)
+		"tasks":[{"id":"go","action":{"type":"fetch","method":"post","url":"${ config.url }"},"switch":"end"}]}`)
 	ctxs, err := validation.TaskContexts(def)
 	if err != nil {
 		t.Fatalf("TaskContexts: %v", err)

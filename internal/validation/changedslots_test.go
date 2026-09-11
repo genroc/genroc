@@ -119,7 +119,7 @@ const everySlotDoc = `{"name":"total",
  "tasks":[
   {"id":"call","timeout":"30s","only_once":true,
    "on_error":[{"code":["http.500"],"goto":"$wait"}],
-   "action":{"type":"fetch","url":"http://x/call","method":"POST",
+   "action":{"type":"fetch","url":"http://x/call","method":"post",
              "headers":{"trace":"alpha"},"body":{"n":"$: 1"},"accepted_status":["4xx"],
              "responses": { "200": {"type":"object","properties":{"fee":{"type":"number"}}} }},
    "switch":"next"},
@@ -159,7 +159,7 @@ func TestChangedSlots_EveryDifferentDocumentIsReported(t *testing.T) {
 		{"a task added", func(d *model.ProcessDefinition) {
 			entry := &model.Task{
 				ID:     "extra",
-				Action: &model.Action{Type: model.ActionTypeFetch, URL: "http://x/extra"},
+				Action: &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://x/extra"},
 				Switch: model.SwitchMap{{Goto: model.GotoNext}},
 			}
 			d.Tasks = append([]*model.Task{entry}, d.Tasks...)

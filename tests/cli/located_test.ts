@@ -30,13 +30,15 @@ test("apply — every broken slot is reported as file:line:col", () => {
       `  - id: a\n` +        // 3
       `    action:\n` +      // 4
       `      type: fetch\n` + // 5
-      `      url: "$: nope.x"\n` + // 6
-      `    switch: next\n` + // 7
-      `  - id: b\n` +        // 8
-      `    action:\n` +      // 9
-      `      type: fetch\n` + // 10
-      `      url: "$: alsonope.y"\n` + // 11
-      `    switch: end\n`,   // 12
+      `      method: post\n` + // 6
+      `      url: "$: nope.x"\n` + // 7
+      `    switch: next\n` + // 8
+      `  - id: b\n` +        // 9
+      `    action:\n` +      // 10
+      `      type: fetch\n` + // 11
+      `      method: post\n` + // 12
+      `      url: "$: alsonope.y"\n` + // 13
+      `    switch: end\n`,   // 14
   );
 
   const r = runCli(bin, ["apply", "--check-only", "-f", path]);
@@ -48,9 +50,9 @@ test("apply — every broken slot is reported as file:line:col", () => {
   for (const line of lines) expect(line.startsWith("genctl: ")).toBe(true);
 
   // The url of each task, not the action block it sits in (specs/language-server.md §7b).
-  expect(lines[0]).toContain(`${path}:6:12:`);
+  expect(lines[0]).toContain(`${path}:7:12:`);
   expect(lines[0]).toContain(`field "nope" not found`);
-  expect(lines[1]).toContain(`${path}:11:12:`);
+  expect(lines[1]).toContain(`${path}:13:12:`);
   expect(lines[1]).toContain(`field "alsonope" not found`);
 });
 

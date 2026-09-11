@@ -7,13 +7,13 @@ apply:
       - name: nochange_proc
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/ship}
+            action: {type: fetch, method: post, url: http://x/ship}
             switch: end
 submit:
   - name: nochange_proc
     tasks:
       - id: ship
-        action: {type: fetch, url: http://x/ship}
+        action: {type: fetch, method: post, url: http://x/ship}
         switch: end
 run: [--from, nochange_a]
 

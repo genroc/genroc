@@ -21,6 +21,7 @@ test("rest endpoint is evaluated as a template", async () => {
           id: "call",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: "${ input.base }/action",
             responses: { 200: {
               type: "object",
@@ -75,6 +76,7 @@ test("a config value can build a rest endpoint URL", async () => {
           id: "call",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: "${ config.endpoint_url }/second",
             responses: { 200: {
               type: "object",

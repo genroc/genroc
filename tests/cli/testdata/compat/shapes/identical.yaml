@@ -9,6 +9,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x/ship
             switch: end
   - channel: same_b
@@ -18,6 +19,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x/ship
             switch: end
 run: [--from, same_a, --to, same_b]

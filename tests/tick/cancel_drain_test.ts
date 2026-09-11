@@ -37,13 +37,13 @@ async function heldProcess(name: string, opts: { firstStatus?: number } = {}) {
   await ctx.env.define(name, [
     {
       id: "held",
-      action: { type: "fetch" as const, url: `http://localhost:${held.port}/action` },
+      action: { type: "fetch" as const, method: "post", url: `http://localhost:${held.port}/action` },
       timeout: 30_000,
       switch: [{ goto: "next" }],
     },
     {
       id: "after",
-      action: { type: "fetch" as const, url: `http://localhost:${next.port}/action` },
+      action: { type: "fetch" as const, method: "post", url: `http://localhost:${next.port}/action` },
       timeout: 5_000,
       switch: [{ goto: "end" }],
     },
@@ -120,7 +120,7 @@ test("a cancel breaks a retry loop rather than being re-armed by it", async () =
   await ctx.env.define(name, [
     {
       id: "call",
-      action: { type: "fetch" as const, url: `http://localhost:${boom.port}/boom` },
+      action: { type: "fetch" as const, method: "post", url: `http://localhost:${boom.port}/boom` },
       timeout: 30_000,
       on_error: [{ code: ["http.5%"], retry: { attempts: 10, delay: "1s" } }],
       switch: "end",

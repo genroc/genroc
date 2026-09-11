@@ -7,7 +7,7 @@ import { client, startMockService, waitForInstance } from "../helpers/client.ts"
 // change: it is no longer a statically pattern-checked []string).
 
 function fetchDef(name: string, url: string, acceptedStatus?: unknown) {
-  const action: Record<string, unknown> = { type: "fetch", url };
+  const action: Record<string, unknown> = { type: "fetch", method: "post", url };
   if (acceptedStatus !== undefined) action.accepted_status = acceptedStatus;
   return { name, tasks: [{ id: "call", action, switch: "end" }] };
 }
@@ -61,6 +61,7 @@ test("accepted_status as a $: expression — resolved from input per request", a
           id: "call",
           action: {
             type: "fetch",
+            method: "post",
             url: `http://localhost:${mock.port}/action`,
             accepted_status: "$: input.codes",
           },

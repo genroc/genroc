@@ -9,14 +9,14 @@ apply:
       - name: idleign_proc
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/ship}
+            action: {type: fetch, method: post, url: http://x/ship}
             switch: end
   - channel: idleign_b
     definitions:
       - name: idleign_proc
         tasks:
           - id: ship
-            action: {type: fetch, url: http://y/ship}
+            action: {type: fetch, method: post, url: http://y/ship}
             switch: end
 run: [--from, idleign_a, --to, idleign_b, --ignore, contract]
 expect: |

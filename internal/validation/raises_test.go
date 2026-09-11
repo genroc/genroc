@@ -93,7 +93,7 @@ func TestRaiseTypes(t *testing.T) {
 		{
 			name: "an on_error raise is typed in ITS scope, so it can recompose the error it caught",
 			doc: `{"name":"p","tasks":[
-				{"id":"a","action":{"type":"fetch","url":"http://x","responses":{"404":{"type":"object","properties":{"detail":{"type":"string"}},"required":["detail"]}}},
+				{"id":"a","action":{"type":"fetch","method":"post","url":"http://x","responses":{"404":{"type":"object","properties":{"detail":{"type":"string"}},"required":["detail"]}}},
 				 "on_error":[{"code":["http.404"],"raise":{"code":"missing","message":"m","data":{"detail":"$: error.data.detail"}}}],
 				 "switch":[{"goto":"end"}]}]}`,
 			want: map[string]string{

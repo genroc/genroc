@@ -16,6 +16,7 @@ apply:
           - id: poll
             action:
               type: fetch
+              method: post
               url: http://x/poll
               responses:
                 200: {type: object, properties: {done: {type: boolean}}, required: [done]}
@@ -26,7 +27,7 @@ apply:
               - {case: 'self.output.done == true', goto: $fin}
               - {goto: $poll}
           - id: fin
-            action: {type: fetch, url: http://x/fin}
+            action: {type: fetch, method: post, url: http://x/fin}
             switch: end
   - channel: loopslice_b
     definitions:
@@ -35,6 +36,7 @@ apply:
           - id: poll
             action:
               type: fetch
+              method: post
               url: http://x/poll
               responses:
                 200: {type: object, properties: {done: {type: boolean}, at: {type: string}}, required: [done, at]}
@@ -46,7 +48,7 @@ apply:
               - {case: 'self.output.done == true', goto: $fin}
               - {goto: $poll}
           - id: fin
-            action: {type: fetch, url: http://x/fin}
+            action: {type: fetch, method: post, url: http://x/fin}
             switch: end
 run: [--from, loopslice_a, --to, loopslice_b]
 

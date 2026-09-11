@@ -13,7 +13,7 @@ func TestGenerate_OutputOfUntypedResult_Errors(t *testing.T) {
 	err := runGenerateErr(t, `{
 		"name": "p",
 		"tasks": [
-			{ "id": "call", "action": { "type": "fetch", "url": "http://x" }, "output": "$: self.result", "switch": "end" }
+			{ "id": "call", "action": { "type": "fetch", "method": "post", "url": "http://x" }, "output": "$: self.result", "switch": "end" }
 		]
 	}`)
 	if err == nil {
@@ -25,14 +25,14 @@ func TestGenerate_OutputOfUntypedResult_Errors(t *testing.T) {
 
 	// A member access under an output map is the same error.
 	if err := runGenerateErr(t, `{"name":"p","tasks":[
-		{"id":"call","action":{"type":"fetch","url":"http://x"},"output":{"v":"$: self.result.x"},"switch":"end"}
+		{"id":"call","action":{"type":"fetch","method":"post","url":"http://x"},"output":{"v":"$: self.result.x"},"switch":"end"}
 	]}`); err == nil {
 		t.Error("expected an error exporting self.result.x without a result_schema")
 	}
 
 	// With a declared status the output is well-typed and accepted.
 	if err := runGenerateErr(t, `{"name":"p","tasks":[
-		{"id":"call","action":{"type":"fetch","url":"http://x","responses": { "200": {"type":"object","properties":{"ok":{"type":"boolean"}}} }},"output":"$: self.result","switch":"end"}
+		{"id":"call","action":{"type":"fetch","method":"post","url":"http://x","responses": { "200": {"type":"object","properties":{"ok":{"type":"boolean"}}} }},"output":"$: self.result","switch":"end"}
 	]}`); err != nil {
 		t.Errorf("exporting self.result with a declared status should be valid: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestGenerate_OutputOfUntypedResult_Errors(t *testing.T) {
 	// Routing on self.result in a switch without a result_schema is ALSO an error: an untyped
 	// result does not exist in the context — there is no transient/raw-value routing.
 	if err := runGenerateErr(t, `{"name":"p","tasks":[
-		{"id":"call","action":{"type":"fetch","url":"http://x"},"switch":[{"case":"self.result == null","goto":"end"}]}
+		{"id":"call","action":{"type":"fetch","method":"post","url":"http://x"},"switch":[{"case":"self.result == null","goto":"end"}]}
 	]}`); err == nil {
 		t.Error("expected an error routing on self.result in a switch without a result_schema")
 	}

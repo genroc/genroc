@@ -45,7 +45,7 @@ function probeFile(expr: string): string {
         action: {
           type: "fetch",
           url: "http://x",
-          method: "GET",
+          method: "get",
           responses: {
             200: { type: "object", properties: { fee: { type: "number" } }, required: ["fee"] },
           },
@@ -167,7 +167,7 @@ function bothViewsFile(): string {
         action: {
           type: "fetch",
           url: "http://x",
-          method: "GET",
+          method: "get",
           responses: {
             200: { type: "object", properties: { fee: { type: "number" } }, required: ["fee"] },
             429: { type: "object", properties: { wait: { type: "number" } }, required: ["wait"] },

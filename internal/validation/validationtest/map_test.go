@@ -74,6 +74,7 @@ func TestGenerateMap_OverNullableSourceWithCoalesceOK(t *testing.T) {
 func TestGenerateMap_FetchBodyFromMapAndObjectLiterals(t *testing.T) {
 	out := runGenerate(t, mapRowsFetchDef("map-body", `{
 		"type": "fetch",
+		"method": "post",
 		"url": "http://x",
 		"body": {
 			"lines": "$: map(input.rows, r => {sku: r.code, qty: r.count + 1})",
@@ -107,7 +108,7 @@ func TestGenerateMap_FetchBodyFromMapAndObjectLiterals(t *testing.T) {
 // took the same path); only the single-expression form escaped, and map is the easiest producer.
 func TestGenerateMap_FetchURLFromMapRejected(t *testing.T) {
 	got := mapGenerateErr(t, mapRowsFetchDef("map-url",
-		`{"type": "fetch", "url": "$: map(input.rows, r => r.code)"}`),
+		`{"type": "fetch", "method": "post", "url": "$: map(input.rows, r => r.code)"}`),
 		"an array-valued fetch url")
 	mapErrMentions(t, got, "push", "name the offending task")
 }
@@ -126,7 +127,7 @@ func TestGenerateMap_FetchMethodFromMapRejected(t *testing.T) {
 // runtime in resolveHeaders. The error names the task so the author can find it.
 func TestGenerateMap_FetchHeadersFromMapRejected(t *testing.T) {
 	got := mapGenerateErr(t, mapRowsFetchDef("map-headers",
-		`{"type": "fetch", "url": "http://x", "headers": "$: map(input.rows, r => r.code)"}`),
+		`{"type": "fetch", "method": "post", "url": "http://x", "headers": "$: map(input.rows, r => r.code)"}`),
 		"array-valued headers")
 	mapErrMentions(t, got, `task "push" headers`, "name the task and the headers position")
 }
@@ -141,6 +142,7 @@ func TestGenerateMap_FetchHeadersFromObjectLiteralOK(t *testing.T) {
 	}`
 	runGenerate(t, mapDef("map-headers-ok", credsInput, mapFetchTask("push", `{
 		"type": "fetch",
+		"method": "post",
 		"url": "http://x",
 		"headers": "$: {Authorization: input.token, Tenant: input.tenant}"
 	}`)))
@@ -157,6 +159,7 @@ func TestGenerateMap_OutputOverSelfResult(t *testing.T) {
 				"id": "load",
 				"action": {
 					"type": "fetch",
+					"method": "post",
 					"url": "http://x",
 					"responses": { "200": {
 						"type": "object",
@@ -298,7 +301,7 @@ func TestGenerateMap_SwitchCaseFromMapRejected(t *testing.T) {
 				{"goto": "end"}
 			]
 		},
-		{"id": "work", "action": {"type": "fetch", "url": "http://x"}, "switch": "end"}`),
+		{"id": "work", "action": {"type": "fetch", "method": "post", "url": "http://x"}, "switch": "end"}`),
 		"a non-boolean (array) switch case")
 	mapErrMentions(t, got, "boolean", "say a case must be boolean")
 	mapErrMentions(t, got, `task "route"`, "name the offending task")
@@ -311,6 +314,7 @@ func TestGenerateMap_SwitchCaseFromMapRejected(t *testing.T) {
 func TestGenerateMap_UnknownFieldInLambdaBodyRejected(t *testing.T) {
 	got := mapGenerateErr(t, mapRowsFetchDef("map-bad-field", `{
 		"type": "fetch",
+		"method": "post",
 		"url": "http://x",
 		"body": {"lines": "$: map(input.rows, r => {qty: r.total})"}
 	}`), "an unknown field in the lambda body")
@@ -333,7 +337,7 @@ func TestGenerateMap_ErrorNamesTask_OverPosition(t *testing.T) {
 func TestGenerateMap_ErrorNamesTask_HeadersPosition(t *testing.T) {
 	got := mapGenerateErr(t, mapRowsDef("map-attr-headers",
 		mapPrepareTask+","+mapFetchTask("push",
-			`{"type": "fetch", "url": "http://x", "headers": "$: map(input.rows, r => r.code)"}`)),
+			`{"type": "fetch", "method": "post", "url": "http://x", "headers": "$: map(input.rows, r => r.code)"}`)),
 		"array-valued headers on the second task")
 	mapErrMentions(t, got, `task "push" headers`, "name the task and the headers position")
 }

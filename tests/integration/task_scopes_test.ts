@@ -39,6 +39,7 @@ test("outputs.<own id> is the previous output in a pre-action slot and in the ou
           id: "t",
           action: {
             type: "fetch",
+            method: "post",
             url: `http://localhost:${mock.port}/step`,
             query: { seen: "${ outputs.t.i ?? 0 }" },
             responses: { 200: { type: "object", properties: { ok: { type: "boolean" } } } },
@@ -149,6 +150,7 @@ test("self.previous is readable from an on_error rule", async () => {
           id: "t",
           action: {
             type: "fetch",
+            method: "post",
             // First run has no previous output and hits the healthy mock; the second, driven
             // by the output the first produced, hits the failing one.
             url: `\${ (self.previous.n ?? 0) < 1 ? 'http://localhost:${ok.port}/x' : 'http://localhost:${bad.port}/x' }`,

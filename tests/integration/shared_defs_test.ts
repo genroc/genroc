@@ -33,6 +33,7 @@ test("process-level $defs are shared by input_schema and result_schemas", async 
           id: "fetch",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${mock.port}/action`,
             responses: { 200: {
               type: "object",
@@ -126,6 +127,7 @@ test("$defs colliding with generated schema names are safely renamed", async () 
           id: "fetch",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${mock.port}/action`,
             responses: { 200: {
               type: "object",

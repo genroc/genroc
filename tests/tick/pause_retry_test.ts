@@ -51,6 +51,7 @@ beforeAll(async () => {
       id: "work",
       action: {
         type: "fetch" as const,
+        method: "post",
         url: `http://localhost:${failMockPort}/action`,
       },
       on_error: [{ code: ["http.%"], retry: 2 }],
@@ -65,6 +66,7 @@ beforeAll(async () => {
       id: "work",
       action: {
         type: "fetch" as const,
+        method: "post",
         url: `http://localhost:${failMockPort}/action`,
       },
       on_error: [{ code: ["http.%"], retry: 1 }],

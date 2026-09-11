@@ -21,7 +21,7 @@ test("error.data — a declared 4xx body reaches the handler that catches it", a
           action: {
             type: "fetch" as const,
             url: `http://localhost:${failing.port}/orders/1`,
-            method: "GET",
+            method: "get",
             responses: {
               200: { type: "object" },
               404: {
@@ -80,7 +80,7 @@ test("error.data — a declared 4xx body that does not conform replaces the stat
           action: {
             type: "fetch" as const,
             url: `http://localhost:${failing.port}/orders/1`,
-            method: "GET",
+            method: "get",
             responses: {
               200: { type: "object" },
               404: {
@@ -129,7 +129,7 @@ test("error — dropped from the context once the handler routes onward", async 
       tasks: [
         {
           id: "call",
-          action: { type: "fetch" as const, url: `http://localhost:${failing.port}/x`, method: "GET" },
+          action: { type: "fetch" as const, url: `http://localhost:${failing.port}/x`, method: "get" },
           on_error: [{ code: ["http.%"], goto: "$handler" }],
           timeout: 2000,
           switch: [{ goto: "end" }],
@@ -171,7 +171,7 @@ test("error.data — a large error body externalizes and is still readable", asy
           action: {
             type: "fetch" as const,
             url: `http://localhost:${failing.port}/x`,
-            method: "GET",
+            method: "get",
             responses: {
               200: { type: "object" },
               422: {

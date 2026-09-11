@@ -91,6 +91,7 @@ test("crash recovery — new worker re-executes an unconfirmed task after the pr
             id: "work",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${mock.port}/action`,
             },
             // Long enough that the task never times out before the crash.
@@ -167,6 +168,7 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
             id: "work",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${mock.port}/action`,
             },
             // only_once: the engine must not re-run this on a lease takeover, since
@@ -250,6 +252,7 @@ async function pauseThenCrash(
           ...(opts.onError ? { on_error: opts.onError } : {}),
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${mockPort}/action`,
           },
           timeout: 120_000,
@@ -358,6 +361,7 @@ test("a pausing only_once instance with a handler pauses at the handler and runs
         id: "verify",
         action: {
           type: "fetch" as const,
+          method: "post",
           url: `http://localhost:${verify.port}/charges`,
         },
         switch: [{ goto: "end" }],
@@ -532,7 +536,7 @@ test("a cancelling only_once instance whose worker crashes cancels rather than r
     extraTasks: [
       {
         id: "check",
-        action: { type: "fetch" as const, url: `http://localhost:${verify.port}/verify` },
+        action: { type: "fetch" as const, method: "post", url: `http://localhost:${verify.port}/verify` },
         timeout: 5_000,
         switch: [{ goto: "end" }],
       },
@@ -600,6 +604,7 @@ test("crash recovery — an interrupted only_once task routes to its on_error ha
             id: "charge",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${charge.port}/action`,
             },
             only_once: true,
@@ -611,6 +616,7 @@ test("crash recovery — an interrupted only_once task routes to its on_error ha
             id: "verify",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${verify.port}/charges`,
             },
             switch: [{ goto: "end" }],
@@ -687,6 +693,7 @@ test("crash recovery — a handler may deliberately re-run the interrupted task"
             id: "charge",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${charge.port}/action`,
             },
             only_once: true,
@@ -698,6 +705,7 @@ test("crash recovery — a handler may deliberately re-run the interrupted task"
             id: "verify",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${verify.port}/charges`,
               // Declared so the switch below can read the answer: self.result is
               // the action's raw result, and it has to be typed to be navigated.
@@ -807,7 +815,7 @@ async function interruptedRecovery(
 function chargeTask(port: number, onError: unknown[]) {
   return {
     id: "charge",
-    action: { type: "fetch" as const, url: `http://localhost:${port}/action` },
+    action: { type: "fetch" as const, method: "post", url: `http://localhost:${port}/action` },
     only_once: true,
     timeout: 120_000,
     on_error: onError,
@@ -833,7 +841,7 @@ test("crash recovery — a wildcard rule catches only_once.interrupted, and earl
       ]),
       {
         id: "verify",
-        action: { type: "fetch" as const, url: `http://localhost:${verify.port}/charges` },
+        action: { type: "fetch" as const, method: "post", url: `http://localhost:${verify.port}/charges` },
         switch: [{ goto: "end" }],
       },
       { id: "wrong", switch: [{ goto: "end" }] },
@@ -871,7 +879,7 @@ test("crash recovery — a bare catch-all rule catches only_once.interrupted", a
       chargeTask(charge.port, [{ goto: "$verify" }]),
       {
         id: "verify",
-        action: { type: "fetch" as const, url: `http://localhost:${verify.port}/charges` },
+        action: { type: "fetch" as const, method: "post", url: `http://localhost:${verify.port}/charges` },
         switch: [{ goto: "end" }],
       },
     ],

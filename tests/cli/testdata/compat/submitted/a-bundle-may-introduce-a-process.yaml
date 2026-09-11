@@ -9,18 +9,18 @@ apply:
       - name: newsub_existing
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/ship}
+            action: {type: fetch, method: post, url: http://x/ship}
             switch: end
 submit:
   - name: newsub_existing
     tasks:
       - id: ship
-        action: {type: fetch, url: http://y/ship}
+        action: {type: fetch, method: post, url: http://y/ship}
         switch: end
   - name: newsub_arrival
     tasks:
       - id: ship
-        action: {type: fetch, url: http://z/ship}
+        action: {type: fetch, method: post, url: http://z/ship}
         switch: end
 run: [--from, newsub_a]
 expect: |

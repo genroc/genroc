@@ -10,11 +10,13 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x/charge
             switch: next
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x/ship
             switch: end
   - channel: reqin_b
@@ -25,11 +27,13 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x/charge
             switch: next
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x/ship
             switch: end
 run: [--from, reqin_a, --to, reqin_b]

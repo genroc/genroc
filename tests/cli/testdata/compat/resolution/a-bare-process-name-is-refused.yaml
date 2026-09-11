@@ -9,6 +9,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x
             switch: end
 run: [bare_proc, --from, bare_a, --to, bare_a]

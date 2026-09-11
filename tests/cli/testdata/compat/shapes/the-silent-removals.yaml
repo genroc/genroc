@@ -21,6 +21,7 @@ apply:
           - id: go
             action:
               type: fetch
+              method: post
               url: http://x/go
               responses:
                 200: {type: object, properties: {fee: {type: number}}, required: [fee]}
@@ -31,7 +32,7 @@ apply:
         input_schema: {type: object, properties: {a: {type: string}}, required: [a]}
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
 run: [--from, silentrm_a, --to, silentrm_b]
 

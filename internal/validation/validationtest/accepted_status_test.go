@@ -16,7 +16,7 @@ func acceptedStatusFetchDef(acceptedStatus string) string {
 		"tasks": [
 			{
 				"id": "call",
-				"action": {"type": "fetch", "url": "http://x", "accepted_status": ` + acceptedStatus + `},
+				"action": {"type": "fetch", "method": "post", "url": "http://x", "accepted_status": ` + acceptedStatus + `},
 				"switch": "end"
 			}
 		]
@@ -61,7 +61,7 @@ func TestAcceptedStatus_ExpressionYieldingStringArray_OK(t *testing.T) {
 		"name": "p",
 		"input_schema": {"type": "object", "properties": {"codes": {"type": "array", "items": {"type": "string"}}}, "required": ["codes"]},
 		"tasks": [
-			{"id": "call", "action": {"type": "fetch", "url": "http://x", "accepted_status": "$: input.codes"}, "switch": "end"}
+			{"id": "call", "action": {"type": "fetch", "method": "post", "url": "http://x", "accepted_status": "$: input.codes"}, "switch": "end"}
 		]
 	}`)
 }
@@ -86,7 +86,7 @@ func TestAcceptedStatus_ExpressionYieldingNumberArray_Rejected(t *testing.T) {
 		"name": "p",
 		"input_schema": {"type": "object", "properties": {"codes": {"type": "array", "items": {"type": "integer"}}}, "required": ["codes"]},
 		"tasks": [
-			{"id": "call", "action": {"type": "fetch", "url": "http://x", "accepted_status": "$: input.codes"}, "switch": "end"}
+			{"id": "call", "action": {"type": "fetch", "method": "post", "url": "http://x", "accepted_status": "$: input.codes"}, "switch": "end"}
 		]
 	}`)
 	wantErrContains(t, err, `task "call" accepted_status`)

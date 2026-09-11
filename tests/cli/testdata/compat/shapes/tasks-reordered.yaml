@@ -18,32 +18,32 @@ apply:
       - name: reorder_proc
         tasks:
           - id: start
-            action: {type: fetch, url: http://x/start}
+            action: {type: fetch, method: post, url: http://x/start}
             switch: next
           - id: alpha
-            action: {type: fetch, url: http://x/alpha}
+            action: {type: fetch, method: post, url: http://x/alpha}
             switch: next
           - id: beta
-            action: {type: fetch, url: http://x/beta}
+            action: {type: fetch, method: post, url: http://x/beta}
             switch: next
           - id: done
-            action: {type: fetch, url: http://x/done}
+            action: {type: fetch, method: post, url: http://x/done}
             switch: end
   - channel: reorder_b
     definitions:
       - name: reorder_proc
         tasks:
           - id: start
-            action: {type: fetch, url: http://x/start}
+            action: {type: fetch, method: post, url: http://x/start}
             switch: next
           - id: beta
-            action: {type: fetch, url: http://x/beta}
+            action: {type: fetch, method: post, url: http://x/beta}
             switch: next
           - id: alpha
-            action: {type: fetch, url: http://x/alpha}
+            action: {type: fetch, method: post, url: http://x/alpha}
             switch: next
           - id: done
-            action: {type: fetch, url: http://x/done}
+            action: {type: fetch, method: post, url: http://x/done}
             switch: end
 run: [--from, reorder_a, --to, reorder_b]
 expect: |

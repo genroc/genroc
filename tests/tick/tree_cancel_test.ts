@@ -37,7 +37,7 @@ beforeAll(async () => {
   await ctx.env.define(workerName, [
     {
       id: "work",
-      action: { type: "fetch" as const, url: `http://localhost:${mock.port}/action` },
+      action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/action` },
       timeout: 5_000,
       switch: [{ goto: "end" }],
     },

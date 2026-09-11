@@ -42,7 +42,7 @@ const CLAUSES = [
 function definition(name: string, port: number, responses: unknown, output?: unknown) {
   const call: Record<string, unknown> = {
     id: "call",
-    action: { type: "fetch", url: `http://localhost:${port}/x`, method: "GET", ...(responses ? { responses } : {}) },
+    action: { type: "fetch", url: `http://localhost:${port}/x`, method: "get", ...(responses ? { responses } : {}) },
     on_error: [{ code: ["http.%"], goto: "$caught" }],
     timeout: 2000,
     switch: [{ goto: "end" }],
@@ -100,6 +100,7 @@ test("responses — a bodyless 2xx reaches the definition as null", async () => 
           id: "kick",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${svc.port}/jobs`,
             responses: {
               200: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
@@ -143,7 +144,7 @@ test("responses — a lone error declaration types the failure without accepting
           action: {
             type: "fetch" as const,
             url: `http://localhost:${svc.port}/orders/1`,
-            method: "GET",
+            method: "get",
             responses: {
               404: {
                 type: "object",

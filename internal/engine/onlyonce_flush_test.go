@@ -152,7 +152,7 @@ func TestOnlyOnce_FlagIsRederivedOnEveryWrite(t *testing.T) {
 	def := &model.ProcessDefinition{Name: process, Tasks: []*model.Task{
 		{
 			ID:       "charge",
-			Action:   &model.Action{Type: model.ActionTypeFetch, URL: srv.URL},
+			Action:   &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: srv.URL},
 			OnlyOnce: &onlyOnce,
 			Switch:   model.SwitchMap{{Goto: "$wait"}},
 		},
@@ -259,7 +259,7 @@ func onlyOnceBehindSwitch(t *testing.T, database *db.DB, name string) (string, *
 		{ID: "gate", Switch: model.SwitchMap{{Goto: "$charge"}}}, // call-less: collapses inline
 		{
 			ID:       "charge",
-			Action:   &model.Action{Type: model.ActionTypeFetch, URL: srv.URL},
+			Action:   &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: srv.URL},
 			OnlyOnce: &onlyOnce,
 			Switch:   model.SwitchMap{{Goto: model.GotoEnd}},
 		},

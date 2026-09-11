@@ -60,6 +60,7 @@ beforeAll(async () => {
       id: "work",
       action: {
         type: "fetch" as const,
+        method: "post",
         url: `http://localhost:${failMockPort}/action`,
       },
       timeout: 5_000,
@@ -72,6 +73,7 @@ beforeAll(async () => {
       id: "work",
       action: {
         type: "fetch" as const,
+        method: "post",
         url: `http://localhost:${successMockPort}/action`,
       },
       timeout: 5_000,
@@ -192,6 +194,7 @@ test("a fails while the tree is paused — failure propagates, and resume unbloc
         id: "work",
         action: {
           type: "fetch" as const,
+          method: "post",
           url: `http://localhost:${holdMock.port}/action`,
         },
         timeout: 5_000,

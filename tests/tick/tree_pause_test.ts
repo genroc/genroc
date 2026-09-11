@@ -48,6 +48,7 @@ beforeAll(async () => {
       id: "work",
       action: {
         type: "fetch" as const,
+        method: "post",
         url: `http://localhost:${mockPort}/action`,
       },
       timeout: 5_000,

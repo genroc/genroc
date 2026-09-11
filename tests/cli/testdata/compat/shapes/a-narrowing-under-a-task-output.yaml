@@ -19,11 +19,11 @@ apply:
           required: [rows]
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             output: {picked: '$: input.rows'}
             switch: next
           - id: after
-            action: {type: fetch, url: http://x/after}
+            action: {type: fetch, method: post, url: http://x/after}
             switch: end
   - channel: deeppath_b
     definitions:
@@ -40,11 +40,11 @@ apply:
           required: [rows]
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             output: {picked: '$: input.rows'}
             switch: next
           - id: after
-            action: {type: fetch, url: http://x/after}
+            action: {type: fetch, method: post, url: http://x/after}
             switch: end
 run: [--from, deeppath_a, --to, deeppath_b]
 

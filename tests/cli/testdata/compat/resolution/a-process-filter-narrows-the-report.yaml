@@ -15,6 +15,7 @@ apply:
           - id: run
             action:
               type: fetch
+              method: post
               url: http://x/kid
               responses:
                 200: {type: object, properties: {id: {type: string}}, required: [id]}
@@ -32,7 +33,7 @@ apply:
       - name: filter_other
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/other}
+            action: {type: fetch, method: post, url: http://x/other}
             switch: end
   - channel: filter_b
     definitions:
@@ -41,6 +42,7 @@ apply:
           - id: run
             action:
               type: fetch
+              method: post
               url: http://y/kid
               responses:
                 200: {type: object, properties: {id: {type: string}}, required: [id]}
@@ -58,7 +60,7 @@ apply:
       - name: filter_other
         tasks:
           - id: ship
-            action: {type: fetch, url: http://y/other}
+            action: {type: fetch, method: post, url: http://y/other}
             switch: end
 run: [--from, filter_a, --to, filter_b, --process, filter_boss]
 expect: |

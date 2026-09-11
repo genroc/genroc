@@ -27,13 +27,13 @@ func definitionFromJSON(t *testing.T, src string) *model.ProcessDefinition {
 // which is what would refuse it today.
 func legacyDefinition(t *testing.T, name string) *model.ProcessDefinition {
 	return definitionFromJSON(t, `{"name":"`+name+`","tasks":[
-		{"id":"go","action":{"type":"fetch","url":"http://x/go"},
+		{"id":"go","action":{"type":"fetch","method":"post","url":"http://x/go"},
 		 "output":{"v":"$: outputs.gone.v"},"switch":"end"}]}`)
 }
 
 func analysableDefinition(t *testing.T, name string) *model.ProcessDefinition {
 	return definitionFromJSON(t, `{"name":"`+name+`","tasks":[
-		{"id":"go","action":{"type":"fetch","url":"http://x/go"},"switch":"end"}]}`)
+		{"id":"go","action":{"type":"fetch","method":"post","url":"http://x/go"},"switch":"end"}]}`)
 }
 
 func TestCompareSet_AnUnanalysableFromSideIsNamedAndCannotBeExcused(t *testing.T) {

@@ -36,6 +36,7 @@ function makeDef(name: string, actionPort?: number) {
   if (actionPort !== undefined) {
     append.action = {
       type: "fetch",
+      method: "post",
       url: `http://localhost:${actionPort}/step`,
       responses: { 200: { type: "object", properties: { ok: { type: "boolean" } } } },
     };

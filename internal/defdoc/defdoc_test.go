@@ -30,6 +30,7 @@ tasks:
   - id: fetch
     action:
       type: fetch
+      method: post
       url: "https://example.com"
     switch: next
   - id: done
@@ -46,8 +47,8 @@ func TestATaskIsAddressableByIndexAndById(t *testing.T) {
 	if byIndex != byID {
 		t.Fatalf("same node, different spans:\n by index: %+v\n by id:    %+v", byIndex, byID)
 	}
-	if byIndex.Value.Line != 7 {
-		t.Errorf("url value is on line 7 of the fixture, got line %d", byIndex.Value.Line)
+	if byIndex.Value.Line != 8 {
+		t.Errorf("url value is on line 8 of the fixture, got line %d", byIndex.Value.Line)
 	}
 }
 
@@ -194,8 +195,8 @@ func TestASequenceElementWithoutAnIdIsAddressedByIndex(t *testing.T) {
 func TestAMappingSpansItsChildren(t *testing.T) {
 	d := parse(t, twoTasks)
 	s := span(t, d, "tasks.fetch")
-	if s.Value.Line != 4 || s.Value.EndLine != 8 {
-		t.Errorf("the fetch task runs from line 4 to line 8, got %d-%d", s.Value.Line, s.Value.EndLine)
+	if s.Value.Line != 4 || s.Value.EndLine != 9 {
+		t.Errorf("the fetch task runs from line 4 to line 9, got %d-%d", s.Value.Line, s.Value.EndLine)
 	}
 }
 
@@ -206,13 +207,14 @@ func TestAtFindsTheInnermostNodeUnderTheCursor(t *testing.T) {
 	//	 4  - id: fetch
 	//	 5    action:
 	//	 6      type: fetch
-	//	 7      url: "https://example.com"
+	//	 7      method: post
+	//	 8      url: "https://example.com"
 	for _, c := range []struct {
 		name      string
 		line, col int
 		want      string
 	}{
-		{"on the url value", 7, 12, "tasks.fetch.action.url"},
+		{"on the url value", 8, 12, "tasks.fetch.action.url"},
 		{"on the action's own key line", 5, 5, "tasks.fetch.action"},
 		{"on a task id", 4, 11, "tasks.fetch.id"},
 		{"on the top-level name", 2, 7, "name"},

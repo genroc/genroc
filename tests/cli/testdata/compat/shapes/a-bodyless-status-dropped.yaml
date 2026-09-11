@@ -14,6 +14,7 @@ apply:
           - id: go
             action:
               type: fetch
+              method: post
               url: http://x/go
               responses:
                 200: {type: object, properties: {fee: {type: number}}, required: [fee]}
@@ -27,6 +28,7 @@ apply:
           - id: go
             action:
               type: fetch
+              method: post
               url: http://x/go
               responses:
                 200: {type: object, properties: {fee: {type: number}}, required: [fee]}

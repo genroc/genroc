@@ -19,6 +19,7 @@ test("lifecycle — task task completes when service returns ok", async () => {
           id: "call",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${mock.port}/action`,
             responses: { 200: { type: "object", properties: { done: { type: "boolean" } } } },
           },
@@ -55,7 +56,7 @@ test("lifecycle — task task fails and marks failed", async () => {
       tasks: [
         {
           id: "call",
-          action: { type: "fetch" as const, url: `http://localhost:${mock.port}/action` },
+          action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/action` },
           timeout: 500,
           switch: [{ goto: "end" }],
         },
@@ -93,13 +94,14 @@ test("lifecycle — conditional routes to correct branch", async () => {
       tasks: [
         {
           id: "start",
-          action: { type: "fetch" as const, url: `http://localhost:${thenMock.port}/action` },
+          action: { type: "fetch" as const, method: "post", url: `http://localhost:${thenMock.port}/action` },
           switch: [{ case: "input.go_then", goto: "$then_task" }, { goto: "$else_task" }],
         },
         {
           id: "then_task",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${thenMock.port}/action`,
             responses: { 200: { type: "object", properties: { branch: { type: "string" } } } },
           },
@@ -111,6 +113,7 @@ test("lifecycle — conditional routes to correct branch", async () => {
           id: "else_task",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${elseMock.port}/action`,
             responses: { 200: { type: "object", properties: { branch: { type: "string" } } } },
           },
@@ -169,6 +172,7 @@ test("lifecycle — task fails when output violates result_schema", async () => 
           id: "charge",
           action: {
             type: "fetch" as const,
+            method: "post",
             url: `http://localhost:${mock.port}/action`,
             responses: { 200: {
               type: "object",

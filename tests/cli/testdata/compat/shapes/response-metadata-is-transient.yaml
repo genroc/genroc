@@ -15,6 +15,7 @@ apply:
           - id: call
             action:
               type: fetch
+              method: post
               url: http://x/call
               accepted_status: ["200"]
               responses:
@@ -30,6 +31,7 @@ apply:
           - id: call
             action:
               type: fetch
+              method: post
               url: http://x/call
               accepted_status: ["200", "202"]
               responses:

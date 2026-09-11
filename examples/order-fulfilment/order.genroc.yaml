@@ -25,6 +25,7 @@ tasks:
   - id: reserve
     action:
       type: fetch
+      method: post
       url: "${ input.base_url }/inventory/reserve"
       body:
         order_ref: "$: input.order_ref"
@@ -52,6 +53,7 @@ tasks:
     only_once: true
     action:
       type: fetch
+      method: post
       url: "${ input.base_url }/payments/charge"
       body:
         idempotency_key: "$: input.order_ref"
@@ -83,6 +85,7 @@ tasks:
   - id: ship
     action:
       type: fetch
+      method: post
       url: "${ input.base_url }/shipping/dispatch"
       body:
         order_ref: "$: input.order_ref"
@@ -104,7 +107,7 @@ tasks:
   - id: reconcile
     action:
       type: fetch
-      method: GET
+      method: get
       url: "${ input.base_url }/payments/by-key/${ input.order_ref }"
       responses:
         200:
@@ -128,6 +131,7 @@ tasks:
   - id: declined
     action:
       type: fetch
+      method: post
       url: "${ input.base_url }/inventory/release"
       body:
         reservation_id: "$: outputs.reserve.reservation_id"

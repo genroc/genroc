@@ -40,6 +40,7 @@ test("pause between tasks — step2 waits for the resume, then runs exactly once
             id: "step1",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${step1Mock.port}/action`,
             },
             timeout: 5_000,
@@ -49,6 +50,7 @@ test("pause between tasks — step2 waits for the resume, then runs exactly once
             id: "step2",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${step2Mock.port}/action`,
             },
             timeout: 5_000,

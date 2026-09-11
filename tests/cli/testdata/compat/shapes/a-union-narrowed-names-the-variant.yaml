@@ -24,7 +24,7 @@ apply:
         input_schema: {type: object, properties: {id: {type: [string, integer]}}, required: [id]}
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
       - name: union_variant
         input_schema:
@@ -37,7 +37,7 @@ apply:
           required: [event]
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
   - channel: union_b
     definitions:
@@ -45,7 +45,7 @@ apply:
         input_schema: {type: object, properties: {id: {type: string}}, required: [id]}
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
       - name: union_variant
         input_schema:
@@ -57,7 +57,7 @@ apply:
           required: [event]
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
 run: [--from, union_a, --to, union_b]
 expect: |

@@ -41,8 +41,8 @@ func assertAddresses(t *testing.T, ds validation.Diagnostics, want ...string) {
 }
 
 const twoBrokenActions = `{"name":"p","tasks":[
-	{"id":"a","switch":"next","action":{"type":"fetch","url":"$: nope.x"}},
-	{"id":"b","switch":"end","action":{"type":"fetch","url":"$: alsonope.y"}}]}`
+	{"id":"a","switch":"next","action":{"type":"fetch","method":"post","url":"$: nope.x"}},
+	{"id":"b","switch":"end","action":{"type":"fetch","method":"post","url":"$: alsonope.y"}}]}`
 
 func TestEveryBrokenSlotIsReported(t *testing.T) {
 	assertAddresses(t, check(t, twoBrokenActions), "tasks.a.action", "tasks.b.action")
@@ -51,7 +51,7 @@ func TestEveryBrokenSlotIsReported(t *testing.T) {
 // One task can be wrong in three places, and they are three slots rather than three tries.
 func TestTheSlotsOfOneTaskAreReportedSeparately(t *testing.T) {
 	ds := check(t, `{"name":"p","tasks":[
-		{"id":"a","action":{"type":"fetch","url":"$: nope.x"},
+		{"id":"a","action":{"type":"fetch","method":"post","url":"$: nope.x"},
 		 "switch":[{"case":"$: alsonope.y","goto":"end"},{"goto":"end"}],
 		 "on_error":[{"case":"$: thirdnope.z","goto":"end"}]}]}`)
 	assertAddresses(t, ds, "tasks.a.action", "tasks.a.on_error.0", "tasks.a.switch")
@@ -61,14 +61,14 @@ func TestTheSlotsOfOneTaskAreReportedSeparately(t *testing.T) {
 // could not carry a different context per rule, which is why ruleSlot indexes by hand.
 func TestTwoBrokenRulesInOneTaskAreTwoDiagnostics(t *testing.T) {
 	ds := check(t, `{"name":"p","tasks":[
-		{"id":"a","action":{"type":"fetch","url":"u"},"switch":"end",
+		{"id":"a","action":{"type":"fetch","method":"post","url":"u"},"switch":"end",
 		 "on_error":[{"case":"$: nope.x","goto":"end"},{"case":"$: alsonope.y","goto":"end"}]}]}`)
 	assertAddresses(t, ds, "tasks.a.on_error.0", "tasks.a.on_error.1")
 }
 
 const brokenOutputThenBrokenAction = `{"name":"p","tasks":[
-	{"id":"a","switch":"next","action":{"type":"fetch","url":"u"},"output":{"v":"$: self.result.missing"}},
-	{"id":"b","switch":"end","action":{"type":"fetch","url":"$: nope.x"}}]}`
+	{"id":"a","switch":"next","action":{"type":"fetch","method":"post","url":"u"},"output":{"v":"$: self.result.missing"}},
+	{"id":"b","switch":"end","action":{"type":"fetch","method":"post","url":"$: nope.x"}}]}`
 
 // Inference is sequential, so a failed output slot used to cost every diagnostic below it.
 // It recovers as {} instead, which is what makes the second finding reachable.
@@ -80,10 +80,10 @@ func TestAFailedOutputDoesNotHideALaterTasksOwnError(t *testing.T) {
 // problem. A task reading a poisoned output is a consequence, not a finding.
 func TestReadingAPoisonedOutputIsNotItsOwnDiagnostic(t *testing.T) {
 	ds := check(t, `{"name":"p","tasks":[
-		{"id":"a","switch":"next","action":{"type":"fetch","url":"u",
+		{"id":"a","switch":"next","action":{"type":"fetch","method":"post","url":"u",
 		 "responses":{"200":{"type":"object","properties":{"n":{"type":"number"}},"required":["n"]}}},
 		 "output":{"v":"$: self.result.missing"}},
-		{"id":"b","switch":"end","action":{"type":"fetch","url":"${ outputs.a.v }"}}]}`)
+		{"id":"b","switch":"end","action":{"type":"fetch","method":"post","url":"${ outputs.a.v }"}}]}`)
 	assertAddresses(t, ds, "tasks.a.output")
 }
 
@@ -93,9 +93,9 @@ func TestAnUnknownReadInATaskThatSeesNoPoisonSurvives(t *testing.T) {
 	// `a` exports its opaque result deliberately, so `outputs.a.v` IS {} and reading through
 	// it is the refusal {} exists for. Nothing here is poisoned.
 	ds := check(t, `{"name":"p","tasks":[
-		{"id":"a","switch":"next","action":{"type":"fetch","url":"u","responses":{"200":{}}},
+		{"id":"a","switch":"next","action":{"type":"fetch","method":"post","url":"u","responses":{"200":{}}},
 		 "output":{"v":"$: self.result"}},
-		{"id":"b","switch":"end","action":{"type":"fetch","url":"${ outputs.a.v.x }"}}]}`)
+		{"id":"b","switch":"end","action":{"type":"fetch","method":"post","url":"${ outputs.a.v.x }"}}]}`)
 	if len(ds) != 1 || ds[0].Code != validation.CodeUnknownRead {
 		t.Fatalf("reading through a {} the author wrote is the answer, not an artefact of "+
 			"recovery; got %v", ds)
@@ -108,8 +108,8 @@ func TestPoisonElsewhereDoesNotHideAnUnknownReadThatCannotSeeIt(t *testing.T) {
 	ds := check(t, `{"name":"p",
 		"input_schema":{"type":"object","properties":{"opaque":{}},"required":["opaque"]},
 		"tasks":[
-		{"id":"first","switch":"next","action":{"type":"fetch","url":"${ input.opaque.field }"}},
-		{"id":"later","switch":"end","action":{"type":"fetch","url":"u"},
+		{"id":"first","switch":"next","action":{"type":"fetch","method":"post","url":"${ input.opaque.field }"}},
+		{"id":"later","switch":"end","action":{"type":"fetch","method":"post","url":"u"},
 		 "output":{"v":"$: self.result.missing"}}]}`)
 	assertAddresses(t, ds, "tasks.first.action", "tasks.later.output")
 }
@@ -142,7 +142,7 @@ func TestGenerateStillFailsOnTheFirstDiagnostic(t *testing.T) {
 }
 
 func TestAValidDefinitionHasNoDiagnostics(t *testing.T) {
-	ds := check(t, `{"name":"p","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","url":"u"}}]}`)
+	ds := check(t, `{"name":"p","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","method":"post","url":"u"}}]}`)
 	if len(ds) != 0 {
 		t.Fatalf("a valid definition produced %v", ds)
 	}
@@ -154,7 +154,7 @@ func TestAValidDefinitionHasNoDiagnostics(t *testing.T) {
 // specs/language-server.md §2, §7b.
 func TestEveryDiagnosticAddressIsASlotTheContextViewNames(t *testing.T) {
 	for _, defJSON := range []string{twoBrokenActions, brokenOutputThenBrokenAction,
-		`{"name":"p","tasks":[{"id":"a","action":{"type":"fetch","url":"$: nope.x"},
+		`{"name":"p","tasks":[{"id":"a","action":{"type":"fetch","method":"post","url":"$: nope.x"},
 		  "switch":[{"case":"$: alsonope.y","goto":"end"},{"goto":"end"}],
 		  "on_error":[{"case":"$: thirdnope.z","goto":"end"}]}]}`,
 	} {
@@ -196,7 +196,7 @@ func keysOf[V any](m map[string]V) []string {
 // server explaining its own recovery back to the author.
 func TestATasksOwnPoisonedOutputDoesNotAlsoBreakItsSwitch(t *testing.T) {
 	ds := check(t, `{"name":"p","tasks":[
-		{"id":"a","action":{"type":"fetch","url":"u",
+		{"id":"a","action":{"type":"fetch","method":"post","url":"u",
 		 "responses":{"200":{"type":"object","properties":{"n":{"type":"number"}}}}},
 		 "output":{"v":"$: self.result.missing"},
 		 "switch":[{"case":"self.output.v > 1","goto":"end"},{"goto":"end"}]}]}`)

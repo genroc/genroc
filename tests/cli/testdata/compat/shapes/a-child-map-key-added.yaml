@@ -22,6 +22,7 @@ apply:
           - id: run
             action:
               type: fetch
+              method: post
               url: http://x/kid
               responses:
                 200: {type: object, properties: {id: {type: string}}, required: [id]}
@@ -44,6 +45,7 @@ apply:
           - id: run
             action:
               type: fetch
+              method: post
               url: http://x/kid
               responses:
                 200: {type: object, properties: {id: {type: string}}, required: [id]}

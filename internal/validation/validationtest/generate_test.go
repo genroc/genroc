@@ -8,7 +8,7 @@ import (
 func TestGenerate_NoSchemas(t *testing.T) {
 	out := runGenerate(t, `{
 		"name": "p",
-		"tasks": [{"id":"s1","action":{"type":"fetch","url":"http://x"}}]
+		"tasks": [{"id":"s1","action":{"type":"fetch","method":"post","url":"http://x"}}]
 	}`)
 	if out.Process != "p" {
 		t.Errorf("metadata: got process=%q", out.Process)
@@ -27,7 +27,7 @@ func TestGenerate_NoSchemas(t *testing.T) {
 func TestGenerate_ProcessInput(t *testing.T) {
 	out := runGenerate(t, `{
 		"name": "order",
-		"tasks": [{"id":"s1","action":{"type":"fetch","url":"http://x"}}],
+		"tasks": [{"id":"s1","action":{"type":"fetch","method":"post","url":"http://x"}}],
 		"input_schema": {
 			"type": "object",
 			"properties": { "order_id": { "type": "integer" } },
@@ -50,6 +50,7 @@ func TestGenerate_TaskOutput(t *testing.T) {
       "id": "charge",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -67,6 +68,7 @@ func TestGenerate_TaskOutput(t *testing.T) {
       "id": "notify",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x"
       },
       "switch": "end"
@@ -91,6 +93,7 @@ func TestGenerate_FlatStepsWithOutputs(t *testing.T) {
       "id": "charge",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -116,6 +119,7 @@ func TestGenerate_FlatStepsWithOutputs(t *testing.T) {
       "id": "ship",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -133,6 +137,7 @@ func TestGenerate_FlatStepsWithOutputs(t *testing.T) {
       "id": "refund",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -156,7 +161,7 @@ func TestGenerate_FlatStepsWithOutputs(t *testing.T) {
 func TestGenerate_InnerDefsPromotedToRoot(t *testing.T) {
 	out := runGenerate(t, `{
 		"name": "p",
-		"tasks": [{"id":"s1","action":{"type":"fetch","url":"http://x"}}],
+		"tasks": [{"id":"s1","action":{"type":"fetch","method":"post","url":"http://x"}}],
 		"input_schema": {
 			"type": "object",
 			"$defs": {
@@ -208,6 +213,7 @@ func TestGenerate_InnerDefsConflictRenamed(t *testing.T) {
       "id": "charge",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "responses": { "200": {
           "type": "object",
@@ -325,6 +331,7 @@ func TestGenerate_ChildMapSingleEntry_OutputAvailableInDownstreamStep(t *testing
       "id": "report",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": {
           "n": "$: outputs.spawn.out.count"
@@ -397,6 +404,7 @@ func TestGenerate_Child_OutputAvailableInDownstreamStep(t *testing.T) {
       "id": "report",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": { "n": "$: outputs.spawn.count" }
       }
@@ -574,6 +582,7 @@ func TestGenerate_ChildParallel_KeyedOutputAvailableInDownstreamStep(t *testing.
       "id": "aggregate",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": {
           "a": "$: outputs.spawn.left.num",
@@ -732,7 +741,7 @@ func TestGenerate_UnusedDefsRemoved(t *testing.T) {
 			},
 			"properties": { "x": { "$ref": "#/$defs/Used" } }
 		},
-		"tasks": [{"id":"s1","action":{"type":"fetch","url":"http://x"}}]
+		"tasks": [{"id":"s1","action":{"type":"fetch","method":"post","url":"http://x"}}]
 	}`)
 	if !out.Defs.Has("Used") {
 		t.Error("Used def should be present in $defs")
@@ -823,6 +832,7 @@ func TestGenerate_ChildFromArray_ArrayElementTypedInDownstream(t *testing.T) {
       "id": "use",
       "action": {
         "type": "fetch",
+        "method": "post",
         "url": "http://x",
         "body": {"first": "$: outputs.spread[0].doubled"}
       }

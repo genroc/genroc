@@ -19,19 +19,19 @@ apply:
       - name: gone_stays
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/ship}
+            action: {type: fetch, method: post, url: http://x/ship}
             switch: end
       - name: gone_leaves
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/leaves}
+            action: {type: fetch, method: post, url: http://x/leaves}
             switch: end
   - channel: gone_b
     definitions:
       - name: gone_stays
         tasks:
           - id: ship
-            action: {type: fetch, url: http://y/ship}
+            action: {type: fetch, method: post, url: http://y/ship}
             switch: end
 run: [--from, gone_a, --to, gone_b]
 expect: |

@@ -15,7 +15,7 @@ apply:
       - name: nochan_proc
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/ship}
+            action: {type: fetch, method: post, url: http://x/ship}
             switch: end
 run: [--from, nochan_a, --to, nochan_typo]
 expect: |

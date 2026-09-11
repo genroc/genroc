@@ -8,7 +8,7 @@ apply:
       - name: noignore_proc
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
 run: [--from, noignore_a, --to, noignore_a, --ignore, upgrade]
 

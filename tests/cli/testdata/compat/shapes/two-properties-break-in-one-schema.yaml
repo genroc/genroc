@@ -22,7 +22,7 @@ apply:
           required: [amount]
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
   - channel: twobreak_b
     definitions:
@@ -35,7 +35,7 @@ apply:
           required: [amount, currency]
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
 run: [--from, twobreak_a, --to, twobreak_b]
 expect: |

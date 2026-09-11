@@ -379,7 +379,7 @@ test("budgets multiply: a parent's retry runs the child's own budget again", asy
     await ctx.env.define(child, [
       {
         id: "call",
-        action: { type: "fetch", url: `http://localhost:${mock.port}/x`, responses: { "200": {} } },
+        action: { type: "fetch", method: "post", url: `http://localhost:${mock.port}/x`, responses: { "200": {} } },
         timeout: 2000,
         // The child spends its OWN budget first, then concludes with a raise.
         on_error: [

@@ -9,7 +9,7 @@ const problemSchema = `{"type":"object","properties":{"detail":{"type":"string"}
 
 func errDataDef(responses, codes, handlerOutput string) string {
 	return `{"name":"p","tasks":[
-		{"id":"call","action":{"type":"fetch","url":"http://x","responses":` + responses + `},
+		{"id":"call","action":{"type":"fetch","method":"post","url":"http://x","responses":` + responses + `},
 		 "on_error":[{"code":` + codes + `,"goto":"$handler"}],"switch":"end"},
 		{"id":"handler","output":` + handlerOutput + `,"switch":"end"}
 	]}`
@@ -76,7 +76,7 @@ func TestGenerate_ErrorData_WidensWithTheRule(t *testing.T) {
 // value gets.
 func TestGenerate_ErrorData_AbsentWhereNoRuleReaches(t *testing.T) {
 	err := runGenerateErr(t, `{"name":"p","tasks":[
-		{"id":"call","action":{"type":"fetch","url":"http://x","responses":{"200":{"type":"object"}}},
+		{"id":"call","action":{"type":"fetch","method":"post","url":"http://x","responses":{"200":{"type":"object"}}},
 		 "output":{"d":"$: last_error.data"},"switch":"end"}
 	]}`)
 	if err == nil {
@@ -106,7 +106,7 @@ func TestGenerate_ErrorData_AbsentWithoutAnErrorDeclaration(t *testing.T) {
 // longer holds. A handler that wants the failure to travel projects it into its output.
 func TestGenerate_ErrorScope_EndsAtTheHandler(t *testing.T) {
 	err := runGenerateErr(t, `{"name":"p","tasks":[
-		{"id":"call","action":{"type":"fetch","url":"http://x","responses":{"200":{"type":"object"}}},
+		{"id":"call","action":{"type":"fetch","method":"post","url":"http://x","responses":{"200":{"type":"object"}}},
 		 "on_error":[{"code":["http.%"],"goto":"$handler"}],"switch":"next"},
 		{"id":"handler","output":{"c":"$: last_error.code"},"switch":"next"},
 		{"id":"after","output":{"c":"$: last_error.code"},"switch":"end"}
@@ -120,7 +120,7 @@ func TestGenerate_ErrorScope_EndsAtTheHandler(t *testing.T) {
 
 	// Projecting it into an output is how a later task gets it.
 	if err := runGenerateErr(t, `{"name":"p","tasks":[
-		{"id":"call","action":{"type":"fetch","url":"http://x","responses":{"200":{"type":"object"}}},
+		{"id":"call","action":{"type":"fetch","method":"post","url":"http://x","responses":{"200":{"type":"object"}}},
 		 "on_error":[{"code":["http.%"],"goto":"$handler"}],"switch":"next"},
 		{"id":"handler","output":{"c":"$: last_error.code"},"switch":"next"},
 		{"id":"after","output":{"c":"$: outputs.handler.c"},"switch":"end"}
@@ -163,7 +163,7 @@ func TestGenerate_FetchResult_NullabilityThroughGenerate(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out := runGenerate(t, `{"name":"p","tasks":[
-				{"id":"call","action":{"type":"fetch","url":"http://x","responses":`+tc.responses+tc.accepted+`},
+				{"id":"call","action":{"type":"fetch","method":"post","url":"http://x","responses":`+tc.responses+tc.accepted+`},
 				 "output":"$: self.result","switch":"end"}
 			]}`)
 			sc, ok := out.Defs.Get("call_output")

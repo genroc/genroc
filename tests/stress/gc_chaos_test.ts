@@ -152,6 +152,7 @@ test(
             id: "gen",
             action: {
               type: "fetch" as const,
+              method: "post",
               url: `http://localhost:${mockPort}/gen`,
               responses: { 200: {
                 type: "object",

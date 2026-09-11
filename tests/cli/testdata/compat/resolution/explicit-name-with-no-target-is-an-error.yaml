@@ -9,6 +9,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x
             switch: end
       - name: orphan_beta
@@ -16,6 +17,7 @@ apply:
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://y
             switch: end
 run: [--from, orphan_alpha@1, --from, orphan_beta@1, --to, orphan_alpha@1]

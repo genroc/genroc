@@ -104,8 +104,10 @@ func sendHTTP(ctx context.Context, c *http.Client, url, method string, acceptedS
 }
 
 func doHTTP(ctx context.Context, c *http.Client, url, method string, acceptedStatus []string, headers map[string]string, body any) (*Response, error) {
+	// net/http reads an empty method as GET. Callers resolve the verb (it is required on a
+	// fetch); refusing here keeps the one unnamed case from becoming a silent read.
 	if method == "" {
-		method = http.MethodPost
+		return nil, fmt.Errorf("http method is empty")
 	}
 	var bodyReader io.Reader
 	jsonBody := false

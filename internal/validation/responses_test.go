@@ -74,7 +74,7 @@ func TestFetchResultType_NullabilityFollowsCoverage(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			a := &model.Action{Type: model.ActionTypeFetch, URL: "http://x", Responses: tc.responses}
+			a := &model.Action{Type: model.ActionTypeFetch, Method: "post", URL: "http://x", Responses: tc.responses}
 			if tc.accepted != nil {
 				a.AcceptedStatus = &model.Shape{Raw: tc.accepted}
 			}
@@ -102,8 +102,9 @@ func TestFetchResultType_NullabilityFollowsCoverage(t *testing.T) {
 // both. The same mistake literal-types.md was written to fix.
 func TestFetchResultType_MultiStatusUnionIsAnyOf(t *testing.T) {
 	a := &model.Action{
-		Type: model.ActionTypeFetch,
-		URL:  "http://x",
+		Type:   model.ActionTypeFetch,
+		Method: "post",
+		URL:    "http://x",
 		Responses: map[string]*schema.Schema{
 			"200": mustSchema(t, `{"type":"object","properties":{"a":{"type":"string"}}}`),
 			"202": mustSchema(t, `{"type":"object","properties":{"b":{"type":"string"}}}`),
@@ -149,7 +150,7 @@ var _ = shape.Shape{}
 // Exporting the whole value stays legal, since that is the entire use of an opaque body.
 func TestFetchResultType_UnknownStatusMakesTheResultUnreadable(t *testing.T) {
 	def := `{"name":"p","tasks":[
-		{"id":"call","action":{"type":"fetch","url":"http://x","responses":{
+		{"id":"call","action":{"type":"fetch","method":"post","url":"http://x","responses":{
 			"200":{"type":"object","properties":{"state":{"type":"string"}},"required":["state"]},
 			"202":{}}},
 		 "output":%s,"switch":"end"}

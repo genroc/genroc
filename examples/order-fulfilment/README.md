@@ -50,7 +50,7 @@ one thing that *can* resolve the question: asking the system that actually knows
 - id: reconcile
   action:
     type: fetch
-    method: GET
+    method: get
     url: "${ input.base_url }/payments/by-key/${ input.order_ref }"
   switch:
     - case: "self.output.charged == true"
@@ -101,7 +101,7 @@ reservation and then raises:
 
 ```yaml
 - id: declined
-  action: { type: fetch, url: "${ input.base_url }/inventory/release", ... }
+  action: { type: fetch, method: post, url: "${ input.base_url }/inventory/release", ... }
   switch:
     - raise: { code: payment_declined, message: "..." }
 ```

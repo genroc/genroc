@@ -100,12 +100,12 @@ Wildcards stay legal for **matching**: `{code: ["%"], goto: verify}` is fine;
 ```yaml
 - id: charge_card
   only_once: true
-  action: { type: fetch, url: "https://psp.example/charge" }
+  action: { type: fetch, method: post, url: "https://psp.example/charge" }
   on_error:
     - code: [only_once.interrupted, http.timeout, http.disconnected]   # all mean "outcome unknown"
       goto: verify_charge
 - id: verify_charge
-  action: { type: fetch, url: "https://psp.example/charges/${ order_id }" }
+  action: { type: fetch, method: post, url: "https://psp.example/charges/${ order_id }" }
   switch:
     - case: $: self.exists
       goto: receipt

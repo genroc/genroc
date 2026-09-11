@@ -168,6 +168,6 @@ test("a schema slot holding a scalar underlines that slot", async () => {
 // The decoder's own prose names a Go type and a field stack that skips the list index, so this
 // read as "cannot unmarshal array into Go struct field ... of type string" against `tasks:`.
 test("a field given the wrong kind of value says what it takes, where it is written", async () => {
-  const ds = await lsp.diagnostics(edit(orders, { "      method: GET": "      method: [GET]" }));
+  const ds = await lsp.diagnostics(edit(orders, { "      method: get": "      method: [get]" }));
   expect(ds).toEqual([`16: method must be a string, not a list`]);
 });

@@ -160,7 +160,7 @@ func TestGenerate_QueryShape(t *testing.T) {
 			"tags":{"type":"array","items":{"type":"string"}},
 			"objs":{"type":"array","items":{"type":"object"}}},
 			"required":["s","n","o","tags","objs"]},
-		 "tasks":[{"id":"c","action":{"type":"fetch","url":"http://x","query":` + query + `},"switch":"end"}]}`
+		 "tasks":[{"id":"c","action":{"type":"fetch","method":"post","url":"http://x","query":` + query + `},"switch":"end"}]}`
 	}
 	for _, ok := range []string{
 		`{"a":"$: input.s"}`, // a string

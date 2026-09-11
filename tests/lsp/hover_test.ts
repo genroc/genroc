@@ -112,7 +112,7 @@ test("there is nothing to say about a name the author chose", async () => {
 // literal. A key means something, and the schema already carries the prose.
 test("a key says what it means", async () => {
   expect(await lsp.hover(at(`  - <^id>: price`))).toContain("Task identifier");
-  expect(await lsp.hover(at(`      <^method>: GET`))).toContain("HTTP method");
+  expect(await lsp.hover(at(`      <^method>: get`))).toContain("HTTP method");
 });
 
 // The discriminator carries no prose of its own — `{"const": "fetch"}` says nothing. What a

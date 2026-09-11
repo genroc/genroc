@@ -34,9 +34,9 @@ test("a $: leaf types its roots, operators and numbers", async () => {
 // The region ends before the closing quote on purpose: only the innermost rule's `end` is
 // tested, so a region that swallows the quote leaves the string open for the rest of the file.
 test("a $: leaf releases the string it is in, and the next line is ordinary YAML", async () => {
-  const tokens = await tokenize([`  charged: "$: self.result.total"`, `  method: GET`].join("\n"), site);
+  const tokens = await tokenize([`  charged: "$: self.result.total"`, `  method: get`].join("\n"), site);
   expect(scopesOf(tokens, "method")).toContain("entity.name.tag.yaml");
-  expect(genrocScope(scopesOf(tokens, "GET")), "the expression ran past its own scalar")
+  expect(genrocScope(scopesOf(tokens, "get")), "the expression ran past its own scalar")
     .toBeUndefined();
 });
 

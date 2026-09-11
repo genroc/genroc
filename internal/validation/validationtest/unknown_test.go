@@ -30,7 +30,7 @@ func unknownDef(t *testing.T, raw string) *model.ProcessDefinition {
 const forwardingChildJSON = `{
   "name":"forwarder",
   "tasks":[{"id":"check",
-    "action":{"type":"fetch","url":"http://x",
+    "action":{"type":"fetch","method":"post","url":"http://x",
       "responses": { "200": {"type":"object",
         "properties":{"status":{"type":"string"},"payload":{"description":"opaque"}},
         "required":["status","payload"]} }},

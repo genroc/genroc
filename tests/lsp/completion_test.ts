@@ -59,8 +59,8 @@ test("an unclosed interpolation still answers", async () => {
 // `discriminator` is an OpenAPI keyword a JSON Schema validator ignores, which is why
 // yaml-language-server offers the union of every action shape here. This one reads `type`.
 test("inside a `fetch` action — fetch's keys, and no other action's", async () => {
-  // On the KEY, like the `switch` case below: in the VALUE the reader is writing GET.
-  const keys = await lsp.completions(at(`      <^method>: GET`));
+  // On the KEY, like the `switch` case below: in the VALUE the reader is writing get.
+  const keys = await lsp.completions(at(`      <^method>: get`));
   expect(keys).toContain("body");
   expect(keys).toContain("query");
   expect(keys).not.toContain("name"); // child's
@@ -460,7 +460,7 @@ test("a key writes its colon, and a block key writes only the colon", async () =
 // A key chosen over one that is already written: the line carries its own colon, and a second
 // would break it. The word being replaced also extends PAST the cursor.
 test("a key written over an existing one keeps the line's own colon", async () => {
-  const cursor = at(`      <^method>: GET`);
+  const cursor = at(`      <^method>: get`);
   const body = (await lsp.completionItems(cursor)).find((i) => i.label === "body");
   expect(body?.textEdit?.newText).toBe("body");
   expect(body?.textEdit?.range.start.character).toBe(6);
@@ -484,12 +484,12 @@ test("an action opens a block, though its arms carry unions of their own", async
 // `on_error`, `only_once`, `timeout`. An empty value has no extent, so the cursor fell out to
 // the mapping around it and got the answer for the NEXT line while this one was being written.
 test("after a key's colon, nothing belonging to the next line is offered", async () => {
-  const doc = edit(orders, { "      method: GET": "      method: " });
+  const doc = edit(orders, { "      method: get": "      method: " });
   expect(await lsp.completions(at("      method: <|>", doc))).toEqual([]);
 });
 
 test("the same once the value is written — the cursor is still in it", async () => {
-  expect(await lsp.completions(at("      method: GET<|>"))).toEqual([]);
+  expect(await lsp.completions(at("      method: get<|>"))).toEqual([]);
 });
 
 // The rule must not swallow a flow collection: `{ attempts: 3, | }` takes another KEY, and the

@@ -197,7 +197,7 @@ test("task_epoch — an operator retry reconstructs the existing batch", async (
   await env.define(leaf, [
     {
       id: "t",
-      action: { type: "fetch", url: "http://localhost:1/x", method: "GET" },
+      action: { type: "fetch", url: "http://localhost:1/x", method: "get" },
       timeout: 2000,
       switch: [{ goto: "end" }],
     },

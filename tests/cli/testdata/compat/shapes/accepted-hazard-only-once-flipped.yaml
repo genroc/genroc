@@ -11,6 +11,7 @@ apply:
             only_once: true
             action:
               type: fetch
+              method: post
               url: http://x
             switch: end
   - channel: once_b
@@ -20,6 +21,7 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x
             switch: end
 run: [--from, once_a, --to, once_b]

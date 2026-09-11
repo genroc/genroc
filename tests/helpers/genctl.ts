@@ -76,7 +76,7 @@ export function inputDef(name: string) {
 export function restDef(name: string, endpoint = "http://localhost/x") {
   return {
     name,
-    tasks: [{ id: "s1", action: { type: "fetch", url: endpoint }, switch: [{ goto: "end" }] }],
+    tasks: [{ id: "s1", action: { type: "fetch", method: "post", url: endpoint }, switch: [{ goto: "end" }] }],
   };
 }
 
@@ -130,7 +130,7 @@ export function failingDef(name: string) {
     tasks: [
       {
         id: "call",
-        action: { type: "fetch", url: "http://127.0.0.1:1/x" },
+        action: { type: "fetch", method: "post", url: "http://127.0.0.1:1/x" },
         timeout: 1000,
         switch: [{ goto: "end" }],
       },

@@ -13,7 +13,7 @@ tasks:
   - id: lookup
     action:
       type: fetch
-      method: GET
+      method: get
       url: "${ input.base_url }/rates/${ input.currency }"
       responses:
         200:

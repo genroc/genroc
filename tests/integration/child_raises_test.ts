@@ -420,7 +420,7 @@ test("raises refuses a boolean, a non-declaring action, and a code that is not o
   );
   await refused(
     "fetch",
-    { type: "fetch", url: "http://localhost:1/x", raises: { card_declined: {} } },
+    { type: "fetch", method: "post", url: "http://localhost:1/x", raises: { card_declined: {} } },
     "only valid on a child",
   );
   await refused(

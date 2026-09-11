@@ -10,7 +10,7 @@ apply:
       - name: badtoken_proc
         tasks:
           - id: go
-            action: {type: fetch, url: http://x/go}
+            action: {type: fetch, method: post, url: http://x/go}
             switch: end
 run: [--from, badtoken_a, --to, badtoken_a, --ignore, contarct]
 expect: |

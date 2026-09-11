@@ -13,7 +13,7 @@ input_schema:
       type: object
       properties:
         url: { type: string }
-        method: { type: string, default: POST }
+        method: { type: string, default: post }
         body: { description: "request body, opaque to the poller" }
         accepted_status:
           type: array
@@ -24,7 +24,7 @@ input_schema:
       type: object
       properties:
         url: { type: string }
-        method: { type: string, default: POST }
+        method: { type: string, default: post }
         body: { description: "request body, opaque to the poller" }
         # Which statuses mean "done". Anything else is an error; 202 alone means
         # "still running" and routes back into the loop.

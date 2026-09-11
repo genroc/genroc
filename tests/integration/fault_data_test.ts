@@ -146,7 +146,7 @@ test("a raise forwards the caught body only when it asks to; a silent one sends 
             action: {
               type: "fetch" as const,
               url: `http://localhost:${failing.port}/orders/1`,
-              method: "GET",
+              method: "get",
               responses: {
                 200: { type: "object" },
                 404: {

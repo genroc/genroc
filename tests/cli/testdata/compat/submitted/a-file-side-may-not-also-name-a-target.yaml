@@ -8,13 +8,13 @@ apply:
       - name: filetop_proc
         tasks:
           - id: ship
-            action: {type: fetch, url: http://x/ship}
+            action: {type: fetch, method: post, url: http://x/ship}
             switch: end
 submit:
   - name: filetop_proc
     tasks:
       - id: ship
-        action: {type: fetch, url: http://y/ship}
+        action: {type: fetch, method: post, url: http://y/ship}
         switch: end
 run: [--from, filetop_a, --to, filetop_a]
 expect: |

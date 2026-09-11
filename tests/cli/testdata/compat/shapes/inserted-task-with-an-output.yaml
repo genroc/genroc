@@ -11,11 +11,13 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x/charge
             switch: next
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x/ship
             switch: end
   - channel: insert_b
@@ -25,17 +27,20 @@ apply:
           - id: charge
             action:
               type: fetch
+              method: post
               url: http://x/charge
             switch: next
           - id: audit
             action:
               type: fetch
+              method: post
               url: http://x/audit
             output: {seen: '$: true'}
             switch: next
           - id: ship
             action:
               type: fetch
+              method: post
               url: http://x/ship
             switch: end
 run: [--from, insert_a, --to, insert_b]

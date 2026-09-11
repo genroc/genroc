@@ -82,11 +82,12 @@ func jsonUnmarshal(raw json.RawMessage, into any) error { return json.Unmarshal(
 // 3    - id: a
 // 4      action:
 // 5        type: fetch
-// 6        url: "$: nope.x"
-// 7      switch: end
-const brokenURL = "name: demo\ntasks:\n  - id: a\n    action:\n      type: fetch\n      url: \"$: nope.x\"\n    switch: end\n"
+// 6        method: post
+// 7        url: "$: nope.x"
+// 8      switch: end
+const brokenURL = "name: demo\ntasks:\n  - id: a\n    action:\n      type: fetch\n      method: post\n      url: \"$: nope.x\"\n    switch: end\n"
 
-const valid = "name: demo\ntasks:\n  - id: a\n    action:\n      type: fetch\n      url: \"https://example.com\"\n    switch: end\n"
+const valid = "name: demo\ntasks:\n  - id: a\n    action:\n      type: fetch\n      method: post\n      url: \"https://example.com\"\n    switch: end\n"
 
 func TestInitializeAdvertisesOnlyWhatIsImplemented(t *testing.T) {
 	msgs, _ := session(t, frame("initialize", 1, map[string]any{}), frame("exit", nil, nil))
@@ -116,9 +117,9 @@ func TestOpeningABrokenDocumentPublishesItsDiagnostic(t *testing.T) {
 		t.Fatalf("one broken slot, got %d: %+v", len(p.Diagnostics), p.Diagnostics)
 	}
 	d := p.Diagnostics[0]
-	// The url itself, not the action block it sits in — line 6, 0-based 5 (§7b).
-	if d.Range.Start.Line != 5 {
-		t.Errorf("the broken url is on line 6 (0-based 5), got %d", d.Range.Start.Line)
+	// The url itself, not the action block it sits in — line 7, 0-based 6 (§7b).
+	if d.Range.Start.Line != 6 {
+		t.Errorf("the broken url is on line 7 (0-based 6), got %d", d.Range.Start.Line)
 	}
 	if d.Severity != severityError {
 		t.Errorf("a definition that will not register is an error, got severity %d", d.Severity)

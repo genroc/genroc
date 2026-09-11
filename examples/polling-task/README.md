@@ -59,7 +59,7 @@ check:
   accepted_status: ["200"]                # which statuses mean "done"
 ```
 
-`method` (default `POST`) and `accepted_status` are optional with schema defaults, and
+`method` (default `post`) and `accepted_status` are optional with schema defaults, and
 `body` is `unknown` — the poller passes it straight through to the request without ever
 looking at it. Because a fetch `body` is inferred against no required shape, an opaque value
 is accepted there; a *typed* slot would have rejected it.
