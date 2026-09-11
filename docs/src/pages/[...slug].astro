@@ -10,11 +10,16 @@ export async function getStaticPaths() {
 }
 
 const { entry } = Astro.props
-// A folder page carries no body: it exists to name and place its folder, so anyone who reaches
-// its URL belongs on its first child.
+// A folder page carries no body: it names and places its folder. Nothing on the site links
+// here -- every link resolves to the child instead (src/lib/nav.ts) -- so this catches only a
+// hand-typed URL. Not `Astro.redirect`: its static form is a visible 2-second meta refresh.
 if (!entry.body?.trim()) {
   const target = await hrefFor(entry.id)
-  if (target) return Astro.redirect(target)
+  if (target)
+    return new Response(
+      `<!doctype html><meta http-equiv="refresh" content="0;url=${target}"><meta name="robots" content="noindex">`,
+      { headers: { 'content-type': 'text/html' } },
+    )
 }
 const { Content, headings } = await render(entry)
 ---

@@ -112,34 +112,40 @@ export async function navSections(): Promise<NavSection[]> {
   return sections.map((s) => ({ id: s.slug, label: s.title, href: s.href, entries: s.children }))
 }
 
-// `docs / Guides / Getting started` for `guides/getting-started/installation`. Every crumb but
-// the last is a folder page, which redirects — so they are all clickable and all land somewhere.
+/** Every page by slug, with the URL its links must use — never a folder's own, which redirects. */
+async function linkTargets(): Promise<Map<string, { title: string; href: string }>> {
+  const out = new Map<string, { title: string; href: string }>()
+  const walk = (entries: NavEntry[]) => {
+    for (const e of entries) {
+      out.set(e.slug, { title: e.title, href: e.href })
+      walk(e.children)
+    }
+  }
+  for (const s of await navSections()) {
+    out.set(s.id, { title: s.label, href: s.href })
+    walk(s.entries)
+  }
+  return out
+}
+
+// `docs / Guides / Getting started` for `guides/getting-started/installation`. Every crumb is a
+// folder page, so each links where that folder resolves, never to the folder URL -- a click
+// that redirects strands the view transition on a document it computed no direction for.
 export async function crumbs(slug: string): Promise<{ label: string; href?: string }[]> {
-  const all = await getCollection('docs')
-  const titles = new Map(all.map((e) => [e.id, e.data.title]))
+  const targets = await linkTargets()
   const parts = slug.split('/')
   const trail: { label: string; href?: string }[] = []
   for (let i = 0; i < parts.length - 1; i++) {
     const ancestor = parts.slice(0, i + 1).join('/')
-    trail.push({ label: titles.get(ancestor) ?? ancestor, href: url(ancestor) })
+    const target = targets.get(ancestor)
+    trail.push({ label: target?.title ?? ancestor, href: target?.href })
   }
   return trail
 }
 
 /** Where a slug's link lands: its own page, or its first child's when it has no body. */
 export async function hrefFor(slug: string): Promise<string | undefined> {
-  const find = (entries: NavEntry[]): NavEntry | undefined => {
-    for (const e of entries) {
-      if (e.slug === slug) return e
-      const hit = find(e.children)
-      if (hit) return hit
-    }
-  }
-  for (const s of await navSections()) {
-    if (s.id === slug) return s.href
-    const hit = find(s.entries)
-    if (hit) return hit.href
-  }
+  return (await linkTargets()).get(slug)?.href
 }
 
 /** Reading order across every section, depth first. Folder pages are skipped: they redirect,
