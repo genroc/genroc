@@ -65,8 +65,8 @@ The switch statement can also be conditional.
 tasks:
   - id: task-1
     switch:
-        # expression to check the name
-      - case: "$: input.user_name == 'Brenda'"
+        # condition to check the name
+      - case: "input.user_name == 'Brenda'"
         goto: $only-brenda
         # the default case
       - goto: $others
@@ -79,6 +79,4 @@ tasks:
 ```
 
 Cases are evaluated top to bottom and first one that evaluates to true wins.
-Last one always need to be "catch-all" - without the `case` expression.
-
-
+Last one always need to be "catch-all" - without the `case` expression (we'll explain expression in the next chapter).
