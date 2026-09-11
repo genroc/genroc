@@ -381,22 +381,24 @@ summary:focus-visible {
   padding-left: 1.2em;
 }
 
-/* A group carries + or - at the right edge: furniture, not a control. Nothing here toggles —
-   the group is open exactly when the page being read is inside it (NavItems.astro). */
+/* + or - is furniture, not a control: nothing here toggles, the open group is the one holding
+   the page being read. Only a group that can close gets one -- a permanent - would read as a
+   control that does nothing (`autoCollapse` in NavItems.astro). */
 /* Floated, not a flex item: making the anchor a flex container trims the trailing space out
    of the "▸ " marker before it, which shifts a group's label one space left of its siblings. */
-.sidebar li.group > a::after {
+.sidebar li.collapsible > a::after {
   content: "+";
   float: right;
   padding-left: 0.5em;
 }
 
-.sidebar li.group.open > a::after {
+.sidebar li.collapsible.open > a::after {
   content: "-";
 }
 
-/* The trail to where you are. No marker: that stays the one thing meaning "this page". */
-.sidebar li.group.open > a {
+/* The trail to where you are -- `trail`, not `open`: a group that never collapses is open
+   from everywhere and must not claim the colour. No marker: that stays "this page". */
+.sidebar li.trail > a {
   color: var(--accent);
 }
 

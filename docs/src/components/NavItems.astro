@@ -8,9 +8,10 @@ interface Props {
 
 const { entries, current } = Astro.props
 
-// A group opens when the page being read is inside it, and only then — navigating in is the
-// only way to open one, which is why nothing here toggles. Decided per render, so the state is
-// in the HTML rather than restored by a script.
+// Three states, not one. `trail` is "the page being read is in here" and colours the path to
+// the reader; `open` is "children are rendered"; `collapsible` is "open is a state it can
+// leave" — and only that one earns the +/- marker, which would otherwise promise a group can
+// close when it never does. Decided per render, so the state is in the HTML, not a script.
 const holds = (e: NavEntry): boolean => e.children.some((c) => c.slug === current || holds(c))
 ---
 
@@ -18,9 +19,11 @@ const holds = (e: NavEntry): boolean => e.children.some((c) => c.slug === curren
   {
     entries.map((e) => {
       const group = e.children.length > 0
-      const open = group && holds(e)
+      const collapsible = group && e.autoCollapse
+      const trail = group && holds(e)
+      const open = group && (trail || !collapsible)
       return (
-        <li class:list={[group && 'group', open && 'open']}>
+        <li class:list={[collapsible && 'collapsible', trail && 'trail', open && 'open']}>
           <a href={e.href} aria-current={e.slug === current ? 'page' : undefined}>
             {e.title}
           </a>

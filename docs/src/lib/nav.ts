@@ -6,6 +6,8 @@ export type NavEntry = {
   title: string
   description?: string
   order: number
+  /** Resolved, never undefined: an unset page takes its parent's, and the root's is false. */
+  autoCollapse: boolean
   children: NavEntry[]
   /** Where a click goes. A folder page has no body, so it is its first child's URL. */
   href: string
@@ -68,6 +70,7 @@ export async function navSections(): Promise<NavSection[]> {
         title: e.data.title,
         description: e.data.description,
         order: e.data.order,
+        autoCollapse: e.data.autoCollapse as boolean,
         children: [],
         href: url(e.id),
         // Kept off NavEntry: whether a page has content decides where its link goes, and
@@ -94,15 +97,17 @@ export async function navSections(): Promise<NavSection[]> {
   }
 
   // Depth-first, deepest first: a folder's href is its first child's, and that child may be a
-  // folder too, so the child must be resolved before the parent reads it.
-  const settle = (entries: (NavEntry & { empty?: boolean })[]) => {
+  // folder too, so the child must be resolved before the parent reads it. `autoCollapse` runs
+  // the other way -- it is inherited, so a level resolves its own before descending.
+  const settle = (entries: (NavEntry & { empty?: boolean })[], inherited: boolean) => {
     entries.sort((a, b) => a.order - b.order)
     for (const e of entries) {
-      settle(e.children)
+      e.autoCollapse = e.autoCollapse ?? inherited
+      settle(e.children, e.autoCollapse)
       if (e.empty && e.children.length > 0) e.href = e.children[0].href
     }
   }
-  settle(sections)
+  settle(sections, false)
 
   return sections.map((s) => ({ id: s.slug, label: s.title, href: s.href, entries: s.children }))
 }

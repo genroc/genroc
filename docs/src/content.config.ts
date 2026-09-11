@@ -15,6 +15,9 @@ const docs = defineCollection({
     description: z.string().optional(),
     // Sorts siblings only. Nothing compares an order across two parents.
     order: z.number(),
+    // Whether this page's descendants collapse when the reader is elsewhere. Inherited by
+    // every level below unless one sets it again; unset anywhere above means never collapse.
+    autoCollapse: z.boolean().optional(),
   }),
 })
 
