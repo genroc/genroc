@@ -18,7 +18,7 @@
   --font: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
     "Liberation Mono", "DejaVu Sans Mono", monospace;
   --measure: 80ch;
-  --sidebar: 17rem;
+  --sidebar: 18rem;
   --toc: 15rem;
   --gutter: 2rem;
   --ch: 0.6em;
@@ -336,12 +336,20 @@ summary:focus-visible {
   text-decoration: none;
 }
 
+/* The marker lives in a gutter, not in the text: in flow it would take space on the first
+   line only, and every later line of a wrapped label would start under it instead of under
+   the label. The padding is the gutter -- it is what the marker is positioned into. */
+.sidebar li a {
+  position: relative;
+  padding-left: 2ch;
+}
+
 /* The marker is always in the layout and only fades in, so nothing shifts sideways when
    it appears. */
 .sidebar li a::before {
-  content: "▸ ";
-  display: inline-block;
-  white-space: pre;
+  content: "▸";
+  position: absolute;
+  left: 0;
   color: var(--accent);
   opacity: 0;
   transform: translateX(-3px);
