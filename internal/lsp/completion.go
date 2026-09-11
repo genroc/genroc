@@ -29,6 +29,9 @@ func completeAt(text string, line, col int) []completionItem {
 	if types, ok := typeValues(text, line, col); ok {
 		return types
 	}
+	if codes, ok := errorCodeValues(text, line, col); ok {
+		return codes
+	}
 	// A `case` holds an expression written BARE, so there is no `$:` for the scan above to
 	// find and the cursor would otherwise be read as sitting on a key.
 	if inBareExpression(text, line, col) {
@@ -469,7 +472,7 @@ func routingValues(text string, line, col int) ([]completionItem, bool) {
 	}
 	// The token already typed is REPLACED, not appended to: `$` is not a word character, so an
 	// editor left with no range would insert `$tick` beside the `$` the reader just typed.
-	from := replaceFrom(src, col)
+	from := replaceFrom(src, col, isRoutingToken)
 	out := []completionItem{
 		{Label: "end", Kind: kindValue, Detail: "terminate the instance", replaceFrom: from},
 		{Label: "next", Kind: kindValue, Detail: "advance to the next task in the list", replaceFrom: from},
@@ -568,13 +571,14 @@ func insideFlowList(src string, col int) bool {
 }
 
 // replaceFrom is the 1-based column the completion should overwrite from: the start of the
-// token being typed, `$` included.
-func replaceFrom(src string, col int) int {
+// token being typed. What counts as one is the slot's own vocabulary — `$` opens a task
+// reference, a `.` is inside an error code — so the scan takes the predicate from the caller.
+func replaceFrom(src string, col int, isToken func(byte) bool) int {
 	start := col - 1
 	if start > len(src) {
 		start = len(src)
 	}
-	for start > 0 && isRoutingToken(src[start-1]) {
+	for start > 0 && isToken(src[start-1]) {
 		start--
 	}
 	return start + 1
@@ -613,7 +617,7 @@ func typeValues(text string, line, col int) ([]completionItem, bool) {
 	if len(names) == 0 {
 		return nil, false
 	}
-	from := replaceFrom(src, col)
+	from := replaceFrom(src, col, isRoutingToken)
 	out := make([]completionItem, 0, len(names)+1)
 	for i, name := range names {
 		out = append(out, completionItem{

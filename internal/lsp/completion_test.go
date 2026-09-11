@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"genroc/internal/errcode"
 )
 
 //	1 name: demo
@@ -167,6 +169,29 @@ func TestKeyCompletionsCarryTheirDocumentation(t *testing.T) {
 		}
 	}
 	t.Fatal("on_error was not offered")
+}
+
+// The vocabulary belongs to errcode, which is where a code is declared and described: adding
+// one there must reach the editor with no edit here, so this asserts the whole set rather than
+// a member of it. A list of CODES kept in this package would be the drift it is written
+// against; the patterns beside them are spellings, and errcode stores none of them.
+func TestTheOfferedCodesAreErrcodesOwn(t *testing.T) {
+	doc := strings.Replace(completionDoc, "    switch: end\n", "    on_error:\n      - code: []\n        goto: end\n    switch: end\n", 1)
+	line := 1 + strings.Count(doc[:strings.Index(doc, "- code: []")], "\n")
+	col := 1 + strings.Index(lineAt(doc, line), "[]")
+
+	var want []string
+	for _, p := range fetchPatterns {
+		want = append(want, p.code)
+	}
+	for _, info := range errcode.Catchable(errcode.KindFetch) {
+		want = append(want, string(info.Code))
+	}
+	slices.Sort(want)
+
+	if got := completed(t, doc, line, col+1); !slices.Equal(got, want) {
+		t.Errorf("the fetch codes offered are not errcode's set\n got: %v\nwant: %v", got, want)
+	}
 }
 
 func TestCompletionIsAdvertisedAndAnswered(t *testing.T) {

@@ -17,16 +17,18 @@ import (
 type Code string
 
 // Call codes — reported by an action's call, and CATCHABLE by on_error on the action task.
+// What each one means, and which task reports it, is `catchable` in catchable.go: one home for
+// the prose, so an editor and a doc cannot describe a code the engine does not.
 const (
-	HTTPTimeout      Code = "http.timeout"      // connected, but no response arrived in time
-	HTTPDisconnected Code = "http.disconnected" // the request went out, the connection broke before a response
-	PreTimeout       Code = "pre.timeout"       // timed out before the request was written — it never left
-	PreError         Code = "pre.error"         // failed before the request was written — it never left
-	OutputParse      Code = "output.parse"      // the response body was not valid JSON
-	OutputTooLarge   Code = "output.too_large"  // the response body exceeded the size a fetch will read
-	OutputInvalid    Code = "output.invalid"    // the response did not satisfy its result_schema
-	ExternalTimeout  Code = "external.timeout"  // an external task's wait deadline elapsed
-	ExternalLost     Code = "external.lost"     // a worker's claim on an external task expired without an answer
+	HTTPTimeout      Code = "http.timeout"
+	HTTPDisconnected Code = "http.disconnected"
+	PreTimeout       Code = "pre.timeout"
+	PreError         Code = "pre.error"
+	OutputParse      Code = "output.parse"
+	OutputTooLarge   Code = "output.too_large"
+	OutputInvalid    Code = "output.invalid"
+	ExternalTimeout  Code = "external.timeout"
+	ExternalLost     Code = "external.lost"
 )
 
 // HTTP formats the code for a rejected HTTP status: HTTP(500) == "http.500". The status is

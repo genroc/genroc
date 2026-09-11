@@ -1,7 +1,8 @@
 // The process these tests read. One realistic definition, exercising every slot the language
 // server has an answer for: a typed input, a fetch whose url and headers interpolate, a typed
 // response, an output that computes from it, a switch that routes on that output, an on_error
-// with a retry policy, an external task, and a child that spawns another process.
+// with a retry policy, an external task, and a child that spawns another process — whose raise
+// is what that child task catches, one file away.
 //
 // It is VALID — `genctl apply --check-only` accepts it. A fixture that did not register would
 // make every "what can I write here" answer suspect.
@@ -61,6 +62,9 @@ tasks:
       name: shipment
       input:
         order: "$: input.customer_id"
+    on_error:
+      - code: [carrier_down]
+        goto: "$review"
     switch: end
 `;
 
@@ -73,5 +77,8 @@ tasks:
       type: fetch
       method: post
       url: "https://api.example.com/ship"
+    on_error:
+      - code: [http.5%]
+        raise: { code: carrier_down, message: "the carrier would not take it" }
     switch: end
 `;

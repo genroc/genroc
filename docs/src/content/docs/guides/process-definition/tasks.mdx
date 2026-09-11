@@ -32,13 +32,46 @@ tasks:
       url: "https://api.example.com/emails"
       method: post
       body:
+        # passing data from input to the request body
         to: "$: input.user_email"
         template: welcome-after-registration
     switch: end
 ```
 
-In the example above we've used `delay` and `fetch` functions.
+In the example above we've used `delay` and `fetch` actions.
+The delay will park the action for specified amount of time, while it waits there is no active thread anywhere, it just sits in the db.
 
+The fetch action will then hit the specified endpoint. We are sending body with parameters which can be either expressions or static data.
 
+## Reading result of the fetch
+
+What if instead of sending data, you want to read data? No problem, let's look at another example.
+
+```genroc
+  - id: load_user
+    action:
+      type: fetch
+      method: get
+      url: "https://api.example.com/users/${input.user_id}"
+      responses:
+        200:
+          type: object
+          properties:
+            email: { type: string }
+            activated: { type: boolean }
+          required: [email, activated]
+    switch:
+      - case: "self.result.activated"
+        goto: end
+      - goto: $nudge
+    # mapping the task output (what parts of the response we need)
+    output:
+      email: "$: self.result.email"
+```
+
+To read the output of fetch, you need to specify it's response type.
+Genroc will validate the data against the schema, so no invalid data will ever get in.
+If the response is not valid, genroc will raise error `response.invalid`,
+which can be handled in the ``
 
 

@@ -126,11 +126,29 @@ zero-width value node, so a cursor past it lands on the sequence enclosing it �
 routing slot by name and holds clauses, not a name. `routingPath` tries the cursor first and
 the key second, and rejects a `switch` whose value is a list either way.
 
-**Two VALUE slots have a closed set**, and neither is declared as one: a routing slot is every
-task in the document plus `end` and `next`, and a `type` is either the JSON type names (inside a
-user schema) or the variants of the union it discriminates, read from the arms' own `const`s.
-Without `routingValues` and `typeValues` the cursor in `goto: $` or `type: ` reads as sitting on
-a key, and the node's own siblings come back.
+**Three VALUE slots have a closed set**, and none is declared as one: a routing slot is every
+task in the document plus `end` and `next`; a `type` is either the JSON type names (inside a
+user schema) or the variants of the union it discriminates, read from the arms' own `const`s;
+and an `on_error` rule's `code` is what that task can fail with. Without `routingValues`,
+`typeValues` and `errorCodeValues` the cursor in `goto: $`, `type: ` or `code: [` reads as
+sitting on a key, and the node's own siblings come back — reported from an editor for the third
+of them.
+
+**The codes are `errcode.Catchable`'s, not this package's** — only the wildcard spellings
+(`fetchPatterns`) are here, since errcode stores codes and a pattern is never one — so a code
+added there is offered with no edit here — `TestTheOfferedCodesAreErrcodesOwn` asserts the whole set, and errcode's own
+`TestEveryCodeIsClassified` refuses a code that is in neither the table nor the terminal
+`engine.*` set. What this file decides is the KIND the cursor is in: a fetch, an external, a
+child (`KindChild`, plus whatever the action's own `raises` declares), and `KindOnlyOnce` on top
+where `only_once` is written — never on a child task, whose rules R5 bounds by the raise set
+(specs/child-error-handling.md R5).
+
+**A `code` list answers even when the set is empty** — a delay catches nothing, and a list of
+codes never takes a key, which is the whole bug.
+
+**A child's own raise set is NOT read out of the child's file**, though `findProcess` would find
+it: an answer that depends on another buffer's state is one a reader cannot check. Completion
+sees this document, and `raises` is where a child task writes the codes down.
 
 A user schema's `type` takes a LIST of those names as well as one of them — which is how a
 nullable property is declared — so `[]` is offered beside them, last, and dropped once the cursor

@@ -17,9 +17,11 @@ test("a definition that registers underlines nothing", async () => {
 
 // The typo the published JSON Schema used to accept and the server always refused.
 test("a misspelled key is named, and underlined on the key", async () => {
-  expect(await lsp.diagnostics(edit(orders, { "on_error:": "on_eror:" }))).toEqual([
-    `32: unknown field "on_eror"`,
-  ]);
+  // Both tasks have an `on_error`, so the rule under it is what says which one is misspelled.
+  const typo = edit(orders, {
+    "on_error:\n      - code: [http.500]": "on_eror:\n      - code: [http.500]",
+  });
+  expect(await lsp.diagnostics(typo)).toEqual([`32: unknown field "on_eror"`]);
 });
 
 // `discount` is optional, so the `?? 0` is what makes the output type at all.

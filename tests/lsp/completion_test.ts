@@ -81,7 +81,8 @@ test("keys already written are not offered again", async () => {
   const keys = await lsp.completions(at(`    <^switch>: end`));
   expect(keys).not.toContain("switch");
   expect(keys).not.toContain("id");
-  expect(keys).toContain("on_error");
+  expect(keys).not.toContain("on_error");
+  expect(keys).toContain("output");
 });
 
 // ── a user-supplied JSON Schema ──────────────────────────────────────────────────
@@ -399,6 +400,102 @@ test("the action types keep the order the schema declares", async () => {
     .sort((a, b) => (a.sortText ?? "").localeCompare(b.sortText ?? ""))
     .map((i) => i.label);
   expect(ordered[0]).toBe("fetch");
+});
+
+// ── the codes an on_error rule can catch ─────────────────────────────────────────
+
+// The third value with a set, and the only one no schema describes: what a task can FAIL with
+// is decided by its ACTION. Reported from an editor — the cursor inside a `code` list read as
+// sitting on a key, so a list of codes was offered `case`, `goto`, `panic` and `raise`.
+test("inside `code:` — what this task's fetch can fail with", async () => {
+  const codes = await lsp.completions(at(`      - code: [<|http.500>]`));
+  expect(codes).toContain("http.timeout");
+  expect(codes).toContain("output.invalid");
+  expect(codes).not.toContain("not_reached"); // the rule's own keys, which is what it answered
+  expect(codes).not.toContain("raise");
+});
+
+// A status is unbounded, so no list can name the one that happens: a pattern is what an editor
+// can offer for it.
+test("the status families are offered as patterns, with what they mean", async () => {
+  const codes = await lsp.completionDetails(at(`      - code: [<|http.500>]`));
+  expect(Object.keys(codes)).toContain("http.5%");
+  expect(codes["pre.%"].detail).toContain("never left");
+});
+
+// An external task fails in its own way, and none of a fetch's codes can reach it.
+test("an external task's codes are not a fetch's", async () => {
+  const waiting = edit(orders, {
+    "        required: [approved]\n    switch:":
+      "        required: [approved]\n    on_error:\n      - code: []\n        goto: end\n    switch:",
+  });
+  expect(await lsp.completions(at(`      - code: [<|>]`, waiting))).toEqual([
+    "external.lost",
+    "external.timeout",
+  ]);
+});
+
+// The code for a call whose outcome is unknown exists only where `only_once` is written, and it
+// is the reason that task has an on_error at all.
+test("only_once.interrupted is offered only on an only_once task", async () => {
+  const codes = await lsp.completions(at(`      - code: [<|http.500>]`));
+  expect(codes).not.toContain("only_once.interrupted");
+
+  const once = edit(orders, { "  - id: price": "  - id: price\n    only_once: true" });
+  expect(await lsp.completions(at(`      - code: [<|http.500>]`, once))).toContain(
+    "only_once.interrupted",
+  );
+});
+
+// A child task catches what its CHILDREN raise, and `shipment` raises `carrier_down` in its own
+// file. The answer is this document's alone: reading the other one would make what an editor
+// offers depend on a buffer nobody is looking at.
+test("a child task offers nothing the other file declares", async () => {
+  const codes = await lsp.completions(at(`      - code: [<|carrier_down>]`));
+  expect(codes).toEqual(["output.invalid"]); // its output can still fail this task's schema
+});
+
+// `code:` written as a block list is the same slot, and an element with nothing typed has no
+// node to stand in — so the cursor on the dash resolves through the KEY that opened the list.
+test("a dash under `code:` with nothing typed still offers the codes", async () => {
+  const block = edit(orders, {
+    "      - code: [http.500]": "      - code:\n          - http.500\n          - ",
+  });
+  const codes = await lsp.completions(at(`          - http.500\n          - <|>`, block));
+  expect(codes).toContain("http.timeout");
+  expect(codes).not.toContain("retry");
+});
+
+// `raises` is where a child task writes down what a code carries, which makes its keys the
+// codes this task expects — and the only spelling of them this document holds.
+test("codes declared in `raises` are offered as this task's own", async () => {
+  const declared = edit(orders, {
+    "      name: shipment\n      input:":
+      "      name: shipment\n      raises:\n        carrier_down: null\n      input:",
+  });
+  const codes = await lsp.completionDetails(at(`      - code: [<|carrier_down>]`, declared));
+  expect(codes["carrier_down"].detail).toBe("declared in raises");
+  expect(Object.keys(codes)).not.toContain("http.timeout"); // how the CHILD fails is its own
+});
+
+// A slot with no codes still ANSWERS: a `code` list never takes a key, and the rule's own keys
+// there are the bug this whole slot was added for.
+test("a task with nothing to catch offers nothing, not the rule's keys", async () => {
+  const delayed = edit(orders, {
+    '      type: child\n      name: shipment\n      input:\n        order: "$: input.customer_id"':
+      "      type: delay\n      for: 1h",
+  });
+  expect(await lsp.completions(at(`      - code: [<|carrier_down>]`, delayed))).toEqual([]);
+});
+
+// A code is written with dots, which are not word characters — so an item chosen after `http.`
+// replaces the whole token rather than landing beside it, the way `$` did for a task name.
+test("a code replaces the prefix already typed", async () => {
+  const typed = edit(orders, { "      - code: [http.500]": "      - code: [http." });
+  const [first] = await lsp.completionItems(at(`      - code: [http.<|>`, typed));
+  expect(first.textEdit).toBeDefined();
+  const { start, end } = first.textEdit!.range;
+  expect(end.character - start.character).toBe("http.".length);
 });
 
 // ── an array is indexed, not read by name ────────────────────────────────────────
