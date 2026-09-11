@@ -180,7 +180,7 @@ When you do that, you can match the typed error response code and then use <code
 as on <code>switch</code>, so you can have custom expression returning boolean.</p>
 <p>You can also use <code>case</code> field alone (without matching the code), but for most cases the <code>code</code> field is more convenient.</p>
 <h2 id="reacting-to-the-error">Reacting to the error<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#reacting-to-the-error"><span></span></a></h2>
-<p>You can do 2 main things when error happens:</p>
+<p>You can do 2 main things when error happens.</p>
 <h3 id="retry">Retry<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#retry"><span></span></a></h3>
 <p>This will park the process for some time and will try the fetch again. There are advanced settings for retry as well:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">retry</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 3</span></span>
@@ -200,6 +200,25 @@ as on <code>switch</code>, so you can have custom expression returning boolean.<
 <p>* we apply (delay/2) randomized jitter to avoid multiple processes hammering the endpoint all at the same time</p>
 </blockquote>
 <h3 id="route-to-another-task">Route to another task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#route-to-another-task"><span></span></a></h3>
+<p>If you want the process to continue, you can use <code>goto</code> field to route to another task.
+The targeted task will have extra <code>last_error</code> field available, with the error data. The field is available only to the
+task directly after the error, following tasks won’t have access to it.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> load_user</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> fetch</span></span>
+<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">      ...</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    on_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">      -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">http.409</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $user-protected</span></span>
+<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">    ...</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> user-protected</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">    # you can access the `last_error` variable</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      is_protected</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> last_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">data</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">user_is_protected</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">    ...</span></span></code></pre>
+<blockquote>
+<p>You can also panic or raise, but that will get useful once we get to the child processes</p>
+</blockquote>
 <h2 id="fetch-error-codes">Fetch error codes<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#fetch-error-codes"><span></span></a></h2>
 <p>Errors are sorted into families by their prefix:</p>
 
