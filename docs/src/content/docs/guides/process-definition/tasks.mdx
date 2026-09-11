@@ -71,7 +71,12 @@ What if instead of sending data, you want to read data? No problem, let's look a
 
 To read the output of fetch, you need to specify it's response type.
 Genroc will validate the data against the schema, so no invalid data will ever get in.
-If the response is not valid, genroc will raise error `response.invalid`,
-which can be handled in the ``
+
+Result of the fetch is then available as `self.result` in the `case` expression,
+so we can check if the account is activated or not.
+
+`self.result` is only usable within the same task. If we want to use some data later (in following tasks),
+we have to map it through output. In this case we are producing output `{ email: '<user email>'}` which will then
+be available to following tasks under `outputs.<task-id>`.
 
 
