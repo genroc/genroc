@@ -27,7 +27,7 @@ You might be wondering what happens when a fetch action fails? Let's look at tha
       - code: ["http.409"]
         case: "error.data.user_is_protected == true"
         # a known error from the server
-        goto: $user-user-protected
+        goto: $user-protected
       - code: ["pre.%", "http.timeout", "http.disconnected", "http.503"]
         # server is down, or the connection was aborted
         retry: 3

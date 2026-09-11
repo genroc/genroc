@@ -9,7 +9,7 @@ outside world and that is where the task `action` comes in.
 
 ## Action
 
-Let's say we want to send our users email two ours after registration and welcome
+Let's say we want to send our users email two hours after registration and welcome
 them.
 
 ```genroc
@@ -71,7 +71,7 @@ What if instead of sending data, you want to read data? No problem, let's look a
       email: "$: self.result.email"
 ```
 
-To read the output of fetch, you need to specify it's response type.
+To read the output of fetch, you need to specify its response type.
 Genroc will validate the data against the schema, so no invalid data will ever get in.
 
 Result of the fetch is then available as `self.result` in the `case` expression,
@@ -87,7 +87,7 @@ Genroc supports expressions which allow you to dynamically evaluate or pass from
 In the expressions you can reference following variables:
 
   - `input` - process input defined by `input_schema`
-  - `outputs.<task-id>` - output of the previous task (if defined)
+  - `outputs.<task-id>` - output of any earlier task (if defined)
   - `self` - data about current task not available outside of it
 
 You can also use basic operators like `==`, `!=`, `<`, `<=`, `>`, `>=`.
@@ -101,13 +101,13 @@ Expressions can also compose objects or arrays:
 
 ### String template
 
-This is a simle usecase which allows you to dynamically compose string value.
+This is a simple usecase which allows you to dynamically compose string value.
 
 ```genroc
 "https://api.example.com/users/${input.user_id}"
 ```
 
-The value passed to to the template must not be primitive value and not null.
+The value passed to the template must be a primitive value (string, number or boolean) and not null.
 
 You can escape `${}` by doubling the `$`, e.g.:
 
@@ -118,7 +118,7 @@ You can escape `${}` by doubling the `$`, e.g.:
 ### Expression of any type
 
 By prefixing the string with "$: " you are not creating a template, but the whole expression result is
-used and it's type is honored:
+used and its type is honored:
 
 ```genroc
 "$: self.result.email"
@@ -130,7 +130,7 @@ This way you can also return whole objects e.g.:
 "$: self.result"
 ```
 
-This would result in object of `{ email: "..." }`.
+This would result in object of `{ email: ..., activated: ... }`.
 
 ### Raw expressions
 
@@ -164,7 +164,7 @@ Define the object shape statically and only pass resulting values dynamically.
 
 ```genroc
 output:
-  ok: "$: result.is_ok"
+  ok: "$: self.result.is_ok"
 ```
 
 ### Expression only
@@ -173,7 +173,7 @@ Because you can define objects in expressions,
 you can define the full structure in the expression or pass a variable which has the expected shape.
 
 ```genroc
-output: "$: { ok: result.is_ok }"
+output: "$: { ok: self.result.is_ok }"
 ```
 
 ## Slots
