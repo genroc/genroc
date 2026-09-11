@@ -144,7 +144,7 @@
     root.dataset.theme = dark ? 'light' : 'dark'
     localStorage.setItem('theme', root.dataset.theme)
   })
-</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/" aria-current="page"> Error handling </a>  </li><li> <a href="/guides/process-definition/example/"> An example </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> </details> <div class="shell no-toc"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/" aria-current="page"> Error handling </a>  </li><li> <a href="/guides/process-definition/example/"> An example </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/process-definition/basics/">Process definition</a> </p> <h1>Error handling</h1> <p>Learn how to deal with failures</p> </div>  <p>You might be wandering what happens when a fetch action fails? Let’s look at that.</p>
+</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/" aria-current="page"> Error handling </a>  </li><li> <a href="/guides/process-definition/example/"> An example </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/" aria-current="page"> Error handling </a>  </li><li> <a href="/guides/process-definition/example/"> An example </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/process-definition/basics/">Process definition</a> </p> <h1>Error handling</h1> <p>Learn how to deal with failures</p> </div>  <p>You might be wondering what happens when a fetch action fails? Let’s look at that.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> load_user</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> fetch</span></span>
@@ -162,10 +162,6 @@
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">          properties</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">            user_is_protected</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> boolean</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    on_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">      -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">http.404</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        raise</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">          code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">user_doesn_exist</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">          message</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">user </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">user_id</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">}</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> doesn&#39;t exist</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">      -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">http.409</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        case</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">data</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">user_is_protected </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">==</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> true</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $user-user-protected</span></span>
@@ -174,6 +170,14 @@
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> next</span></span></code></pre>
 <p>Your main tool is the <code>on_error</code> field. You can match one or multiple errors
 with the <code>code</code> field and you can also use <code>%</code> wildcard to match multiple errors at once.</p>
+<h2 id="typed-error-responses">Typed error responses<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#typed-error-responses"><span></span></a></h2>
+<p>You can type your error responses the same way as your success responses.</p>
+<h2 id="reacting-to-the-error">Reacting to the error<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#reacting-to-the-error"><span></span></a></h2>
+<p>You can do 2 main things when error happens:</p>
+<ul>
+<li></li>
+</ul>
+<h2 id="fetch-error-codes">Fetch error codes<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#fetch-error-codes"><span></span></a></h2>
 <p>Errors are sorted into families by their prefix:</p>
 
 
@@ -216,4 +220,52 @@ with the <code>code</code> field and you can also use <code>%</code> wildcard to
 
 
 
-<table><thead><tr><th>Code</th><th>Means</th></tr></thead><tbody><tr><td><code>http.&lt;status&gt;</code></td><td>a status <code>accepted_status</code> did not admit, e.g. <code>http.404</code></td></tr><tr><td><code>http.timeout</code></td><td>connected, but no response arrived in time</td></tr><tr><td><code>http.disconnected</code></td><td>the request went out, the connection broke before a response</td></tr><tr><td><code>pre.timeout</code></td><td>timed out before the request was written — it never left</td></tr><tr><td><code>pre.error</code></td><td>failed before the request was written — it never left</td></tr><tr><td><code>output.parse</code></td><td>the response body was not valid JSON</td></tr><tr><td><code>output.too_large</code></td><td>the response body exceeded the size a fetch will read</td></tr><tr><td><code>output.invalid</code></td><td>the result did not satisfy the schema declared for it</td></tr></tbody></table>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/tasks-and-expressions/"> <span>previous</span> <strong>Tasks and expressions</strong> </a> <a class="next" href="/guides/process-definition/example/"> <span>next</span> <strong>An example</strong> </a> </nav> </div> </main>  </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
+<table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody><tr><td><code>http.&lt;status&gt;</code></td><td>a status <code>accepted_status</code> did not admit, e.g. <code>http.404</code></td></tr><tr><td><code>http.timeout</code></td><td>connected, but no response arrived in time</td></tr><tr><td><code>http.disconnected</code></td><td>the request went out, the connection broke before a response</td></tr><tr><td><code>pre.timeout</code></td><td>timed out before the request was written — it never left</td></tr><tr><td><code>pre.error</code></td><td>failed before the request was written — it never left</td></tr><tr><td><code>result.parse</code></td><td>the response body was not valid JSON</td></tr><tr><td><code>result.too_large</code></td><td>the response body exceeded the size a fetch will read</td></tr><tr><td><code>result.invalid</code></td><td>the result did not satisfy the schema declared for it</td></tr></tbody></table>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/tasks-and-expressions/"> <span>previous</span> <strong>Tasks and expressions</strong> </a> <a class="next" href="/guides/process-definition/example/"> <span>next</span> <strong>An example</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#typed-error-responses">Typed error responses</a></li><li class="depth-2"><a href="#reacting-to-the-error">Reacting to the error</a></li><li class="depth-2"><a href="#fetch-error-codes">Fetch error codes</a></li></ul><script>
+        ;(function () {
+          const links = [...document.querySelectorAll('.toc a[href^="#"]')]
+          const targets = links
+            .map((a) => ({ a: a, el: document.getElementById(decodeURIComponent(a.hash.slice(1))) }))
+            .filter((t) => t.el)
+          if (!targets.length) return
+
+          // The line a heading crosses to become current: just under the sticky topbar, which
+          // is measured rather than assumed -- it is where the readable area actually starts.
+          const line = () => {
+            const bar = document.querySelector('.topbar')
+            return (bar ? bar.getBoundingClientRect().height : 0) + 24
+          }
+
+          let current = null
+          function update() {
+            const y = line()
+            let active = targets[0]
+            for (const t of targets) {
+              if (t.el.getBoundingClientRect().top <= y) active = t
+            }
+            // A last section too short to reach the line would never be current, so the
+            // bottom of the page elects it.
+            if (innerHeight + scrollY >= document.documentElement.scrollHeight - 2) {
+              active = targets[targets.length - 1]
+            }
+            if (active === current) return
+            if (current) current.a.removeAttribute('aria-current')
+            active.a.setAttribute('aria-current', 'location')
+            current = active
+          }
+
+          let queued = false
+          function onScroll() {
+            if (queued) return
+            queued = true
+            requestAnimationFrame(function () {
+              queued = false
+              update()
+            })
+          }
+          addEventListener('scroll', onScroll, { passive: true })
+          addEventListener('resize', onScroll)
+          // A hash in the URL scrolls after this script parses, so re-read once settled.
+          addEventListener('load', update)
+          update()
+        })()
+      </script></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
