@@ -198,9 +198,12 @@ The delay will park the action for specified amount of time, while it waits ther
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      email</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> self</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">result</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">email</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span></code></pre>
 <p>To read the output of fetch, you need to specify it’s response type.
-Genroc will validate the data against the schema, so no invalid data will ever get in.
-If the response is not valid, genroc will raise error <code>response.invalid</code>,
-which can be handled in the “</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/basics/"> <span>previous</span> <strong>Basics</strong> </a> <a class="next" href="/guides/process-definition/example/"> <span>next</span> <strong>An example</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#reading-result-of-the-fetch">Reading result of the fetch</a></li></ul><script>
+Genroc will validate the data against the schema, so no invalid data will ever get in.</p>
+<p>Result of the fetch is then available as <code>self.result</code> in the <code>case</code> expression,
+so we can check if the account is activated or not.</p>
+<p><code>self.result</code> is only usable within the same task. If we want to use some data later (in following tasks),
+we have to map it through output. In this case we are producing output <code>{ email: &#39;&lt;user email&gt;&#39;}</code> which will then
+be available to following tasks under <code>outputs.&lt;task-id&gt;</code>.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/basics/"> <span>previous</span> <strong>Basics</strong> </a> <a class="next" href="/guides/process-definition/example/"> <span>next</span> <strong>An example</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#reading-result-of-the-fetch">Reading result of the fetch</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
