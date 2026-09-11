@@ -36,7 +36,7 @@ const DEF = [
   "    output: { fee: '$: self.result.fee' }",
   "    on_error:",
   "      - code: [http.429]",
-  "        retry: { attempts: 2, delay: '$: error.data.wait' }",
+  "        retry: { retries: 2, delay: '$: error.data.wait' }",
   "      - code: ['http.%']",
   "        goto: $explain",
   "    switch: [{ goto: end }]",

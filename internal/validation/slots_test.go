@@ -25,7 +25,7 @@ const slotFixture = `{
                               "429": {"type": "object", "properties": {"wait": {"type": "number"}}, "required": ["wait"]},
                               "500": {"type": "object", "properties": {"why": {"type": "string"}}, "required": ["why"]}}},
      "output": {"fee": "$: self.result.fee"},
-     "on_error": [{"code": ["http.429"], "retry": {"attempts": 2, "delay": "$: error.data.wait"}},
+     "on_error": [{"code": ["http.429"], "retry": {"retries": 2, "delay": "$: error.data.wait"}},
                   {"code": ["http.500"], "goto": "$handler"}],
      "switch": [{"case": "self.output.fee > 0", "goto": "end"}, {"goto": "end"}]},
     {"id": "handler",

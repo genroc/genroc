@@ -30,7 +30,7 @@ test("the retry delay runs from the failure, not from the dispatch", async () =>
       id: "call",
       action: { type: "child", name: child },
       // factor 1 so the wait is flat; jitter only ever SHORTENS, into [delay/2, delay].
-      on_error: [{ code: ["svc_down"], retry: { attempts: 1, delay: "10m", factor: 1 } }],
+      on_error: [{ code: ["svc_down"], retry: { retries: 1, delay: "10m", factor: 1 } }],
       switch: [{ goto: "end" }],
     },
   ]);

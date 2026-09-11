@@ -40,7 +40,7 @@ tasks:
       - goto: "$fulfil"
     on_error:
       - code: [http.500]
-        retry: { attempts: 3, delay: 2s }
+        retry: { retries: 3, delay: 2s }
         goto: "$review"
 
   - id: review

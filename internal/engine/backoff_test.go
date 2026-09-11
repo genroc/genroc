@@ -80,7 +80,7 @@ func TestRetryDelay_ImmediateRetriesOverridesAnAuthoredCurve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseRetryDuration: %v", err)
 	}
-	policy, err := model.Retry{Attempts: model.RetryCount(3), Delay: hour}.Resolve(nil)
+	policy, err := model.Retry{Retries: model.RetryCount(3), Delay: hour}.Resolve(nil)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -96,12 +96,12 @@ func TestRetryDelay_ImmediateRetriesOverridesAnAuthoredCurve(t *testing.T) {
 // An unset slot must read as its default, not as its zero value: a zero base is a hot retry
 // loop and a zero ceiling clamps every wait to nothing.
 func TestRetryDefaults_ApplyPerSlot(t *testing.T) {
-	only, err := model.Retry{Attempts: model.RetryCount(3)}.Resolve(nil)
+	only, err := model.Retry{Retries: model.RetryCount(3)}.Resolve(nil)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
 	if only.Base != model.DefaultRetryDelay || only.Factor != model.DefaultRetryFactor || only.Ceiling != model.DefaultRetryMaxDelay {
-		t.Fatalf("bare attempts resolved to %v/%v/%v, want the default curve %v/%v/%v",
+		t.Fatalf("bare retries resolved to %v/%v/%v, want the default curve %v/%v/%v",
 			only.Base, only.Factor, only.Ceiling,
 			model.DefaultRetryDelay, model.DefaultRetryFactor, model.DefaultRetryMaxDelay)
 	}
@@ -110,7 +110,7 @@ func TestRetryDefaults_ApplyPerSlot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseRetryDuration: %v", err)
 	}
-	slow, err := model.Retry{Attempts: model.RetryCount(3), Delay: hour}.Resolve(nil)
+	slow, err := model.Retry{Retries: model.RetryCount(3), Delay: hour}.Resolve(nil)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}

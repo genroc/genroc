@@ -293,7 +293,7 @@ test("on an only_once task a retry on a worker-reported code is refused at regis
           // classification is "potentially reached" — the retry must be refused unless the
           // author asserts otherwise. Nothing about the code being authored rather than an
           // engine code exempts it.
-          on_error: [{ code: ["worker_failed"], retry: { attempts: 3, delay: 50 }, goto: "$gave_up" }],
+          on_error: [{ code: ["worker_failed"], retry: { retries: 3, delay: 50 }, goto: "$gave_up" }],
           switch: [{ goto: "end" }],
         },
         { id: "gave_up", output: { route: "gave_up" }, switch: [{ goto: "end" }] },
@@ -320,7 +320,7 @@ test("not_reached:true lets an only_once task re-arm, and the re-arming gets a f
             {
               code: ["never_started"],
               not_reached: true,
-              retry: { attempts: 1, delay: 50 },
+              retry: { retries: 1, delay: 50 },
               goto: "$gave_up",
             },
           ],

@@ -164,7 +164,7 @@ test("failing task records retry_scheduled then instance_failed; level filter na
   const retry = logs.find((l) => l.event === "retry_scheduled");
   expect(retry?.level).toBe("warn");
   expect(retry?.code).toMatch(/^http\./);
-  expect(retry?.message).toContain("attempt 1/1");
+  expect(retry?.message).toContain("retry 1/1");
 
   // action_failed (warn) captures the raw call failure separately: the http code,
   // the status in structured meta, and the error body in data. Warn, so the answer to

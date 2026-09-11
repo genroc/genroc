@@ -116,7 +116,7 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 		policy = resolved
 	}
 
-	if inst.RetryCount < policy.Attempts && isRetryAllowed(task, errCode, matched) {
+	if inst.RetryCount < policy.Retries && isRetryAllowed(task, errCode, matched) {
 		inst.RetryCount++
 		// A retry re-attempts the task without transitioning, so nothing else moves the
 		// epoch here -- and the next attempt is a new OCCURRENCE, which is what an external
@@ -125,7 +125,7 @@ func (e *Engine) handleCallErrorWith(inst *model.ProcessInstance, task *model.Ta
 		inst.TaskEpoch++
 		next := db.Now().Add(e.retryDelay(inst.RetryCount, policy))
 		inst.WakeAt = &next
-		retryMsg := fmt.Sprintf("%s (attempt %d/%d)", errMsg, inst.RetryCount, policy.Attempts)
+		retryMsg := fmt.Sprintf("%s (retry %d/%d)", errMsg, inst.RetryCount, policy.Retries)
 		e.audit(inst, logEvent{Level: model.LogWarn, Event: model.EventRetryScheduled, Task: task.ID, Msg: retryMsg, Code: errCode})
 		return advanceOutcome{kind: outcomeUpdate}
 	}

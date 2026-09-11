@@ -44,7 +44,7 @@ async function defineCaller(child: string, onError: object[]): Promise<string> {
 test("a raised slot re-runs once per admitted attempt, then the rule routes", async () => {
   const child = await defineRaiser("svc_down");
   const parent = await defineCaller(child, [
-    { code: ["svc_down"], retry: { attempts: 2 }, goto: "$gave_up" },
+    { code: ["svc_down"], retry: { retries: 2 }, goto: "$gave_up" },
   ]);
 
   const id = await ctx.env.start(parent);
@@ -71,7 +71,7 @@ test("no retry rule for the raised code means the slot is never re-spawned", asy
 test("the parent keeps the epoch that addresses its batch across a retry round", async () => {
   const child = await defineRaiser("svc_down");
   const parent = await defineCaller(child, [
-    { code: ["svc_down"], retry: { attempts: 1 }, goto: "$gave_up" },
+    { code: ["svc_down"], retry: { retries: 1 }, goto: "$gave_up" },
   ]);
 
   const id = await ctx.env.start(parent);
@@ -91,7 +91,7 @@ test("the parent keeps the epoch that addresses its batch across a retry round",
 test("a retry round leaves the parent's own retry_count alone", async () => {
   const child = await defineRaiser("svc_down");
   const parent = await defineCaller(child, [
-    { code: ["svc_down"], retry: { attempts: 2 }, goto: "$gave_up" },
+    { code: ["svc_down"], retry: { retries: 2 }, goto: "$gave_up" },
   ]);
 
   const id = await ctx.env.start(parent);
@@ -105,7 +105,7 @@ test("a retry round leaves the parent's own retry_count alone", async () => {
 test("retired attempts are kept, and only the live one occupies the slot", async () => {
   const child = await defineRaiser("svc_down");
   const parent = await defineCaller(child, [
-    { code: ["svc_down"], retry: { attempts: 1 }, goto: "$gave_up" },
+    { code: ["svc_down"], retry: { retries: 1 }, goto: "$gave_up" },
   ]);
 
   const id = await ctx.env.start(parent);
@@ -145,7 +145,7 @@ async function defineFanout(slots: Record<string, string>, onError: object[]): P
 test("only the raised slot is replaced — a completed sibling is never re-run", async () => {
   const parent = await defineFanout(
     { good: await defineCompleter(), bad: await defineRaiser("svc_down") },
-    [{ code: ["svc_down"], retry: { attempts: 2 }, goto: "$gave_up_a" }],
+    [{ code: ["svc_down"], retry: { retries: 2 }, goto: "$gave_up_a" }],
   );
 
   const id = await ctx.env.start(parent);
@@ -172,7 +172,7 @@ test("a defect in the batch cancels the retry that had not happened yet", async 
   ]);
   const parent = await defineFanout(
     { a_raiser: await defineRaiser("svc_down"), b_panicker: panicker },
-    [{ code: ["svc_down"], retry: { attempts: 3 }, goto: "$gave_up_a" }],
+    [{ code: ["svc_down"], retry: { retries: 3 }, goto: "$gave_up_a" }],
   );
 
   const id = await ctx.env.start(parent);
@@ -190,7 +190,7 @@ test("a raise no rule would retry waits for its retrying siblings before routing
     { a_declined: await defineRaiser("card_declined"), b_down: await defineRaiser("svc_down") },
     [
       { code: ["card_declined"], goto: "$gave_up_a" },
-      { code: ["svc_down"], retry: { attempts: 2 }, goto: "$gave_up_b" },
+      { code: ["svc_down"], retry: { retries: 2 }, goto: "$gave_up_b" },
     ],
   );
 
@@ -240,7 +240,7 @@ test("retry grants one extra attempt, not a fresh budget", async () => {
   const child = await defineRaiser("svc_down");
   // A verb-less rule: spend the budget, then fail with the child's code. That leaves the tree
   // failed with the slot's count AT its limit, which is what the operator then overrides.
-  const parent = await defineCaller(child, [{ code: ["svc_down"], retry: { attempts: 1 } }]);
+  const parent = await defineCaller(child, [{ code: ["svc_down"], retry: { retries: 1 } }]);
 
   const id = await ctx.env.start(parent);
   await ctx.env.tickUntilIdle(40);
@@ -308,7 +308,7 @@ test("each slot is conformed, so a bad payload takes its own code away", async (
         },
       },
       on_error: [
-        { code: ["card_declined"], retry: { attempts: 1 }, goto: "$handled" },
+        { code: ["card_declined"], retry: { retries: 1 }, goto: "$handled" },
         { code: ["result.invalid"], goto: "$invalid" },
       ],
       switch: [{ goto: "end" }],
@@ -349,7 +349,7 @@ test("a replacement carries the input its attempt was given", async () => {
     {
       id: "call",
       action: { type: "child", name: child, input: { ticket: "abc-123" } },
-      on_error: [{ code: ["svc_down"], retry: { attempts: 1 } }],
+      on_error: [{ code: ["svc_down"], retry: { retries: 1 } }],
       switch: [{ goto: "end" }],
     },
   ]);
@@ -383,7 +383,7 @@ test("budgets multiply: a parent's retry runs the child's own budget again", asy
         timeout: 2000,
         // The child spends its OWN budget first, then concludes with a raise.
         on_error: [
-          { code: ["http.5%"], retry: { attempts: 1 }, raise: { code: "svc_down", message: "down" } },
+          { code: ["http.5%"], retry: { retries: 1 }, raise: { code: "svc_down", message: "down" } },
         ],
         switch: [{ goto: "end" }],
       },
@@ -393,7 +393,7 @@ test("budgets multiply: a parent's retry runs the child's own budget again", asy
       {
         id: "call",
         action: { type: "child", name: child },
-        on_error: [{ code: ["svc_down"], retry: { attempts: 1 } }],
+        on_error: [{ code: ["svc_down"], retry: { retries: 1 } }],
         switch: [{ goto: "end" }],
       },
     ]);
@@ -594,7 +594,7 @@ test("the case decides per slot, against that slot's own error", async () => {
         },
       },
       on_error: [
-        { code: ["boom"], case: 'error.data.name == "Transient"', retry: { attempts: 2 } },
+        { code: ["boom"], case: 'error.data.name == "Transient"', retry: { retries: 2 } },
       ],
       switch: [{ goto: "end" }],
     },

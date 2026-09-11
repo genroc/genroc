@@ -26,25 +26,55 @@ You might be wondering what happens when a fetch action fails? Let's look at tha
     on_error:
       - code: ["http.409"]
         case: "error.data.user_is_protected == true"
+        # a known error from the server
         goto: $user-user-protected
       - code: ["pre.%", "http.timeout", "http.disconnected", "http.503"]
+        # server is down, or the connection was aborted
         retry: 3
     switch: next
 ```
 
-Your main tool is the `on_error` field. You can match one or multiple errors
-with the `code` field and you can also use `%` wildcard to match multiple errors at once.
+Your main tool is the `on_error` field. It is very similar to `switch` in principle.
+You can match one or multiple errors with the `code` field and you can also use `%` wildcard to match multiple errors at once.
 
 ## Typed error responses
 
-You can type your error responses the same way as your success responses. 
+You can type your error responses the same way as your success responses.
+When you do that, you can match the typed error response code and then use `error.data` to use the error response body.
+
+### Case field
+
+If you want to perform an additional check on the error response body, you can use `case` field, which works the same way
+as on `switch`, so you can have custom expression returning boolean.
+
+You can also use `case` field alone (without matching the code), but for most cases the `code` field is more convenient.
 
 ## Reacting to the error
 
 You can do 2 main things when error happens:
 
- - 
+### Retry
 
+This will park the process for some time and will try the fetch again. There are advanced settings for retry as well:
+
+```genroc
+retry: 3
+# or
+retry:
+  retries: 3
+  delay: "1s"
+  factor: 2
+  max_delay: "5m"
+```
+
+ - `retries` - are **extra** fetches above the default one. So 3 retries can give you 4 failed fetches.
+ - `delay` - says how long should we wait before the next retry (`1s` is default)*
+ - `factor` - a multiplier of the delay after each retry (`1s`, `2s`, `4s` in this case, 2 is default)
+ - `max_delay` - cap to the multiplication (max(`5m`, delay) is default)
+
+> \* we apply (delay/2) randomized jitter to avoid multiple processes hammering the endpoint all at the same time
+
+### Route to another task
 
 ## Fetch error codes
 

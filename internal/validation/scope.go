@@ -101,7 +101,7 @@ func preOutputSlots(s *model.Task) []preOutputSlot {
 		where := fmt.Sprintf("task %q on_error[%d]", s.ID, i)
 		add(where+" case", ec.Case, true)
 		for _, r := range []struct{ name, expr string }{
-			{"attempts", ec.Retry.Attempts.Expr()},
+			{"retries", ec.Retry.Retries.Expr()},
 			{"delay", ec.Retry.Delay.Expr()},
 			{"factor", ec.Retry.Factor.Expr()},
 			{"max_delay", ec.Retry.MaxDelay.Expr()},

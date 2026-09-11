@@ -461,11 +461,11 @@ func checkTimeout(t *model.Timeout, ctx schema.Schema, taskID string) error {
 
 // checkRetrySlots type-checks the $: slots of every on_error retry policy. The engine
 // reduces the whole policy to numbers when the rule fires, so every slot must infer to one;
-// the bounds (attempts whole and non-negative, factor >= 1, max_delay >= delay) can only be
+// the bounds (retries whole and non-negative, factor >= 1, max_delay >= delay) can only be
 // judged then, and Retry.Resolve judges them.
 func checkRetrySlots(taskID string, i int, ec model.ErrorCase, ctx schema.Schema) error {
 	slots := []struct{ name, expr string }{
-		{"attempts", ec.Retry.Attempts.Expr()},
+		{"retries", ec.Retry.Retries.Expr()},
 		{"delay", ec.Retry.Delay.Expr()},
 		{"factor", ec.Retry.Factor.Expr()},
 		{"max_delay", ec.Retry.MaxDelay.Expr()},

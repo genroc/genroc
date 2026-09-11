@@ -26,7 +26,7 @@ func TestPublishedSchemaAgreesWithTheServerOnUnknownKeys(t *testing.T) {
 		{"action.fetch", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","method":"post","url":"u","zzz":1}}]}`, true},
 		{"on_error rule", `{"name":"x","tasks":[{"id":"a","switch":"end","on_error":[{"goto":"end","zzz":1}]}]}`, true},
 		{"switch case", `{"name":"x","tasks":[{"id":"a","switch":[{"goto":"end","zzz":1}]}]}`, true},
-		{"retry", `{"name":"x","tasks":[{"id":"a","switch":"end","on_error":[{"retry":{"attempts":1,"zzz":1},"goto":"end"}]}]}`, true},
+		{"retry", `{"name":"x","tasks":[{"id":"a","switch":"end","on_error":[{"retry":{"retries":1,"zzz":1},"goto":"end"}]}]}`, true},
 		{"timeout object", `{"name":"x","tasks":[{"id":"a","switch":"end","timeout":{"for":"1s","zzz":1}}]}`, true},
 		{"raise", `{"name":"x","tasks":[{"id":"a","switch":[{"raise":{"code":"c","message":"m","zzz":1}}]}]}`, true},
 		// A user-supplied schema was the last divergence: it reflected to an opaque object, so

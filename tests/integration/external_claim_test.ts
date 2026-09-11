@@ -278,7 +278,7 @@ test("external.lost is unknowable — an only_once task cannot buy a retry with 
           only_once: true,
           // Nothing came back, so nothing can be asserted about what happened: not_reached is
           // a claim about an error that RETURNED, and this one did not.
-          on_error: [{ code: ["external.lost"], not_reached: true, retry: { attempts: 2 }, goto: "$checked" }],
+          on_error: [{ code: ["external.lost"], not_reached: true, retry: { retries: 2 }, goto: "$checked" }],
           switch: [{ goto: "end" }],
         },
         { id: "checked", switch: [{ goto: "end" }] },

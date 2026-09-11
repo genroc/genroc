@@ -149,7 +149,7 @@ test("inside a switch case — the routing clause's keys", async () => {
 });
 
 test("inside an on_error rule — that rule's keys, which are not a switch case's", async () => {
-  const keys = await lsp.completions(at(`      - code: [http.500]\n        <^retry>: { attempts: 3, delay: 2s }`));
+  const keys = await lsp.completions(at(`      - code: [http.500]\n        <^retry>: { retries: 3, delay: 2s }`));
   // `code` and `retry` are already written, so what is left is the rest of a rule's vocabulary.
   expect(keys).toContain("not_reached");
   expect(keys).toContain("case");
@@ -589,11 +589,11 @@ test("the same once the value is written — the cursor is still in it", async (
   expect(await lsp.completions(at("      method: get<|>"))).toEqual([]);
 });
 
-// The rule must not swallow a flow collection: `{ attempts: 3, | }` takes another KEY, and the
+// The rule must not swallow a flow collection: `{ retries: 3, | }` takes another KEY, and the
 // cursor is past a colon there too. (Which keys it offers is a separate imprecision — the
 // enclosing rule's rather than retry's own.)
 test("inside an inline map, keys are still offered", async () => {
-  const items = await lsp.completionItems(at("        retry: { attempts: 3,<|> delay: 2s }"));
+  const items = await lsp.completionItems(at("        retry: { retries: 3,<|> delay: 2s }"));
   expect(items.length).toBeGreaterThan(0);
   expect(items.every((i) => i.kind === 10)).toBe(true);
 });

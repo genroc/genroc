@@ -58,7 +58,7 @@ var preOutputCases = map[string]struct {
 	"delay until":    {`{"id":"t","action":{"type":"delay","until":"%s"},` + loop, leaf, "%[1]s.n ?? 0"},
 	"timeout":        {`{"id":"t","action":{"type":"external"},"timeout":"%s",` + loop, leaf, "%[1]s.n ?? 0"},
 	"on_error retry": {`{"id":"t","action":{"type":"fetch","method":"post","url":"http://x"},
-	                     "on_error":[{"code":["http.500"],"retry":{"attempts":"%s"},"goto":"end"}],` + loop, leaf, "%[1]s.n ?? 0"},
+	                     "on_error":[{"code":["http.500"],"retry":{"retries":"%s"},"goto":"end"}],` + loop, leaf, "%[1]s.n ?? 0"},
 	"on_error case": {`{"id":"t","action":{"type":"fetch","method":"post","url":"http://x"},
 	                    "on_error":[{"code":["http.500"],"case":"%s","goto":"end"},{"code":[],"goto":"end"}],` + loop, bareExpr, "(%[1]s.n ?? 0) > 0"},
 	"on_error raise message": {`{"id":"t","action":{"type":"fetch","method":"post","url":"http://x"},

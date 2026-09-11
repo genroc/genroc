@@ -19,48 +19,48 @@ const (
 	DefaultRetryMaxDelay = 5 * time.Minute
 )
 
-// Retry is an on_error rule's retry policy: how many attempts, and the backoff curve between
-// them. The scalar form desugars to `attempts`; every slot is optional and also accepts a "$:"
+// Retry is an on_error rule's retry policy: how many retries, and the backoff curve between
+// them. The scalar form desugars to `retries`; every slot is optional and also accepts a "$:"
 // expression, which has no value until the rule fires. Nothing may read a slot for its number --
 // call Resolve once per error and read the ResolvedRetry, which carries the defaults. Nothing may
 // EMBED this type: the promoted UnmarshalJSON would silently eat the whole outer object.
 type Retry struct {
-	Attempts RetryNumber
+	Retries  RetryNumber
 	Delay    RetryDuration
 	Factor   RetryNumber
 	MaxDelay RetryDuration
 }
 
-// RetryAttempts is the Go spelling of the scalar shorthand, for definitions built in code
+// Retries is the Go spelling of the scalar shorthand, for definitions built in code
 // rather than decoded from JSON.
-func RetryAttempts(n int) Retry { return Retry{Attempts: RetryCount(n)} }
+func Retries(n int) Retry { return Retry{Retries: RetryCount(n)} }
 
 func (r Retry) IsZero() bool {
-	return r.Attempts.IsZero() && r.Factor.IsZero() && r.Delay.IsZero() && r.MaxDelay.IsZero()
+	return r.Retries.IsZero() && r.Factor.IsZero() && r.Delay.IsZero() && r.MaxDelay.IsZero()
 }
 
 // ResolvedRetry is a Retry with every slot reduced to a number and every default already
 // applied — the only form the attempt comparison and the backoff curve read.
 type ResolvedRetry struct {
-	Attempts int
-	Base     time.Duration
-	Factor   float64
-	Ceiling  time.Duration
+	Retries int
+	Base    time.Duration
+	Factor  float64
+	Ceiling time.Duration
 }
 
 // Resolve reduces every slot to a number, evaluating the "$:" ones through eval. The bounds
 // validateRetry checks at registration are re-checked here with the same wording, because a
 // slot that is an expression has no value to check until now.
 func (r Retry) Resolve(eval func(expr string) (any, error)) (ResolvedRetry, error) {
-	attempts, _, err := r.Attempts.resolve(eval)
+	retries, _, err := r.Retries.resolve(eval)
 	if err != nil {
-		return ResolvedRetry{}, fmt.Errorf("retry.attempts: %w", err)
+		return ResolvedRetry{}, fmt.Errorf("retry.retries: %w", err)
 	}
-	if attempts != float64(int(attempts)) {
-		return ResolvedRetry{}, fmt.Errorf("retry.attempts: %v is not a whole number of attempts", attempts)
+	if retries != float64(int(retries)) {
+		return ResolvedRetry{}, fmt.Errorf("retry.retries: %v is not a whole number of retries", retries)
 	}
-	if attempts < 0 {
-		return ResolvedRetry{}, fmt.Errorf("retry.attempts must not be negative, got %v", attempts)
+	if retries < 0 {
+		return ResolvedRetry{}, fmt.Errorf("retry.retries must not be negative, got %v", retries)
 	}
 
 	factor, factorSet, err := r.Factor.resolve(eval)
@@ -98,15 +98,15 @@ func (r Retry) Resolve(eval func(expr string) (any, error)) (ResolvedRetry, erro
 		return ResolvedRetry{}, fmt.Errorf("retry.max_delay (%s) is shorter than retry.delay (%s), so the first wait would already be clamped and the delay never applied", ceiling, base)
 	}
 
-	return ResolvedRetry{Attempts: int(attempts), Base: base, Factor: factor, Ceiling: ceiling}, nil
+	return ResolvedRetry{Retries: int(retries), Base: base, Factor: factor, Ceiling: ceiling}, nil
 }
 
-var retryFields = map[string]bool{"attempts": true, "delay": true, "factor": true, "max_delay": true}
+var retryFields = map[string]bool{"retries": true, "delay": true, "factor": true, "max_delay": true}
 
 // retryWire is the object form, shared by Retry's MarshalJSON and UnmarshalJSON so the
 // tags stay in lockstep.
 type retryWire struct {
-	Attempts RetryNumber   `json:"attempts,omitempty,omitzero"`
+	Retries  RetryNumber   `json:"retries,omitempty,omitzero"`
 	Delay    RetryDuration `json:"delay,omitempty,omitzero"`
 	Factor   RetryNumber   `json:"factor,omitempty,omitzero"`
 	MaxDelay RetryDuration `json:"max_delay,omitempty,omitzero"`
@@ -118,7 +118,7 @@ func (r Retry) MarshalJSON() ([]byte, error) {
 	if r.IsZero() {
 		return []byte("null"), nil
 	}
-	return json.Marshal(retryWire{Attempts: r.Attempts, Delay: r.Delay, Factor: r.Factor, MaxDelay: r.MaxDelay})
+	return json.Marshal(retryWire{Retries: r.Retries, Delay: r.Delay, Factor: r.Factor, MaxDelay: r.MaxDelay})
 }
 
 func (r *Retry) UnmarshalJSON(data []byte) error {
@@ -131,17 +131,17 @@ func (r *Retry) UnmarshalJSON(data []byte) error {
 		// the published schema types the shorthand as an integer, so an editor flags what
 		// the server would take. The rest of the grammar refuses quoted numbers too.
 		if data[0] == '"' {
-			return fmt.Errorf("retry: %s is quoted; the attempt count is a bare number (write the long form for an expression: {attempts: %s})", data, data)
+			return fmt.Errorf("retry: %s is quoted; the retry count is a bare number (write the long form for an expression: {retries: %s})", data, data)
 		}
 		var n json.Number
 		if err := json.Unmarshal(data, &n); err != nil {
-			return fmt.Errorf("retry: must be a number of attempts or an object, got %s", data)
+			return fmt.Errorf("retry: must be a number of retries or an object, got %s", data)
 		}
-		attempts, err := n.Int64()
-		if err != nil || attempts < 0 {
-			return fmt.Errorf("retry: %s is not a whole number of attempts", n)
+		retries, err := n.Int64()
+		if err != nil || retries < 0 {
+			return fmt.Errorf("retry: %s is not a whole number of retries", n)
 		}
-		*r = Retry{Attempts: RetryCount(int(attempts))}
+		*r = Retry{Retries: RetryCount(int(retries))}
 		return nil
 	}
 	// A typo'd key here is silent in the worst way: the rule keeps its `code` and its
@@ -153,13 +153,13 @@ func (r *Retry) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &w); err != nil {
 		return err
 	}
-	if !w.Attempts.IsExpr() && w.Attempts.n < 0 {
-		return fmt.Errorf("retry: attempts must not be negative")
+	if !w.Retries.IsExpr() && w.Retries.n < 0 {
+		return fmt.Errorf("retry: retries must not be negative")
 	}
 	if !w.Factor.IsExpr() && w.Factor.n != 0 && w.Factor.n < 1 {
 		return fmt.Errorf("retry: factor %g would shrink the wait after every attempt; use 1 for a constant delay", w.Factor.n)
 	}
-	*r = Retry{Attempts: w.Attempts, Delay: w.Delay, Factor: w.Factor, MaxDelay: w.MaxDelay}
+	*r = Retry{Retries: w.Retries, Delay: w.Delay, Factor: w.Factor, MaxDelay: w.MaxDelay}
 	return nil
 }
 
@@ -171,13 +171,13 @@ func (Retry) JSONSchemaBytes() ([]byte, error) {
 			{
 				"type": "integer",
 				"minimum": 0,
-				"description": "Shorthand for 'attempts', on the default backoff curve (1s, doubling, capped at 5m)."
+				"description": "Shorthand for 'retries', on the default backoff curve (1s, doubling, capped at 5m)."
 			},
 			{
 				"type": "object",
-				"description": "The long form: attempt count plus any part of the backoff curve. Every slot takes a $: expression.",
+				"description": "The long form: retry count plus any part of the backoff curve. Every slot takes a $: expression.",
 				"properties": {
-					"attempts":  {"type": ["integer", "string"], "minimum": 0, "description": "Number of retries before following goto or failing. 0 = no retries."},
+					"retries":  {"type": ["integer", "string"], "minimum": 0, "description": "Number of retries before following goto or failing. 0 = no retries."},
 					"delay":     {"type": ["string", "number"], "description": "Wait before the first retry: \"30s\", a number of milliseconds, or a $: expression. Defaults to 1s."},
 					"factor":    {"type": ["number", "string"], "minimum": 1, "description": "Multiplier applied to the wait after each attempt. 1 keeps it constant. Defaults to 2."},
 					"max_delay": {"type": ["string", "number"], "description": "Ceiling the growing wait is clamped to. Defaults to 5m, or to 'delay' when that is longer."}

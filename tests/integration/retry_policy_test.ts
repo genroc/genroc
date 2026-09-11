@@ -57,14 +57,14 @@ test("retry — the pre-policy \"retries\" key is rejected by name", async () =>
 test("retry — scalar and object forms are both accepted", async () => {
   expect((await define(3)).error).toBeUndefined();
   expect(
-    (await define({ attempts: 4, delay: "30s", factor: 2, max_delay: "10m" }))
+    (await define({ retries: 4, delay: "30s", factor: 2, max_delay: "10m" }))
       .error,
   ).toBeUndefined();
 });
 
 test("retry — max_delay below delay is rejected", async () => {
   const { error } = await define({
-    attempts: 3,
+    retries: 3,
     delay: "10m",
     max_delay: "30s",
   });
@@ -77,24 +77,24 @@ test("retry — a backoff with no attempts is rejected", async () => {
 });
 
 test("retry — a factor below 1 is rejected", async () => {
-  const { error } = await define({ attempts: 3, factor: 0.5 });
+  const { error } = await define({ retries: 3, factor: 0.5 });
   expect(error).toContain("shrink the wait");
 });
 
 test("retry — calendar units are rejected in a duration", async () => {
   // The curve scales the value and compares it to a ceiling; "1mo" has no length until a
   // timezone and a start instant fix it.
-  const { error } = await define({ attempts: 3, delay: "1d" });
+  const { error } = await define({ retries: 3, delay: "1d" });
   expect(error).toContain("calendar units");
 });
 
 test("retry — a zero delay is rejected", async () => {
-  const { error } = await define({ attempts: 3, delay: 0 });
+  const { error } = await define({ retries: 3, delay: 0 });
   expect(error).toContain("positive");
 });
 
 test("retry — an unknown key inside the policy is rejected", async () => {
-  const { error } = await define({ attempts: 3, backoff: "30s" });
+  const { error } = await define({ retries: 3, backoff: "30s" });
   expect(error).toContain('unknown field "backoff"');
 });
 
@@ -108,7 +108,7 @@ test("retry — a quoted attempt count is rejected", async () => {
 test("retry — a duration that overflows the nanosecond counter is rejected", async () => {
   // Not merely large: "5124096h" used to wrap to a positive 25 minutes, which every
   // downstream check accepts. A retry would have fired 292 years early, silently.
-  const { error } = await define({ attempts: 3, delay: "5124096h" });
+  const { error } = await define({ retries: 3, delay: "5124096h" });
   expect(error).toContain("out of range");
 });
 
@@ -126,21 +126,21 @@ const WHO = {
 };
 
 test("retry — a $: slot must evaluate to a number", async () => {
-  const { error } = await define({ attempts: "$: input.who" }, {}, WHO);
+  const { error } = await define({ retries: "$: input.who" }, {}, WHO);
   expect(error).toContain("must evaluate to a number");
-  expect(error).toContain("retry.attempts");
+  expect(error).toContain("retry.retries");
 });
 
 test("retry — a ${ } interpolation is refused, since it produces a string", async () => {
   // eslint-disable-next-line no-template-curly-in-string
-  const { error } = await define({ attempts: "${ input.who }" }, {}, WHO);
+  const { error } = await define({ retries: "${ input.who }" }, {}, WHO);
   expect(error).toContain("not a number");
 });
 
 test("retry — a $: policy is accepted", async () => {
   const { error } = await define(
     {
-      attempts: "$: config.e2e_retry_attempts",
+      retries: "$: config.e2e_retry_attempts",
       delay: "$: config.e2e_retry_delay_ms",
     },
     {},
@@ -182,7 +182,7 @@ test("retry — the environment drives how many attempts are made", async () => 
           on_error: [
             {
               code: ["pre.%"],
-              retry: { attempts: "$: config.e2e_retry_attempts", delay: 50 },
+              retry: { retries: "$: config.e2e_retry_attempts", delay: 50 },
             },
           ],
           switch: "end",
@@ -207,5 +207,5 @@ test("retry — the environment drives how many attempts are made", async () => 
   const scheduled = items.filter((e) => e.event === "retry_scheduled");
   expect(scheduled).toHaveLength(2);
   // The counter in the message is the resolved budget, not the authored source.
-  expect(scheduled.some((e) => e.message?.includes("(attempt 2/2)"))).toBe(true);
+  expect(scheduled.some((e) => e.message?.includes("(retry 2/2)"))).toBe(true);
 });

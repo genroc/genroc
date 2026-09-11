@@ -190,7 +190,7 @@ test("a retry policy reads the failure it is retrying", async () => {
             },
           },
           timeout: 2000,
-          on_error: [{ code: ["http.503"], retry: { attempts: 2, delay: "$: error.data.wait" } }],
+          on_error: [{ code: ["http.503"], retry: { retries: 2, delay: "$: error.data.wait" } }],
           switch: [{ goto: "end" }],
         },
       ],

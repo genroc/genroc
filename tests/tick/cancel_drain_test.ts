@@ -122,7 +122,7 @@ test("a cancel breaks a retry loop rather than being re-armed by it", async () =
       id: "call",
       action: { type: "fetch" as const, method: "post", url: `http://localhost:${boom.port}/boom` },
       timeout: 30_000,
-      on_error: [{ code: ["http.5%"], retry: { attempts: 10, delay: "1s" } }],
+      on_error: [{ code: ["http.5%"], retry: { retries: 10, delay: "1s" } }],
       switch: "end",
     },
   ]);

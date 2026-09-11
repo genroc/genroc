@@ -76,7 +76,7 @@ test("transport — only_once does not re-send a call the remote received", asyn
       id: "charge",
       only_once: true,
       action: { type: "fetch" as const, method: "post", url: `http://localhost:${remote.port}/charge` },
-      on_error: [{ code: ["pre.%"], retry: { attempts: 2, delay: 50 } }],
+      on_error: [{ code: ["pre.%"], retry: { retries: 2, delay: 50 } }],
       timeout: 2000,
       switch: [{ goto: "end" }],
     });

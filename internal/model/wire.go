@@ -203,7 +203,7 @@ var (
 	ruleFieldHints = map[string]string{
 
 		"code":    `a switch case selects with "case"; "code" belongs to on_error`,
-		"retries": `renamed to "retry": write "retry": 3, or "retry": {attempts: 3, delay: "30s"} to shape the backoff`,
+		"retries": `renamed to "retry": write "retry": 3, or "retry": {retries: 3, delay: "30s"} to shape the backoff`,
 	}
 )
 

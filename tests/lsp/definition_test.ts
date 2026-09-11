@@ -25,7 +25,7 @@ test("a goto in a switch case jumps to the task it names", async () => {
 test("a goto in an on_error rule reaches the same task from a different slot", async () => {
   expect(
     await lsp.definition(
-      at(`        retry: { attempts: 3, delay: 2s }\n        goto: "$<^review>"`),
+      at(`        retry: { retries: 3, delay: 2s }\n        goto: "$<^review>"`),
     ),
   ).toBe("orders.genroc.yaml:37");
 });

@@ -475,7 +475,7 @@ test("child task retry — a raised slot is re-spawned until its budget is spent
           {
             id: "run",
             action: { type: "child" as const, name: childName, result_schema: {} },
-            on_error: [{ code: ["svc_down"], retry: { attempts: 2, delay: 10 }, goto: "$gave_up" }],
+            on_error: [{ code: ["svc_down"], retry: { retries: 2, delay: 10 }, goto: "$gave_up" }],
             output: "$: self.result",
             switch: [{ goto: "end" }],
           },
@@ -550,7 +550,7 @@ test("child task retry — one slot retries while its completed sibling stands",
                 flaky: { name: flakyName, result_schema: {} },
               },
             },
-            on_error: [{ code: ["svc_down"], retry: { attempts: 2, delay: 10 }, goto: "$gave_up" }],
+            on_error: [{ code: ["svc_down"], retry: { retries: 2, delay: 10 }, goto: "$gave_up" }],
             output: "$: self.result",
             switch: [{ goto: "end" }],
           },
@@ -576,7 +576,7 @@ test("child task retry — one slot retries while its completed sibling stands",
     const respawns = (logs?.items ?? []).filter((l: any) => String(l.message ?? "").includes("re-spawning"));
     expect(respawns).toHaveLength(2);
     expect(String(respawns[0].message)).toContain('child_key "flaky"');
-    expect(respawns.map((l: any) => String(l.message).match(/attempt (\d)\//)?.[1]).sort()).toEqual(["1", "2"]);
+    expect(respawns.map((l: any) => String(l.message).match(/retry (\d)\//)?.[1]).sort()).toEqual(["1", "2"]);
   } finally {
     await goodMock.stop();
     await flakyMock.stop();

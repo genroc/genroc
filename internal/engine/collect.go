@@ -135,7 +135,7 @@ func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, 
 				return nil, nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q on_error: %v", task.ID, resErr)))
 			}
 			policy = resolved
-			if spawnAttempt(child) >= int64(policy.Attempts) {
+			if spawnAttempt(child) >= int64(policy.Retries) {
 				continue
 			}
 		}
@@ -154,11 +154,11 @@ func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, 
 		retired = append(retired, child.ID)
 		replacements = append(replacements, replacement)
 		if override {
-			logs = append(logs, fmt.Sprintf("child %q (%s) raised %q; re-spawning on operator retry (attempt %d)",
+			logs = append(logs, fmt.Sprintf("child %q (%s) raised %q; re-spawning on operator retry (retry %d)",
 				child.ProcessName, childSlotLabel(task, child), child.ErrorCode, attempt+1))
 		} else {
-			logs = append(logs, fmt.Sprintf("child %q (%s) raised %q; re-spawning (attempt %d/%d)",
-				child.ProcessName, childSlotLabel(task, child), child.ErrorCode, attempt+1, policy.Attempts))
+			logs = append(logs, fmt.Sprintf("child %q (%s) raised %q; re-spawning (retry %d/%d)",
+				child.ProcessName, childSlotLabel(task, child), child.ErrorCode, attempt+1, policy.Retries))
 		}
 	}
 	return retired, replacements, logs, nil

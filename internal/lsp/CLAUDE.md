@@ -105,7 +105,7 @@ guessing from the value's type.
 answer. An empty value has no extent, so `At` falls out to the mapping around it and answered
 with that mapping's remaining keys — the NEXT line's answer, offered while `for: ` was being
 typed (reported from an editor). `inValuePosition` ends the chain there, after the value slots
-that do have answers. Its one exception is a flow collection: `{ attempts: 3, |}` takes another
+that do have answers. Its one exception is a flow collection: `{ retries: 3, |}` takes another
 KEY and `[string, |]` another element, and the cursor is past a colon in both.
 
 **A key completion writes its colon.** The keystroke after choosing a key is the value, never

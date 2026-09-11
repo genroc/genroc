@@ -134,7 +134,7 @@ func TestFault_R3_TerminalClauseArity(t *testing.T) {
 	t.Run("on_error rule with none accepted", func(t *testing.T) {
 		d := def(&Task{
 			ID: "t", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"},
-			OnError: []ErrorCase{{Code: []string{"http.%"}, Retry: RetryAttempts(3)}},
+			OnError: []ErrorCase{{Code: []string{"http.%"}, Retry: Retries(3)}},
 			Switch:  SwitchMap{{Goto: GotoEnd}},
 		})
 		if err := d.Validate(); err != nil {
@@ -185,7 +185,7 @@ func TestFault_R4_ChildTaskOnError(t *testing.T) {
 	t.Run("retry accepted — a child is a call, and a call retries", func(t *testing.T) {
 		// D7 reversed 2026-08-26: retrying a raised slot re-spawns it, which re-runs the
 		// upstream tasks that produced the decision. specs/child-error-handling.md R4.
-		d := def(childTask([]ErrorCase{{Code: []string{"card_declined"}, Retry: RetryAttempts(3), Goto: GotoEnd}}))
+		d := def(childTask([]ErrorCase{{Code: []string{"card_declined"}, Retry: Retries(3), Goto: GotoEnd}}))
 		if err := d.Validate(); err != nil {
 			t.Fatalf("retry must be legal on a child task: %v", err)
 		}
@@ -193,7 +193,7 @@ func TestFault_R4_ChildTaskOnError(t *testing.T) {
 	t.Run("retry rejected on an only_once child task", func(t *testing.T) {
 		// Not left to isRetryAllowed, which would decline it silently at runtime: every code
 		// a child task can catch means the child already ran, so the policy could never fire.
-		task := childTask([]ErrorCase{{Code: []string{"card_declined"}, Retry: RetryAttempts(3), Goto: GotoEnd}})
+		task := childTask([]ErrorCase{{Code: []string{"card_declined"}, Retry: Retries(3), Goto: GotoEnd}})
 		once := true
 		task.OnlyOnce = &once
 		d := def(task)
@@ -213,7 +213,7 @@ func TestFault_R4_ChildTaskOnError(t *testing.T) {
 		d := def(&Task{
 			ID:      "call",
 			Action:  &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"},
-			OnError: []ErrorCase{{Code: []string{"http.5%"}, Retry: RetryAttempts(3), Goto: GotoEnd}},
+			OnError: []ErrorCase{{Code: []string{"http.5%"}, Retry: Retries(3), Goto: GotoEnd}},
 			Switch:  SwitchMap{{Goto: GotoEnd}},
 		})
 		if err := d.Validate(); err != nil {

@@ -41,7 +41,7 @@ async function advanceAndDrain(ms: number) {
 
 test("an authored delay parks past the default curve", async () => {
   const name = `retry_slow_${crypto.randomUUID()}`;
-  await defineFailing(name, { attempts: 2, delay: "10m", factor: 1 });
+  await defineFailing(name, { retries: 2, delay: "10m", factor: 1 });
   const id = await ctx.env.start(name);
 
   await ctx.env.tickUntilIdle();
@@ -58,7 +58,7 @@ test("an authored delay parks past the default curve", async () => {
 
 test("factor 1 keeps the delay constant across attempts", async () => {
   const name = `retry_constant_${crypto.randomUUID()}`;
-  await defineFailing(name, { attempts: 3, delay: "1m", factor: 1, max_delay: "1h" });
+  await defineFailing(name, { retries: 3, delay: "1m", factor: 1, max_delay: "1h" });
   const id = await ctx.env.start(name);
 
   await ctx.env.tickUntilIdle();
@@ -75,7 +75,7 @@ test("max_delay caps a curve that would otherwise outgrow it", async () => {
   const name = `retry_capped_${crypto.randomUUID()}`;
   // Un-capped, the third wait would be 16m; the cap holds every wait at ≤ 5m.
   await defineFailing(name, {
-    attempts: 3,
+    retries: 3,
     delay: "1m",
     factor: 4,
     max_delay: "5m",

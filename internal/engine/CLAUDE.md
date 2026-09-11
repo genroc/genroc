@@ -152,7 +152,7 @@ The registration-time rules are in [internal/model/CLAUDE.md](../model/CLAUDE.md
    shifted a `time.Duration` and had to clamp the exponent by hand: `time.Duration` is
    int64 *nanoseconds*, so `1<<attempt * time.Second` overflowed the multiply at attempt 34,
    returning about minus forty years, and a flat `0s` from 62 up. A zero or negative delay
-   is a hot retry loop against an already-failing endpoint, and `attempts` has no upper
+   is a hot retry loop against an already-failing endpoint, and `retries` has no upper
    bound at registration to keep a definition out of that range. Anything that reintroduces
    integer growth reintroduces that.
 3. **Read a policy's slots through `Base`/`Growth`/`Ceiling`, never off the struct.** An
