@@ -183,10 +183,12 @@ In the examples above that is:
 
 | Slot | Where | Syntax |
 |---|---|---|
-| `url`, `method` | `fetch` | string template |
-| `body` | `fetch` | shape |
-| `for` | `delay` | literal duration, or a `$:` expression yielding one |
+| `url`, `method` | `fetch` action | string template |
+| `body` | `fetch` action | shape |
+| `for` | `delay` action | literal duration, or a `$:` yielding integer * |
 | `case` | `switch` | raw expression |
-| `output` | task | shape |
+| `output` | `task` | shape |
+
+> \* `for` can contain human readable syntax e.g. `2h30s` for static strings, dynamic value can only specify milliseconds as number
 
 Every action and clause introduced later brings its own slots, but the syntax is always one of these.
