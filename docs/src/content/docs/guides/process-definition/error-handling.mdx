@@ -51,7 +51,7 @@ You can also use `case` field alone (without matching the code), but for most ca
 
 ## Reacting to the error
 
-You can do 2 main things when error happens:
+You can do 2 main things when error happens.
 
 ### Retry
 
@@ -75,6 +75,28 @@ retry:
 > \* we apply (delay/2) randomized jitter to avoid multiple processes hammering the endpoint all at the same time
 
 ### Route to another task
+
+If you want the process to continue, you can use `goto` field to route to another task.
+The targeted task will have extra `last_error` field available, with the error data. The field is available only to the 
+task directly after the error, following tasks won't have access to it.
+
+```genroc
+  - id: load_user
+    action:
+      type: fetch
+      ...
+    on_error:
+      - code: ["http.409"]
+        goto: $user-protected
+    ...
+  - id: user-protected
+    # you can access the `last_error` variable
+    output:
+      is_protected: "$: last_error.data.user_is_protected"
+    ...
+```
+
+> You can also panic or raise, but that will get useful once we get to the child processes
 
 ## Fetch error codes
 
