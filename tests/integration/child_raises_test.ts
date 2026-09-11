@@ -4,7 +4,7 @@ import { client, waitForInstance, objectAt, spliceObjects, childrenOfTask } from
 // `raises` on a child call declares what a raised fault's payload looks like, keyed by raise
 // code — the error channel's counterpart to result_schema, and declared by the CALLER so a
 // generic child stays generic. Declared → readable as error.data; undeclared → absent;
-// mismatched → output.invalid, replacing the raised code. specs/error-extensions.md §X2-c.
+// mismatched → result.invalid, replacing the raised code. specs/error-extensions.md §X2-c.
 
 const DECLINE_SHAPE = {
   type: "object",
@@ -117,7 +117,7 @@ test("an undeclared code leaves error.data absent — the read is a registration
   ).toBeDefined();
 });
 
-test("a payload that does not fit the declaration replaces the raised code with output.invalid", async () => {
+test("a payload that does not fit the declaration replaces the raised code with result.invalid", async () => {
   const uid = crypto.randomUUID().slice(0, 8);
   const child = `raises_bad_child_${uid}`;
   const parent = `raises_bad_parent_${uid}`;
@@ -140,7 +140,7 @@ test("a payload that does not fit the declaration replaces the raised code with 
           },
           on_error: [
             { code: ["card_declined"], goto: "$by_code" },
-            { code: ["output.invalid"], goto: "$by_mismatch" },
+            { code: ["result.invalid"], goto: "$by_mismatch" },
           ],
           switch: [{ goto: "end" }],
         },
@@ -159,7 +159,7 @@ test("a payload that does not fit the declaration replaces the raised code with 
   expect(
     data?.state?.output,
     "the code is replaced, so the rule naming the raised code no longer fires",
-  ).toEqual({ via: "mismatch", code: "output.invalid" });
+  ).toEqual({ via: "mismatch", code: "result.invalid" });
 
   // The error being diagnosed survives: the child is still raised, with its own code.
   const childId = (await childrenOfTask(started!.id, "pay")) as string;
@@ -425,7 +425,7 @@ test("raises refuses a boolean, a non-declaring action, and a code that is not o
   );
   await refused(
     "dotted",
-    { type: "child", name: child, raises: { "output.invalid": {} } },
+    { type: "child", name: child, raises: { "result.invalid": {} } },
     "is not a raise code",
   );
 });

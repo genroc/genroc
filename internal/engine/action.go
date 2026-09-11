@@ -119,7 +119,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 			case resp.BodyCode != "":
 				code, msg = resp.BodyCode, fmt.Sprintf("status %d: %s", resp.Status, msg)
 			case verr != nil:
-				code, msg = errcode.OutputInvalid, fmt.Sprintf("status %d: %v", resp.Status, verr)
+				code, msg = errcode.ResultInvalid, fmt.Sprintf("status %d: %v", resp.Status, verr)
 			default:
 				extra = map[string]any{"data": value}
 			}
@@ -147,7 +147,7 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	// `output` projection adds anything to outputs.<id>.
 	normalized, _, err := task.Action.ValidateResponse(resp.Status, resp.Body)
 	if err != nil {
-		return nil, nil, stop(e.handleCallError(inst, task, err.Error(), errcode.OutputInvalid))
+		return nil, nil, stop(e.handleCallError(inst, task, err.Error(), errcode.ResultInvalid))
 	}
 	resp.Body = normalized
 	inst.RetryCount = 0

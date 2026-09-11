@@ -112,7 +112,7 @@ test("script child — script_threw's name and text both reach a caller that dec
 });
 
 // The other half of the same guard: a shape script.yaml's payload can never carry is refused
-// where it is written, not discovered as an output.invalid on a run that already happened.
+// where it is written, not discovered as an result.invalid on a run that already happened.
 test("script child — a caller declaring a slot script_threw never sets is refused", async () => {
   const { error } = await client.PUT("/definitions", {
     body: {

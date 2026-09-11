@@ -61,7 +61,7 @@ test("error.data — a declared 4xx body reaches the handler that catches it", a
 });
 
 // The schema is enforced on the error channel too: a 404 whose body does not fit the shape
-// the definition declared raises output.invalid INSTEAD of http.404, so the rule written for
+// the definition declared raises result.invalid INSTEAD of http.404, so the rule written for
 // http.404 does not fire. Uniform with the success side, and the reason error.data can be
 // non-nullable at all.
 test("error.data — a declared 4xx body that does not conform replaces the status code", async () => {
@@ -92,7 +92,7 @@ test("error.data — a declared 4xx body that does not conform replaces the stat
           },
           on_error: [
             { code: ["http.404"], goto: "$wrong" },
-            { code: ["output.invalid"], goto: "$handler" },
+            { code: ["result.invalid"], goto: "$handler" },
           ],
           timeout: 2000,
           switch: [{ goto: "end" }],
@@ -110,7 +110,7 @@ test("error.data — a declared 4xx body that does not conform replaces the stat
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   const outputs = (data?.state?.outputs ?? {}) as any;
   expect(outputs.wrong).toBeUndefined();
-  expect(outputs.handler).toEqual({ took: "output.invalid" });
+  expect(outputs.handler).toEqual({ took: "result.invalid" });
 
   failing.stop();
 });

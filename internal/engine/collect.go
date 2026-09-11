@@ -44,9 +44,9 @@ func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInst
 	if err != nil {
 		msg := fmt.Sprintf("child %q (%s) raised %q: %v",
 			first.ProcessName, childSlotLabel(task, first), first.ErrorCode, err)
-		var invalid outputInvalid
+		var invalid resultInvalid
 		if errors.As(err, &invalid) {
-			return e.handleCallError(inst, task, msg, errcode.OutputInvalid)
+			return e.handleCallError(inst, task, msg, errcode.ResultInvalid)
 		}
 		// Not a lost bet: the payload could not be read at all, which is the same corruption
 		// the collect path reports rather than a shape the caller got wrong.
@@ -165,7 +165,7 @@ func (e *Engine) admitRetries(ctx context.Context, inst *model.ProcessInstance, 
 }
 
 // slotError is what a raised slot is judged by: its code — its own, unless the payload it
-// carries fails the shape the call declared, which replaces it with output.invalid before any
+// carries fails the shape the call declared, which replaces it with result.invalid before any
 // rule is consulted (the fetch precedent — a malformed declared body takes a 400 away from
 // `http.4%`) — and the `error` value an M2 case reads. A payload that cannot be read at all is
 // corruption, not a lost bet.
@@ -173,9 +173,9 @@ func (e *Engine) slotError(task *model.Task, child *model.ProcessInstance) (errc
 	code := errcode.Code(child.ErrorCode)
 	data, declared, err := e.raisedData(task, child, code)
 	if err != nil {
-		var invalid outputInvalid
+		var invalid resultInvalid
 		if errors.As(err, &invalid) {
-			return errcode.OutputInvalid, batchErrorValue(task, child, nil, false), nil
+			return errcode.ResultInvalid, batchErrorValue(task, child, nil, false), nil
 		}
 		return "", nil, err
 	}
@@ -368,11 +368,11 @@ func spawnKey(child *model.ProcessInstance) string {
 	return key
 }
 
-// outputInvalid marks the collect failures a caller may react to: a value that failed a shape
+// resultInvalid marks the collect failures a caller may react to: a value that failed a shape
 // THIS task declared for it — an output against result_schema, a raised fault's data against
 // raises. A lost bet, not a defect, since the child states no shape to disagree with. Every
 // other failure here is corruption and stays engine.collect. specs/error-extensions.md §X2-c.
-type outputInvalid struct{ error }
+type resultInvalid struct{ error }
 
 // buildChildOutput merges a settled batch into self.result (map for child_map, array for
 // child_list). Reached only with every child completed — failed/paused/raised are each
@@ -455,7 +455,7 @@ func (e *Engine) resolveAndValidateChildOutput(resultSchema *schema.Schema, chil
 	// as-is rather than re-normalized per collected child.
 	normalized, err := resultSchema.Validate(output)
 	if err != nil {
-		return nil, outputInvalid{fmt.Errorf("child process %q (%s) output validation: %v", child.ID, child.ProcessName, err)}
+		return nil, resultInvalid{fmt.Errorf("child process %q (%s) output validation: %v", child.ID, child.ProcessName, err)}
 	}
 	return normalized, nil
 }
@@ -475,7 +475,7 @@ func (e *Engine) raisedData(task *model.Task, child *model.ProcessInstance, code
 	}
 	normalized, err := sc.Validate(raw)
 	if err != nil {
-		return nil, false, outputInvalid{fmt.Errorf("data validation: %v", err)}
+		return nil, false, resultInvalid{fmt.Errorf("data validation: %v", err)}
 	}
 	return normalized, true, nil
 }

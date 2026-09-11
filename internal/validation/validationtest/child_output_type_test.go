@@ -165,7 +165,7 @@ func TestChildOutputType_NoResultSchemaSkipped(t *testing.T) {
 
 func TestChildOutputType_ChildWithoutOutputSkipped(t *testing.T) {
 	// The child declares no process output, so its output type is open — the check is
-	// skipped and runtime validation (output.invalid) remains the backstop.
+	// skipped and runtime validation (result.invalid) remains the backstop.
 	child := &model.ProcessDefinition{
 		Name:  "no-out",
 		Tasks: []*model.Task{{ID: "noop", Switch: model.SwitchMap{{Goto: model.GotoEnd}}}},

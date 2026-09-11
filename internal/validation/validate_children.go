@@ -116,10 +116,10 @@ func validateChildOnErrorReachability(s *model.Task, current *model.ProcessDefin
 		return nil // not a child task: on_error codes are engine codes, not raised ones
 	}
 
-	// The catchable set is raises(D) ∪ {output.invalid}: a child's output failing the
+	// The catchable set is raises(D) ∪ {result.invalid}: a child's output failing the
 	// result_schema this task narrowed it with is reactable, so R5 must admit the one
 	// dotted code a child task can see. specs/error-extensions.md §X2-c.
-	raisable = append(raisable, string(errcode.OutputInvalid))
+	raisable = append(raisable, string(errcode.ResultInvalid))
 
 	matchesSomeRaise := func(pattern string) bool {
 		for _, code := range raisable {

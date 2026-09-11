@@ -173,7 +173,7 @@ func doHTTP(ctx context.Context, c *http.Client, url, method string, acceptedSta
 	if limited.N <= 0 {
 		return &Response{
 			Headers:      responseHeaders(resp.Header),
-			BodyCode:     errcode.OutputTooLarge,
+			BodyCode:     errcode.ResultTooLarge,
 			ErrorMessage: fmt.Sprintf("response body exceeds the %d-byte limit a fetch will read", MaxResponseBytes),
 			Status:       resp.StatusCode,
 		}, nil
@@ -184,7 +184,7 @@ func doHTTP(ctx context.Context, c *http.Client, url, method string, acceptedSta
 		return &Response{Headers: responseHeaders(resp.Header), Status: resp.StatusCode}, nil
 	}
 	if err != nil {
-		return &Response{Headers: responseHeaders(resp.Header), BodyCode: errcode.OutputParse, Status: resp.StatusCode}, nil
+		return &Response{Headers: responseHeaders(resp.Header), BodyCode: errcode.ResultParse, Status: resp.StatusCode}, nil
 	}
 	return &Response{Body: b, Headers: responseHeaders(resp.Header), Status: resp.StatusCode}, nil
 }
@@ -194,14 +194,14 @@ func doHTTP(ctx context.Context, c *http.Client, url, method string, acceptedSta
 // len(raw) is past the cap only because the reader was given MaxResponseBytes+1.
 func decodeBytes(raw []byte) (any, errcode.Code) {
 	if len(raw) > MaxResponseBytes {
-		return nil, errcode.OutputTooLarge
+		return nil, errcode.ResultTooLarge
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, ""
 	}
 	var v any
 	if err := numeric.DecodeReader(bytes.NewReader(raw), &v); err != nil {
-		return nil, errcode.OutputParse
+		return nil, errcode.ResultParse
 	}
 	return v, ""
 }

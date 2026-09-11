@@ -410,7 +410,7 @@ test("the action types keep the order the schema declares", async () => {
 test("inside `code:` — what this task's fetch can fail with", async () => {
   const codes = await lsp.completions(at(`      - code: [<|http.500>]`));
   expect(codes).toContain("http.timeout");
-  expect(codes).toContain("output.invalid");
+  expect(codes).toContain("result.invalid");
   expect(codes).not.toContain("not_reached"); // the rule's own keys, which is what it answered
   expect(codes).not.toContain("raise");
 });
@@ -452,7 +452,7 @@ test("only_once.interrupted is offered only on an only_once task", async () => {
 // offers depend on a buffer nobody is looking at.
 test("a child task offers nothing the other file declares", async () => {
   const codes = await lsp.completions(at(`      - code: [<|carrier_down>]`));
-  expect(codes).toEqual(["output.invalid"]); // its output can still fail this task's schema
+  expect(codes).toEqual(["result.invalid"]); // its output can still fail this task's schema
 });
 
 // `code:` written as a block list is the same slot, and an element with nothing typed has no

@@ -158,7 +158,7 @@ test("lifecycle — conditional routes to correct branch", async () => {
   elseMock.stop();
 });
 
-test("lifecycle — task fails when output violates result_schema", async () => {
+test("lifecycle — task fails when the result violates its declared response schema", async () => {
   const mock = await startMockService(0, {
     response: { wrong_field: true },
   });
@@ -197,7 +197,8 @@ test("lifecycle — task fails when output violates result_schema", async () => 
   const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
-  expect(data!.error_message).toContain("output");
+  expect(data!.error_code, "a result that fails its declared schema is result.invalid").toBe("result.invalid");
+  expect(data!.error_message, "the message must name the property that was missing").toContain("charged");
 
   mock.stop();
 });

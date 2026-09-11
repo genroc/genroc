@@ -24,9 +24,9 @@ const (
 	HTTPDisconnected Code = "http.disconnected"
 	PreTimeout       Code = "pre.timeout"
 	PreError         Code = "pre.error"
-	OutputParse      Code = "output.parse"
-	OutputTooLarge   Code = "output.too_large"
-	OutputInvalid    Code = "output.invalid"
+	ResultParse      Code = "result.parse"
+	ResultTooLarge   Code = "result.too_large"
+	ResultInvalid    Code = "result.invalid"
 	ExternalTimeout  Code = "external.timeout"
 	ExternalLost     Code = "external.lost"
 )

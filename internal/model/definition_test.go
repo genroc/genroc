@@ -884,7 +884,7 @@ func TestPatternOnlyMatchesPre(t *testing.T) {
 		{"pre._rror", true},
 		// does not start with "pre." — no wildcard
 		{"http.500", false},
-		{"output.parse", false},
+		{"result.parse", false},
 		{"child.failed", false},
 		// wildcards not rooted at pre.
 		{"%", false},

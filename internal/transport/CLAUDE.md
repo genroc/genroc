@@ -14,14 +14,14 @@ Everything below breaks silently — none of it is a compile error.
    allow.
 2. **It cannot be `io.LimitReader`.** That returns EOF at the limit, which is
    indistinguishable from a body that simply ended — so an oversized response would be
-   reported as `output.parse`, or, for a body whose prefix happens to be a complete JSON
+   reported as `result.parse`, or, for a body whose prefix happens to be a complete JSON
    value, silently truncated and **accepted as the task's result**.
 3. **The size check runs before the decode error is consulted.** An oversized body may
    parse or fail depending on where it was cut, and when it fails the parse error is a
    consequence of the truncation. Swapping the order reports "invalid JSON" for a response
    the remote sent correctly.
 
-`output.too_large` belongs to the "a response arrived" family, alongside `output.parse` —
+`result.too_large` belongs to the "a response arrived" family, alongside `result.parse` —
 **not** to `errcode.Unknowable()`. The request left and the remote answered; only the size
 was refused. Adding it to the unknowable set would make it permanently unretryable on an
 `only_once` task, for a call whose outcome is in fact knowable.

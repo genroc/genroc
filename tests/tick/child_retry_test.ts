@@ -309,7 +309,7 @@ test("each slot is conformed, so a bad payload takes its own code away", async (
       },
       on_error: [
         { code: ["card_declined"], retry: { attempts: 1 }, goto: "$handled" },
-        { code: ["output.invalid"], goto: "$invalid" },
+        { code: ["result.invalid"], goto: "$invalid" },
       ],
       switch: [{ goto: "end" }],
     },
@@ -322,8 +322,8 @@ test("each slot is conformed, so a bad payload takes its own code away", async (
 
   // `a_ok` is raised[0] in slot order. If only IT were conformed — the shipped behaviour
   // before §5.5 — `b_bad` would still have read as card_declined and retried alongside it.
-  // Its payload failing the declaration is what replaces its code with output.invalid, and
-  // the rule that catches output.invalid names no retry.
+  // Its payload failing the declaration is what replaces its code with result.invalid, and
+  // the rule that catches result.invalid names no retry.
   const rows = ctx.env.query<{ process_name: string }>(
     "SELECT process_name FROM process_instances WHERE parent_id = ?",
     id,

@@ -208,7 +208,7 @@ func fetchResultContract(a *model.Action) (*schema.Schema, error) {
 // are not here: they belong to a child task, whose error.data is absent outright.
 var nonStatusProbes = []errcode.Code{
 	errcode.HTTPTimeout, errcode.PreTimeout, errcode.PreError,
-	errcode.OutputParse, errcode.OutputTooLarge, errcode.OutputInvalid,
+	errcode.ResultParse, errcode.ResultTooLarge, errcode.ResultInvalid,
 	errcode.OnlyOnceInterrupted,
 }
 
@@ -325,7 +325,7 @@ func childRuleErrorData(a *model.Action, rule model.ErrorCase, defs schema.Defs)
 // puts the null arm in. A wildcard counts even where the child happens to raise only declared
 // codes — the raise set belongs to another definition and is not read here, so the answer
 // stays conservative in the direction that costs a narrowing rather than a wrong type.
-// output.invalid is an undeclared literal like any other and falls out of the same rule.
+// result.invalid is an undeclared literal like any other and falls out of the same rule.
 func reachesUndeclaredCode(rule model.ErrorCase, decl map[string][]*schema.Schema) bool {
 	if len(rule.Code) == 0 {
 		return true // the catch-all reaches everything

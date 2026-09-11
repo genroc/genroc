@@ -162,7 +162,7 @@ func TestIsRetryAllowed(t *testing.T) {
 	}{
 		// only_once nil / false — no restriction
 		{"nil only_once allows http.500", nil, "http.500", nil, true},
-		{"nil only_once allows any code", nil, "output.invalid", nil, true},
+		{"nil only_once allows any code", nil, "result.invalid", nil, true},
 		{"false only_once allows http.500", bp(false), "http.500", nil, true},
 
 		// only_once true — pre.* is always allowed
@@ -174,13 +174,13 @@ func TestIsRetryAllowed(t *testing.T) {
 		// only_once true — non-pre.* blocked without override
 		{"true: http.500 blocked", bp(true), "http.500", nil, false},
 		{"true: http.timeout blocked", bp(true), "http.timeout", nil, false},
-		{"true: output.invalid blocked", bp(true), "output.invalid", nil, false},
+		{"true: result.invalid blocked", bp(true), "result.invalid", nil, false},
 		{"true: child.failed blocked", bp(true), "child.failed", nil, false},
 
 		// only_once true — not_reached:true overrides any error code
 		{"true + not_reached:true allows http.422", bp(true), "http.422", &model.ErrorCase{NotReached: bp(true)}, true},
 		{"true + not_reached:true allows http.500", bp(true), "http.500", &model.ErrorCase{NotReached: bp(true)}, true},
-		{"true + not_reached:true allows output.invalid", bp(true), "output.invalid", &model.ErrorCase{NotReached: bp(true)}, true},
+		{"true + not_reached:true allows result.invalid", bp(true), "result.invalid", &model.ErrorCase{NotReached: bp(true)}, true},
 
 		// only_once true — not_reached:false does not override
 		{"true + not_reached:false still allows pre.error", bp(true), "pre.error", &model.ErrorCase{NotReached: bp(false)}, true},

@@ -50,9 +50,9 @@ func TestSendHTTP_BodyPastTheLimitIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sendHTTP: %v", err)
 	}
-	if resp.BodyCode != errcode.OutputTooLarge {
+	if resp.BodyCode != errcode.ResultTooLarge {
 		t.Fatalf("got %q, want %q — an unbounded read here OOMs the worker and strands every lease it holds",
-			resp.BodyCode, errcode.OutputTooLarge)
+			resp.BodyCode, errcode.ResultTooLarge)
 	}
 	if resp.Status != http.StatusOK {
 		t.Errorf("status = %d, want 200: the response arrived, so on_error must still see what the endpoint answered", resp.Status)
@@ -72,8 +72,8 @@ func TestSendHTTP_TooLargeOutranksParseError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sendHTTP: %v", err)
 	}
-	if resp.BodyCode != errcode.OutputTooLarge {
-		t.Fatalf("got %q, want %q", resp.BodyCode, errcode.OutputTooLarge)
+	if resp.BodyCode != errcode.ResultTooLarge {
+		t.Fatalf("got %q, want %q", resp.BodyCode, errcode.ResultTooLarge)
 	}
 }
 
@@ -110,7 +110,7 @@ func TestClient_PoolsConnectionsPerHost(t *testing.T) {
 }
 
 // An empty body is a value, not a failure. 204, an async 202 and a webhook ACK all answer
-// with nothing, and reporting output.parse for them is what made those endpoints unwritable.
+// with nothing, and reporting result.parse for them is what made those endpoints unwritable.
 func TestSendHTTP_EmptyBodyDecodesToNull(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -181,8 +181,8 @@ func TestSendHTTP_UnreadableErrorBodyIsNotAVerdict(t *testing.T) {
 	if resp.ErrorCode != errcode.HTTP(http.StatusInternalServerError) {
 		t.Fatalf("code = %q, want http.500 — an undeclared status is not made a parse failure by its body", resp.ErrorCode)
 	}
-	if resp.BodyCode != errcode.OutputParse {
-		t.Errorf("body code = %q, want %q", resp.BodyCode, errcode.OutputParse)
+	if resp.BodyCode != errcode.ResultParse {
+		t.Errorf("body code = %q, want %q", resp.BodyCode, errcode.ResultParse)
 	}
 	if resp.Body != nil {
 		t.Errorf("body = %#v, want nil", resp.Body)

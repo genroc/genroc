@@ -37,11 +37,11 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 		if err != nil {
 			inst.WaitState = model.WaitStateNone
 			// A failed conform is the caller's narrowing bet losing, so it routes through
-			// on_error as output.invalid; every other failure here is corruption of the
+			// on_error as result.invalid; every other failure here is corruption of the
 			// batch and stays a defect. specs/error-extensions.md §X2-c.
-			var invalid outputInvalid
+			var invalid resultInvalid
 			if errors.As(err, &invalid) {
-				return nil, stop(e.handleCallError(inst, task, invalid.Error(), errcode.OutputInvalid))
+				return nil, stop(e.handleCallError(inst, task, invalid.Error(), errcode.ResultInvalid))
 			}
 			return nil, stop(e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %v", task.ID, err)))
 		}

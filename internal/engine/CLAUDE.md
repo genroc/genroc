@@ -229,7 +229,7 @@ Three things that break silently if it goes back:
    when the result arrives. Two answers to one question is what let them drift.
 3. **`raisedData` is the same conform on the error channel** — a raised child's `data` against
    the caller's `raises` — and carries the same rule, so both must move together. It runs
-   BEFORE the rules match, because a mismatch replaces the raised code with `output.invalid`;
+   BEFORE the rules match, because a mismatch replaces the raised code with `result.invalid`;
    matching first would route on a code the payload has already invalidated.
 
 ## Pointers

@@ -4,7 +4,7 @@ description: Learn how to deal with failures
 order: 3
 ---
 
-You might be wandering what happens when a fetch action fails? Let's look at that.
+You might be wondering what happens when a fetch action fails? Let's look at that.
 
 ```genroc
   - id: load_user
@@ -24,10 +24,6 @@ You might be wandering what happens when a fetch action fails? Let's look at tha
           properties:
             user_is_protected: { type: boolean }
     on_error:
-      - code: ["http.404"]
-        raise:
-          code: "user_doesn_exist"
-          message: "user ${input.user_id} doesn't exist"
       - code: ["http.409"]
         case: "error.data.user_is_protected == true"
         goto: $user-user-protected
@@ -39,16 +35,29 @@ You might be wandering what happens when a fetch action fails? Let's look at tha
 Your main tool is the `on_error` field. You can match one or multiple errors
 with the `code` field and you can also use `%` wildcard to match multiple errors at once.
 
+## Typed error responses
+
+You can type your error responses the same way as your success responses. 
+
+## Reacting to the error
+
+You can do 2 main things when error happens:
+
+ - 
+
+
+## Fetch error codes
+
 Errors are sorted into families by their prefix:
 
-| Code | Means |
+| Code | Meaning |
 |---|---|
 | `http.<status>` | a status `accepted_status` did not admit, e.g. `http.404` |
 | `http.timeout` | connected, but no response arrived in time |
 | `http.disconnected` | the request went out, the connection broke before a response |
 | `pre.timeout` | timed out before the request was written — it never left |
 | `pre.error` | failed before the request was written — it never left |
-| `output.parse` | the response body was not valid JSON |
-| `output.too_large` | the response body exceeded the size a fetch will read |
-| `output.invalid` | the result did not satisfy the schema declared for it |
+| `result.parse` | the response body was not valid JSON |
+| `result.too_large` | the response body exceeded the size a fetch will read |
+| `result.invalid` | the result did not satisfy the schema declared for it |
 
