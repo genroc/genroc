@@ -96,7 +96,100 @@ task directly after the error, following tasks won't have access to it.
     ...
 ```
 
-> You can also panic or raise, but that will get useful once we get to the child processes
+> You can also `panic` or `raise`, but that will get useful once we get to the child processes
+
+## Only once
+
+In certain cases it is important that operation happens exactly once (e.g. money transfers).
+
+Genroc has a primitive for this, called `only_once`.
+
+```genroc
+  - id: transfer_money
+    action:
+      type: fetch
+      method: post
+      url: "https://api.example.com/money/transfer"
+      body:
+        from: "$: input.from"
+        to: "$: input.to"
+        amount: "$: input.amount"
+    only_once: true
+    on_error:
+      - code: ["pre.%"]
+        retry: 3
+      - code: ["http.503"]
+        retry: 3
+        not_reached: true
+    switch: end
+```
+
+In this example we are using `only_once`. In this case genroc is very careful to only hit the endpoint once.
+You can safely retry on `pre.%` errors, because those errors happen before the request left (dns lookup, tcp handshake).
+
+You can also retry on other errors, but you have to explicitly add `not_reached` field.
+That field is there to make sure you won't retry by accident, genroc will require this, because you have to ensure
+that the error actually means the operation was not performed.
+
+### Ambiguous cases
+
+Inherently there are cases when we genuenly cannot know if the operation was performed or not (read about [Two Generals' Problem](https://en.wikipedia.org/wiki/Two_Generals%27_Problem)),
+in these cases you either need to check if the money were transferred or not through a different channel.
+
+There are two ways:
+  - fail the process and let someone check manually
+  - use `on_error` and check if the money were transferred or not through a idepotent endpoint
+
+```genroc
+  - id: transfer_money
+    action:
+      type: fetch
+      method: post
+      url: "https://api.example.com/money/transfer"
+      body:
+        from: "$: input.from"
+        to: "$: input.to"
+        amount: "$: input.amount"
+        transatction_id: "$: input.transaction_id"
+    only_once: true
+    on_error:
+      - code: ["only_once.interrupted", "http.timeout", "http.disconnected"]
+        goto: $check_transfer
+    switch: end
+  - id: check_transfer
+    action:
+      type: fetch
+      method: get
+      url: "https://api.example.com/money/check_transaction/${input.transaction_id}"
+      accepted_status: [2xx, "404"]   # new concept, read below
+    output:
+      retries: "$: (self.previous.retries ?? 0) + 1"
+    switch:
+      - case: "self.status == 404 && self.output.retries < 3"
+        goto: $transfer_money
+      - goto: end
+```
+
+This is a bit more complicated example, but basically what we do is
+we check if the transaction exists or not in the `check_transaction` task.
+We limit the retries to 3 through the output mapping (we are reading previous output.retries and adding one).
+
+## Accepted statuses
+
+In the example above, we've introduced a new field `accepted_status`.
+This field defines which http statuses are considered success.
+
+The default value is `2xx`, but there is a caveat when the `responses` field defines an output.
+
+### Responses field influence
+If responses field contains 2xx field the accepted statuses are narrowed to only them.
+
+This can feel a bit strange, because if you only define response type for `200`, you can recieve `202` as an error, 
+but the logic is that if you've defined the response type, you usually need the data from the body.
+
+If you need to always accept all 2xx statuses regardless of the body, you can override the `accepted_status` manually.
+But you then need to count with the case that the body won't be there.
+
 
 ## Fetch error codes
 
@@ -112,4 +205,5 @@ Errors are sorted into families by their prefix:
 | `result.parse` | the response body was not valid JSON |
 | `result.too_large` | the response body exceeded the size a fetch will read |
 | `result.invalid` | the result did not satisfy the schema declared for it |
+| `only_once.interrupted` | this happens if something unexpected happens (e.g. server crash) during the `only_once` task execution and the engine doesn't know if the operation was performed or not |
 
