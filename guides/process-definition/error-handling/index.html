@@ -247,11 +247,47 @@ that the error actually means the operation was not performed.</p>
 <h3 id="ambiguous-cases">Ambiguous cases<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#ambiguous-cases"><span></span></a></h3>
 <p>Inherently there are cases when we genuenly cannot know if the operation was performed or not (read about <a href="https://en.wikipedia.org/wiki/Two_Generals%27_Problem">Two Generals’ Problem</a>),
 in these cases you either need to check if the money were transferred or not through a different channel.</p>
-<p>There are two ways:</p>
-<ul>
-<li>fail the process and let someone check manually</li>
-<li>use <code>on_error</code> and check if the money were transferred or not through a idepotent endpoint</li>
-</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Code</th><th>Reported by</th><th>What happened</th></tr></thead><tbody><tr><td><code>only_once.interrupted</code></td><td>any <code>only_once</code> task</td><td>a previous attempt was interrupted — route it, never retry</td></tr><tr><td><code>http.timeout</code></td><td>fetch</td><td>connected, but no response arrived in time</td></tr><tr><td><code>http.disconnected</code></td><td>fetch</td><td>the request went out, the connection broke before a response</td></tr><tr><td><code>external.timeout</code></td><td>external</td><td>the wait deadline elapsed</td></tr><tr><td><code>external.lost</code></td><td>external</td><td>a worker’s claim expired without an answer</td></tr></tbody></table>
+<p><code>not_reached</code> buys nothing here: it asserts what an error <em>means</em>, and that is a claim you can only
+make about an error that came back. Naming one of these alongside <code>retry</code> is refused at registration.</p>
+<h3 id="what-to-do-with-ambiguious-cases">What to do with ambiguious cases<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#what-to-do-with-ambiguious-cases"><span></span></a></h3>
+<p>By default the process will fail and you can manually check if the money went away or not.</p>
+<p>Or you can have a idepotent task for checking if the transaction happened or not and then retry based on that.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> transfer_money</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> fetch</span></span>
@@ -272,7 +308,7 @@ in these cases you either need to check if the money were transferred or not thr
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> fetch</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      method</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> get</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">https://api.example.com/money/check_transaction/</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">transaction_id</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">}</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      accepted_status</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2xx</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">404</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">   # new concept, read below</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      accepted_status</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">2xx</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">404</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">   # specifies which statuses are not considered error</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      retries</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> (</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">self</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">previous</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">retries</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> ??</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 0</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">)</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> +</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> 1</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
@@ -339,7 +375,7 @@ But you then need to count with the case that the body won’t be there.</p>
 
 
 
-<table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody><tr><td><code>http.&lt;status&gt;</code></td><td>a status <code>accepted_status</code> did not admit, e.g. <code>http.404</code></td></tr><tr><td><code>http.timeout</code></td><td>connected, but no response arrived in time</td></tr><tr><td><code>http.disconnected</code></td><td>the request went out, the connection broke before a response</td></tr><tr><td><code>pre.timeout</code></td><td>timed out before the request was written — it never left</td></tr><tr><td><code>pre.error</code></td><td>failed before the request was written — it never left</td></tr><tr><td><code>result.parse</code></td><td>the response body was not valid JSON</td></tr><tr><td><code>result.too_large</code></td><td>the response body exceeded the size a fetch will read</td></tr><tr><td><code>result.invalid</code></td><td>the result did not satisfy the schema declared for it</td></tr><tr><td><code>only_once.interrupted</code></td><td>this happens if something unexpected happens (e.g. server crash) during the <code>only_once</code> task execution and the engine doesn’t know if the operation was performed or not</td></tr></tbody></table>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/tasks-and-expressions/"> <span>previous</span> <strong>Tasks and expressions</strong> </a> <a class="next" href="/guides/process-definition/example/"> <span>next</span> <strong>An example</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#typed-error-responses">Typed error responses</a></li><li class="depth-3"><a href="#case-field">Case field</a></li><li class="depth-2"><a href="#reacting-to-the-error">Reacting to the error</a></li><li class="depth-3"><a href="#retry">Retry</a></li><li class="depth-3"><a href="#route-to-another-task">Route to another task</a></li><li class="depth-2"><a href="#only-once">Only once</a></li><li class="depth-3"><a href="#ambiguous-cases">Ambiguous cases</a></li><li class="depth-2"><a href="#accepted-statuses">Accepted statuses</a></li><li class="depth-3"><a href="#responses-field-influence">Responses field influence</a></li><li class="depth-2"><a href="#fetch-error-codes">Fetch error codes</a></li></ul><script>
+<table><thead><tr><th>Code</th><th>Meaning</th></tr></thead><tbody><tr><td><code>http.&lt;status&gt;</code></td><td>a status <code>accepted_status</code> did not admit, e.g. <code>http.404</code></td></tr><tr><td><code>http.timeout</code></td><td>connected, but no response arrived in time</td></tr><tr><td><code>http.disconnected</code></td><td>the request went out, the connection broke before a response</td></tr><tr><td><code>pre.timeout</code></td><td>timed out before the request was written — it never left</td></tr><tr><td><code>pre.error</code></td><td>failed before the request was written — it never left</td></tr><tr><td><code>result.parse</code></td><td>the response body was not valid JSON</td></tr><tr><td><code>result.too_large</code></td><td>the response body exceeded the size a fetch will read</td></tr><tr><td><code>result.invalid</code></td><td>the result did not satisfy the schema declared for it</td></tr><tr><td><code>only_once.interrupted</code></td><td>this happens if something unexpected happens (e.g. server crash) during the <code>only_once</code> task execution and the engine doesn’t know if the operation was performed or not</td></tr></tbody></table>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/tasks-and-expressions/"> <span>previous</span> <strong>Tasks and expressions</strong> </a> <a class="next" href="/guides/process-definition/example/"> <span>next</span> <strong>An example</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#typed-error-responses">Typed error responses</a></li><li class="depth-3"><a href="#case-field">Case field</a></li><li class="depth-2"><a href="#reacting-to-the-error">Reacting to the error</a></li><li class="depth-3"><a href="#retry">Retry</a></li><li class="depth-3"><a href="#route-to-another-task">Route to another task</a></li><li class="depth-2"><a href="#only-once">Only once</a></li><li class="depth-3"><a href="#ambiguous-cases">Ambiguous cases</a></li><li class="depth-3"><a href="#what-to-do-with-ambiguious-cases">What to do with ambiguious cases</a></li><li class="depth-2"><a href="#accepted-statuses">Accepted statuses</a></li><li class="depth-3"><a href="#responses-field-influence">Responses field influence</a></li><li class="depth-2"><a href="#fetch-error-codes">Fetch error codes</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
