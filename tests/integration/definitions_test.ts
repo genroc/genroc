@@ -128,3 +128,18 @@ test("PUT /definitions — rejects missing process name", async () => {
   expect(error).toBeDefined();
   expect(data).toBeUndefined();
 });
+
+// An empty list entry — a `-` with nothing under it yet — decodes to a null task, and every
+// walk over `tasks` before validation dereferenced it. It reached topoSort first, so the
+// batch endpoint answered by killing the connection.
+test("PUT /definitions/batch — a null task entry is rejected, not a crash", async () => {
+  const { data, error } = await client.PUT("/definitions/batch", {
+    body: {
+      definitions: [{ name: `null_task_${crypto.randomUUID()}`, tasks: [null] }],
+    } as any,
+  });
+
+  expect(data).toBeUndefined();
+  expect((error as any)?.code).toBe("invalid");
+  expect((error as any)?.error).toContain("tasks[0] is empty");
+});

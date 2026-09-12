@@ -312,7 +312,7 @@ type Task struct {
 // Versions are assigned by the server on apply; never include a version when submitting definitions.
 type ProcessDefinition struct {
 	Name         string         `json:"name"         validate:"required" description:"Unique process identifier."`
-	Tasks        []*Task        `json:"tasks"        validate:"required,min=1,dive" description:"Ordered list of execution tasks. Control advances linearly unless a switch case redirects."`
+	Tasks        []*Task        `json:"tasks"        validate:"required,min=1,dive,required" description:"Ordered list of execution tasks. Control advances linearly unless a switch case redirects."`
 	InputSchema  *schema.Schema `json:"input_schema,omitempty"          description:"JSON Schema used to validate the input payload when starting a new instance."`
 	ConfigSchema *schema.Schema `json:"config_schema,omitempty"         description:"Flat object of primitive config variables, resolved from the server environment and read as config.<NAME>."`
 	Defs         schema.Defs    `json:"$defs,omitempty,omitzero"        description:"Shared schema definitions, referenced as \"#/$defs/<name>\"."`

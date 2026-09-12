@@ -127,6 +127,15 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 		ptrs[i] = &defs[i]
 	}
 
+	// Ahead of topoSort, which walks tasks: a document that fails Validate need not be
+	// shaped like one — a null entry in `tasks` decodes to a nil *Task, and every walk
+	// from here down dereferences it. Every failure judges the submitted document.
+	for _, def := range ptrs {
+		if err := def.Validate(); err != nil {
+			return nil, invalid("%s: %w", def.Name, err)
+		}
+	}
+
 	sorted, err := topoSort(ptrs)
 	if err != nil {
 		return nil, invalid("%w", err)
@@ -179,9 +188,6 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 		// Everything in this block judges the submitted document, so it is invalid,
 		// not internal. ResolveConfig below is deliberately left unclassified: an
 		// unset GENROC_* var is the server's environment, not the client's request.
-		if err := def.Validate(); err != nil {
-			return nil, invalid("%s: %w", def.Name, err)
-		}
 		if _, err := validation.Generate(defForValidation); err != nil {
 			return nil, invalid("%s: %w", def.Name, err)
 		}

@@ -173,3 +173,10 @@ test("a field given the wrong kind of value says what it takes, where it is writ
   const ds = await lsp.diagnostics(edit(orders, { "      method: get": "      method: [get]" }));
   expect(ds).toEqual([`16: method must be a string, not a list`]);
 });
+
+// A `-` typed a task ahead of what is under it — the state every new task passes through.
+// The null it decodes to reached Validate as a nil task and took the server down with it.
+test("an empty list entry is underlined, and does not crash the server", async () => {
+  const ds = await lsp.diagnostics(edit(orders, { "  - id: review": "  -\n\n  - id: review" }));
+  expect(ds).toEqual([`37: tasks[1] is empty`]);
+});

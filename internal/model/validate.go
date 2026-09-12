@@ -814,6 +814,11 @@ func describeFieldErr(fe validator.FieldError) string {
 	field := fe.Field()
 	switch fe.Tag() {
 	case "required", "required_if":
+		// An indexed field is a list entry, not a slot: `dive,required` fires on a null
+		// element, and "tasks[1] is required" would read as a missing key.
+		if strings.HasSuffix(field, "]") {
+			return fmt.Sprintf("%s is empty", field)
+		}
 		return fmt.Sprintf("%s is required", field)
 	case "min":
 		return fmt.Sprintf("%s must have at least %s item(s)", field, fe.Param())
