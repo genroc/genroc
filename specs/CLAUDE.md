@@ -34,8 +34,8 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   the build: the **size cap was dropped** (a process `output` has none either, and the guard
   that does the work is the ergonomics gradient, not a byte count), and the conform that
   narrows an **unknown child output** moved off `engine.collect` onto a catchable
-  `output.invalid` — which is why a child task's catchable set is now
-  `raises(D) ∪ {output.invalid}` (child-error-handling.md E6).
+  `result.invalid` — which is why a child task's catchable set is now
+  `raises(D) ∪ {result.invalid}` (child-error-handling.md E6).
 - [api-auth.md](api-auth.md) — **BUILT, with nothing outstanding**; path layout, permissions and
   `token` mode landed 2026-08-28, `header` mode and the session exchange 2026-09-01, attribution
   (§7) and `jwt` mode 2026-09-02. How genroc gets authenticated at all. The decision everything rests on is
@@ -269,7 +269,7 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   presence so a null result stays a success) and both addressing modes take either; migration
   027 renames the buffer column to match, which is what lets a failure buffer before the task
   arms. Two further things moved in that build and are marked **[built]** in the doc: the failure payload is conformed **on submission** (a 400 the caller can act on,
-  the task left parked) rather than degrading to `output.invalid` the way a child's raise
+  the task left parked) rather than degrading to `result.invalid` the way a child's raise
   must, because the submitter is an HTTP caller and a child's raiser is not; and `raises` is a
   **closed set** on an external task where it is only a payload typing on a child — a child's
   raisable codes come from its own definition so R5 catches a typo at registration, while

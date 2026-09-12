@@ -24,7 +24,7 @@ the same instance is claimed again, the same endpoint is called again, and it di
 A single misbehaving endpoint is a crash loop that also stalls 199 unrelated processes.
 
 **Shipped:** a `MaxResponseBytes` cap of 8 MiB, reported as the catchable error code
-`output.too_large`.
+`result.too_large`.
 
 Two choices worth recording:
 
@@ -34,9 +34,9 @@ Two choices worth recording:
   endpoint answering with more than 8 MiB of JSON is a fault in that endpoint, and a flag
   would invite raising it rather than fixing it. Making it configurable later is a
   one-line change if a real workload needs it.
-- **A new code, not `output.parse`.** An oversized body and an unparseable one call for
-  different fixes, and `output.parse` would send the reader to a JSON validator for a
-  response that is usually valid JSON. `output.too_large` sits alongside `output.parse` in
+- **A new code, not `result.parse`.** An oversized body and an unparseable one call for
+  different fixes, and `result.parse` would send the reader to a JSON validator for a
+  response that is usually valid JSON. `result.too_large` sits alongside `result.parse` in
   the "a response **did** arrive" family of
   [only-once-interrupted.md](only-once-interrupted.md): the request left, the remote
   answered, and the size is evidence about the remote's behaviour that a definition can

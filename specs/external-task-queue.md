@@ -254,7 +254,7 @@ set an `only_once` task can never retry.
 from the paragraph this replaces:
 
 - **The payload is conformed on submission, not in the engine.** A child's raiser is another
-  process that cannot be told, so its mismatch can only degrade to `output.invalid` at
+  process that cannot be told, so its mismatch can only degrade to `result.invalid` at
   collect. An external submitter is an HTTP caller holding the connection, so the mismatch is
   a `400` it can act on — and because the task stays parked, answering again with a corrected
   payload is the ordinary path rather than a stranded instance. `resolve` already set this
@@ -414,7 +414,7 @@ does not bump the epoch and an unlisted claim expires with the worker id intact.
 **Go, engine:** `external.timeout` still fires at `wake_at` with a live claim outstanding.
 
 **JS e2e:** `fail` → `on_error` matches the authored code → each of `goto`/`raise`/`retry`;
-`error.data` conformed against `raises`, mismatch → `output.invalid`; a failed code on an
+`error.data` conformed against `raises`, mismatch → `result.invalid`; a failed code on an
 `only_once` task is refused a retry without `not_reached: true`; a lost claim raises
 `external.lost` and is catchable.
 

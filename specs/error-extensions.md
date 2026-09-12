@@ -143,7 +143,7 @@ features is free, but narrowing rules are near-permanent once definitions rely o
 ### X2-c — parent-readable, caller-declared (the accepted design, built)
 
 Two arguments closed this, both from 2026-08-22. Shipped the same day, in three parts, each
-landing on its own: the `output.invalid` split below, then `data` on `Fault`, then `raises`.
+landing on its own: the `result.invalid` split below, then `data` on `Fault`, then `raises`.
 Two decisions were taken during the build and are recorded where they belong — the size cap
 was **dropped** (see its section) and a `raises` value of `null` is **refused**, since omitting
 the code already says "carries nothing" while `{}` says "present, narrow it".
@@ -324,11 +324,11 @@ themselves rather than by any type-system machinery"; `ruleCatches(rule, code)` 
 takes an `errcode.Code`. Only `ruleErrorData`'s *source* is fetch-specific — it reads
 `a.Responses`. A child branch reading `a.Raises` sits beside it.
 
-#### A mismatch is `output.invalid`, and the success path changes to match
+#### A mismatch is `result.invalid`, and the success path changes to match
 
 This applies to `raise` alone — a panic's data is never declared, so there is nothing for
 it to mismatch. A `data` value that does not satisfy the caller's declared schema reports
-**`output.invalid`**, catchable by an `on_error` rule on the child task.
+**`result.invalid`**, catchable by an `on_error` rule on the child task.
 
 Getting here took two reversals, and both are worth keeping because the reasoning is the
 same reasoning that governs the success path.
@@ -356,7 +356,7 @@ uncatchable, and `engine.collect` was the existing precedent. The open type brea
 reading. When a generic wrapper forwards an unknown and a caller narrows it, the caller is
 making a *bet* about a shape neither definition states, and the bet can lose with both
 definitions perfectly consistent — a script's return changed, an upstream API changed.
-That is not a defect; it is precisely what `output.invalid` already means on a fetch
+That is not a defect; it is precisely what `result.invalid` already means on a fetch
 ("the response did not satisfy its result_schema"). Two mechanisms both named
 `result_schema`, failing for the same reason with different codes and different
 catchability, was the real inconsistency.
@@ -368,18 +368,18 @@ exactly as today. `engine.collect` removed a choice and bought nothing.
 X2 — it is about `result_schema`, needs none of the `raises` machinery, and could land
 first. It did: **built 2026-08-22**, ahead of the rest. Three notes:
 
-- **A split, not a rename.** Only the conform becomes `output.invalid`. The four other
+- **A split, not a rename.** Only the conform becomes `result.invalid`. The four other
   failures reaching the same `failInstance` are corruption rather than contract — a
   sibling that is not `completed` ("an invariant, not a case to handle"), a single-child
   task with ≠1 sibling, an invalid `_spawn_index`, and object-store resolution failing while
   the value is materialised. Those stay `engine.collect`.
 - **It amends E6.** §2.4 of child-error-handling.md justifies the no-namespace rule with
   "there is nothing else they can see: every other failure path … goes straight to
-  `failInstance`". A child task's catchable set becomes `raises(D) ∪ {output.invalid}`.
+  `failInstance`". A child task's catchable set becomes `raises(D) ∪ {result.invalid}`.
   That stays unambiguous for the reason §2.4 itself gives — R1 forbids dots in raised
   codes and every engine code has one — but the sentence is false as written.
 - **R5 admits the one dotted code** (built): `matchesSomeRaise` unions
-  `errcode.OutputInvalid` into the raisable set, so `code: ["output.invalid"]` on a child
+  `errcode.ResultInvalid` into the raisable set, so `code: ["result.invalid"]` on a child
   task is reachable rather than rejected.
 
 On the raise path the code is **replaced**, so a rule matching the original raised code no

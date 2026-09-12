@@ -77,7 +77,7 @@ Registration enforces three tiers, per `on_error` pattern:
 |---|---|
 | Only `pre.*` (the request never left) | **yes**, on its own |
 | Anything else | only with `not_reached: true`, **and** naming exact codes — a wildcard is not an assertion |
-| `only_once.interrupted`, `http.timeout`, `external.timeout` | **never**, however named |
+| `only_once.interrupted`, `http.timeout`, `http.disconnected`, `external.timeout`, `external.lost` | **never**, however named |
 
 That last row is the *unknowable set*: the errors where the request left and nothing came
 back. `not_reached: true` cannot override them, because that flag asserts what an error

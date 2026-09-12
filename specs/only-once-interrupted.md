@@ -69,9 +69,11 @@ left and nothing came back. Members: `only_once.interrupted`, `http.timeout`,
 `http.disconnected` (the bytes went out, the connection broke before a response —
 at the client this is indistinguishable from a remote that acted and died answering),
 `external.timeout` (armed, deadline passed, nothing learned — the member most worth a
-second opinion, since `only_once` external tasks are rare). Outside it, `not_reached:
+second opinion, since `only_once` external tasks are rare), and — added 2026-08-24 with the
+claim protocol — `external.lost` (a worker held the task and its claim expired without an
+answer; external-task-queue.md §`external.lost`). Outside it, `not_reached:
 true` keeps working: `pre.*` (never left; safe with no assertion), and any code where a
-response *arrived* (`http.<status>`, `output.*`) — there is evidence to assert about.
+response *arrived* (`http.<status>`, `result.*`) — there is evidence to assert about.
 `not_reached` is an assertion about what an error means, and for the set nothing came
 back, so there is nothing to interpret.
 

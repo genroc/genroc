@@ -112,7 +112,7 @@ in an `on_error` rule, which puts the new code into *its* raise set.
   and retrying re-spawns the raised slots (§5.5). The `not_reached` rejection stays, and is
   now load-bearing: it keeps an `only_once` child task — the parent's own spawning task,
   whose re-attempt is within *this* instance — un-retryable, since every code such a task can
-  catch (`raises(D) ∪ {output.invalid}`) implies the child ran, and spawn-time failures never
+  catch (`raises(D) ∪ {result.invalid}`) implies the child ran, and spawn-time failures never
   reach `on_error` (E6). Registration must refuse that combination rather than leave
   `isRetryAllowed` to drop it at runtime: a retry that can never fire is what D7 meant by
   "rejecting beats silently ignoring". (`only_once` *inside* the child is a different
@@ -347,13 +347,13 @@ the collect, and, on the shiftable clock, that the delay runs from the failure.
   the **caller**, so a generic child stays generic. `{}` exposes it opaquely for a rule to
   narrow, `null` declares a code carrying none, an omitted code leaves `error.data` absent
   (reading it is a registration error), and a payload that does not fit its declaration
-  reports `output.invalid` in place of the raised code. The original "no data crosses" rule
+  reports `result.invalid` in place of the raised code. The original "no data crosses" rule
   is out; what survives is the half that mattered — the caller asks by name.
   **Amended 2026-08-27:** a declaration is checked against the child's inferred payload at
-  registration (R7), so `output.invalid` is reached only by a payload registration cannot
+  registration (R7), so `result.invalid` is reached only by a payload registration cannot
   type — the top type a generic wrapper forwards.
 - **E6 amended 2026-08-22 (built).** §2.4's "nothing else they can see" no longer holds
-  exactly: a child task's catchable set is `raises(D) ∪ {output.invalid}`, the
+  exactly: a child task's catchable set is `raises(D) ∪ {result.invalid}`, the
   `result_schema` conform having moved off `engine.collect` so a caller narrowing an
   **unknown** child output can react to a bet that lost.
 
@@ -372,7 +372,7 @@ cut every other value slot gets.
 
 `completed` → `''`; `raised` → the raised code; `failed` → the panic code or the engine code
 — the last being where the operational value is, since engine codes existed only inside prose
-before. Two families: call codes (`http.500`, `pre.timeout`, `output.invalid`…) via
+before. Two families: call codes (`http.500`, `pre.timeout`, `result.invalid`…) via
 `handleCallError`, and a closed `engine.*` set (`definition`, `expression`, `config`, `input`,
 `spawn`, `collect`, `panic` — the last for a Go panic escaping an advance) via
 `failInstance`. (`engine.only_once` later became the catchable `only_once.interrupted` —

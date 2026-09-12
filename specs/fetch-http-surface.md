@@ -81,9 +81,9 @@ types `error.data` and still routes through `on_error`.
 
 Today `accepted_status` defaults to any 2xx and `sendHTTP` decodes the body unconditionally,
 so a `202` carrying no body is accepted and then fails to parse. Measured, not inferred —
-`204`, an empty `200` and a `text/plain` `200` all return `output.parse`, and
+`204`, an empty `200` and a `text/plain` `200` all return `result.parse`, and
 [transport.go:130](../internal/transport/transport.go#L130) sets no `ErrorMessage` on that
-path, so the trail says `output.parse` and nothing else. `DELETE` → 204, an async kickoff →
+path, so the trail says `result.parse` and nothing else. `DELETE` → 204, an async kickoff →
 202, a webhook ACK: none are expressible. On the other side an error payload is unreachable at
 any type — `error` is `{task, message, code}`
 ([error.go:71](../internal/engine/error.go#L71),
@@ -125,7 +125,7 @@ responses:
 3. **Enforcement** — a declared schema is a contract on both channels. An empty body decodes
    to `null` rather than failing to parse, and the declared schema then validates it, so a
    declared `"200"` or `"400"` that arrives empty, unparseable, oversized or non-conforming
-   raises the body-validation code (`output.invalid` / `output.parse` / `output.too_large`)
+   raises the body-validation code (`result.invalid` / `result.parse` / `result.too_large`)
    **instead of** the status code the response would otherwise have produced.
 
 So `{"200": T}` types `self.result` as exactly `T`: non-nullable, and enforced rather than
@@ -158,17 +158,17 @@ the definition's error handling — a declaration made for typing must not chang
 endpoint's description across two slots and puts a data declaration on a control-flow rule.
 
 **Enforcement is uniform: a declared schema is enforced on both channels.** A body that does
-not conform has its own error — `output.invalid`, joined by `output.parse` and
-`output.too_large` — and on the error channel that code **replaces** the `http.NNN` the status
-would have raised. So a malformed 400 against `{"400": A}` arrives as `output.invalid`, not
+not conform has its own error — `result.invalid`, joined by `result.parse` and
+`result.too_large` — and on the error channel that code **replaces** the `http.NNN` the status
+would have raised. So a malformed 400 against `{"400": A}` arrives as `result.invalid`, not
 `http.400`, exactly as a malformed 200 against `{"200": T}` already does.
 
 The rejected alternative was leniency: route `http.400` anyway and leave `error.data` null.
 It reads as the safer choice — the error path *is* the recovery path — but it makes every
 declared error schema nullable at the point of use, so a handler must write `?? {}` even where
 it declared the shape, and a schema you must null-check anyway has bought almost nothing. The
-escalation is also less drastic than it looks: `output.invalid` is catchable, so an author who
-wants one handler for both writes `code: [http.400, output.invalid]`, and anyone who wants the
+escalation is also less drastic than it looks: `result.invalid` is catchable, so an author who
+wants one handler for both writes `code: [http.400, result.invalid]`, and anyone who wants the
 old behaviour outright declares `"4xx": {}` — the top type conforms to everything and therefore
 never escalates.
 

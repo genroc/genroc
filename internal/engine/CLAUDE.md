@@ -24,12 +24,12 @@ Three things that break silently if you touch this:
    invariants in [internal/db/CLAUDE.md](../db/CLAUDE.md), applied to a path that used to
    opt out of them). Anything that hands a row back by clearing `worker_id` re-runs
    `only_once` tasks that must never re-run.
-2. **The unknowable set is `only_once.interrupted`, `http.timeout`, `external.timeout`** —
-   the errors where the request left and nothing came back. On an `only_once` task these
-   can never be retried, and `not_reached: true` does **not** override them: that flag
-   asserts what an error *means*, which is a claim only about an error that returned.
-   `errcode.Unknowable()` is the list; `Code.IsUnknowable()` its predicate, mirroring
-   `IsNotReached()`.
+2. **`errcode.Unknowable()` is the set** — the codes where the request left and nothing came
+   back, on both the HTTP and the external path. On an `only_once` task these can never be
+   retried, and `not_reached: true` does **not** override them: that flag asserts what an
+   error *means*, a claim only about an error that returned. Read the var, never a copy of it:
+   this entry spelled the set out and was wrong from the day `external.lost` joined it.
+   `Code.IsUnknowable()` is the predicate, mirroring `IsNotReached()`.
 3. **`isRetryAllowed` (`error.go`) refuses at runtime too**, which is not redundant:
    validation runs only at registration, and definitions stored before the rule keep their
    `on_error` verbatim.
