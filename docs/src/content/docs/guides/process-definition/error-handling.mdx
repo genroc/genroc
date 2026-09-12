@@ -136,9 +136,22 @@ that the error actually means the operation was not performed.
 Inherently there are cases when we genuenly cannot know if the operation was performed or not (read about [Two Generals' Problem](https://en.wikipedia.org/wiki/Two_Generals%27_Problem)),
 in these cases you either need to check if the money were transferred or not through a different channel.
 
-There are two ways:
-  - fail the process and let someone check manually
-  - use `on_error` and check if the money were transferred or not through a idepotent endpoint
+| Code | Reported by | What happened |
+|---|---|---|
+| `only_once.interrupted` | any `only_once` task | a previous attempt was interrupted — route it, never retry |
+| `http.timeout` | fetch | connected, but no response arrived in time |
+| `http.disconnected` | fetch | the request went out, the connection broke before a response |
+| `external.timeout` | external | the wait deadline elapsed |
+| `external.lost` | external | a worker's claim expired without an answer |
+
+`not_reached` buys nothing here: it asserts what an error *means*, and that is a claim you can only
+make about an error that came back. Naming one of these alongside `retry` is refused at registration.
+
+### What to do with ambiguious cases
+
+By default the process will fail and you can manually check if the money went away or not.
+
+Or you can have a idepotent task for checking if the transaction happened or not and then retry based on that.
 
 ```genroc
   - id: transfer_money
@@ -161,7 +174,7 @@ There are two ways:
       type: fetch
       method: get
       url: "https://api.example.com/money/check_transaction/${input.transaction_id}"
-      accepted_status: [2xx, "404"]   # new concept, read below
+      accepted_status: [2xx, "404"]   # specifies which statuses are not considered error
     output:
       retries: "$: (self.previous.retries ?? 0) + 1"
     switch:
