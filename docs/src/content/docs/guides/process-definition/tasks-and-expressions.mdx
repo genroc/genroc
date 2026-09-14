@@ -77,10 +77,6 @@ Genroc will validate the data against the schema, so no invalid data will ever g
 Result of the fetch is then available as `self.result` in the `case` expression,
 so we can check if the account is activated or not.
 
-`self.result` is only usable within the same task. If we want to use some data later (in following tasks),
-we have to map it through output. In this case we are producing output `{ email: '<user email>'}` which will then
-be available to following tasks under `outputs.<task-id>`.
-
 ## Expressions
 
 Genroc supports expressions which allow you to dynamically evaluate or pass from one task to another.
@@ -89,6 +85,9 @@ In the expressions you can reference following variables:
   - `input` - process input defined by `input_schema`
   - `outputs.<task-id>` - output of any earlier task (if defined)
   - `self` - data about current task not available outside of it
+    - `self.previous` - output of the previous instance of this task (if the task is in any loop)
+    - `self.result` - action result if defined (available after action - `output`, `switch`, `on_error`)
+    - `self.output` - output of current task (available after output is defined - `switch` and `on_error`)
 
 You can also use basic operators like `==`, `!=`, `<`, `<=`, `>`, `>=`.
 
