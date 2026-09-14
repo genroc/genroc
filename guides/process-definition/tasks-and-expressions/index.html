@@ -202,16 +202,19 @@ The delay will park the action for specified amount of time, while it waits ther
 Genroc will validate the data against the schema, so no invalid data will ever get in.</p>
 <p>Result of the fetch is then available as <code>self.result</code> in the <code>case</code> expression,
 so we can check if the account is activated or not.</p>
-<p><code>self.result</code> is only usable within the same task. If we want to use some data later (in following tasks),
-we have to map it through output. In this case we are producing output <code>{ email: &#39;&lt;user email&gt;&#39;}</code> which will then
-be available to following tasks under <code>outputs.&lt;task-id&gt;</code>.</p>
 <h2 id="expressions">Expressions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#expressions"><span></span></a></h2>
 <p>Genroc supports expressions which allow you to dynamically evaluate or pass from one task to another.
 In the expressions you can reference following variables:</p>
 <ul>
 <li><code>input</code> - process input defined by <code>input_schema</code></li>
 <li><code>outputs.&lt;task-id&gt;</code> - output of any earlier task (if defined)</li>
-<li><code>self</code> - data about current task not available outside of it</li>
+<li><code>self</code> - data about current task not available outside of it
+<ul>
+<li><code>self.previous</code> - output of the previous instance of this task (if the task is in any loop)</li>
+<li><code>self.result</code> - action result if defined (available after action - <code>output</code>, <code>switch</code>, <code>on_error</code>)</li>
+<li><code>self.output</code> - output of current task (available after output is defined - <code>switch</code> and <code>on_error</code>)</li>
+</ul>
+</li>
 </ul>
 <p>You can also use basic operators like <code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code>.</p>
 <p>Expressions can also compose objects or arrays:</p>
