@@ -198,7 +198,7 @@ as on <code>switch</code>, so you can have custom expression returning boolean.<
 <p>Both selectors have to hold. A rule whose <code>code</code> matches but whose <code>case</code> is false does <strong>not</strong> catch the error —
 it falls through to the next rule, so you can write several rules for one code and let them narrow each other.</p>
 <h2 id="custom-timeout">Custom timeout<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#custom-timeout"><span></span></a></h2>
-<p>Default timeout is <code>30s</code> you can specify our own, which is also a slot accepting number of milliseconds.
+<p>Default timeout is <code>30s</code> you can specify our own, which is also a slot (static values can be human readable, dynamic milliseconds only).
 If the fetch doesn’t respond in time you’ll recieve <code>http.timeout</code> or <code>pre.timeout</code> if the data were not send yet.</p>
 <h2 id="reacting-to-the-error">Reacting to the error<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#reacting-to-the-error"><span></span></a></h2>
 <p>To react to the error you can retry or use goto. You can also combine
