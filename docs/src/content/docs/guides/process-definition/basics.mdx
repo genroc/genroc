@@ -6,7 +6,10 @@ order: 1
 
 Genroc uses `*.genroc.yaml` files to describe processes.
 
-Each process has a unique name, which is used to identify it.
+Each process has a unique name and a version. Definitions are never deleted, when you
+apply new definition different from the previous ones, it gets a new version automatically.
+Once a process is started, it is pinned to it's current definition version, so new version
+doesn't have influence on already running processes.
 
 Process can optionally also have input, which is defined by [JSON-Schema](https://json-schema.org/) and is always validated.
 

@@ -89,7 +89,7 @@ In the expressions you can reference following variables:
     - `self.result` - action result if defined (available after action - `output`, `switch`, `on_error`)
     - `self.output` - output of current task (available after output is defined - `switch` and `on_error`)
 
-You can also use basic operators like `==`, `!=`, `<`, `<=`, `>`, `>=`.
+You can also use basic operators like `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`, `??`.
 
 Expressions can also compose objects or arrays:
 
@@ -187,7 +187,31 @@ In the examples above that is:
 | `for` | `delay` action | literal duration, or a `$:` yielding integer * |
 | `case` | `switch` | raw expression |
 | `output` | `task` | shape |
+| `output` | `process` | shape |
 
 > \* `for` can contain human readable syntax e.g. `2h30s` for static strings, dynamic value can only specify milliseconds as number
 
 Every action and clause introduced later brings its own slots, but the syntax is always one of these.
+
+## Process output
+
+Process can optionally have a defined output. It looks like this:
+
+```genroc
+tasks:
+  - id: load_user
+    ...
+    output:
+      email: "$: self.result.email"
+
+output:
+  email: "$: outputs.load_user.email"
+```
+
+It has a same shape and syntax as a task output. It is evaluated once the process
+hits `switch: end`. It cannot access `self` as it's not a part of any task.
+
+The output is the contract for the outside world: it is what callers read,
+and what a parent checks a child's result against. 
+Task outputs are internal — visible in `genctl detail`, 
+but nothing outside is written against them.

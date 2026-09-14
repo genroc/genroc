@@ -1,0 +1,130 @@
+---
+title: Validation and types
+description: Learn about validation, inference and type checking.
+order: 4
+---
+
+Genroc requires you to validate input into the process,
+so it always knows what shape of the data are allowed to enter.
+
+## Why?
+
+Durable processes are tricky, because they can survive for a long time.
+Common scenario is that we are using multiple endpoints on our API. For example
+one to fetch some information and other to mutate something.
+
+The issue is that our api can change in the meantime. If we fetch some data, then
+pause the process for a month and resume it, it will basically use our old API against
+the new API.
+
+A strict validation can't prevent these issues, but makes them easy to detect.
+
+## Static checking and inference 
+
+Because the inputs are typed we can statically check all the expressions
+in the process and check if they are referencing only existing properties and
+operations are performed on a correct types.
+
+We can also infer expression types, so if you use expression to create a new
+object type, genroc will automatically infer it's type.
+
+## Inferred context
+
+Through inference Genroc creates a typed context for every task. Based on what
+tasks were (or could have been) executed before it, we can check what exact outputs
+can be accessed in the expressions.
+
+This creates a continuous flow of types, through the process, so you always
+know what outputs are accessible and what are their types.
+
+## Nullability
+
+Genroc distinguishes if the field can be null, it doesn't allow nullable fields
+in templates and operations which don't make sense on `null` type (e.g. `<`).
+
+## Demonstration on a real example
+
+```genroc
+name: nudge-inactive-user
+input_schema:
+  type: object
+  properties:
+    user_id: { type: string }
+  required: [user_id]
+
+tasks:
+  - id: load_user
+    action:     # in the action we can access only `input`
+      type: fetch
+      method: get
+      url: "https://api.example.com/users/${input.user_id}"
+      responses:
+        200:
+          type: object
+          properties:
+            email: { type: string }
+            activated: { type: boolean }
+          required: [email, activated]
+    output:     # we can access `input` and `self{result, headers, status}` (coming from fetch)
+      email: "$: self.result.email"
+    switch:     # here we can access both `self.result` and `self.output` if we want (+ everything from before)
+      - case: "self.result.activated"
+        goto: end
+      - goto: $nudge
+
+  - id: nudge
+    action:     # now `outputs.load_user` is available (output of the previous task)
+      type: fetch
+      method: post
+      url: "https://api.example.com/emails"
+      body:
+        to: "$: outputs.load_user.email"
+    output:
+      nudged: true
+    switch: end
+
+output:
+  email: "$: outputs.load_user.email"
+  # nudge task might not run, so the output can be null
+  nudged: "$: outputs.nudge.nudged ?? false"
+```
+
+> TIP: Install the [genroc vscode extension](https://marketplace.visualstudio.com/items?itemName=genroc.genroc)
+  and copy the process above to a new definition. You can then hover any expression part and see what is it's type.
+  It will also show you errors live.
+
+### Declaring what enters the process
+
+There are two places where outside data enter the process - `input_schema` and `responses`.
+
+Genroc automatically validates these data and then we can safely access them in expressions.
+
+### Inferred types
+
+Every task output is inferred through the `output` shape.
+ - `load_user` output is typed as object with `email: string` field
+ - `nudge` output is object with `nudged: boolean` field
+
+The process output is also inferred, the inferred context is a union
+of contexts right after the tasks contain `switch: end` finish.
+
+### Static checking
+
+We are checking if the expressions are accessing existing properties.
+If you make a typo (e.g. `"$: outputs.load_user.emial"`), genroc will throw an error.
+
+### The context of a slot
+
+Each slot can have a bit different context depending on previous tasks and
+also it's position in the task. For example you can't use `self.result` in action
+configuration, because the result is available only after the action has executed.
+
+### Other checks
+
+Genroc also validates switch/goto targets (if the task exists) and also doesn't
+allow non-reachable tasks.
+
+## When is this checked?
+
+You can validate the process by `genctl apply --check-only` this will validate the whole
+process on the server (so it also catches client version mismatch).
