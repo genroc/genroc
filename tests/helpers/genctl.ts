@@ -130,8 +130,7 @@ export function failingDef(name: string) {
     tasks: [
       {
         id: "call",
-        action: { type: "fetch", method: "post", url: "http://127.0.0.1:1/x" },
-        timeout: 1000,
+        action: { type: "fetch", method: "post", url: "http://127.0.0.1:1/x", timeout: 1000 },
         switch: [{ goto: "end" }],
       },
     ],

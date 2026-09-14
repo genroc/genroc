@@ -7,7 +7,7 @@
 # Elsewhere only `url`, `only_once`, `switch`, `on_error`, `name` and `action.type` are pinned
 # this way. Here: the rest of the fetch request — method, headers, query, body,
 # accepted_status (§3a — a service's tolerance is unknowable, which is why judging it is
-# refused), a task `timeout`, a delay's calendar slots, an
+# refused), the call's `timeout`, a delay's calendar slots, an
 # `external.input` (§8 records that this one is still open), and the child slots §2c argues
 # are unjudged — `over`, because a child_list's array is consumed at spawn and every child
 # carries its `_spawn_index`, and the pinned `version`, because when the child itself moves
@@ -32,7 +32,7 @@ apply:
               query: {page: '1'}
               body: {n: '$: 1'}
               accepted_status: ["4xx"]
-            timeout: 30s
+              timeout: 30s
             switch: next
           - id: wake
             action: {type: delay, for: 1h, tz: UTC}
@@ -71,7 +71,7 @@ apply:
               query: {page: '2'}
               body: {n: '$: 2'}
               accepted_status: ["4xx", "5xx"]
-            timeout: 60s
+              timeout: 60s
             switch: next
           - id: wake
             action: {type: delay, for: 2h, tz: Europe/Prague}
@@ -95,11 +95,11 @@ run: [--from, slots_a, --to, slots_b]
 expect: |
   slots_kid   v1       unchanged
   slots_proc  v1 → v2  upgradable, compatible
-    call:timeout                (not judged)
     call:fetch.method           (not judged)
     call:fetch.headers          (not judged)
     call:fetch.query            (not judged)
     call:fetch.accepted_status  (not judged)
+    call:fetch.timeout          (not judged)
     call:fetch.body             (not judged)
     wake:delay.for              (not judged)
     wake:delay.tz               (not judged)

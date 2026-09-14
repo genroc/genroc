@@ -27,9 +27,12 @@ the runtime half and the unknowable set are in
 
 ## `timeout`: one grammar, two homes
 
-A task's `timeout` is the delay action's slot set pointed at a deadline instead of a
+An action's `timeout` is the delay action's slot set pointed at a deadline instead of a
 wake-up, so both decode to the same `DelaySpec` (`for` / `until` / `tz`) and share
-`delayArity` and the delayspec grammars. Three things break silently:
+`delayArity` and the delayspec grammars. It sits on `Action` because which slots are legal
+depends on the action's TYPE — the test `url` and `over` pass and `only_once` does not — and
+that is what makes a timeout with no call to bound unrepresentable rather than a rule.
+Three things break silently:
 
 1. **`DelaySpec` must never gain an `UnmarshalJSON`.** `Action` embeds it — which is what
    keeps `{"type":"delay","for":"1h"}` flat on the wire — so a decoder on `DelaySpec` is
@@ -44,7 +47,7 @@ wake-up, so both decode to the same `DelaySpec` (`for` / `until` / `tz`) and sha
    refused (an external clamps it instead; see below).
 3. **`until` is confined to `external`, and a timeout is refused on the action types that
    ignore it** (`validateTimeout`). Both rejections exist because the alternative is
-   silent: a timeout on a child task is simply never applied, and a fetch whose deadline
+   silent: a timeout on a child action is simply never applied, and a fetch whose deadline
    has already passed builds an expired context, which `transport.ClassifyGoError` reports
    as `http.timeout` — an unknowable code, so on an `only_once` task it can never be
    retried, for a request that provably never left.

@@ -37,7 +37,7 @@ tasks:
           properties:
             reservation_id: { type: string }
           required: [reservation_id]
-    timeout: 5000
+      timeout: 5000
     on_error:
       - code: [http.409]
         goto: $out_of_stock
@@ -65,7 +65,7 @@ tasks:
           properties:
             charge_id: { type: string }
           required: [charge_id]
-    timeout: 10000
+      timeout: 10000
     on_error:
       # Tier 1 — a pre.* error means the request never left, so a retry cannot double
       # charge. This is the only retry an only_once task accepts without an assertion.
@@ -96,7 +96,7 @@ tasks:
           properties:
             tracking: { type: string }
           required: [tracking]
-    timeout: 5000
+      timeout: 5000
     output:
       tracking: "$: self.result.tracking"
     switch: end
@@ -115,7 +115,7 @@ tasks:
           properties:
             charged: { type: boolean }
           required: [charged]
-    timeout: 5000
+      timeout: 5000
     output:
       charged: "$: self.result.charged"
       settled_by: reconciliation
@@ -135,7 +135,7 @@ tasks:
       url: "${ input.base_url }/inventory/release"
       body:
         reservation_id: "$: outputs.reserve.reservation_id"
-    timeout: 5000
+      timeout: 5000
     switch:
       - raise:
           code: payment_declined

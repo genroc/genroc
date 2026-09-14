@@ -247,10 +247,10 @@ func (e *Engine) resolveSpec(inst *model.ProcessInstance, spec model.DelaySpec, 
 // not zero — the caller supplies its own default. A deadline already past is returned
 // as-is: the two callers answer it oppositely (fetchTimeout refuses, runExternal clamps).
 func (e *Engine) resolveTimeout(inst *model.ProcessInstance, task *model.Task, now time.Time) (time.Time, string, bool, error) {
-	if task.Timeout.IsZero() {
+	if task.Action == nil || task.Action.Timeout.IsZero() {
 		return time.Time{}, "", false, nil
 	}
-	at, src, err := e.resolveSpec(inst, task.Timeout.DelaySpec, now)
+	at, src, err := e.resolveSpec(inst, task.Action.Timeout.DelaySpec, now)
 	if err != nil {
 		return time.Time{}, "", false, err
 	}

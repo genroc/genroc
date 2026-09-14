@@ -16,9 +16,8 @@ test("an external until already past raises external.timeout, not an engine fail
   await ctx.env.define("ext_past_until", [
     {
       id: "approval",
-      action: { type: "external" },
       // A bare number is unix ms: November 2023, long behind any clock this runs on.
-      timeout: { until: 1700000000000 },
+      action: { type: "external", timeout: { until: 1700000000000 } },
       on_error: [{ code: ["external.timeout"], goto: "$handler" }],
       switch: "end",
     },
@@ -44,8 +43,7 @@ test("a fetch timeout resolving into the past fails rather than reporting a time
     await ctx.env.define("fetch_past_timeout", [
       {
         id: "call",
-        action: { type: "fetch", method: "post", url: `http://localhost:${mock.port}/action` },
-        timeout: 0,
+        action: { type: "fetch", method: "post", url: `http://localhost:${mock.port}/action`, timeout: 0 },
         on_error: [{ goto: "$handled" }],
         switch: "end",
       },
@@ -77,8 +75,7 @@ test("a fetch timeout is not stretched by the test clock offset", async () => {
     await ctx.env.define("fetch_offset_timeout", [
       {
         id: "call",
-        action: { type: "fetch", method: "post", url: `http://localhost:${mock.port}/action` },
-        timeout: "300ms",
+        action: { type: "fetch", method: "post", url: `http://localhost:${mock.port}/action`, timeout: "300ms" },
         on_error: [{ code: ["http.timeout"], goto: "$handler" }],
         switch: "end",
       },
@@ -103,8 +100,7 @@ test("a for budget restarts on re-arm after an external.timeout retry", async ()
   await ctx.env.define("ext_rearm", [
     {
       id: "approval",
-      action: { type: "external" },
-      timeout: "1h",
+      action: { type: "external", timeout: "1h" },
       on_error: [{ code: ["external.timeout"], retry: 1 }],
       switch: "end",
     },

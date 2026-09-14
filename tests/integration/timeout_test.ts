@@ -16,8 +16,7 @@ async function runWithTimeout(timeout: unknown) {
         tasks: [
           {
             id: "call",
-            action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/action` },
-            timeout,
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/action`, timeout },
             on_error: [{ code: ["http.timeout"], goto: "$handled" }],
             switch: [{ goto: "end" }],
           },
@@ -65,8 +64,7 @@ test("expression timeout bounds a fetch", async () => {
         tasks: [
           {
             id: "call",
-            action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/action` },
-            timeout: "$: input.budget_ms",
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/action`, timeout: "$: input.budget_ms" },
             on_error: [{ code: ["http.timeout"], goto: "$handled" }],
             switch: [{ goto: "end" }],
           },
@@ -103,8 +101,7 @@ test("until deadline bounds an external task", async () => {
       tasks: [
         {
           id: "review",
-          action: { type: "external" as const },
-          timeout: { until: "$: input.deadline_ms" },
+          action: { type: "external" as const, timeout: { until: "$: input.deadline_ms" } },
           on_error: [{ code: ["external.timeout"], goto: "$expired" }],
           switch: [{ goto: "end" }],
         },
@@ -129,8 +126,7 @@ test("until is rejected on a fetch task", async () => {
       tasks: [
         {
           id: "call",
-          action: { type: "fetch" as const, method: "post", url: "http://localhost:1/action" },
-          timeout: { until: "fri 17:00" },
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:1/action", timeout: { until: "fri 17:00" } },
           switch: [{ goto: "end" }],
         },
       ],
@@ -157,8 +153,7 @@ test("a timeout that resolves into the past fails the instance rather than expir
         tasks: [
           {
             id: "call",
-            action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/action` },
-            timeout: "$: input.budget_ms",
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/action`, timeout: "$: input.budget_ms" },
             // A catch-all: the point is that no on_error rule can rescue this, because the
             // failure is the definition's, not the call's.
             on_error: [{ goto: "$handled" }],

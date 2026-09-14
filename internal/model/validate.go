@@ -114,6 +114,9 @@ func validateTask(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int, po
 	if err := validateFetchOnlySlots(s); err != nil {
 		return err
 	}
+	if err := validateDelayOnlySlots(s); err != nil {
+		return err
+	}
 	if err := validateResponses(s, pool); err != nil {
 		return err
 	}
@@ -127,15 +130,12 @@ func validateTask(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int, po
 // deadline is the failure this check exists for — and `until` confined to external, the
 // one type where a past deadline coherently means "due now". CLAUDE.md has the asymmetry.
 func validateTimeout(s *Task) error {
-	if s.Timeout.IsZero() {
+	if s.Action == nil || s.Action.Timeout.IsZero() {
 		return nil
-	}
-	if s.Action == nil {
-		return fmt.Errorf("task %q: timeout is not valid on a switch-only task — there is no call for it to bound", s.ID)
 	}
 	switch s.Action.Type {
 	case ActionTypeFetch:
-		if s.Timeout.Until != nil {
+		if s.Action.Timeout.Until != nil {
 			return fmt.Errorf("task %q: timeout.until is only valid on an external task — a fetch deadline that has already passed would report http.timeout for a request that was never sent. Use %s for a budget per attempt", s.ID, `timeout: "30s"`)
 		}
 	case ActionTypeExternal:
@@ -444,6 +444,29 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 			return nil
 		}()); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateDelayOnlySlots is validateFetchOnlySlots mirrored. `Action` EMBEDS DelaySpec so the
+// wire form of a delay stays flat, which also makes `for` a real field of every action type —
+// decoded, then read by nobody. Say so: the editor schema's variants already refuse it, and a
+// fetch wanting a deadline writes `timeout`, whose object form takes the same slots.
+func validateDelayOnlySlots(s *Task) error {
+	if s.Action == nil || s.Action.Type == ActionTypeDelay {
+		return nil
+	}
+	for _, slot := range []struct {
+		name string
+		set  bool
+	}{
+		{"for", s.Action.For != nil},
+		{"until", s.Action.Until != nil},
+		{"tz", s.Action.TZ != ""},
+	} {
+		if slot.set {
+			return fmt.Errorf("task %q: action.%s is only valid on a delay — a %q task does not wait, so the value would be ignored. For a deadline on the call, write %s, whose object form takes these same slots", s.ID, slot.name, s.Action.Type, "timeout")
 		}
 	}
 	return nil

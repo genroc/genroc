@@ -28,7 +28,6 @@ var taskSlots = []slot[*model.Task]{
 	{"output", "Output", func(t *model.Task) any { return t.Output }},
 	{"switch", "Switch", func(t *model.Task) any { return t.Switch }},
 	{"on_error", "OnError", func(t *model.Task) any { return t.OnError }},
-	{"timeout", "Timeout", func(t *model.Task) any { return t.Timeout }},
 	{"only_once", "OnlyOnce", func(t *model.Task) any { return t.OnlyOnce }},
 }
 
@@ -42,6 +41,7 @@ var actionSlots = []slot[*model.Action]{
 	{"action.headers", "Headers", func(a *model.Action) any { return a.Headers }},
 	{"action.query", "Query", func(a *model.Action) any { return a.Query }},
 	{"action.accepted_status", "AcceptedStatus", func(a *model.Action) any { return a.AcceptedStatus }},
+	{"action.timeout", "Timeout", func(a *model.Action) any { return a.Timeout }},
 	{"action.body", "Body", func(a *model.Action) any { return a.Body }},
 	{"action.input", "Input", func(a *model.Action) any { return a.Input }},
 	{"action.result_schema", "ResultSchema", func(a *model.Action) any { return a.ResultSchema }},

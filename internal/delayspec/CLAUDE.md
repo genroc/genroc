@@ -3,13 +3,14 @@
 ## Delay syntax: `for` / `until`
 
 A `delay` action takes exactly one of **`for`** (a duration from arm time) or **`until`**
-(an instant), plus an optional **`tz`**. The old `ms` slot was removed outright before the
+(an instant), plus an optional **`tz`**. `Action` embeds them, so they decode on every action
+type; `validateDelayOnlySlots` refuses them off a delay rather than ignoring them. The old `ms` slot was removed outright before the
 first release — `ms: "30000"` is now `for: 30000`. Full design, decisions and open
 questions: [specs/delay-syntax.md](../../specs/delay-syntax.md). The grammars live in this
 package, deliberately free of engine and DB dependencies so the calendar edge cases are
 table-testable.
 
-The same two slots are a task's `timeout`, which decodes to the same `model.DelaySpec` and
+The same two slots are an action's `timeout`, which decodes to the same `model.DelaySpec` and
 resolves through the same `Engine.resolveSpec` — a timeout is this grammar aimed at a
 deadline rather than a wake-up. Everything below applies to both.
 

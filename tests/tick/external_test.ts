@@ -106,8 +106,7 @@ test("timeout raises external.timeout, catchable in on_error", async () => {
   await ctx.env.define("ext_timeout", [
     {
       id: "approval",
-      action: { type: "external", result_schema: approvedSchema },
-      timeout: 60000,
+      action: { type: "external", result_schema: approvedSchema, timeout: 60000 },
       on_error: [{ code: ["external.timeout"], goto: "$handler" }],
       switch: "end",
     },
@@ -134,8 +133,7 @@ test("an external timeout that elapses while paused fires on resume", async () =
   await ctx.env.define("ext_timeout_paused", [
     {
       id: "approval",
-      action: { type: "external", result_schema: approvedSchema },
-      timeout: 60000,
+      action: { type: "external", result_schema: approvedSchema, timeout: 60000 },
       on_error: [{ code: ["external.timeout"], goto: "$handler" }],
       switch: "end",
     },

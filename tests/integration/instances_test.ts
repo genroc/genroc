@@ -16,8 +16,7 @@ async function ensureDefinition() {
       tasks: [
         {
           id: "s1",
-          action: { type: "fetch" as const, method: "post", url: "http://localhost:19991/action" },
-          timeout: 500,
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19991/action", timeout: 500 },
           switch: [{ goto: "end" }],
         },
       ],
@@ -69,8 +68,7 @@ test("GET /instances — task reports where the instance is, and clears when it 
         {
           id: "unreachable",
           // Port 1 is never listenable, so this fails fast and the instance stops here.
-          action: { type: "fetch" as const, method: "post", url: "http://127.0.0.1:1/x" },
-          timeout: 500,
+          action: { type: "fetch" as const, method: "post", url: "http://127.0.0.1:1/x", timeout: 500 },
           switch: [{ goto: "end" }],
         },
       ],
@@ -213,8 +211,7 @@ test("POST /instances — what happens when referencing types?", async () => {
       tasks: [
         {
           id: "s1",
-          action: { type: "fetch" as const, method: "post", url: "http://localhost:19991/action" },
-          timeout: 500,
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19991/action", timeout: 500 },
           switch: [{ goto: "end" }],
         },
       ],

@@ -41,9 +41,9 @@ tasks:
         compile_error: { $ref: "#/$defs/script_error" }
         nonserializable: { $ref: "#/$defs/script_error" }
         exited: { $ref: "#/$defs/script_error" }
-    # Above the evaluator's own budget, so a script that overruns comes back as a classified
-    # `timeout` rather than external.timeout — which is unknowable, and so never retryable.
-    timeout: 30s
+      # Above the evaluator's own budget, so a script that overruns comes back as a classified
+      # `timeout` rather than external.timeout — which is unknowable, and so never retryable.
+      timeout: 30s
     output: "$: self.result"
     on_error:
       # Every arm below is a code the WORKER sent, so the script demonstrably ran. There is no

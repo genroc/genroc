@@ -53,9 +53,9 @@ beforeAll(async () => {
         type: "fetch" as const,
         method: "post",
         url: `http://localhost:${failMockPort}/action`,
+        timeout: 5_000,
       },
       on_error: [{ code: ["http.%"], retry: 2 }],
-      timeout: 5_000,
       switch: [{ goto: "end" }],
     },
   ]);
@@ -68,9 +68,9 @@ beforeAll(async () => {
         type: "fetch" as const,
         method: "post",
         url: `http://localhost:${failMockPort}/action`,
+        timeout: 5_000,
       },
       on_error: [{ code: ["http.%"], retry: 1 }],
-      timeout: 5_000,
       switch: [{ goto: "end" }],
     },
   ]);

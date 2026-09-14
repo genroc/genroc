@@ -30,7 +30,7 @@ tasks:
       body:
         to: reviewer
         subject: "${ input.requester } requests ${ input.amount_cents } for ${ input.purpose }"
-    timeout: 5s
+      timeout: 5s
     switch: next
 
   # The park. `input` is snapshotted for the resolver — it is the ONLY thing the queue
@@ -55,7 +55,7 @@ tasks:
           reviewer: { type: string }
           note: { type: string }
         required: [approved, reviewer]
-    timeout: 1h
+      timeout: 1h
     on_error:
       - code: [external.timeout]
         goto: $escalate
@@ -81,7 +81,7 @@ tasks:
           properties:
             payment_id: { type: string }
           required: [payment_id]
-    timeout: 5s
+      timeout: 5s
     output:
       payment_id: "$: self.result.payment_id"
     switch: end
@@ -96,7 +96,7 @@ tasks:
       body:
         to: manager
         subject: "escalated: ${ input.requester } is still waiting on ${ input.purpose }"
-    timeout: 5s
+      timeout: 5s
     switch: next
 
   # The second park omits timeout entirely, which is how "wait forever" is spelled: once

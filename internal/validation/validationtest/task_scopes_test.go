@@ -56,7 +56,7 @@ var preOutputCases = map[string]struct {
 	"over":           {`{"id":"t","action":{"type":"child_list","name":"p","over":"%s"},` + loop, leaf, "%[1]s.list ?? []"},
 	"delay for":      {`{"id":"t","action":{"type":"delay","for":"%s"},` + loop, leaf, "%[1]s.n ?? 0"},
 	"delay until":    {`{"id":"t","action":{"type":"delay","until":"%s"},` + loop, leaf, "%[1]s.n ?? 0"},
-	"timeout":        {`{"id":"t","action":{"type":"external"},"timeout":"%s",` + loop, leaf, "%[1]s.n ?? 0"},
+	"timeout":        {`{"id":"t","action":{"type":"external","timeout":"%s"},` + loop, leaf, "%[1]s.n ?? 0"},
 	"on_error retry": {`{"id":"t","action":{"type":"fetch","method":"post","url":"http://x"},
 	                     "on_error":[{"code":["http.500"],"retry":{"retries":"%s"},"goto":"end"}],` + loop, leaf, "%[1]s.n ?? 0"},
 	"on_error case": {`{"id":"t","action":{"type":"fetch","method":"post","url":"http://x"},

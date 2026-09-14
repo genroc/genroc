@@ -165,7 +165,7 @@ func TestChangedSlots_EveryDifferentDocumentIsReported(t *testing.T) {
 			d.Tasks = append([]*model.Task{entry}, d.Tasks...)
 		}},
 		{"a task removed", func(d *model.ProcessDefinition) { d.Tasks = d.Tasks[1:] }},
-		{"timeout", func(d *model.ProcessDefinition) { d.Tasks[0].Timeout = model.TimeoutFor("60s") }},
+		{"action.timeout", func(d *model.ProcessDefinition) { d.Tasks[0].Action.Timeout = model.TimeoutFor("60s") }},
 		{"only_once", func(d *model.ProcessDefinition) { d.Tasks[0].OnlyOnce = nil }},
 		{"on_error", func(d *model.ProcessDefinition) { d.Tasks[0].OnError = nil }},
 		{"task output", func(d *model.ProcessDefinition) { d.Tasks[1].Output = nil }},
@@ -251,8 +251,8 @@ func TestChangedSlots_NothingDiffersAgainstItself(t *testing.T) {
 				}},
 				"b": {Name: "two"}, "c": {Name: "three"},
 			},
+			Timeout: model.TimeoutFor("5s"),
 		},
-		Timeout:  model.TimeoutFor("5s"),
 		OnlyOnce: func() *bool { b := true; return &b }(),
 		Switch:   model.SwitchMap{{Goto: model.GotoEnd}},
 	}

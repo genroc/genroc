@@ -48,8 +48,7 @@ test("transport — a remote that vanishes mid-call reports http.disconnected, n
   try {
     const { status, error } = await runToCompletion(`disconnect_${crypto.randomUUID()}`, {
       id: "call",
-      action: { type: "fetch" as const, method: "post", url: `http://localhost:${remote.port}/eval` },
-      timeout: 2000,
+      action: { type: "fetch" as const, method: "post", url: `http://localhost:${remote.port}/eval`, timeout: 2000 },
       switch: [{ goto: "end" }],
     });
 
@@ -75,9 +74,8 @@ test("transport — only_once does not re-send a call the remote received", asyn
     const { status } = await runToCompletion(`disconnect_once_${crypto.randomUUID()}`, {
       id: "charge",
       only_once: true,
-      action: { type: "fetch" as const, method: "post", url: `http://localhost:${remote.port}/charge` },
+      action: { type: "fetch" as const, method: "post", url: `http://localhost:${remote.port}/charge`, timeout: 2000 },
       on_error: [{ code: ["pre.%"], retry: { retries: 2, delay: 50 } }],
-      timeout: 2000,
       switch: [{ goto: "end" }],
     });
 

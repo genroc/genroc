@@ -78,8 +78,8 @@ test("a secret config value is scrubbed from stdout and kept verbatim everywhere
             // through a payload snippet, which a deployment can turn off.
             url: `http://localhost:${mock.port}/\${ config.log_token }`,
             responses: { 200: {} },
+            timeout: 5000,
           },
-          timeout: 5000,
           switch: [{ goto: "end" }],
         },
       ],

@@ -120,11 +120,21 @@ test("a schema keyword carries what it means", async () => {
 // A completion list is a guessing game without them, and the prose is already on the struct
 // tags — the schema carries it through.
 test("a key completion carries the prose the struct tag already wrote", async () => {
-  // `price` has everything but these two, so these two are what is left to offer.
+  // `price` has everything but this one, so it is what is left to offer.
   const keys = await lsp.completionDetails(at(`  - <^id>: price`));
-  expect(Object.keys(keys).sort()).toEqual(["only_once", "timeout"]);
+  expect(Object.keys(keys).sort()).toEqual(["only_once"]);
   expect(keys["only_once"].documentation).toContain("At-most-once");
-  expect(keys["timeout"].documentation).toContain("Maximum execution time");
+});
+
+// `timeout` bounds the call, so it is offered on the ACTION — the same prose, one level down.
+// It was a task key until it moved; a completion list is where that shows up first.
+test("a timeout completes on the action, not on the task", async () => {
+  const taskKeys = await lsp.completionDetails(at(`  - <^id>: price`));
+  expect(Object.keys(taskKeys)).not.toContain("timeout");
+
+  const actionKeys = await lsp.completionDetails(at(`      <^method>: post`, shipment));
+  expect(Object.keys(actionKeys)).toContain("timeout");
+  expect(actionKeys["timeout"].documentation).toContain("Budget for one attempt");
 });
 
 // The fixture is valid, so nothing required is ever missing from it — the marker takes a line
@@ -133,7 +143,7 @@ test("a key that is required says so", async () => {
   const keys = await lsp.completionDetails(at(`    <|switch: end>`, shipment));
   // The detail is what shows BESIDE the key: whether it is required, and what it takes.
   expect(keys["switch"].detail).toBe("required object");
-  expect(keys["timeout"].detail).toBe("object");
+  expect(keys["only_once"].detail).toBe("null|boolean");
 });
 
 // ── a union with no discriminator ────────────────────────────────────────────────

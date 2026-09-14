@@ -91,12 +91,12 @@ func preOutputSlots(s *model.Task) []preOutputSlot {
 		add(fmt.Sprintf("task %q over", s.ID), a.Over, false)
 		add(fmt.Sprintf("task %q delay for", s.ID), a.For, false)
 		add(fmt.Sprintf("task %q delay until", s.ID), a.Until, false)
+		add(fmt.Sprintf("task %q timeout for", s.ID), a.Timeout.For, false)
+		add(fmt.Sprintf("task %q timeout until", s.ID), a.Timeout.Until, false)
 		for key, entry := range a.Children {
 			addShape(fmt.Sprintf("task %q children[%q] input", s.ID, key), entry.Input)
 		}
 	}
-	add(fmt.Sprintf("task %q timeout for", s.ID), s.Timeout.For, false)
-	add(fmt.Sprintf("task %q timeout until", s.ID), s.Timeout.Until, false)
 	for i, ec := range s.OnError {
 		where := fmt.Sprintf("task %q on_error[%d]", s.ID, i)
 		add(where+" case", ec.Case, true)

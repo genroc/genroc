@@ -197,8 +197,7 @@ test("task_epoch — an operator retry reconstructs the existing batch", async (
   await env.define(leaf, [
     {
       id: "t",
-      action: { type: "fetch", url: "http://localhost:1/x", method: "get" },
-      timeout: 2000,
+      action: { type: "fetch", url: "http://localhost:1/x", method: "get", timeout: 2000 },
       switch: [{ goto: "end" }],
     },
   ]);
@@ -243,8 +242,7 @@ test("task_epoch — a re-arm issues a new external token, and the stale one is 
   await env.define(name, [
     {
       id: "wait",
-      action: { type: "external" },
-      timeout: 1000,
+      action: { type: "external", timeout: 1000 },
       on_error: [{ code: ["external.timeout"], retry: 2, goto: "end" }],
       switch: [{ goto: "end" }],
     },

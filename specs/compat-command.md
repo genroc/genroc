@@ -399,7 +399,7 @@ where a slot IS one.** A slot no check looks at can only ever be a change:
     input, output, <task>:<action_type>.result   a slot and a compared schema
     config_schema, $defs          a slot only, and one nothing judges (§6b)
     tasks                         a slot only — the task list's ORDER, nothing else
-    <task>:<slot>                 a slot only — output, switch, on_error, timeout, only_once
+    <task>:<slot>                 a slot only — output, switch, on_error, only_once
     <task>:<action_type>.<slot>   a slot only — fetch.url, child_list.over, child.name
     <task>:child_map.<key>        a call's existence, the way <task> is a task's
     <task>:child_map.<key>.<slot> the same vocabulary one level down, `.result` included

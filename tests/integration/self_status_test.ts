@@ -21,6 +21,7 @@ test("self.status / self.headers — readable beside the body", async () => {
             url: `http://localhost:${svc.port}/jobs`,
             accepted_status: ["200", "202"],
             responses: { "2xx": { type: "object", properties: { job: { type: "string" } } } },
+            timeout: 2000,
           },
           output: {
             status: "$: self.status",
@@ -31,7 +32,6 @@ test("self.status / self.headers — readable beside the body", async () => {
             missing: "$: self.headers['x-nope'] == null",
             job: "$: self.result.job",
           },
-          timeout: 2000,
           switch: [{ goto: "end" }],
         },
       ],

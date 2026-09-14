@@ -7,8 +7,7 @@ const validDef = {
   tasks: [
     {
       id: "step1",
-      action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/action" },
-      timeout: 1000,
+      action: { type: "fetch" as const, method: "post", url: "http://localhost:19990/action", timeout: 1000 },
       switch: [{ goto: "end" }],
     },
   ],

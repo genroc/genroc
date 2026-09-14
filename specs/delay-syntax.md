@@ -104,13 +104,17 @@ naming one instant a day. Only a written `*` or step widens a field.
 | `tz: "Local"` | resolves per host |
 
 Also refused, above the grammar: both slots or neither; `until` on a `fetch` timeout; a
-`timeout` on a child/delay task; unknown keys (`untill`, `timeout_ms` — they would decode
-to *no* timeout); and a fetch timeout resolving to now or earlier.
+`timeout` on a child/delay action; `for` / `until` / `tz` on an action that is not a delay
+(the embed makes them decode everywhere, and a fetch wanting a deadline writes `timeout`);
+unknown keys (`untill`, `timeout_ms` — they would decode to *no* timeout); and a fetch
+timeout resolving to now or earlier.
 
 ## As a `timeout`
 
 Same slots aimed at "give up" instead of "wake up", plus a scalar shorthand
-(`timeout: 30s` desugars to `for` at decode, so stored definitions are canonical).
+(`timeout: 30s` desugars to `for` at decode, so stored definitions are canonical). It is a
+slot of the **action**, beside `url` and `over`, because which slots are legal depends on the
+action's type — so a timeout with no call to bound cannot be written at all.
 Home-specific rules:
 
 - **`until` only on `external`** — the one type where a past deadline coherently means

@@ -25,8 +25,7 @@ test("oversized response — the instance fails with result.too_large", async ()
         name,
         tasks: [{
           id: "fetch_blob",
-          action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/blob` },
-          timeout: 10_000,
+          action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/blob`, timeout: 10_000 },
           switch: [{ goto: "end" }],
         }],
       },
@@ -55,8 +54,7 @@ test("oversized response — on_error catches result.too_large and routes on", a
         tasks: [
           {
             id: "fetch_blob",
-            action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/blob` },
-            timeout: 10_000,
+            action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/blob`, timeout: 10_000 },
             on_error: [{ code: ["result.too_large"], goto: "$fallback" }],
             switch: [{ goto: "end" }],
           },
@@ -88,8 +86,7 @@ test("oversized response — a body under the cap is unaffected", async () => {
         name,
         tasks: [{
           id: "fetch_blob",
-          action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/blob` },
-          timeout: 10_000,
+          action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/blob`, timeout: 10_000 },
           switch: [{ goto: "end" }],
         }],
       },

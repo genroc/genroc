@@ -46,7 +46,7 @@ tasks:
       headers: "$: input.headers"
       body: "$: input.kickoff.body"
       accepted_status: "$: input.kickoff.accepted_status"
-    timeout: 2000
+      timeout: 2000
     switch: next
 
   - id: check
@@ -59,9 +59,9 @@ tasks:
       accepted_status: "$: input.check.accepted_status"
       responses:
         200: { description: "opaque job result — the caller narrows this" }
+      timeout: 2000
     output:
       result: "$: self.result"
-    timeout: 2000
     # 202 is outside accepted_status, so it arrives as the catchable code http.202 —
     # the only way to branch on a status, since self.result is just the body.
     on_error:

@@ -83,6 +83,7 @@ test("raise — on_error rule raises instead of routing", async () => {
             type: "fetch" as const,
             method: "post",
             url: `http://localhost:${failMock.port}/charge`,
+            timeout: 2000,
           },
           on_error: [
             {
@@ -93,7 +94,6 @@ test("raise — on_error rule raises instead of routing", async () => {
               },
             },
           ],
-          timeout: 2000,
           switch: [{ goto: "end" }],
         },
       ],
@@ -186,6 +186,7 @@ test("panic — an on_error rule panics on an action task", async () => {
             type: "fetch" as const,
             method: "post",
             url: `http://localhost:${failMock.port}/action`,
+            timeout: 2000,
           },
           on_error: [
             {
@@ -196,7 +197,6 @@ test("panic — an on_error rule panics on an action task", async () => {
               },
             },
           ],
-          timeout: 2000,
           switch: [{ goto: "end" }],
         },
       ],
@@ -244,9 +244,9 @@ test("on_error → end computes the process output, like a normal completion", a
             type: "fetch" as const,
             method: "post",
             url: `http://localhost:${failMock.port}/action`,
+            timeout: 2000,
           },
           on_error: [{ code: ["http.404"], goto: "end" }],
-          timeout: 2000,
           switch: [{ goto: "end" }],
         },
       ],
@@ -284,8 +284,8 @@ test("error_code — engine failures carry their own dotted code", async () => {
             type: "fetch" as const,
             method: "post",
             url: `http://localhost:${failMock.port}/action`,
+            timeout: 2000,
           },
-          timeout: 2000,
           switch: [{ goto: "end" }],
         },
       ],
@@ -522,8 +522,8 @@ test("raise message — an on_error rule reads the error it caught", async () =>
                   required: ["why"],
                 },
               },
+              timeout: "5s",
             },
-            timeout: "5s",
             on_error: [
               {
                 code: ["http.500"],

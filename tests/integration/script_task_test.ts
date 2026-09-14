@@ -64,10 +64,10 @@ function scriptTask(code: string, extra: Record<string, unknown> = {}) {
       input: { code, ...extra } as Record<string, unknown>,
       result_schema: {} as Record<string, unknown>,
       raises: ALL_KINDS as Record<string, unknown>,
+      // Above the evaluator's own budget, so an overrun comes back classified rather than as
+      // external.timeout — which is unknowable, and so never retryable.
+      timeout: 20_000,
     },
-    // Above the evaluator's own budget, so an overrun comes back classified rather than as
-    // external.timeout — which is unknowable, and so never retryable.
-    timeout: 20_000,
   };
 }
 

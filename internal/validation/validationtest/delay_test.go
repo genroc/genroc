@@ -107,7 +107,7 @@ func timeoutDef(valueJSON string) string {
 		"name": "timeout-slots",
 		"input_schema": {"type":"object","properties":{"n":{"type":"integer"},"tags":{"type":"array","items":{"type":"string"}}},"required":["n","tags"]},
 		"tasks": [
-			{"id": "park", "action": {"type": "external"}, "timeout": ` + valueJSON + `, "switch": "end"}
+			{"id": "park", "action": {"type": "external", "timeout": ` + valueJSON + `}, "switch": "end"}
 		]
 	}`
 }

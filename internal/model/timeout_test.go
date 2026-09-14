@@ -109,11 +109,15 @@ func TestAction_DelaySpecDoesNotHijackDecode(t *testing.T) {
 
 // Which action types honour a timeout, and where `until` is legal. Both rules exist because
 // the alternative is silent: a timeout on a child task is simply never applied, and an
-// `until` on a fetch reports http.timeout for a request that was never sent.
+// `until` on a fetch reports http.timeout for a request that was never sent. A timeout with
+// no call to bound needs no case: the slot lives on the action, so there is nowhere to write
+// one — which is why the field sits there rather than on the task.
 func TestProcessDefinition_Validate_Timeout(t *testing.T) {
 	def := func(a *Action, timeout Timeout) ProcessDefinition {
+		withTimeout := *a
+		withTimeout.Timeout = timeout
 		return ProcessDefinition{Name: "p", Tasks: []*Task{
-			{ID: "t", Action: a, Timeout: timeout, Switch: SwitchMap{{Goto: GotoEnd}}},
+			{ID: "t", Action: &withTimeout, Switch: SwitchMap{{Goto: GotoEnd}}},
 		}}
 	}
 	fetch := &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x/y"}
@@ -140,7 +144,6 @@ func TestProcessDefinition_Validate_Timeout(t *testing.T) {
 		},
 		{name: "child with a timeout", action: child, timeout: TimeoutFor("30s"), wantErr: "not honoured on a \"child\" task"},
 		{name: "delay with a timeout", action: delay, timeout: TimeoutFor("30s"), wantErr: "not honoured on a \"delay\" task"},
-		{name: "switch-only with a timeout", action: nil, timeout: TimeoutFor("30s"), wantErr: "no call for it to bound"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -157,6 +160,54 @@ func TestProcessDefinition_Validate_Timeout(t *testing.T) {
 			}
 			if !containsStr(err.Error(), tt.wantErr) {
 				t.Errorf("error %q does not contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+// `Action` embeds DelaySpec, so `for` / `until` / `tz` decode on EVERY action type and are
+// then read by nobody — a deadline the author wrote that never applies. The editor schema's
+// variants have always refused them; this is the server agreeing.
+func TestProcessDefinition_Validate_DelaySlotsAreDelayOnly(t *testing.T) {
+	def := func(a Action) ProcessDefinition {
+		return ProcessDefinition{Name: "p", Tasks: []*Task{
+			{ID: "t", Action: &a, Switch: SwitchMap{{Goto: GotoEnd}}},
+		}}
+	}
+	fetch := Action{Type: ActionTypeFetch, Method: "post", URL: "http://x/y"}
+	external := Action{Type: ActionTypeExternal}
+
+	for _, tt := range []struct {
+		name    string
+		action  Action
+		wantErr string
+	}{
+		{name: "a delay still takes for", action: Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{For: "1h"}}},
+		{name: "a delay still takes until and tz", action: Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{Until: "fri 17:00", TZ: "Europe/Prague"}}},
+		{name: "a fetch keeps its own timeout", action: func() Action { a := fetch; a.Timeout = TimeoutFor("30s"); return a }()},
+
+		{name: "for on a fetch", action: func() Action { a := fetch; a.For = "1h"; return a }(), wantErr: `action.for is only valid on a delay`},
+		{name: "until on a fetch", action: func() Action { a := fetch; a.Until = "fri 17:00"; return a }(), wantErr: `action.until is only valid on a delay`},
+		{name: "tz on a fetch", action: func() Action { a := fetch; a.TZ = "Europe/Prague"; return a }(), wantErr: `action.tz is only valid on a delay`},
+		{name: "for on an external", action: func() Action { a := external; a.For = "1h"; return a }(), wantErr: `action.for is only valid on a delay`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			d := def(tt.action)
+			err := d.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("a %q slot on a %q action is ignored at runtime, so it must be refused here", tt.name, tt.action.Type)
+			}
+			if !containsStr(err.Error(), tt.wantErr) {
+				t.Errorf("error %q does not contain %q", err.Error(), tt.wantErr)
+			}
+			if !containsStr(err.Error(), "timeout") {
+				t.Errorf("error %q must name the slot that does work here", err.Error())
 			}
 		})
 	}

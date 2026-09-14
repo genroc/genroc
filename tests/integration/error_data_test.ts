@@ -30,9 +30,9 @@ test("error.data — a declared 4xx body reaches the handler that catches it", a
                 required: ["detail"],
               },
             },
+            timeout: 2000,
           },
           on_error: [{ code: ["http.404"], goto: "$handler" }],
-          timeout: 2000,
           switch: [{ goto: "end" }],
         },
         {
@@ -89,12 +89,12 @@ test("error.data — a declared 4xx body that does not conform replaces the stat
                 required: ["detail"],
               },
             },
+            timeout: 2000,
           },
           on_error: [
             { code: ["http.404"], goto: "$wrong" },
             { code: ["result.invalid"], goto: "$handler" },
           ],
-          timeout: 2000,
           switch: [{ goto: "end" }],
         },
         { id: "wrong", output: { took: "$: 'http404'" }, switch: [{ goto: "end" }] },
@@ -129,9 +129,8 @@ test("error — dropped from the context once the handler routes onward", async 
       tasks: [
         {
           id: "call",
-          action: { type: "fetch" as const, url: `http://localhost:${failing.port}/x`, method: "get" },
+          action: { type: "fetch" as const, url: `http://localhost:${failing.port}/x`, method: "get", timeout: 2000 },
           on_error: [{ code: ["http.%"], goto: "$handler" }],
-          timeout: 2000,
           switch: [{ goto: "end" }],
         },
         // Carries what it needs forward explicitly, which is the supported way.
@@ -180,9 +179,9 @@ test("error.data — a large error body externalizes and is still readable", asy
                 required: ["detail"],
               },
             },
+            timeout: 2000,
           },
           on_error: [{ code: ["http.422"], goto: "$handler" }],
-          timeout: 2000,
           switch: [{ goto: "end" }],
         },
         // A small verdict derived from the big body: if the marker were handed to the

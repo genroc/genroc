@@ -19,8 +19,7 @@ beforeAll(async () => {
       tasks: [
         {
           id: "s1",
-          action: { type: "fetch" as const, method: "post", url: "http://localhost:19991/action" },
-          timeout: 200,
+          action: { type: "fetch" as const, method: "post", url: "http://localhost:19991/action", timeout: 200 },
           switch: [{ goto: "end" }],
         },
       ],

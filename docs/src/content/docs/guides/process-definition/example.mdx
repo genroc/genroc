@@ -38,7 +38,7 @@ tasks:
             email: { type: string }
             activated: { type: boolean }
           required: [email, activated]
-    timeout: 5000
+      timeout: 5000
     on_error:
       - retry: 3
     # mapping the task output (what parts of the response we need)

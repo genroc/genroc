@@ -93,9 +93,9 @@ test("crash recovery — new worker re-executes an unconfirmed task after the pr
               type: "fetch" as const,
               method: "post",
               url: `http://localhost:${mock.port}/action`,
+              // Long enough that the task never times out before the crash.
+              timeout: 120_000,
             },
-            // Long enough that the task never times out before the crash.
-            timeout: 120_000,
             switch: [{ goto: "end" }],
           },
         ],
@@ -170,11 +170,11 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
               type: "fetch" as const,
               method: "post",
               url: `http://localhost:${mock.port}/action`,
+              timeout: 120_000,
             },
             // only_once: the engine must not re-run this on a lease takeover, since
             // the call may already have happened on the crashed worker.
             only_once: true,
-            timeout: 120_000,
             switch: [{ goto: "end" }],
           },
         ],
@@ -254,8 +254,8 @@ async function pauseThenCrash(
             type: "fetch" as const,
             method: "post",
             url: `http://localhost:${mockPort}/action`,
+            timeout: 120_000,
           },
-          timeout: 120_000,
           switch: [{ goto: "end" }],
         },
         ...(opts.extraTasks ?? []),
@@ -536,8 +536,7 @@ test("a cancelling only_once instance whose worker crashes cancels rather than r
     extraTasks: [
       {
         id: "check",
-        action: { type: "fetch" as const, method: "post", url: `http://localhost:${verify.port}/verify` },
-        timeout: 5_000,
+        action: { type: "fetch" as const, method: "post", url: `http://localhost:${verify.port}/verify`, timeout: 5_000 },
         switch: [{ goto: "end" }],
       },
     ],
@@ -606,9 +605,9 @@ test("crash recovery — an interrupted only_once task routes to its on_error ha
               type: "fetch" as const,
               method: "post",
               url: `http://localhost:${charge.port}/action`,
+              timeout: 120_000,
             },
             only_once: true,
-            timeout: 120_000,
             on_error: [{ code: ["only_once.interrupted"], goto: "$verify" }],
             switch: [{ goto: "end" }],
           },
@@ -695,9 +694,9 @@ test("crash recovery — a handler may deliberately re-run the interrupted task"
               type: "fetch" as const,
               method: "post",
               url: `http://localhost:${charge.port}/action`,
+              timeout: 120_000,
             },
             only_once: true,
-            timeout: 120_000,
             on_error: [{ code: ["only_once.interrupted"], goto: "$verify" }],
             switch: [{ goto: "end" }],
           },
@@ -815,9 +814,8 @@ async function interruptedRecovery(
 function chargeTask(port: number, onError: unknown[]) {
   return {
     id: "charge",
-    action: { type: "fetch" as const, method: "post", url: `http://localhost:${port}/action` },
+    action: { type: "fetch" as const, method: "post", url: `http://localhost:${port}/action`, timeout: 120_000 },
     only_once: true,
-    timeout: 120_000,
     on_error: onError,
     switch: [{ goto: "end" }],
   };

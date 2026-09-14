@@ -57,20 +57,21 @@ type Raises map[string]*schema.Schema
 // specs/external-task-queue.md, specs/unknown-type.md and internal/delayspec.
 type Action struct {
 	Type           ActionType                `json:"type"`
-	URL            string                    `json:"url,omitempty"`             // fetch: request URL (an expression)
-	Method         string                    `json:"method,omitempty"`          // fetch: HTTP method, lowercase (an expression); required
-	Headers        *Shape                    `json:"headers,omitempty"`         // fetch: request headers (a shape evaluating to a string map)
-	Query          *Shape                    `json:"query,omitempty"`           // fetch: query parameters appended to the url; a null value omits its parameter
-	AcceptedStatus *Shape                    `json:"accepted_status,omitempty"` // fetch: a shape evaluating to an array of HTTP status patterns accepted as non-errors
-	Responses      map[string]*schema.Schema `json:"responses,omitempty"`       // fetch: status pattern -> body schema; a present key with a nil schema declares "no body"
-	ResultSchema   *schema.Schema            `json:"result_schema,omitempty"`   // child/child_list/external: validate & persist output
-	Raises         Raises                    `json:"raises,omitempty"`          // child/child_list: raise code -> the shape that code's fault data carries (child_map declares per entry)
-	Name           string                    `json:"name,omitempty"`            // child/child_list
-	Version        int                       `json:"version,omitempty"`         // child/child_list
-	Body           *Shape                    `json:"body,omitempty"`            // fetch: templated request body
-	Input          *Shape                    `json:"input,omitempty"`           // child/external: templated input payload
-	Children       map[string]ChildEntry     `json:"children,omitempty"`        // child_map
-	Over           string                    `json:"over,omitempty"`            // child_list: expression evaluating to the input array (one child per element)
+	URL            string                    `json:"url,omitempty"`              // fetch: request URL (an expression)
+	Method         string                    `json:"method,omitempty"`           // fetch: HTTP method, lowercase (an expression); required
+	Headers        *Shape                    `json:"headers,omitempty"`          // fetch: request headers (a shape evaluating to a string map)
+	Query          *Shape                    `json:"query,omitempty"`            // fetch: query parameters appended to the url; a null value omits its parameter
+	AcceptedStatus *Shape                    `json:"accepted_status,omitempty"`  // fetch: a shape evaluating to an array of HTTP status patterns accepted as non-errors
+	Responses      map[string]*schema.Schema `json:"responses,omitempty"`        // fetch: status pattern -> body schema; a present key with a nil schema declares "no body"
+	ResultSchema   *schema.Schema            `json:"result_schema,omitempty"`    // child/child_list/external: validate & persist output
+	Raises         Raises                    `json:"raises,omitempty"`           // child/child_list: raise code -> the shape that code's fault data carries (child_map declares per entry)
+	Name           string                    `json:"name,omitempty"`             // child/child_list
+	Version        int                       `json:"version,omitempty"`          // child/child_list
+	Body           *Shape                    `json:"body,omitempty"`             // fetch: templated request body
+	Input          *Shape                    `json:"input,omitempty"`            // child/external: templated input payload
+	Children       map[string]ChildEntry     `json:"children,omitempty"`         // child_map
+	Over           string                    `json:"over,omitempty"`             // child_list: expression evaluating to the input array (one child per element)
+	Timeout        Timeout                   `json:"timeout,omitempty,omitzero"` // fetch/external: deadline for the call; the prose is per-variant in actionSchemaTemplate
 	DelaySpec                                // delay: exactly one of for / until, plus tz
 }
 
@@ -109,9 +110,19 @@ func (Action) JSONSchemaBytes() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	fetchTimeout, err := timeoutSchema("Budget for one attempt, e.g. \"30s\" (defaults to 30s). A retry gets a fresh budget. Only 'for' applies here — 'until' is external-only.")
+	if err != nil {
+		return nil, err
+	}
+	externalTimeout, err := timeoutSchema("How long to park before raising external.timeout. Omitted, the task waits indefinitely. Takes 'for' or an absolute 'until'.")
+	if err != nil {
+		return nil, err
+	}
 	out := strings.Replace(actionSchemaTemplate, headersPlaceholder, string(headers), 1)
 	out = strings.Replace(out, queryPlaceholder, string(query), 1)
 	out = strings.Replace(out, acceptedStatusPlaceholder, string(acceptedStatus), 1)
+	out = strings.Replace(out, fetchTimeoutPlaceholder, string(fetchTimeout), 1)
+	out = strings.Replace(out, externalTimeoutPlaceholder, string(externalTimeout), 1)
 	return []byte(out), nil
 }
 
@@ -161,9 +172,28 @@ func relaxedAcceptedStatusSchema() ([]byte, error) {
 	return json.Marshal(node)
 }
 
+// timeoutSchema builds a variant's timeout node from Timeout's own schema, so the editor
+// cannot describe a shape the decoder refuses. `until` stays offered on both: that it is
+// external-only is a value rule validateTimeout owns, and encoding it here too would be a
+// second copy to keep true.
+func timeoutSchema(description string) ([]byte, error) {
+	raw, err := Timeout{}.JSONSchemaBytes()
+	if err != nil {
+		return nil, err
+	}
+	var node map[string]any
+	if err := json.Unmarshal(raw, &node); err != nil {
+		return nil, err
+	}
+	node["description"] = description
+	return json.Marshal(node)
+}
+
 const headersPlaceholder = "__HEADERS_SCHEMA__"
 const queryPlaceholder = "__QUERY_SCHEMA__"
 const acceptedStatusPlaceholder = "__ACCEPTED_STATUS_SCHEMA__"
+const fetchTimeoutPlaceholder = "__FETCH_TIMEOUT_SCHEMA__"
+const externalTimeoutPlaceholder = "__EXTERNAL_TIMEOUT_SCHEMA__"
 
 var actionSchemaTemplate = `{
 		"oneOf": [
@@ -177,6 +207,7 @@ var actionSchemaTemplate = `{
 					"headers":         __HEADERS_SCHEMA__,
 					"query":           __QUERY_SCHEMA__,
 					"accepted_status": __ACCEPTED_STATUS_SCHEMA__,
+					"timeout":         __FETCH_TIMEOUT_SCHEMA__,
 					"body":            {"$ref": "#/$defs/ModelShape", "description": "Templated value building the request body; an object is sent as JSON."},
 					"responses": {
 						"type": "object",
@@ -278,6 +309,7 @@ var actionSchemaTemplate = `{
 				"description": "External task: parks the instance until an outside caller submits a result. No worker is held.",
 				"properties": {
 					"type":          {"type": "string", "const": "external"},
+					"timeout":       __EXTERNAL_TIMEOUT_SCHEMA__,
 					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value snapshotted for the resolver — the only context the queue exposes."},
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema the submitted result is validated against. Without it any JSON is accepted."},
 					"raises": {
@@ -301,7 +333,6 @@ var actionSchemaTemplate = `{
 type Task struct {
 	ID       string      `json:"id"                 validate:"required" description:"Task identifier, unique within the definition."`
 	Action   *Action     `json:"action,omitempty"                        description:"Describes the action to perform. Omit for switch-only (routing) tasks."`
-	Timeout  Timeout     `json:"timeout,omitempty,omitzero"            description:"Maximum execution time for fetch and external tasks. Omit for the engine default."`
 	OnlyOnce *bool       `json:"only_once,omitempty"                   description:"At-most-once execution: only errors that never reached the remote may retry. Defaults to false."`
 	OnError  []ErrorCase `json:"on_error,omitempty"                    description:"Ordered error-routing rules evaluated when the call fails. First match wins."`
 	Output   *Shape      `json:"output,omitempty"                      description:"Templated value remapping this task's output; it becomes outputs.taskID and self.output."`

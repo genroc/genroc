@@ -27,7 +27,11 @@ func TestPublishedSchemaAgreesWithTheServerOnUnknownKeys(t *testing.T) {
 		{"on_error rule", `{"name":"x","tasks":[{"id":"a","switch":"end","on_error":[{"goto":"end","zzz":1}]}]}`, true},
 		{"switch case", `{"name":"x","tasks":[{"id":"a","switch":[{"goto":"end","zzz":1}]}]}`, true},
 		{"retry", `{"name":"x","tasks":[{"id":"a","switch":"end","on_error":[{"retry":{"retries":1,"zzz":1},"goto":"end"}]}]}`, true},
-		{"timeout object", `{"name":"x","tasks":[{"id":"a","switch":"end","timeout":{"for":"1s","zzz":1}}]}`, true},
+		{"timeout object", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"external","timeout":{"for":"1s","zzz":1}}}]}`, true},
+		// Not an unknown key on either side: `for` is a real Action field, because Action embeds
+		// DelaySpec to keep a delay flat on the wire. The schema's variants have always refused
+		// it off a delay; the server refuses it in Validate, which is what makes them agree.
+		{"a delay slot on a fetch", `{"name":"x","tasks":[{"id":"a","switch":"end","action":{"type":"fetch","method":"post","url":"u","for":"1h"}}]}`, true},
 		{"raise", `{"name":"x","tasks":[{"id":"a","switch":[{"raise":{"code":"c","message":"m","zzz":1}}]}]}`, true},
 		// A user-supplied schema was the last divergence: it reflected to an opaque object, so
 		// the editor accepted a keyword the server refuses by allowlist. schema.JSONSchemaBytes

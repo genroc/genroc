@@ -92,11 +92,13 @@ the task next parks, which removes a race a token-only API would force you to ha
 
 ## Timeouts
 
-`timeout` on the task bounds the wait, and expiring raises the catchable
+`timeout` on the action bounds the wait, and expiring raises the catchable
 `external.timeout` — so escalation is ordinary error routing, not a special mechanism:
 
 ```yaml
-timeout: 1h
+action:
+  type: external
+  timeout: 1h
 on_error:
   - code: [external.timeout]
     goto: $escalate
@@ -107,9 +109,9 @@ per instance (`timeout: "$: input.review_window_ms"`) or written as a real deadl
 than a budget — on an external task, and only there, `until` is accepted:
 
 ```yaml
-timeout:
-  until: "fri 17:00"
-  tz: Europe/Prague
+  timeout:
+    until: "fri 17:00"
+    tz: Europe/Prague
 ```
 
 A constant hour is the deliberate choice for this example; the point is that a fixed

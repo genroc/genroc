@@ -92,8 +92,7 @@ test("api errors — resuming a SETTLED process is 409 conflict (a live one is 2
       tasks: [
         {
           id: "call",
-          action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/x` },
-          timeout: 2000,
+          action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/x`, timeout: 2000 },
           switch: [{ goto: "end" }],
         },
       ],
@@ -120,8 +119,7 @@ test("api errors — retrying a completed process is 409 conflict", async () => 
       tasks: [
         {
           id: "call",
-          action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/x` },
-          timeout: 2000,
+          action: { type: "fetch" as const, method: "post", url: `http://localhost:${mock.port}/x`, timeout: 2000 },
           switch: [{ goto: "end" }],
         },
       ],

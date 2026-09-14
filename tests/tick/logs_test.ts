@@ -53,8 +53,8 @@ beforeAll(async () => {
           type: "object",
           properties: { ok: { type: "boolean" } },
         } },
+        timeout: 5_000,
       },
-      timeout: 5_000,
       switch: [{ goto: "$second" }],
     },
     {
@@ -63,8 +63,8 @@ beforeAll(async () => {
         type: "fetch" as const,
         method: "post",
         url: `http://localhost:${okMockPort}/action`,
+        timeout: 5_000,
       },
-      timeout: 5_000,
       switch: [{ goto: "end" }],
     },
   ]);
@@ -77,9 +77,9 @@ beforeAll(async () => {
         type: "fetch" as const,
         method: "post",
         url: `http://localhost:${failMockPort}/action`,
+        timeout: 5_000,
       },
       on_error: [{ code: ["http.%"], retry: 1 }],
-      timeout: 5_000,
       switch: [{ goto: "end" }],
     },
   ]);

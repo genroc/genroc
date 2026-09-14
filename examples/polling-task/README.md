@@ -181,7 +181,7 @@ no `?? ` guard.) The parent declares the same defaults and threads the values do
 
 - **`poll_interval_ms`** (default 500) — the back-off between polls. It lives on the `backoff`
   **`delay`** task, because the back-off is a wait between polls, not a bound on any one of
-  them — a task's `timeout` would cut a single status check short instead.
+  them — the action's `timeout` would cut a single status check short instead.
 - **`max_attempts`** (default 20) — the overall timeout, expressed as a **maximum number of
   status checks**. genroc expressions have no wall clock, so a poll budget is the honest primitive;
   the wall-time budget is roughly `max_attempts × poll_interval_ms`. `backoff` counts its own

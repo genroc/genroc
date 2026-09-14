@@ -42,9 +42,8 @@ const CLAUSES = [
 function definition(name: string, port: number, responses: unknown, output?: unknown) {
   const call: Record<string, unknown> = {
     id: "call",
-    action: { type: "fetch", url: `http://localhost:${port}/x`, method: "get", ...(responses ? { responses } : {}) },
+    action: { type: "fetch", url: `http://localhost:${port}/x`, method: "get", ...(responses ? { responses } : {}), timeout: 2000 },
     on_error: [{ code: ["http.%"], goto: "$caught" }],
-    timeout: 2000,
     switch: [{ goto: "end" }],
   };
   if (output) call.output = output;
@@ -106,9 +105,9 @@ test("responses — a bodyless 2xx reaches the definition as null", async () => 
               200: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
               202: null,
             },
+            timeout: 2000,
           },
           output: { started: "$: self.result == null" },
-          timeout: 2000,
           switch: [{ goto: "end" }],
         },
       ],
@@ -152,9 +151,9 @@ test("responses — a lone error declaration types the failure without accepting
                 required: ["detail"],
               },
             },
+            timeout: 2000,
           },
           on_error: [{ code: ["http.404"], goto: "$missing" }],
-          timeout: 2000,
           switch: [{ goto: "end" }],
         },
         // error.data is non-nullable here: the rule catches exactly the one declared status.

@@ -44,8 +44,7 @@ func TestPreOutputSlotsCoversEveryActionSlot(t *testing.T) {
 		plantSentinel(t, dv.Field(i), f.Name, want)
 	}
 
-	task := &model.Task{ID: "t", Action: action, Timeout: model.TimeoutFor("$: sentinel_Timeout")}
-	want["Timeout"] = "$: sentinel_Timeout"
+	task := &model.Task{ID: "t", Action: action}
 
 	var found []string
 	for _, slot := range preOutputSlots(task) {
@@ -74,6 +73,8 @@ func plantSentinel(t *testing.T, v reflect.Value, name string, want map[string]s
 		v.SetString(sentinel)
 	case v.Kind() == reflect.Interface: // For / Until, typed `any`
 		v.Set(reflect.ValueOf(sentinel))
+	case v.Type() == reflect.TypeOf(model.Timeout{}):
+		v.Set(reflect.ValueOf(model.TimeoutFor(sentinel)))
 	case v.Type() == reflect.TypeOf(map[string]model.ChildEntry(nil)):
 		v.Set(reflect.ValueOf(map[string]model.ChildEntry{
 			"k": {Name: "c", Input: &model.Shape{Raw: sentinel}},

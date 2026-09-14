@@ -62,7 +62,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				isDelay := s.Action.Type == model.ActionTypeDelay
 				hasFor := isDelay && s.Action.For != nil
 				hasUntil := isDelay && s.Action.Until != nil
-				hasTimeout := !s.Timeout.IsZero()
+				hasTimeout := !s.Action.Timeout.IsZero()
 				if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout {
 					ctx := scopes.action(s)
 					// The child_list `over` expression must be a non-null array; each
@@ -90,7 +90,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					// A timeout is the same two slots pointed at a deadline, so it is checked the
 					// same way — a literal against the grammar, a $: expression to a number.
 					if hasTimeout {
-						if err := inField("timeout", checkTimeout(&s.Timeout, ctx, s.ID)); err != nil {
+						if err := inField("timeout", checkTimeout(&s.Action.Timeout, ctx, s.ID)); err != nil {
 							return err
 						}
 					}
