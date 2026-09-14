@@ -4,8 +4,8 @@ description: Learn about tasks, and how to pass data around.
 order: 2
 ---
 
-To make our process actually do something, we need a way how to communicate with
-the outside world and that is where the task `action` comes in.
+To make our process actually do something, we need a way to communicate with
+the outside world, and that is where the task `action` comes in.
 
 ## Action
 
@@ -46,7 +46,7 @@ it just sits in the database.
 The fetch action then hits the specified endpoint. We are sending a body whose parameters
 can be either expressions or static data.
 
-## Reading result the fetch result
+## Reading the fetch result
 
 What if you want to read data instead of sending it?
 No problem, let's look at another example.
@@ -74,9 +74,9 @@ No problem, let's look at another example.
 ```
 
 To read the fetch result, you need to declare its response type.
-Genroc validates the data against that schema, so invalid data ever gets in.
+Genroc validates the data against that schema, so invalid data never gets in.
 
-Result of the is then available as `self.result` in the `case` expression,
+The result is then available as `self.result` in the `case` expression,
 so we can check whether the account is activated.
 
 ## Expressions
@@ -86,7 +86,7 @@ In an expression you can reference the following variables:
 
   - `input` - the process input defined by `input_schema`
   - `outputs.<task-id>` - output of any earlier task (if it defines one)
-  - `self` - data about the current task not available outside it
+  - `self` - data about the current task, not available outside it
   - `config` - configuration values resolved from environment variables (we will get to this later)
 
 You can also use basic operators like `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`, `??`.
@@ -131,7 +131,7 @@ This way you can also return whole objects, e.g.:
 
 ### Raw expressions
 
-In `switch/case` fields a static value would make no sense, 
+In `switch/case` fields a static value would make no sense,
 so there is no `$:` or `${}` syntax, you write the expression directly:
 
 ```genroc
@@ -140,12 +140,12 @@ switch:
     goto: ...
 ```
 
-The same syntax is used also for `on_error/case` fields which we will discuss later.
+The same syntax is used also for `on_error/case` fields, which we will discuss later.
 
 
 ## Shapes
 
-Shapes are a convenient way transform data.
+Shapes are a convenient way to transform data.
 The best example is the task `output` field.
 
 ### Fully static
@@ -189,7 +189,7 @@ In the examples above that is:
 | `output` | `task` | shape |
 | `output` | `process` | shape |
 
-> \* A static `for` can use human readable syntax, e.g. `2h30s`; a dynamic one can only give milliseconds as a number
+> \* A static `for` can use human-readable syntax, e.g. `2h30s`; a dynamic one can only give milliseconds as a number.
 
 Every action and clause introduced later brings its own slots, but the syntax is always one of these.
 
@@ -212,6 +212,6 @@ It has the same shape and syntax as a task output. It is evaluated once the proc
 reaches `switch: end`. It cannot access `self`, as it is not part of any task.
 
 The output is the contract for the outside world: it is what callers read,
-and what a parent checks a child's result against. 
+and what a parent checks a child's result against.
 Task outputs are internal — visible in `genctl detail`, 
 but nothing outside is written against them.
