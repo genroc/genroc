@@ -8,6 +8,7 @@ You might be wondering what happens when a fetch action fails? Let's look at tha
 
 ```genroc
   - id: load_user
+    timeout: 10s   # default is 30s
     action:
       type: fetch
       method: get
@@ -43,7 +44,23 @@ The `error` object has non-nullable `code`, `message` and `task` (containing the
 You can type your error responses the same way as your success responses.
 When you do that, you can match the typed error response code and then use `error.data` to use the error response body.
 
-There are also optional `child_key` and `child_index`, which will be useful on child processes (discussed later).
+> If you match multiple error codes in the `code` the `error.data` will widen, so it's better to match always the errors with the same data type.
+
+### Responses field
+
+There are multiple ways how to define responses object.
+
+```genroc
+responses:
+  "200,201":          # comma separated list
+    type: object
+    properties:
+      success: ...
+  4xx:                # x matches any number
+    type: object
+    properties:
+      error: ...
+```
 
 ### Case field
 
@@ -55,9 +72,16 @@ You can also use `case` field alone (without matching the code), but for most ca
 Both selectors have to hold. A rule whose `code` matches but whose `case` is false does **not** catch the error —
 it falls through to the next rule, so you can write several rules for one code and let them narrow each other.
 
+## Custom timeout
+
+Default timeout is `30s` you can specify our own, which is also a slot accepting number of milliseconds.
+If the fetch doesn't respond in time you'll recieve `http.timeout` or `pre.timeout` if the data were not send yet.
+
 ## Reacting to the error
 
-You can do 2 main things when error happens.
+To react to the error you can retry or use goto. You can also combine
+them - in that case task is retried first and when the retries are depleted
+it will use goto.
 
 ### Retry
 
@@ -84,7 +108,7 @@ The `delay` and `max_delay` slots only accept number of milliseconds when dynami
 
 > \* we apply (delay/2) randomized jitter to avoid multiple processes hammering the endpoint all at the same time
 
-### Route to another task
+### Goto
 
 If you want the process to continue, you can use `goto` field to route to another task (or end the process sucessfully with `end`).
 The targeted task will have extra `last_error` field available, with the error data. The field is available only to the 
@@ -124,9 +148,6 @@ You can call it from on_error/switch blocks.
         message: "Not authenticated to access the API"
         data: <optional data>
 ```
-
-If the task has `only` once the `genctl retry` will fail. If you
-really want to retry, you need to do `genctl retry --force`
 
 ## Raise
 
@@ -176,6 +197,9 @@ You can safely retry on `pre.%` errors, because those errors happen before the r
 You can also retry on other errors, but you have to explicitly add `not_reached` field.
 That field is there to make sure you won't retry by accident, genroc will require this, because you have to ensure
 that the error actually means the operation was not performed. You cannot use wildcards on codes when `not_reached` is used.
+
+If the task marked `only_once` fails the `genctl retry` will fail. If you
+really want to retry, you need to do `genctl retry --force`
 
 ### Ambiguous cases
 
