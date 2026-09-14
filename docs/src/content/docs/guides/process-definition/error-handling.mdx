@@ -74,7 +74,7 @@ it falls through to the next rule, so you can write several rules for one code a
 
 ## Custom timeout
 
-Default timeout is `30s` you can specify our own, which is also a slot accepting number of milliseconds.
+Default timeout is `30s` you can specify our own, which is also a slot (static values can be human readable, dynamic milliseconds only).
 If the fetch doesn't respond in time you'll recieve `http.timeout` or `pre.timeout` if the data were not send yet.
 
 ## Reacting to the error
