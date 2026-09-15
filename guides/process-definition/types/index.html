@@ -144,32 +144,32 @@
     root.dataset.theme = dark ? 'light' : 'dark'
     localStorage.setItem('theme', root.dataset.theme)
   })
-</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/types/" aria-current="page"> Validation and types </a>  </li><li> <a href="/guides/process-definition/example/"> An example </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/types/" aria-current="page"> Validation and types </a>  </li><li> <a href="/guides/process-definition/example/"> An example </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/process-definition/basics/">Process definition</a> </p> <h1>Validation and types</h1> <p>Learn about validation, inference and type checking.</p> </div>  <p>Genroc requires you to validate input into the process,
-so it always knows what shape of the data is allowed to enter.</p>
+</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/types/" aria-current="page"> Validation and types </a>  </li><li> <a href="/guides/process-definition/example/"> An example </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/types/" aria-current="page"> Validation and types </a>  </li><li> <a href="/guides/process-definition/example/"> An example </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/"> HTTP API </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/process-definition/basics/">Process definition</a> </p> <h1>Validation and types</h1> <p>Learn about validation, inference and type checking.</p> </div>  <p>Genroc requires you to validate the data entering a process,
+so it always knows what shape that data has.</p>
 <h2 id="why">Why?<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#why"><span></span></a></h2>
 <p>Durable processes are tricky, because they can survive for a long time.
-Common scenario is that we are using multiple endpoints on our API. For example
-one to fetch some information and other to mutate something.</p>
+A common scenario is that we are using multiple endpoints on our API. For example
+one to fetch some information and another to mutate something.</p>
 <p>The issue is that our api can change in the meantime. If we fetch some data, then
-pause the process for a month and resume it, it will basically use our old API against
-the new API.</p>
+pause the process for a month and resume it, so it will be talking to the new API
+with assumptions from the old one.</p>
 <p>A strict validation can’t prevent these issues, but makes them easy to detect.</p>
 <h2 id="static-checking-and-inference">Static checking and inference<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#static-checking-and-inference"><span></span></a></h2>
-<p>Because the inputs are typed we can statically check all the expressions
-in the process and check if they are referencing only existing properties and
-operations are performed on a correct types.</p>
-<p>We can also infer expression types, so if you use expression to create a new
+<p>Because the inputs are typed we can statically check all the expression:
+that it references only properties that exist, and that its operations use the right types.</p>
+<p>We can also infer expression types, so if you use an expression to create a new
 object type, genroc will automatically infer its type.</p>
 <h2 id="inferred-context">Inferred context<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#inferred-context"><span></span></a></h2>
 <p>Through inference Genroc creates a typed context for every task. Based on what
 tasks were (or could have been) executed before it, we can check what exact outputs
 can be accessed in the expressions.</p>
 <p>This creates a continuous flow of types, through the process, so you always
-know what outputs are accessible and what are their types.</p>
+know what outputs are accessible and their types are.</p>
 <h2 id="nullability">Nullability<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#nullability"><span></span></a></h2>
-<p>Genroc distinguishes if the field can be null, it doesn’t allow nullable fields
+<p>Genroc distinguishes if the field can be null. It doesn’t allow nullable fields
 in templates and operations which don’t make sense on <code>null</code> type (e.g. <code>&lt;</code>).
-If you want to use nullable value in these places you have to provide fallback value with <code>??</code> operator.</p>
+If you want to use a nullable value in these places you have to provide
+a fallback value with the <code>??</code> operator.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">server_url</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> ??</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> &#39;http://localhost:1234&#39;}/user</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span></code></pre>
 <p>You can also use <code>default</code> to fill in a missing value.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input_schema</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
@@ -181,8 +181,8 @@ If you want to use nullable value in these places you have to provide fallback v
 <p>Even though the value is not required here, genroc knows it can never be null
 inside the process, because if it’s not provided by the user, the default value will be used.
 Combining required and default is refused, because then default can never be applied.</p>
-<p>This changes however if it’s specified as <code>type: [string, &quot;null&quot;]</code>,
-here user can pass <code>null</code> explicitly and the default value is not used in this case.</p>
+<p>This changes however if it’s specified as <code>type: [string, &quot;null&quot;]</code>.
+The user can then pass <code>null</code> explicitly and the default value is not used in this case.</p>
 <blockquote>
 <p>Genroc has only one NIL value <code>null</code>, so in the expressions there is no difference between nullable and non-required values (they both contain <code>null</code>)</p>
 </blockquote>
@@ -239,24 +239,24 @@ It will also show you errors live.</p>
 <h3 id="inferred-types">Inferred types<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#inferred-types"><span></span></a></h3>
 <p>Every task output is inferred through the <code>output</code> shape.</p>
 <ul>
-<li><code>load_user</code> output is typed as object with <code>email: string</code> field</li>
+<li><code>load_user</code> output is typed as an object with an <code>email: string</code> field</li>
 <li><code>nudge</code> output is object with <code>nudged: boolean</code> field</li>
 </ul>
-<p>The process output is also inferred, the inferred context is
+<p>The process output is also inferred; the inferred context is
 based on where all the <code>goto: end</code> are in the process.</p>
 <h3 id="static-checking">Static checking<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#static-checking"><span></span></a></h3>
-<p>We are checking if the expressions are accessing existing properties.
+<p>We check that the expressions are accessing existing properties.
 If you make a typo (e.g. <code>&quot;$: outputs.load_user.emial&quot;</code>), genroc will throw an error.</p>
 <h3 id="the-context-of-a-slot">The context of a slot<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-context-of-a-slot"><span></span></a></h3>
 <p>Each slot can have a bit different context depending on previous tasks and
-also its position in the task. For example you can’t use <code>self.result</code> in action
+also its position in the task. For example you can’t use <code>self.result</code> in the action
 configuration, because the result is available only after the action has executed.</p>
 <h3 id="other-checks">Other checks<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#other-checks"><span></span></a></h3>
-<p>Genroc also validates switch/goto targets (if the task exists) and also doesn’t
-allow non-reachable tasks.</p>
+<p>Genroc also validates switch/goto targets (if the task exists) and doesn’t
+allow unreachable tasks.</p>
 <h2 id="config">Config<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#config"><span></span></a></h2>
-<p>The mechanism which allows usage of environment variables in the process.
-You can define <code>config_schema</code>, it must be a flat object, e.g.:</p>
+<p>Config lets a process read environment variables.
+You can define <code>config_schema</code>. It must be a flat object, e.g.:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> process-with-config</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">config_schema</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span></span>
@@ -271,12 +271,12 @@ You can define <code>config_schema</code>, it must be a flat object, e.g.:</p>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">GENROC_GLOBAL_SERVER_URL</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">=</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">http://example.project</span></span></code></pre>
 <p>You can then access config anywhere in the process expressions.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">config</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">server_url</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">}</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">/users/</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">user_id</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">}</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span></code></pre>
-<p>Genroc is loading and validating config values every time it interacts with the process.
-You can define any primitive value type and genroc will validate them and convert.
-If the validation doesn’t pass, process is not allowed to register.
+<p>Genroc loads and validates config values every time it interacts with the process.
+You can declare any primitive type; genroc validates the value and converts it.
+If the validation doesn’t pass, the process is not allowed to register.
 So if the value is required, you need to set the env before applying the definition (on the server).</p>
 <h3 id="secrets">Secrets<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#secrets"><span></span></a></h3>
-<p>In the config you can mark the property as <code>secret</code>.</p>
+<p>In the config you can mark a property as <code>secret</code>.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> process-with-config</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">config_schema</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span></span>
@@ -290,16 +290,16 @@ Secrets can still leak into db stored logs or process state - so they will be
 visible through <code>genctl logs</code> and so on.</p>
 <p>The <code>secret</code> property can only be used in the config.</p>
 <h2 id="the-benefits">The benefits<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-benefits"><span></span></a></h2>
-<p>Genroc type system ensures validty at two different moments, which compelement each other.</p>
+<p>Genroc’s type system ensures validity at two different moments, which complement each other.</p>
 <p><strong>At registration</strong> - everything is statically checked - all the expressions,
-the types it produces, goto targets, reachablity. A typo in the expression never
+the types it produces, goto targets, reachability. A typo in the expression never
 reaches production. <code>genctl apply --check-only</code> runs exactly these checks, so
 you can run them in the CI; they happen on the server, so you then know that <code>apply</code> will pass.</p>
 <p><strong>At runtime</strong> - the outside data entering the process are always validated.
-This will ensure that all the statically checked expressions will recieve data
-they expect. And the breaking API changes are detected.</p>
+This will ensure that all the statically checked expressions will receive data
+they expect and the breaking API changes are detected.</p>
 <h3 id="scenarios">Scenarios<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#scenarios"><span></span></a></h3>
-<p>What is <strong>send</strong> by the fetch is judged by the server; what we recieve is judged
+<p>What is <strong>sent</strong> by the fetch is judged by the server; what we receive is judged
 by genroc against the <code>responses</code> you declared.</p>
 
 
@@ -324,9 +324,9 @@ by genroc against the <code>responses</code> you declared.</p>
 
 <table><thead><tr><th>what changed</th><th>how you find out</th></tr></thead><tbody><tr><td>the request is no longer accepted</td><td>the server answers <code>4xx</code>, caught as <code>http.400</code>, <code>http.404</code>, …</td></tr><tr><td>the response body no longer passes validation</td><td><code>result.invalid</code></td></tr><tr><td>the response gained extra fields</td><td>nothing — they are dropped (non-breaking change)</td></tr></tbody></table>
 <h3 id="process-state-upgradability">Process state upgradability<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#process-state-upgradability"><span></span></a></h3>
-<p>Because genroc knows what should the state schema look like at every stage
-of the process, it can decide if old version of the process is upgradable to
-newer version. We will look at this feature later.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/error-handling/"> <span>previous</span> <strong>Error handling</strong> </a> <a class="next" href="/guides/process-definition/example/"> <span>next</span> <strong>An example</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#why">Why?</a></li><li class="depth-2"><a href="#static-checking-and-inference">Static checking and inference</a></li><li class="depth-2"><a href="#inferred-context">Inferred context</a></li><li class="depth-2"><a href="#nullability">Nullability</a></li><li class="depth-2"><a href="#demonstration-on-a-real-example">Demonstration on a real example</a></li><li class="depth-3"><a href="#declaring-what-enters-the-process">Declaring what enters the process</a></li><li class="depth-3"><a href="#inferred-types">Inferred types</a></li><li class="depth-3"><a href="#static-checking">Static checking</a></li><li class="depth-3"><a href="#the-context-of-a-slot">The context of a slot</a></li><li class="depth-3"><a href="#other-checks">Other checks</a></li><li class="depth-2"><a href="#config">Config</a></li><li class="depth-3"><a href="#secrets">Secrets</a></li><li class="depth-2"><a href="#the-benefits">The benefits</a></li><li class="depth-3"><a href="#scenarios">Scenarios</a></li><li class="depth-3"><a href="#process-state-upgradability">Process state upgradability</a></li></ul><script>
+<p>Because genroc knows what the state schema should look like at every stage
+of the process, it can decide whether an old version of the process is upgradable to
+a newer version. We will look at this feature later.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/error-handling/"> <span>previous</span> <strong>Error handling</strong> </a> <a class="next" href="/guides/process-definition/example/"> <span>next</span> <strong>An example</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#why">Why?</a></li><li class="depth-2"><a href="#static-checking-and-inference">Static checking and inference</a></li><li class="depth-2"><a href="#inferred-context">Inferred context</a></li><li class="depth-2"><a href="#nullability">Nullability</a></li><li class="depth-2"><a href="#demonstration-on-a-real-example">Demonstration on a real example</a></li><li class="depth-3"><a href="#declaring-what-enters-the-process">Declaring what enters the process</a></li><li class="depth-3"><a href="#inferred-types">Inferred types</a></li><li class="depth-3"><a href="#static-checking">Static checking</a></li><li class="depth-3"><a href="#the-context-of-a-slot">The context of a slot</a></li><li class="depth-3"><a href="#other-checks">Other checks</a></li><li class="depth-2"><a href="#config">Config</a></li><li class="depth-3"><a href="#secrets">Secrets</a></li><li class="depth-2"><a href="#the-benefits">The benefits</a></li><li class="depth-3"><a href="#scenarios">Scenarios</a></li><li class="depth-3"><a href="#process-state-upgradability">Process state upgradability</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
