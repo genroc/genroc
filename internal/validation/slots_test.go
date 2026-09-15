@@ -95,6 +95,12 @@ func TestSlotContextsAreTheCheckersOwn(t *testing.T) {
 			t.Fatalf("switchScope %s: %v", task.ID, err)
 		}
 		same("tasks."+task.ID+".switch", switchCtx)
+		// One per case, as on_error is one per rule: reaching case k means every earlier one
+		// was false, so each reads a different context. An editor asking about case k must
+		// get the same answer the checker used, or it underlines what registration accepts.
+		for i := range task.Switch {
+			same(caseSlot(task.ID, i), checker.switchCase(task, i, switchCtx))
+		}
 
 		for i, ec := range task.OnError {
 			same(ruleSlot(task.ID, i), checker.rule(task, ec))
@@ -105,8 +111,12 @@ func TestSlotContextsAreTheCheckersOwn(t *testing.T) {
 
 	// Every phase of both tasks, and nothing else: a phase that stops being addressable is a
 	// slot an author can no longer ask about, which no other test would notice.
-	if len(reported) != 9 {
-		t.Errorf("addresses = %d, want 9 (four phases across two tasks, plus the process output)", len(reported))
+	want := 9 // four phases across two tasks, plus the process output
+	for _, task := range def.Tasks {
+		want += len(task.Switch) // and one slot per switch case
+	}
+	if len(reported) != want {
+		t.Errorf("addresses = %d, want %d", len(reported), want)
 	}
 }
 

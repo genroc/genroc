@@ -75,11 +75,13 @@ func factState(f schema.GuardFact) (refState, bool) {
 	return 0, false
 }
 
-// edgeRefs is what taking switch case k of task s proves, in the frame of the task it routes
-// to. Reaching case k means every earlier case was FALSE, and that negation is most of what
-// makes the feature useful: the guard-clause shape — handle the bad case, fall through with no
-// `case:` — gets all of its narrowing from it. specs/guard-narrowing.md.
-func edgeRefs(s *model.Task, k int) refs {
+// caseFacts gathers what reaching switch case k establishes. Reaching it means every EARLIER
+// case was false — `evalSwitch` returns the first match — and that negation is most of what
+// makes the feature useful: the guard-clause shape, handle the bad case and fall through, gets
+// all of its narrowing from it. `own` adds what case k itself proves when true, which an
+// outgoing edge carries and the case's own expression cannot. frame decides which frame the
+// facts are read in, and may refuse one. specs/guard-narrowing.md.
+func caseFacts(s *model.Task, k int, own bool, frame func(string) (string, bool)) refs {
 	if k < 0 || k >= len(s.Switch) {
 		return refs{}
 	}
@@ -90,13 +92,12 @@ func edgeRefs(s *model.Task, k int) refs {
 			if !ok {
 				continue
 			}
-			path, ok := translateGuard(f.Path, s.ID, taskHasOutput(s))
+			path, ok := frame(f.Path)
 			if !ok {
 				continue
 			}
-			// A later fact about the same reference wins only by agreeing; two edges'
-			// worth of disagreement is handled by the meet, but one case cannot prove a
-			// reference is both null and not.
+			// One case cannot prove a reference is both null and not; the meet handles two
+			// EDGES disagreeing, this handles one case contradicting itself.
 			if prev, seen := out[path]; seen && prev != state {
 				delete(out, path)
 				continue
@@ -112,12 +113,32 @@ func edgeRefs(s *model.Task, k int) refs {
 			add(whenFalse)
 		}
 	}
-	if c := s.Switch[k].Case; c != "" {
-		if whenTrue, _, err := schema.GuardFacts(c); err == nil {
-			add(whenTrue)
+	if own {
+		if c := s.Switch[k].Case; c != "" {
+			if whenTrue, _, err := schema.GuardFacts(c); err == nil {
+				add(whenTrue)
+			}
 		}
 	}
 	return out
+}
+
+// edgeRefs is what taking switch case k proves, in the frame of the task it routes to.
+func edgeRefs(s *model.Task, k int) refs {
+	return caseFacts(s, k, true, func(path string) (string, bool) {
+		return translateGuard(path, s.ID, taskHasOutput(s))
+	})
+}
+
+// priorCaseRefs is what case k may assume before its OWN expression runs. Read in the task's
+// own frame, so nothing is translated and nothing is dropped: every name a case can write is
+// still in scope for a later one — `config` included, since one `evalSwitch` pass reads one
+// resolved value.
+//
+// Not applicable to `on_error`: a rule there is skipped when its CODE does not match, before
+// its `case` is ever evaluated, so reaching rule k does not mean rule j's case was false.
+func priorCaseRefs(s *model.Task, k int) refs {
+	return caseFacts(s, k, false, func(path string) (string, bool) { return path, true })
 }
 
 // meetRefs keeps only what BOTH sides prove, identically. A nil map is "not computed yet"
@@ -178,14 +199,15 @@ func computeRefinements(tasks []*model.Task) map[string]refs {
 				if carried == nil {
 					continue // predecessor still top; it constrains nothing yet
 				}
-				// An error edge adds nothing: the task failed, so its `case` never ran.
-				// It needs no kill for the failing task's own output either — the set a
-				// predecessor carries was already stripped of `outputs.<itself>` when it
-				// was computed, which is the invariant the kill below maintains.
-				edge := carried
-				if !p.isErr {
-					edge = unionRefs(edge, edgeRefs(tasks[p.idx], p.sw))
-				}
+				// What held on entry to the predecessor still holds — a proof about
+				// `input.x` does not stop being true because a task ran. On top of it, what
+				// the case that selected this edge proved. An ERROR edge carries sw == -1
+				// (buildPreds), and edgeRefs answers nothing for that: the task failed, so
+				// its `case` never ran. It needs no kill for the failing task's own output
+				// either, because the set a predecessor carries was already stripped of
+				// `outputs.<itself>` when it was computed — the invariant the kill below
+				// maintains.
+				edge := unionRefs(carried, edgeRefs(tasks[p.idx], p.sw))
 				in = meetRefs(in, edge)
 			}
 			if in == nil {
@@ -252,8 +274,11 @@ func applyRefinements(ctx, resolvable schema.Schema, r refs) schema.Schema {
 		}
 		switch state {
 		case refNonNull:
-			stripped := declared.StripNull()
-			if stripped.IsZero() {
+			// Materialized: a path landing exactly ON a `$ref` hides its null inside the
+			// target, which is every guard on a whole task output — an output is carried as
+			// a ref by construction.
+			stripped := declared.StripNullMaterialized()
+			if stripped.IsZero() || stripped.HasNull() {
 				continue
 			}
 			narrowed[path] = stripped

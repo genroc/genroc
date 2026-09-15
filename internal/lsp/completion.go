@@ -321,7 +321,9 @@ func membersOf(s schema.Schema) []completionItem {
 	// beside it from resolving — so an optional object offered no members at all. Same shape,
 	// same fix as schema.Summary.
 	if s.HasNull() {
-		if inner := s.StripNull(); !inner.IsZero() && !inner.IsNull() {
+		// Materialized: a ref pointing AT a nullable hides the null in the target, where a
+		// plain strip changes nothing and the object offers no members at all.
+		if inner := s.StripNullMaterialized(); !inner.IsZero() && !inner.IsNull() {
 			s = inner
 		}
 	}

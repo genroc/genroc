@@ -74,18 +74,21 @@ test("schema context — lists one slot per phase, and what each can read", () =
     .filter((l) => !l.startsWith(" "))
     .map((l) => l.split(/\s{2,}/)[0]);
 
-  // Four phases per task and the process output — not one row per slot, which would repeat
-  // identical contexts and bury the four that differ.
+  // Four phases per task and the process output, plus one row per switch CASE — the same
+  // per-index treatment `on_error` gets, and for the same reason: reaching case k means every
+  // earlier case was false, so each case reads a different context.
   expect(addresses.sort()).toEqual([
     "output",
     "tasks.explain.action",
     "tasks.explain.output",
     "tasks.explain.switch",
+    "tasks.explain.switch.0",
     "tasks.price.action",
     "tasks.price.on_error.0",
     "tasks.price.on_error.1",
     "tasks.price.output",
     "tasks.price.switch",
+    "tasks.price.switch.0",
   ]);
 
   const line = (a: string) => r.stdout.split("\n").find((l) => l.startsWith(a + " ")) ?? "";
@@ -248,11 +251,13 @@ test("schema context --json — the listing is the same addresses, as documents 
     "tasks.explain.action",
     "tasks.explain.output",
     "tasks.explain.switch",
+    "tasks.explain.switch.0",
     "tasks.price.action",
     "tasks.price.on_error.0",
     "tasks.price.on_error.1",
     "tasks.price.output",
     "tasks.price.switch",
+    "tasks.price.switch.0",
   ]);
   // One pool for the whole listing: the same definitions are reached from most addresses, so a
   // pool per entry would repeat most of the answer.

@@ -221,6 +221,14 @@ not** — the first two return the same context with more on it, navigation retu
 value and guards are keyed from the root. A guard that stops applying is silent.
 [specs/guard-narrowing.md](../../specs/guard-narrowing.md).
 
+**`StripNull` does not follow a `$ref`, and `HasNull` does.** That asymmetry is deliberate —
+refs stay symbolic so recursive types converge — but it means a nullable behind a ref answers
+`HasNull() == true` while `StripNull()` changes nothing. A caller that DESCRIBES a type is fine
+with that; one that NARROWS silently narrows nothing. `StripNullMaterialized` resolves one
+level for exactly those, and `inferNullCoalesce` makes the same trade inline. Making the plain
+`StripNull` resolve was tried and reverted: it inlines recursive definitions and the output
+solver stops converging.
+
 ## "Optional" is not "may be absent"
 
 `conformObject` fills an absent optional's default, so a property WITH a default is always

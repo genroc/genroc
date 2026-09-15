@@ -56,6 +56,17 @@ func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 				return nil, fmt.Errorf("task %q: %w", t.ID, err)
 			}
 			out[taskSlot(t.ID, slotSwitch)] = ctx
+			// And one per CASE, as on_error is one per rule and for the reason the spec
+			// gives there: the context differs per case. Reaching case k means every earlier
+			// one was false, so k reads what those negations proved — an editor addressing
+			// only the switch would hover the unnarrowed type and contradict the checker.
+			// Unlike on_error the phase keeps an address of its own, because a switch HAS a
+			// whole-switch context (the one before any case narrows) and three things name
+			// it: the scope-build diagnostic, TypeSlots' pairing, and `schema context`.
+			// specs/schema-command.md, specs/guard-narrowing.md.
+			for i := range t.Switch {
+				out[caseSlot(t.ID, i)] = scopes.switchCase(t, i, ctx)
+			}
 		}
 
 		// One per rule, because the error axis is per rule: each catches a different set of
@@ -313,7 +324,7 @@ func CheckSlotRoots(def *model.ProcessDefinition, address, expr string) error {
 		sc = beforeOutput
 	case phase == slotOutput && depth == 3:
 		sc = afterAction
-	case phase == slotSwitch && depth == 3:
+	case phase == slotSwitch && (depth == 3 || depth == 4):
 		sc = afterOutput
 	case phase == slotOnError && depth == 4:
 		sc = beforeOutput
@@ -348,6 +359,11 @@ func taskSlot(id, phase string) string {
 // bracket forms still parse.
 func ruleSlot(id string, i int) string {
 	return taskSlot(id, slotOnError) + "." + strconv.Itoa(i)
+}
+
+// caseSlot keys a switch case by index, dotted for the same reason ruleSlot is.
+func caseSlot(id string, i int) string {
+	return taskSlot(id, slotSwitch) + "." + strconv.Itoa(i)
 }
 
 func findTask(def *model.ProcessDefinition, seg schema.Segment) *model.Task {

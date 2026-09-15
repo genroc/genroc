@@ -621,7 +621,7 @@ func applyGuardFacts(ictx inferCtx, facts []guardFact) inferCtx {
 			continue
 		}
 		if subject, err := inferNode(f.subject, ictx); err == nil {
-			ictx = ictx.withGuard(f.steps, subject.StripNull())
+			ictx = ictx.withGuard(f.steps, subject.StripNullMaterialized())
 		}
 	}
 	return ictx

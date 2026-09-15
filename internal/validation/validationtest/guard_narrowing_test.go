@@ -159,3 +159,156 @@ func TestGuardNarrowing_ConfigNeverTravels(t *testing.T) {
 		t.Fatal("a config guard must not travel: the value is re-resolved every tick")
 	}
 }
+
+// The negation of a conjunction is not a fact about either reference: falling past
+// `a != null && b != null` tells you one of them failed, not which. The catalogue enforces it,
+// and this is the edge-level pairing — the shape an author actually writes.
+func TestGuardNarrowing_NegatedConjunctionProvesNothing(t *testing.T) {
+	src := func(use string) string {
+		return `{"name":"p",
+		 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]},"m":{"type":["integer","null"]}},"required":["n","m"]},
+		 "tasks":[
+		  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+		   "switch":[{"case":"input.n != null && input.m != null","goto":"$c"},{"goto":"$b"}]},
+		  {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},
+		   "output":{"r":"$: ` + use + `"},"switch":"end"},
+		  {"id":"c","action":{"type":"fetch","method":"get","url":"http://z"},"switch":"end"}]}`
+	}
+	for _, use := range []string{"input.n + 1", "input.m + 1"} {
+		t.Run("fall-through cannot read "+use, func(t *testing.T) {
+			if err := runGenerateErr(t, src(use)); err == nil {
+				t.Fatal("one of the two failed, and nothing says which")
+			}
+		})
+	}
+	// The TAKEN edge still proves both — the restriction is on the negation only.
+	t.Run("the taken edge proves both", func(t *testing.T) {
+		taken := `{"name":"p",
+		 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]},"m":{"type":["integer","null"]}},"required":["n","m"]},
+		 "tasks":[
+		  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+		   "switch":[{"case":"input.n != null && input.m != null","goto":"$c"},{"goto":"end"}]},
+		  {"id":"c","action":{"type":"fetch","method":"get","url":"http://z"},
+		   "output":{"r":"$: input.n + input.m"},"switch":"end"}]}`
+		if err := runGenerateErr(t, taken); err != nil {
+			t.Fatalf("both were proved on the edge that was taken: %v", err)
+		}
+	})
+}
+
+// A guard belongs to the switch it was written in. One task's case ordering must not supply
+// negations to an edge leaving a DIFFERENT task, however similar the two look.
+func TestGuardNarrowing_NoCrossEdgeAccumulation(t *testing.T) {
+	// `!= 1` proves nothing when true and non-null when false, so a's two edges differ: the
+	// fall-through to c carries the proof, the edge to b carries nothing. b then reaches c
+	// having established nothing of its own — and a's case ordering is not b's to borrow.
+	src := `{"name":"p",
+	 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
+	 "tasks":[
+	  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+	   "switch":[{"case":"input.n != 1","goto":"$b"},{"goto":"$c"}]},
+	  {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},
+	   "switch":[{"goto":"$c"}]},
+	  {"id":"c","action":{"type":"fetch","method":"get","url":"http://z"},
+	   "output":{"r":"$: input.n + 1"},"switch":"end"}]}`
+	if err := runGenerateErr(t, src); err == nil {
+		t.Fatal("b's unguarded edge proved nothing; a's negation is not b's to lend")
+	}
+}
+
+// `self.result` is the GUARDING task's, and the target has its own under that name — so a
+// proof about it does not travel even when the exported output is derived from it. The two
+// reads below differ only in which frame the guard was written in.
+func TestGuardNarrowing_SelfResultDoesNotTravel(t *testing.T) {
+	src := func(guard string) string {
+		return `{"name":"p","tasks":[
+		  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x",
+		    "responses":{"200":{"type":"object","properties":{"v":{"type":["integer","null"]}},"required":["v"]}}},
+		   "output":{"v":"$: self.result.v"},
+		   "switch":[{"case":"` + guard + `","goto":"$b"},{"goto":"end"}]},
+		  {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},
+		   "output":{"r":"$: outputs.a.v + 1"},"switch":"end"}]}`
+	}
+	t.Run("a guard on the exported output travels", func(t *testing.T) {
+		if err := runGenerateErr(t, src("self.output.v != null")); err != nil {
+			t.Fatalf("self.output is exactly what outputs.a names downstream: %v", err)
+		}
+	})
+	t.Run("the same proof written on self.result does not", func(t *testing.T) {
+		if err := runGenerateErr(t, src("self.result.v != null")); err == nil {
+			t.Fatal("self.result names a different value in b's frame; deriving equivalence would be guessing")
+		}
+	})
+}
+
+// The process output is built from the terminals rather than from a task's entry context, so
+// refinements do not reach it. Pinned as a LIMIT, not a claim it is right: if it is lifted,
+// this is the test that says so.
+func TestGuardNarrowing_ProcessOutputIsNotNarrowed(t *testing.T) {
+	src := `{"name":"p",
+	 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
+	 "tasks":[
+	  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+	   "switch":[{"case":"input.n != null","goto":"$b"},{"goto":"end"}]},
+	  {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},"switch":"end"}],
+	 "output":{"r":"$: input.n + 1"}}`
+	if err := runGenerateErr(t, src); err == nil {
+		t.Fatal("if the process output now narrows, this limit was lifted — update the spec")
+	}
+}
+
+// Switch cases are evaluated in order and the first match wins (`evalSwitch`), so case k runs
+// only when every earlier case was false. A definition that guards a value in one case and
+// reads it in the next is the shape authors write first, and refusing it sends them to a
+// `?? default` that provably never evaluates.
+func TestGuardNarrowing_LaterCaseSeesEarlierOnesFailing(t *testing.T) {
+	// The whole output is an indexed element, so it is genuinely nullable — an empty array
+	// gives null, which is what the first case is guarding.
+	src := func(cases string) string {
+		return `{"name":"p","tasks":[{"id":"a",
+		 "action":{"type":"fetch","method":"get","url":"http://x",
+		  "responses":{"200":{"type":"array","items":{"type":"object","properties":{"activated":{"type":"boolean"}},"required":["activated"]}}}},
+		 "output":"$: self.result[0]",
+		 "switch":` + cases + `}]}`
+	}
+	t.Run("the null case above narrows the one below", func(t *testing.T) {
+		if err := runGenerateErr(t, src(`[
+		  {"case":"self.output == null","panic":{"code":"no_results","message":"m"}},
+		  {"case":"self.output.activated","goto":"end"},
+		  {"goto":"end"}]`)); err != nil {
+			t.Fatalf("reaching case 1 means case 0 was false: %v", err)
+		}
+	})
+	t.Run("without the guard above it stays refused", func(t *testing.T) {
+		if err := runGenerateErr(t, src(`[
+		  {"case":"self.output.activated","goto":"end"},
+		  {"goto":"end"}]`)); err == nil {
+			t.Fatal("nothing proved the output is there")
+		}
+	})
+	t.Run("a guard that proves the opposite does not help", func(t *testing.T) {
+		if err := runGenerateErr(t, src(`[
+		  {"case":"self.output != null","goto":"end"},
+		  {"case":"self.output.activated","goto":"end"},
+		  {"goto":"end"}]`)); err == nil {
+			t.Fatal("reaching case 1 means the output IS null")
+		}
+	})
+}
+
+// A guard on the WHOLE output, rather than a property of it, travels the same way — the
+// output of a task whose `output` is a bare expression is the value itself.
+// (The `$ref` that such an output is carried as is covered by the case above, where
+// `self.output` resolves through one; here `outputs.a` is inline.)
+func TestGuardNarrowing_GuardOnAWholeOutput(t *testing.T) {
+	src := `{"name":"p","tasks":[
+	 {"id":"a","action":{"type":"fetch","method":"get","url":"http://x",
+	   "responses":{"200":{"type":"array","items":{"type":"object","properties":{"activated":{"type":"boolean"}},"required":["activated"]}}}},
+	  "output":"$: self.result[0]",
+	  "switch":[{"case":"self.output != null","goto":"$b"},{"goto":"end"}]},
+	 {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},
+	  "output":{"r":"$: outputs.a.activated"},"switch":"end"}]}`
+	if err := runGenerateErr(t, src); err != nil {
+		t.Fatalf("the edge proved the whole output is there: %v", err)
+	}
+}

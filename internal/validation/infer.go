@@ -168,7 +168,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 					label := fmt.Sprintf("task %q switch case %q", s.ID, c.Case)
 					hooks.Roots = slotRoots(s, label, loops, !untypedResult, afterOutput)
 					shp := shape.Shape{Raw: c.Case, Schema: &boolSchema, Name: fmt.Sprintf("task %q switch case %q", s.ID, c.Case), Expr: true}
-					if _, err := shp.CheckWith(switchCtx, hooks); err != nil {
+					if _, err := shp.CheckWith(scopes.switchCase(s, i, switchCtx), hooks); err != nil {
 						return inField(strconv.Itoa(i)+"."+slotCase, err)
 					}
 				}

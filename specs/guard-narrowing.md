@@ -53,6 +53,29 @@ unchanged; `self.result`, `self.previous`, `last_error` **dropped** (not carried
 but re-resolved from the environment every tick and never persisted, so a guard on it
 proves nothing about the value the next task reads.
 
+**The editor must see the same narrowing.** `SlotContexts` carries one context per switch
+CASE wherever an earlier case narrows something — the same reason `on_error` is addressed per
+rule — and only where it differs, so the `genctl schema context` listing is not padded with
+rows repeating the switch context. Without it a hover reads `boolean|null` on an expression
+registration just accepted, which is the editor contradicting the checker.
+
+**Cases narrow each other, not only edges.** `evalSwitch` returns the first match, so case k
+runs only when 1..k-1 were false — the same negation an outgoing edge carries, read in the
+task's OWN frame (nothing translated, nothing dropped: every name a case can write is still in
+scope for a later one, `config` included, since one pass reads one resolved value). Refusing
+this is what sends an author to a `?? default` in the case right below their own null check.
+NOT applicable to `on_error`: a rule there is skipped when its CODE does not match, before its
+`case` is evaluated, so reaching rule k proves nothing about rule j's case.
+
+**A guard landing on a `$ref` must MATERIALIZE before stripping null**
+(`Schema.StripNullMaterialized`). A ref rides through `StripNull` untouched — deliberately,
+since leaving refs symbolic is what keeps recursive types finite — so a null declared inside
+the target survives, `HasNull` reports it, and `StripNull` is a no-op. Every guard on a whole
+task output hits this, an output being carried as a ref by construction. It is not specific to
+edges: the expression-level narrowing had the same hole. Making `StripNull` itself resolve was
+tried and REVERTED — it inlines recursive definitions and the output solver stops converging;
+resolving at the one call that narrows is the same trade `inferNullCoalesce` already makes.
+
 **Edges, not tasks.** `predEdge` must become one edge per switch case (stop
 deduplicating) — two cases routing to one target carry different refinements. Safe for
 the existing analysis: must/may are idempotent under duplicate edges.
@@ -107,10 +130,31 @@ non-circular: a refinement about `self.output.v` would otherwise need that task'
 type, which is inferred from the context the fixpoint is computing. Types are touched only
 at (5), where `TaskSchemas` is already filled in.
 
-Tests, weighted by the asymmetry: ordered-case negation heaviest (guard-clause shape;
-k sees ¬1..k-1 and not ¬k; no cross-edge accumulation; `¬(A∧B)` narrows nothing), then
-catalogue/merge/loop-kill/frame tables, a runtime pairing per narrowing case, and
-no-regression over the examples.
+Tests, weighted by the asymmetry — all present, and each verified by breaking the rule it
+covers and watching it fail (`validationtest/guard_narrowing_test.go` unless noted):
+
+| rule | broken by | caught by |
+|---|---|---|
+| the feature at all | never applying refinements | 12 cases |
+| a refinement needs EVERY edge | meet → union | merge, error-edge, cross-edge |
+| ordered-case negation | dropping it | the guard-clause row |
+| k must not negate ITSELF | `j <= k` | 10 cases |
+| `config` never travels | allowing it through | ConfigNeverTravels |
+| an error edge carries no case | `edgeRefs` ignoring `sw == -1` | ErrorEdgeCarriesNothing |
+| `¬(A∧B)` proves nothing | `&&` claiming its facts on false | NegatedConjunction |
+| the catalogue itself | see `schema/guardfacts_test.go` | 4 rows |
+| frame translation | see `validation/guards_test.go` | 15 rows |
+
+Two things are NOT pinned, deliberately. The `outputs.<self>` kill is unobservable today —
+`outputs.<own id>` is shadowed to `self.previous` in a task's own slots, so the stale
+refinement it guards against has no way to be read; it stays as cheap insurance if the merge
+rule ever loosens. And the process output is built from terminals rather than a task's entry
+context, so refinements do not reach it — `ProcessOutputIsNotNarrowed` pins that as a LIMIT,
+so lifting it is a deliberate flip.
+
+End-to-end, over HTTP against a running engine: `tests/integration/guard_narrowing_test.ts`
+registers, starts and completes the guard-clause shape, checks the value the proof made
+legal, and takes the null edge at runtime.
 
 ## Rejected alternatives
 

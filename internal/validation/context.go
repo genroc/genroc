@@ -68,6 +68,18 @@ func (sc taskScopes) base(t *model.Task) schema.Schema {
 	return applyRefinements(ctx, ctx.WithDefs(sc.defs), sc.refinements[t.ID])
 }
 
+// switchCase narrows the switch scope by what reaching case k proves, on top of what the edges
+// into the task already established. Without it a definition can guard a value in one case and
+// be refused for reading it in the next — the same order the engine evaluates them in.
+// specs/guard-narrowing.md.
+func (sc taskScopes) switchCase(t *model.Task, k int, switchCtx schema.Schema) schema.Schema {
+	prior := priorCaseRefs(t, k)
+	if len(prior) == 0 {
+		return switchCtx
+	}
+	return applyRefinements(switchCtx, switchCtx, unionRefs(sc.refinements[t.ID], prior))
+}
+
 func (sc taskScopes) loops(t *model.Task) bool { return taskLoops(t, sc.required, sc.optional) }
 
 // entry is the context on entry to the task, with no `self` at all — what an instance sitting

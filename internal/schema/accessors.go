@@ -174,6 +174,24 @@ func (s Schema) StripNull() Schema {
 	return wrap(stripNull(s.n), s.rootDefs())
 }
 
+// StripNullMaterialized is StripNull for a caller that needs the null actually GONE. A `$ref`
+// rides through StripNull untouched — deliberately, since leaving refs symbolic is what keeps
+// recursive types finite — so a null declared INSIDE the target survives, and `HasNull` reports
+// it while `StripNull` is a no-op. This resolves one level only when that happens, the same
+// trade `inferNullCoalesce` makes. Callers that narrow a value need it; callers that merely
+// describe one do not. specs/guard-narrowing.md.
+func (s Schema) StripNullMaterialized() Schema {
+	stripped := s.StripNull()
+	if !stripped.HasNull() {
+		return stripped
+	}
+	resolved, err := s.Resolve()
+	if err != nil {
+		return stripped
+	}
+	return resolved.StripNull()
+}
+
 // IsNull reports whether s is exactly {type:"null"} (cf. HasNull).
 func (s Schema) IsNull() bool {
 	return isNullType(s.n)

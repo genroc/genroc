@@ -91,6 +91,12 @@ by expression. One logic, all the way down.
 as the `outputs["step.one"].fee` it addresses, and the rendering is injective, so every address a
 listing prints resolves back to itself.
 
+**A switch case is keyed too, and beside the phase rather than instead of it.** Reaching case
+k means every earlier case was false, so each case reads a different context
+(specs/guard-narrowing.md) — the same reason `on_error` is per rule. The bare `switch` address
+stays: unlike `on_error`, a switch HAS a whole-switch context, the one before any case narrows,
+and the scope-build diagnostic, `TypeSlots`' pairing and this listing all name it.
+
 **A rule is keyed, not indexed.** `items` types every element of an array alike, so an array
 could not carry a different context per rule; `on_error` is an object keyed `"0"`, `"1"`. Three
 spellings reach it — `on_error.0`, `on_error[0]`, `on_error["0"]` — and **the dotted one is
@@ -224,6 +230,7 @@ With **no address** it prints one entry per phase, keyed by address:
   "tasks.price.action":        { /* … */ },
   "tasks.price.output":        { /* … */ },
   "tasks.price.switch":        { /* … */ },
+  "tasks.price.switch.0":      { /* … */ },
   "tasks.price.on_error.0":    { /* … */ },
   "$defs":                     { /* … */ }
 }
