@@ -41,6 +41,29 @@ know what outputs are accessible and what are their types.
 
 Genroc distinguishes if the field can be null, it doesn't allow nullable fields
 in templates and operations which don't make sense on `null` type (e.g. `<`).
+If you want to use nullable value in these places you have to provide fallback value with `??` operator.
+
+```genroc
+url: "${input.server_url ?? 'http://localhost:1234'}/user"
+```
+
+You can also use `default` to fill in a missing value.
+
+```genroc
+input_schema:
+  type: object
+  properties:
+    server_url:
+      type: string
+      default: http://localhost:1234
+```
+Even though the value is not required here, genroc knows it can never be null
+inside the process, because if it's not provided by the user, the default value will be used.
+
+This changes however if it's specified as `type: [string, "null"]`,
+here user can pass `null` explicitly and the default values is not used in this case.
+
+> Genroc has only one NIL value `null`, so in the expressions there is no difference between nullable and non-required values (they both contain `null`)
 
 ## Demonstration on a real example
 
@@ -51,10 +74,9 @@ input_schema:
   properties:
     user_id: { type: string }
   required: [user_id]
-
 tasks:
   - id: load_user
-    action:     # in the action we can access only `input`
+    action:     # now the action we can access only `input`
       type: fetch
       method: get
       url: "https://api.example.com/users/${input.user_id}"
@@ -95,7 +117,7 @@ output:
 
 ### Declaring what enters the process
 
-There are two places where outside data enter the process - `input_schema` and `responses`.
+In the example, there are two places where outside data enter the process - `input_schema` and `responses`.
 
 Genroc automatically validates these data and then we can safely access them in expressions.
 
@@ -105,8 +127,8 @@ Every task output is inferred through the `output` shape.
  - `load_user` output is typed as object with `email: string` field
  - `nudge` output is object with `nudged: boolean` field
 
-The process output is also inferred, the inferred context is a union
-of contexts right after the tasks contain `switch: end` finish.
+The process output is also inferred, the inferred context is
+based on where all the `goto: end` are in the process.
 
 ### Static checking
 
@@ -123,6 +145,59 @@ configuration, because the result is available only after the action has execute
 
 Genroc also validates switch/goto targets (if the task exists) and also doesn't
 allow non-reachable tasks.
+
+## Config
+
+The mechanism which allows usage of enviroment variable sin the process.
+You can define `config_schema`, it must be a flat object, e.g.:
+
+```genroc
+name: process-with-config
+config_schema:
+  type: object
+  properties:
+    server_url:
+      type: string
+  required: [server_url]
+```
+
+You can then provide config properties through environment variables like this:
+
+```sh
+# scoped to a single process
+GENROC_PROCESS_WITH_CONFIG_SERVER_URL=http://example.project
+# or globally for all processes
+GENROC_GLOBAL_SERVER_URL=http://example.project
+```
+
+You can then access config anywhere in the process expressions.
+
+```genroc
+    url: "${config.server_url}/users/${input.user_id}"
+```
+
+Genroc is loading and validating config values everytime it interacts with the process.
+You can define any primitive value type and genroc will validate them and convert.
+If the validation doesn't pass, process is not allowed to register.
+So you need to set the env before applying the definition.
+
+### Secrets
+
+In the config you can mark the property as `secret`.
+
+```genroc
+name: process-with-config
+config_schema:
+  type: object
+  properties:
+    server_token:
+      type: string
+      secret: true
+  required: [server_token]
+```
+
+This will redact the secrets leaking into stdout (server logs).
+Secrets can still leak into db stored logs or process state.
 
 ## When is this checked?
 
