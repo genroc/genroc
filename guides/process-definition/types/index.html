@@ -148,9 +148,9 @@
 so it always knows what shape that data has.</p>
 <h2 id="why">Why?<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#why"><span></span></a></h2>
 <p>Durable processes are tricky, because they can survive for a long time.
-A common scenario is that we are using multiple endpoints on our API. For example
+A common scenario is that you are using multiple endpoints on your API. For example
 one to fetch some information and another to mutate something.</p>
-<p>The issue is that our api can change in the meantime. If we fetch some data, then
+<p>The issue is that your api can change in the meantime. If you fetch some data, then
 pause the process for a month and resume it, so it will be talking to the new API
 with assumptions from the old one.</p>
 <p>A strict validation can’t prevent these issues, but makes them easy to detect.</p>
@@ -179,10 +179,10 @@ a fallback value with the <code>??</code> operator.</p>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      default</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> http://localhost:1234</span></span></code></pre>
 <p>Even though the value is not required here, genroc knows it can never be null
-inside the process, because if it’s not provided by the user, the default value will be used.
+inside the process, because if you don’t provide it, the default value will be used.
 Combining required and default is refused, because then default can never be applied.</p>
 <p>This changes however if it’s specified as <code>type: [string, &quot;null&quot;]</code>.
-The user can then pass <code>null</code> explicitly and the default value is not used in this case.</p>
+You can then pass <code>null</code> explicitly and the default value is not used in this case.</p>
 <blockquote>
 <p>Genroc has only one NIL value <code>null</code>, so in the expressions there is no difference between nullable and non-required values (they both contain <code>null</code>)</p>
 </blockquote>
@@ -206,9 +206,9 @@ The user can then pass <code>null</code> explicitly and the default value is not
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">            email</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">            activated</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> boolean</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">          required</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">email</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> activated</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">     # we can access `input` and `self{result, headers, status}` (coming from fetch)</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">     # you can access `input` and `self{result, headers, status}` (coming from fetch)</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      email</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> self</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">result</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">email</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">     # here we can access both `self.result` and `self.output` if we want (+ everything from before)</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">     # here you can access both `self.result` and `self.output` if you want (+ everything from before)</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">      -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> case</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">self</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">result</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">activated</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> end</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">      -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> $nudge</span></span>
@@ -235,7 +235,7 @@ It will also show you errors live.</p>
 </blockquote>
 <h3 id="declaring-what-enters-the-process">Declaring what enters the process<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#declaring-what-enters-the-process"><span></span></a></h3>
 <p>In the example, there are two places where outside data enter the process - <code>input_schema</code> and <code>responses</code>.</p>
-<p>Genroc automatically validates these data and then we can safely access them in expressions.</p>
+<p>Genroc automatically validates these data and then you can safely access them in expressions.</p>
 <h3 id="inferred-types">Inferred types<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#inferred-types"><span></span></a></h3>
 <p>Every task output is inferred through the <code>output</code> shape.</p>
 <ul>
@@ -300,7 +300,7 @@ This will ensure that all the statically checked expressions will receive data
 they expect and the breaking API changes are detected.</p>
 <h3 id="scenarios">Scenarios<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#scenarios"><span></span></a></h3>
 <p>What is <strong>sent</strong> by the fetch is judged by the server; what we receive is judged
-by genroc against the <code>responses</code> you declared.</p>
+against the <code>responses</code> you declared.</p>
 
 
 
