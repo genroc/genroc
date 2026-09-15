@@ -170,19 +170,16 @@ func (s Schema) WithNull() Schema {
 	return wrap(withNull(s.n), s.rootDefs())
 }
 
+// StripNull removes every null the value may take, wherever it is declared: a `$ref` is
+// followed, because whether a type is written inline or behind a name is a fact about the
+// DOCUMENT and not about the value. `HasNull` has always answered that way, and the two
+// disagreeing is what made a nullable-behind-a-ref narrow to itself in silence.
+//
+// What stays symbolic is everything the null was never behind, which is what keeps the result
+// finite — a recursive object's nullable link resolves once and the `next` inside it is still
+// a ref. specs/guard-narrowing.md.
 func (s Schema) StripNull() Schema {
-	return wrap(stripNull(s.n), s.rootDefs())
-}
-
-// StripNullMaterialized is StripNull for a caller that needs the null actually GONE. A `$ref`
-// rides through StripNull untouched — deliberately, since leaving refs symbolic is what keeps
-// recursive types finite — so a null declared INSIDE the target survives, and `HasNull` reports
-// it while `StripNull` is a no-op. This FOLLOWS references until it reaches a type, resolving
-// only the ones whose target actually holds a null and stopping on a cycle, so what is left
-// symbolic is everything the null was never behind. Callers that narrow a value need it;
-// callers that merely describe one do not. specs/guard-narrowing.md.
-func (s Schema) StripNullMaterialized() Schema {
-	return wrap(stripNullDeep(s.n, s.rootDefs(), map[*node]bool{}), s.rootDefs())
+	return wrap(stripNullIn(s.n, s.rootDefs(), map[*node]bool{}), s.rootDefs())
 }
 
 // IsNull reports whether s is exactly {type:"null"} (cf. HasNull).

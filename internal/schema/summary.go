@@ -34,21 +34,12 @@ func (s Schema) summary(depth int) string {
 	// A nullable value describes what it holds, then says it may be absent. Without this the
 	// null arm blocks the $ref beside it from resolving and the whole thing reads `unknown` —
 	// which is what `self.previous` on a looping task said.
+	// The strip has to make PROGRESS, or recursing on the same schema repeats `|null` once per
+	// level down to the bound. It can fail to only on a reference cycle, which `CheckDoc`
+	// refuses — so this is a guard rather than a path.
 	if s.HasNull() {
-		inner := s.StripNull()
-		switch {
-		case inner.IsZero() || inner.IsNull():
-		case !inner.HasNull():
+		if inner := s.StripNull(); !inner.IsZero() && !inner.IsNull() && !inner.HasNull() {
 			return inner.summary(depth+1) + "|null"
-		default:
-			// The strip made NO progress: the null is declared inside a `$ref` that is an ARM
-			// of this union, where no wrapper can reach it. Recursing would append `|null`
-			// once per level down to the depth bound. Each arm can resolve its own ref, so
-			// describe them instead. `outputs.a ?? outputs.b` over two nullable outputs is the
-			// shape that gets here.
-			if arms := s.unionArms(); len(arms) > 0 {
-				return summaryOfArms(arms, depth)
-			}
 		}
 	}
 	if members := s.MemberNames(); members != "" {
@@ -56,6 +47,11 @@ func (s Schema) summary(depth int) string {
 	}
 	if items := s.Items(); !items.IsZero() {
 		return "array<" + items.summary(depth+1) + ">"
+	}
+	// A union describes its arms. `TypeName` names the KINDS — two object arms read as one
+	// `object`, which is the whole answer thrown away.
+	if arms := s.unionArms(); len(arms) > 0 {
+		return summaryOfArms(arms, depth)
 	}
 	return s.TypeName()
 }

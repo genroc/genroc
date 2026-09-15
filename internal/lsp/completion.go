@@ -323,7 +323,7 @@ func membersOf(s schema.Schema) []completionItem {
 	if s.HasNull() {
 		// Materialized: a ref pointing AT a nullable hides the null in the target, where a
 		// plain strip changes nothing and the object offers no members at all.
-		if inner := s.StripNullMaterialized(); !inner.IsZero() && !inner.IsNull() {
+		if inner := s.StripNull(); !inner.IsZero() && !inner.IsNull() {
 			s = inner
 		}
 	}

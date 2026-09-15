@@ -73,14 +73,14 @@ func (sc taskScopes) base(t *model.Task) schema.Schema {
 // be refused for reading it in the next — the same order the engine evaluates them in.
 // specs/guard-narrowing.md.
 func (sc taskScopes) switchCase(t *model.Task, k int, switchCtx schema.Schema) schema.Schema {
-	return sc.narrow(t, switchCtx, priorCaseRefs(t, k))
+	return sc.narrow(t, switchCtx, clauseFacts(switchClauses(t), k, false, sameFrame))
 }
 
 // switchClause is the scope of case k's `panic` and `raise`. They render only when the case
 // MATCHED, so unlike the expression beside them they may assume it true — refusing that splits
 // a guard from the message it was written to make safe.
 func (sc taskScopes) switchClause(t *model.Task, k int, switchCtx schema.Schema) schema.Schema {
-	return sc.narrow(t, switchCtx, caseFacts(t, k, true, sameFrame))
+	return sc.narrow(t, switchCtx, clauseFacts(switchClauses(t), k, true, sameFrame))
 }
 
 // narrow applies what a slot proved on top of what the edges into the task did. The context is
@@ -201,15 +201,15 @@ func (sc taskScopes) processOutputAt(t terminalEnd, everMay map[string]bool) sch
 // rule is one on_error rule's scope: the task's own, plus `error` — the failure THIS rule
 // caught, which is not the `last_error` that routed control here.
 func (sc taskScopes) rule(t *model.Task, k int, ec model.ErrorCase) schema.Schema {
-	return sc.narrow(t, sc.ruleScope(t, ec), priorRuleRefs(t, k))
+	return sc.narrow(t, sc.ruleScope(t, ec), clauseFacts(ruleClauses(t), k, false, sameFrame))
 }
 
 // ruleClause is the scope of rule k's `retry`, `panic` and `raise`: they run only when the rule
-// CAUGHT, which proves its case true. That is the one direction priorRuleRefs cannot use — the
+// CAUGHT, which proves its case true. That is the one direction the negation cannot give — the
 // negation of `(code…) && case` is a fact about neither half, but the conjunction holding is a
 // fact about both. specs/guard-narrowing.md.
 func (sc taskScopes) ruleClause(t *model.Task, k int, ec model.ErrorCase) schema.Schema {
-	return sc.narrow(t, sc.ruleScope(t, ec), unionRefs(priorRuleRefs(t, k), ownCaseRefs(ec.Case)))
+	return sc.narrow(t, sc.ruleScope(t, ec), clauseFacts(ruleClauses(t), k, true, sameFrame))
 }
 
 func (sc taskScopes) ruleScope(t *model.Task, ec model.ErrorCase) schema.Schema {

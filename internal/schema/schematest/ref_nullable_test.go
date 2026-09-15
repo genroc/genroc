@@ -49,7 +49,7 @@ func TestReadingThroughARefToNullable(t *testing.T) {
 		t.Fatalf("At(x): %v", err)
 	}
 
-	if n := len(at.StripNullMaterialized().Properties()); n != 1 {
+	if n := len(at.StripNull().Properties()); n != 1 {
 		t.Errorf("members through a ref-to-nullable = %d, want 1 — completion offers these", n)
 	}
 	// `Summary` needs no materializing call of its own: it resolves before it reaches the
@@ -158,7 +158,7 @@ func TestStripNullThroughAReferenceCycle(t *testing.T) {
 		t.Fatalf("At(x): %v", err)
 	}
 	done := make(chan string, 1)
-	go func() { done <- at.StripNullMaterialized().Summary() }()
+	go func() { done <- at.StripNull().Summary() }()
 	select {
 	case got := <-done:
 		t.Logf("cycle strips to %q", got)
@@ -181,7 +181,7 @@ func TestStripNullThroughARecursiveObject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("At(root.next): %v", err)
 	}
-	stripped := at.StripNullMaterialized()
+	stripped := at.StripNull()
 	if stripped.HasNull() {
 		t.Error("the nullable link did not materialize")
 	}

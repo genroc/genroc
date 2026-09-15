@@ -475,6 +475,17 @@ func TestGuardNarrowing_OnErrorGotoCarriesItsCase(t *testing.T) {
 		{name: "the opposite proof does not narrow",
 			rule: `[{"code":["http.500"],"case":"input.n == null","goto":"$h"}]`,
 			use:  `input.n + 1`},
+
+		// A rule is a clause like a switch case, so reaching one also means the readable
+		// clauses above it failed — and a rule with no `code` is the readable kind.
+		{name: "a pure case above the rule negates onto the edge too", wantOK: true,
+			rule: `[{"case":"input.n == null","raise":{"code":"no_n","message":"m"}},
+			        {"code":["http.500"],"goto":"$h"}]`,
+			use:  `input.n + 1`},
+		{name: "a coded rule above it negates nothing",
+			rule: `[{"code":["http.404"],"case":"input.n == null","raise":{"code":"no_n","message":"m"}},
+			        {"code":["http.500"],"goto":"$h"}]`,
+			use:  `input.n + 1`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := runGenerateErr(t, src(tc.rule, tc.use))

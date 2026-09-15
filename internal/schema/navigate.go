@@ -633,9 +633,28 @@ func withNull(s *node) *node {
 	return &node{OneOf: []*node{s, {Type: SchemaType{"null"}}}}
 }
 
-func stripNull(s *node) *node {
-	if s == nil {
+// stripNull removes every null the value may take, leaving `$ref`s alone — for a caller that
+// has already resolved, or one that must not (the estimate rule in stripNullIn's doc).
+func stripNull(s *node) *node { return stripNullIn(s, nil, nil) }
+
+// stripNullIn is that walk with references FOLLOWED, which is what the exported StripNull runs:
+// `defs` is what turns it on, and `seen` holds the ref nodes on the current path so a cycle
+// stops instead of inlining forever. A reference is resolved only where the null it is chasing
+// lives inside the target, so everything the null was never behind stays symbolic and the result
+// is finite. specs/guard-narrowing.md.
+func stripNullIn(s *node, defs map[string]*node, seen map[*node]bool) *node {
+	if s == nil || !hasNullResolved(s, defs) {
 		return s
+	}
+	// Following a reference is the only thing `defs` buys here, and the only thing that can
+	// loop. A target the solver is still computing is left alone: the read is served a running
+	// estimate whose null is the seed a `??` base case fires on.
+	if defs != nil && s.Ref != "" && !seen[s] && !refTargetPending(s, defs) {
+		if target, err := deref(s, defs); err == nil && target != nil {
+			seen[s] = true
+			defer delete(seen, s)
+			return stripNullIn(target, defs, seen)
+		}
 	}
 	if len(s.Type) > 0 {
 		var nonNull SchemaType
@@ -651,45 +670,44 @@ func stripNull(s *node) *node {
 		n.Type = nonNull
 		return &n
 	}
-	if len(s.OneOf) > 0 {
-		nonNull, changed := stripNullVariants(s.OneOf)
-		if !changed || len(nonNull) == 0 {
+	for _, union := range []struct {
+		arms []*node
+		set  func(*node, []*node)
+	}{
+		{s.OneOf, func(n *node, vs []*node) { n.OneOf = vs }},
+		{s.AnyOf, func(n *node, vs []*node) { n.AnyOf = vs }},
+	} {
+		if len(union.arms) == 0 {
+			continue
+		}
+		out, changed := stripNullArms(union.arms, defs, seen)
+		if !changed || len(out) == 0 {
+			// Nothing to remove, or every arm was null — and a value that can only be null
+			// says so better as itself than as the empty node, which reads as the top type.
 			return s
 		}
-		if len(nonNull) == 1 {
-			return nonNull[0]
+		if len(out) == 1 {
+			return out[0]
 		}
 		n := *s
-		n.OneOf = nonNull
-		return &n
-	}
-	if len(s.AnyOf) > 0 {
-		nonNull, changed := stripNullVariants(s.AnyOf)
-		if !changed || len(nonNull) == 0 {
-			return s
-		}
-		if len(nonNull) == 1 {
-			return nonNull[0]
-		}
-		n := *s
-		n.AnyOf = nonNull
+		union.set(&n, out)
 		return &n
 	}
 	return s
 }
 
-// Drops exactly-null variants AND strips null inside survivors, so StripNull's contract
-// (HasNull false after) holds when nullability hides in an arm's type list. $refs ride
-// through underefed — that keeps recursion finite; inferNullCoalesce materializes for those.
-func stripNullVariants(vs []*node) ([]*node, bool) {
+// stripNullArms drops the arms that are null however they SPELL it and strips the survivors. An
+// arm is tested for nullness BEFORE it is stripped, because stripping `{"type":"null"}` leaves
+// the empty node: a null arm dropped too late widens the whole union to unknown.
+func stripNullArms(vs []*node, defs map[string]*node, seen map[*node]bool) ([]*node, bool) {
 	out := make([]*node, 0, len(vs))
 	changed := false
 	for _, v := range vs {
-		if isNullType(v) {
+		if resolvesToNull(v, defs) {
 			changed = true
 			continue
 		}
-		sv := stripNull(v)
+		sv := stripNullIn(v, defs, seen)
 		if sv != v {
 			changed = true
 		}
@@ -698,71 +716,45 @@ func stripNullVariants(vs []*node) ([]*node, bool) {
 	return out, changed
 }
 
-// stripNullDeep is stripNull following `$ref`s: it materializes a reference only where the null
-// it is chasing lives INSIDE the target, so a value that is merely referenced stays symbolic and
-// the walk is finite. `seen` holds the nodes on the current path, so a recursive type stops at
-// the link that closes the cycle instead of inlining itself forever — the reason the plain
-// stripNull must never do this. specs/guard-narrowing.md.
-func stripNullDeep(s *node, defs map[string]*node, seen map[*node]bool) *node {
-	if s == nil || !hasNullResolved(s, defs) {
-		return s
-	}
-	if seen[s] {
-		return stripNull(s) // the cycle closed; nothing further can be proved here
-	}
-	seen[s] = true
-	defer delete(seen, s)
-
-	if s.Ref != "" {
-		target, err := deref(s, defs)
-		if err != nil || target == nil {
-			return stripNull(s)
-		}
-		return stripNullDeep(target, defs, seen)
-	}
-	if variants, isAny := s.AnyOf, true; len(variants) > 0 {
-		return stripNullVariantsDeep(s, variants, isAny, defs, seen)
-	}
-	if len(s.OneOf) > 0 {
-		return stripNullVariantsDeep(s, s.OneOf, false, defs, seen)
-	}
-	return stripNull(s)
-}
-
-// stripNullVariantsDeep drops the arms that are null however they spell it and strips the rest.
-// An arm is tested for nullness BEFORE it is stripped: stripping `{"type":"null"}` leaves the
-// empty node, which reads as the top type, so a dropped-too-late null arm would widen the whole
-// union to unknown.
-func stripNullVariantsDeep(s *node, variants []*node, anyOf bool, defs map[string]*node, seen map[*node]bool) *node {
-	out := make([]*node, 0, len(variants))
-	for _, v := range variants {
-		if resolvesToNull(v, defs) {
-			continue
-		}
-		out = append(out, stripNullDeep(v, defs, seen))
-	}
-	if len(out) == 0 {
-		return s // every arm was null: the value is null, and saying so beats saying unknown
-	}
-	if len(out) == 1 {
-		return out[0]
-	}
-	n := *s
-	if anyOf {
-		n.AnyOf = out
-	} else {
-		n.OneOf = out
-	}
-	return &n
-}
-
 // resolvesToNull reports whether a node can only ever be null, through however many refs.
 func resolvesToNull(s *node, defs map[string]*node) bool {
 	if isNullType(s) {
 		return true
 	}
+	if refTargetPending(s, defs) {
+		return false
+	}
 	target, err := deref(s, defs)
 	return err == nil && isNullType(target)
+}
+
+// refTargetPending reports whether a `$ref` chain ends on a definition whose read would serve a
+// running ESTIMATE rather than a type. That estimate is nullable on purpose — it is the seed
+// that makes `x ?? 0` take its default arm on the first pass and the fixpoint converge — so
+// stripping its null is stripping the seed, and the one walk that follows references has to
+// stop there. It is the ONLY thing about a `$ref` that changes an answer, and it is not about
+// naming: the type does not exist yet. A definition merely undemanded is resolved as usual.
+//
+// It reads the defs map directly rather than through `deref`, which would resolve the very
+// thing being asked about.
+func refTargetPending(s *node, defs map[string]*node) bool {
+	seen := map[*node]bool{}
+	for s != nil && s.Ref != "" && !seen[s] {
+		seen[s] = true
+		name, ok := strings.CutPrefix(s.Ref, "#/$defs/")
+		if !ok || defs == nil {
+			return false
+		}
+		target := defs[name]
+		if target == nil {
+			return false
+		}
+		if target.pending != nil {
+			return target.pending.servesEstimate()
+		}
+		s = target
+	}
+	return false
 }
 
 // IsUnknown reports whether s is the top type ({}) — undeclared data, which is carried but

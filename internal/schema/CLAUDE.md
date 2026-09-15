@@ -234,22 +234,31 @@ not** — the first two return the same context with more on it, navigation retu
 value and guards are keyed from the root. A guard that stops applying is silent.
 [specs/guard-narrowing.md](../../specs/guard-narrowing.md).
 
-**`StripNull` does not follow a `$ref`, and `HasNull` does.** That asymmetry is deliberate —
-refs stay symbolic so recursive types converge — but it means a nullable behind a ref answers
-`HasNull() == true` while `StripNull()` changes nothing. A caller that DESCRIBES a type is fine
-with that; one that NARROWS silently narrows nothing. `StripNullMaterialized` is for those, and
-`inferNullCoalesce` makes the same trade inline. Making the plain `StripNull` resolve was tried
-and reverted: it inlines recursive definitions and the output solver stops converging.
+**A `$ref` is a fact about the document, not about the value**, so no answer about a type may
+turn on whether it was written inline or behind a name. `StripNull` and `HasNull` agree because
+of it; there is no second "materializing" strip to remember, and there was — a nullable behind a
+ref answered `HasNull() == true` while `StripNull()` changed nothing, so every caller that
+NARROWED rather than described silently narrowed nothing, at each site independently.
 
-`stripNullDeep` is the walk behind it, and the rule it follows is **resolve a reference only
-where the null is inside it**. Everything the null was never behind stays a ref, which is what
-bounds the result: a recursive object's nullable link materializes once and the `next` inside
-it is still symbolic. It follows chains and reaches into union ARMS, so `b_output → a_output →
-nullable` and `anyOf[$ref-to-nullable, integer]` both narrow. Two things break silently if
-touched: the path set is what makes a reference cycle terminate rather than overflow the stack
-(`CheckDoc` refuses those, so only a hand-built schema gets there), and an arm is tested for
-nullness BEFORE it is stripped — stripping `{"type":"null"}` leaves the empty node, which reads
-as the top type, so a null arm dropped too late widens the whole union to unknown.
+`stripNullIn` is the walk — `stripNull` is the same function with no defs, which is how a caller
+says "do not follow" — and the rule it follows is **resolve a reference only where the
+null is inside it**. Everything the null was never behind stays a ref, which is what bounds the
+result: a recursive object's nullable link resolves once and the `next` inside it is still
+symbolic. Making a naive `StripNull` resolve was tried and reverted — it inlines recursive
+definitions and the output solver stops converging; resolving only where the null is does not.
+
+**The one exception is a type that does not exist yet.** A `$ref` onto a definition the solver
+is mid-way through is served a running ESTIMATE, nullable on purpose: it is the seed that makes
+`x ?? 0` take its default arm on the first pass, and stripping it stops the fixpoint converging
+(six solver tests). `refTargetPending` / `pendingEntry.servesEstimate` is that stop, and it is
+deliberately narrow — only the back-edge state, since a definition merely undemanded is solved
+on request like any other.
+
+Two more things break silently: the path set is what makes a reference cycle terminate rather
+than overflow the stack (`CheckDoc` refuses those, so only a hand-built schema gets there), and
+an arm is tested for nullness BEFORE it is stripped — stripping `{"type":"null"}` leaves the
+empty node, which reads as the top type, so a null arm dropped too late widens the whole union
+to unknown.
 
 ## "Optional" is not "may be absent"
 

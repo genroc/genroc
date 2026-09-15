@@ -75,29 +75,70 @@ func factState(f schema.GuardFact) (refState, bool) {
 	return 0, false
 }
 
-// caseFacts gathers what reaching switch case k establishes. Reaching it means every EARLIER
-// case was false — `evalSwitch` returns the first match — and that negation is most of what
-// makes the feature useful: the guard-clause shape, handle the bad case and fall through, gets
-// all of its narrowing from it. `own` adds what case k itself proves when true, which an
-// outgoing edge carries and the case's own expression cannot. frame decides which frame the
-// facts are read in, and may refuse one. specs/guard-narrowing.md.
-func caseFacts(s *model.Task, k int, own bool, frame func(string) (string, bool)) refs {
-	if k < 0 || k >= len(s.Switch) {
-		return refs{}
+// clause is a switch case and an `on_error` rule seen as ONE thing: a guard, plus whether its
+// FALSITY may be read. That is the only way the two differ. A rule's predicate is
+// `(code == a || code == b) && case`, so a rule naming a code proves nothing by not firing —
+// the negation of a conjunction is a fact about neither half, since it may have been skipped on
+// the code before its `case` ever ran (`matchOnErrorWith`). Both prove their guard when they DO
+// fire. specs/guard-narrowing.md.
+type clause struct {
+	cond    string
+	negates bool
+}
+
+func switchClauses(t *model.Task) []clause {
+	out := make([]clause, len(t.Switch))
+	for i, c := range t.Switch {
+		// An unguarded case is always true, and `factsOf` answers nothing for it either way.
+		out[i] = clause{cond: c.Case, negates: true}
 	}
+	return out
+}
+
+func ruleClauses(t *model.Task) []clause {
+	out := make([]clause, len(t.OnError))
+	for i, ec := range t.OnError {
+		out[i] = clause{cond: ec.Case, negates: len(ec.Code) == 0}
+	}
+	return out
+}
+
+// clauseFacts is what reaching clause k establishes: every earlier clause that CAN be read
+// failed, and — where `own` — this one held. The negation is most of what makes the feature
+// useful (the guard-clause shape, handle the bad case and fall through, gets all its narrowing
+// from it); `own` is what an outgoing edge and a clause's siblings may assume, and what the
+// guard's own expression never may, being what proves it. `frame` decides which frame the facts
+// are read in, and may refuse one.
+func clauseFacts(cs []clause, k int, own bool, frame func(string) (string, bool)) refs {
 	out := refs{}
+	if k < 0 || k >= len(cs) {
+		return out
+	}
 	for j := 0; j < k; j++ {
-		if s.Switch[j].Case == "" {
-			continue // an unguarded case is always true; nothing is proved by "not it"
-		}
-		if _, whenFalse, err := schema.GuardFacts(s.Switch[j].Case); err == nil {
-			out.addFacts(whenFalse, frame)
+		if cs[j].negates {
+			out.addFacts(factsOf(cs[j].cond, false), frame)
 		}
 	}
 	if own {
-		out.addFacts(whenTrueFacts(s.Switch[k].Case), frame)
+		out.addFacts(factsOf(cs[k].cond, true), frame)
 	}
 	return out
+}
+
+// factsOf reads one guard on one branch. An absent or unparseable expression proves nothing,
+// which is the same answer either way.
+func factsOf(cond string, whenTrue bool) []schema.GuardFact {
+	if cond == "" {
+		return nil
+	}
+	yes, no, err := schema.GuardFacts(cond)
+	if err != nil {
+		return nil
+	}
+	if whenTrue {
+		return yes
+	}
+	return no
 }
 
 // addFacts folds catalogue facts into a set, dropping what proves nothing and what the frame
@@ -121,88 +162,25 @@ func (r refs) addFacts(facts []schema.GuardFact, frame func(string) (string, boo
 	}
 }
 
-// whenTrueFacts is the catalogue reading of a guard that HELD. An unparseable or absent
-// expression proves nothing, which is the same answer either way.
-func whenTrueFacts(cond string) []schema.GuardFact {
-	if cond == "" {
-		return nil
-	}
-	whenTrue, _, err := schema.GuardFacts(cond)
-	if err != nil {
-		return nil
-	}
-	return whenTrue
-}
-
 // sameFrame reads a guard in the frame it was written in: nothing is translated and nothing is
-// dropped, which is what every name still in scope one slot later needs.
+// dropped, which is what every name still in scope one slot later needs — `config` included,
+// since one `evalSwitch` pass reads one resolved value.
 func sameFrame(path string) (string, bool) { return path, true }
 
-// ownCaseRefs is what a clause beside a guard may assume: the guard HELD, or the clause would
-// not be running. Sound where the negation is not — `(code…) && case` holding proves the case,
-// while its negation proves neither half. The case expression itself must never be given these:
-// it is what establishes them.
-func ownCaseRefs(cond string) refs {
-	out := refs{}
-	out.addFacts(whenTrueFacts(cond), sameFrame)
-	return out
-}
-
 // edgeRefs is what taking switch case k proves, in the frame of the task it routes to.
-func edgeRefs(s *model.Task, k int) refs {
-	return caseFacts(s, k, true, func(path string) (string, bool) {
-		return translateGuard(path, s.ID, taskHasOutput(s))
+func edgeRefs(t *model.Task, k int) refs {
+	return clauseFacts(switchClauses(t), k, true, func(path string) (string, bool) {
+		return translateGuard(path, t.ID, taskHasOutput(t))
 	})
 }
 
-// priorRuleRefs is priorCaseRefs for `on_error`, and it is nearly always empty — which is the
-// point. A rule's predicate is `(code == a || code == b) && case`, so reaching rule k proves
-// only the NEGATION of that conjunction for each earlier rule, and the negation of a
-// conjunction is not a fact about either half: the rule may have been skipped because the code
-// did not match, before its `case` was ever evaluated (`matchOnErrorWith`).
-//
-// One shape survives. A rule with NO code is a pure `case`, so its predicate is the case alone
-// and falling past it does prove the case false. A rule with a code and no case proves only
-// something about `error.code`, which is a non-nullable string either way.
-func priorRuleRefs(s *model.Task, k int) refs {
-	out := refs{}
-	for j := 0; j < k && j < len(s.OnError); j++ {
-		ec := s.OnError[j]
-		if len(ec.Code) > 0 || ec.Case == "" {
-			continue
-		}
-		if _, whenFalse, err := schema.GuardFacts(ec.Case); err == nil {
-			out.addFacts(whenFalse, sameFrame)
-		}
-	}
-	return out
-}
-
-// ruleEdgeRefs is what an on_error rule's `goto` carries, in the frame of the task it routes
-// to. The rule fired, so its whole predicate held and its `case` is true — the one direction
-// priorRuleRefs cannot use. Everything about the failing task itself is dropped by the frame:
-// it produced no output, so `self.output` has no downstream name (exportsOutput false), and
-// `error` is the rule's own — the target reads its own `last_error`.
-func ruleEdgeRefs(s *model.Task, k int) refs {
-	if k < 0 || k >= len(s.OnError) {
-		return refs{}
-	}
-	out := refs{}
-	out.addFacts(whenTrueFacts(s.OnError[k].Case), func(path string) (string, bool) {
-		return translateGuard(path, s.ID, false)
+// ruleEdgeRefs is edgeRefs for an `on_error` rule's `goto`. The task FAILED, so it exported no
+// output and nothing under `self` has a downstream name — which is the whole of the difference,
+// and translateGuard's `exportsOutput` says it.
+func ruleEdgeRefs(t *model.Task, k int) refs {
+	return clauseFacts(ruleClauses(t), k, true, func(path string) (string, bool) {
+		return translateGuard(path, t.ID, false)
 	})
-	return out
-}
-
-// priorCaseRefs is what case k may assume before its OWN expression runs. Read in the task's
-// own frame, so nothing is translated and nothing is dropped: every name a case can write is
-// still in scope for a later one — `config` included, since one `evalSwitch` pass reads one
-// resolved value.
-//
-// Not applicable to `on_error`: a rule there is skipped when its CODE does not match, before
-// its `case` is ever evaluated, so reaching rule k does not mean rule j's case was false.
-func priorCaseRefs(s *model.Task, k int) refs {
-	return caseFacts(s, k, false, func(path string) (string, bool) { return path, true })
 }
 
 // meetRefs keeps only what BOTH sides prove, identically. A nil map is "not computed yet"
@@ -344,7 +322,7 @@ func applyRefinements(ctx, resolvable schema.Schema, r refs) schema.Schema {
 			// Materialized: a path landing exactly ON a `$ref` hides its null inside the
 			// target, which is every guard on a whole task output — an output is carried as
 			// a ref by construction.
-			stripped := declared.StripNullMaterialized()
+			stripped := declared.StripNull()
 			if stripped.IsZero() || stripped.HasNull() {
 				continue
 			}

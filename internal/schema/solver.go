@@ -297,6 +297,14 @@ func tarjanSCC(graph map[string][]string, nodes []string) [][]string {
 	return sccs
 }
 
+// servesEstimate reports whether resolvePending would answer with the running estimate rather
+// than a type — the back-edge case below, and the one state in which a reader must not look
+// inside. A member not yet started is solved on demand like any other.
+func (p *pendingEntry) servesEstimate() bool {
+	m := p.solver.members[p.name]
+	return m != nil && m.err == nil && m.state == memberOnStack
+}
+
 // resolvePending is called from deref when a `$ref` lands on a pending sentinel; it
 // returns the node the reader should see — the final type once solved, or the running
 // (nullable) estimate when the read closes a cycle.

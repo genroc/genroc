@@ -68,14 +68,19 @@ runs only when 1..k-1 were false — the same negation an outgoing edge carries,
 task's OWN frame (nothing translated, nothing dropped: every name a case can write is still in
 scope for a later one, `config` included, since one pass reads one resolved value). Refusing
 this is what sends an author to a `?? default` in the case right below their own null check.
-`on_error` gets the same treatment, and it almost always yields nothing — which is the
-interesting part. A rule's predicate is `(code == a || code == b) && case`, so falling past
-rule j proves the negation of a CONJUNCTION, and that is not a fact about either half: the rule
-may have been skipped on its code before its `case` ever ran (`matchOnErrorWith`). One shape
-survives — a rule with no `code` is a pure `case`, so falling past it proves the case false.
-A rule with a code and no case proves only something about `error.code`, a non-nullable string
-either way. `priorRuleRefs` is that rule, and it is the catalogue's `¬(A∧B)` applied where the
-conjunction is implicit in the syntax.
+**A switch case and an `on_error` rule are ONE thing — a guard, plus whether its falsity may be
+read** (`clause`), and that is the only way they differ. A rule's predicate is
+`(code == a || code == b) && case`, so falling past one that names a code proves the negation of
+a CONJUNCTION, which is a fact about neither half: it may have been skipped on the code before
+its `case` ever ran (`matchOnErrorWith`). So a coded rule sets `negates: false` and every switch
+case sets it true — the catalogue's `¬(A∧B)` applied where the conjunction is implicit in the
+syntax. A rule with no `code` is a pure `case` and negates like any other; one with a code and no
+case would prove only something about `error.code`, a non-nullable string either way.
+
+Everything downstream then reads the same `clauseFacts` walk — the case expression's scope
+(priors only), its siblings' (priors plus its own, which it proves by firing), and the edge it
+takes (the same, in the target's frame). Writing those four separately is what let the `on_error`
+edge silently miss the negation the switch edge had.
 
 **A clause beside a case may assume it; the case may not.** A `panic`, `raise` or `retry`
 runs only because its case matched, so it reads the case's own `whenTrue` facts on top of the
@@ -93,30 +98,36 @@ downstream name, and the `error` it caught is read as the target's own `last_err
 different value under the same-looking path. What the failing task's entry context already
 proved still travels: failing says nothing about `input`.
 
-**A guard landing on a `$ref` must MATERIALIZE before stripping null**
-(`Schema.StripNullMaterialized`). A ref rides through `StripNull` untouched — deliberately,
-since leaving refs symbolic is what keeps recursive types finite — so a null declared inside
-the target survives, `HasNull` reports it, and `StripNull` is a no-op. Every guard on a whole
-task output hits this, an output being carried as a ref by construction. It is not specific to
-edges: the expression-level narrowing had the same hole. Making `StripNull` itself resolve was
-tried and REVERTED — it inlines recursive definitions and the output solver stops converging;
-resolving at the one call that narrows is the same trade `inferNullCoalesce` already makes.
+**A `$ref` may not change what a type answers.** Whether a shape is written inline or behind a
+name is a fact about the DOCUMENT, and a guard on a whole task output hits the difference every
+time, an output being carried as a ref by construction. The narrowing therefore does not ask —
+`StripNull` follows references, the same way `HasNull` always has. The two disagreeing was the
+bug: every caller that narrowed rather than described had to remember to materialize, and each
+one that forgot narrowed nothing in silence. There is no second strip to remember any more.
 
-**The bound is the CYCLE, not a hop count.** `stripNullDeep` follows references until it
-reaches a type, resolving only the ones whose target actually holds the null — so a chain
-(`b_output → a_output → nullable`, which a task re-exporting another's output builds), a
-nullable inside a union ARM (`outputs.a ?? outputs.b` over two nullable outputs), and the two
-composed all narrow. What it does NOT resolve is everything the null was never behind, which
-is what keeps the result symbolic and finite: a recursive object's link materializes once and
-its own `next` stays a ref.
+Making a naive `StripNull` resolve was tried and REVERTED — it inlines recursive definitions and
+the output solver stops converging. Resolving only where the null actually IS does not: what the
+null was never behind stays a ref, so a recursive object's nullable link resolves once and the
+`next` inside it is still symbolic.
+
+**The bound is the CYCLE, not a hop count.** `stripNullIn` follows references until it
+reaches a type — so a chain (`b_output → a_output → nullable`, which a task re-exporting
+another's output builds), a nullable inside a union ARM (`outputs.a ?? outputs.b` over two
+nullable outputs), and the two composed all narrow. A hop count was the first version and it is
+the wrong shape of bound: it answers "no" on a legal type for a reason the author cannot see or
+fix.
 
 Termination comes from the path set, one entry per node on the way down. The shape that needs
 it — `A = B|integer`, `B = A|null` — is refused by `CheckDoc` as a `$defs` cycle with no
 structural progress, so nothing registrable reaches it; the guard is there because removing it
 costs a hung language server rather than a wrong answer, and
-`TestStripNullThroughAReferenceCycle` is the only thing that would notice. A hop count was the
-first version and it is the wrong shape of bound: it answers "no" on a legal type for a reason
-the author cannot see or fix.
+`TestStripNullThroughAReferenceCycle` is the only thing that would notice.
+
+**One state stops the walk, and it is not about refs.** A reference onto a definition the solver
+is still computing is served its running ESTIMATE, nullable on purpose — the seed that makes
+`x ?? 0` take its default arm on the first pass. That is a type which does not exist yet rather
+than a type behind a name, so the walk leaves it alone (`servesEstimate`); stripping it stops
+the fixpoint converging, which six solver tests say out loud.
 
 **Edges, not tasks.** `predEdge` must become one edge per switch case (stop
 deduplicating) — two cases routing to one target carry different refinements. Safe for
@@ -192,6 +203,7 @@ covers and watching it fail (`validationtest/guard_narrowing_test.go` unless not
 | frame translation | see `validation/guards_test.go` | 15 rows |
 | a ref CHAIN materializes | `deref` stopping at one hop | ThroughARefChain (3), `schematest` |
 | a null inside a union ARM | resolving one level only | UnionArmHoldingARefToNullable |
+| a live ESTIMATE is left alone | `servesEstimate` → false | six solver/recursion tests |
 | the walk terminates | dropping the path set | StripNullThroughAReferenceCycle (a stack overflow) |
 | a recursive nullable stays symbolic | inlining it instead | ThroughARecursiveObject (a size check) |
 | a union carries its arms' pool | `OneOf`/`AnyOf` dropping it | CoalesceOfTwoNullableOutputs |

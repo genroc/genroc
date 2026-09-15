@@ -96,3 +96,12 @@ func slotContext(t *testing.T, defJSON, address string) schema.Schema {
 	}
 	return ctx
 }
+
+func runGenerateOK(t *testing.T, defJSON string) (validation.SchemaFile, error) {
+	t.Helper()
+	var def model.ProcessDefinition
+	if err := json.Unmarshal([]byte(defJSON), &def); err != nil {
+		t.Fatalf("unmarshal definition: %v", err)
+	}
+	return validation.Generate(&def)
+}

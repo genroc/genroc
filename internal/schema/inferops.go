@@ -189,8 +189,11 @@ func inferNullCoalesce(left, right Schema) (Schema, error) {
 		return left, nil // left can never be null; ?? is a no-op
 	}
 	if !leftWrapperNullable {
-		// The nullability lives inside the referenced type, where no wrapper
-		// can strip it — materialize the stripped form for this rare case.
+		// StripNull follows references, so it leaving one alone means the target is a definition
+		// still being SOLVED: the read is served a running estimate, wrapped nullable at the use
+		// site (estimateNode). Unwrap that — the estimate is the type, the wrapper is the seed.
+		// Only MUTUAL output recursion gets here; `self.previous` carries its own wrapper, which
+		// the strip above already removed. TestGenerate_MutualOutputRecursionUnwrapsTheEstimate.
 		nonNullLeft = analysisLeft.StripNull()
 	}
 	if schemasEqual(nonNullLeft, right) {
