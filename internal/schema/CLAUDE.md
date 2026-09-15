@@ -200,6 +200,22 @@ otherwise describe itself forever.
 The same shape bites anything that reads a nullable value's members, not just `Summary`:
 completion's `membersOf` strips the null before resolving for exactly this reason.
 
+## Narrowing follows short-circuit evaluation
+
+`narrowCondition` turns a guard into then/else contexts, and three constructs read it: the
+ternary's two branches, and the right operand of `&&` / `||` — reached on exactly one outcome
+of the left, because `evalLogical` short-circuits. Tie the two together or the type system
+starts admitting an expression the evaluator then runs against the value it was narrowed
+against, trading a registration error for an uncatchable `engine.expression`.
+
+What a conjunction proves is **per reference, and only when true**: `A && B` true gives both
+halves (so chains accumulate), false gives neither — "one of them failed" is not a fact about
+either. `||` is the mirror, and `!` swaps the pair exactly. Anything wider needs a reason it
+cannot guess, which is why the truth of a whole boolean expression narrows nothing.
+
+The CROSS-TASK version — carrying a `switch` case's proof along the edge it selects — is a
+different problem and still open: [specs/guard-narrowing.md](../../specs/guard-narrowing.md).
+
 ## "Optional" is not "may be absent"
 
 `conformObject` fills an absent optional's default, so a property WITH a default is always

@@ -444,7 +444,18 @@ func inferBinary(n *syntax.BinaryNode, ictx inferCtx) (Schema, error) {
 	if err != nil {
 		return Schema{}, err
 	}
-	right, err := inferNode(n.Right, ictx)
+	// `&&` and `||` short-circuit (expression/eval.go evalLogical), so the right operand is
+	// reached on exactly one outcome of the left — infer it under the context that outcome
+	// proves. This is what lets `n != null && n > 2` typecheck; without it `??` is the only
+	// way to read a nullable, and the guard an author writes first is refused.
+	rightCtx := ictx
+	switch n.Op {
+	case "&&":
+		rightCtx, _ = narrowCondition(n.Left, ictx)
+	case "||":
+		_, rightCtx = narrowCondition(n.Left, ictx)
+	}
+	right, err := inferNode(n.Right, rightCtx)
 	if err != nil {
 		return Schema{}, err
 	}
@@ -494,10 +505,34 @@ func inferConditional(n *syntax.CondNode, ictx inferCtx) (Schema, error) {
 }
 
 // narrowCondition returns then/else contexts narrowed by an equality condition.
+//
+// A conjunction proves both halves when true and NEITHER when false — the negation of
+// `A && B` says only that one of them failed, which is not a fact about either reference.
+// The disjunction is the mirror. Composing left-then-right is what makes a chain of guards
+// accumulate, so `a != null && b != null && a > b` narrows both.
 func narrowCondition(cond syntax.Node, ictx inferCtx) (thenCtx, elseCtx inferCtx) {
 	thenCtx, elseCtx = ictx, ictx
+	// `!` proves on false what its operand proves on true, so the branches swap. Exactly
+	// swap: anything looser turns negation into a way to assert what was never proved.
+	if un, ok := cond.(*syntax.UnaryNode); ok && un.Op == "!" {
+		t, e := narrowCondition(un.Operand, ictx)
+		return e, t
+	}
 	bin, ok := cond.(*syntax.BinaryNode)
-	if !ok || (bin.Op != "==" && bin.Op != "!=") {
+	if !ok {
+		return
+	}
+	switch bin.Op {
+	case "&&":
+		thenCtx, _ = narrowCondition(bin.Left, ictx)
+		thenCtx, _ = narrowCondition(bin.Right, thenCtx)
+		return thenCtx, ictx
+	case "||":
+		_, elseCtx = narrowCondition(bin.Left, ictx)
+		_, elseCtx = narrowCondition(bin.Right, elseCtx)
+		return ictx, elseCtx
+	}
+	if bin.Op != "==" && bin.Op != "!=" {
 		return
 	}
 

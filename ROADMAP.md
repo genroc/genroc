@@ -14,9 +14,6 @@ One line per item. The argument lives in `specs/`; this is the index.
   (specs/deterministic-simulation.md)
 - [] **guard narrowing** — a `switch` case's proof is discarded, so the routed task still
   needs a `?? default` that can never be evaluated (specs/guard-narrowing.md)
-- [] **expression-level narrowing** — `x != null && x > 2` is refused inside ONE expression,
-  so `??` is the only way to read a nullable; a different problem from the line above, and
-  the first one an author meets (specs/guard-narrowing.md §Rejected alternatives)
 - [] **enum-aware canonicalization** — `mergeSimpleVariants` won't fold arms carrying an
   `enum`; prerequisite for literal types (specs/literal-types.md §4)
 - [] **literal types** — `"sent"` infers as `string`; unblocks discriminated unions
@@ -33,6 +30,9 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **docs** — the site ships four pages; the reference gap it was written to close is open
 
 ## Shipped
+- [x] **expression-level narrowing** — a guard on the left of `&&` (or `||`) narrows its
+      right operand, because the evaluator short-circuits; `!` swaps the branches and
+      chains accumulate. The CROSS-TASK case is still open above (specs/guard-narrowing.md)
 - [x] **`required` + `default` refused everywhere** — the pair was rejected only in
       `config_schema`; `schema.CheckDoc` now rejects it in every authored schema, so
       "guaranteed present" has exactly two spellings and neither is dead

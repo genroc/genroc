@@ -40,12 +40,28 @@ know what outputs are accessible and what their types are.
 
 Genroc tracks whether a field can be null. It doesn't allow nullable fields
 in templates and operations that don't make sense on a `null` type (e.g. `<`).
-If you want to use a nullable value in these places, you have to provide
-a fallback value with the `??` operator.
+Comparing to `null` is always allowed, so `x == null` is how you test for one.
+
+There are two ways to get from a nullable value to one you can use.
+Give it a fallback with the `??` operator:
 
 ```genroc
 url: "${input.server_url ?? 'http://localhost:1234'}/user"
 ```
+
+Or check it first. A guard on the left of `&&` narrows the right side, because
+the right side only runs when the left one held:
+
+```genroc
+case: "input.retries != null && input.retries > 3"
+```
+
+`||` works the same way in reverse — its right side runs only when the left
+one failed — and `!` swaps the two. Several guards chain, so
+`a != null && b != null && a > b` narrows both.
+
+Note that the check has to come first. `input.retries > 3 && input.retries != null`
+is still refused, because the comparison is reached before anything has been proven.
 
 You can also use `default` to fill in a missing value.
 
