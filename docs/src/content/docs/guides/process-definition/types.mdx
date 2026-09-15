@@ -5,7 +5,7 @@ order: 4
 ---
 
 Genroc requires you to validate input into the process,
-so it always knows what shape of the data are allowed to enter.
+so it always knows what shape of the data is allowed to enter.
 
 ## Why?
 
@@ -26,7 +26,7 @@ in the process and check if they are referencing only existing properties and
 operations are performed on a correct types.
 
 We can also infer expression types, so if you use expression to create a new
-object type, genroc will automatically infer it's type.
+object type, genroc will automatically infer its type.
 
 ## Inferred context
 
@@ -62,7 +62,7 @@ inside the process, because if it's not provided by the user, the default value 
 Combining required and default is refused, because then default can never be applied.
 
 This changes however if it's specified as `type: [string, "null"]`,
-here user can pass `null` explicitly and the default values is not used in this case.
+here user can pass `null` explicitly and the default value is not used in this case.
 
 > Genroc has only one NIL value `null`, so in the expressions there is no difference between nullable and non-required values (they both contain `null`)
 
@@ -113,7 +113,7 @@ output:
 ```
 
 > TIP: Install the [genroc vscode extension](https://marketplace.visualstudio.com/items?itemName=genroc.genroc)
-  and copy the process above to a new definition. You can then hover any expression part and see what is it's type.
+  and copy the process above to a new definition. You can then hover any expression part and see what is its type.
   It will also show you errors live.
 
 ### Declaring what enters the process
@@ -139,7 +139,7 @@ If you make a typo (e.g. `"$: outputs.load_user.emial"`), genroc will throw an e
 ### The context of a slot
 
 Each slot can have a bit different context depending on previous tasks and
-also it's position in the task. For example you can't use `self.result` in action
+also its position in the task. For example you can't use `self.result` in action
 configuration, because the result is available only after the action has executed.
 
 ### Other checks
@@ -149,7 +149,7 @@ allow non-reachable tasks.
 
 ## Config
 
-The mechanism which allows usage of enviroment variable sin the process.
+The mechanism which allows usage of enviroment variable in the process.
 You can define `config_schema`, it must be a flat object, e.g.:
 
 ```genroc
@@ -177,11 +177,10 @@ You can then access config anywhere in the process expressions.
     url: "${config.server_url}/users/${input.user_id}"
 ```
 
-Genroc is loading and validating config values everytime it interacts with the process.
+Genroc is loading and validating config values every time it interacts with the process.
 You can define any primitive value type and genroc will validate them and convert.
 If the validation doesn't pass, process is not allowed to register.
-So if the value is without default or required,
-you need to set the env before applying the definition (on the server).
+So if the value is required, you need to set the env before applying the definition (on the server).
 
 ### Secrets
 

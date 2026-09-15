@@ -14,6 +14,12 @@ One line per item. The argument lives in `specs/`; this is the index.
   (specs/deterministic-simulation.md)
 - [] **guard narrowing** — a `switch` case's proof is discarded, so the routed task still
   needs a `?? default` that can never be evaluated (specs/guard-narrowing.md)
+- [] **expression-level narrowing** — `x != null && x > 2` is refused inside ONE expression,
+  so `??` is the only way to read a nullable; a different problem from the line above, and
+  the first one an author meets (specs/guard-narrowing.md §Rejected alternatives)
+- [] **`required` + `default` refused everywhere** — `config_schema` rejects the pair because
+  the default can then never apply; `input_schema` and `responses` accept it and the default
+  is simply dead, since required is judged first and the value is refused as missing
 - [] **enum-aware canonicalization** — `mergeSimpleVariants` won't fold arms carrying an
   `enum`; prerequisite for literal types (specs/literal-types.md §4)
 - [] **literal types** — `"sent"` infers as `string`; unblocks discriminated unions
