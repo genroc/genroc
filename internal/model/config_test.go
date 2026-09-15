@@ -302,7 +302,6 @@ func TestValidateConfigSchema(t *testing.T) {
 		{"unknown type", cfgSchema(`{"type":"object","properties":{"X":{}}}`), "single primitive type"},
 		{"combinator", cfgSchema(`{"type":"object","oneOf":[{"type":"string"}]}`), "oneOf/anyOf/allOf"},
 		{"required unknown property", cfgSchema(`{"type":"object","required":["NOPE"],"properties":{"X":{"type":"string"}}}`), "unknown property"},
-		{"required with default", cfgSchema(`{"type":"object","required":["X"],"properties":{"X":{"type":"string","default":"a"}}}`), "cannot be both required and have a default"},
 		{"invalid name", cfgSchema(`{"type":"object","properties":{"bad-name":{"type":"string"}}}`), "valid identifier"},
 		{"env-key collision", cfgSchema(`{"type":"object","properties":{"server_url":{"type":"string"},"SERVER_URL":{"type":"string"}}}`), "same environment variable suffix"},
 	}

@@ -1,10 +1,10 @@
 # A KNOWN FALSE ALARM, pinned so that fixing it is a deliberate flip rather than a surprise.
 # The reverse edit is refused — yet every stored input already carries the key, because
 # creation conforms the input once and persists the filled default. The comparison reads two
-# documents and never an instance, so it cannot see that; and the new side's own default does
-# not rescue it either, a default on a required property being inert (the absence is rejected
-# before one is looked for). Either half of the pair could close this, and internal/schema/
-# CLAUDE.md is where the coordinated relation-and-fill change is argued.
+# documents and never an instance, so it cannot see that. The new side cannot keep the default
+# beside `required`: the pair is refused outright now (schema.CheckDoc), since a default there
+# could never apply. internal/schema/CLAUDE.md argues the coordinated relation-and-fill change
+# that would close this.
 apply:
   - channel: reqtight_a
     definitions:
@@ -20,7 +20,7 @@ apply:
     definitions:
       - name: reqtight_proc
         input_schema:
-          {type: object, properties: {retries: {type: integer, default: 3}}, required: [retries]}
+          {type: object, properties: {retries: {type: integer}}, required: [retries]}
         tasks:
           - id: plan
             action: {type: fetch, method: post, url: http://x/plan}

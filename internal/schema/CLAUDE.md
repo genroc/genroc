@@ -204,6 +204,8 @@ completion's `membersOf` strips the null before resolving for exactly this reaso
 
 `conformObject` fills an absent optional's default, so a property WITH a default is always
 there — and `inferProperty` has typed it non-nullable all along ("required, or defaulted").
+Which is why `CheckDoc` refuses `required` beside a `default`: presence has two spellings and
+that pair is neither, `required` being judged before any fill is looked for.
 `MayBeAbsent` is that rule, named once: `MemberNames`, completion's member details and
 `genctl schema context` all read it rather than the `required` list.
 

@@ -17,9 +17,6 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **expression-level narrowing** — `x != null && x > 2` is refused inside ONE expression,
   so `??` is the only way to read a nullable; a different problem from the line above, and
   the first one an author meets (specs/guard-narrowing.md §Rejected alternatives)
-- [] **`required` + `default` refused everywhere** — `config_schema` rejects the pair because
-  the default can then never apply; `input_schema` and `responses` accept it and the default
-  is simply dead, since required is judged first and the value is refused as missing
 - [] **enum-aware canonicalization** — `mergeSimpleVariants` won't fold arms carrying an
   `enum`; prerequisite for literal types (specs/literal-types.md §4)
 - [] **literal types** — `"sent"` infers as `string`; unblocks discriminated unions
@@ -36,6 +33,9 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **docs** — the site ships four pages; the reference gap it was written to close is open
 
 ## Shipped
+- [x] **`required` + `default` refused everywhere** — the pair was rejected only in
+      `config_schema`; `schema.CheckDoc` now rejects it in every authored schema, so
+      "guaranteed present" has exactly two spellings and neither is dead
 - [x] **language server** — `genctl lsp` and a VS Code extension: diagnostics that agree with
       the server, hover types, completion (scope members and discriminated keys) and
       navigation. Rests on `internal/defdoc`, which gave every diagnostic a position

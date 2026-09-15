@@ -755,7 +755,8 @@ var configNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // validateConfigSchema enforces the config_schema shape: a flat "object" whose properties
 // each declare a single scalar type (string/integer/number/boolean) with no nested
 // object/array, combinators, or $ref. Property names must be identifiers that don't
-// collide once normalized to their env var suffix; a required property may not carry a default.
+// collide once normalized to their env var suffix. A required property may not carry a
+// default either, but that is `schema.CheckDoc`'s rule now, applied to every schema.
 func validateConfigSchema(cs *schema.Schema) error {
 	if cs == nil {
 		return nil
@@ -767,12 +768,10 @@ func validateConfigSchema(cs *schema.Schema) error {
 		return errors.New("config_schema must not use oneOf/anyOf/allOf/$ref/$defs")
 	}
 	props := cs.Properties()
-	required := make(map[string]bool, len(cs.Required()))
 	for _, r := range cs.Required() {
 		if _, ok := props[r]; !ok {
 			return fmt.Errorf("config_schema: required lists unknown property %q", r)
 		}
-		required[r] = true
 	}
 	envKeys := make(map[string]string, len(props))
 	for name, prop := range props {
@@ -795,9 +794,6 @@ func validateConfigSchema(cs *schema.Schema) error {
 		}
 		if prop.HasProperties() || prop.HasItems() || prop.HasCombinators() || prop.HasRef() {
 			return fmt.Errorf("config %q: must be a primitive value (no nested objects, arrays, combinators, or $ref)", name)
-		}
-		if required[name] && prop.Default() != nil {
-			return fmt.Errorf("config %q: cannot be both required and have a default", name)
 		}
 	}
 	return nil

@@ -133,6 +133,15 @@ func checkDoc(nd *node, defs map[string]*node, seen map[*node]bool) error {
 			return fmt.Errorf("default does not validate against its schema: %w", err)
 		}
 	}
+	// A required property's default is unreachable: conformObject judges `required` first, so
+	// an absent key is refused rather than filled. The pair is not merely redundant — it reads
+	// as "optional, falling back to x" and behaves as "mandatory".
+	for _, name := range nd.Required {
+		if prop, ok := nd.Properties[name]; ok && propDefault(prop, defs) != nil {
+			return AtPath("properties."+name, fmt.Errorf(
+				"property %q is required and has a default, so the default can never apply — drop one", name))
+		}
+	}
 
 	for sl, c := range children(nd) {
 		if c == nil {
