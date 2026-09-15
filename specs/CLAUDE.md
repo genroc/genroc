@@ -395,7 +395,8 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   that routed to a task, so a definition that proves `x != null` can then use `x`. Records
   two soundness traps that are easy to miss: `config` is re-resolved every tick (so a guard
   on it proves nothing downstream), and task outputs are overwritten on loop re-entry (so
-  refinements need a dataflow kill).
+  refinements need a dataflow kill). **Part of this one ships already**: the guard catalogue
+  narrows within a single expression; only the cross-task half is proposal.
 - [compat-command.md](compat-command.md) — the compat **check**: two questions, not one.
   Can a running instance continue (**upgrade** — non-negotiable), and does the process still
   honour its contracts (**contract** — excusable with `--ignore contract`). Two shipped

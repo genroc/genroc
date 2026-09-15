@@ -1,6 +1,11 @@
 # Guard narrowing
 
-**Status: proposed, not implemented.** Companion to
+**Status: the CROSS-TASK feature below is proposed, not implemented. The guard catalogue it
+specifies is built** — `narrowCondition` in `internal/schema/infer.go` narrows within one
+expression (`x != null && x > 2`), covering `X != null` / `X == null`, `!G`, `G1 && G2`, `||`
+and chains, each with a runtime pairing in `expressiontest/logical_narrowing_test.go`. So the
+catalogue and its soundness cases are settled here, and step (2) of the sketch is a refactor
+rather than new work. Companion to
 [path-sensitive-output.md](path-sensitive-output.md) (implemented).
 
 ## The problem
@@ -20,7 +25,9 @@ path-sensitive-output §5 deliberately avoids, and TypeScript draws the identica
 
 **Guard catalogue (closed):** `X != null` / `X == null` (each exact on both edges),
 `!G`, `G1 && G2` (both refinements on the taken edge, **nothing** on fall-through — the
-negation of a conjunction is not a per-reference fact). `||` narrows nothing in v1. The
+negation of a conjunction is not a per-reference fact). `||` narrows nothing across an EDGE
+in v1 — inside an expression it is exact, its right operand running only where the left
+failed, which is why the shipped half carries it and this half does not. The
 discriminant guard (`X.d == lit`) lives in
 [discriminated-unions.md](discriminated-unions.md), deferred on literal types; nothing
 here waits on it. The lattice is three states per reference (unrefined / non-null /
@@ -72,7 +79,9 @@ edges are per-case).
 ## Implementation sketch
 
 (1) `predEdge` gains case index, stop deduplicating; (2) a pure guard extractor
-`syntax.Node → []refinement` for exactly the catalogue + negations; (3) frame
+`syntax.Node → []refinement` for exactly the catalogue + negations — splitting
+`narrowCondition`, which implements the catalogue already but fuses extraction with
+application (it calls `withGuard` inline), so one catalogue serves both features; (3) frame
 translation, rejecting rather than guessing; (4) a refinement fixpoint beside
 `computeContextSets` (union across edges, meet within, kill `outputs.i` at i); (5) apply
 in `contextSchema` (the path-sensitive `absent` category is the precedent for a third
@@ -85,8 +94,9 @@ no-regression over the examples.
 
 ## Rejected alternatives
 
-- **Expression-level narrowing** (`x != null ? x*2 : 0`): real, but solves a
-  different problem — genroc's pain is across tasks. Eventually worth having.
+- **Expression-level narrowing** (`x != null ? x*2 : 0`): a different problem — genroc's
+  pain is across tasks — and no longer an alternative to anything: it SHIPPED, on the
+  reasoning above. Kept here because the two are still easy to conflate.
 - **Author assertion** (`non_null:`): a claim, not a proof — the same reason
   `not_reached` had to be restricted; teaches reflexive assertion.
 - **Infer from `on_error` structure**: error routing already carries `last_error`; the
