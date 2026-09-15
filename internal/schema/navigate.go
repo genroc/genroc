@@ -155,6 +155,20 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 		return &node{Type: SchemaType{"null"}}, nil
 	}
 
+	// `type: ["object","null"]` is the inline spelling of the union the oneOf branch below
+	// walks, and must answer the same: the null member has no properties, so the read yields
+	// the object member's type OR null. Reading the properties map directly instead would drop
+	// that arm and type the result non-nullable, which is a promise the evaluator breaks the
+	// first time the value is null.
+	if resolved.Type.Contains("null") {
+		bare := stripNull(resolved)
+		prop, err := lookupPropertyGuard(bare, name, defs, visiting)
+		if err != nil {
+			return nil, err
+		}
+		return withNull(prop), nil
+	}
+
 	for _, kw := range []struct {
 		name     string
 		variants []*node

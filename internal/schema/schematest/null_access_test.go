@@ -46,6 +46,33 @@ func TestNullAccess_CoalescingThroughAnAbsentSideTakesTheOther(t *testing.T) {
 		"a non-null left operand must win, and the null right must not re-introduce null")
 }
 
+// The two spellings of "object or null" must answer a property read identically. `type:
+// ["object","null"]` is the inline form of the oneOf below it, and reading the properties map
+// straight through drops the null member — typing the read non-nullable while the evaluator
+// answers nil for it, so the `??` the author was owed is never demanded.
+func TestNullAccess_NullableObjectKeepsTheNullArm(t *testing.T) {
+	for _, tc := range []struct{ name, doc string }{
+		{"inline type list", `{"type":["object","null"],"properties":{"k":{"type":"string"}},"required":["k"]}`},
+		{"oneOf spelling", `{"oneOf":[{"type":"null"},{"type":"object","properties":{"k":{"type":"string"}},"required":["k"]}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parsed, err := schema.Parse([]byte(tc.doc))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			ctx := schema.Object().WithProperty("o", parsed.AssumeNormalized(), true)
+			got, err := ctx.Infer("o.k")
+			if err != nil {
+				t.Fatalf("reading through a nullable object must yield a type, not fail: %v", err)
+			}
+			if !got.HasNull() {
+				t.Errorf("o.k = %s, want the null arm kept: the null member has no .k, so the read "+
+					"can be null and every downstream operator check is answered wrongly", jsonOf(t, got))
+			}
+		})
+	}
+}
+
 func TestNullAccess_PropertyOfAScalarIsStillAnError(t *testing.T) {
 	// The change is narrow: only a null yields null. Reading a property of a string is
 	// still an author error, and must keep saying so.
