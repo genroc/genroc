@@ -255,7 +255,7 @@ configuration, because the result is available only after the action has execute
 <p>Genroc also validates switch/goto targets (if the task exists) and also doesn’t
 allow non-reachable tasks.</p>
 <h2 id="config">Config<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#config"><span></span></a></h2>
-<p>The mechanism which allows usage of enviroment variable in the process.
+<p>The mechanism which allows usage of environment variables in the process.
 You can define <code>config_schema</code>, it must be a flat object, e.g.:</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> process-with-config</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">config_schema</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
@@ -289,9 +289,41 @@ So if the value is required, you need to set the env before applying the definit
 Secrets can still leak into db stored logs or process state - so they will be
 visible through <code>genctl logs</code> and so on.</p>
 <p>The <code>secret</code> property can only be used in the config.</p>
-<h2 id="when-is-this-checked">When is this checked?<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#when-is-this-checked"><span></span></a></h2>
-<p>You can validate the process by <code>genctl apply --check-only</code> this will validate the whole
-process on the server (so it also catches client version mismatch).</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/error-handling/"> <span>previous</span> <strong>Error handling</strong> </a> <a class="next" href="/guides/process-definition/example/"> <span>next</span> <strong>An example</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#why">Why?</a></li><li class="depth-2"><a href="#static-checking-and-inference">Static checking and inference</a></li><li class="depth-2"><a href="#inferred-context">Inferred context</a></li><li class="depth-2"><a href="#nullability">Nullability</a></li><li class="depth-2"><a href="#demonstration-on-a-real-example">Demonstration on a real example</a></li><li class="depth-3"><a href="#declaring-what-enters-the-process">Declaring what enters the process</a></li><li class="depth-3"><a href="#inferred-types">Inferred types</a></li><li class="depth-3"><a href="#static-checking">Static checking</a></li><li class="depth-3"><a href="#the-context-of-a-slot">The context of a slot</a></li><li class="depth-3"><a href="#other-checks">Other checks</a></li><li class="depth-2"><a href="#config">Config</a></li><li class="depth-3"><a href="#secrets">Secrets</a></li><li class="depth-2"><a href="#when-is-this-checked">When is this checked?</a></li></ul><script>
+<h2 id="the-benefits">The benefits<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-benefits"><span></span></a></h2>
+<p>Genroc type system ensures validty at two different moments, which compelement each other.</p>
+<p><strong>At registration</strong> - everything is statically checked - all the expressions,
+the types it produces, goto targets, reachablity. A typo in the expression never
+reaches production. <code>genctl apply --check-only</code> runs exactly these checks, so
+you can run them in the CI; they happen on the server, so you then know that <code>apply</code> will pass.</p>
+<p><strong>At runtime</strong> - the outside data entering the process are always validated.
+This will ensure that all the statically checked expressions will recieve data
+they expect. And the breaking API changes are detected.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>what changed</th><th>how you find out</th></tr></thead><tbody><tr><td>the request is no longer accepted</td><td>the server answers <code>4xx</code>, caught as <code>http.400</code>, <code>http.404</code>, …</td></tr><tr><td>the response body no longer passes validation</td><td><code>result.invalid</code></td></tr><tr><td>the response gained extra fields</td><td>nothing — they are dropped</td></tr></tbody></table>
+<h3 id="process-state-upgradability">Process state upgradability<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#process-state-upgradability"><span></span></a></h3>
+<p>Because genroc knows what should the state schema look like at every stage
+of the process, it can decide if old version of the process is upgradable to
+newer version. We will look at this feature later.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/error-handling/"> <span>previous</span> <strong>Error handling</strong> </a> <a class="next" href="/guides/process-definition/example/"> <span>next</span> <strong>An example</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#why">Why?</a></li><li class="depth-2"><a href="#static-checking-and-inference">Static checking and inference</a></li><li class="depth-2"><a href="#inferred-context">Inferred context</a></li><li class="depth-2"><a href="#nullability">Nullability</a></li><li class="depth-2"><a href="#demonstration-on-a-real-example">Demonstration on a real example</a></li><li class="depth-3"><a href="#declaring-what-enters-the-process">Declaring what enters the process</a></li><li class="depth-3"><a href="#inferred-types">Inferred types</a></li><li class="depth-3"><a href="#static-checking">Static checking</a></li><li class="depth-3"><a href="#the-context-of-a-slot">The context of a slot</a></li><li class="depth-3"><a href="#other-checks">Other checks</a></li><li class="depth-2"><a href="#config">Config</a></li><li class="depth-3"><a href="#secrets">Secrets</a></li><li class="depth-2"><a href="#the-benefits">The benefits</a></li><li class="depth-3"><a href="#process-state-upgradability">Process state upgradability</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
