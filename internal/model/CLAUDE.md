@@ -20,7 +20,19 @@ the runtime half and the unknowable set are in
    policy naming anything** (`!Retry.IsZero()`): a rule naming only a delay is still an
    author expecting retries, and 0 retries would let it through in silence. An empty
    policy is not "present" for this purpose — `retry: {}` and `retry: 0` are the absent key.
-2. **`on_error` and `switch` reject unknown keys**, naming the list the key belongs to:
+2. **A rule may only name a code the task can report** (`catchableVocabulary`), the
+   fetch/external counterpart of R5. The vocabulary is `errcode.Catchable` for the task's
+   kinds, plus two families absent from that table: the unbounded `http.<status>`, and an
+   external's declared `raises` — leaving either out refuses working definitions, and the
+   second is what every script task's whole error surface is made of.
+   **The question is asked as though `only_once` were set, always.** Nothing about the flag
+   may change which rules are legal — the tiers above are the only thing it governs — so a
+   handler can be written before the flag is, and toggling it off while debugging costs no
+   edits. `CatchableKinds` is shared with `internal/lsp`, which asks the live question
+   instead: what the editor offers stays a subset of what this accepts, never a superset.
+   For the same reason `only_once` itself is legal on a task with no action, where it is
+   simply inert (`TestValidateOnlyOnce_IsContextIndependent`).
+3. **`on_error` and `switch` reject unknown keys**, naming the list the key belongs to:
    they select with `code` and `case` respectively, and a silently dropped selector turns an
    on_error rule into a catch-all. Safe to do in the decoder because `SaveDefinition` stores
    `json.Marshal` of the decoded struct, so stored definitions are canonical.

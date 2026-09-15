@@ -569,10 +569,10 @@ func TestProcessDefinition_Validate(t *testing.T) {
 					ID: "charge", Action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"},
 					Switch:   SwitchMap{{Goto: GotoEnd}},
 					OnlyOnce: boolPtr(true),
-					OnError:  []ErrorCase{{Code: []string{"s%"}, Retry: Retries(3)}},
+					OnError:  []ErrorCase{{Code: []string{"re%"}, Retry: Retries(3)}},
 				},
 			}},
-			wantErr: `pattern "s%" can match errors where the call may have executed`,
+			wantErr: `pattern "re%" can match errors where the call may have executed`,
 		},
 		{
 			name: "only_once:true — mixed pre and non-pre patterns in one rule is rejected",

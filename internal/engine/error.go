@@ -35,18 +35,12 @@ func interruptedOnlyOnce(task *model.Task) bool {
 // no lease to reason about.
 const interruptedMessage = "its previous attempt was interrupted; the engine will not re-run it"
 
-// matchOnError returns the first ErrorCase matching errCode, or the catch-all (empty Code
-// list), or nil. Serves both action tasks (engine codes) and child tasks (a child's raised
-// code) through the same matcher.
-func matchOnError(task *model.Task, errCode errcode.Code) *model.ErrorCase {
-	c, _ := matchOnErrorWith(task, errCode, nil)
-	return c
-}
-
-// matchOnErrorWith is matchOnError with M2's predicate: a rule carrying a `case` applies only
-// when the code matches AND the case is true, and a false case falls THROUGH to the next rule.
-// eval is nil where no case can appear, and a rule with a case is then skipped; a case that
-// fails to evaluate is an error, never a non-match. specs/child-error-handling.md M2.
+// matchOnErrorWith returns the first ErrorCase matching errCode, or the catch-all (empty Code
+// list), or nil — serving action tasks (engine codes) and child tasks (a child's raised code)
+// through one matcher. M2's predicate: a rule carrying a `case` applies only when the code
+// matches AND the case is true, and a false case falls THROUGH to the next rule. eval is nil
+// only where no case can appear, and a rule with a case is then skipped; a case that fails to
+// evaluate is an error, never a non-match. specs/child-error-handling.md M2.
 func matchOnErrorWith(task *model.Task, errCode errcode.Code, eval func(string) (bool, error)) (*model.ErrorCase, error) {
 	for i := range task.OnError {
 		c := &task.OnError[i]

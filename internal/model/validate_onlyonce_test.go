@@ -10,10 +10,14 @@ import (
 // much — a false positive here means a legitimate retry policy cannot be expressed.
 func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 	yes := true
-	def := func(onlyOnce bool, ec ErrorCase) ProcessDefinition {
+	def := func(onlyOnce bool, actionType ActionType, ec ErrorCase) ProcessDefinition {
+		action := &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"}
+		if actionType == ActionTypeExternal {
+			action = &Action{Type: ActionTypeExternal}
+		}
 		task := &Task{
 			ID:      "charge",
-			Action:  &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"},
+			Action:  action,
 			Switch:  SwitchMap{{Goto: GotoEnd}},
 			OnError: []ErrorCase{ec},
 		}
@@ -29,8 +33,12 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 	tests := []struct {
 		name string
 		ec   ErrorCase
+		// action is the kind of task the row's codes belong to; a rule naming a code the
+		// task cannot report is refused for THAT before any tier is consulted.
+		action ActionType
 		// plain runs the same rule on a task without only_once, which must always
-		// accept: none of these tiers exist for an idempotent task.
+		// accept: none of these tiers exist for an idempotent task, and reachability
+		// asks the same question with or without the flag.
 		wantErr  string
 		wantHint string // an additional substring the message must carry
 	}{
@@ -69,9 +77,11 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 			wantHint: "restrict it to pre.% patterns",
 		},
 		{
+			// An unanchored prefix: reachable (it catches the result.* family), and
+			// nothing about it restricts the rule to pre.*.
 			name:     "wildcard crossing namespaces",
-			ec:       ErrorCase{Code: []string{"s%"}, Retry: Retries(2)},
-			wantErr:  `pattern "s%" can match errors where the call may have executed`,
+			ec:       ErrorCase{Code: []string{"re%"}, Retry: Retries(2)},
+			wantErr:  `pattern "re%" can match errors where the call may have executed`,
 			wantHint: "not_reached:true",
 		},
 		{
@@ -138,6 +148,7 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 		},
 		{
 			name:     "external.timeout named with not_reached",
+			action:   ActionTypeExternal,
 			ec:       ErrorCase{Code: []string{"external.timeout"}, NotReached: &yes, Retry: Retries(2)},
 			wantErr:  "external.timeout can never be retried on an only_once task",
 			wantHint: "no response came back",
@@ -153,7 +164,7 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := def(true, tt.ec)
+			d := def(true, tt.action, tt.ec)
 			err := d.Validate()
 			switch {
 			case tt.wantErr == "" && err != nil:
@@ -171,9 +182,109 @@ func TestValidateOnError_OnlyOnceRetries(t *testing.T) {
 
 			// Without only_once none of this applies: every rule above is legal on an
 			// ordinary task, which is what keeps the rules scoped to at-most-once.
-			plain := def(false, tt.ec)
+			plain := def(false, tt.action, tt.ec)
 			if err := plain.Validate(); err != nil {
 				t.Errorf("the same rule was rejected on a task without only_once: %v", err)
+			}
+		})
+	}
+}
+
+// Reachability: the fetch/external counterpart of R5. The set is errcode's, the editor offers
+// exactly it, and a pattern outside it names a failure the task cannot produce — so the rule
+// reads as handled and never runs. Each rejection must name the vocabulary that IS available,
+// because "wrong code" without the right list is a guessing game.
+func TestValidateOnError_CodeMustBeReachable(t *testing.T) {
+	yes := true
+	def := func(a *Action, onlyOnce bool, codes ...string) ProcessDefinition {
+		task := &Task{ID: "call", Action: a, Switch: SwitchMap{{Goto: GotoEnd}},
+			OnError: []ErrorCase{{Code: codes, Goto: GotoEnd}}}
+		if onlyOnce {
+			task.OnlyOnce = &yes
+		}
+		return ProcessDefinition{Name: "p", Tasks: []*Task{task}}
+	}
+	fetch := &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"}
+	external := &Action{Type: ActionTypeExternal}
+
+	for _, tt := range []struct {
+		name    string
+		def     ProcessDefinition
+		wantErr string
+	}{
+		{name: "a fetch's own codes", def: def(fetch, false, "http.404", "http.timeout", "pre.error", "result.parse")},
+		{name: "a fetch wildcard", def: def(fetch, false, "http.4%", "%")},
+		{name: "an external's own codes", def: def(external, false, "external.timeout", "external.lost")},
+		{name: "only_once.interrupted where the flag is set", def: def(fetch, true, "only_once.interrupted")},
+		// Reachability is flag-independent: a rule stays legal when only_once is toggled off,
+		// so a handler can be written before the flag is, and debugging without it costs no edits.
+		{name: "only_once.interrupted without the flag", def: def(fetch, false, "only_once.interrupted")},
+
+		{
+			name: "an external code on a fetch", def: def(fetch, false, "external.lost"),
+			wantErr: `"external.lost" is not a code a "fetch" task can report`,
+		},
+		{
+			name: "a fetch code on an external", def: def(external, false, "http.404"),
+			wantErr: `"http.404" is not a code a "external" task can report`,
+		},
+		{
+			name: "a status outside the HTTP range", def: def(fetch, false, "http.600"),
+			wantErr: `"http.600" is not a code a "fetch" task can report`,
+		},
+		{
+			name: "on_error on a task with no call",
+			def: ProcessDefinition{Name: "p", Tasks: []*Task{{ID: "route", Switch: SwitchMap{{Goto: GotoEnd}},
+				OnError: []ErrorCase{{Code: []string{"http.404"}, Goto: GotoEnd}}}}},
+			wantErr: "there is no call to fail",
+		},
+		{
+			name:    "on_error on a delay",
+			def:     def(&Action{Type: ActionTypeDelay, DelaySpec: DelaySpec{For: "1h"}}, false, "pre.error"),
+			wantErr: `on_error has no effect on a "delay" task`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			d := tt.def
+			err := d.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("rejected a rule the task can actually match: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("accepted a rule that can never fire, which reads as handled and is not")
+			}
+			if !containsStr(err.Error(), tt.wantErr) {
+				t.Errorf("error %q does not contain %q", err, tt.wantErr)
+			}
+			if !containsStr(err.Error(), "can never fire") && !containsStr(err.Error(), "no effect") {
+				t.Errorf("error %q does not say the rule is dead", err)
+			}
+		})
+	}
+}
+
+// `only_once` validates the same wherever it sits, including on a task with no action. The
+// flag is inert there — OnlyOnceAction needs both halves — but refusing it would make the
+// declaration's legality depend on context, and an author mid-edit (action removed, about to
+// be replaced) would have to delete the flag and put it back.
+func TestValidateOnlyOnce_IsContextIndependent(t *testing.T) {
+	yes := true
+	for _, tt := range []struct {
+		name   string
+		action *Action
+	}{
+		{name: "with a call to protect", action: &Action{Type: ActionTypeFetch, Method: "post", URL: "http://x"}},
+		{name: "with no action at all", action: nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			d := ProcessDefinition{Name: "p", Tasks: []*Task{
+				{ID: "t", Action: tt.action, OnlyOnce: &yes, Switch: SwitchMap{{Goto: GotoEnd}}},
+			}}
+			if err := d.Validate(); err != nil {
+				t.Fatalf("only_once must validate the same everywhere: %v", err)
 			}
 		})
 	}

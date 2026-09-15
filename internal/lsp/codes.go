@@ -95,24 +95,23 @@ func catchableCodes(doc *defdoc.Doc, taskPath string) []offeredCode {
 	task, _ := v.(map[string]any)
 	action, _ := task["action"].(map[string]any)
 
-	var kinds errcode.Kind
+	actionType := model.ActionType(stringField(action, "type"))
+	only, _ := task["only_once"].(bool)
+	// Shared with registration, which refuses a rule naming anything outside this set: what the
+	// editor offers and what applies must be one answer. `only_once` needing an action, and R5
+	// bounding a child task's rules by the raise set, are decided there.
+	kinds := model.CatchableKinds(actionType, only)
+
 	var out []offeredCode
-	switch model.ActionType(stringField(action, "type")) {
+	switch actionType {
 	case model.ActionTypeFetch:
-		kinds, out = errcode.KindFetch, slices.Clone(fetchPatterns)
+		out = slices.Clone(fetchPatterns)
 	case model.ActionTypeExternal:
-		kinds, out = errcode.KindExternal, declaredRaises(action)
+		out = declaredRaises(action)
 	case model.ActionTypeChild, model.ActionTypeChildMap, model.ActionTypeChildList:
-		kinds = errcode.KindChild
 		for _, entry := range childEntries(action) {
 			out = append(out, declaredRaises(entry)...)
 		}
-	}
-	// only_once needs an action to protect, and R5 bounds a child task's rules by the raise set
-	// — so `only_once.interrupted` is not offered there, though the engine can report it.
-	// specs/child-error-handling.md R5.
-	if only, _ := task["only_once"].(bool); only && action != nil && kinds != errcode.KindChild {
-		kinds |= errcode.KindOnlyOnce
 	}
 	for _, info := range errcode.Catchable(kinds) {
 		out = append(out, offeredCode{string(info.Code), info.Means})

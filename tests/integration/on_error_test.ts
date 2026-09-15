@@ -135,7 +135,9 @@ test("on_error — unmatched code fails instance", async () => {
             url: `http://localhost:${failMock.port}/action`,
             timeout: 2000,
           },
-          on_error: [{ code: ["network.%"], goto: "$unreachable" }],
+          // Reachable but not matching: the mock answers 500. An impossible code would be
+          // refused at registration now, so "no rule matched" has to be a runtime miss.
+          on_error: [{ code: ["http.404"], goto: "$unreachable" }],
           switch: [{ goto: "next" }],
         },
         {

@@ -337,6 +337,70 @@ func validateSwitch(s *Task, taskIDs map[string]struct{}, taskIdx, lastIdx int) 
 
 // isChildTask reports whether the task's action spawns child processes, which is what
 // makes its on_error a list of raised codes rather than engine codes (R4/M1).
+// CatchableKinds is which entries of errcode's catchable table a task of this shape can
+// report. One definition because two callers must agree on it: registration refuses a rule
+// naming something the set cannot produce, and the editor offers exactly what it admits.
+// `only_once` adds nothing without an action to protect, and nothing on a child task, whose
+// rules R5 bounds by the child's raise set instead.
+func CatchableKinds(actionType ActionType, onlyOnce bool) errcode.Kind {
+	var kinds errcode.Kind
+	switch actionType {
+	case ActionTypeFetch:
+		kinds = errcode.KindFetch
+	case ActionTypeExternal:
+		kinds = errcode.KindExternal
+	case ActionTypeChild, ActionTypeChildMap, ActionTypeChildList:
+		return errcode.KindChild
+	default:
+		return 0
+	}
+	if onlyOnce {
+		kinds |= errcode.KindOnlyOnce
+	}
+	return kinds
+}
+
+// catchableVocabulary is the concrete set a pattern is matched against, and the list a
+// rejection shows. Two families are not in errcode's table: the http statuses, unbounded so
+// the probe stands in for them with the range `ValidStatusPattern` admits, and an external's
+// declared `raises` — authored codes a worker submits, which are exactly the set
+// /external-tasks/fail accepts. The editor offers both the same way.
+func catchableVocabulary(s *Task, kinds errcode.Kind) (probe []errcode.Code, display []string) {
+	if kinds&errcode.KindFetch != 0 {
+		for status := 100; status <= 599; status++ {
+			probe = append(probe, errcode.HTTP(status))
+		}
+		display = append(display, "http.<status>")
+	}
+	for _, info := range errcode.Catchable(kinds) {
+		probe = append(probe, info.Code)
+		display = append(display, string(info.Code))
+	}
+	if s.Action != nil && s.Action.Type == ActionTypeExternal {
+		for _, code := range sortedRaiseCodes(s.Action.Raises) {
+			probe = append(probe, errcode.Code(code))
+			display = append(display, code)
+		}
+	}
+	return probe, display
+}
+
+func actionTypeOf(s *Task) ActionType {
+	if s.Action == nil {
+		return ""
+	}
+	return s.Action.Type
+}
+
+func matchesAnyCode(pattern string, probe []errcode.Code) bool {
+	for _, c := range probe {
+		if errcode.MatchCode(pattern, string(c)) {
+			return true
+		}
+	}
+	return false
+}
+
 func isChildTask(s *Task) bool {
 	return s.Action != nil && (s.Action.Type == ActionTypeChild || s.Action.Type == ActionTypeChildMap || s.Action.Type == ActionTypeChildList)
 }
@@ -347,6 +411,26 @@ func isChildTask(s *Task) bool {
 func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 	onlyOnce := s.OnlyOnce != nil && *s.OnlyOnce
 	child := isChildTask(s)
+	// What this task can report, and so what its rules may name. A child's codes are its
+	// child's raise set, checked where the child resolves (R5), so the vocabulary is empty
+	// here and no pattern is judged against it.
+	//
+	// The question asked here is flag-INDEPENDENT — `only_once.interrupted` is legal wherever
+	// the flag could be set, so toggling `only_once` never invalidates a rule, exactly as the
+	// retry tiers never do. The editor asks the narrower live question and so offers less;
+	// what it offers stays a subset of what this accepts.
+	var probe []errcode.Code
+	var offered []string
+	if !child {
+		const whetherOnlyOnceIsSet = true
+		probe, offered = catchableVocabulary(s, CatchableKinds(actionTypeOf(s), whetherOnlyOnceIsSet))
+	}
+	if len(s.OnError) > 0 && !child && len(probe) == 0 {
+		if s.Action == nil {
+			return fmt.Errorf("task %q: on_error has no effect on a switch-only task — there is no call to fail, so no rule here can ever run", s.ID)
+		}
+		return fmt.Errorf("task %q: on_error has no effect on a %q task — nothing it does reports a code a rule can catch", s.ID, s.Action.Type)
+	}
 	for i, ec := range s.OnError {
 		if err := atPath("on_error."+strconv.Itoa(i), func() error {
 			where := fmt.Sprintf("on_error[%d]", i)
@@ -376,6 +460,14 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 			for _, pat := range ec.Code {
 				if !validLikePattern(pat) {
 					return fmt.Errorf("task %q %s: code pattern must not be empty", s.ID, where)
+				}
+				// Reachability, the fetch/external counterpart of R5. The editor offers this
+				// same set, so a pattern outside it is one no completion suggested and no
+				// failure can match — most sharply `only_once.interrupted` on a task that
+				// never declared `only_once`, which reads as handled and is not.
+				if len(probe) > 0 && !matchesAnyCode(pat, probe) {
+					return fmt.Errorf("task %q %s: %q is not a code a %q task can report, so the rule can never fire — it can report %s",
+						s.ID, where, pat, s.Action.Type, strings.Join(offered, ", "))
 				}
 			}
 			// A GUARDED rule is never a catch-all: `case` can decline, so rules after it are

@@ -4,7 +4,7 @@ description: Learn how to deal with failures
 order: 3
 ---
 
-You might be wondering what happens when a fetch action fails? Let's look at that.
+You might be wondering what happens when a fetch action fails. Let's look at that.
 
 ```genroc
   - id: load_user
@@ -35,20 +35,20 @@ You might be wondering what happens when a fetch action fails? Let's look at tha
     switch: next
 ```
 
-Your main tool is the `on_error` field. It is evaluated from top to bottom simlilarly as `switch`.
+Your main tool is the `on_error` field. It is evaluated from top to bottom, similarly to `switch`.
 You can match one or multiple errors with the `code` field and you can also use `%` wildcard to match multiple errors at once.
 
 ## The error object
 The `error` object has non-nullable `code`, `message` and `task` (containing the task name).
 
 You can type your error responses the same way as your success responses.
-When you do that, you can match the typed error response code and then use `error.data` to use the error response body.
+When you do that, you can match the typed error response code and then read the error response body through `error.data`.
 
-> If you match multiple error codes in the `code` the `error.data` will widen, so it's better to match always the errors with the same data type.
+> If you match multiple error codes in `code`, `error.data` widens to cover all of them, so it is better to always match errors that carry the same data type.
 
 ### Responses field
 
-There are multiple ways how to define responses object.
+There are multiple ways to define the responses object.
 
 ```genroc
 responses:
@@ -64,28 +64,28 @@ responses:
 
 ### Case field
 
-If you want to perform an additional check on the error response body, you can use `case` field, which works the same way
-as on `switch`, so you can have custom expression returning boolean.
+If you want to perform an additional check on the error response body, you can use the `case` field, which works the same way
+as on `switch`, so you can write a custom expression returning a boolean.
 
-You can also use `case` field alone (without matching the code), but for most cases the `code` field is more convenient.
+You can also use the `case` field alone (without matching the code), but for most cases the `code` field is more convenient.
 
-Both selectors have to hold. A rule whose `code` matches but whose `case` is false does **not** catch the error —
+Both selectors have to hold. A rule whose `code` matches but whose `case` is false does **not** catch the error -
 it falls through to the next rule, so you can write several rules for one code and let them narrow each other.
 
 ## Custom timeout
 
-Default timeout is `30s` you can specify our own, which is also a slot (static values can be human readable, dynamic milliseconds only).
-If the fetch doesn't respond in time you'll recieve `http.timeout` or `pre.timeout` if the data were not send yet.
+The default timeout is `30s`, but you can specify your own. It is also a slot (static values can be human-readable, dynamic ones milliseconds only).
+If the fetch doesn't respond in time you will receive `http.timeout`, or `pre.timeout` if the request had not been sent yet.
 
 ## Reacting to the error
 
-To react to the error you can retry or use goto. You can also combine
-them - in that case task is retried first and when the retries are depleted
-it will use goto.
+To react to an error you can retry or use `goto`. You can also combine
+them: the task is retried first, and when the retries are depleted it
+follows the `goto`.
 
 ### Retry
 
-This will park the process for some time and will try the fetch again. There are advanced settings for retry as well:
+This parks the process for some time and then tries the fetch again. There are advanced settings for retry as well:
 
 ```genroc
 retry: 3
@@ -97,22 +97,22 @@ retry:
   max_delay: "5m"
 ```
 
- - `retries` - are **extra** fetches above the default one. So 3 retries can give you 4 failed fetches.
- - `delay` - says how long should we wait before the next retry (`1s` is default)*
+ - `retries` - the **extra** fetches beyond the first one. So 3 retries can give you 4 failed fetches.
+ - `delay` - how long to wait before the next retry (`1s` is default)*
  - `factor` - a multiplier of the delay after each retry (`1s`, `2s`, `4s` in this case, 2 is default)
- - `max_delay` - cap to the multiplication (max(`5m`, delay) is default)
+ - `max_delay` - a cap on the multiplication (max(`5m`, delay) is default)
 
-All the fields are slots with a context containing `error` so you can
-compute the delay time from the response body.
-The `delay` and `max_delay` slots only accept number of milliseconds when dynamic.
+All the fields are slots whose context contains `error`, so you can
+compute the delay from the response body.
+The `delay` and `max_delay` slots accept only a number of milliseconds when dynamic.
 
-> \* we apply (delay/2) randomized jitter to avoid multiple processes hammering the endpoint all at the same time
+> \* the actual wait is randomised between half the computed delay and the full one, so a fleet doesn't hammer a recovering endpoint in lockstep; jitter only shortens, never exceeds max_delay
 
 ### Goto
 
-If you want the process to continue, you can use `goto` field to route to another task (or end the process sucessfully with `end`).
-The targeted task will have extra `last_error` field available, with the error data. The field is available only to the 
-task directly after the error, following tasks won't have access to it.
+If you want the process to continue, you can use the `goto` field to route to another task (or end the process successfully with `end`).
+The targeted task will have an extra `last_error` field available, with the error data. The field is available only to the
+task directly after the error; later tasks have no access to it.
 
 ```genroc
   - id: load_user
@@ -134,11 +134,11 @@ task directly after the error, following tasks won't have access to it.
 
 An error no rule handles - or one that runs out of retries - fails the process on its own.
 The state switches to `failed`, execution stops, and `error_code` is the error's own code (`http.500`).
-Failed is not a final state, so the process can be retried with `genctl retry` command.
+Failed is a retryable state, so the process can be retried with the `genctl retry` command.
 
 `panic` is that same ending with a code you choose instead. Since `error_code` is what you filter
 and alert on, a panic is how a failure gets a name from your domain rather than from the transport.
-You can call it from on_error/switch blocks.
+You can call it from `on_error` and `switch` blocks.
 
 ```genroc
   on_error:
@@ -151,8 +151,8 @@ You can call it from on_error/switch blocks.
 
 ## Raise
 
-Raise is similar to panic, but it sends the process into a terminal state `raised`.
-So process which raised an error cannot be retried.
+Raise is similar to panic, but it sends the process into the non-retryable `raised` state.
+A process which raised an error cannot be retried.
 
 ```genroc
   on_error:
@@ -163,11 +163,11 @@ So process which raised an error cannot be retried.
         data: <optional data>
 ```
 
-The `raised` state will make more sense once we get to child processes later. 
+The `raised` state will make more sense once we get to child processes later.
 
 ## Only once
 
-In certain cases it is important that operation happens exactly once (e.g. money transfers).
+In certain cases it is important that an operation happens exactly once (e.g. money transfers).
 
 Genroc has a primitive for this, called `only_once`.
 
@@ -191,24 +191,24 @@ Genroc has a primitive for this, called `only_once`.
     switch: end
 ```
 
-In this example we are using `only_once`. In this case genroc is very careful to only hit the endpoint once.
-You can safely retry on `pre.%` errors, because those errors happen before the request left (dns lookup, tcp handshake).
+In this example we are using `only_once`, so Genroc is careful to hit the endpoint only once.
+You can safely retry on `pre.%` errors, because those errors happen before the request leaves (DNS lookup, TCP handshake).
 
-You can also retry on other errors, but you have to explicitly add `not_reached` field.
-That field is there to make sure you won't retry by accident, genroc will require this, because you have to ensure
-that the error actually means the operation was not performed. You cannot use wildcards on codes when `not_reached` is used.
+You can also retry on other errors, but you have to explicitly add the `not_reached` field.
+That field is there to make sure you don't retry by accident: Genroc requires it because you have to be
+certain the error really means the operation was not performed. You cannot use wildcards on codes when `not_reached` is used.
 
-If the task marked `only_once` fails the `genctl retry` will fail. If you
-really want to retry, you need to do `genctl retry --force`
+If a task marked `only_once` fails, `genctl retry` will refuse. If you
+really want to retry, use `genctl retry --force`.
 
 ### Ambiguous cases
 
-Inherently there are cases when we genuenly cannot know if the operation was performed or not (read about [Two Generals' Problem](https://en.wikipedia.org/wiki/Two_Generals%27_Problem)),
-in these cases you either need to check if the money were transferred or not through a different channel.
+There are cases where we genuinely cannot know whether the operation was performed (read about the [Two Generals' Problem](https://en.wikipedia.org/wiki/Two_Generals%27_Problem)).
+In these cases you need to check through a different channel whether the money was transferred.
 
 | Code | Reported by | What happened |
 |---|---|---|
-| `only_once.interrupted` | any `only_once` task | a previous attempt was interrupted — route it, never retry |
+| `only_once.interrupted` | any `only_once` task | a previous attempt was interrupted - route it, never retry |
 | `http.timeout` | fetch | connected, but no response arrived in time |
 | `http.disconnected` | fetch | the request went out, the connection broke before a response |
 | `external.timeout` | external | the wait deadline elapsed |
@@ -217,11 +217,11 @@ in these cases you either need to check if the money were transferred or not thr
 `not_reached` buys nothing here: it asserts what an error *means*, and that is a claim you can only
 make about an error that came back. Naming one of these alongside `retry` is refused at registration.
 
-### What to do with ambiguious cases
+### What to do with ambiguous cases
 
-By default the process will fail and you can manually check if the money went away or not.
+By default the process will fail, and you can manually check whether the money went out.
 
-Or you can have a idepotent task for checking if the transaction happened or not and then retry based on that.
+Or you can have an idempotent task that checks whether the transaction happened, and retry based on that.
 
 ```genroc
   - id: transfer_money
@@ -244,7 +244,7 @@ Or you can have a idepotent task for checking if the transaction happened or not
       type: fetch
       method: get
       url: "https://api.example.com/money/check_transaction/${input.transaction_id}"
-      accepted_status: [2xx, "404"]   # specifies which statuses are not considered error
+      accepted_status: [2xx, "404"]   # which statuses are not considered an error
     output:
       retries: "$: (self.previous.retries ?? 0) + 1"
     switch:
@@ -253,25 +253,25 @@ Or you can have a idepotent task for checking if the transaction happened or not
       - goto: end
 ```
 
-This is a bit more complicated example, but basically what we do is
-we check if the transaction exists or not in the `check_transaction` task.
-We limit the retries to 3 through the output mapping (we are reading previous output.retries and adding one).
+This is a slightly more complicated example, but what we do is check in the
+`check_transfer` task whether the transaction exists.
+We limit the retries to 3 through the output mapping (we read the previous `output.retries` and add one).
 
 ## Accepted statuses
 
 In the example above, we've introduced a new field `accepted_status`.
-This field defines which http statuses are considered success.
+This field defines which HTTP statuses are considered a success.
 
 The default value is `2xx`, but there is a caveat when the `responses` field defines an output.
 
 ### Responses field influence
-If responses field contains 2xx field the accepted statuses are narrowed to only them.
+If the responses field contains a 2xx key, the accepted statuses are narrowed to only those.
 
-This can feel a bit strange, because if you only define response type for `200`, you can recieve `202` as an error, 
-but the logic is that if you've defined the response type, you usually need the data from the body.
+This can feel a bit strange, because if you define a response type only for `200`, you can receive `202` as an error.
+The logic is that once you have declared a response type, you usually need the data from the body.
 
-If you need to always accept all 2xx statuses regardless of the body, you can override the `accepted_status` manually.
-But you then need to count with the case that the body won't be there.
+If you need to always accept all 2xx statuses regardless of the body, you can override `accepted_status` manually.
+But you then have to account for the case where the body won't be there.
 
 
 ## Fetch error codes
@@ -283,10 +283,10 @@ Errors are sorted into families by their prefix:
 | `http.<status>` | a status `accepted_status` did not admit, e.g. `http.404` |
 | `http.timeout` | connected, but no response arrived in time |
 | `http.disconnected` | the request went out, the connection broke before a response |
-| `pre.timeout` | timed out before the request was written — it never left |
-| `pre.error` | failed before the request was written — it never left |
+| `pre.timeout` | timed out before the request was written - it never left |
+| `pre.error` | failed before the request was written - it never left |
 | `result.parse` | the response body was not valid JSON |
 | `result.too_large` | the response body exceeded the size a fetch will read |
 | `result.invalid` | the result did not satisfy the schema declared for it |
-| `only_once.interrupted` | this happens if something unexpected happens (e.g. server crash) during the `only_once` task execution and the engine doesn't know if the operation was performed or not |
+| `only_once.interrupted` | a worker didn't finish an `only_once` task; a regular task would simply start over, but this one cannot |
 
