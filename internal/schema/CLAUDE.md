@@ -197,6 +197,19 @@ A nullable `$ref` — `anyOf[$ref, null]` — does not resolve, so `TypeName` re
 what is left, and appends `|null`; the walk is depth-bounded because a recursive type would
 otherwise describe itself forever.
 
+**The strip may make no progress, and then recursing is a loop.** A null declared inside a
+`$ref` that is an ARM of a union is out of every wrapper's reach, so `StripNull` returns the
+same schema and the `|null` branch would append one suffix per level down to the bound —
+`unknown|object|null|null|null|null|null|null|null` is what a hover printed. `summaryOfArms`
+describes the arms instead, each of which can resolve its own ref. `outputs.a ?? outputs.b`
+over two nullable outputs is the definition that builds it.
+
+**`OneOf` / `AnyOf` carry the pool up from their arms** (`defsOf`). Resolution reads the handle
+off the ROOT node, so a union built by inference without one cannot deref a ref arm at all:
+`HasNull` answers false about a plainly nullable value. Navigation hides this — `wrap` attaches
+the pool on the way down — so it only shows on a schema `Infer` hands back directly, which is
+exactly what a hover summarises.
+
 The same shape bites anything that reads a nullable value's members, not just `Summary`:
 completion's `membersOf` strips the null before resolving for exactly this reason.
 
@@ -224,10 +237,19 @@ value and guards are keyed from the root. A guard that stops applying is silent.
 **`StripNull` does not follow a `$ref`, and `HasNull` does.** That asymmetry is deliberate —
 refs stay symbolic so recursive types converge — but it means a nullable behind a ref answers
 `HasNull() == true` while `StripNull()` changes nothing. A caller that DESCRIBES a type is fine
-with that; one that NARROWS silently narrows nothing. `StripNullMaterialized` resolves one
-level for exactly those, and `inferNullCoalesce` makes the same trade inline. Making the plain
-`StripNull` resolve was tried and reverted: it inlines recursive definitions and the output
-solver stops converging.
+with that; one that NARROWS silently narrows nothing. `StripNullMaterialized` is for those, and
+`inferNullCoalesce` makes the same trade inline. Making the plain `StripNull` resolve was tried
+and reverted: it inlines recursive definitions and the output solver stops converging.
+
+`stripNullDeep` is the walk behind it, and the rule it follows is **resolve a reference only
+where the null is inside it**. Everything the null was never behind stays a ref, which is what
+bounds the result: a recursive object's nullable link materializes once and the `next` inside
+it is still symbolic. It follows chains and reaches into union ARMS, so `b_output → a_output →
+nullable` and `anyOf[$ref-to-nullable, integer]` both narrow. Two things break silently if
+touched: the path set is what makes a reference cycle terminate rather than overflow the stack
+(`CheckDoc` refuses those, so only a hand-built schema gets there), and an arm is tested for
+nullness BEFORE it is stripped — stripping `{"type":"null"}` leaves the empty node, which reads
+as the top type, so a null arm dropped too late widens the whole union to unknown.
 
 ## "Optional" is not "may be absent"
 

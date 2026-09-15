@@ -35,8 +35,20 @@ func (s Schema) summary(depth int) string {
 	// null arm blocks the $ref beside it from resolving and the whole thing reads `unknown` —
 	// which is what `self.previous` on a looping task said.
 	if s.HasNull() {
-		if inner := s.StripNull(); !inner.IsZero() && !inner.IsNull() {
+		inner := s.StripNull()
+		switch {
+		case inner.IsZero() || inner.IsNull():
+		case !inner.HasNull():
 			return inner.summary(depth+1) + "|null"
+		default:
+			// The strip made NO progress: the null is declared inside a `$ref` that is an ARM
+			// of this union, where no wrapper can reach it. Recursing would append `|null`
+			// once per level down to the depth bound. Each arm can resolve its own ref, so
+			// describe them instead. `outputs.a ?? outputs.b` over two nullable outputs is the
+			// shape that gets here.
+			if arms := s.unionArms(); len(arms) > 0 {
+				return summaryOfArms(arms, depth)
+			}
 		}
 	}
 	if members := s.MemberNames(); members != "" {
@@ -46,6 +58,46 @@ func (s Schema) summary(depth int) string {
 		return "array<" + items.summary(depth+1) + ">"
 	}
 	return s.TypeName()
+}
+
+// unionArms is the oneOf/anyOf members, each carrying the pool the union resolves against.
+func (s Schema) unionArms() []Schema {
+	if s.n == nil {
+		return nil
+	}
+	nodes := s.n.OneOf
+	if len(nodes) == 0 {
+		nodes = s.n.AnyOf
+	}
+	out := make([]Schema, 0, len(nodes))
+	for _, n := range nodes {
+		out = append(out, wrap(n, s.rootDefs()))
+	}
+	return out
+}
+
+// summaryOfArms renders a union arm by arm, duplicates dropped and `null` last — a reader wants
+// the shapes first and the caveat after, the same order the nullable branch above prints.
+func summaryOfArms(arms []Schema, depth int) string {
+	var out []string
+	nullable := false
+	for _, arm := range arms {
+		one := arm.summary(depth + 1)
+		if one == "null" {
+			nullable = true
+			continue
+		}
+		if rest, ok := strings.CutSuffix(one, "|null"); ok {
+			nullable, one = true, rest
+		}
+		if !slices.Contains(out, one) {
+			out = append(out, one)
+		}
+	}
+	if nullable {
+		out = append(out, "null")
+	}
+	return strings.Join(out, "|")
 }
 
 // MemberNames lists an object's properties, `?` on the ones that may be absent. Empty for

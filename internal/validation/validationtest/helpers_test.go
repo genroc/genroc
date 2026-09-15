@@ -78,3 +78,21 @@ func jsonString(t *testing.T, s schema.Schema) string {
 	}
 	return string(b)
 }
+
+// slotContext is the scope at one address, as `genctl schema context` and the editor read it.
+func slotContext(t *testing.T, defJSON, address string) schema.Schema {
+	t.Helper()
+	var def model.ProcessDefinition
+	if err := json.Unmarshal([]byte(defJSON), &def); err != nil {
+		t.Fatalf("unmarshal definition: %v", err)
+	}
+	slots, err := validation.SlotContexts(&def)
+	if err != nil {
+		t.Fatalf("SlotContexts: %v", err)
+	}
+	ctx, ok := slots[address]
+	if !ok {
+		t.Fatalf("no slot %q", address)
+	}
+	return ctx
+}

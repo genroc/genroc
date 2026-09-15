@@ -522,3 +522,80 @@ func TestGuardNarrowing_ErrorEdgeMeetsAndInherits(t *testing.T) {
 		}
 	})
 }
+
+// A `$ref` CHAIN, built by a definition rather than by hand: task b's `output` is task a's, so
+// `b_output` is a ref to `a_output` and the null is two links away from the guard. A guard
+// materializes the reference it names, and `deref` follows the whole chain in one step.
+func TestGuardNarrowing_ThroughARefChain(t *testing.T) {
+	src := func(cases string) string {
+		return `{"name":"p","tasks":[
+		 {"id":"a","action":{"type":"fetch","method":"get","url":"http://x",
+		   "responses":{"200":{"type":"array","items":{"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]}}}},
+		  "output":"$: self.result[0]","switch":[{"goto":"$b"}]},
+		 {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},
+		  "output":"$: outputs.a",
+		  "switch":` + cases + `},
+		 {"id":"c","action":{"type":"fetch","method":"get","url":"http://z"},
+		  "output":{"r":"$: outputs.b.n + 1"},"switch":"end"}]}`
+	}
+	t.Run("the edge proves it through both refs", func(t *testing.T) {
+		if err := runGenerateErr(t, src(`[{"case":"self.output != null","goto":"$c"},{"goto":"end"}]`)); err != nil {
+			t.Fatalf("a re-exported output is a ref to a ref, and the guard names it: %v", err)
+		}
+	})
+	t.Run("without the guard it stays refused", func(t *testing.T) {
+		if err := runGenerateErr(t, src(`[{"goto":"$c"},{"goto":"end"}]`)); err == nil {
+			t.Fatal("nothing proved the re-exported output is there")
+		}
+	})
+	// The chain itself, so a solver change that inlines `b_output` is visible here rather than
+	// only in whatever it breaks downstream.
+	out := runGenerate(t, src(`[{"case":"self.output != null","goto":"$c"},{"goto":"end"}]`))
+	if got := mustMarshal(defOf(out, "b_output")); got != `{"$ref":"#/$defs/a_output"}` {
+		t.Errorf("b_output = %s, want a bare ref to a_output", got)
+	}
+}
+
+// `outputs.a ?? outputs.b` over two nullable outputs puts the null inside a `$ref` that is an
+// ARM of a union — the shape the unit test in schematest pins, here shown to be something a
+// definition produces. What a reader is told about it is the whole point: the type is right,
+// and the summary beside it has to agree.
+func TestGuardNarrowing_CoalesceOfTwoNullableOutputs(t *testing.T) {
+	src := `{"name":"p","tasks":[
+	 {"id":"a","action":{"type":"fetch","method":"get","url":"http://x",
+	   "responses":{"200":{"type":"array","items":{"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]}}}},
+	  "output":"$: self.result[0]","switch":[{"goto":"$b"}]},
+	 {"id":"b","action":{"type":"fetch","method":"get","url":"http://y",
+	   "responses":{"200":{"type":"array","items":{"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]}}}},
+	  "output":"$: self.result[0]","switch":[{"goto":"$c"}]},
+	 {"id":"c","action":{"type":"fetch","method":"get","url":"http://z"},
+	  "output":{"seen":"$: 1"},"switch":[{"goto":"end"}]}],
+	 "output":{"r":"$: outputs.a ?? outputs.b"}}`
+	out := runGenerate(t, src)
+	at, err := out.ProcessOutput.WithDefs(out.Defs).At("r")
+	if err != nil {
+		t.Fatalf("At(r): %v", err)
+	}
+	if !at.HasNull() {
+		t.Error("the recovery is still nullable — its right arm is a nullable output")
+	}
+	if got := at.Summary(); got != "object{n}|null" {
+		t.Errorf("Summary = %q, want %q — the published contract reads this", got, "object{n}|null")
+	}
+
+	// The hover's own path, which does NOT navigate: it infers the expression in the slot's
+	// context and summarises what comes back. Resolution reads the pool off the ROOT node, and
+	// a union built by inference has to carry it up from its arms — `At` above attaches one on
+	// the way down and would hide a union that lost it.
+	ctx := slotContext(t, src, "tasks.c.output")
+	inferred, err := ctx.Infer("outputs.a ?? outputs.b")
+	if err != nil {
+		t.Fatalf("infer: %v", err)
+	}
+	if !inferred.HasNull() {
+		t.Error("the union came back non-null: its arms hold the pool and its root does not")
+	}
+	if got := inferred.Summary(); got != "object{n}|null" {
+		t.Errorf("hover would print %q, want %q", got, "object{n}|null")
+	}
+}

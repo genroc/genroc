@@ -698,6 +698,73 @@ func stripNullVariants(vs []*node) ([]*node, bool) {
 	return out, changed
 }
 
+// stripNullDeep is stripNull following `$ref`s: it materializes a reference only where the null
+// it is chasing lives INSIDE the target, so a value that is merely referenced stays symbolic and
+// the walk is finite. `seen` holds the nodes on the current path, so a recursive type stops at
+// the link that closes the cycle instead of inlining itself forever — the reason the plain
+// stripNull must never do this. specs/guard-narrowing.md.
+func stripNullDeep(s *node, defs map[string]*node, seen map[*node]bool) *node {
+	if s == nil || !hasNullResolved(s, defs) {
+		return s
+	}
+	if seen[s] {
+		return stripNull(s) // the cycle closed; nothing further can be proved here
+	}
+	seen[s] = true
+	defer delete(seen, s)
+
+	if s.Ref != "" {
+		target, err := deref(s, defs)
+		if err != nil || target == nil {
+			return stripNull(s)
+		}
+		return stripNullDeep(target, defs, seen)
+	}
+	if variants, isAny := s.AnyOf, true; len(variants) > 0 {
+		return stripNullVariantsDeep(s, variants, isAny, defs, seen)
+	}
+	if len(s.OneOf) > 0 {
+		return stripNullVariantsDeep(s, s.OneOf, false, defs, seen)
+	}
+	return stripNull(s)
+}
+
+// stripNullVariantsDeep drops the arms that are null however they spell it and strips the rest.
+// An arm is tested for nullness BEFORE it is stripped: stripping `{"type":"null"}` leaves the
+// empty node, which reads as the top type, so a dropped-too-late null arm would widen the whole
+// union to unknown.
+func stripNullVariantsDeep(s *node, variants []*node, anyOf bool, defs map[string]*node, seen map[*node]bool) *node {
+	out := make([]*node, 0, len(variants))
+	for _, v := range variants {
+		if resolvesToNull(v, defs) {
+			continue
+		}
+		out = append(out, stripNullDeep(v, defs, seen))
+	}
+	if len(out) == 0 {
+		return s // every arm was null: the value is null, and saying so beats saying unknown
+	}
+	if len(out) == 1 {
+		return out[0]
+	}
+	n := *s
+	if anyOf {
+		n.AnyOf = out
+	} else {
+		n.OneOf = out
+	}
+	return &n
+}
+
+// resolvesToNull reports whether a node can only ever be null, through however many refs.
+func resolvesToNull(s *node, defs map[string]*node) bool {
+	if isNullType(s) {
+		return true
+	}
+	target, err := deref(s, defs)
+	return err == nil && isNullType(target)
+}
+
 // IsUnknown reports whether s is the top type ({}) — undeclared data, which is carried but
 // never read. Distinct from "a type we could not pin down": a union of scalars is unpinned
 // but declared, while this constrains nothing at all.

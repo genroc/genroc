@@ -102,6 +102,22 @@ edges: the expression-level narrowing had the same hole. Making `StripNull` itse
 tried and REVERTED — it inlines recursive definitions and the output solver stops converging;
 resolving at the one call that narrows is the same trade `inferNullCoalesce` already makes.
 
+**The bound is the CYCLE, not a hop count.** `stripNullDeep` follows references until it
+reaches a type, resolving only the ones whose target actually holds the null — so a chain
+(`b_output → a_output → nullable`, which a task re-exporting another's output builds), a
+nullable inside a union ARM (`outputs.a ?? outputs.b` over two nullable outputs), and the two
+composed all narrow. What it does NOT resolve is everything the null was never behind, which
+is what keeps the result symbolic and finite: a recursive object's link materializes once and
+its own `next` stays a ref.
+
+Termination comes from the path set, one entry per node on the way down. The shape that needs
+it — `A = B|integer`, `B = A|null` — is refused by `CheckDoc` as a `$defs` cycle with no
+structural progress, so nothing registrable reaches it; the guard is there because removing it
+costs a hung language server rather than a wrong answer, and
+`TestStripNullThroughAReferenceCycle` is the only thing that would notice. A hop count was the
+first version and it is the wrong shape of bound: it answers "no" on a legal type for a reason
+the author cannot see or fix.
+
 **Edges, not tasks.** `predEdge` must become one edge per switch case (stop
 deduplicating) — two cases routing to one target carry different refinements. Safe for
 the existing analysis: must/may are idempotent under duplicate edges.
@@ -174,6 +190,12 @@ covers and watching it fail (`validationtest/guard_narrowing_test.go` unless not
 | `¬(A∧B)` proves nothing | `&&` claiming its facts on false | NegatedConjunction |
 | the catalogue itself | see `schema/guardfacts_test.go` | 4 rows |
 | frame translation | see `validation/guards_test.go` | 15 rows |
+| a ref CHAIN materializes | `deref` stopping at one hop | ThroughARefChain (3), `schematest` |
+| a null inside a union ARM | resolving one level only | UnionArmHoldingARefToNullable |
+| the walk terminates | dropping the path set | StripNullThroughAReferenceCycle (a stack overflow) |
+| a recursive nullable stays symbolic | inlining it instead | ThroughARecursiveObject (a size check) |
+| a union carries its arms' pool | `OneOf`/`AnyOf` dropping it | CoalesceOfTwoNullableOutputs |
+| a stuck strip is not recursed | summarising the unchanged schema | the same, and UnionArmHolding… |
 
 Two things are NOT pinned, deliberately. The `outputs.<self>` kill is unobservable today —
 `outputs.<own id>` is shadowed to `self.previous` in a task's own slots, so the stale

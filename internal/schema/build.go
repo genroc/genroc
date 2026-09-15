@@ -61,11 +61,11 @@ func ArrayLiteral(elems []Schema) Schema {
 }
 
 func OneOf(variants ...Schema) Schema {
-	return Schema{n: &node{OneOf: nodesOf(variants)}}
+	return Schema{n: &node{OneOf: nodesOf(variants), Defs: defsOf(variants)}}
 }
 
 func AnyOf(variants ...Schema) Schema {
-	return Schema{n: &node{AnyOf: nodesOf(variants)}}
+	return Schema{n: &node{AnyOf: nodesOf(variants), Defs: defsOf(variants)}}
 }
 
 func nodesOf(vs []Schema) []*node {
@@ -74,6 +74,19 @@ func nodesOf(vs []Schema) []*node {
 		out[i] = v.n
 	}
 	return out
+}
+
+// defsOf carries the pool up from the arms. Resolution reads the handle on the ROOT node
+// (`rootDefs`), so a union built without one cannot deref a `$ref` ARM: `HasNull` answers false
+// about a nullable value and `Summary` renders it `unknown`. Every arm came from one Generate,
+// so the first pool found is the pool.
+func defsOf(vs []Schema) map[string]*node {
+	for _, v := range vs {
+		if d := v.rootDefs(); d != nil {
+			return d
+		}
+	}
+	return nil
 }
 
 // WithProperty returns a copy of s (treated as an object schema) with property name
