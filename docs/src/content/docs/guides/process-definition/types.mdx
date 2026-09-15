@@ -216,11 +216,16 @@ you can run them in the CI; they happen on the server, so you then know that `ap
 This will ensure that all the statically checked expressions will recieve data
 they expect. And the breaking API changes are detected.
 
+### Scenarios
+
+What is **send** by the fetch is judged by the server; what we recieve is judged
+by genroc against the `responses` you declared.
+
 | what changed | how you find out |
 |---|---|
 | the request is no longer accepted | the server answers `4xx`, caught as `http.400`, `http.404`, … |
 | the response body no longer passes validation | `result.invalid` |
-| the response gained extra fields | nothing — they are dropped |
+| the response gained extra fields | nothing — they are dropped (non-breaking change) |
 
 
 ### Process state upgradability
