@@ -10,10 +10,10 @@ so it always knows what shape that data has.
 ## Why?
 
 Durable processes are tricky, because they can survive for a long time.
-A common scenario is that we are using multiple endpoints on our API. For example
+A common scenario is that you are using multiple endpoints on your API. For example
 one to fetch some information and another to mutate something.
 
-The issue is that our api can change in the meantime. If we fetch some data, then
+The issue is that your api can change in the meantime. If you fetch some data, then
 pause the process for a month and resume it, so it will be talking to the new API
 with assumptions from the old one.
 
@@ -58,11 +58,11 @@ input_schema:
       default: http://localhost:1234
 ```
 Even though the value is not required here, genroc knows it can never be null
-inside the process, because if it's not provided by the user, the default value will be used.
+inside the process, because if you don't provide it, the default value will be used.
 Combining required and default is refused, because then default can never be applied.
 
 This changes however if it's specified as `type: [string, "null"]`.
-The user can then pass `null` explicitly and the default value is not used in this case.
+You can then pass `null` explicitly and the default value is not used in this case.
 
 > Genroc has only one NIL value `null`, so in the expressions there is no difference between nullable and non-required values (they both contain `null`)
 
@@ -88,9 +88,9 @@ tasks:
             email: { type: string }
             activated: { type: boolean }
           required: [email, activated]
-    output:     # we can access `input` and `self{result, headers, status}` (coming from fetch)
+    output:     # you can access `input` and `self{result, headers, status}` (coming from fetch)
       email: "$: self.result.email"
-    switch:     # here we can access both `self.result` and `self.output` if we want (+ everything from before)
+    switch:     # here you can access both `self.result` and `self.output` if you want (+ everything from before)
       - case: "self.result.activated"
         goto: end
       - goto: $nudge
@@ -120,7 +120,7 @@ output:
 
 In the example, there are two places where outside data enter the process - `input_schema` and `responses`.
 
-Genroc automatically validates these data and then we can safely access them in expressions.
+Genroc automatically validates these data and then you can safely access them in expressions.
 
 ### Inferred types
 
@@ -219,7 +219,7 @@ they expect and the breaking API changes are detected.
 ### Scenarios
 
 What is **sent** by the fetch is judged by the server; what we receive is judged
-by genroc against the `responses` you declared.
+against the `responses` you declared.
 
 | what changed | how you find out |
 |---|---|
