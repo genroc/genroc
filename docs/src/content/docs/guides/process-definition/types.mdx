@@ -59,6 +59,7 @@ input_schema:
 ```
 Even though the value is not required here, genroc knows it can never be null
 inside the process, because if it's not provided by the user, the default value will be used.
+Combining required and default is refused, because then default can never be applied.
 
 This changes however if it's specified as `type: [string, "null"]`,
 here user can pass `null` explicitly and the default values is not used in this case.
@@ -76,7 +77,7 @@ input_schema:
   required: [user_id]
 tasks:
   - id: load_user
-    action:     # now the action we can access only `input`
+    action:     # here action can access `input`
       type: fetch
       method: get
       url: "https://api.example.com/users/${input.user_id}"
@@ -179,7 +180,8 @@ You can then access config anywhere in the process expressions.
 Genroc is loading and validating config values everytime it interacts with the process.
 You can define any primitive value type and genroc will validate them and convert.
 If the validation doesn't pass, process is not allowed to register.
-So you need to set the env before applying the definition.
+So if the value is without default or required,
+you need to set the env before applying the definition (on the server).
 
 ### Secrets
 
@@ -197,7 +199,10 @@ config_schema:
 ```
 
 This will redact the secrets leaking into stdout (server logs).
-Secrets can still leak into db stored logs or process state.
+Secrets can still leak into db stored logs or process state - so they will be
+visible through `genctl logs` and so on.
+
+The `secret` property can only be used in the config.
 
 ## When is this checked?
 
