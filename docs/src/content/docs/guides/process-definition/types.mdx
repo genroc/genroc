@@ -4,28 +4,27 @@ description: Learn about validation, inference and type checking.
 order: 4
 ---
 
-Genroc requires you to validate input into the process,
-so it always knows what shape of the data is allowed to enter.
+Genroc requires you to validate the data entering a process,
+so it always knows what shape that data has.
 
 ## Why?
 
 Durable processes are tricky, because they can survive for a long time.
-Common scenario is that we are using multiple endpoints on our API. For example
-one to fetch some information and other to mutate something.
+A common scenario is that we are using multiple endpoints on our API. For example
+one to fetch some information and another to mutate something.
 
 The issue is that our api can change in the meantime. If we fetch some data, then
-pause the process for a month and resume it, it will basically use our old API against
-the new API.
+pause the process for a month and resume it, so it will be talking to the new API
+with assumptions from the old one.
 
 A strict validation can't prevent these issues, but makes them easy to detect.
 
 ## Static checking and inference 
 
-Because the inputs are typed we can statically check all the expressions
-in the process and check if they are referencing only existing properties and
-operations are performed on a correct types.
+Because the inputs are typed we can statically check all the expression:
+that it references only properties that exist, and that its operations use the right types.
 
-We can also infer expression types, so if you use expression to create a new
+We can also infer expression types, so if you use an expression to create a new
 object type, genroc will automatically infer its type.
 
 ## Inferred context
@@ -35,13 +34,14 @@ tasks were (or could have been) executed before it, we can check what exact outp
 can be accessed in the expressions.
 
 This creates a continuous flow of types, through the process, so you always
-know what outputs are accessible and what are their types.
+know what outputs are accessible and their types are.
 
 ## Nullability
 
-Genroc distinguishes if the field can be null, it doesn't allow nullable fields
+Genroc distinguishes if the field can be null. It doesn't allow nullable fields
 in templates and operations which don't make sense on `null` type (e.g. `<`).
-If you want to use nullable value in these places you have to provide fallback value with `??` operator.
+If you want to use a nullable value in these places you have to provide
+a fallback value with the `??` operator.
 
 ```genroc
 url: "${input.server_url ?? 'http://localhost:1234'}/user"
@@ -61,8 +61,8 @@ Even though the value is not required here, genroc knows it can never be null
 inside the process, because if it's not provided by the user, the default value will be used.
 Combining required and default is refused, because then default can never be applied.
 
-This changes however if it's specified as `type: [string, "null"]`,
-here user can pass `null` explicitly and the default value is not used in this case.
+This changes however if it's specified as `type: [string, "null"]`.
+The user can then pass `null` explicitly and the default value is not used in this case.
 
 > Genroc has only one NIL value `null`, so in the expressions there is no difference between nullable and non-required values (they both contain `null`)
 
@@ -125,32 +125,32 @@ Genroc automatically validates these data and then we can safely access them in 
 ### Inferred types
 
 Every task output is inferred through the `output` shape.
- - `load_user` output is typed as object with `email: string` field
+ - `load_user` output is typed as an object with an `email: string` field
  - `nudge` output is object with `nudged: boolean` field
 
-The process output is also inferred, the inferred context is
+The process output is also inferred; the inferred context is
 based on where all the `goto: end` are in the process.
 
 ### Static checking
 
-We are checking if the expressions are accessing existing properties.
+We check that the expressions are accessing existing properties.
 If you make a typo (e.g. `"$: outputs.load_user.emial"`), genroc will throw an error.
 
 ### The context of a slot
 
 Each slot can have a bit different context depending on previous tasks and
-also its position in the task. For example you can't use `self.result` in action
+also its position in the task. For example you can't use `self.result` in the action
 configuration, because the result is available only after the action has executed.
 
 ### Other checks
 
-Genroc also validates switch/goto targets (if the task exists) and also doesn't
-allow non-reachable tasks.
+Genroc also validates switch/goto targets (if the task exists) and doesn't
+allow unreachable tasks.
 
 ## Config
 
-The mechanism which allows usage of environment variables in the process.
-You can define `config_schema`, it must be a flat object, e.g.:
+Config lets a process read environment variables.
+You can define `config_schema`. It must be a flat object, e.g.:
 
 ```genroc
 name: process-with-config
@@ -177,14 +177,14 @@ You can then access config anywhere in the process expressions.
     url: "${config.server_url}/users/${input.user_id}"
 ```
 
-Genroc is loading and validating config values every time it interacts with the process.
-You can define any primitive value type and genroc will validate them and convert.
-If the validation doesn't pass, process is not allowed to register.
+Genroc loads and validates config values every time it interacts with the process.
+You can declare any primitive type; genroc validates the value and converts it.
+If the validation doesn't pass, the process is not allowed to register.
 So if the value is required, you need to set the env before applying the definition (on the server).
 
 ### Secrets
 
-In the config you can mark the property as `secret`.
+In the config you can mark a property as `secret`.
 
 ```genroc
 name: process-with-config
@@ -205,20 +205,20 @@ The `secret` property can only be used in the config.
 
 ## The benefits
 
-Genroc type system ensures validty at two different moments, which compelement each other.
+Genroc's type system ensures validity at two different moments, which complement each other.
 
 **At registration** - everything is statically checked - all the expressions,
-the types it produces, goto targets, reachablity. A typo in the expression never
+the types it produces, goto targets, reachability. A typo in the expression never
 reaches production. `genctl apply --check-only` runs exactly these checks, so
 you can run them in the CI; they happen on the server, so you then know that `apply` will pass.
 
 **At runtime** - the outside data entering the process are always validated.
-This will ensure that all the statically checked expressions will recieve data
-they expect. And the breaking API changes are detected.
+This will ensure that all the statically checked expressions will receive data
+they expect and the breaking API changes are detected.
 
 ### Scenarios
 
-What is **send** by the fetch is judged by the server; what we recieve is judged
+What is **sent** by the fetch is judged by the server; what we receive is judged
 by genroc against the `responses` you declared.
 
 | what changed | how you find out |
@@ -230,6 +230,6 @@ by genroc against the `responses` you declared.
 
 ### Process state upgradability
 
-Because genroc knows what should the state schema look like at every stage
-of the process, it can decide if old version of the process is upgradable to
-newer version. We will look at this feature later.
+Because genroc knows what the state schema should look like at every stage
+of the process, it can decide whether an old version of the process is upgradable to
+a newer version. We will look at this feature later.
