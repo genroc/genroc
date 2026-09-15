@@ -149,7 +149,7 @@ allow non-reachable tasks.
 
 ## Config
 
-The mechanism which allows usage of enviroment variable in the process.
+The mechanism which allows usage of environment variables in the process.
 You can define `config_schema`, it must be a flat object, e.g.:
 
 ```genroc
@@ -203,7 +203,28 @@ visible through `genctl logs` and so on.
 
 The `secret` property can only be used in the config.
 
-## When is this checked?
+## The benefits
 
-You can validate the process by `genctl apply --check-only` this will validate the whole
-process on the server (so it also catches client version mismatch).
+Genroc type system ensures validty at two different moments, which compelement each other.
+
+**At registration** - everything is statically checked - all the expressions,
+the types it produces, goto targets, reachablity. A typo in the expression never
+reaches production. `genctl apply --check-only` runs exactly these checks, so
+you can run them in the CI; they happen on the server, so you then know that `apply` will pass.
+
+**At runtime** - the outside data entering the process are always validated.
+This will ensure that all the statically checked expressions will recieve data
+they expect. And the breaking API changes are detected.
+
+| what changed | how you find out |
+|---|---|
+| the request is no longer accepted | the server answers `4xx`, caught as `http.400`, `http.404`, … |
+| the response body no longer passes validation | `result.invalid` |
+| the response gained extra fields | nothing — they are dropped |
+
+
+### Process state upgradability
+
+Because genroc knows what should the state schema look like at every stage
+of the process, it can decide if old version of the process is upgradable to
+newer version. We will look at this feature later.
