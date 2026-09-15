@@ -27,6 +27,8 @@ const (
 	slotOnError       = "on_error"
 	slotCase          = "case"
 	slotRetry         = "retry"
+	slotPanic         = "panic"
+	slotRaise         = "raise"
 )
 
 // SlotContexts returns the expression context at every addressable slot, keyed by canonical
@@ -64,15 +66,27 @@ func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 			// whole-switch context (the one before any case narrows) and three things name
 			// it: the scope-build diagnostic, TypeSlots' pairing, and `schema context`.
 			// specs/schema-command.md, specs/guard-narrowing.md.
-			for i := range t.Switch {
+			for i, c := range t.Switch {
 				out[caseSlot(t.ID, i)] = scopes.switchCase(t, i, ctx)
+				// A `panic` or `raise` beside the case reads a DIFFERENT context — it fires
+				// only when the case held, so it may assume it. Addressed one level down so
+				// enclosingSlot finds it first and the `case` above keeps the scope that
+				// proves the guard rather than the one that assumes it.
+				addClauseSlots(out, caseSlot(t.ID, i), c.Panic, c.Raise, nil,
+					func() schema.Schema { return scopes.switchClause(t, i, ctx) })
 			}
 		}
 
 		// One per rule, because the error axis is per rule: each catches a different set of
 		// codes, so `error` is a different declared payload in each.
 		for i, ec := range t.OnError {
-			out[ruleSlot(t.ID, i)] = scopes.rule(t, ec)
+			out[ruleSlot(t.ID, i)] = scopes.rule(t, i, ec)
+			retry := &ec.Retry
+			if ec.Retry.IsZero() {
+				retry = nil
+			}
+			addClauseSlots(out, ruleSlot(t.ID, i), ec.Panic, ec.Raise, retry,
+				func() schema.Schema { return scopes.ruleClause(t, i, ec) })
 		}
 	}
 
@@ -80,6 +94,29 @@ func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 		out[SlotProcessOutput] = scopes.processOutputContext(def)
 	}
 	return out, nil
+}
+
+// addClauseSlots addresses the clauses of one switch case or on_error rule, which share a
+// scope their `case` does not: they run because it matched. Only clauses actually written get
+// an address — a listing of slots the document does not contain is noise a reader has to skip.
+func addClauseSlots(out map[string]schema.Schema, base string, panics, raise *model.Fault, retry *model.Retry, ctx func() schema.Schema) {
+	var present []string
+	if panics != nil {
+		present = append(present, slotPanic)
+	}
+	if raise != nil {
+		present = append(present, slotRaise)
+	}
+	if retry != nil {
+		present = append(present, slotRetry)
+	}
+	if len(present) == 0 {
+		return
+	}
+	c := ctx()
+	for _, name := range present {
+		out[base+"."+name] = c
+	}
 }
 
 // Type slots. The contract boundaries — what a generator is handed — addressed in the same
@@ -140,6 +177,58 @@ func typeSlots(sf SchemaFile) map[string]schema.Schema {
 		put(taskSlot(id, slotLastErr), ts.Error)
 	}
 	return out
+}
+
+// SlotAt answers an address with the longest SLOT it names, then whatever path is left walked
+// INSIDE that slot's schema. The two steps are what lets one slot address be a prefix of
+// another — a `switch` and its cases, a rule and its clauses — because the nested document
+// cannot hold both: the parent's own properties and the child's name land in one object, and a
+// case index starts reading as a name in scope. Reports false where no slot matches, which is
+// the caller's cue to fall back to the document, still the map of what could be typed instead.
+func SlotAt(slots map[string]schema.Schema, address string) (schema.Schema, bool, error) {
+	segs, err := schema.ParsePath(address)
+	if err != nil {
+		return schema.Schema{}, false, err
+	}
+	for n := len(segs); n > 0; n-- {
+		s, ok := slots[slotKey(segs[:n])]
+		if !ok {
+			continue
+		}
+		inside, err := Navigate(s, address, segs[n:])
+		return inside, true, err
+	}
+	return schema.Schema{}, false, nil
+}
+
+// slotKey renders segments the way the slot constructors do: JoinPath for names, a bare dot for
+// an index, so `on_error[0]`, `on_error["0"]` and `on_error.0` all reach the one rule.
+func slotKey(segs []schema.Segment) string {
+	out := ""
+	for _, seg := range segs {
+		if seg.IsIndex {
+			out += "." + strconv.Itoa(seg.Index)
+			continue
+		}
+		if isDigits(seg.Name) {
+			out += "." + seg.Name
+			continue
+		}
+		out = schema.JoinPath(out, seg.Name)
+	}
+	return out
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ContextDocument and TypeDocument are the two views as ONE schema each: the addresses are

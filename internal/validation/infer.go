@@ -177,7 +177,8 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				// here rather than beside the code's shape rule in model.
 				for i := range s.Switch {
 					where := fmt.Sprintf("switch case %d", i)
-					if err := checkFaultClauses(s.Switch[i].Raise, s.Switch[i].Panic, switchCtx, s.ID, where, rd); err != nil {
+					clauseCtx := scopes.switchClause(s, i, switchCtx)
+					if err := checkFaultClauses(s.Switch[i].Raise, s.Switch[i].Panic, clauseCtx, s.ID, where, rd); err != nil {
 						return err
 					}
 				}
@@ -194,7 +195,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			// The task's own context — `last_error` and all — plus `error`, the failure THIS
 			// rule caught. Both are readable here and they are different errors.
 			b.add(ruleSlot(s.ID, i), CodeExpression, func() error {
-				ruleCtx := scopes.rule(s, ec)
+				ruleCtx := scopes.rule(s, i, ec)
 				where := fmt.Sprintf("on_error[%d]", i)
 				// The case is checked in the SAME per-rule scope as the clauses: `code` has
 				// already said which error this is, so `error.data` here is that code's declared
@@ -211,13 +212,16 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 						return inField(slotCase, err)
 					}
 				}
-				if err := checkFaultClauses(ec.Raise, ec.Panic, ruleCtx, s.ID, where, rd); err != nil {
+				// The clauses run only when the rule CAUGHT, so they read a scope its own
+				// `case` has narrowed — the case expression above cannot, being what proves it.
+				clauseCtx := scopes.ruleClause(s, i, ec)
+				if err := checkFaultClauses(ec.Raise, ec.Panic, clauseCtx, s.ID, where, rd); err != nil {
 					return err
 				}
 				// A retry policy's slots are the same syntactic split as a delay's: a literal was
 				// checked by the decoder, a $: expression is type-checked here — in the rule's own
 				// scope, like the case above it.
-				if err := checkRetrySlots(s.ID, i, ec, ruleCtx); err != nil {
+				if err := checkRetrySlots(s.ID, i, ec, clauseCtx); err != nil {
 					return inField(slotRetry, err)
 				}
 				return nil

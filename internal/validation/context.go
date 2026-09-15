@@ -73,11 +73,23 @@ func (sc taskScopes) base(t *model.Task) schema.Schema {
 // be refused for reading it in the next — the same order the engine evaluates them in.
 // specs/guard-narrowing.md.
 func (sc taskScopes) switchCase(t *model.Task, k int, switchCtx schema.Schema) schema.Schema {
-	prior := priorCaseRefs(t, k)
-	if len(prior) == 0 {
-		return switchCtx
+	return sc.narrow(t, switchCtx, priorCaseRefs(t, k))
+}
+
+// switchClause is the scope of case k's `panic` and `raise`. They render only when the case
+// MATCHED, so unlike the expression beside them they may assume it true — refusing that splits
+// a guard from the message it was written to make safe.
+func (sc taskScopes) switchClause(t *model.Task, k int, switchCtx schema.Schema) schema.Schema {
+	return sc.narrow(t, switchCtx, caseFacts(t, k, true, sameFrame))
+}
+
+// narrow applies what a slot proved on top of what the edges into the task did. The context is
+// its own resolvable: every caller here already carries the pool.
+func (sc taskScopes) narrow(t *model.Task, ctx schema.Schema, local refs) schema.Schema {
+	if len(local) == 0 {
+		return ctx
 	}
-	return applyRefinements(switchCtx, switchCtx, unionRefs(sc.refinements[t.ID], prior))
+	return applyRefinements(ctx, ctx, unionRefs(sc.refinements[t.ID], local))
 }
 
 func (sc taskScopes) loops(t *model.Task) bool { return taskLoops(t, sc.required, sc.optional) }
@@ -188,7 +200,19 @@ func (sc taskScopes) processOutputAt(t terminalEnd, everMay map[string]bool) sch
 
 // rule is one on_error rule's scope: the task's own, plus `error` — the failure THIS rule
 // caught, which is not the `last_error` that routed control here.
-func (sc taskScopes) rule(t *model.Task, ec model.ErrorCase) schema.Schema {
+func (sc taskScopes) rule(t *model.Task, k int, ec model.ErrorCase) schema.Schema {
+	return sc.narrow(t, sc.ruleScope(t, ec), priorRuleRefs(t, k))
+}
+
+// ruleClause is the scope of rule k's `retry`, `panic` and `raise`: they run only when the rule
+// CAUGHT, which proves its case true. That is the one direction priorRuleRefs cannot use — the
+// negation of `(code…) && case` is a fact about neither half, but the conjunction holding is a
+// fact about both. specs/guard-narrowing.md.
+func (sc taskScopes) ruleClause(t *model.Task, k int, ec model.ErrorCase) schema.Schema {
+	return sc.narrow(t, sc.ruleScope(t, ec), unionRefs(priorRuleRefs(t, k), ownCaseRefs(ec.Case)))
+}
+
+func (sc taskScopes) ruleScope(t *model.Task, ec model.ErrorCase) schema.Schema {
 	ctx := withErrorProperty(sc.base(t), model.StateError, ruleErrAt(t, ec, sc.defs))
 	return addPreviousOnly(ctx, t, sc.loops(t)).WithDefs(sc.defs)
 }

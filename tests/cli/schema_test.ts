@@ -76,7 +76,9 @@ test("schema context — lists one slot per phase, and what each can read", () =
 
   // Four phases per task and the process output, plus one row per switch CASE — the same
   // per-index treatment `on_error` gets, and for the same reason: reaching case k means every
-  // earlier case was false, so each case reads a different context.
+  // earlier case was false, so each case reads a different context. And one per CLAUSE
+  // written: a `retry`, `panic` or `raise` runs only because its case matched, so it may
+  // assume it where the case expression beside it may not.
   expect(addresses.sort()).toEqual([
     "output",
     "tasks.explain.action",
@@ -85,6 +87,7 @@ test("schema context — lists one slot per phase, and what each can read", () =
     "tasks.explain.switch.0",
     "tasks.price.action",
     "tasks.price.on_error.0",
+    "tasks.price.on_error.0.retry",
     "tasks.price.on_error.1",
     "tasks.price.output",
     "tasks.price.switch",
@@ -97,6 +100,25 @@ test("schema context — lists one slot per phase, and what each can read", () =
   expect(line("tasks.price.action")).not.toContain("self");
   expect(line("tasks.price.output")).toContain("self{headers, result, status}");
   expect(line("tasks.price.switch")).toContain("output");
+});
+
+// A slot address can be a PREFIX of another one — a switch and its cases, a rule and its
+// clauses — and the nested document cannot hold both: writing the case under the switch's own
+// context makes the case INDEX a property of it, so `0` reads as a name in scope. The slots
+// answer an address before the document does, which is what keeps these apart.
+test("schema context — a slot that is also a prefix reports only what is in scope", () => {
+  const path = defFile();
+
+  const sw = schemaOf(path, "tasks.price.switch").doc;
+  expect(Object.keys(sw.properties).sort()).toEqual(["input", "outputs", "self"]);
+
+  const rule = schemaOf(path, "tasks.price.on_error.0").doc;
+  expect(Object.keys(rule.properties)).not.toContain("retry");
+
+  // The clause under it is still addressable, and it is a context of its own — the rule's
+  // scope, which is what a `$:` in `retry.delay` is written against.
+  const retry = schemaOf(path, "tasks.price.on_error.0.retry").doc;
+  expect(Object.keys(retry.properties).sort()).toEqual(["error", "input", "outputs"]);
 });
 
 // The process output is evaluated once, on whichever path the instance ended — so its context
@@ -254,6 +276,7 @@ test("schema context --json — the listing is the same addresses, as documents 
     "tasks.explain.switch.0",
     "tasks.price.action",
     "tasks.price.on_error.0",
+    "tasks.price.on_error.0.retry",
     "tasks.price.on_error.1",
     "tasks.price.output",
     "tasks.price.switch",

@@ -1,6 +1,10 @@
 package schematest
 
-import "testing"
+import (
+	"testing"
+
+	"genroc/internal/schema"
+)
 
 // A `$ref` pointing AT a nullable puts the null INSIDE the target, where StripNull cannot see
 // it — refs ride through untouched on purpose, because leaving them symbolic is what keeps
@@ -51,5 +55,14 @@ func TestReadingThroughARefToNullable(t *testing.T) {
 	// strip. Asserted so a reordering there does not quietly reintroduce `unknown`.
 	if got := at.Summary(); got != "object{a}|null" {
 		t.Errorf("Summary = %q, want %q", got, "object{a}|null")
+	}
+}
+
+// A value that is exactly null must describe itself. Stripping the null leaves the empty
+// node, which reads as `unknown` — so `null` used to summarise as `unknown|null`, which is
+// what a hover showed wherever a guard proved a value null.
+func TestSummaryOfExactlyNull(t *testing.T) {
+	if got := schema.Type("null").Summary(); got != "null" {
+		t.Errorf("Summary of an exactly-null schema = %q, want %q", got, "null")
 	}
 }

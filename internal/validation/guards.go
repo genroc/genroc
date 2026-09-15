@@ -86,40 +86,65 @@ func caseFacts(s *model.Task, k int, own bool, frame func(string) (string, bool)
 		return refs{}
 	}
 	out := refs{}
-	add := func(facts []schema.GuardFact) {
-		for _, f := range facts {
-			state, ok := factState(f)
-			if !ok {
-				continue
-			}
-			path, ok := frame(f.Path)
-			if !ok {
-				continue
-			}
-			// One case cannot prove a reference is both null and not; the meet handles two
-			// EDGES disagreeing, this handles one case contradicting itself.
-			if prev, seen := out[path]; seen && prev != state {
-				delete(out, path)
-				continue
-			}
-			out[path] = state
-		}
-	}
 	for j := 0; j < k; j++ {
 		if s.Switch[j].Case == "" {
 			continue // an unguarded case is always true; nothing is proved by "not it"
 		}
 		if _, whenFalse, err := schema.GuardFacts(s.Switch[j].Case); err == nil {
-			add(whenFalse)
+			out.addFacts(whenFalse, frame)
 		}
 	}
 	if own {
-		if c := s.Switch[k].Case; c != "" {
-			if whenTrue, _, err := schema.GuardFacts(c); err == nil {
-				add(whenTrue)
-			}
-		}
+		out.addFacts(whenTrueFacts(s.Switch[k].Case), frame)
 	}
+	return out
+}
+
+// addFacts folds catalogue facts into a set, dropping what proves nothing and what the frame
+// refuses. A reference one predicate proves both null and non-null is dropped rather than
+// picked: the predicate cannot hold, and either answer would be a guess.
+func (r refs) addFacts(facts []schema.GuardFact, frame func(string) (string, bool)) {
+	for _, f := range facts {
+		state, ok := factState(f)
+		if !ok {
+			continue
+		}
+		path, ok := frame(f.Path)
+		if !ok {
+			continue
+		}
+		if prev, seen := r[path]; seen && prev != state {
+			delete(r, path)
+			continue
+		}
+		r[path] = state
+	}
+}
+
+// whenTrueFacts is the catalogue reading of a guard that HELD. An unparseable or absent
+// expression proves nothing, which is the same answer either way.
+func whenTrueFacts(cond string) []schema.GuardFact {
+	if cond == "" {
+		return nil
+	}
+	whenTrue, _, err := schema.GuardFacts(cond)
+	if err != nil {
+		return nil
+	}
+	return whenTrue
+}
+
+// sameFrame reads a guard in the frame it was written in: nothing is translated and nothing is
+// dropped, which is what every name still in scope one slot later needs.
+func sameFrame(path string) (string, bool) { return path, true }
+
+// ownCaseRefs is what a clause beside a guard may assume: the guard HELD, or the clause would
+// not be running. Sound where the negation is not — `(code…) && case` holding proves the case,
+// while its negation proves neither half. The case expression itself must never be given these:
+// it is what establishes them.
+func ownCaseRefs(cond string) refs {
+	out := refs{}
+	out.addFacts(whenTrueFacts(cond), sameFrame)
 	return out
 }
 
@@ -128,6 +153,45 @@ func edgeRefs(s *model.Task, k int) refs {
 	return caseFacts(s, k, true, func(path string) (string, bool) {
 		return translateGuard(path, s.ID, taskHasOutput(s))
 	})
+}
+
+// priorRuleRefs is priorCaseRefs for `on_error`, and it is nearly always empty — which is the
+// point. A rule's predicate is `(code == a || code == b) && case`, so reaching rule k proves
+// only the NEGATION of that conjunction for each earlier rule, and the negation of a
+// conjunction is not a fact about either half: the rule may have been skipped because the code
+// did not match, before its `case` was ever evaluated (`matchOnErrorWith`).
+//
+// One shape survives. A rule with NO code is a pure `case`, so its predicate is the case alone
+// and falling past it does prove the case false. A rule with a code and no case proves only
+// something about `error.code`, which is a non-nullable string either way.
+func priorRuleRefs(s *model.Task, k int) refs {
+	out := refs{}
+	for j := 0; j < k && j < len(s.OnError); j++ {
+		ec := s.OnError[j]
+		if len(ec.Code) > 0 || ec.Case == "" {
+			continue
+		}
+		if _, whenFalse, err := schema.GuardFacts(ec.Case); err == nil {
+			out.addFacts(whenFalse, sameFrame)
+		}
+	}
+	return out
+}
+
+// ruleEdgeRefs is what an on_error rule's `goto` carries, in the frame of the task it routes
+// to. The rule fired, so its whole predicate held and its `case` is true — the one direction
+// priorRuleRefs cannot use. Everything about the failing task itself is dropped by the frame:
+// it produced no output, so `self.output` has no downstream name (exportsOutput false), and
+// `error` is the rule's own — the target reads its own `last_error`.
+func ruleEdgeRefs(s *model.Task, k int) refs {
+	if k < 0 || k >= len(s.OnError) {
+		return refs{}
+	}
+	out := refs{}
+	out.addFacts(whenTrueFacts(s.OnError[k].Case), func(path string) (string, bool) {
+		return translateGuard(path, s.ID, false)
+	})
+	return out
 }
 
 // priorCaseRefs is what case k may assume before its OWN expression runs. Read in the task's
@@ -201,13 +265,16 @@ func computeRefinements(tasks []*model.Task) map[string]refs {
 				}
 				// What held on entry to the predecessor still holds — a proof about
 				// `input.x` does not stop being true because a task ran. On top of it, what
-				// the case that selected this edge proved. An ERROR edge carries sw == -1
-				// (buildPreds), and edgeRefs answers nothing for that: the task failed, so
-				// its `case` never ran. It needs no kill for the failing task's own output
-				// either, because the set a predecessor carries was already stripped of
-				// `outputs.<itself>` when it was computed — the invariant the kill below
-				// maintains.
-				edge := unionRefs(carried, edgeRefs(tasks[p.idx], p.sw))
+				// the clause that selected this edge proved: a switch case when it matched,
+				// an on_error rule when it caught. Neither needs a kill for the failing
+				// task's own output, because the set a predecessor carries was already
+				// stripped of `outputs.<itself>` when it was computed — the invariant the
+				// kill below maintains.
+				proved := edgeRefs(tasks[p.idx], p.sw)
+				if p.isErr {
+					proved = ruleEdgeRefs(tasks[p.idx], p.rule)
+				}
+				edge := unionRefs(carried, proved)
 				in = meetRefs(in, edge)
 			}
 			if in == nil {

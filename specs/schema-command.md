@@ -50,6 +50,16 @@ Each view builds **one document**, and an address navigates it — `schema.At`, 
 reads a value's type. There is no address grammar beside it: no arity, no phase resolution, no
 slot-versus-navigation boundary, and so nothing that can differ between the two views.
 
+**One exception, forced by guard narrowing: a slot address may be a PREFIX of another.** A
+switch has a whole-switch context and one per case; a rule has one context and another for the
+`retry` / `panic` / `raise` beside it, which run only because the rule matched
+(guard-narrowing.md). The document cannot carry both — writing the case under the switch's own
+context makes the case index a property of it, and `0` starts reading as a name in scope — so
+`SlotAt` answers an address from the flat slots first, by longest slot prefix, and walks only
+what is LEFT inside that slot's schema. The document still answers for an intermediate node
+(`tasks.price.on_error`) and still words every miss, which is what keeps the paragraph below
+true. The grammar is unchanged: the same string, resolved in two steps rather than one.
+
 ```jsonc
 // context                                   // type
 { "output": { /* … */ },                     { "input":  { /* … */ },

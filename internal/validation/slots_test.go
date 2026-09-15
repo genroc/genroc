@@ -11,8 +11,10 @@ import (
 )
 
 // One definition reaching every phase: an action with typed responses (so `self.status` and
-// `self.headers` exist), an output map, a switch, two on_error rules with different declared
-// payloads, a handler an error edge enters, a loop back to it, and a config namespace.
+// `self.headers` exist), an output map, a switch, three on_error rules with different declared
+// payloads, a handler an error edge enters, a loop back to it, and a config namespace. Every
+// clause kind is written once — a `retry`, a `raise`, a `panic` — because each is addressed
+// below its case or rule and only a fixture that carries one can pair it.
 const slotFixture = `{
   "name": "p",
   "input_schema": {"type": "object", "properties": {"amount": {"type": "number"}}, "required": ["amount"]},
@@ -26,8 +28,11 @@ const slotFixture = `{
                               "500": {"type": "object", "properties": {"why": {"type": "string"}}, "required": ["why"]}}},
      "output": {"fee": "$: self.result.fee"},
      "on_error": [{"code": ["http.429"], "retry": {"retries": 2, "delay": "$: error.data.wait"}},
-                  {"code": ["http.500"], "goto": "$handler"}],
-     "switch": [{"case": "self.output.fee > 0", "goto": "end"}, {"goto": "end"}]},
+                  {"code": ["http.500"], "goto": "$handler"},
+                  {"code": ["result.parse"], "raise": {"code": "bad_body", "message": "${error.code}"}}],
+     "switch": [{"case": "self.output.fee > 0", "goto": "end"},
+                {"case": "self.output.fee == 0", "panic": {"code": "no_fee", "message": "fee ${self.output.fee}"}},
+                {"goto": "end"}]},
     {"id": "handler",
      "output": {"why": "$: last_error.code"},
      "switch": [{"case": "outputs.handler != null", "goto": "end"}, {"goto": "$handler"}]}
@@ -98,12 +103,24 @@ func TestSlotContextsAreTheCheckersOwn(t *testing.T) {
 		// One per case, as on_error is one per rule: reaching case k means every earlier one
 		// was false, so each reads a different context. An editor asking about case k must
 		// get the same answer the checker used, or it underlines what registration accepts.
-		for i := range task.Switch {
+		for i, c := range task.Switch {
 			same(caseSlot(task.ID, i), checker.switchCase(task, i, switchCtx))
+			// The clauses beside it read the scope the case PROVED, so they are addressed a
+			// level down. An editor resolving `panic` to the case slot would hover the type
+			// the guard already ruled out.
+			if c.Panic != nil || c.Raise != nil {
+				same(caseSlot(task.ID, i)+"."+slotPanic, checker.switchClause(task, i, switchCtx))
+			}
 		}
 
 		for i, ec := range task.OnError {
-			same(ruleSlot(task.ID, i), checker.rule(task, ec))
+			same(ruleSlot(task.ID, i), checker.rule(task, i, ec))
+			if !ec.Retry.IsZero() {
+				same(ruleSlot(task.ID, i)+"."+slotRetry, checker.ruleClause(task, i, ec))
+			}
+			if ec.Raise != nil {
+				same(ruleSlot(task.ID, i)+"."+slotRaise, checker.ruleClause(task, i, ec))
+			}
 		}
 	}
 
@@ -111,13 +128,40 @@ func TestSlotContextsAreTheCheckersOwn(t *testing.T) {
 
 	// Every phase of both tasks, and nothing else: a phase that stops being addressable is a
 	// slot an author can no longer ask about, which no other test would notice.
-	want := 9 // four phases across two tasks, plus the process output
+	want := 1 // the process output
 	for _, task := range def.Tasks {
-		want += len(task.Switch) // and one slot per switch case
+		want++ // the action phase, addressable whether or not the task has one
+		if task.Output.Present() {
+			want++
+		}
+		if len(task.Switch) > 0 {
+			want++ // the whole-switch scope, before any case narrows it
+		}
+		want += len(task.Switch) + len(task.OnError) // one per case, one per rule
+		for _, c := range task.Switch {
+			want += countClauses(c.Panic, c.Raise, nil)
+		}
+		for _, ec := range task.OnError {
+			retry := &ec.Retry
+			if ec.Retry.IsZero() {
+				retry = nil
+			}
+			want += countClauses(ec.Panic, ec.Raise, retry) // and one per clause written
+		}
 	}
 	if len(reported) != want {
 		t.Errorf("addresses = %d, want %d", len(reported), want)
 	}
+}
+
+func countClauses(panics, raise *model.Fault, retry *model.Retry) int {
+	n := 0
+	for _, present := range []bool{panics != nil, raise != nil, retry != nil} {
+		if present {
+			n++
+		}
+	}
+	return n
 }
 
 // The process output's context is one arm per way the process can end, and the arms are what

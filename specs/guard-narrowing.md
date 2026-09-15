@@ -57,15 +57,41 @@ proves nothing about the value the next task reads.
 CASE wherever an earlier case narrows something — the same reason `on_error` is addressed per
 rule — and only where it differs, so the `genctl schema context` listing is not padded with
 rows repeating the switch context. Without it a hover reads `boolean|null` on an expression
-registration just accepted, which is the editor contradicting the checker.
+registration just accepted, which is the editor contradicting the checker. A clause is
+addressed one level below its case (`tasks.a.switch.1.panic`, `…on_error.0.retry`) for the
+reason below: `enclosingSlot` walks up from the cursor and stops at the first slot it finds,
+so the deeper address is what keeps the `case` reading the scope that PROVES the guard while
+the clause beside it reads the one that assumes it.
 
 **Cases narrow each other, not only edges.** `evalSwitch` returns the first match, so case k
 runs only when 1..k-1 were false — the same negation an outgoing edge carries, read in the
 task's OWN frame (nothing translated, nothing dropped: every name a case can write is still in
 scope for a later one, `config` included, since one pass reads one resolved value). Refusing
 this is what sends an author to a `?? default` in the case right below their own null check.
-NOT applicable to `on_error`: a rule there is skipped when its CODE does not match, before its
-`case` is evaluated, so reaching rule k proves nothing about rule j's case.
+`on_error` gets the same treatment, and it almost always yields nothing — which is the
+interesting part. A rule's predicate is `(code == a || code == b) && case`, so falling past
+rule j proves the negation of a CONJUNCTION, and that is not a fact about either half: the rule
+may have been skipped on its code before its `case` ever ran (`matchOnErrorWith`). One shape
+survives — a rule with no `code` is a pure `case`, so falling past it proves the case false.
+A rule with a code and no case proves only something about `error.code`, a non-nullable string
+either way. `priorRuleRefs` is that rule, and it is the catalogue's `¬(A∧B)` applied where the
+conjunction is implicit in the syntax.
+
+**A clause beside a case may assume it; the case may not.** A `panic`, `raise` or `retry`
+runs only because its case matched, so it reads the case's own `whenTrue` facts on top of the
+negations — the shape an author writes first is a guard and the message it was written to make
+safe. This is the one direction `on_error` gets for free where the negation gives nothing:
+`(code…) && case` HOLDING proves the case, while its negation proves neither half. The case
+expression itself must never be given these facts — it is what establishes them, and handing
+them back is circular: `self.output.n + 1` in a case that never tested `self.output` would
+type against a narrowing only that read could have justified.
+
+**An `on_error` rule's `goto` is an edge like a case's.** The rule fired, so its whole
+predicate held and its `case` travels — under the same frame translation, which drops
+everything belonging to the task that FAILED: it produced no output, so `self.*` has no
+downstream name, and the `error` it caught is read as the target's own `last_error`, a
+different value under the same-looking path. What the failing task's entry context already
+proved still travels: failing says nothing about `input`.
 
 **A guard landing on a `$ref` must MATERIALIZE before stripping null**
 (`Schema.StripNullMaterialized`). A ref rides through `StripNull` untouched — deliberately,
@@ -140,7 +166,11 @@ covers and watching it fail (`validationtest/guard_narrowing_test.go` unless not
 | ordered-case negation | dropping it | the guard-clause row |
 | k must not negate ITSELF | `j <= k` | 10 cases |
 | `config` never travels | allowing it through | ConfigNeverTravels |
-| an error edge carries no case | `edgeRefs` ignoring `sw == -1` | ErrorEdgeCarriesNothing |
+| an error edge carries no OUTPUT | `edgeRefs` answering for `sw == -1` | ErrorEdgeCarriesNothing |
+| a clause assumes its own case | clause reading the case's scope | SwitchClausesAssumeTheirCase (6), OnErrorClausesAssumeTheirCase (4) |
+| a case must not assume itself | `switchCase` → `switchClause` | the circularity row, `hover_guard_test.ts` |
+| an `on_error` goto carries its case | `ruleEdgeRefs` → empty | OnErrorGotoCarriesItsCase (5) |
+| the error edge still meets | skipping the meet for `isErr` | ErrorEdgeMeetsAndInherits (2) |
 | `¬(A∧B)` proves nothing | `&&` claiming its facts on false | NegatedConjunction |
 | the catalogue itself | see `schema/guardfacts_test.go` | 4 rows |
 | frame translation | see `validation/guards_test.go` | 15 rows |
@@ -154,7 +184,9 @@ so lifting it is a deliberate flip.
 
 End-to-end, over HTTP against a running engine: `tests/integration/guard_narrowing_test.ts`
 registers, starts and completes the guard-clause shape, checks the value the proof made
-legal, and takes the null edge at runtime.
+legal, and takes the null edge at runtime. `tests/lsp/hover_guard_test.ts` is the editor half,
+with the cursor written into each snippet: the same reference hovered on both sides of a check,
+across an edge, and inside a clause versus inside the case that proves it.
 
 ## Rejected alternatives
 

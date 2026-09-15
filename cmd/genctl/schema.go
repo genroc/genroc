@@ -97,17 +97,31 @@ func runSchemaViewCmd(v schemaView, args []string) {
 
 	def := loadDefinition(files, pos[0])
 	if len(pos) == 2 {
-		doc, err := v.document(def)
-		if err != nil {
-			fatal("%s: %v", def.Name, err)
-		}
 		path, err := schema.ParsePath(pos[1])
 		if err != nil {
 			fatal("%v", err)
 		}
-		s, err := validation.Navigate(doc, pos[1], path)
+		// The flat slots answer first, because a slot address may be a PREFIX of another one
+		// and the nested document cannot tell the two apart: `tasks.a.switch` would come back
+		// carrying its own case indexes as names in scope. The document still answers for an
+		// intermediate node and words every miss.
+		slots, err := v.slots(def)
 		if err != nil {
+			fatal("%s: %v", def.Name, err)
+		}
+		s, found, err := validation.SlotAt(slots, pos[1])
+		if found && err != nil {
 			fatal("%v%s", err, otherView(v, def, path))
+		}
+		if !found {
+			doc, err := v.document(def)
+			if err != nil {
+				fatal("%s: %v", def.Name, err)
+			}
+			s, err = validation.Navigate(doc, pos[1], path)
+			if err != nil {
+				fatal("%v%s", err, otherView(v, def, path))
+			}
 		}
 		if *expr != "" {
 			// Availability before inference, the order the checker runs them in: "not readable

@@ -25,6 +25,12 @@ func (s Schema) summary(depth int) string {
 	if resolved, err := s.Resolve(); err == nil {
 		s = resolved
 	}
+	// A value that is EXACTLY null describes itself. Stripping the null off it leaves the
+	// empty node, which the branch below would describe as `unknown` — so `null` read back as
+	// `unknown|null`. Reachable wherever a guard proves a value null (specs/guard-narrowing.md).
+	if s.IsNull() {
+		return "null"
+	}
 	// A nullable value describes what it holds, then says it may be absent. Without this the
 	// null arm blocks the $ref beside it from resolving and the whole thing reads `unknown` —
 	// which is what `self.previous` on a looping task said.

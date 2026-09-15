@@ -312,3 +312,213 @@ func TestGuardNarrowing_GuardOnAWholeOutput(t *testing.T) {
 		t.Fatalf("the edge proved the whole output is there: %v", err)
 	}
 }
+
+// An `on_error` rule's predicate is `(code == a || code == b) && case`, so falling past rule j
+// proves only the NEGATION of that conjunction — which is not a fact about either half, since
+// the rule may have been skipped on the code before its `case` was ever evaluated. Exactly one
+// shape survives: a rule with no `code` is a pure `case`, and falling past it proves it false.
+func TestGuardNarrowing_OnErrorRulesNegateOnlyPureCases(t *testing.T) {
+	def := func(rules string) string {
+		return `{"name":"p","tasks":[
+		 {"id":"a","action":{"type":"fetch","method":"get","url":"http://x",
+		   "responses":{"200":{"type":"object"},"404":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]}}},
+		  "on_error":` + rules + `,"switch":"end"},
+		 {"id":"h","switch":"end"}]}`
+	}
+	t.Run("a pure case above narrows the rule below", func(t *testing.T) {
+		if err := runGenerateErr(t, def(`[
+		  {"case":"error.data.n == null","goto":"$h"},
+		  {"case":"error.data.n > 2","goto":"$h"},
+		  {"goto":"$h"}]`)); err != nil {
+			t.Fatalf("rule 0 has no code, so falling past it proves its case false: %v", err)
+		}
+	})
+	t.Run("a coded rule above proves nothing", func(t *testing.T) {
+		if err := runGenerateErr(t, def(`[
+		  {"code":["http.404"],"case":"error.data.n == null","goto":"$h"},
+		  {"case":"error.data.n > 2","goto":"$h"},
+		  {"goto":"$h"}]`)); err == nil {
+			t.Fatal("rule 0 may have been skipped on its CODE, before its case ran")
+		}
+	})
+	t.Run("with no rule above it stays refused", func(t *testing.T) {
+		if err := runGenerateErr(t, def(`[
+		  {"case":"error.data.n > 2","goto":"$h"},
+		  {"goto":"$h"}]`)); err == nil {
+			t.Fatal("nothing proved the payload is there")
+		}
+	})
+}
+
+// A `panic` or `raise` beside a case renders only when that case MATCHED, so it reads a scope
+// the case has narrowed — the expression beside it cannot, being what establishes the fact.
+// Refusing this splits a guard from the message it was written to make safe.
+func TestGuardNarrowing_SwitchClausesAssumeTheirCase(t *testing.T) {
+	// `self.result[0]` is genuinely nullable — an empty array indexes to null — so every row
+	// below turns on whether the clause may assume the guard.
+	src := func(cases string) string {
+		return `{"name":"p","tasks":[{"id":"a",
+		 "action":{"type":"fetch","method":"get","url":"http://x",
+		  "responses":{"200":{"type":"array","items":{"type":"object","properties":{"n":{"type":"integer"}},"required":["n"]}}}},
+		 "output":"$: self.result[0]",
+		 "switch":` + cases + `}]}`
+	}
+	for _, tc := range []struct {
+		name, cases string
+		wantOK      bool
+	}{
+		{name: "its own guard narrows its panic data", wantOK: true,
+			cases: `[{"case":"self.output != null","panic":{"code":"c","message":"m","data":{"a":"$: self.output.n + 1"}}},
+			         {"goto":"end"}]`},
+		{name: "and its raise message template", wantOK: true,
+			cases: `[{"case":"self.output != null","raise":{"code":"c","message":"${self.output.n + 1}"}},
+			         {"goto":"end"}]`},
+		{name: "an earlier case's negation reaches it too", wantOK: true,
+			cases: `[{"case":"self.output == null","goto":"end"},
+			         {"panic":{"code":"c","message":"m","data":{"a":"$: self.output.n + 1"}}}]`},
+
+		{name: "with nothing guarding it, it stays refused",
+			cases: `[{"panic":{"code":"c","message":"m","data":{"a":"$: self.output.n + 1"}}}]`},
+		{name: "a guard proving the opposite does not help",
+			cases: `[{"case":"self.output == null","panic":{"code":"c","message":"m","data":{"a":"$: self.output.n + 1"}}},
+			         {"goto":"end"}]`},
+		// The case is what PROVES the fact, so giving it the fact would be circular: the
+		// clause slot is one level down precisely so this one keeps the unnarrowed scope.
+		{name: "the case expression is not narrowed by itself",
+			cases: `[{"case":"self.output.n + 1 > 2","goto":"end"}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runGenerateErr(t, src(tc.cases))
+			if tc.wantOK && err != nil {
+				t.Fatalf("the clause runs only when the case held: %v", err)
+			}
+			if !tc.wantOK && err == nil {
+				t.Fatal("accepted a read nothing proved")
+			}
+		})
+	}
+}
+
+// The same for `on_error`, and it is the direction priorRuleRefs cannot use: a rule's predicate
+// is `(code…) && case`, whose NEGATION is a fact about neither half — but whose holding is a
+// fact about both. So a rule that CAUGHT proves its case, however it is coded.
+func TestGuardNarrowing_OnErrorClausesAssumeTheirCase(t *testing.T) {
+	src := func(rules string) string {
+		return `{"name":"p","tasks":[
+		 {"id":"a","action":{"type":"fetch","method":"get","url":"http://x",
+		   "responses":{"200":{"type":"object"},
+		                "404":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]}}},
+		  "on_error":` + rules + `,"switch":"end"},
+		 {"id":"h","switch":"end"}]}`
+	}
+	for _, tc := range []struct {
+		name, rules string
+		wantOK      bool
+	}{
+		{name: "the case narrows the retry delay beside it", wantOK: true,
+			rules: `[{"code":["http.404"],"case":"error.data.n != null","retry":{"retries":2,"delay":"$: error.data.n"},"goto":"$h"}]`},
+		{name: "and the panic data beside it", wantOK: true,
+			rules: `[{"code":["http.404"],"case":"error.data.n != null","panic":{"code":"c","message":"m","data":{"a":"$: error.data.n + 1"}}},
+			         {"code":["http.500"],"goto":"$h"}]`},
+
+		{name: "with no case the delay stays nullable",
+			rules: `[{"code":["http.404"],"retry":{"retries":2,"delay":"$: error.data.n"},"goto":"$h"}]`},
+		{name: "a case proving the opposite does not help",
+			rules: `[{"code":["http.404"],"case":"error.data.n == null","retry":{"retries":2,"delay":"$: error.data.n"},"goto":"$h"}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runGenerateErr(t, src(tc.rules))
+			if tc.wantOK && err != nil {
+				t.Fatalf("the rule caught, so its case held: %v", err)
+			}
+			if !tc.wantOK && err == nil {
+				t.Fatal("accepted a read nothing proved")
+			}
+		})
+	}
+}
+
+// An `on_error` rule's `goto` is an edge like a switch case's, and it carries what the rule
+// proved for the same reason: the rule fired, so its whole predicate held. What cannot travel
+// is everything that belongs to the task that FAILED — it produced no output, and the `error`
+// it caught is the target's own `last_error`, a different value under a different name.
+func TestGuardNarrowing_OnErrorGotoCarriesItsCase(t *testing.T) {
+	src := func(rule, use string) string {
+		return `{"name":"p",
+		 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
+		 "tasks":[
+		  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x",
+		    "responses":{"200":{"type":"object"},
+		                 "404":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]}}},
+		   "output":{"v":"$: input.n"},
+		   "on_error":` + rule + `,"switch":"end"},
+		  {"id":"h","action":{"type":"fetch","method":"get","url":"http://z"},
+		   "output":{"r":"$: ` + use + `"},"switch":"end"}]}`
+	}
+	for _, tc := range []struct {
+		name, rule, use string
+		wantOK          bool
+	}{
+		{name: "a guard on the process input travels", wantOK: true,
+			rule: `[{"code":["http.500"],"case":"input.n != null","goto":"$h"}]`,
+			use:  `input.n + 1`},
+
+		{name: "the error it caught does not: the target reads its own last_error",
+			rule: `[{"code":["http.404"],"case":"error.data.n != null","goto":"$h"}]`,
+			use:  `last_error.data.n + 1`},
+		{name: "nothing about the failing task's own output travels",
+			rule: `[{"code":["http.500"],"case":"self.previous.v != null","goto":"$h"}]`,
+			use:  `outputs.a.v + 1`},
+		{name: "a rule with no case carries nothing",
+			rule: `[{"code":["http.500"],"goto":"$h"}]`,
+			use:  `input.n + 1`},
+		{name: "the opposite proof does not narrow",
+			rule: `[{"code":["http.500"],"case":"input.n == null","goto":"$h"}]`,
+			use:  `input.n + 1`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runGenerateErr(t, src(tc.rule, tc.use))
+			if tc.wantOK && err != nil {
+				t.Fatalf("the rule caught, so its case held on this edge: %v", err)
+			}
+			if !tc.wantOK && err == nil {
+				t.Fatal("accepted a read this error edge never established")
+			}
+		})
+	}
+}
+
+// The error edge meets with every other edge into the handler, exactly as a switch edge does.
+// A handler reached BOTH by a guarded rule and by an unguarded route cannot know which it
+// arrived on — and what held before the task failed still holds, since failing proves nothing
+// about the process input.
+func TestGuardNarrowing_ErrorEdgeMeetsAndInherits(t *testing.T) {
+	t.Run("a second unguarded edge loses the proof", func(t *testing.T) {
+		src := `{"name":"p",
+		 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
+		 "tasks":[
+		  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+		   "on_error":[{"code":["http.500"],"case":"input.n != null","goto":"$h"}],
+		   "switch":[{"goto":"$h"}]},
+		  {"id":"h","action":{"type":"fetch","method":"get","url":"http://z"},
+		   "output":{"r":"$: input.n + 1"},"switch":"end"}]}`
+		if err := runGenerateErr(t, src); err == nil {
+			t.Fatal("the success edge proved nothing, and h cannot know which one it took")
+		}
+	})
+	// What was proved BEFORE the task ran is not undone by the task failing.
+	t.Run("a proof from upstream survives the failure", func(t *testing.T) {
+		src := `{"name":"p",
+		 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
+		 "tasks":[
+		  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+		   "switch":[{"case":"input.n != null","goto":"$b"},{"goto":"end"}]},
+		  {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},
+		   "on_error":[{"code":["http.500"],"goto":"$h"}],"switch":"end"},
+		  {"id":"h","action":{"type":"fetch","method":"get","url":"http://z"},
+		   "output":{"r":"$: input.n + 1"},"switch":"end"}]}`
+		if err := runGenerateErr(t, src); err != nil {
+			t.Fatalf("b failing says nothing about the process input: %v", err)
+		}
+	})
+}

@@ -216,6 +216,14 @@ grows (`uniqueDefName` renames the newcomer) — and `TestSlotContextsAreTheChec
 them: identical bodies, and every definition the check resolved still resolving to the same
 thing. A context reported to an author that nothing checked is the failure it exists to catch.
 
+**A slot address may be a PREFIX of another, and the nested document cannot hold both.** A
+switch has a whole-switch context and one per case; a rule has one and another for the clauses
+beside it. `nest` would write the child into the parent's own object, so `tasks.a.switch` comes
+back carrying `0`, `1`, `2` as names in scope — which it did between the per-case slots landing
+and `SlotAt`. Address lookup therefore goes through `SlotAt` (longest slot prefix, then
+`Navigate` the remainder inside it); the document is left for intermediate nodes and for
+wording a miss. specs/schema-command.md §2.
+
 **An address is `schema`'s path grammar, not a dotted split.** `CanonicalSlot` parses with
 `schema.ParsePath` and `taskSlot` renders with `JoinPath` / `JoinIndex`, so a task id holding a
 dot is quoted in both directions and a printed address resolves back to itself. It replaced a
