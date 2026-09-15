@@ -179,7 +179,8 @@ If you want to use nullable value in these places you have to provide fallback v
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      default</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> http://localhost:1234</span></span></code></pre>
 <p>Even though the value is not required here, genroc knows it can never be null
-inside the process, because if it’s not provided by the user, the default value will be used.</p>
+inside the process, because if it’s not provided by the user, the default value will be used.
+Combining required and default is refused, because then default can never be applied.</p>
 <p>This changes however if it’s specified as <code>type: [string, &quot;null&quot;]</code>,
 here user can pass <code>null</code> explicitly and the default values is not used in this case.</p>
 <blockquote>
@@ -194,7 +195,7 @@ here user can pass <code>null</code> explicitly and the default values is not us
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  required</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">user_id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">tasks</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
 <span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> load_user</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">     # now the action we can access only `input`</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">     # here action can access `input`</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> fetch</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      method</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> get</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">https://api.example.com/users/</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">user_id</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">}</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
@@ -273,7 +274,8 @@ You can define <code>config_schema</code>, it must be a flat object, e.g.:</p>
 <p>Genroc is loading and validating config values everytime it interacts with the process.
 You can define any primitive value type and genroc will validate them and convert.
 If the validation doesn’t pass, process is not allowed to register.
-So you need to set the env before applying the definition.</p>
+So if the value is without default or required,
+you need to set the env before applying the definition (on the server).</p>
 <h3 id="secrets">Secrets<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#secrets"><span></span></a></h3>
 <p>In the config you can mark the property as <code>secret</code>.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> process-with-config</span></span>
@@ -285,7 +287,9 @@ So you need to set the env before applying the definition.</p>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      secret</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> true</span></span>
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  required</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">server_token</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span></code></pre>
 <p>This will redact the secrets leaking into stdout (server logs).
-Secrets can still leak into db stored logs or process state.</p>
+Secrets can still leak into db stored logs or process state - so they will be
+visible through <code>genctl logs</code> and so on.</p>
+<p>The <code>secret</code> property can only be used in the config.</p>
 <h2 id="when-is-this-checked">When is this checked?<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#when-is-this-checked"><span></span></a></h2>
 <p>You can validate the process by <code>genctl apply --check-only</code> this will validate the whole
 process on the server (so it also catches client version mismatch).</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/error-handling/"> <span>previous</span> <strong>Error handling</strong> </a> <a class="next" href="/guides/process-definition/example/"> <span>next</span> <strong>An example</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#why">Why?</a></li><li class="depth-2"><a href="#static-checking-and-inference">Static checking and inference</a></li><li class="depth-2"><a href="#inferred-context">Inferred context</a></li><li class="depth-2"><a href="#nullability">Nullability</a></li><li class="depth-2"><a href="#demonstration-on-a-real-example">Demonstration on a real example</a></li><li class="depth-3"><a href="#declaring-what-enters-the-process">Declaring what enters the process</a></li><li class="depth-3"><a href="#inferred-types">Inferred types</a></li><li class="depth-3"><a href="#static-checking">Static checking</a></li><li class="depth-3"><a href="#the-context-of-a-slot">The context of a slot</a></li><li class="depth-3"><a href="#other-checks">Other checks</a></li><li class="depth-2"><a href="#config">Config</a></li><li class="depth-3"><a href="#secrets">Secrets</a></li><li class="depth-2"><a href="#when-is-this-checked">When is this checked?</a></li></ul><script>
