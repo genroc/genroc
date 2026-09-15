@@ -22,7 +22,7 @@ Strict validation can't prevent these issues, but makes them easy to detect.
 ## Static checking and inference
 
 Because the inputs are typed, we can statically check every expression:
-that it references only properties that exist, and its operations use the right types.
+that it references only properties that exist, and that its operations use the right types.
 
 We can also infer expression types, so if you use an expression to build a new
 object, genroc infers its type automatically.
@@ -30,15 +30,15 @@ object, genroc infers its type automatically.
 ## Inferred context
 
 Through inference, Genroc creates a typed context for every task. Based on what
-tasks were (or could have been) executed before it, we can check what exact outputs
+tasks were (or could have been) executed before it, we can check exactly which outputs
 can be accessed in the expressions.
 
-This creates a continuous flow of types, through the process, so you always
+This creates a continuous flow of types through the process, so you always
 know what outputs are accessible and what their types are.
 
 ## Nullability
 
-Genroc distinguishes if the field can be null. It doesn't allow nullable fields
+Genroc tracks whether a field can be null. It doesn't allow nullable fields
 in templates and operations that don't make sense on a `null` type (e.g. `<`).
 If you want to use a nullable value in these places, you have to provide
 a fallback value with the `??` operator.
@@ -62,9 +62,9 @@ inside the process, because if you don't provide it, the default value will be u
 Combining required and default is refused, because then the default can never be applied.
 
 This changes, however, if it's specified as `type: [string, "null"]`.
-You can then pass `null` explicitly and the default value is not used in this case.
+You can then pass `null` explicitly and the default value is not used.
 
-> Genroc has only one NIL value `null`, so in the expressions there is no difference between nullable and non-required values (they both contain `null`).
+> Genroc has only one NIL value, `null`, so in the expressions there is no difference between nullable and non-required values (they both contain `null`).
 
 ## Demonstration on a real example
 
@@ -113,27 +113,27 @@ output:
 ```
 
 > TIP: Install the [genroc vscode extension](https://marketplace.visualstudio.com/items?itemName=genroc.genroc)
-  and copy the process above to a new definition. You can then hover any expression part and see what is its type.
+  and copy the process above to a new definition. You can then hover any expression part and see what its type is.
   It will also show you errors live.
 
 ### Declaring what enters the process
 
 In the example, there are two places where outside data enter the process - `input_schema` and `responses`.
 
-Genroc automatically validates that data and then you can safely access them in expressions.
+Genroc automatically validates that data and then you can safely access it in expressions.
 
 ### Inferred types
 
 Every task output is inferred through the `output` shape.
  - `load_user` output is typed as an object with an `email: string` field
- - `nudge` output is an object with `nudged: boolean` field
+ - `nudge` output is an object with a `nudged: boolean` field
 
 The process output is also inferred; the inferred context is
 based on where all the `goto: end` are in the process.
 
 ### Static checking
 
-We check that the expressions are accessing existing properties.
+We check that the expressions access existing properties.
 If you make a typo (e.g. `"$: outputs.load_user.emial"`), genroc will throw an error.
 
 ### The context of a slot
@@ -213,7 +213,7 @@ reaches production. `genctl apply --check-only` runs exactly these checks, so
 you can run them in CI; they happen on the server, so you then know that `apply` will pass.
 
 **At runtime** - the outside data entering the process is always validated.
-This ensures that all the statically checked expressions recieves the data
+This ensures that every statically checked expression recieves the data
 it expects, and breaking API changes are detected.
 
 ### Scenarios
