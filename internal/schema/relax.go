@@ -9,7 +9,7 @@ func (s Schema) Relaxed(stringNote string) Schema {
 	if s.n == nil {
 		return s
 	}
-	return Schema{relaxToString(s.n, stringNote)}
+	return Schema{n: relaxToString(s.n, stringNote)}
 }
 
 // relaxToString relaxes one node's children, then makes the node itself `node | string`

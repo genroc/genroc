@@ -12,8 +12,6 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **instance retention** — logs prune and objects sweep, `process_instances` grows forever
 - [] **deterministic simulation**, tier 1 — the only place `only_once` can be asserted
   (specs/deterministic-simulation.md)
-- [] **guard narrowing** — a `switch` case's proof is discarded, so the routed task still
-  needs a `?? default` that can never be evaluated (specs/guard-narrowing.md)
 - [] **enum-aware canonicalization** — `mergeSimpleVariants` won't fold arms carrying an
   `enum`; prerequisite for literal types (specs/literal-types.md §4)
 - [] **literal types** — `"sent"` infers as `string`; unblocks discriminated unions
@@ -30,6 +28,9 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **docs** — the site ships four pages; the reference gap it was written to close is open
 
 ## Shipped
+- [x] **guard narrowing** — a `switch` case's proof travels the edge it selects, so the task
+      it routes to reads the value without a `?? default` that can never evaluate. Ordered-case
+      negation included, so the guard-clause shape narrows (specs/guard-narrowing.md)
 - [x] **expression-level narrowing** — a guard on the left of `&&` (or `||`) narrows its
       right operand, because the evaluator short-circuits; `!` swaps the branches and
       chains accumulate. The CROSS-TASK case is still open above (specs/guard-narrowing.md)

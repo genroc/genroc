@@ -18,6 +18,11 @@ type predEdge struct {
 	// what attributes `error` at a handler to the rules that could have set it, which is the
 	// only way to know which statuses — and so which declared bodies — can arrive there.
 	rule int
+	// sw indexes the predecessor's Switch for a non-error edge, -1 otherwise. Two cases
+	// routing to one target are DIFFERENT edges — they prove different things — so this is
+	// also why the `next` cases below are no longer collapsed into one.
+	// specs/guard-narrowing.md.
+	sw int
 }
 
 // taskHasOutput reports whether a task exports an output to outputs.<id>. Only an
@@ -48,12 +53,19 @@ type taskScopes struct {
 	defs               schema.Defs
 	required, optional map[string][]string
 	errs               map[string]errAt
+	// refinements is what the edges into each task proved about references it can read —
+	// empty for a caller that does not compute them, which simply means no narrowing.
+	refinements map[string]refs
 }
 
 // base is the part every slot of a task shares: the process input, config, the outputs that
 // reach it, and the failure that routed control here. `self` is what the phases add.
 func (sc taskScopes) base(t *model.Task) schema.Schema {
-	return contextSchema(sc.required[t.ID], sc.optional[t.ID], sc.tasks, sc.processInput, sc.configSchema, sc.errs[t.ID])
+	ctx := contextSchema(sc.required[t.ID], sc.optional[t.ID], sc.tasks, sc.processInput, sc.configSchema, sc.errs[t.ID])
+	// Applied here because every phase goes through base, so no slot can be checked against
+	// a context the routing proved more about than it shows. The lookup needs the defs pool
+	// (an output is a $ref); the guards ride on the bare context either way.
+	return applyRefinements(ctx, ctx.WithDefs(sc.defs), sc.refinements[t.ID])
 }
 
 func (sc taskScopes) loops(t *model.Task) bool { return taskLoops(t, sc.required, sc.optional) }
@@ -303,27 +315,25 @@ func buildPreds(tasks []*model.Task) [][]predEdge {
 		idx[s.ID] = i
 	}
 	preds := make([][]predEdge, n)
-	preds[0] = append(preds[0], predEdge{idx: -1, rule: -1})
+	preds[0] = append(preds[0], predEdge{idx: -1, rule: -1, sw: -1})
 	for i, s := range tasks {
-		addedNext := false
-		for _, c := range s.Switch {
+		for k, c := range s.Switch {
 			if strings.HasPrefix(c.Goto, "$") {
 				if j, ok := idx[c.Goto[1:]]; ok {
-					preds[j] = append(preds[j], predEdge{idx: i, rule: -1})
+					preds[j] = append(preds[j], predEdge{idx: i, rule: -1, sw: k})
 				}
-			} else if c.Goto == model.GotoNext && !addedNext && i+1 < n {
-				preds[i+1] = append(preds[i+1], predEdge{idx: i, rule: -1})
-				addedNext = true
+			} else if c.Goto == model.GotoNext && i+1 < n {
+				preds[i+1] = append(preds[i+1], predEdge{idx: i, rule: -1, sw: k})
 			}
 		}
 		// Backward-compat: tasks with no switch fall through to the next task.
 		if len(s.Switch) == 0 && i+1 < n {
-			preds[i+1] = append(preds[i+1], predEdge{idx: i, rule: -1})
+			preds[i+1] = append(preds[i+1], predEdge{idx: i, rule: -1, sw: -1})
 		}
 		for r, ec := range s.OnError {
 			if ec.Goto != "" && ec.Goto != model.GotoEnd {
 				if j, ok := idx[ec.Goto]; ok {
-					preds[j] = append(preds[j], predEdge{idx: i, isErr: true, rule: r})
+					preds[j] = append(preds[j], predEdge{idx: i, isErr: true, rule: r, sw: -1})
 				}
 			}
 		}

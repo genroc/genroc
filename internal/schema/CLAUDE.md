@@ -213,8 +213,13 @@ halves (so chains accumulate), false gives neither — "one of them failed" is n
 either. `||` is the mirror, and `!` swaps the pair exactly. Anything wider needs a reason it
 cannot guess, which is why the truth of a whole boolean expression narrows nothing.
 
-The CROSS-TASK version — carrying a `switch` case's proof along the edge it selects — is a
-different problem and still open: [specs/guard-narrowing.md](../../specs/guard-narrowing.md).
+The CROSS-TASK version — carrying a `switch` case's proof along the edge it selects — is
+built on the same catalogue (`guardFacts`, exported as `GuardFacts`) and reaches the inferrer
+as `Schema.WithGuards`: refinements ride on the context VALUE, so every caller that threads a
+context inherits them. **`WithProperty` and the `WithDefs` family carry guards; navigation must
+not** — the first two return the same context with more on it, navigation returns a different
+value and guards are keyed from the root. A guard that stops applying is silent.
+[specs/guard-narrowing.md](../../specs/guard-narrowing.md).
 
 ## "Optional" is not "may be absent"
 

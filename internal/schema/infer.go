@@ -101,7 +101,33 @@ func (s Schema) Infer(expression string) (Schema, error) {
 	if err != nil {
 		return Schema{}, fmt.Errorf("parse %q: %w", expression, err)
 	}
-	return s.InferNode(node)
+	return s.inferNodeWithGuards(node, s.guards)
+}
+
+// InferWithGuards is Infer with facts already proved about some references before the
+// expression runs — the narrowing a `switch` case established on the edge that routed here.
+// Keys are rendered access paths (`outputs.a.v`), exactly what `JoinPath` emits and what a
+// read of the same path is keyed by, so an element path narrows that element and no other.
+// A key naming something this context does not have is ignored. specs/guard-narrowing.md.
+func (s Schema) InferWithGuards(expression string, narrowed map[string]Schema) (Schema, error) {
+	return s.WithGuards(narrowed).Infer(expression)
+}
+
+// seedGuards turns proved paths into the guard map the inferrer already consults. The root
+// is the leading segment: it is what a lambda parameter shadowing that name invalidates.
+func seedGuards(narrowed map[string]Schema) map[string]guard {
+	if len(narrowed) == 0 {
+		return nil
+	}
+	out := make(map[string]guard, len(narrowed))
+	for path, sc := range narrowed {
+		segs, err := ParsePath(path)
+		if err != nil || len(segs) == 0 || segs[0].IsIndex {
+			continue
+		}
+		out[path] = guard{roots: []string{segs[0].Name}, s: sc}
+	}
+	return out
 }
 
 // InferNode is Infer over an already-parsed expression, for callers holding a parsed tree.
@@ -110,9 +136,13 @@ func (s Schema) Infer(expression string) (Schema, error) {
 // non-null when `a` is null exactly where `b` is not. Every arm must type, since nothing says
 // which state the expression runs in. specs/path-sensitive-output.md.
 func (s Schema) InferNode(node syntax.Node) (Schema, error) {
+	return s.inferNodeWithGuards(node, s.guards)
+}
+
+func (s Schema) inferNodeWithGuards(node syntax.Node, guards map[string]guard) (Schema, error) {
 	arms := s.contextStates()
 	if len(arms) < 2 {
-		return inferNode(node, inferCtx{s: s})
+		return inferNode(node, inferCtx{s: s, guards: guards})
 	}
 	var (
 		joined   Schema
@@ -121,7 +151,10 @@ func (s Schema) InferNode(node syntax.Node) (Schema, error) {
 		failedIn string
 	)
 	for _, arm := range arms {
-		t, err := inferNode(node, inferCtx{s: arm})
+		// Seeded guards hold under every arm: the edge proved them before the context was
+		// split, so an arm that drops them would type the expression against less than the
+		// definition established.
+		t, err := inferNode(node, inferCtx{s: arm, guards: guards})
 		if err != nil {
 			if firstErr == nil {
 				firstErr, failedIn = err, arm.Description()
@@ -394,7 +427,7 @@ var errNoElement = errors.New("map source array has no element type")
 // coalesce builds has a provably-empty variant that elementOf can discard.
 func emptyArray() Schema {
 	zero := 0
-	return Schema{&node{Type: SchemaType{"array"}, MaxItems: &zero}}
+	return Schema{n: &node{Type: SchemaType{"array"}, MaxItems: &zero}}
 }
 
 // elementOf reads an array source's element type; a union source (`xs ?? []`, ternaries)
@@ -504,76 +537,94 @@ func inferConditional(n *syntax.CondNode, ictx inferCtx) (Schema, error) {
 	return OneOf(t, f), nil
 }
 
-// narrowCondition returns then/else contexts narrowed by an equality condition.
-//
-// A conjunction proves both halves when true and NEITHER when false — the negation of
-// `A && B` says only that one of them failed, which is not a fact about either reference.
-// The disjunction is the mirror. Composing left-then-right is what makes a chain of guards
-// accumulate, so `a != null && b != null && a > b` narrows both.
+// guardFact is one comparison a guard performs, as it holds on one branch: the reference
+// compared, the literal it was compared against, and whether this is the branch where the
+// two are equal. What a fact PROVES is left to the consumer — narrowing to the literal's
+// type inside an expression, a symbolic non-null across a task edge — so the structural
+// walk is shared and the semantics are not. specs/guard-narrowing.md.
+type guardFact struct {
+	subject syntax.Node
+	steps   []pathStep
+	lit     syntax.Node
+	equal   bool
+}
+
+// guardFacts is the catalogue, and nothing but the walk: what cond proves when it holds and
+// when it fails. A conjunction proves both halves when true and NEITHER when false — the
+// negation of `A && B` says only that one of them failed, which is not a fact about either
+// reference. `||` is the mirror, and `!` swaps the pair exactly.
+func guardFacts(cond syntax.Node) (whenTrue, whenFalse []guardFact) {
+	switch n := cond.(type) {
+	case *syntax.UnaryNode:
+		if n.Op == "!" {
+			t, f := guardFacts(n.Operand)
+			return f, t
+		}
+	case *syntax.BinaryNode:
+		switch n.Op {
+		case "&&":
+			lt, _ := guardFacts(n.Left)
+			rt, _ := guardFacts(n.Right)
+			return concatFacts(lt, rt), nil
+		case "||":
+			_, lf := guardFacts(n.Left)
+			_, rf := guardFacts(n.Right)
+			return nil, concatFacts(lf, rf)
+		case "==", "!=":
+			var subject, lit syntax.Node
+			switch {
+			case isLiteralNode(n.Right):
+				subject, lit = n.Left, n.Right
+			case isLiteralNode(n.Left):
+				subject, lit = n.Right, n.Left
+			default:
+				return nil, nil
+			}
+			steps, ok := nodeSteps(subject)
+			if !ok {
+				return nil, nil
+			}
+			eq := n.Op == "=="
+			return []guardFact{{subject, steps, lit, eq}}, []guardFact{{subject, steps, lit, !eq}}
+		}
+	}
+	return nil, nil
+}
+
+// concatFacts copies rather than appending in place: the left slice is a caller's, and a
+// chain would otherwise share one backing array across branches.
+func concatFacts(a, b []guardFact) []guardFact {
+	out := make([]guardFact, 0, len(a)+len(b))
+	return append(append(out, a...), b...)
+}
+
+// narrowCondition returns then/else contexts narrowed by cond, applying the facts the
+// catalogue extracts. Equality narrows to the literal's own type; only a `!= null` narrows
+// the other way, since knowing a value is not one particular non-null literal says nothing
+// about its type.
 func narrowCondition(cond syntax.Node, ictx inferCtx) (thenCtx, elseCtx inferCtx) {
-	thenCtx, elseCtx = ictx, ictx
-	// `!` proves on false what its operand proves on true, so the branches swap. Exactly
-	// swap: anything looser turns negation into a way to assert what was never proved.
-	if un, ok := cond.(*syntax.UnaryNode); ok && un.Op == "!" {
-		t, e := narrowCondition(un.Operand, ictx)
-		return e, t
-	}
-	bin, ok := cond.(*syntax.BinaryNode)
-	if !ok {
-		return
-	}
-	switch bin.Op {
-	case "&&":
-		thenCtx, _ = narrowCondition(bin.Left, ictx)
-		thenCtx, _ = narrowCondition(bin.Right, thenCtx)
-		return thenCtx, ictx
-	case "||":
-		_, elseCtx = narrowCondition(bin.Left, ictx)
-		_, elseCtx = narrowCondition(bin.Right, elseCtx)
-		return ictx, elseCtx
-	}
-	if bin.Op != "==" && bin.Op != "!=" {
-		return
-	}
+	whenTrue, whenFalse := guardFacts(cond)
+	return applyGuardFacts(ictx, whenTrue), applyGuardFacts(ictx, whenFalse)
+}
 
-	var subject, litNode syntax.Node
-	switch {
-	case isLiteralNode(bin.Right):
-		subject, litNode = bin.Left, bin.Right
-	case isLiteralNode(bin.Left):
-		subject, litNode = bin.Right, bin.Left
-	default:
-		return
-	}
-
-	steps, ok := nodeSteps(subject)
-	if !ok {
-		return
-	}
-
-	litSchema, err := inferNode(litNode, ictx)
-	if err != nil {
-		return
-	}
-
-	_, litIsNull := litNode.(*syntax.NullNode)
-
-	if bin.Op == "==" {
-		thenCtx = ictx.withGuard(steps, litSchema)
-		if litIsNull {
-			if subjectSchema, err := inferNode(subject, ictx); err == nil {
-				elseCtx = ictx.withGuard(steps, subjectSchema.StripNull())
-			}
+func applyGuardFacts(ictx inferCtx, facts []guardFact) inferCtx {
+	for _, f := range facts {
+		litSchema, err := inferNode(f.lit, ictx)
+		if err != nil {
+			continue
 		}
-	} else {
-		elseCtx = ictx.withGuard(steps, litSchema)
-		if litIsNull {
-			if subjectSchema, err := inferNode(subject, ictx); err == nil {
-				thenCtx = ictx.withGuard(steps, subjectSchema.StripNull())
-			}
+		if f.equal {
+			ictx = ictx.withGuard(f.steps, litSchema)
+			continue
+		}
+		if _, isNull := f.lit.(*syntax.NullNode); !isNull {
+			continue
+		}
+		if subject, err := inferNode(f.subject, ictx); err == nil {
+			ictx = ictx.withGuard(f.steps, subject.StripNull())
 		}
 	}
-	return
+	return ictx
 }
 
 func isLiteralNode(n syntax.Node) bool {
@@ -615,4 +666,38 @@ func nodeSteps(node syntax.Node) ([]pathStep, bool) {
 		return append(base, keyStep(key)), true
 	}
 	return nil, false
+}
+
+// GuardFact is one comparison a guard performs, as it holds on one branch: the reference,
+// whether it was compared against `null`, and whether this is the branch where the two are
+// equal. Path is the rendered access path a READ of the same reference is keyed by, so a
+// caller can hand it straight back to WithGuards. specs/guard-narrowing.md.
+type GuardFact struct {
+	Path   string
+	IsNull bool
+	Equal  bool
+}
+
+// GuardFacts is the guard catalogue over a source expression: what it proves when it holds,
+// and when it fails. An expression it cannot read proves nothing and is not an error — most
+// conditions are not guards.
+func GuardFacts(expr string) (whenTrue, whenFalse []GuardFact, err error) {
+	node, err := syntax.Parse(expr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse %q: %w", expr, err)
+	}
+	t, f := guardFacts(node)
+	return exportFacts(t), exportFacts(f), nil
+}
+
+func exportFacts(facts []guardFact) []GuardFact {
+	if len(facts) == 0 {
+		return nil
+	}
+	out := make([]GuardFact, 0, len(facts))
+	for _, f := range facts {
+		_, isNull := f.lit.(*syntax.NullNode)
+		out = append(out, GuardFact{Path: renderPath(f.steps), IsNull: isNull, Equal: f.equal})
+	}
+	return out
 }

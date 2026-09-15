@@ -285,7 +285,8 @@ func newTaskScopes(def *model.ProcessDefinition) (taskScopes, error) {
 		tasks: sf.Tasks, processInput: sf.ProcessInput,
 		configSchema: buildConfigSchema(def.ConfigSchema), defs: sf.Defs,
 		required: required, optional: optional,
-		errs: errContexts(def.Tasks, mustErr, mayErr, errSrc, sf.Defs),
+		errs:        errContexts(def.Tasks, mustErr, mayErr, errSrc, sf.Defs),
+		refinements: computeRefinements(def.Tasks),
 	}, nil
 }
 

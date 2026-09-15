@@ -1,12 +1,24 @@
 # Guard narrowing
 
-**Status: the CROSS-TASK feature below is proposed, not implemented. The guard catalogue it
-specifies is built** — `narrowCondition` in `internal/schema/infer.go` narrows within one
-expression (`x != null && x > 2`), covering `X != null` / `X == null`, `!G`, `G1 && G2`, `||`
-and chains, each with a runtime pairing in `expressiontest/logical_narrowing_test.go`. So the
-catalogue and its soundness cases are settled here, and step (2) of the sketch is a refactor
-rather than new work. Companion to
-[path-sensitive-output.md](path-sensitive-output.md) (implemented).
+**Status: implemented 2026-09-15.** `computeRefinements` (`internal/validation/guards.go`)
+carries a `switch` case's proof along the edge it selects; `guardFacts`
+(`internal/schema/infer.go`) is the catalogue, shared with the expression-level narrowing that
+shipped first. `||` still narrows nothing across an edge; the discriminant guard still waits on
+literal types. Companion to [path-sensitive-output.md](path-sensitive-output.md).
+
+Three things are load-bearing and none of them are where the sketch below expected:
+
+1. **A fact carries no schema**, only the comparison it came from. A refinement about
+   `self.output.v` that carried a type would need that task's output inference, which depends
+   on the context the fixpoint is computing.
+2. **Refinements are applied as guards, not by rewriting the context** (`Schema.WithGuards`,
+   consulted by `Infer`). They ride on the context VALUE, so every caller that already threads
+   a context inherits them — and because a guard is keyed by the path a read uses, an element
+   path narrows that element rather than `items`, which every element shares.
+3. **`WithProperty` and the `WithDefs` family therefore carry guards; navigation must not.**
+   The first two return the same context with more on it (`self` is added between the base
+   scope and the slot); navigation returns a different value, and guards are keyed from the
+   root. Getting this wrong is silent — the refinement simply stops applying.
 
 ## The problem
 
@@ -78,14 +90,22 @@ edges are per-case).
 
 ## Implementation sketch
 
-(1) `predEdge` gains case index, stop deduplicating; (2) a pure guard extractor
-`syntax.Node → []refinement` for exactly the catalogue + negations — splitting
-`narrowCondition`, which implements the catalogue already but fuses extraction with
-application (it calls `withGuard` inline), so one catalogue serves both features; (3) frame
-translation, rejecting rather than guessing; (4) a refinement fixpoint beside
-`computeContextSets` (union across edges, meet within, kill `outputs.i` at i); (5) apply
-in `contextSchema` (the path-sensitive `absent` category is the precedent for a third
-per-reference state). 1–3 are independently testable first.
+(1) `predEdge` gains case index, stop deduplicating; **(2) DONE** — `guardFacts`
+(`internal/schema/infer.go`) is the catalogue as a pure walk, returning what a condition
+proves on each branch and leaving what it MEANS to the caller, which is what lets one walk
+serve both features; **(3) DONE** — `translateGuard` (`internal/validation/guards.go`);
+(4) a refinement fixpoint beside `computeContextSets` (union across edges, meet within, kill
+`outputs.i` at i); **(5) DONE, and not where this said** — `Schema.InferWithGuards` seeds the
+refinements into the guard map the expression narrowing already consults, rather than
+rewriting `contextSchema`'s output. Two things fall out: the narrowing semantics are the ones
+already tested, and because a guard is keyed by the rendered path a read uses, an element
+path narrows THAT element — schema surgery would have had to narrow `items`, claiming a proof
+about one element for all of them.
+
+A fact carries NO schema, only the comparison it came from. That is what keeps (4)
+non-circular: a refinement about `self.output.v` would otherwise need that task's output
+type, which is inferred from the context the fixpoint is computing. Types are touched only
+at (5), where `TaskSchemas` is already filled in.
 
 Tests, weighted by the asymmetry: ordered-case negation heaviest (guard-clause shape;
 k sees ¬1..k-1 and not ¬k; no cross-edge accumulation; `¬(A∧B)` narrows nothing), then

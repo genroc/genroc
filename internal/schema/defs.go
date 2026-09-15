@@ -34,7 +34,7 @@ func (d Defs) Get(name string) (Schema, bool) {
 	if !ok {
 		return Schema{}, false
 	}
-	return Schema{n}, true
+	return Schema{n: n}, true
 }
 
 func (d Defs) Has(name string) bool {
@@ -85,7 +85,7 @@ func (s Schema) WithDefs(d Defs) Schema {
 	if d.m == nil {
 		return s
 	}
-	return wrap(s.n, d.m)
+	return s.keepingGuards(wrap(s.n, d.m))
 }
 
 // WithMergedDefs returns a copy of s whose root $defs are the union of its own and the
@@ -103,7 +103,7 @@ func (s Schema) WithMergedDefs(d Defs) Schema {
 	for k, v := range own {
 		merged[k] = v
 	}
-	return wrap(s.n, merged)
+	return s.keepingGuards(wrap(s.n, merged))
 }
 
 // MergeInto hoists the schema's root $defs into the handle (mutated in place) and returns a
@@ -149,7 +149,7 @@ func (s Schema) MergeInto(d Defs) (Schema, error) {
 	for _, def := range insert {
 		applyRename(def, rename)
 	}
-	return Schema{cloned}, nil
+	return Schema{n: cloned}, nil
 }
 
 // findEqualDef finds an existing definition content-equal to def modulo the insertion
@@ -214,7 +214,7 @@ func applyRename(root *node, rename map[string]string) {
 func (d Defs) Flatten() (Defs, error) {
 	named := make(map[string]Schema, len(d.m))
 	for k, v := range d.m {
-		named[k] = Schema{v} // bare nodes: cross-refs resolve at the container level
+		named[k] = Schema{n: v} // bare nodes: cross-refs resolve at the container level
 	}
 	return FlattenNamed(named)
 }
@@ -243,7 +243,16 @@ func (s Schema) DefsHandle() Defs {
 // storing such a node back into that same defs set would form a marshal cycle —
 // stripping deeply keeps the stored form clean and finite.
 func (s Schema) WithoutDefs() Schema {
-	return Schema{stripDefsDeep(s.n)}
+	return s.keepingGuards(Schema{n: stripDefsDeep(s.n)})
+}
+
+// keepingGuards carries s's refinements onto a re-anchored copy of the SAME context. Only
+// the defs methods use it: they change where a context resolves, not which context it is.
+// Navigation is the opposite case and must not — a sub-schema is a different value, and the
+// guards are keyed by paths from the root.
+func (s Schema) keepingGuards(out Schema) Schema {
+	out.guards = s.guards
+	return out
 }
 
 // stripDefsDeep returns a structural copy of n with all Defs fields cleared. It walks

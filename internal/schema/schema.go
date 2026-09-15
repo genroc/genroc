@@ -239,7 +239,7 @@ func (r Raw) Normalize() (Schema, error) {
 	if out == nil {
 		out = &node{}
 	}
-	return Schema{out}, nil
+	return Schema{n: out}, nil
 }
 
 // AssumeNormalized wraps the parsed document as a Schema without normalizing it — an
@@ -247,9 +247,9 @@ func (r Raw) Normalize() (Schema, error) {
 // schema this package marshaled earlier. Prefer Normalize when in doubt; it is idempotent.
 func (r Raw) AssumeNormalized() Schema {
 	if r.n == nil {
-		return Schema{&node{}}
+		return Schema{n: &node{}}
 	}
-	return Schema{r.n}
+	return Schema{n: r.n}
 }
 
 // CheckDoc reports whether the document is structurally well-formed in the
@@ -286,17 +286,31 @@ func (Raw) JSONSchemaBytes() ([]byte, error) {
 // mutate their receiver.
 type Schema struct {
 	n *node
+	// guards are refinements already proved about references in THIS context, before any
+	// expression over it runs — what a `switch` case established on the edge that routed
+	// here. They ride on the context value rather than on a parameter because every caller
+	// already threads the context and none of them should have to know about narrowing.
+	// Not part of the schema: dropped by every constructor, never marshalled, never compared.
+	// specs/guard-narrowing.md.
+	guards map[string]guard
+}
+
+// WithGuards returns s carrying refinements proved about some of its references. Keys are
+// rendered access paths (`outputs.a.v`), values the narrowed type.
+func (s Schema) WithGuards(narrowed map[string]Schema) Schema {
+	s.guards = seedGuards(narrowed)
+	return s
 }
 
 // wrap builds a Schema whose node is n but whose resolution context is the given
 // defs map. TEMPORARY migration shim — use Schema.WithDefs / Defs instead.
 func wrap(n *node, defs map[string]*node) Schema {
 	if n == nil {
-		return Schema{&node{Defs: defs}}
+		return Schema{n: &node{Defs: defs}}
 	}
 	m := *n
 	m.Defs = defs
-	return Schema{&m}
+	return Schema{n: &m}
 }
 
 // Load wraps a raw schema map as a Schema, silently dropping unrecognised keywords
@@ -304,19 +318,19 @@ func wrap(n *node, defs map[string]*node) Schema {
 // schemas; use Parse for user-supplied JSON.
 func Load(raw map[string]any) Schema {
 	if len(raw) == 0 {
-		return Schema{&node{}}
+		return Schema{n: &node{}}
 	}
 	b, err := json.Marshal(raw)
 	if err != nil {
-		return Schema{&node{}}
+		return Schema{n: &node{}}
 	}
 	type alias node // bypass strict UnmarshalJSON
 	var a alias
 	if err := json.Unmarshal(b, &a); err != nil {
-		return Schema{&node{}}
+		return Schema{n: &node{}}
 	}
 	n := node(a)
-	return Schema{&n}
+	return Schema{n: &n}
 }
 
 // MarshalJSON emits the schema with its root $defs.

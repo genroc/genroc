@@ -3,11 +3,11 @@ package schema
 // ─── Builders (immutable) ───────────────────────────────────────────────────────
 
 func Object() Schema {
-	return Schema{&node{Type: SchemaType{"object"}}}
+	return Schema{n: &node{Type: SchemaType{"object"}}}
 }
 
 func Type(types ...string) Schema {
-	return Schema{&node{Type: SchemaType(types)}}
+	return Schema{n: &node{Type: SchemaType(types)}}
 }
 
 // Array returns an array Schema whose elements conform to item; a zero item yields
@@ -18,11 +18,11 @@ func Array(item Schema) Schema {
 	if item.n != nil {
 		n.Items = item.n
 	}
-	return Schema{n}
+	return Schema{n: n}
 }
 
 func Ref(name string) Schema {
-	return Schema{&node{Ref: "#/$defs/" + name}}
+	return Schema{n: &node{Ref: "#/$defs/" + name}}
 }
 
 // Map returns an open-object Schema whose undeclared keys must each conform to sub.
@@ -33,7 +33,7 @@ func Map(sub Schema) Schema {
 	if sub.n != nil {
 		n.AdditionalProperties = sub.n
 	}
-	return Schema{n}
+	return Schema{n: n}
 }
 
 // ArrayLiteral builds the schema of an array literal from its already-inferred element
@@ -61,11 +61,11 @@ func ArrayLiteral(elems []Schema) Schema {
 }
 
 func OneOf(variants ...Schema) Schema {
-	return Schema{&node{OneOf: nodesOf(variants)}}
+	return Schema{n: &node{OneOf: nodesOf(variants)}}
 }
 
 func AnyOf(variants ...Schema) Schema {
-	return Schema{&node{AnyOf: nodesOf(variants)}}
+	return Schema{n: &node{AnyOf: nodesOf(variants)}}
 }
 
 func nodesOf(vs []Schema) []*node {
@@ -93,7 +93,11 @@ func (s Schema) WithProperty(name string, sub Schema, required bool) Schema {
 	if required && !isRequired(base, name) {
 		n.Required = append(append([]string{}, base.Required...), name)
 	}
-	return Schema{&n}
+	// Guards carry: this returns the SAME value with one more member, which is how a context
+	// gains `self` between the base scope and the slot that reads it. Navigation is the case
+	// that must not carry them — it returns a different value, and they are keyed from the
+	// root. specs/guard-narrowing.md.
+	return s.keepingGuards(Schema{n: &n})
 }
 
 // WithDescription returns a copy of s carrying desc as its documentation annotation (root
@@ -105,7 +109,7 @@ func (s Schema) WithDescription(desc string) Schema {
 	}
 	n := *base
 	n.Description = desc
-	return Schema{&n}
+	return Schema{n: &n}
 }
 
 func (s Schema) WithDef(name string, def Schema) Schema {
@@ -123,5 +127,5 @@ func (s Schema) WithDef(name string, def Schema) Schema {
 		cloned.Defs = newDefs
 	}
 	cloned.Defs[name] = def.n
-	return Schema{cloned}
+	return Schema{n: cloned}
 }

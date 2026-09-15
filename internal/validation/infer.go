@@ -26,6 +26,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 	scopes := taskScopes{
 		tasks: taskSchemas, processInput: processInput, configSchema: configSchema, defs: defs,
 		required: required, optional: optional, errs: errs,
+		refinements: computeRefinements(tasks),
 	}
 
 	// Phase 1: infer every output-map task's exported type, in dependency order

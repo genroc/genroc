@@ -204,9 +204,9 @@ func (s *Solver) collapseDegenerateCycles() error {
 				continue
 			}
 			if !has {
-				combined, has = Schema{rest}, true
+				combined, has = Schema{n: rest}, true
 			} else {
-				combined = combined.Join(Schema{rest})
+				combined = combined.Join(Schema{n: rest})
 			}
 		}
 		if !has {

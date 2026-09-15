@@ -1,0 +1,161 @@
+package validationtest
+
+import "testing"
+
+// A `switch` case's proof travels the edge it selects, so the task it routes to can read what
+// was proved. The cost of getting this wrong is asymmetric — a refinement that does not follow
+// turns a registration error into an uncatchable engine.expression — so every accepting row
+// here is paired with the shape that must still be refused.
+// specs/guard-narrowing.md.
+
+// twoTask builds `a` (guarded switch) routing to `b`, which uses what `a` proved.
+func twoTask(cases, use string) string {
+	return `{"name":"p",
+	 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]},"m":{"type":["integer","null"]}},"required":["n","m"]},
+	 "tasks":[
+	  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+	   "output":{"v":"$: input.n","w":"$: input.m"},
+	   "switch":` + cases + `},
+	  {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},
+	   "output":{"r":"$: ` + use + `"},"switch":"end"},
+	  {"id":"c","action":{"type":"fetch","method":"get","url":"http://z"},"switch":"end"}]}`
+}
+
+func TestGuardNarrowing_AcrossAnEdge(t *testing.T) {
+	for _, tc := range []struct {
+		name, cases, use string
+		wantOK           bool
+	}{
+		{name: "the case that routed here proved it", wantOK: true,
+			cases: `[{"case":"self.output.v != null","goto":"$b"},{"goto":"$c"}]`,
+			use:   `outputs.a.v + 1`},
+		{name: "a guard on the process input travels too", wantOK: true,
+			cases: `[{"case":"input.n != null","goto":"$b"},{"goto":"$c"}]`,
+			use:   `input.n + 1`},
+		{name: "a conjunction proves both", wantOK: true,
+			cases: `[{"case":"self.output.v != null && self.output.w != null","goto":"$b"},{"goto":"$c"}]`,
+			use:   `outputs.a.v + outputs.a.w`},
+
+		// Ordered-case negation: reaching case 1 means case 0 was FALSE. This is the
+		// guard-clause shape — handle the bad case, fall through — and it gets all of its
+		// narrowing from the negation.
+		{name: "falling past a null check narrows the fall-through", wantOK: true,
+			cases: `[{"case":"self.output.v == null","goto":"$c"},{"goto":"$b"}]`,
+			use:   `outputs.a.v + 1`},
+
+		{name: "the opposite proof does not narrow",
+			cases: `[{"case":"self.output.v == null","goto":"$b"},{"goto":"$c"}]`,
+			use:   `outputs.a.v + 1`},
+		{name: "proving v says nothing about w",
+			cases: `[{"case":"self.output.v != null","goto":"$b"},{"goto":"$c"}]`,
+			use:   `outputs.a.w + 1`},
+		{name: "an unguarded edge proves nothing",
+			cases: `[{"goto":"$b"}]`,
+			use:   `outputs.a.v + 1`},
+		{name: "falling past an unguarded case proves nothing",
+			cases: `[{"case":"input.n == 1","goto":"$c"},{"goto":"$b"}]`,
+			use:   `outputs.a.v + 1`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runGenerateErr(t, twoTask(tc.cases, tc.use))
+			if tc.wantOK && err != nil {
+				t.Fatalf("the routing proved this: %v", err)
+			}
+			if !tc.wantOK && err == nil {
+				t.Fatal("accepted a read nothing on this edge proved")
+			}
+		})
+	}
+}
+
+// A refinement survives only if EVERY edge into the task establishes it. One route that
+// proves nothing is enough to make the value nullable again — the task cannot know which
+// edge it arrived on.
+func TestGuardNarrowing_MergeNeedsEveryEdge(t *testing.T) {
+	// `input.n == 1` proves non-null when TRUE and nothing when false, so the fall-through to
+	// b carries no fact about n. That is what isolates the meet: a union would let a's proof
+	// reach c through an edge that never established it.
+	def := func(secondCase string) string {
+		return `{"name":"p",
+		 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
+		 "tasks":[
+		  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+		   "switch":[{"case":"input.n == 1","goto":"$c"},{"goto":"$b"}]},
+		  {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},
+		   "switch":[{"case":"` + secondCase + `","goto":"$c"},{"goto":"end"}]},
+		  {"id":"c","action":{"type":"fetch","method":"get","url":"http://z"},
+		   "output":{"r":"$: input.n + 1"},"switch":"end"}]}`
+	}
+	t.Run("both edges prove it", func(t *testing.T) {
+		if err := runGenerateErr(t, def("input.n != null")); err != nil {
+			t.Fatalf("every edge into c proved it: %v", err)
+		}
+	})
+	// `!= 1` proves nothing when true: not being one particular non-null value says nothing
+	// about the type. So this edge reaches c having established no fact about n.
+	t.Run("one edge that does not is enough to lose it", func(t *testing.T) {
+		if err := runGenerateErr(t, def("input.n != 1")); err == nil {
+			t.Fatal("c cannot know which edge it arrived on, and one route proved nothing")
+		}
+	})
+}
+
+// A loop re-enters the task that produced the output, overwriting it — so a refinement about
+// `outputs.<self>` cannot survive the trip back. Without the kill a loop would keep asserting
+// what only the first iteration proved.
+func TestGuardNarrowing_LoopKillsItsOwnOutput(t *testing.T) {
+	src := `{"name":"p",
+	 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
+	 "tasks":[
+	  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+	   "output":{"v":"$: input.n"},
+	   "switch":[{"case":"self.output.v != null","goto":"$a"},{"goto":"end"}]}]}`
+	if err := runGenerateErr(t, src); err != nil {
+		t.Fatalf("the loop itself must still register: %v", err)
+	}
+
+	// Reading the proof after the back edge must NOT be allowed: the task overwrote it.
+	loop := `{"name":"p",
+	 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
+	 "tasks":[
+	  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+	   "output":{"v":"$: input.n"},
+	   "switch":[{"case":"self.output.v != null","goto":"$b"},{"goto":"end"}]},
+	  {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},
+	   "output":{"r":"$: outputs.a.v + 1"},
+	   "switch":[{"goto":"$a"}]}]}`
+	if err := runGenerateErr(t, loop); err != nil {
+		t.Fatalf("b is only ever reached by the proving edge: %v", err)
+	}
+}
+
+// An error edge means the task FAILED, so it produced no output and proved nothing.
+func TestGuardNarrowing_ErrorEdgeCarriesNothing(t *testing.T) {
+	src := `{"name":"p",
+	 "input_schema":{"type":"object","properties":{"n":{"type":["integer","null"]}},"required":["n"]},
+	 "tasks":[
+	  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+	   "output":{"v":"$: input.n"},
+	   "on_error":[{"code":["http.500"],"goto":"$b"}],
+	   "switch":[{"case":"self.output.v != null","goto":"$b"},{"goto":"end"}]},
+	  {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},
+	   "output":{"r":"$: outputs.a.v + 1"},"switch":"end"}]}`
+	if err := runGenerateErr(t, src); err == nil {
+		t.Fatal("b is also reachable by an error edge, where a produced no output at all")
+	}
+}
+
+// config is frame-invariant in NAME and re-resolved from the environment every tick, so a
+// proof about it downstream is a proof about a value that may already have changed.
+func TestGuardNarrowing_ConfigNeverTravels(t *testing.T) {
+	src := `{"name":"p",
+	 "config_schema":{"type":"object","properties":{"N":{"type":"integer"}}},
+	 "tasks":[
+	  {"id":"a","action":{"type":"fetch","method":"get","url":"http://x"},
+	   "switch":[{"case":"config.N != null","goto":"$b"},{"goto":"end"}]},
+	  {"id":"b","action":{"type":"fetch","method":"get","url":"http://y"},
+	   "output":{"r":"$: config.N + 1"},"switch":"end"}]}`
+	if err := runGenerateErr(t, src); err == nil {
+		t.Fatal("a config guard must not travel: the value is re-resolved every tick")
+	}
+}
