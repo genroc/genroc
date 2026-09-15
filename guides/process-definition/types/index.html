@@ -156,17 +156,17 @@ with assumptions from the old one.</p>
 <p>Strict validation can’t prevent these issues, but makes them easy to detect.</p>
 <h2 id="static-checking-and-inference">Static checking and inference<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#static-checking-and-inference"><span></span></a></h2>
 <p>Because the inputs are typed, we can statically check every expression:
-that it references only properties that exist, and its operations use the right types.</p>
+that it references only properties that exist, and that its operations use the right types.</p>
 <p>We can also infer expression types, so if you use an expression to build a new
 object, genroc infers its type automatically.</p>
 <h2 id="inferred-context">Inferred context<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#inferred-context"><span></span></a></h2>
 <p>Through inference, Genroc creates a typed context for every task. Based on what
-tasks were (or could have been) executed before it, we can check what exact outputs
+tasks were (or could have been) executed before it, we can check exactly which outputs
 can be accessed in the expressions.</p>
-<p>This creates a continuous flow of types, through the process, so you always
+<p>This creates a continuous flow of types through the process, so you always
 know what outputs are accessible and what their types are.</p>
 <h2 id="nullability">Nullability<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#nullability"><span></span></a></h2>
-<p>Genroc distinguishes if the field can be null. It doesn’t allow nullable fields
+<p>Genroc tracks whether a field can be null. It doesn’t allow nullable fields
 in templates and operations that don’t make sense on a <code>null</code> type (e.g. <code>&lt;</code>).
 If you want to use a nullable value in these places, you have to provide
 a fallback value with the <code>??</code> operator.</p>
@@ -182,9 +182,9 @@ a fallback value with the <code>??</code> operator.</p>
 inside the process, because if you don’t provide it, the default value will be used.
 Combining required and default is refused, because then the default can never be applied.</p>
 <p>This changes, however, if it’s specified as <code>type: [string, &quot;null&quot;]</code>.
-You can then pass <code>null</code> explicitly and the default value is not used in this case.</p>
+You can then pass <code>null</code> explicitly and the default value is not used.</p>
 <blockquote>
-<p>Genroc has only one NIL value <code>null</code>, so in the expressions there is no difference between nullable and non-required values (they both contain <code>null</code>).</p>
+<p>Genroc has only one NIL value, <code>null</code>, so in the expressions there is no difference between nullable and non-required values (they both contain <code>null</code>).</p>
 </blockquote>
 <h2 id="demonstration-on-a-real-example">Demonstration on a real example<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#demonstration-on-a-real-example"><span></span></a></h2>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> nudge-inactive-user</span></span>
@@ -230,22 +230,22 @@ You can then pass <code>null</code> explicitly and the default value is not used
 <span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  nudged</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> outputs</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">nudge</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">nudged</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> ??</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> false</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span></code></pre>
 <blockquote>
 <p>TIP: Install the <a href="https://marketplace.visualstudio.com/items?itemName=genroc.genroc">genroc vscode extension</a>
-and copy the process above to a new definition. You can then hover any expression part and see what is its type.
+and copy the process above to a new definition. You can then hover any expression part and see what its type is.
 It will also show you errors live.</p>
 </blockquote>
 <h3 id="declaring-what-enters-the-process">Declaring what enters the process<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#declaring-what-enters-the-process"><span></span></a></h3>
 <p>In the example, there are two places where outside data enter the process - <code>input_schema</code> and <code>responses</code>.</p>
-<p>Genroc automatically validates that data and then you can safely access them in expressions.</p>
+<p>Genroc automatically validates that data and then you can safely access it in expressions.</p>
 <h3 id="inferred-types">Inferred types<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#inferred-types"><span></span></a></h3>
 <p>Every task output is inferred through the <code>output</code> shape.</p>
 <ul>
 <li><code>load_user</code> output is typed as an object with an <code>email: string</code> field</li>
-<li><code>nudge</code> output is an object with <code>nudged: boolean</code> field</li>
+<li><code>nudge</code> output is an object with a <code>nudged: boolean</code> field</li>
 </ul>
 <p>The process output is also inferred; the inferred context is
 based on where all the <code>goto: end</code> are in the process.</p>
 <h3 id="static-checking">Static checking<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#static-checking"><span></span></a></h3>
-<p>We check that the expressions are accessing existing properties.
+<p>We check that the expressions access existing properties.
 If you make a typo (e.g. <code>&quot;$: outputs.load_user.emial&quot;</code>), genroc will throw an error.</p>
 <h3 id="the-context-of-a-slot">The context of a slot<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-context-of-a-slot"><span></span></a></h3>
 <p>Each slot can have a slightly different context depending on previous tasks and
@@ -296,7 +296,7 @@ the types they produce, goto targets, reachability. A typo in an expression neve
 reaches production. <code>genctl apply --check-only</code> runs exactly these checks, so
 you can run them in CI; they happen on the server, so you then know that <code>apply</code> will pass.</p>
 <p><strong>At runtime</strong> - the outside data entering the process is always validated.
-This ensures that all the statically checked expressions recieves the data
+This ensures that every statically checked expression recieves the data
 it expects, and breaking API changes are detected.</p>
 <h3 id="scenarios">Scenarios<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#scenarios"><span></span></a></h3>
 <p>What is <strong>sent</strong> by the fetch is judged by the server; what we receive is judged
