@@ -59,7 +59,7 @@ test("apply — a YAML merge key folds the anchored map in, and an explicit key 
     "utf8",
   );
 
-  expect(runCli(bin, ["apply", "-f", file]).stdout).toContain(`saved: ${name}@v1`);
+  expect(runCli(bin, ["apply", "-f", file]).stdout).toContain(`latest: ${name} - -> v1 (new)`);
 });
 
 
@@ -77,14 +77,44 @@ test("check — a child that exists only in the batch resolves, as it does on ap
 });
 
 
-test("apply — reports saved for new content and unchanged for a re-apply", () => {
+test("apply — reports the move the channel made, not just whether a version was written", () => {
   const name = uid("proc");
-  const file = writeDefs([switchDef(name)]);
+  const a = writeDefs([switchDef(name)]);
+  const b = writeDefs([{ ...switchDef(name), tasks: [{ id: "s2", switch: [{ goto: "end" }] }] }]);
 
-  expect(runCli(bin, ["apply", "-f", file]).stdout).toContain(`saved: ${name}@v1`);
-  // Content-addressed: identical bytes do not mint a v2, and the line says so rather
-  // than silently printing "saved" again.
-  expect(runCli(bin, ["apply", "-f", file]).stdout).toContain(`unchanged: ${name}@v1`);
+  expect(
+    runCli(bin, ["apply", "-f", a]).stdout.trim(),
+    "`-` stands in for a channel that had no pointer yet",
+  ).toBe(`latest: ${name} - -> v1 (new)`);
+  expect(runCli(bin, ["apply", "-f", b]).stdout.trim()).toBe(`latest: ${name} v1 -> v2 (new)`);
+
+  // The pair `saved` could not tell apart. Both mint nothing; only one is a deploy.
+  expect(
+    runCli(bin, ["apply", "-f", b]).stdout.trim(),
+    "re-applying what the channel already points at moved nothing",
+  ).toBe(`latest: ${name} v2 (current)`);
+  expect(
+    runCli(bin, ["apply", "-f", a]).stdout.trim(),
+    "a revert walks the pointer BACKWARDS onto a stored version -- the whole point of the line",
+  ).toBe(`latest: ${name} v2 -> v1 (existing)`);
+});
+
+test("apply --channel — `previous` is that channel's pointer, not the default's", () => {
+  const name = uid("proc");
+  const a = writeDefs([switchDef(name)]);
+  const b = writeDefs([{ ...switchDef(name), tasks: [{ id: "s2", switch: [{ goto: "end" }] }] }]);
+
+  runCli(bin, ["apply", "-f", a]); // latest -> v1
+  runCli(bin, ["apply", "-f", b]); // latest -> v2
+
+  // prod has no pointer yet, so there is no move to report even though latest is at v2.
+  expect(runCli(bin, ["apply", "-f", a, "--channel", "prod"]).stdout.trim()).toBe(
+    `prod: ${name} - -> v1 (existing)`,
+  );
+  expect(
+    runCli(bin, ["apply", "-f", b, "--channel", "prod"]).stdout.trim(),
+    "prod moves v1 -> v2 while latest sat at v2 the whole time",
+  ).toBe(`prod: ${name} v1 -> v2 (existing)`);
 });
 
 test("apply — changed content mints the next version", () => {
@@ -92,7 +122,9 @@ test("apply — changed content mints the next version", () => {
   runCli(bin, ["apply", "-f", writeDefs([switchDef(name)])]);
   const changed = { ...switchDef(name), tasks: [{ id: "s2", switch: [{ goto: "end" }] }] };
 
-  expect(runCli(bin, ["apply", "-f", writeDefs([changed])]).stdout).toContain(`saved: ${name}@v2`);
+  expect(runCli(bin, ["apply", "-f", writeDefs([changed])]).stdout).toContain(
+    `latest: ${name} v1 -> v2 (new)`,
+  );
   expect(defs(["--since", "1h"]).filter((d) => d.name === name).map((d) => d.version).sort()).toEqual([1, 2]);
 });
 
@@ -105,7 +137,7 @@ test("apply -f — repeats to take several files, and each may hold several docu
   ]);
 
   expect(r.ok).toBe(true);
-  for (const n of [a, b, c]) expect(r.stdout).toContain(`saved: ${n}@v1`);
+  for (const n of [a, b, c]) expect(r.stdout).toContain(`latest: ${n} - -> v1 (new)`);
 });
 
 test("apply --channel — points the named channel at what was applied", async () => {
@@ -128,7 +160,7 @@ test("apply — without --channel the default channel is latest", async () => {
 test("apply — a self-referential process is accepted", () => {
   const name = uid("recursive");
   expect(runCli(bin, ["apply", "-f", writeDefs([childDef(name, name)])]).stdout).toContain(
-    `saved: ${name}@v1`,
+    `latest: ${name} - -> v1 (new)`,
   );
 });
 

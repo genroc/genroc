@@ -41,7 +41,9 @@ var commandDocs = map[string]commandDoc{
 		summary: "register definitions; --check-only checks them and stores nothing",
 		usage:   []string{"apply [-f <path|glob> ...] [--channel latest] [--check-only] [--json]"},
 		detail: "A batch is one logical change: all are validated before any is written, and a child that\n" +
-			"exists only in the batch resolves against it. Identical bytes mint no new version.\n" +
+			"exists only in the batch resolves against it. Identical bytes mint no new version, and the\n" +
+			"line reports the move --channel made either way: `new` minted one, `existing` matched a\n" +
+			"version already stored (how a revert lands), `current` moved nothing.\n" +
 			"`$<resolver>:` leaves resolve first, on --check-only too. --json is the server's answer.\n\n" +
 			definitionFiles,
 	},

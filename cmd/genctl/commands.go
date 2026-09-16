@@ -76,19 +76,33 @@ func runApplyCmd(server string, args []string) {
 	}
 
 	var resp []struct {
-		Name    string `json:"name"`
-		Version int    `json:"version"`
-		Saved   bool   `json:"saved"`
+		Name     string `json:"name"`
+		Version  int    `json:"version"`
+		Saved    bool   `json:"saved"`
+		Previous int    `json:"previous"`
 	}
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		fatal("apply: %v", err)
 	}
+	// An apply MOVES A POINTER, so the move is what the line reports -- `saved` alone reads
+	// the same for a rollback and a no-op. `new` means a version was minted, `existing` that
+	// the content matched one already stored, which is how a revert lands.
 	for _, r := range resp {
-		status := "saved"
-		if !r.Saved {
-			status = "unchanged"
+		move := fmt.Sprintf("v%d -> v%d", r.Previous, r.Version)
+		switch {
+		case r.Previous == 0:
+			move = fmt.Sprintf("- -> v%d", r.Version)
+		case r.Previous == r.Version:
+			move = fmt.Sprintf("v%d", r.Version)
 		}
-		fmt.Printf("%s: %s@v%d\n", status, r.Name, r.Version)
+		state := "existing"
+		switch {
+		case r.Saved:
+			state = "new"
+		case r.Previous == r.Version:
+			state = "current"
+		}
+		fmt.Printf("%s: %s %s (%s)\n", *channelFlag, r.Name, move, state)
 	}
 }
 

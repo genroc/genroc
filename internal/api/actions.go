@@ -303,7 +303,7 @@ var registry = func() []actionDef {
 					},
 				},
 			},
-			Resp: []BatchApplyResult{{Name: "child_process", Version: 1, Saved: true}},
+			Resp: []BatchApplyResult{{Name: "child_process", Version: 1, Saved: true, Previous: 0}},
 			handle: func(h *Handlers, env Envelope) Reply {
 				return h.putDefinitions(env.Payload, env.principal.Actor())
 			},

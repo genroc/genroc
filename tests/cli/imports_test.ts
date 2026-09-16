@@ -131,7 +131,7 @@ test("apply — an imported file becomes the slot's value, and $ survives it ver
     ].join("\n"),
   );
 
-  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
+  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`latest: ${name} - -> v1 (new)`);
 
   const id = startedID(runCli(bin, ["run", name]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
@@ -368,7 +368,7 @@ test("compat — the document is resolved before it is compared", () => {
       "",
     ].join("\n"),
   );
-  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
+  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`latest: ${name} - -> v1 (new)`);
 
   // Unresolved, the slot holds the literal `$import: ./snippet.txt` beside the text v1
   // stores, so every imported site compares changed and no document can ever read unchanged
@@ -520,7 +520,7 @@ test("apply — a definition with no directives spends no resolver and no extra 
     "proc.yaml",
     `name: ${name}\ntasks:\n  - id: t\n    switch: [{ goto: end }]\n`,
   );
-  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
+  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`latest: ${name} - -> v1 (new)`);
 });
 
 // What a site can answer varies: a resolver asks for the same addresses everywhere, and a task
@@ -927,7 +927,7 @@ test("evaluator importer — a checked script applies as a self-contained module
     ),
   );
 
-  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
+  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`latest: ${name} - -> v1 (new)`);
 }, 60_000);
 
 // The one thing the typecheck cannot see: `Input`/`Output` say nothing about HOW the module
@@ -978,7 +978,7 @@ test("evaluator importer — the sandbox is a worker realm, not the host one", (
 
   // A script that reads an HTTP source is the ordinary case; under a host-realm fence
   // (`lib: [esnext]` alone) `fetch` and `console` do not resolve and this apply fails.
-  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
+  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`latest: ${name} - -> v1 (new)`);
 
   p.write(
     "host.ts",
@@ -1023,7 +1023,7 @@ test("evaluator importer — a script is checked against the nearest tsconfig ab
   const name = uid("script");
   const def = p.write("proc.yaml", scriptDef(name, "./sub/fee.ts"));
 
-  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`saved: ${name}@v1`);
+  expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`latest: ${name} - -> v1 (new)`);
 
   // The same script one directory up, where only the root config applies and the alias is
   // undeclared. Its failure is what makes the apply above evidence of the walk.
@@ -1112,7 +1112,7 @@ test("evaluator importer — a data file imported as JSON is inlined and reaches
 
   const applied = runCli(bin, ["apply", "-f", def]);
   expect(applied.stdout, `a json import must bundle:\n${applied.stdout}${applied.stderr}`).toContain(
-    `saved: ${name}@v1`,
+    `latest: ${name} - -> v1 (new)`,
   );
 
   const started = runCli(bin, ["run", name, "--input", JSON.stringify({ amount: 100 })]);
@@ -1174,7 +1174,7 @@ test("evaluator importer — a package dependency resolves and is bundled in", (
 
   const r = runCli(bin, ["apply", "-f", def]);
   expect(r.stdout, `a dependency must typecheck and bundle:\n${r.stdout}${r.stderr}`).toContain(
-    `saved: ${name}@v1`,
+    `latest: ${name} - -> v1 (new)`,
   );
 }, 60_000);
 
@@ -1234,7 +1234,7 @@ test("evaluator importer — a node builtin survives the bundle and runs in the 
   );
 
   const applied = runCli(bin, ["apply", "-f", def]);
-  expect(applied.stdout, `${applied.stdout}${applied.stderr}`).toContain(`saved: ${name}@v1`);
+  expect(applied.stdout, `${applied.stdout}${applied.stderr}`).toContain(`latest: ${name} - -> v1 (new)`);
 
   const started = runCli(bin, ["run", name, "--input", JSON.stringify({ amount: 250, path: secret })]);
   const id = startedID(`${started.stdout}${started.stderr}`);

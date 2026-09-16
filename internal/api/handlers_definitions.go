@@ -167,6 +167,10 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 			return nil, fmt.Errorf("%s: %w", def.Name, err)
 		}
 
+		// Where the requested channel points BEFORE the commit moves it. Read in planning
+		// because that is the only place it still exists -- ApplyDefinitions upserts it.
+		previous, _ := h.db.GetChannel(def.Name, channel)
+
 		// Content dedup: compute hash and look up any existing version with identical content.
 		rawNew, _ := json.Marshal(def)
 		hash := contentHash(rawNew, newDeps)
@@ -178,7 +182,7 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 				Name: def.Name, Version: v, Channels: h.channelsFor(def.Name, channel), Actor: actor,
 			})
 			batchVersions[def.Name] = v
-			results = append(results, BatchApplyResult{Name: def.Name, Version: v, Saved: false})
+			results = append(results, BatchApplyResult{Name: def.Name, Version: v, Previous: previous})
 			continue
 		}
 
@@ -205,7 +209,9 @@ func (h *Handlers) applyBatch(defs []model.ProcessDefinition, channel, actor str
 			Channels: h.channelsFor(def.Name, channel), Actor: actor,
 		})
 		batchVersions[def.Name] = newVersion
-		results = append(results, BatchApplyResult{Name: def.Name, Version: newVersion, Saved: true})
+		results = append(results, BatchApplyResult{
+			Name: def.Name, Version: newVersion, Saved: true, Previous: previous,
+		})
 	}
 
 	if err := h.db.ApplyDefinitions(plan); err != nil {

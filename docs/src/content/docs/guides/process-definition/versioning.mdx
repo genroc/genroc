@@ -1,0 +1,37 @@
+---
+title: Versioning
+description: Learn about versioning system and process upgradability
+order: 5
+---
+
+Genroc compares new definitions to the previous ones
+and if it's a new one automatically bumps up the version.
+
+```sh
+> genctl apply
+latest: hello v1 -> v2 (new)
+```
+
+Definitions are compared as a normalized json. If you apply an already existing
+version it's not duplicated but reused (so the version can also go down if you revert a change).
+
+```sh
+> genctl apply
+latest: hello v2 -> v1 (existing)
+```
+
+An apply moves a channel pointer, so that move is what the line reports. `new` minted a
+version, `existing` matched one already stored — which is how a revert lands, with nothing
+written and `latest` walked back to v1. A re-apply that moves nothing reads `(current)`, and
+`-` stands in for a channel that had no pointer yet.
+
+
+## Channels
+
+Genroc uses release channels, by default `latest` is used, but you can specify which
+channel you want to apply and run.
+
+```sh
+> genctl apply --channel prod
+prod: hello - -> v2 (existing)
+```

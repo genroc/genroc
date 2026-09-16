@@ -312,6 +312,10 @@ type BatchApplyResult struct {
 	Name    string `json:"name"`
 	Version int    `json:"version"`
 	Saved   bool   `json:"saved"`
+	// Previous is what the REQUESTED channel pointed at before this apply, 0 when it had no
+	// pointer. Saved alone cannot tell a rollback (content matched an older version, so the
+	// pointer moved backwards and nothing was written) from a no-op; Previous is the difference.
+	Previous int `json:"previous"`
 }
 
 // InstanceSummaryResp is the per-row shape returned by the instance list. Listing
