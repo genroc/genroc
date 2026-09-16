@@ -1,7 +1,7 @@
 ---
 title: Versioning
 description: Learn about versioning system and process upgradability
-order: 5
+order: 6
 ---
 
 Genroc compares new definitions to the previous ones
@@ -29,9 +29,37 @@ written and `latest` walked back to v1. A re-apply that moves nothing reads `(cu
 ## Channels
 
 Genroc uses release channels, by default `latest` is used, but you can specify which
-channel you want to apply and run.
+channel you want to apply.
 
 ```sh
-> genctl apply --channel prod
-prod: hello - -> v2 (existing)
+> genctl apply --channel test
+test: hello - -> v3 (new)       # v3 version doesn't influence latest
 ```
+
+To start the process you can specify the channel or the version:
+
+```sh
+> genctl run hello --channel test
+started: 8nte1end  hello@v3  (running)
+# or
+> genctl run hello --version 1
+started: 6nnmhxnv  hello@v1  (running)
+# or
+> genctl run hello
+started: 77fg90c5  hello@v2  (running)
+```
+
+You can list all the channels for given process like this:
+
+```sh
+genctl channel list hello                                                    
+latest -> v2   moved 23m ago by ...
+test -> v3   moved 11m ago by ...
+```
+
+Channels are intended for beta versions or internal testing before release,
+so you can push your definition to `test` channel, try if it works and then
+just update the latest `channel` to the same version. You can use `genctl promote`
+command to do that.
+
+## Upgradability
