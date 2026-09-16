@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, runToEnd } from "../helpers/client.ts";
 
 // A child task re-entered by a loop spawns a NEW batch each pass. Children live under
 // (parent_id, spawn_task_id), so without a generation number the second collect saw every
@@ -10,13 +10,6 @@ import { client, waitForInstance } from "../helpers/client.ts";
 async function define(name: string, body: Record<string, unknown>) {
   const { error } = await client.PUT("/definitions", { body: { name, ...body } as never });
   expect(error).toBeUndefined();
-}
-
-async function run(name: string, input: unknown) {
-  const { data: started } = await client.POST("/instances", { body: { process: name, input } as never });
-  const status = await waitForInstance(started!.id, 20_000);
-  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
-  return { status, data };
 }
 
 /** Echoes its input so a caller can prove WHICH pass's child it collected. */
@@ -57,7 +50,7 @@ test("child in a loop — each pass collects its own child, not every child ever
     output: { rounds: "$: outputs.tick.i", last_seen: "$: outputs.call.seen" },
   });
 
-  const { status, data } = await run(name, { n: 3 });
+  const { status, data } = await runToEnd(name, { n: 3 });
   expect(status, JSON.stringify(data?.error_message)).toBe("completed");
   // last_seen proves the THIRD pass's child was collected — not the first, and not a merge.
   expect(data?.state?.output).toEqual({ rounds: 3, last_seen: 3 });
@@ -97,7 +90,7 @@ test("child_list in a loop — the collected array is one pass's children, not t
     output: { got: "$: outputs.fan.got" },
   });
 
-  const { status, data } = await run(name, { n: 3, items: [{ i: 1 }, { i: 2 }] });
+  const { status, data } = await runToEnd(name, { n: 3, items: [{ i: 1 }, { i: 2 }] });
   expect(status, JSON.stringify(data?.error_message)).toBe("completed");
   expect((data?.state?.output as any)?.got).toEqual([1, 2]);
 });

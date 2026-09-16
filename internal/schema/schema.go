@@ -302,8 +302,9 @@ func (s Schema) WithGuards(narrowed map[string]Schema) Schema {
 	return s
 }
 
-// wrap builds a Schema whose node is n but whose resolution context is the given
-// defs map. TEMPORARY migration shim — use Schema.WithDefs / Defs instead.
+// wrap pairs a node with the pool it resolves against: the package-internal form of WithDefs,
+// for code that already holds the raw map rather than a Defs handle. Every navigation and
+// transform returns through it, so a node never leaves the package without its pool.
 func wrap(n *node, defs map[string]*node) Schema {
 	if n == nil {
 		return Schema{n: &node{Defs: defs}}

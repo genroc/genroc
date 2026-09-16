@@ -3,7 +3,7 @@ import type { AddressInfo } from "net";
 import { readFileSync } from "node:fs";
 import { load as loadYaml } from "js-yaml";
 import { expect, test } from "vitest";
-import { client, waitForInstance, childrenOfTask } from "../helpers/client.ts";
+import { childrenOfTask, client, outputsOf, waitForInstance } from "../helpers/client.ts";
 
 // The definitions under test are the real example files in examples/polling-task/, loaded
 // and applied verbatim — so this doubles as an executable check that the shipped example
@@ -118,11 +118,6 @@ async function waitForChildId(parentId: string, timeoutMs = 10_000): Promise<str
     await new Promise((r) => setTimeout(r, 50));
   }
   throw new Error(`child of ${parentId} was not spawned within ${timeoutMs}ms`);
-}
-
-async function outputsOf(id: string): Promise<Record<string, any>> {
-  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  return ((data?.state as any)?.outputs ?? {}) as Record<string, any>;
 }
 
 test("examples/polling-task: the poller returns the job's answer to the parent", async () => {

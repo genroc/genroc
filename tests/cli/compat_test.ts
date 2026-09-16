@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
 import { uid } from "../helpers/genctl.ts";
-import { client } from "../helpers/client.ts";
+import { client, startInstance } from "../helpers/client.ts";
 import {
   assertUniqueNames,
   loadGroup,
@@ -92,20 +92,11 @@ describe("instance id", () => {
     tasks: [{ id: "hold", action: { type: "external" }, switch: "end" }],
   });
 
-  async function start(name: string): Promise<string> {
-    const { data, error } = await client.POST("/instances", {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      body: { process: name, input: {} } as any,
-    });
-    expect(error).toBeUndefined();
-    return data!.id;
-  }
-
   test("names only the target, and the row's process scopes the report", async () => {
     const mine = uid("compatid");
     const other = uid("compatother");
     runCli(bin, ["apply", "-f", writeDefs([held(mine, false), held(other, false)])]);
-    const id = await start(mine);
+    const id = await startInstance(mine, {});
     runCli(bin, [
       "apply",
       "-f",
@@ -131,7 +122,7 @@ describe("instance id", () => {
   test("compares against a file that was never applied", async () => {
     const name = uid("compatidf");
     runCli(bin, ["apply", "-f", writeDefs([held(name, false)])]);
-    const id = await start(name);
+    const id = await startInstance(name, {});
 
     const r = runCli(bin, ["compat", id, "-f", writeDefs([held(name, true)])]);
     expect(r.ok, r.stderr).toBe(true);
@@ -141,7 +132,7 @@ describe("instance id", () => {
   test("refuses a side the id already names", async () => {
     const name = uid("compatidargs");
     runCli(bin, ["apply", "-f", writeDefs([held(name, false)])]);
-    const id = await start(name);
+    const id = await startInstance(name, {});
 
     const withFrom = runCli(bin, ["compat", id, "--from", "compatid_next", "--to", "2"]);
     expect(withFrom.ok).toBe(false);

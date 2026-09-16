@@ -3,7 +3,7 @@ import type { AddressInfo } from "net";
 import { readFileSync } from "node:fs";
 import { load as loadYaml } from "js-yaml";
 import { expect, test } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, outputsOf, waitForInstance } from "../helpers/client.ts";
 
 // The definitions under test are the real example files in examples/batch-invoices/,
 // applied verbatim — so this doubles as an executable check that the shipped example
@@ -97,11 +97,6 @@ async function startRun(port: number, invoices: unknown[]): Promise<string> {
   });
   expect(error).toBeUndefined();
   return data!.id;
-}
-
-async function outputsOf(id: string): Promise<Record<string, any>> {
-  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  return ((data?.state as any)?.outputs ?? {}) as Record<string, any>;
 }
 
 function inv(invoice_id: string, amount_cents = 1000) {

@@ -1,7 +1,7 @@
 import { claimInProcess } from "../helpers/external.ts";
 import { parkedInProcess } from "../helpers/external.ts";
 import { expect, test } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, outputsOf, startInstance, waitForInstance } from "../helpers/client.ts";
 
 // The error channel on an external task: a caller submits an `error` instead of a `result`
 // — same endpoint, same token — and it is routed through on_error like any call error.
@@ -62,23 +62,12 @@ async function define(name: string, extra: Record<string, unknown> = {}) {
   if (error) throw new Error(`put definition failed: ${JSON.stringify(error)}`);
 }
 
-async function start(name: string): Promise<string> {
-  const { data, error } = await client.POST("/instances", { body: { process: name } });
-  if (error) throw new Error(`start failed: ${JSON.stringify(error)}`);
-  return data!.id;
-}
-
 // Each terminal task projects into outputs.<task>, so which key is present is itself the
 // assertion that the intended on_error rule fired.
-async function outputsOf(id: string): Promise<any> {
-  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  return (data as any)?.state?.outputs ?? {};
-}
-
 test("a declared code routes through on_error and carries its payload as error.data", async () => {
   const name = `ext_fail_declared_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   const queued = await waitForQueued(name);
 
   // The CLAIM publishes the shapes a worker may answer with, on both channels.
@@ -108,7 +97,7 @@ test("a declared code routes through on_error and carries its payload as error.d
 test("a code outside raises is refused — raises is the closed set a worker may send", async () => {
   const name = `ext_fail_undeclared_${crypto.randomUUID()}`;
   await define(name);
-  await start(name);
+  await startInstance(name);
   const queued = await waitForQueued(name);
 
   const { error } = await client.POST("/external-tasks/resolve", {
@@ -138,7 +127,7 @@ test("a task with no raises has no error channel", async () => {
     },
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
-  await start(name);
+  await startInstance(name);
   const queued = await waitForQueued(name);
 
   const { error } = await client.POST("/external-tasks/resolve", {
@@ -151,7 +140,7 @@ test("a task with no raises has no error channel", async () => {
 test("`raises: {code: null}` accepts a failure with no payload and leaves error.data absent", async () => {
   const name = `ext_fail_nodata_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   const queued = await waitForQueued(name);
 
   const { error } = await client.POST("/external-tasks/resolve", {
@@ -174,7 +163,7 @@ test("`raises: {code: null}` accepts a failure with no payload and leaves error.
 test("a payload sent for a code declared null is refused", async () => {
   const name = `ext_fail_nodata_payload_${crypto.randomUUID()}`;
   await define(name);
-  await start(name);
+  await startInstance(name);
   const queued = await waitForQueued(name);
 
   const { error } = await client.POST("/external-tasks/resolve", {
@@ -186,7 +175,7 @@ test("a payload sent for a code declared null is refused", async () => {
 test("a payload that does not match the declared shape is refused, and the task stays parked", async () => {
   const name = `ext_fail_badpayload_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   const queued = await waitForQueued(name);
 
   const { error } = await client.POST("/external-tasks/resolve", {
@@ -209,7 +198,7 @@ test("a payload that does not match the declared shape is refused, and the task 
 test("a dotted code is refused — a worker cannot impersonate an engine code", async () => {
   const name = `ext_fail_dotted_${crypto.randomUUID()}`;
   await define(name);
-  await start(name);
+  await startInstance(name);
   const queued = await waitForQueued(name);
 
   for (const code of ["http.500", "external.timeout", "only_once.interrupted"]) {
@@ -228,7 +217,7 @@ test("a dotted code is refused — a worker cannot impersonate an engine code", 
 test("a failure submitted while paused is delivered on resume, not discarded", async () => {
   const name = `ext_fail_paused_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   const queued = await waitForQueued(name);
 
   const { error: pauseErr } = await client.POST("/instances/{id}/pause", {
@@ -265,7 +254,7 @@ test("a result submitted while paused is delivered on resume, not discarded", as
     },
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
-  const id = await start(name);
+  const id = await startInstance(name);
   const queued = await waitForQueued(name);
 
   await client.POST("/instances/{id}/pause", { params: { path: { id } } });
@@ -332,7 +321,7 @@ test("not_reached:true lets an only_once task re-arm, and the re-arming gets a f
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
 
-  const id = await start(name);
+  const id = await startInstance(name);
   const first = await waitForQueued(name);
   await client.POST("/external-tasks/resolve", {
     body: { token: first.token, error: { code: "never_started", message: "the worker never picked it up" } },
@@ -373,7 +362,7 @@ test("not_reached:true lets an only_once task re-arm, and the re-arming gets a f
 test("signal delivers a failure to an armed task, by instance id", async () => {
   const name = `ext_signal_fail_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   await waitForQueued(name); // armed
 
   const { data, error } = await client.POST("/external-tasks/signal", {
@@ -411,7 +400,7 @@ test("a failure signalled BEFORE the task arms is buffered, then routed when it 
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
 
-  const id = await start(name);
+  const id = await startInstance(name);
   const { data, error } = await client.POST("/external-tasks/signal", {
     body: { instance_id: id, task_id: "work", error: { code: "upstream_failed", message: "the job died", data: { why: "oom" } } },
   });
@@ -426,7 +415,7 @@ test("a failure signalled BEFORE the task arms is buffered, then routed when it 
 test("a submission carries one outcome, not both", async () => {
   const name = `ext_both_${crypto.randomUUID()}`;
   await define(name);
-  await start(name);
+  await startInstance(name);
   const queued = await waitForQueued(name);
 
   const { error } = await client.POST("/external-tasks/resolve", {
@@ -467,7 +456,7 @@ test("signal validates the failure against the task it names, not another task's
     },
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
-  const id = await start(name);
+  const id = await startInstance(name);
   await waitForQueued(name); // parked on `first`
 
   // `only_on_first` is declared by the CURRENT task but not by the one being signalled, so
@@ -489,7 +478,7 @@ test("signal validates the failure against the task it names, not another task's
 test("signal runs the same outcome validation as resolve", async () => {
   const name = `sig_validation_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   await waitForQueued(name);
 
   const cases: Array<[string, Record<string, unknown>]> = [
@@ -540,7 +529,7 @@ test("signal validates a result against result_schema", async () => {
     },
   });
   expect(defErr, `put definition failed: ${JSON.stringify(defErr)}`).toBeUndefined();
-  const id = await start(name);
+  const id = await startInstance(name);
   await waitForQueued(name);
 
   const { error } = await client.POST("/external-tasks/signal", {

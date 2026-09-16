@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { writeFileSync } from "fs";
 import { buildGenctlBinary, runCli } from "../helpers/cli.ts";
 import { API_BASE, waitForInstance } from "../helpers/client.ts";
+import { uid } from "../helpers/genctl.ts";
 
 // Numbers must survive the whole path, not just the engine: YAML/JSON parsed by
 // the CLI, uploaded, stored, evaluated, returned, and rendered back by the CLI.
@@ -24,10 +25,6 @@ let bin: string;
 beforeAll(() => {
   bin = buildGenctlBinary();
 }, 60_000);
-
-function uid(prefix: string) {
-  return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
-}
 
 // 54 digits — past int64, so yaml.v3 tags it !!float and collapses it.
 const BIG_INT = "123748297583958759399485776859493938587768583992939858";

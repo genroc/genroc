@@ -7,7 +7,7 @@
  * mentions. specs/version-compatibility.md s3c.
  */
 import { expect, test } from "vitest";
-import { client } from "../helpers/client.ts";
+import { client, startInstance } from "../helpers/client.ts";
 
 /** Polls the instance until pred holds. The shared waitForInstance waits for terminal
  *  states; every state this file cares about is deliberately non-terminal. */
@@ -31,15 +31,6 @@ async function put(body: Record<string, unknown>) {
   expect(error).toBeUndefined();
 }
 
-async function start(process: string, input: Record<string, unknown>) {
-  const { data, error } = await client.POST("/instances", {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: { process, input } as any,
-  });
-  expect(error).toBeUndefined();
-  return data!.id;
-}
-
 async function upgrade(id: string, body: Record<string, unknown>) {
   return client.POST("/instances/{id}/upgrade", {
     params: { path: { id } },
@@ -56,7 +47,7 @@ test("a paused instance moves to a new version and its state is migrated", async
     input_schema: { type: "object", properties: { note: { type: ["string", "null"] } } },
     tasks: [{ id: "hold", action: { type: "external" }, switch: "end" }],
   });
-  const id = await start(name, {});
+  const id = await startInstance(name, {});
   await waitUntil(id, (i) => i.wait_state === "external");
 
   const paused = await client.POST("/instances/{id}/pause", { params: { path: { id } } });
@@ -86,7 +77,7 @@ test("a paused instance moves to a new version and its state is migrated", async
 test("a stale from_version is refused rather than migrated against a version it has left", async () => {
   const name = `upg_stale_${crypto.randomUUID().slice(0, 8)}`;
   await put({ name, tasks: [{ id: "hold", action: { type: "external" }, switch: "end" }] });
-  const id = await start(name, {});
+  const id = await startInstance(name, {});
   await waitUntil(id, (i) => i.wait_state === "external");
   await client.POST("/instances/{id}/pause", { params: { path: { id } } });
   await waitUntil(id, (i) => i.status === "paused");
@@ -100,7 +91,7 @@ test("a stale from_version is refused rather than migrated against a version it 
 test("a running instance is refused: it can be advanced between the plan and the write", async () => {
   const name = `upg_running_${crypto.randomUUID().slice(0, 8)}`;
   await put({ name, tasks: [{ id: "hold", action: { type: "external" }, switch: "end" }] });
-  const id = await start(name, {});
+  const id = await startInstance(name, {});
   await waitUntil(id, (i) => i.wait_state === "external");
   await put({ name, tasks: [{ id: "hold", action: { type: "external" }, switch: "end" }] });
 

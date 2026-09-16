@@ -5,7 +5,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { load as loadYaml } from "js-yaml";
 import { expect, test, beforeAll } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, outputsOf, waitForInstance } from "../helpers/client.ts";
 import { buildGenrocBinary, startGenroc } from "../helpers/server.ts";
 
 // The definition under test is the real example file in examples/order-fulfilment/,
@@ -142,11 +142,6 @@ async function startOrder(
   });
   expect(error).toBeUndefined();
   return data!.id;
-}
-
-async function outputsOf(id: string, api: ApiClient = client): Promise<Record<string, any>> {
-  const { data } = await api.GET("/instances/{id}/detail", { params: { path: { id } } });
-  return ((data?.state as any)?.outputs ?? {}) as Record<string, any>;
 }
 
 // waitForInstance, but for a tick-only server (--poll 0).

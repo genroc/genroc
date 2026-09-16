@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { childrenOfTask, client, waitForInstance } from "../helpers/client.ts";
+import { childrenOfTask, client, startInstance, waitForInstance } from "../helpers/client.ts";
 import { waitForParked } from "../helpers/external.ts";
 
 // The terminal stop. Cancel is deliberately not a mode of pause: pause exists to be
@@ -21,12 +21,6 @@ async function define(name: string, tasks?: unknown[]) {
     },
   });
   if (error) throw new Error(`put definition failed: ${JSON.stringify(error)}`);
-}
-
-async function start(name: string): Promise<string> {
-  const { data, error } = await client.POST("/instances", { body: { process: name } });
-  if (error) throw new Error(`start failed: ${JSON.stringify(error)}`);
-  return data!.id;
 }
 
 async function statusOf(id: string): Promise<string> {
@@ -55,7 +49,7 @@ async function claimWhenReady(worker: string, process: string) {
 test("cancel stops a parked instance for good", async () => {
   const name = `cancel_basic_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   await waitForParked(id);
 
   const { error } = await cancel(id);
@@ -71,7 +65,7 @@ test("cancel stops a parked instance for good", async () => {
 test("a cancelled instance is neither resumable nor retryable", async () => {
   const name = `cancel_final_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   await waitForParked(id);
   await cancel(id);
 
@@ -96,7 +90,7 @@ test("a cancelled instance is neither resumable nor retryable", async () => {
 test("cancel disposes of a paused tree", async () => {
   const name = `cancel_paused_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   await waitForParked(id);
 
   await client.POST("/instances/{id}/pause", { params: { path: { id } } });
@@ -110,7 +104,7 @@ test("cancel disposes of a paused tree", async () => {
 test("cancel is an assertion: a settled instance reports rather than fails", async () => {
   const name = `cancel_settled_${crypto.randomUUID()}`;
   await define(name, [{ id: "done", output: { ok: true }, switch: [{ goto: "end" }] }]);
-  const id = await start(name);
+  const id = await startInstance(name);
   await waitForInstance(id);
 
   // 204: nothing was live to stop. An error here would stop a group of ids from converging
@@ -123,7 +117,7 @@ test("cancel is an assertion: a settled instance reports rather than fails", asy
 test("a cancel reaches a worker holding the claim, through its own heartbeat", async () => {
   const name = `cancel_claimed_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   const [job] = await claimWhenReady("worker-1", name);
 
   await cancel(id);
@@ -169,7 +163,7 @@ test("cancel takes the whole tree, and is refused on a descendant", async () => 
   });
   if (defErr) throw new Error(`put parent failed: ${JSON.stringify(defErr)}`);
 
-  const id = await start(parent);
+  const id = await startInstance(parent);
   // The child parks on its own external task, which is the point at which both rows are live.
   const kidID = await (async () => {
     const deadline = Date.now() + 20_000;
@@ -201,7 +195,7 @@ test("cancel takes the whole tree, and is refused on a descendant", async () => 
 test("once a cancel lands, no operator verb moves the instance", async () => {
   const name = `cancel_closed_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   await waitForParked(id);
 
   // A second version to aim an upgrade at, so that verb is genuinely attempted rather than

@@ -1,11 +1,8 @@
 import { expect, test } from "vitest";
 import { client, waitForInstance } from "../helpers/client.ts";
+import { uid } from "../helpers/genctl.ts";
 
 // Unique names per test to avoid cross-test interference.
-function uid(prefix: string) {
-  return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
-}
-
 async function applyBatch(defs: object[], channel = "latest") {
   const { data, error } = await client.PUT("/definitions/batch", {
     body: { channel, definitions: defs } as never,

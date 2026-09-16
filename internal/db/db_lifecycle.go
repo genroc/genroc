@@ -188,6 +188,51 @@ func (db *DB) forUpdate() string {
 	return ""
 }
 
+// lockTree locks the rows of the tree under the root id that satisfy `where`, in id order — the
+// global lock order every tree-wide operation shares, which is what keeps pause, cancel and a
+// child's completion from deadlocking against each other on Postgres — and hands each row to
+// scan. The cursor is closed before this returns on EVERY path: the caller's next statement is
+// an UPDATE, and SQLite serves both on one connection. database/sql closes a cursor it has
+// drained, so the deferred Close is for the paths that leave early — the ones each of the four
+// copies this replaced remembered by hand. `columns` and `where` are SQL fragments; `args` fill
+// their placeholders in text order, the root id last.
+func (db *DB) lockTree(ctx context.Context, exec dbgen.DBTX, columns, where string, scan func(*sql.Rows) error, args ...any) error {
+	rows, err := exec.QueryContext(ctx, `SELECT `+columns+` FROM process_instances WHERE `+inTree+` AND `+where+` ORDER BY id`+db.forUpdate(), args...)
+	if err != nil {
+		return fmt.Errorf("lock tree: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		if err := scan(rows); err != nil {
+			return fmt.Errorf("scan tree row: %w", err)
+		}
+	}
+	return rows.Err()
+}
+
+// heldColumns is a row's id and whether a worker holds its lease at `?` (now). held is what
+// splits "stopped in this call" from "asked to stop": a worker mid-task cannot be stopped, so a
+// leased row only records the request and reaches the terminal status on the write that ends its
+// task.
+const heldColumns = `id, CASE WHEN worker_id IS NOT NULL AND lease_expires_at > ? THEN 1 ELSE 0 END AS held`
+
+// scanHeld sorts each row into settled or leased by its held flag.
+func scanHeld(settled, leased *[]string) func(*sql.Rows) error {
+	return func(rows *sql.Rows) error {
+		var id string
+		var held int
+		if err := rows.Scan(&id, &held); err != nil {
+			return err
+		}
+		if held == 1 {
+			*leased = append(*leased, id)
+		} else {
+			*settled = append(*settled, id)
+		}
+		return nil
+	}
+}
+
 // PauseProcess atomically suspends a process tree (root + every running descendant), leaving
 // wait_state, wake_at, retry_count and context untouched. Root-only, and an assertion: an
 // already-stopped tree is OutcomeUnchanged, not an error. Only a *leased* row may be marked
@@ -212,36 +257,11 @@ func (db *DB) PauseProcess(ctx context.Context, id, actor string) (LifecycleResu
 	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
 		now := nowMillis()
 
-		// Lock the rows this call mutates, in id order — the shared global order that prevents
-		// deadlocks. Selecting rather than blind-updating also yields the per-instance outcome
-		// the audit trail needs, which a row count cannot express.
-		rows, err := exec.QueryContext(ctx, `
-		SELECT id, CASE WHEN worker_id IS NOT NULL AND lease_expires_at > ?
-		                THEN 1 ELSE 0 END AS held
-		FROM process_instances
-		WHERE `+inTree+` AND status = 'running'
-		ORDER BY id`+db.forUpdate(), now, id)
-		if err != nil {
-			return fmt.Errorf("lock tree: %w", err)
-		}
-		for rows.Next() {
-			var rowID string
-			var held int
-			if err := rows.Scan(&rowID, &held); err != nil {
-				rows.Close()
-				return fmt.Errorf("scan tree row: %w", err)
-			}
-			if held == 1 {
-				leased = append(leased, rowID)
-			} else {
-				settled = append(settled, rowID)
-			}
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
+		// Selecting rather than blind-updating yields the per-instance outcome the audit trail
+		// needs, which a row count cannot express.
+		if err := db.lockTree(ctx, exec, heldColumns, `status = 'running'`, scanHeld(&settled, &leased), now, id); err != nil {
 			return err
 		}
-		rows.Close() // release the cursor before the UPDATE (SQLite single connection)
 
 		// Nothing running anywhere in the tree: it has already settled, is already paused,
 		// or a previous pause is still draining it. Reported as an outcome rather than an
@@ -384,26 +404,16 @@ func (db *DB) ResumeProcess(ctx context.Context, id, actor string) (LifecycleRes
 	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
 		now := nowMillis()
 
-		rows, err := exec.QueryContext(ctx, `
-		SELECT id FROM process_instances
-		WHERE `+inTree+` AND status IN ('paused', 'pausing')
-		ORDER BY id`+db.forUpdate(), id)
-		if err != nil {
-			return fmt.Errorf("lock tree: %w", err)
-		}
-		for rows.Next() {
+		if err := db.lockTree(ctx, exec, `id`, `status IN ('paused', 'pausing')`, func(rows *sql.Rows) error {
 			var rowID string
 			if err := rows.Scan(&rowID); err != nil {
-				rows.Close()
-				return fmt.Errorf("scan tree row: %w", err)
+				return err
 			}
 			resumed = append(resumed, rowID)
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
+			return nil
+		}, id); err != nil {
 			return err
 		}
-		rows.Close() // release the cursor before the UPDATE (SQLite single connection)
 
 		if len(resumed) == 0 {
 			// Nothing paused, so either the tree is already advancing (the assertion holds)
@@ -498,35 +508,10 @@ func (db *DB) CancelProcess(ctx context.Context, id, actor string) (LifecycleRes
 	if err := db.withTx(ctx, func(qtx *dbgen.Queries, exec dbgen.DBTX) error {
 		now := nowMillis()
 
-		// Same shape and same id order as PauseProcess -- the shared global lock order, which
-		// is what keeps the two from deadlocking against each other on Postgres.
-		rows, err := exec.QueryContext(ctx, `
-		SELECT id, CASE WHEN worker_id IS NOT NULL AND lease_expires_at > ?
-		                THEN 1 ELSE 0 END AS held
-		FROM process_instances
-		WHERE `+inTree+` AND status IN ('running', 'failing', 'pausing', 'paused')
-		ORDER BY id`+db.forUpdate(), now, id)
-		if err != nil {
-			return fmt.Errorf("lock tree: %w", err)
-		}
-		for rows.Next() {
-			var rowID string
-			var held int
-			if err := rows.Scan(&rowID, &held); err != nil {
-				rows.Close()
-				return fmt.Errorf("scan tree row: %w", err)
-			}
-			if held == 1 {
-				leased = append(leased, rowID)
-			} else {
-				settled = append(settled, rowID)
-			}
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
+		if err := db.lockTree(ctx, exec, heldColumns, `status IN ('running', 'failing', 'pausing', 'paused')`,
+			scanHeld(&settled, &leased), now, id); err != nil {
 			return err
 		}
-		rows.Close() // release the cursor before the UPDATE (SQLite single connection)
 
 		if len(settled)+len(leased) == 0 {
 			// 'cancelling' is outside the selector above, so without this a second cancel on a
@@ -613,29 +598,19 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 	}
 	defer tx.Rollback()
 
-	// Lock and load the whole tree in id order (the shared global order) so concurrent
-	// pauses and child completions serialize against the revival; the FOR UPDATE (Postgres)
-	// locks what the root_id scan enumerates.
-	rows, err := exec.QueryContext(ctx, `
-		SELECT `+instanceColumns+` FROM process_instances
-		WHERE `+inTree+` AND superseded_at IS NULL
-		ORDER BY id`+db.forUpdate(), id)
-	if err != nil {
-		return LifecycleResult{}, fmt.Errorf("lock tree: %w", err)
-	}
-	defer rows.Close()
-
+	// Load the whole tree under the lock, so concurrent pauses and child completions
+	// serialize against the revival.
 	nodes := make(map[string]*model.ProcessInstance)
 	rawRows := make(map[string]dbgen.ProcessInstance)
 	children := make(map[string]map[string][]*model.ProcessInstance) // parentID → spawnTaskID → batch
-	for rows.Next() {
+	if err := db.lockTree(ctx, exec, instanceColumns, `superseded_at IS NULL`, func(rows *sql.Rows) error {
 		r, err := scanInstance(rows)
 		if err != nil {
-			return LifecycleResult{}, fmt.Errorf("scan tree row: %w", err)
+			return err
 		}
 		inst, err := toInstance(r)
 		if err != nil {
-			return LifecycleResult{}, err
+			return err
 		}
 		nodes[inst.ID] = inst
 		rawRows[inst.ID] = r
@@ -645,11 +620,10 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 			}
 			children[inst.ParentID][inst.SpawnTaskID] = append(children[inst.ParentID][inst.SpawnTaskID], inst)
 		}
-	}
-	if err := rows.Err(); err != nil {
+		return nil
+	}, id); err != nil {
 		return LifecycleResult{}, err
 	}
-	rows.Close() // release the connection for the updates below (SQLite single-conn)
 	root, ok := nodes[id]
 	if !ok {
 		return LifecycleResult{}, fmt.Errorf("instance not found")

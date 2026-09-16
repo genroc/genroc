@@ -1,6 +1,6 @@
 import { parkedInProcess } from "../helpers/external.ts";
 import { expect, test } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, outputsOf, startInstance, waitForInstance } from "../helpers/client.ts";
 
 // The pull half of the external-task queue: a worker claims parked work, holds it for a
 // visibility timeout, renews or releases it, and answers under the token the claim granted.
@@ -30,12 +30,6 @@ async function define(name: string, tasks?: unknown[]) {
   if (error) throw new Error(`put definition failed: ${JSON.stringify(error)}`);
 }
 
-async function start(name: string): Promise<string> {
-  const { data, error } = await client.POST("/instances", { body: { process: name } });
-  if (error) throw new Error(`start failed: ${JSON.stringify(error)}`);
-  return data!.id;
-}
-
 async function claim(worker: string, process: string, opts: Record<string, unknown> = {}) {
   const { data, error } = await client.POST("/external-tasks/claim", {
     body: { worker_id: worker, process, ...opts } as never,
@@ -56,15 +50,10 @@ async function claimWhenReady(worker: string, process: string, opts: Record<stri
   throw new Error(`nothing claimable for ${process} in time`);
 }
 
-async function outputsOf(id: string): Promise<any> {
-  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  return (data as any)?.state?.outputs ?? {};
-}
-
 test("a claim leases the task, and the granted token answers it", async () => {
   const name = `claim_basic_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
 
   const [job] = await claimWhenReady("worker-1", name);
   // The claim token is three-part: instance, arming, grant. The queue's own two-part token
@@ -85,7 +74,7 @@ test("a claim leases the task, and the granted token answers it", async () => {
 test("a live claim is not offered to a second worker, and hides the task from the queue's answer path", async () => {
   const name = `claim_exclusive_${crypto.randomUUID()}`;
   await define(name);
-  await start(name);
+  await startInstance(name);
 
   const [job] = await claimWhenReady("worker-1", name);
   expect(await claim("worker-2", name), "a live claim must not be handed out twice").toEqual([]);
@@ -112,7 +101,7 @@ test("a live claim is not offered to a second worker, and hides the task from th
 test("release hands the task back at once and voids the releasing worker's token", async () => {
   const name = `claim_release_${crypto.randomUUID()}`;
   await define(name);
-  await start(name);
+  await startInstance(name);
 
   const [first] = await claimWhenReady("worker-1", name);
   const { error } = await client.POST("/external-tasks/release", { body: { token: first.token } });
@@ -137,7 +126,7 @@ test("release hands the task back at once and voids the releasing worker's token
 test("renew answers per token, not with a count", async () => {
   const name = `claim_renew_${crypto.randomUUID()}`;
   await define(name);
-  await start(name);
+  await startInstance(name);
   const [job] = await claimWhenReady("worker-1", name, { lease_ms: 30_000 });
 
   const { data, error } = await client.POST("/external-tasks/renew", {
@@ -170,7 +159,7 @@ test("renew answers per token, not with a count", async () => {
 test("a claim holder can answer on the error channel", async () => {
   const name = `claim_fail_${crypto.randomUUID()}`;
   await define(name);
-  const id = await start(name);
+  const id = await startInstance(name);
   const [job] = await claimWhenReady("worker-1", name);
 
   const { error } = await client.POST("/external-tasks/resolve", {
@@ -184,7 +173,7 @@ test("a claim holder can answer on the error channel", async () => {
 test("claim filters by task, and takes a batch", async () => {
   const name = `claim_filter_${crypto.randomUUID()}`;
   await define(name);
-  const ids = [await start(name), await start(name), await start(name)];
+  const ids = [await startInstance(name), await startInstance(name), await startInstance(name)];
   expect(ids.length).toBe(3);
 
   // The wrong task id matches nothing; the right one takes the batch, oldest park first.
@@ -197,7 +186,7 @@ test("claim filters by task, and takes a batch", async () => {
 test("claim rejects a missing worker_id, and renew rejects a non-claim token", async () => {
   const name = `claim_badreq_${crypto.randomUUID()}`;
   await define(name);
-  await start(name);
+  await startInstance(name);
   const [job] = await claimWhenReady("worker-1", name);
 
   const { error: noWorker } = await client.POST("/external-tasks/claim", {
@@ -240,7 +229,7 @@ async function defineOnlyOnce(name: string, extra: Record<string, unknown> = {})
 test("a lapsed claim on an only_once task is never handed out again, and raises external.lost", async () => {
   const name = `claim_lost_${crypto.randomUUID()}`;
   await defineOnlyOnce(name, { on_error: [{ code: ["external.lost"], goto: "$checked" }] });
-  const id = await start(name);
+  const id = await startInstance(name);
 
   // A short lease, then let it lapse without answering. Real time rather than /tick: this
   // suite's server is poll-driven, and /tick is only served with --poll 0.
@@ -292,7 +281,7 @@ test("external.lost is unknowable — an only_once task cannot buy a retry with 
 test("a lapsed claim on an ordinary task just returns to the queue", async () => {
   const name = `claim_lapse_retryable_${crypto.randomUUID()}`;
   await define(name); // not only_once
-  const id = await start(name);
+  const id = await startInstance(name);
 
   const [first] = await claimWhenReady("worker-1", name, { lease_ms: 300 });
   await new Promise((r) => setTimeout(r, 500));
@@ -313,8 +302,8 @@ test("a lost-claim row does not strand the rest of the batch, and filters isolat
   const okName = `batch_ok_${crypto.randomUUID()}`;
   await defineOnlyOnce(lostName, { on_error: [{ code: ["external.lost"], goto: "$checked" }] });
   await define(okName);
-  const lostId = await start(lostName);
-  const okId = await start(okName);
+  const lostId = await startInstance(lostName);
+  const okId = await startInstance(okName);
 
   // Let the only_once task's holder lapse, so the next claim has to mark it lost.
   await claimWhenReady("worker-1", lostName, { lease_ms: 300 });
@@ -351,8 +340,8 @@ test("claim filters by process — one worker fleet does not take another's work
   const theirs = `filter_theirs_${crypto.randomUUID()}`;
   await define(mine);
   await define(theirs);
-  await start(mine);
-  const theirsId = await start(theirs);
+  await startInstance(mine);
+  const theirsId = await startInstance(theirs);
 
   const got = await claimWhenReady("worker-1", mine, { limit: 10 });
   for (const job of got) {

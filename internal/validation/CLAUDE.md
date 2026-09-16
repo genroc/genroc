@@ -224,10 +224,12 @@ and `SlotAt`. Address lookup therefore goes through `SlotAt` (longest slot prefi
 `Navigate` the remainder inside it); the document is left for intermediate nodes and for
 wording a miss. specs/schema-command.md §2.
 
-**An address is `schema`'s path grammar, not a dotted split.** `CanonicalSlot` parses with
-`schema.ParsePath` and `taskSlot` renders with `JoinPath` / `JoinIndex`, so a task id holding a
-dot is quoted in both directions and a printed address resolves back to itself. It replaced a
-longest-prefix match over the ids, which picked between a task `a` and a task `a.b` in silence.
+**An address is `schema`'s path grammar, not a dotted split.** `SlotAt` parses with
+`schema.ParsePath`, and `taskSlot` / `slotKey` render with `JoinPath` plus a bare dot for an
+index, so a task id holding a dot is quoted in both directions and a printed address resolves
+back to itself. The longest-prefix match in `SlotAt` is over SLOT addresses, never over task ids
+— an earlier version matched ids by prefix and picked between a task `a` and a task `a.b` in
+silence.
 
 **The process `output` slot has no exception left.** Its context is one `anyOf` arm per way the
 process can end, built by `processOutputContext` and used by the checker itself, so what is

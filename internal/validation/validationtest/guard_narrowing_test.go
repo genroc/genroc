@@ -481,11 +481,11 @@ func TestGuardNarrowing_OnErrorGotoCarriesItsCase(t *testing.T) {
 		{name: "a pure case above the rule negates onto the edge too", wantOK: true,
 			rule: `[{"case":"input.n == null","raise":{"code":"no_n","message":"m"}},
 			        {"code":["http.500"],"goto":"$h"}]`,
-			use:  `input.n + 1`},
+			use: `input.n + 1`},
 		{name: "a coded rule above it negates nothing",
 			rule: `[{"code":["http.404"],"case":"input.n == null","raise":{"code":"no_n","message":"m"}},
 			        {"code":["http.500"],"goto":"$h"}]`,
-			use:  `input.n + 1`},
+			use: `input.n + 1`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := runGenerateErr(t, src(tc.rule, tc.use))

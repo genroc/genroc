@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, startInstance, waitForInstance } from "../helpers/client.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
 // pause and resume are ASSERTIONS — "make this tree paused", "make this tree advance" —
@@ -32,12 +32,6 @@ async function waitForStatus(id: string, want: string) {
   throw new Error(`${id} never reached ${want}`);
 }
 
-async function start(name: string) {
-  const { data, error } = await client.POST("/instances", { body: { process: name, input: {} } });
-  expect(error).toBeUndefined();
-  return data!.id;
-}
-
 /** Parks on an external task, so the tree sits live and non-terminal indefinitely. */
 function parkedDef(name: string) {
   return {
@@ -61,7 +55,7 @@ function instantDef(name: string) {
 }
 
 test("pause — 200/202 when it acts, 204 unchanged once the tree has come to rest", async () => {
-  const id = await start(await apply(parkedDef(`out_pause_${crypto.randomUUID().slice(0, 8)}`)));
+  const id = await startInstance(await apply(parkedDef(`out_pause_${crypto.randomUUID().slice(0, 8)}`)));
 
   // 202 rather than 200 when a worker holds the task: whether it does is a race against
   // the poll loop, so both are accepted here and the distinction is pinned deterministically
@@ -81,14 +75,14 @@ test("pause — 200/202 when it acts, 204 unchanged once the tree has come to re
 });
 
 test("pause — a settled tree is 204, never 409: it is not advancing, which is the assertion", async () => {
-  const id = await start(await apply(instantDef(`out_settled_${crypto.randomUUID().slice(0, 8)}`)));
+  const id = await startInstance(await apply(instantDef(`out_settled_${crypto.randomUUID().slice(0, 8)}`)));
   expect(await waitForInstance(id)).toBe("completed");
 
   expect((await post(`/instances/${id}/pause`)).status).toBe(204);
 });
 
 test("resume — 204 when the tree is already advancing, 409 only when it has settled", async () => {
-  const live = await start(await apply(parkedDef(`out_live_${crypto.randomUUID().slice(0, 8)}`)));
+  const live = await startInstance(await apply(parkedDef(`out_live_${crypto.randomUUID().slice(0, 8)}`)));
 
   // Live and unpaused: "make this tree advance" already holds.
   const already = await post(`/instances/${live}/resume`);
@@ -102,7 +96,7 @@ test("resume — 204 when the tree is already advancing, 409 only when it has se
 
   // Settled is the other side of the split, and the one the CLI could not make for
   // itself: the assertion can never hold, so it stays a refusal the operator must answer.
-  const done = await start(await apply(instantDef(`out_done_${crypto.randomUUID().slice(0, 8)}`)));
+  const done = await startInstance(await apply(instantDef(`out_done_${crypto.randomUUID().slice(0, 8)}`)));
   expect(await waitForInstance(done)).toBe("completed");
   const settled = await post(`/instances/${done}/resume`);
   expect(settled.status).toBe(409);
@@ -111,7 +105,7 @@ test("resume — 204 when the tree is already advancing, 409 only when it has se
 });
 
 test("retry — not an assertion, so every refusal stays a 409 and it never reports unchanged", async () => {
-  const id = await start(await apply(instantDef(`out_retry_${crypto.randomUUID().slice(0, 8)}`)));
+  const id = await startInstance(await apply(instantDef(`out_retry_${crypto.randomUUID().slice(0, 8)}`)));
   expect(await waitForInstance(id)).toBe("completed");
 
   const res = await post(`/instances/${id}/retry`);
@@ -120,7 +114,7 @@ test("retry — not an assertion, so every refusal stays a 409 and it never repo
 });
 
 test("an unchanged assertion writes nothing — no updated_at bump, or the outcome is decorative", async () => {
-  const id = await start(await apply(parkedDef(`out_noop_${crypto.randomUUID().slice(0, 8)}`)));
+  const id = await startInstance(await apply(parkedDef(`out_noop_${crypto.randomUUID().slice(0, 8)}`)));
   await post(`/instances/${id}/pause`);
   await waitForStatus(id, "paused");
 

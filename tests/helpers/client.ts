@@ -65,6 +65,36 @@ export async function instanceState(
  * server from the child rows, not read off a slot on the parent — so a `child_list` that
  * spawned nothing names no task at all.
  */
+/** A finished instance's `outputs`, keyed by task id. Throws where the instance cannot be read. */
+export async function outputsOf(
+  id: string,
+  apiClient: typeof client = client,
+): Promise<Record<string, any>> {
+  const state = await instanceState(id, apiClient);
+  return (state.outputs ?? {}) as Record<string, any>;
+}
+
+/** Starts one instance and returns its id, throwing on refusal so a test fails where it began. */
+export async function startInstance(
+  process: string,
+  input?: unknown,
+  apiClient: typeof client = client,
+): Promise<string> {
+  const { data, error } = await apiClient.POST("/instances", {
+    body: { process, ...(input === undefined ? {} : { input }) } as never,
+  });
+  if (error) throw new Error(`start ${process}: ${JSON.stringify(error)}`);
+  return data!.id;
+}
+
+/** Starts an instance and waits for it to settle: its id, final status, and detail. */
+export async function runToEnd(process: string, input?: unknown, timeoutMs = 20_000) {
+  const id = await startInstance(process, input);
+  const status = await waitForInstance(id, timeoutMs);
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  return { id, status, data };
+}
+
 export async function childrenOfTask(
   id: string,
   taskID: string,

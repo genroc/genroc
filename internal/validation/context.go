@@ -2,6 +2,7 @@ package validation
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -440,106 +441,10 @@ func computeContextSets(tasks []*model.Task) (required, optional map[string][]st
 		hasOutput[i] = taskHasOutput(s)
 	}
 
-	allTrue := func() []bool {
-		s := make([]bool, n)
-		for i := range s {
-			s[i] = true
-		}
-		return s
-	}
-	allFalse := func() []bool { return make([]bool, n) }
-	eq := func(a, b []bool) bool {
-		for i := range a {
-			if a[i] != b[i] {
-				return false
-			}
-		}
-		return true
-	}
-
-	// mustOut[i][j] = task j's output is ALWAYS available when entering task i.
-	// Error edges clear the failing task's own output bit. mustIn[i] is the in-set
-	// (available on entry, before task i's own output) captured on the converging pass,
-	// so the projection below reuses it instead of recomputing the same walk.
-	mustOut := make([][]bool, n)
-	mustIn := make([][]bool, n)
-	for i := range mustOut {
-		mustOut[i] = allTrue()
-	}
-	for {
-		changed := false
-		for i := range tasks {
-			in := allTrue()
-			for _, p := range preds[i] {
-				if p.idx == -1 {
-					in = allFalse()
-					break
-				}
-				src := mustOut[p.idx]
-				if p.isErr && hasOutput[p.idx] {
-					src = append([]bool{}, mustOut[p.idx]...)
-					src[p.idx] = false // failing task produced no output
-				}
-				for j := range in {
-					in[j] = in[j] && src[j]
-				}
-			}
-			if len(preds[i]) == 0 {
-				in = allFalse()
-			}
-			mustIn[i] = in
-			out := append([]bool{}, in...)
-			if hasOutput[i] {
-				out[i] = true
-			}
-			if !eq(mustOut[i], out) {
-				mustOut[i] = out
-				changed = true
-			}
-		}
-		if !changed {
-			break
-		}
-	}
-
-	// mayOut[i][j] = task j's output is POSSIBLY available when entering task i.
-	// mayIn[i] is captured like mustIn above.
-	mayOut := make([][]bool, n)
-	mayIn := make([][]bool, n)
-	for i := range mayOut {
-		mayOut[i] = allFalse()
-	}
-	for {
-		changed := false
-		for i := range tasks {
-			in := allFalse()
-			for _, p := range preds[i] {
-				if p.idx == -1 {
-					continue
-				}
-				src := mayOut[p.idx]
-				if p.isErr && hasOutput[p.idx] {
-					src = append([]bool{}, mayOut[p.idx]...)
-					src[p.idx] = false
-				}
-				for j := range in {
-					in[j] = in[j] || src[j]
-				}
-			}
-			mayIn[i] = in
-			out := append([]bool{}, in...)
-			if hasOutput[i] {
-				out[i] = true
-			}
-			if !eq(mayOut[i], out) {
-				mayOut[i] = out
-				changed = true
-			}
-		}
-		if !changed {
-			break
-		}
-	}
+	// mustIn[i][j]: task j's output is ALWAYS available on entry to task i; mayIn: POSSIBLY.
+	// The out-sets only drive the fixpoint; the projection below reads what held on ENTRY.
+	_, mustIn := availability(preds, hasOutput, true, func(a, b bool) bool { return a && b })
+	_, mayIn := availability(preds, hasOutput, false, func(a, b bool) bool { return a || b })
 
 	// `error` is scoped to the task an on_error rule routes TO, and nothing further: the
 	// engine drops it on every ordinary transition, so there is no propagation to chase and
@@ -579,4 +484,59 @@ func computeContextSets(tasks []*model.Task) (required, optional map[string][]st
 		mayErr[s.ID] = mayErrArr[i]
 	}
 	return
+}
+
+// availability is the bitset fixpoint both output analyses run over the predecessor graph:
+// `top` is what an in-set is before any edge constrains it and `combine` folds one in —
+// true/AND for "always available", false/OR for "possibly". An error edge clears the failing
+// task's own output bit, since it produced none on that path. The process start is an edge from
+// the empty set, which reads the same under both — nothing is available before the first task,
+// absorbing for AND and neutral for OR — and so is a task no edge reaches: it must not start at
+// `top`, which for AND would claim everything.
+func availability(preds [][]predEdge, hasOutput []bool, top bool, combine func(a, b bool) bool) (outs, ins [][]bool) {
+	n := len(preds)
+	fill := func(v bool) []bool {
+		s := make([]bool, n)
+		for i := range s {
+			s[i] = v
+		}
+		return s
+	}
+	outs = make([][]bool, n)
+	ins = make([][]bool, n)
+	for i := range outs {
+		outs[i] = fill(top)
+	}
+	for changed := true; changed; {
+		changed = false
+		for i := range preds {
+			in := fill(top)
+			if len(preds[i]) == 0 {
+				in = fill(false)
+			}
+			for _, p := range preds[i] {
+				src := fill(false)
+				if p.idx != -1 {
+					src = outs[p.idx]
+					if p.isErr && hasOutput[p.idx] {
+						src = append([]bool{}, src...)
+						src[p.idx] = false
+					}
+				}
+				for j := range in {
+					in[j] = combine(in[j], src[j])
+				}
+			}
+			ins[i] = in
+			out := append([]bool{}, in...)
+			if hasOutput[i] {
+				out[i] = true
+			}
+			if !slices.Equal(outs[i], out) {
+				outs[i] = out
+				changed = true
+			}
+		}
+	}
+	return outs, ins
 }

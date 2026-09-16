@@ -7,7 +7,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { load as loadYaml } from "js-yaml";
 import { expect, test, beforeAll } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, outputsOf, waitForInstance } from "../helpers/client.ts";
 import { buildGenrocBinary, startGenroc } from "../helpers/server.ts";
 
 // The definition under test is the real example file in examples/expense-approval/,
@@ -141,11 +141,6 @@ async function waitForInstanceTicking(
     await new Promise((r) => setTimeout(r, 50));
   }
   throw new Error(`instance ${id} did not settle within ${timeoutMs}ms`);
-}
-
-async function outputsOf(id: string, api: ApiClient = client): Promise<Record<string, any>> {
-  const { data } = await api.GET("/instances/{id}/detail", { params: { path: { id } } });
-  return ((data?.state as any)?.outputs ?? {}) as Record<string, any>;
 }
 
 test("examples/expense-approval: an approval submitted by queue token resumes the process and pays", async () => {
