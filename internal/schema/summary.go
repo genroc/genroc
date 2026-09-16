@@ -31,12 +31,9 @@ func (s Schema) summary(depth int) string {
 	if s.IsNull() {
 		return "null"
 	}
-	// A nullable value describes what it holds, then says it may be absent. Without this the
-	// null arm blocks the $ref beside it from resolving and the whole thing reads `unknown` —
-	// which is what `self.previous` on a looping task said.
-	// The strip has to make PROGRESS, or recursing on the same schema repeats `|null` once per
-	// level down to the bound. It can fail to only on a reference cycle, which `CheckDoc`
-	// refuses — so this is a guard rather than a path.
+	// A nullable value describes what it holds, then says it may be absent — without this a
+	// null arm blocks the `$ref` beside it and the whole reads `unknown`. The strip must make
+	// PROGRESS or recursing repeats `|null` to the bound; only a reference cycle fails to.
 	if s.HasNull() {
 		if inner := s.StripNull(); !inner.IsZero() && !inner.IsNull() && !inner.HasNull() {
 			return inner.summary(depth+1) + "|null"

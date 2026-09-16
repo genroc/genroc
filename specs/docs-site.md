@@ -39,7 +39,7 @@ control, component model). Findings that settled it:
 API with our own markup (not the bundled UI); `data-pagefind-body` on content or nav
 text pollutes every result. The only JS on reference pages.
 
-**Generated, not written**: `cmd/genrocschema` → field reference (the `description:`
+**Generated, not written**: `cmd/genrocspec` → field reference (the `description:`
 tags are already maintained prose nobody reads); `openapi.json` → API reference;
 `genctl --help` → CLI reference. Generators must emit **plain MDX**, no framework
 components, so the pipeline outlives this page's choices. Snippets get the

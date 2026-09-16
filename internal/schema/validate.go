@@ -57,18 +57,13 @@ const (
 	Strict ConformMode = iota
 
 	// ConformToSchemaExactly turns the walk into a MIGRATION: it reconciles a stored value with
-	// a schema it was not written against. The other half of IsSubsetAsStored, and the two must
-	// accept exactly the same gaps -- a relation tolerating more promises a migration that then
-	// fails to conform.
-	//
-	// The whole difference from Strict is the null-versus-missing distinction, in BOTH
-	// directions: an absent required property admitting null gets the null written in, and a
-	// present null in an optional property that admits none has its key removed.
-	//
-	// Undeclared keys are STRIPPED as in every other mode; a caller whose schema is deliberately
-	// PARTIAL must put the rest back (validation.MigrateState). Defaults are NOT filled: one
-	// filled into a half-run instance disagrees with the values already computed in its absence,
-	// and nothing recomputes them. specs/compat-command.md §2d.
+	// a schema it was not written against, and is the other half of IsSubsetAsStored. The whole
+	// difference from Strict is the null-versus-missing distinction, in BOTH directions: an
+	// absent required property admitting null gets the null written in, and a present null in an
+	// optional property that admits none has its key removed. Undeclared keys are STRIPPED as in
+	// every other mode, so a caller whose schema is deliberately PARTIAL must put the rest back
+	// (validation.MigrateState); defaults are NOT filled. internal/schema/CLAUDE.md says why
+	// both of those must hold; specs/compat-command.md §2d is the design.
 	ConformToSchemaExactly
 )
 

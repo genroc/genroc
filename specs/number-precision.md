@@ -62,7 +62,7 @@ the more permissive side is the safe direction.
 
 ## Verification
 
-`tests/integration/number_precision_test.ts` and `tests/cli/genctl_precision_test.ts`
+`tests/integration/number_precision_test.ts` and `tests/cli/precision_test.ts`
 assert on **raw bytes** — JavaScript numbers are float64 too, so `JSON.parse` (or
 building fixtures from JS objects) would corrupt the values under test before the
 assertion ran. The lesson that generalises: exactness is a property of the whole path;

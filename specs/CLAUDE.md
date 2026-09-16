@@ -11,20 +11,25 @@ between them, and when a feature lands its documentation is written against the 
 behavior while the spec stays put, answering a different question. See
 [docs-site.md](docs-site.md).
 
-## Design drafts (proposed, not implemented)
+## Design records
 
-**This heading is approximate and several entries below contradict it** — a doc is listed
-here once and then gets built, and the entry says so in its own text rather than moving.
-Trust the entry, and the spec's own §0, over this heading. As of 2026-09-03 the ones listed
-here that are actually BUILT are `error-extensions` (X2 only), `script-tasks`,
-`source-resolution` (code phase), `external-task-queue`, `external-outcome-as-signal`,
-`lazy-context`, `object-store`, `compat-command`, `durability-levels` (all but the
-per-definition field) and, since 2026-09-02, `api-auth` in full plus the three auth documents
-that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`.
+Every doc below carries its own dated **§0 status** — proposed, partly built, or built and
+when. **That line is the answer**, and nothing here restates it: a second list of what ships
+is a second thing to keep true, and it lost that race twice (it read "proposed, not
+implemented" for eighteen of the twenty-two, and its reconciliation note went stale the next
+time something landed). A doc stays put when it is built — a spec records the decision, and
+the behaviour is documented separately — so the entry text below says what a reader should
+take from it, never whether it shipped.
+
+As of 2026-09-16 four are wholly unbuilt — `custom-tasks` (north-star), `literal-types`,
+`discriminated-unions` (blocked on literal types) and `deterministic-simulation` — and four
+more are partial, each saying which half in its own §0: `error-extensions` (X1, X3),
+`source-resolution`, `durability-levels` and `docs-site`. That is a sanity check, not a
+register; when it disagrees with a §0, the §0 is right.
 
 - [error-extensions.md](error-extensions.md) — three considered extensions to the child
   error model, of which **X2 (a payload on `raise`) is BUILT (2026-08-22)** — read its §X2-c
-  for the decisions and `docs/reference/tasks.mdx` for the behaviour. X1 (batch-shape routing)
+  for the decisions and `docs/src/content/docs/guides/process-definition/error-handling.mdx` for the behaviour. X1 (batch-shape routing)
   and X3 (opt-in exhaustiveness) remain open questions rather than intended work, each
   recording the case both ways and the signal that should reopen it. X2's own trigger — "grep
   for structured data smuggled into message prose" — is what fired, and the design that
@@ -136,7 +141,7 @@ that revise it — `auth-two-credentials`, `ui-component` and `ui-issued-tokens`
   "security in a file genroc cannot check" that retired `header` mode. Its sharpest structural
   consequence: **the credential-presence matcher disappears rather than moving**, because browsers
   and machines now arrive at different components and nothing has to route on what a request
-  carries. Takes Caddy AND oauth2-proxy out of `examples/proxy/`. §5.1 draws the boundary that
+  carries. Took Caddy AND oauth2-proxy out of `examples/proxy/`, which was removed with them. §5.1 draws the boundary that
   keeps it small: **it relays, it never issues.** Google and every other OIDC provider connect
   directly and cost nothing; GitHub cannot, because with no ID token to forward genroc-ui would
   have to MINT one — a signing key and a JWKS — and an issuer with connectors is Dex, which would
@@ -607,7 +612,7 @@ work fixed.
 
 `fetch-http-surface.md` is the newest of these and the largest: `query`, the status-keyed
 `responses` map that replaced `result_schema` on a fetch, and `self.status` / `self.headers`.
-Read it for the decisions rather than the behaviour — `docs/reference/tasks.mdx` is the
+Read it for the decisions rather than the behaviour — `docs/src/content/docs/guides/process-definition/error-handling.mdx` is the
 present-tense account. Two things it records are not about `fetch` at all and bit elsewhere:
 the engine and inference must resolve acceptance through one helper (they diverged once, and
 an undeclared 2xx reached `self.result` unvalidated), and the top type may not be read through

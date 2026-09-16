@@ -16,8 +16,8 @@ code generator, for a client, a consumer, or a worker implementing an `external`
    would have had to document the ambiguity instead of answering. It also decided §3's table.
 2. **`context`**, `-e` included — ✅ **BUILT 2026-09-04**, as specced here
    (`internal/validation/slots.go`, `cmd/genctl/schema.go`, `tests/cli/schema_test.ts`).
-3. **`type`**, §7 — specced 2026-09-04, once `TaskSchemas` grew the `Result` the inferred view
-   did not carry.
+3. **`type`**, §7 — ✅ **BUILT**, once `TaskSchemas` grew the `Result` the inferred view did
+   not carry (`genctl schema type`, `tests/cli/schema_type_test.ts`).
 
 It became possible on 2026-09-04, when the types moved into genctl
 ([source-resolution.md](source-resolution.md) §One roundtrip). Before that this command would

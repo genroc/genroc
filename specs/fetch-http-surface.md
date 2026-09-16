@@ -2,7 +2,7 @@
 
 Three independent additions sharing one motivation. **All three are built** (2026-08-19); what
 follows is the design record, not a proposal — the shipped behaviour is documented in
-`docs/reference/tasks.mdx`.
+`docs/src/content/docs/guides/process-definition/error-handling.mdx`.
 
 - **§1 `query`** — structured query parameters. Drafted 2026-07-31.
 - **§2 `responses`** — status-keyed schemas, retiring `result_schema` on a fetch. Drafted

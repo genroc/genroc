@@ -58,14 +58,9 @@ func SlotContexts(def *model.ProcessDefinition) (map[string]schema.Schema, error
 				return nil, fmt.Errorf("task %q: %w", t.ID, err)
 			}
 			out[taskSlot(t.ID, slotSwitch)] = ctx
-			// And one per CASE, as on_error is one per rule and for the reason the spec
-			// gives there: the context differs per case. Reaching case k means every earlier
-			// one was false, so k reads what those negations proved — an editor addressing
-			// only the switch would hover the unnarrowed type and contradict the checker.
-			// Unlike on_error the phase keeps an address of its own, because a switch HAS a
-			// whole-switch context (the one before any case narrows) and three things name
-			// it: the scope-build diagnostic, TypeSlots' pairing, and `schema context`.
-			// specs/schema-command.md, specs/guard-narrowing.md.
+			// One per CASE: the context differs per case, and an editor addressing only the
+			// switch would hover the type the negations already ruled out. The whole-switch
+			// address stays — three things name it. specs/guard-narrowing.md.
 			for i, c := range t.Switch {
 				out[caseSlot(t.ID, i)] = scopes.switchCase(t, i, ctx)
 				// A `panic` or `raise` beside the case reads a DIFFERENT context — it fires

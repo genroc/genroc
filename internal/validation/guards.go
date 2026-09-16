@@ -241,13 +241,9 @@ func computeRefinements(tasks []*model.Task) map[string]refs {
 				if carried == nil {
 					continue // predecessor still top; it constrains nothing yet
 				}
-				// What held on entry to the predecessor still holds — a proof about
-				// `input.x` does not stop being true because a task ran. On top of it, what
-				// the clause that selected this edge proved: a switch case when it matched,
-				// an on_error rule when it caught. Neither needs a kill for the failing
-				// task's own output, because the set a predecessor carries was already
-				// stripped of `outputs.<itself>` when it was computed — the invariant the
-				// kill below maintains.
+				// What held on entry to the predecessor still holds, plus what the clause
+				// selecting this edge proved. Neither needs a kill for the failing task's
+				// own output: the carried set was stripped of it when it was computed.
 				proved := edgeRefs(tasks[p.idx], p.sw)
 				if p.isErr {
 					proved = ruleEdgeRefs(tasks[p.idx], p.rule)

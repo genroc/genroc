@@ -413,12 +413,7 @@ func validateOnError(s *Task, taskIDs map[string]struct{}) error {
 	child := isChildTask(s)
 	// What this task can report, and so what its rules may name. A child's codes are its
 	// child's raise set, checked where the child resolves (R5), so the vocabulary is empty
-	// here and no pattern is judged against it.
-	//
-	// The question asked here is flag-INDEPENDENT — `only_once.interrupted` is legal wherever
-	// the flag could be set, so toggling `only_once` never invalidates a rule, exactly as the
-	// retry tiers never do. The editor asks the narrower live question and so offers less;
-	// what it offers stays a subset of what this accepts.
+	// here. Asked as though `only_once` were set — internal/model/CLAUDE.md §2 says why.
 	var probe []errcode.Code
 	var offered []string
 	if !child {

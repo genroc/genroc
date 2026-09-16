@@ -103,9 +103,10 @@ uncatchable codes in a `case:` author's autocomplete.
 
 ## 3. `internal/defdoc` — parse once, keep the positions
 
-`yamlToAny` (`cmd/genctl/yamlnum.go`) already walks the `yaml.Node` tree, already reads
-`n.Line` for one error message, and throws the rest away. The index is that same walk
-emitting a second output.
+`yamlToAny` (`cmd/genctl/yamlnum.go`) already walked the `yaml.Node` tree, already read
+`n.Line` for one error message, and threw the rest away. The index is that same walk emitting
+a second output — and it BUILT that way: the walk moved into `internal/defdoc` and the genctl
+file went with it.
 
     defdoc.Parse(data) → (value any, index Index, err error)
     index.Range(addr) → (line, col, endLine, endCol, bool)
