@@ -1,0 +1,169 @@
+---
+title: Child processes
+order: 5
+---
+
+Genroc supports child processes which you can imagine as a function calls.
+Parent needs to specify a child name and it's input parameters. Child process
+is then started and the parent process is parked (status is still running,
+but the process is effectively waiting for the child to finish). When the child
+process finishes the child output is then mapped as a task result.
+
+You can use child process to reuse a piece of logic in multiple processes.
+Or as a wrapper for some external system, which allows independent versioning.
+
+## `child` action
+
+Let's define two processes:
+
+```genroc
+# child.genroc.yaml
+name: child_process
+input_schema:
+  type: object
+  properties:
+    who: {type: string}
+  required: [who]
+tasks:
+  - id: welcome
+    output: "Hello, ${input.who}"
+    switch: end
+
+output:
+  message: "$: outputs.welcome"
+```
+
+```genroc
+# parent.genroc.yaml
+name: parent_process
+tasks:
+  - id: spawn_child
+    action:
+      type: child
+      name: child_process
+      input:
+        who: world
+      result_schema:
+        type: object
+        properties:
+          message: {type: string}
+    output: "$: self.result"
+    switch: end
+
+output: "$: outputs.spawn_child.message"
+```
+
+Child action is quite similar to the `fetch` action as it also
+have input and `result_schema`. Additionally it needs `name` of the
+child process.
+
+
+Let's now apply the processes and run the parent.
+
+```sh
+> genctl apply
+latest: child_process - -> v1 (new)
+latest: parent_process - -> v1 (new)
+
+> genctl run parent_process
+started: 3kjfx4vm  parent_process@v1  (running)
+```
+
+You can now print logs:
+
+```sh
+> genctl logs @last        
+TIME      LEVEL  ID        EVENT             TASK
+--- 2026-09-16 +02:00 ---
+14:07:46  INFO   3kjfx4vm  inst_created                      by=no-auth:anonymous
+14:07:46  INFO   3kjfx4vm  child_spawned     spawn_child     msg="1 children"
+14:07:46  INFO   02pcayvt  inst_created                      input={"who":"world"}
+14:07:46  INFO   02pcayvt  inst_completed    welcome         output={"message":"Hello, world"}
+14:07:46  INFO   3kjfx4vm  child_collected   spawn_child
+14:07:46  INFO   3kjfx4vm  inst_completed    spawn_child     output="Hello, world"
+```
+
+This automatically shows logs of the parent and all his child processes,
+so we can see what exactly happened.
+
+We can also list instances like this:
+
+```sh
+> genctl instances  
+ID        STATUS     PROCESS            UPDATED  CREATED  CODE  ERROR
+3kjfx4vm  completed  parent_process@v1  3m ago   3m ago   
+```
+
+However this will show only root instances (the instances which have no parent),
+we have to add `--children` parameter to see all.
+
+```sh
+> genctl instances --children
+ID        STATUS     PROCESS            PARENT    UPDATED  CREATED  CODE  ERROR
+3kjfx4vm  completed  parent_process@v1  -         3m ago   3m ago
+02pcayvt  completed  child_process@v1   3kjfx4vm  3m ago   3m ago         
+```
+
+## `child_map` action
+
+It allows you to run multiple children in parallel,
+they can be of a differend kinds. You specify each child independently in
+the `children` object.
+
+```genroc
+name: checkout
+input_schema: ...
+tasks:
+  - id: prepare
+    action:
+      type: child_map
+      children:
+        stock:
+          name: reserve-stock
+          input: { order_id: "${input.order_id}" }
+          result_schema: { type: boolean }
+        payment:
+          name: charge-card
+          input: { order_id: "${input.order_id}" }
+          result_schema: { type: number }
+    output: "$: self.result"
+    switch: end
+
+output:
+  reserved: "$: outputs.prepare.stock"
+  charged: "$: outputs.prepare.payment"
+```
+
+Parent process waits for all the children to finish.
+Each child output is mapped to an object mirroring the `children` keys.
+
+## `child_list` action
+
+This one allows run dynamic number of processes in parallel, all of then need to be of a same kind.
+The proerties are the same as single `child`, but instead of `input` we have `over`,
+which must be array of inputs.
+
+```genroc
+name: checkout
+input_schema:
+  type: array
+  items: { type: string }
+  maxItems: 10
+tasks:
+  - id: prepare
+    action:
+      type: child_list
+      name: child_process
+      over: "$: map(input, (name) => { who: name })"
+      result_schema:
+        type: object
+        properties:
+          message: { type: string }
+        required: [message]
+    output: "$: self.result"
+    switch: end
+output:
+  result: "$: outputs.prepare"
+```
+
+Notice we are using `map` function to create properly shaped array.
