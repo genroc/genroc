@@ -83,6 +83,32 @@ tasks:
     switch: end
 `;
 
+// A third, for the one construct neither of the others has: an expression that BINDS a name.
+// A lambda parameter is in scope only inside the body, which no slot carries — so a fixture
+// without one leaves every answer about `line` below untested. It is VALID, as the others are.
+export const FANOUT = `name: fanout
+input_schema:
+  type: object
+  properties:
+    lines:
+      type: array
+      items:
+        type: object
+        properties:
+          sku: { type: string }
+          qty: { type: integer }
+        required: [sku, qty]
+  required: [lines]
+
+tasks:
+  - id: ship
+    action:
+      type: child_list
+      name: shipment
+      over: "$: map(input.lines, (line) => { order: line.sku })"
+    switch: end
+`;
+
 // A second definition, for the one thing ORDERS cannot show: what a GUARD proves. Every
 // nullable here is reachable — `self.result[0]` may be out of bounds, `retry_after` is
 // declared nullable — so each narrowing below is a real one rather than a vacuous check.

@@ -234,6 +234,14 @@ not** — the first two return the same context with more on it, navigation retu
 value and guards are keyed from the root. A guard that stops applying is silent.
 [specs/guard-narrowing.md](../../specs/guard-narrowing.md).
 
+**A lambda parameter rides the same way**, `LambdaVars` → `WithVars`, for a reader asking about
+one name inside a `map` body rather than the whole call: `inferCall` binds it in `withParams` and
+throws it away, so nothing outside could name it. The walk reuses `mapElement`/`withParams` rather
+than re-deriving an element type, and `TestLambdaVarsAgreesWithWhatInferenceBinds` is that claim.
+Two parameters are deliberately left UNBOUND — one two lambdas bind, one that also names a context
+root — because nodes carry no offsets (specs/language-server.md §6): with no way to tell which
+binder a cursor is under, the root's own answer is correct where it stands and a guess is not.
+
 **A `$ref` is a fact about the document, not about the value**, so no answer about a type may
 turn on whether it was written inline or behind a name. `StripNull` and `HasNull` agree because
 of it; there is no second "materializing" strip to remember, and there was — a nullable behind a

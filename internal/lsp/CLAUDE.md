@@ -62,6 +62,13 @@ expression AST carries no offsets (specs/language-server.md §6), which is also 
 that does not type is DROPPED rather than reported — the scan cannot tell a member path from a
 word inside a string literal, and the leaf's own line answers either way.
 
+**A lambda parameter is bound by the EXPRESSION, not by the slot.** `map(input, (line) => …)` put
+`line` in scope nowhere `SlotContexts` can see, so hover fell through to the whole call on every
+name in the body — reported from an editor. `ctx.WithVars(ctx.LambdaVars(expr))` is that scope, for
+the symbol lookup alone; the whole expression binds its own. **Completion is NOT fixed**: a
+half-typed lambda does not parse, so the bindings come back empty exactly where completion runs,
+and closing it needs an expression-level repair beside `parseRepaired`.
+
 ## Completion reads the schema; diagnostics read the server
 
 Not the reflection walk §5 first proposed. Seven model types decode by hand and carry their own
@@ -255,8 +262,10 @@ key does.
 
 ## The e2e suite is where the gaps showed up
 
-`tests/lsp/` drives the real binary against one valid fixture, and names a position by quoting
-the line it is on:
+`tests/lsp/` drives the real binary against valid fixtures — one per construct the others cannot
+show, because ORDERS is load-bearing for every needle in the suite and a task added to it made 17
+tests ambiguous (`GUARDED` is a guard, `FANOUT` a lambda) — and names a position by quoting the
+line it is on:
 
     <|>        the cursor is here
     <|text>    the cursor is here and `text` has NOT been typed yet — it is removed

@@ -142,7 +142,7 @@ func (s Schema) InferNode(node syntax.Node) (Schema, error) {
 func (s Schema) inferNodeWithGuards(node syntax.Node, guards map[string]guard) (Schema, error) {
 	arms := s.contextStates()
 	if len(arms) < 2 {
-		return inferNode(node, inferCtx{s: s, guards: guards})
+		return inferNode(node, inferCtx{s: s, guards: guards, vars: s.vars})
 	}
 	var (
 		joined   Schema
@@ -154,7 +154,7 @@ func (s Schema) inferNodeWithGuards(node syntax.Node, guards map[string]guard) (
 		// Seeded guards hold under every arm: the edge proved them before the context was
 		// split, so an arm that drops them would type the expression against less than the
 		// definition established.
-		t, err := inferNode(node, inferCtx{s: arm, guards: guards})
+		t, err := inferNode(node, inferCtx{s: arm, guards: guards, vars: s.vars})
 		if err != nil {
 			if firstErr == nil {
 				firstErr, failedIn = err, arm.Description()

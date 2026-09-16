@@ -219,3 +219,91 @@ func TestSymbolUnderReportsNothingWhereThereIsNoPath(t *testing.T) {
 		})
 	}
 }
+
+// A lambda parameter is the one name in an expression that the SLOT's context does not carry:
+// the expression binds it. Line numbers are asserted against this, so a change here moves the
+// cases below.
+//
+//	 1 name: fanout
+//	 2 input_schema:
+//	 3   type: array
+//	 4   items:
+//	 5     type: object
+//	 6     properties: { who: { type: string } }
+//	 7     required: [who]
+//	 8 tasks:
+//	 9   - id: prepare
+//	10     action:
+//	11       type: child_list
+//	12       name: greet
+//	13       over: "$: map(input, (row) => { to: row.who })"
+//	14       result_schema: { type: object }
+//	15     output: "$: self.result"
+//	16     switch: end
+const lambdaDoc = `name: fanout
+input_schema:
+  type: array
+  items:
+    type: object
+    properties: { who: { type: string } }
+    required: [who]
+tasks:
+  - id: prepare
+    action:
+      type: child_list
+      name: greet
+      over: "$: map(input, (row) => { to: row.who })"
+      result_schema: { type: object }
+    output: "$: self.result"
+    switch: end
+`
+
+// Line 13 is the `over:` expression: column 30 is inside the binder `(row)`, 44 inside `row`
+// in the body, 48 inside `who`, and 22 inside the map's source `input`.
+
+// The reported bug: hover fell through to the whole expression on every name in the lambda,
+// because the parameter is bound nowhere the slot's context can see.
+func TestHoverOverALambdaParameterTypesTheElement(t *testing.T) {
+	for _, at := range []struct {
+		name string
+		col  int
+	}{
+		{"on the binder", 30},
+		{"on the use in the body", 44},
+	} {
+		t.Run(at.name, func(t *testing.T) {
+			if md := hoverOf(t, lambdaDoc, 13, at.col); md != "`row` → **object{who}**" {
+				t.Errorf("got: %s", md)
+			}
+		})
+	}
+}
+
+// The parameter is a path root like any other, so the segments after it must walk.
+func TestHoverInsideALambdaBodyWalksThroughTheParameter(t *testing.T) {
+	if md := hoverOf(t, lambdaDoc, 13, 48); md != "`row.who` → **string**" {
+		t.Errorf("got: %s", md)
+	}
+}
+
+// The map's SOURCE is written in the slot's own scope, not the lambda's — a parameter reaching
+// it would retype a position that has always answered correctly.
+func TestHoverOverAMapSourceIsUnaffectedByTheParameter(t *testing.T) {
+	if md := hoverOf(t, lambdaDoc, 13, 22); md != "`input` → **array<object{who}>**" {
+		t.Errorf("got: %s", md)
+	}
+}
+
+// A parameter SHADOWING a root is bound nowhere: the AST carries no offsets, so nothing can
+// tell the source's `input` from the body's, and the root's answer stands at both. That is
+// right at the source and stale in the body — the trade is deliberate, since binding instead
+// would retype the source, which has always been correct. specs/language-server.md §6.
+func TestHoverDoesNotRebindARootAParameterShadows(t *testing.T) {
+	shadowed := strings.Replace(lambdaDoc, "(row) => { to: row.who }", "(input) => { to: input.who }", 1)
+	// Column 22 is the map's source, 30 the binder: `input` either way.
+	for _, col := range []int{22, 30} {
+		if md := hoverOf(t, shadowed, 13, col); md != "`input` → **array<object{who}>**" {
+			t.Errorf("column %d must keep the root's own type, got: %s", col, md)
+		}
+	}
+}

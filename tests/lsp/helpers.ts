@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGenctlBinary, buildGenctlWasm } from "../helpers/cli.ts";
-import { GUARDED, ORDERS, SHIPMENT } from "./fixture.ts";
+import { FANOUT, GUARDED, ORDERS, SHIPMENT } from "./fixture.ts";
 
 // Driving `genctl lsp` the way an editor does: a real process, real framing, real binary.
 //
@@ -111,6 +111,7 @@ let workspace = "";
 export let orders: Doc;
 export let shipment: Doc;
 export let guarded: Doc;
+export let fanout: Doc;
 
 /** Writes the fixture to a temp workspace, so cross-file navigation has files to find. */
 export function useWorkspace(): void {
@@ -118,9 +119,11 @@ export function useWorkspace(): void {
   writeFileSync(join(workspace, "orders.genroc.yaml"), ORDERS);
   writeFileSync(join(workspace, "shipment.genroc.yaml"), SHIPMENT);
   writeFileSync(join(workspace, "guarded.genroc.yaml"), GUARDED);
+  writeFileSync(join(workspace, "fanout.genroc.yaml"), FANOUT);
   orders = { uri: `file://${join(workspace, "orders.genroc.yaml")}`, text: ORDERS };
   shipment = { uri: `file://${join(workspace, "shipment.genroc.yaml")}`, text: SHIPMENT };
   guarded = { uri: `file://${join(workspace, "guarded.genroc.yaml")}`, text: GUARDED };
+  fanout = { uri: `file://${join(workspace, "fanout.genroc.yaml")}`, text: FANOUT };
 }
 
 export class Lsp {

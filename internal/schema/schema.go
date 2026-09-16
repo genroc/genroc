@@ -293,12 +293,23 @@ type Schema struct {
 	// Not part of the schema: dropped by every constructor, never marshalled, never compared.
 	// specs/guard-narrowing.md.
 	guards map[string]guard
+	// vars are lambda parameters bound around the expression about to be typed, shadowing the
+	// context's own roots. Carried like guards, and dropped by navigation for the same reason.
+	// See LambdaVars, which is what produces them.
+	vars map[string]Schema
 }
 
 // WithGuards returns s carrying refinements proved about some of its references. Keys are
 // rendered access paths (`outputs.a.v`), values the narrowed type.
 func (s Schema) WithGuards(narrowed map[string]Schema) Schema {
 	s.guards = seedGuards(narrowed)
+	return s
+}
+
+// WithVars returns s carrying lambda parameter bindings in scope, as if the expression about to
+// be typed were written inside the body that binds them. LambdaVars is what produces them.
+func (s Schema) WithVars(vars map[string]Schema) Schema {
+	s.vars = vars
 	return s
 }
 

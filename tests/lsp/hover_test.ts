@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, expect, test } from "vitest";
-import { at, edit, Lsp, orders, useWorkspace } from "./helpers.ts";
+import { at, edit, fanout, Lsp, orders, useWorkspace } from "./helpers.ts";
 
 // What the server says about the thing under the cursor. `<^text>` puts the cursor inside
 // `text`, which stays — this is reading, not writing.
@@ -191,4 +191,29 @@ test("an optional property with no default is marked absent and types nullable",
     .toBe("`input` → **object{amount, currency?, customer_id}**");
   expect(await lsp.hover(at(`        X-Currency: "\${ input.<^currency> }"`, optional)))
     .toBe("`input.currency` → **string|null**");
+});
+
+// ── a name the expression binds ──────────────────────────────────────────────────
+
+// A lambda parameter is in scope nowhere the SLOT can see — the expression binds it — so hover
+// fell through to the whole `map(...)` on every name inside the body. Reported from an editor.
+test("a lambda parameter types as the element it is bound to", async () => {
+  expect(
+    await lsp.hover(at(`      over: "$: map(input.lines, (<^line>) => { order: line.sku })"`, fanout)),
+  ).toBe("`line` → **object{qty, sku}**");
+});
+
+// It is a path root like any other once bound, so the segments after it must walk.
+test("a member of a lambda parameter types through it", async () => {
+  expect(
+    await lsp.hover(at(`      over: "$: map(input.lines, (line) => { order: line.<^sku> })"`, fanout)),
+  ).toBe("`line.sku` → **string**");
+});
+
+// The map's SOURCE is written in the slot's own scope, not the lambda's. A parameter reaching
+// it would retype a position that has always answered correctly.
+test("the map's source is unaffected by what the lambda binds", async () => {
+  expect(
+    await lsp.hover(at(`      over: "$: map(input.<^lines>, (line) => { order: line.sku })"`, fanout)),
+  ).toBe("`input.lines` → **array<object{qty, sku}>**");
 });

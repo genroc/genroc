@@ -110,7 +110,7 @@ func (s Schema) WithProperty(name string, sub Schema, required bool) Schema {
 	// gains `self` between the base scope and the slot that reads it. Navigation is the case
 	// that must not carry them — it returns a different value, and they are keyed from the
 	// root. specs/guard-narrowing.md.
-	return s.keepingGuards(Schema{n: &n})
+	return s.keepingContext(Schema{n: &n})
 }
 
 // WithDescription returns a copy of s carrying desc as its documentation annotation (root

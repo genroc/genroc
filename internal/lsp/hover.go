@@ -83,7 +83,9 @@ func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, line string, 
 	// `self.previous.count`. Only when it types -- the scan cannot tell a member path from a
 	// word inside a string literal, and an error would replace the answer the reader came for.
 	if symbol, found := symbolUnder(line, col); found && symbol != expr {
-		if t, err := ctx.Infer(symbol); err == nil {
+		// A lambda parameter is bound by the EXPRESSION, not by the slot, so the scope for
+		// this one lookup carries what `map` binds. The whole expression binds its own.
+		if t, err := ctx.WithVars(ctx.LambdaVars(expr)).Infer(symbol); err == nil {
 			return "`" + symbol + "` → **" + t.Summary() + "**"
 		}
 	}
