@@ -1,18 +1,12 @@
 import { createServer, type ServerResponse } from "http";
 import type { AddressInfo } from "net";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import {
-  buildGenrocBinary,
-  startGenroc,
-  tmpPath,
-  type GenrocProcess,
-} from "../helpers/server.ts";
+import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 
 // The sleeping-laptop case over HTTP: tick #1 parks mid-fetch on a blocking mock, /tick
 // advance_ms sleeps past the lease, a concurrent tick #2 wakes and reclaims. Fence half
 // only — Tick has no gate. specs/lease-fencing.md, "The e2e layer".
 
-const PORT = 20051;
 
 // Parks the FIRST request until release() and answers all later ones instantly, so a
 // tick can be held in flight while the test moves the clock under it.
@@ -52,11 +46,9 @@ async function blockingMock() {
 let genroc: GenrocProcess;
 
 beforeAll(async () => {
-  const bin = await buildGenrocBinary();
-  const db = tmpPath("genroc_fence", ".db");
   // poll=0 → manual ticks; max-concurrent 4 so the reclaiming tick is not starved of a
   // slot by the one the parked advance holds.
-  genroc = await startGenroc(bin, PORT, db, undefined, 0, 4, true);
+  genroc = await startGenroc({ db: tmpPath("genroc_fence", ".db"), poll: 0, maxConcurrent: 4, immediateRetries: true });
 }, 60_000);
 
 afterAll(() => genroc?.stop());

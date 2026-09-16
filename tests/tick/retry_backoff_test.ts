@@ -10,8 +10,7 @@ import { expect, test, beforeAll, afterAll } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 import { tick, startMockService } from "../helpers/client.ts";
 
-const PORT = 20044;
-const ctx = useTickEnv(PORT, { immediateRetries: false });
+const ctx = useTickEnv({ immediateRetries: false });
 
 let mock: Awaited<ReturnType<typeof startMockService>>;
 beforeAll(async () => {

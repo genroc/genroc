@@ -1,8 +1,7 @@
-import { spawn, type ChildProcess } from "child_process";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { buildGenrocBinary, tmpPath } from "../helpers/server.ts";
+import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 import { createClientTyped } from "../helpers/client.ts";
 
 // `secret: true` has exactly one job: keep a value out of the server's STDOUT, where an operator
@@ -14,15 +13,13 @@ import { createClientTyped } from "../helpers/client.ts";
 // the whole assertion is about what reaches stdout.
 
 const SECRET = "supersecret-api-key-value";
-const PORT = 14140;
 
-let server: ChildProcess;
+let server: GenrocProcess;
 let stdout = ""; // the server's console stream
 let client: ReturnType<typeof createClientTyped>;
 let mock: { port: number; stop: () => void };
 
 beforeAll(async () => {
-  const bin = await buildGenrocBinary();
   mock = await new Promise((resolve) => {
     const s = createServer((_req, res) => {
       res.writeHead(200, { "content-type": "application/json" });
@@ -33,29 +30,19 @@ beforeAll(async () => {
 
   // stderr, which is where the server's console handler writes (cmd/genroc/main.go). "stdout"
   // here means the operator's console either way -- what matters is that it is not the trail.
-  server = spawn(bin, ["--db", tmpPath("secretlog", ".db"), "--http", `:${PORT}`, "--log", "debug"], {
-    stdio: ["ignore", "ignore", "pipe"],
-    env: { ...process.env, GENROC_GLOBAL_LOG_TOKEN: SECRET },
+  server = await startGenroc({
+    db: tmpPath("secretlog", ".db"),
+    log: "debug",
+    env: { GENROC_GLOBAL_LOG_TOKEN: SECRET },
+    onStderr: (c) => {
+      stdout += c;
+    },
   });
-  server.stderr!.on("data", (c: Buffer) => {
-    stdout += c.toString();
-  });
-  client = createClientTyped({ baseUrl: `http://localhost:${PORT}/api` });
-  // /healthz is root-mounted, so the readiness poll cannot go through the API client.
-  const probe = createClientTyped({ baseUrl: `http://localhost:${PORT}` });
-  for (let i = 0; i < 100; i++) {
-    try {
-      const { error } = await probe.GET("/healthz", {});
-      if (!error) break;
-    } catch {
-      /* not up yet */
-    }
-    await new Promise((r) => setTimeout(r, 100));
-  }
+  client = server.client;
 }, 90_000);
 
-afterAll(() => {
-  server?.kill();
+afterAll(async () => {
+  await server?.stop();
   mock?.stop();
 });
 

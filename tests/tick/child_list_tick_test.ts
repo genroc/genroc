@@ -11,8 +11,7 @@ import { expect, test, beforeAll, afterAll } from "vitest";
 import { startMockService, childrenOfTask } from "../helpers/client.ts";
 import { useTickEnv } from "./helpers.ts";
 
-const PORT = 20040;
-const ctx = useTickEnv(PORT);
+const ctx = useTickEnv();
 
 let doubler: string; // success leaf: {n} -> {doubled: n*2}
 let failWorker: string; // leaf whose REST call always 500s

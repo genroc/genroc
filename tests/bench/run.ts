@@ -259,7 +259,7 @@ async function benchEngine(
     // instances and no earlier one's (see anyWithStatus).
     const since = Date.now();
     // Phase 1 — load. poll=0 ⇒ manual-tick mode: the engine never auto-advances.
-    const loader = await startGenroc(bin, BENCH_PORT, dbPath, dsn, 0, concurrency);
+    const loader = await startGenroc({ bin, port: BENCH_PORT, db: dbPath, pg: dsn, poll: 0, maxConcurrent: concurrency });
     let rootIds: string[];
     try {
       for (const def of DEFS) {
@@ -277,7 +277,7 @@ async function benchEngine(
     }
 
     // Phase 2 — drain. Restart with the normal poll loop and time the work-off.
-    const drainer = await startGenroc(bin, BENCH_PORT, dbPath, dsn, POLL_MS, concurrency);
+    const drainer = await startGenroc({ bin, port: BENCH_PORT, db: dbPath, pg: dsn, poll: POLL_MS, maxConcurrent: concurrency });
     try {
       const start = Date.now();
       await waitDrained(drainer.client, since);

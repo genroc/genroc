@@ -1,15 +1,9 @@
 import { expect, test, beforeAll } from "vitest";
 import { join } from "path";
 import { tmpdir } from "os";
-import { buildGenrocBinary, startGenroc, type GenrocProcess } from "../helpers/server.ts";
+import { startGenroc, type GenrocProcess } from "../helpers/server.ts";
 import { startMockService, tick } from "../helpers/client.ts";
 
-const TICK_PORT = 20013;
-
-let genrocBin: string;
-beforeAll(async () => {
-  genrocBin = await buildGenrocBinary();
-}, 60_000);
 
 async function getStatus(genroc: GenrocProcess, id: string) {
   const { data, error } = await genroc.client.GET("/instances/{id}", {
@@ -26,7 +20,7 @@ async function getStatus(genroc: GenrocProcess, id: string) {
 test("pause between tasks — step2 waits for the resume, then runs exactly once", async () => {
   const processName = `pause_tick_${crypto.randomUUID()}`;
   const db = join(tmpdir(), `genroc_pause_${Date.now()}.db`);
-  const genroc = await startGenroc(genrocBin, TICK_PORT, db, undefined, 0);
+  const genroc = await startGenroc({ db, poll: 0 });
 
   const step1Mock = await startMockService(0, { response: { ok: true } });
   const step2Mock = await startMockService(0, { response: { done: true } });

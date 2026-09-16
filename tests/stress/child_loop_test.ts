@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { buildGenrocBinary, startGenroc, type GenrocProcess } from "../helpers/server.ts";
+import { startGenroc, type GenrocProcess } from "../helpers/server.ts";
 import { listAllInstances } from "../helpers/client.ts";
 
 // A child task RE-ENTERED by a loop, under a real worker fleet.
@@ -41,16 +41,15 @@ describe.runIf(!!DSN)("child task in a loop — worker fleet, postgres", () => {
   let workers: GenrocProcess[] = [];
 
   beforeAll(async () => {
-    const bin = await buildGenrocBinary();
     process.env.GENROC_PG_MAX_OPEN_CONNS = "8";
     // Sequential: the first process runs migrations before any other opens the DB.
     for (let i = 0; i < WORKER_COUNT; i++) {
-      workers.push(await startGenroc(bin, 8960 + i, "", DSN, 5, 5, true));
+      workers.push(await startGenroc({ pg: DSN, poll: 5, maxConcurrent: 5, immediateRetries: true }));
     }
   }, 60_000);
 
-  afterAll(() => {
-    for (const w of workers) w.stop();
+  afterAll(async () => {
+    await Promise.all(workers.map((w) => w.stop()));
     workers = [];
   });
 

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { buildGenrocBinary, startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
+import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
 // specs/api-auth.md §3, §5. The permission split is only real if it is observed over HTTP —
@@ -9,7 +9,6 @@ import { BASE_URL } from "../helpers/constants.ts";
 // This server runs with --auth token, unlike the shared one, so the bootstrap credential is
 // supplied rather than read out of a log.
 
-const PORT = 8954;
 const ADMIN = "genroc_sk_" + "a".repeat(43);
 const dbPath = tmpPath("genroc_auth", ".db");
 let server: GenrocProcess | undefined;
@@ -34,11 +33,10 @@ async function mint(perms: string[], label = perms.join("-")): Promise<string> {
 }
 
 beforeAll(async () => {
-  const bin = await buildGenrocBinary();
   process.env.GENROC_TEST_AUTH = "token";
   process.env.GENROC_TEST_BOOTSTRAP_TOKEN = ADMIN;
-  server = await startGenroc(bin, PORT, dbPath);
-  base = `http://localhost:${PORT}`;
+  server = await startGenroc({ db: dbPath });
+  base = server.baseUrl;
 }, 120_000);
 
 afterAll(async () => {

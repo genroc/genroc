@@ -6,7 +6,7 @@ import { tmpdir } from "os";
 import { load as loadYaml } from "js-yaml";
 import { expect, test, beforeAll } from "vitest";
 import { client, outputsOf, waitForInstance } from "../helpers/client.ts";
-import { buildGenrocBinary, startGenroc } from "../helpers/server.ts";
+import { startGenroc } from "../helpers/server.ts";
 
 // The definition under test is the real example file in examples/order-fulfilment/,
 // applied verbatim — so this doubles as an executable check that the shipped example
@@ -18,16 +18,6 @@ const order: any = loadYaml(readFileSync(new URL("order.genroc.yaml", EXAMPLES),
 
 // The sqlite and postgres vitest projects run this file in parallel and each spawns its
 // own genroc pair, so offset the ports per project to keep them from colliding.
-const PORT_OFFSET = (Number(process.env.GENROC_PORT ?? 8888) - 8888) * 4;
-const SETTLED1_PORT = 20101 + PORT_OFFSET;
-const SETTLED2_PORT = 20102 + PORT_OFFSET;
-const RERUN1_PORT = 20111 + PORT_OFFSET;
-const RERUN2_PORT = 20112 + PORT_OFFSET;
-
-let genrocBin: string;
-beforeAll(async () => {
-  genrocBin = await buildGenrocBinary();
-}, 120_000);
 
 interface CommerceOptions {
   // Never answer the first charge, so the worker can be killed with it in flight.
@@ -221,8 +211,6 @@ test("examples/order-fulfilment: an out-of-stock order never reaches the charge"
 // which the definition catches and routes to `reconcile`.
 async function crashMidCharge(
   mock: Awaited<ReturnType<typeof startCommerceService>>,
-  port1: number,
-  port2: number,
   tag: string,
 ) {
   // A temp SQLite file even under the postgres project: this test is about the example,
@@ -230,7 +218,7 @@ async function crashMidCharge(
   // per-run database to create and drop.
   const db = join(tmpdir(), `genroc_order_${tag}_${Date.now()}.db`);
 
-  const genroc1 = await startGenroc(genrocBin, port1, db);
+  const genroc1 = await startGenroc({ db });
   await applyExample(genroc1.client as ApiClient);
   const orderRef = `ord-${crypto.randomUUID().slice(0, 8)}`;
   const id = await startOrder(mock.port, orderRef, genroc1.client as ApiClient);
@@ -244,15 +232,15 @@ async function crashMidCharge(
   // The charge is in flight and unanswered. This is the crash the example exists for.
   genroc1.crash();
 
-  const genroc2 = await startGenroc(genrocBin, port2, db, undefined, 0);
+  const genroc2 = await startGenroc({ db, poll: 0 });
   // Push past the lease so the second worker may reclaim the row.
   await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
   return {
     id,
     api: genroc2.client as ApiClient,
-    stop: () => {
+    stop: async () => {
       genroc1.crash();
-      genroc2.stop();
+      await genroc2.stop();
     },
   };
 }
@@ -261,7 +249,7 @@ test("examples/order-fulfilment: an interrupted charge that DID land is reconcil
   const mock = await startCommerceService({ hangFirstCharge: true, chargedOnLookup: true });
   let run: Awaited<ReturnType<typeof crashMidCharge>> | undefined;
   try {
-    run = await crashMidCharge(mock, SETTLED1_PORT, SETTLED2_PORT, "settled");
+    run = await crashMidCharge(mock, "settled");
 
     expect(await waitForInstanceTicking(run.id, run.api)).toBe("completed");
 
@@ -285,7 +273,7 @@ test("examples/order-fulfilment: an interrupted charge that did NOT land is deli
   const mock = await startCommerceService({ hangFirstCharge: true, chargedOnLookup: false });
   let run: Awaited<ReturnType<typeof crashMidCharge>> | undefined;
   try {
-    run = await crashMidCharge(mock, RERUN1_PORT, RERUN2_PORT, "rerun");
+    run = await crashMidCharge(mock, "rerun");
 
     expect(await waitForInstanceTicking(run.id, run.api)).toBe("completed");
 

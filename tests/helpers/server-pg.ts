@@ -1,3 +1,4 @@
+import type { TestProject } from "vitest/node";
 import type { GenrocProcess } from "./server.ts";
 import { buildGenrocBinary, startGenroc } from "./server.ts";
 
@@ -7,13 +8,14 @@ const PG_PORT = 8889;
 
 let server: GenrocProcess | null = null;
 
-export async function setup() {
+export async function setup(project: TestProject) {
   const dsn = process.env.POSTGRES_DSN;
   if (!dsn)
     throw new Error("POSTGRES_DSN must be set for the postgres test project");
 
   const bin = await buildGenrocBinary();
-  server = await startGenroc(bin, PG_PORT, "", dsn);
+  project.provide("genrocBin", bin);
+  server = await startGenroc({ bin, port: PG_PORT, pg: dsn });
 }
 
 // Awaited on purpose: the stress project runs as a second vitest invocation right

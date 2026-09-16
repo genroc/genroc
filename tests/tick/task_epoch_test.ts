@@ -18,7 +18,7 @@ import { parkedTask } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 
-const ctx = useTickEnv(20095);
+const ctx = useTickEnv();
 
 type Env = ReturnType<typeof useTickEnv>["env"];
 

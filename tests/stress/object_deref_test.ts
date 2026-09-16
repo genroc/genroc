@@ -2,7 +2,7 @@ import { spawnSync } from "child_process";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { buildGenrocBinary, startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
+import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 
 // Deterministic object-store GC test (SQLite, single server, no chaos).
 //
@@ -21,11 +21,9 @@ import { buildGenrocBinary, startGenroc, tmpPath, type GenrocProcess } from "../
 // a large output whose content changes every round (the input blob plus a monotonic counter from
 // the mock).
 
-const PORT = 8951;
 const BLOB = "B".repeat(12 * 1024); // over the 2 KiB externalization threshold
 const ROUNDS = 8;
 
-let bin = "";
 const dbPath = tmpPath("genroc_obj_deref", ".db");
 let server: GenrocProcess | undefined;
 
@@ -54,18 +52,14 @@ function startCountingMock(rounds: number) {
   };
 }
 
-beforeAll(async () => {
-  bin = await buildGenrocBinary();
-});
-
-afterAll(() => {
-  server?.stop();
+afterAll(async () => {
+  await server?.stop();
 });
 
 test("a released context object is carried by its release mark, and every claim still resolves", async () => {
   const mock = startCountingMock(ROUNDS);
   const mockPort = await mock.listen();
-  server = await startGenroc(bin, PORT, dbPath, undefined, 50 /* poll */, 8 /* max-concurrent */);
+  server = await startGenroc({ db: dbPath, poll: 50, maxConcurrent: 8 });
   const client = server.client;
 
   try {

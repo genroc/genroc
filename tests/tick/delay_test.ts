@@ -6,7 +6,7 @@ import { useTickEnv } from "./helpers.ts";
 // clock advances past the resolved instant. Driven in manual-tick mode with
 // /tick advance_ms. These use the bare-number form of `for` (milliseconds); the
 // literal grammars are covered by internal/delayspec.
-const ctx = useTickEnv(20019);
+const ctx = useTickEnv();
 
 // The `delay_armed` audit rows, oldest first: each carries "<spec> -> <RFC3339 wake>", and
 // its own time is when the delay armed. Rows are flushed off the hot path (logFlushInterval

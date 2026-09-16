@@ -8,7 +8,7 @@ import { tmpdir } from "os";
 import { load as loadYaml } from "js-yaml";
 import { expect, test, beforeAll } from "vitest";
 import { client, outputsOf, waitForInstance } from "../helpers/client.ts";
-import { buildGenrocBinary, startGenroc } from "../helpers/server.ts";
+import { startGenroc } from "../helpers/server.ts";
 
 // The definition under test is the real example file in examples/expense-approval/,
 // applied verbatim — so this doubles as an executable check that the shipped example
@@ -27,13 +27,6 @@ const approval: any = loadYaml(
 // The base must be unique across the WHOLE suite, not just this file: vitest runs files
 // concurrently, and a shared base means the loser talks to the winner's server and fails on
 // state it never created. 20091 belonged to crash_recovery_test first.
-const PORT_OFFSET = (Number(process.env.GENROC_PORT ?? 8888) - 8888) * 4;
-const ESCALATE_PORT = 20121 + PORT_OFFSET;
-
-let genrocBin: string;
-beforeAll(async () => {
-  genrocBin = await buildGenrocBinary();
-}, 120_000);
 
 // startExpenseService stands in for whatever the org uses to notify people and move
 // money. genroc parks the process; it does not deliver the notification.
@@ -232,7 +225,7 @@ test("examples/expense-approval: an unreviewed expense times out, escalates, and
   const db = join(tmpdir(), `genroc_approval_${Date.now()}.db`);
   // --poll 0: /tick is rejected unless the server is in manual mode, and shifting the
   // clock is the only way to expire a 1-hour review window without waiting one.
-  const genroc = await startGenroc(genrocBin, ESCALATE_PORT, db, undefined, 0);
+  const genroc = await startGenroc({ db, poll: 0 });
   const api = genroc.client as ApiClient;
   try {
     await applyExample(api);

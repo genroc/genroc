@@ -4,7 +4,7 @@ import { startMockService } from "../helpers/client.ts";
 
 // Timeout behaviour that needs a controllable clock: deadlines already in the past, re-arm
 // budgets across a retry, and the clock-offset trap. Driven in manual-tick mode.
-const ctx = useTickEnv(20041);
+const ctx = useTickEnv();
 
 const advance = (ms: number) => ctx.env.client.POST("/tick", { body: { advance_ms: ms } });
 

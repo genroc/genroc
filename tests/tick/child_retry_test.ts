@@ -8,8 +8,7 @@ import { startMockService } from "../helpers/client.ts";
 //
 // The unit of evidence throughout is `allChildrenOf(parent, task)`: it is unscoped by epoch
 // and returns one row per ATTEMPT, so "how many times did this slot run" is a length.
-const PORT = 20046;
-const ctx = useTickEnv(PORT);
+const ctx = useTickEnv();
 
 const uid = () => crypto.randomUUID().slice(0, 8);
 

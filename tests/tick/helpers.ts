@@ -1,19 +1,7 @@
 import { beforeAll, afterAll } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import {
-  buildGenrocBinary,
-  startGenroc,
-  tmpPath,
-  type GenrocProcess,
-} from "../helpers/server.ts";
+import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 import { childrenOfTask } from "../helpers/client.ts";
-
-// Cached binary — built once per Vitest worker process.
-let _bin: string | null = null;
-async function getBin(): Promise<string> {
-  if (!_bin) _bin = await buildGenrocBinary();
-  return _bin;
-}
 
 export class TickEnv {
   constructor(private readonly genroc: GenrocProcess) {}
@@ -56,6 +44,10 @@ export class TickEnv {
 
   get client() {
     return this.genroc.client;
+  }
+
+  get baseUrl() {
+    return this.genroc.baseUrl;
   }
 
   // Advance one engine poll cycle. Returns the number of instances processed.
@@ -210,38 +202,42 @@ export class TickEnv {
     return val as string[];
   }
 
-  stop() {
-    this.genroc.stop();
+  stop(): Promise<void> {
+    return this.genroc.stop();
   }
 }
 
-// Registers beforeAll/afterAll to start a fresh tick-mode server on the given port.
-// The returned object is populated before tests run.
-//
-// THE PORT MUST BE UNIQUE ACROSS THE WHOLE SUITE. vitest runs files concurrently, so two
-// files sharing one port start two servers on it: the loser talks to the winner's, sees its
-// instances, and fails intermittently on counts it never created. delay_test and
-// tree_cancel_test shared 20019 that way. Grep before picking one.
+// Registers beforeAll/afterAll to start a fresh tick-mode server for this file, on a port the
+// OS hands out — files run in parallel, and two on one port meant the loser talked to the
+// winner's server and failed on counts it never created. The returned object is populated
+// before tests run.
 //
 // Usage:
-//   const ctx = useTickEnv(20999); // a port no other file uses
+//   const ctx = useTickEnv();
 //   test("...", async () => { await ctx.env.tick(); });
 // Pass immediateRetries: false to keep the real backoff, so a test can advance the clock
 // across a retry timer and observe how long the policy actually parked for.
-export function useTickEnv(port: number, opts: { immediateRetries?: boolean } = {}) {
+export function useTickEnv(opts: { immediateRetries?: boolean } = {}) {
   const ctx = {} as { env: TickEnv };
   const { immediateRetries = true } = opts;
 
   beforeAll(async () => {
-    const bin = await getBin();
-    const db = tmpPath("genroc_tick", ".db");
     // poll=0 → manual tick mode; max-concurrent=1 → one instance per tick (predictable ordering)
     // immediateRetries=true → no backoff, retries are claimable on the very next tick
-    const genroc = await startGenroc(bin, port, db, undefined, 0, 1, immediateRetries);
+    const genroc = await startGenroc({
+      db: tmpPath("genroc_tick", ".db"),
+      poll: 0,
+      maxConcurrent: 1,
+      immediateRetries,
+    });
     ctx.env = new TickEnv(genroc);
   }, 60_000);
 
-  afterAll(() => ctx.env?.stop());
+  // Awaited, or the worker can exit with the server still running: an orphan that holds
+  // its port and keeps answering probes for whichever file lands there next.
+  afterAll(async () => {
+    await ctx.env?.stop();
+  });
 
   return ctx;
 }

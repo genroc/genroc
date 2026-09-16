@@ -12,8 +12,7 @@ import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 import { tick } from "../helpers/client.ts";
 
-const PORT = 20047;
-const ctx = useTickEnv(PORT, { immediateRetries: false });
+const ctx = useTickEnv({ immediateRetries: false });
 
 const MINUTE = 60_000;
 

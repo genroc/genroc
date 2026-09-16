@@ -6,7 +6,7 @@ import { useTickEnv } from "./helpers.ts";
 // no worker held), an outside caller discovers it via GET /external-tasks and submits a
 // result to POST /external-tasks/resolve, and the process resumes. An optional timeout
 // raises a catchable external.timeout. Driven in manual-tick mode.
-const ctx = useTickEnv(20031);
+const ctx = useTickEnv();
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const approvedSchema: any = {

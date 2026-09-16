@@ -4,7 +4,7 @@ import { useTickEnv } from "./helpers.ts";
 // Exercises buffered signals (the push/webhook model): POST /instances/{id}/signal
 // delivers a result to an external task by id — resolving it if armed, else buffering
 // FIFO until the task next arms. Driven in manual-tick mode.
-const ctx = useTickEnv(20032);
+const ctx = useTickEnv();
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const approvedSchema: any = {

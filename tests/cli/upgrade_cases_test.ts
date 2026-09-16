@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { load } from "js-yaml";
 import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
-import { buildGenrocBinary, startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
+import { startGenroc, tmpPath, type GenrocProcess } from "../helpers/server.ts";
 
 /**
  * `genctl upgrade`, asserted as the whole rendered output — the same shape as the compat
@@ -124,13 +124,10 @@ function loadGroup(group: string): UpgradeCase[] {
 }
 
 let genctlBin: string;
-let genrocBin: string;
 let server: GenrocProcess | undefined;
-let port = 8971;
 
 beforeAll(async () => {
   genctlBin = buildGenctlBinary();
-  genrocBin = await buildGenrocBinary();
 }, 90_000);
 
 afterEach(async () => {
@@ -150,9 +147,8 @@ async function runCase(c: UpgradeCase, at?: NonNullable<UpgradeCase["at"]>[numbe
   const refused = at && "refused" in at ? at.refused || undefined : c.refused;
   // Its own server, in manual-tick mode: the case names how many steps the instance has
   // taken, and only a server that takes no step on its own can honour that.
-  const onPort = port++;
-  server = await startGenroc(genrocBin, onPort, tmpPath("upgrade_case", ".db"), undefined, 0, 4);
-  const env = { GENROC_SERVER: `http://localhost:${onPort}` };
+  server = await startGenroc({ db: tmpPath("upgrade_case", ".db"), poll: 0, maxConcurrent: 4 });
+  const env = { GENROC_SERVER: server.baseUrl };
 
   const applied = runCli(genctlBin, ["apply", "-f", writeDefs(c.apply[0].definitions)], env);
   if (!applied.ok) throw new Error(`apply v1 failed for ${c.id}: ${applied.stderr}`);

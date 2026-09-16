@@ -1,10 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import {
-  buildGenrocBinary,
-  startGenroc,
-  startSupervisedWorker,
-  type GenrocProcess,
-} from "../helpers/server.ts";
+import { startGenroc, startSupervisedWorker, type GenrocProcess } from "../helpers/server.ts";
 import { listAllInstances } from "../helpers/client.ts";
 
 // Single-worker lease pressure + crash recovery, on real Postgres processes. Phase 1:
@@ -30,22 +25,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // anything, so a paused instance would be a bug, not a state to wait out.
 const isTerminal = (s?: string) => s === "completed" || s === "failed";
 
-let binPromise: Promise<string> | undefined;
-const genrocBin = () => (binPromise ??= buildGenrocBinary());
-
 describe.runIf(!!DSN)("single-worker lease pressure — postgres", () => {
   let control: GenrocProcess; // --poll 0: serves the API, never advances
   let recovery: GenrocProcess | undefined;
-  let bin = "";
 
   beforeAll(async () => {
-    bin = await genrocBin();
-    control = await startGenroc(bin, 8940, "", DSN, 0 /* poll=0 -> API only */, 1);
+    control = await startGenroc({ pg: DSN, poll: 0 /* API only */, maxConcurrent: 1 });
   }, 60_000);
 
-  afterAll(() => {
-    recovery?.stop();
-    control?.stop();
+  afterAll(async () => {
+    await recovery?.stop();
+    await control?.stop();
   });
 
   test(
@@ -110,7 +100,7 @@ describe.runIf(!!DSN)("single-worker lease pressure — postgres", () => {
       // pool — so advances routinely outlive their leases. Before the fence this
       // configuration was built to die (the overwhelm exit); now the gate repairs what
       // it can and the fence refuses the rest, and the process must simply keep going.
-      const worker = await startSupervisedWorker(bin, 8941, {
+      const worker = await startSupervisedWorker({
         pgDSN: DSN!,
         pollMs: 1,
         maxConcurrent: 500,
@@ -152,7 +142,7 @@ describe.runIf(!!DSN)("single-worker lease pressure — postgres", () => {
 
       // Phase 2: one normal worker recovers everything (a different processor, but
       // still only ever one at a time — no peer can double-advance).
-      recovery = await startGenroc(bin, 8942, "", DSN, 5 /* poll */, 20 /* max-concurrent */);
+      recovery = await startGenroc({ pg: DSN, poll: 5, maxConcurrent: 20 });
 
       const byProcess = (i: { process?: string }) => i.process === processName;
       const deadline = Date.now() + SETTLE_MS;

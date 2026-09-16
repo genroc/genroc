@@ -1,21 +1,8 @@
 import { expect, test, beforeAll } from "vitest";
 import { join } from "path";
 import { tmpdir } from "os";
-import { buildGenrocBinary, startGenroc, type GenrocProcess } from "../helpers/server.ts";
+import { startGenroc, type GenrocProcess } from "../helpers/server.ts";
 import { client, startMockService, waitForInstance, tick, childrenOfTask, listAllInstances } from "../helpers/client.ts";
-
-const TICK_PORT = 20017;
-// Its own constant, not TICK_PORT + n: the offsets landed on 20018 and 20019, which are
-// tick/logs_test.ts and tick/delay_test.ts. Both run *manual-tick* servers, and this file's
-// guard test asserts the opposite mode — so when the lifetimes overlapped, startGenroc's
-// readiness probe was answered by the neighbour's server before it noticed its own process
-// had failed to bind, and /tick was accepted instead of refused.
-const PUMP_GUARD_PORT = 20050;
-
-let genrocBin: string;
-beforeAll(async () => {
-  genrocBin = await buildGenrocBinary();
-}, 60_000);
 
 async function getStatus(genroc: GenrocProcess, id: string) {
   const { data, error } = await genroc.client.GET("/instances/{id}", {
@@ -79,7 +66,7 @@ test("retry failed instance — resumes from the failed task", async () => {
 test("retry on a paused instance — rejected, pointing at resume", async () => {
   const name = `retry_paused_${crypto.randomUUID()}`;
   const db = join(tmpdir(), `genroc_retry_paused_${Date.now()}.db`);
-  const genroc = await startGenroc(genrocBin, TICK_PORT, db, undefined, 0);
+  const genroc = await startGenroc({ db, poll: 0 });
 
   const step1Mock = await startMockService(0, { response: { ok: true } });
   const step2Mock = await startMockService(0, { response: { done: true } });
@@ -333,7 +320,7 @@ test("retry with parallel children — only the failed child re-runs", async () 
 test("tick is rejected when the engine runs the continuous pump", async () => {
   const db = join(tmpdir(), `genroc_tick_guard_${Date.now()}.db`);
   // No poll arg → server uses its default poll interval (continuous mode).
-  const genroc = await startGenroc(genrocBin, PUMP_GUARD_PORT, db);
+  const genroc = await startGenroc({ db });
   try {
     const { error } = await genroc.client.POST("/tick", { body: { advance_ms: 0 } });
     expect(error).toBeDefined();

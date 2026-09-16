@@ -2,12 +2,7 @@ import { spawnSync } from "child_process";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import {
-  buildGenrocBinary,
-  startGenroc,
-  tmpPath,
-  type GenrocProcess,
-} from "../helpers/server.ts";
+import { startGenroc, tmpPath, type GenrocProcess, freePort } from "../helpers/server.ts";
 import { createClientTyped, listAllInstances } from "../helpers/client.ts";
 
 // GC-under-chaos (SQLite, one server crashed/restarted at random). An object is legitimate iff
@@ -21,8 +16,6 @@ import { createClientTyped, listAllInstances } from "../helpers/client.ts";
 const ROOT_COUNT = 8;
 const CHAOS_MS = 6_000;
 const SETTLE_MS = 60_000;
-const PORT = 8950;
-const BASE_URL = `http://localhost:${PORT}`;
 
 // Both comfortably over the 2 KiB externalization threshold so every slot that holds
 // one lands in the object store.
@@ -77,14 +70,16 @@ function startGenMock() {
   };
 }
 
-let bin = "";
+// One port for the file's lifetime: the server is crashed and respawned in place, and `api`
+// has to keep pointing at it across the respawn.
+let port = 0;
 const dbPath = tmpPath("genroc_gc_chaos", ".db");
-const api = createClientTyped({ baseUrl: `${BASE_URL}/api` });
+let api: ReturnType<typeof createClientTyped>;
 let server: GenrocProcess | undefined;
 let mock: ReturnType<typeof startGenMock>;
 let mockPort = 0;
 
-// Spawn a SQLite-backed server on the fixed port with a short lease so a reclaim
+// Spawn a SQLite-backed server on the file's port with a short lease so a reclaim
 // after a crash happens within a couple of seconds. The lease is passed through the
 // env knobs spawnProc already reads, set only across the spawn so no other stress
 // file inherits them.
@@ -96,15 +91,7 @@ async function spawn(): Promise<GenrocProcess> {
   process.env.GENROC_LEASE_DURATION = "2s";
   process.env.GENROC_LEASE_RENEW_INTERVAL = "500ms";
   try {
-    return await startGenroc(
-      bin,
-      PORT,
-      dbPath,
-      undefined,
-      100 /* poll */,
-      32 /* max-concurrent */,
-      true /* immediate retries */,
-    );
+    return await startGenroc({ port, db: dbPath, poll: 100, maxConcurrent: 32, immediateRetries: true });
   } finally {
     const restore = (k: "GENROC_LEASE_DURATION" | "GENROC_LEASE_RENEW_INTERVAL", v?: string) =>
       v === undefined ? delete process.env[k] : (process.env[k] = v);
@@ -114,14 +101,15 @@ async function spawn(): Promise<GenrocProcess> {
 }
 
 beforeAll(async () => {
-  bin = await buildGenrocBinary();
+  port = await freePort();
   mock = startGenMock();
   mockPort = await mock.listen();
   server = await spawn();
+  api = createClientTyped({ baseUrl: `${server.baseUrl}/api` });
 }, 60_000);
 
 afterAll(async () => {
-  server?.stop();
+  await server?.stop();
   await mock?.stop();
 });
 
@@ -275,7 +263,7 @@ test(
 
     // Make sure a server is up (a crash may have landed on the last iteration).
     try {
-      const r = await fetch(`${BASE_URL}/public/openapi.json`);
+      const r = await fetch(`${server!.baseUrl}/public/openapi.json`);
       await r.body?.cancel();
       if (!r.ok) throw new Error("not ok");
     } catch {

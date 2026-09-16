@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { buildGenrocBinary, startGenroc, type GenrocProcess } from "../helpers/server.ts";
+import { startGenroc, type GenrocProcess } from "../helpers/server.ts";
 import { listAllInstances } from "../helpers/client.ts";
 
 // Multi-worker collision stress. Several independent `genroc` processes — each its
@@ -49,7 +49,6 @@ const SETTLE_MS = 60_000;
 interface Backend {
   name: string;
   enabled: boolean;
-  basePort: number;
   pollMs: number;
   db: string; // sqlite file path (shared by all workers); "" for postgres
   pgDSN?: string;
@@ -62,7 +61,6 @@ const backends: Backend[] = [
   {
     name: "postgres",
     enabled: !!DSN,
-    basePort: 8920,
     pollMs: 5,
     db: "",
     pgDSN: DSN,
@@ -77,35 +75,29 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // tree that has stopped being advanced, so it never counts as settled.
 const isTerminal = (s?: string) => s === "completed" || s === "failed";
 
-let binPromise: Promise<string> | undefined;
-const genrocBin = () => (binPromise ??= buildGenrocBinary());
-
 for (const backend of backends) {
   describe.runIf(backend.enabled)(`multi-worker chaos — ${backend.name}`, () => {
     let workers: GenrocProcess[] = [];
 
     beforeAll(async () => {
-      const bin = await genrocBin();
       for (const [k, v] of Object.entries(backend.env ?? {})) process.env[k] = v;
       // Spawn sequentially: the first process runs migrations before any other
       // opens the DB, avoiding a concurrent-migration race on the same file.
       for (let i = 0; i < WORKER_COUNT; i++) {
         workers.push(
-          await startGenroc(
-            bin,
-            backend.basePort + i,
-            backend.db,
-            backend.pgDSN,
-            backend.pollMs,
-            5, // max-concurrent
-            true, // immediate retries (no backoff) — maximise contention
-          ),
+          await startGenroc({
+            db: backend.db,
+            pg: backend.pgDSN,
+            poll: backend.pollMs,
+            maxConcurrent: 5,
+            immediateRetries: true, // no backoff — maximise contention
+          }),
         );
       }
     }, 60_000);
 
-    afterAll(() => {
-      for (const w of workers) w.stop();
+    afterAll(async () => {
+      await Promise.all(workers.map((w) => w.stop()));
       workers = [];
     });
 

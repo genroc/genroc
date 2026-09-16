@@ -14,11 +14,10 @@
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 
-const PORT = 20080;
-useTickEnv(PORT);
+const ctx = useTickEnv();
 
 async function post(body?: unknown) {
-  const res = await fetch(`http://localhost:${PORT}/api/tick`, {
+  const res = await fetch(`${ctx.env.baseUrl}/api/tick`, {
     method: "POST",
     ...(body === undefined
       ? {}

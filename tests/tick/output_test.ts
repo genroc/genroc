@@ -5,7 +5,7 @@ import { useTickEnv } from "./helpers.ts";
 // output from self.previous (recursive, inferred — no schema declared), the
 // switch routes on self.output, and the remapped value is what later tasks and
 // the process output see.
-const ctx = useTickEnv(20021);
+const ctx = useTickEnv();
 
 test("no-action output map drives a counter via self.previous; switch reads self.output", async () => {
   await ctx.env.client.PUT("/definitions", {

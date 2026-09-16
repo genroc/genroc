@@ -2,30 +2,9 @@ import { expect, test, beforeAll, afterAll } from "vitest";
 import { join } from "path";
 import { tmpdir } from "os";
 import { spawnSync } from "child_process";
-import { buildGenrocBinary, startGenroc } from "../helpers/server.ts";
+import { startGenroc } from "../helpers/server.ts";
 import { startMockService, waitForInstance } from "../helpers/client.ts";
 
-// The sqlite and postgres vitest projects run this file in parallel, and both read
-// the global POSTGRES_DSN, so offset the (otherwise fixed) genroc ports per project
-// to keep their own genroc1/genroc2 processes from colliding.
-const PORT_OFFSET = (Number(process.env.GENROC_PORT ?? 8888) - 8888) * 4;
-const GENROC1_PORT = 20011 + PORT_OFFSET;
-const GENROC2_PORT = 20012 + PORT_OFFSET;
-// Second pair, for the pause-crash tests below (they run in the same file but must
-// not reuse the ports above while those servers are still shutting down).
-const PAUSE1_PORT = 20061 + PORT_OFFSET;
-const PAUSE2_PORT = 20062 + PORT_OFFSET;
-// Third and fourth pairs, for the only_once.interrupted recovery tests at the end of
-// the file — same reason as above: never reuse a pair still shutting down.
-const RECOVER1_PORT = 20071 + PORT_OFFSET;
-const RECOVER2_PORT = 20072 + PORT_OFFSET;
-const RERUN1_PORT = 20081 + PORT_OFFSET;
-const RERUN2_PORT = 20082 + PORT_OFFSET;
-// Fifth pair, for the cancel-crash tests -- same rule again.
-const CANCEL1_PORT = 20091 + PORT_OFFSET;
-const CANCEL2_PORT = 20092 + PORT_OFFSET;
-
-let genrocBin: string;
 let crashPgDSN: string | undefined;
 let tempDbName: string | undefined;
 
@@ -36,8 +15,6 @@ function replaceDbName(dsn: string, dbName: string): string {
 }
 
 beforeAll(async () => {
-  genrocBin = await buildGenrocBinary();
-
   const rawDsn = process.env.POSTGRES_DSN;
   if (rawDsn) {
     tempDbName = `genroc_crash_${Date.now()}`;
@@ -79,7 +56,7 @@ test("crash recovery — new worker re-executes an unconfirmed task after the pr
     firstRequestDelayMs: Infinity,
   });
 
-  const genroc1 = await startGenroc(genrocBin, GENROC1_PORT, db, crashPgDSN);
+  const genroc1 = await startGenroc({ db, pg: crashPgDSN });
   try {
     const processName = `crash_recovery_${crypto.randomUUID()}`;
     await genroc1.client.PUT("/definitions", {
@@ -123,7 +100,7 @@ test("crash recovery — new worker re-executes an unconfirmed task after the pr
 
     // Manual-tick mode (--poll 0): /tick is only available when the continuous
     // pump is off, and it lets us drive reclaim deterministically.
-    const genroc2 = await startGenroc(genrocBin, GENROC2_PORT, db, crashPgDSN, 0);
+    const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
     // The engine lease is 10 s. Instead of waiting it out, shift genroc2's
     // clock forward so genroc1's lease is already expired from its view,
     // and tick immediately so it reclaims the instance.
@@ -157,7 +134,7 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
     firstRequestDelayMs: Infinity,
   });
 
-  const genroc1 = await startGenroc(genrocBin, GENROC1_PORT, db, crashPgDSN);
+  const genroc1 = await startGenroc({ db, pg: crashPgDSN });
   try {
     const processName = `crash_only_once_${crypto.randomUUID()}`;
     await genroc1.client.PUT("/definitions", {
@@ -199,7 +176,7 @@ test("crash recovery — an only_once task is failed (not re-executed) after a l
 
     genroc1.crash();
 
-    const genroc2 = await startGenroc(genrocBin, GENROC2_PORT, db, crashPgDSN, 0);
+    const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
     await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
     try {
       const finalStatus = await waitForInstance(
@@ -239,9 +216,9 @@ async function pauseThenCrash(
   mockPort: number,
   onlyOnce: boolean,
   // Optional on_error rules on the held task, plus the tasks they route to.
-  opts: { onError?: unknown[]; extraTasks?: unknown[]; port?: number } = {},
+  opts: { onError?: unknown[]; extraTasks?: unknown[] } = {},
 ) {
-  const genroc1 = await startGenroc(genrocBin, opts.port ?? PAUSE1_PORT, db, crashPgDSN);
+  const genroc1 = await startGenroc({ db, pg: crashPgDSN });
   const { error } = await genroc1.client.PUT("/definitions", {
     body: {
       name: processName,
@@ -296,7 +273,7 @@ test("a pausing instance whose worker crashes is settled to paused by the reclai
     // Crash before the worker can land the pause.
     genroc1.crash();
 
-    const genroc2 = await startGenroc(genrocBin, PAUSE2_PORT, db, crashPgDSN, 0);
+    const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
     try {
       // Expire the dead lease from genroc2's view and let it reclaim.
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
@@ -376,7 +353,7 @@ test("a pausing only_once instance with a handler pauses at the handler and runs
     });
     genroc1.crash();
 
-    const genroc2 = await startGenroc(genrocBin, PAUSE2_PORT, db, crashPgDSN, 0);
+    const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
     try {
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
 
@@ -426,7 +403,7 @@ test("a pausing only_once instance whose worker crashes fails instead of pausing
     });
     genroc1.crash();
 
-    const genroc2 = await startGenroc(genrocBin, PAUSE2_PORT, db, crashPgDSN, 0);
+    const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
     try {
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
 
@@ -460,7 +437,6 @@ test("a cancelling instance whose worker crashes is settled to cancelled by the 
   });
   const name = `cancel_crash_${crypto.randomUUID()}`;
   const { genroc1, instanceId } = await pauseThenCrash(name, db, mock.port, false, {
-    port: CANCEL1_PORT,
   });
 
   try {
@@ -477,7 +453,7 @@ test("a cancelling instance whose worker crashes is settled to cancelled by the 
 
     genroc1.crash(); // before the worker can land it
 
-    const genroc2 = await startGenroc(genrocBin, CANCEL2_PORT, db, crashPgDSN, 0);
+    const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
     try {
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
 
@@ -531,7 +507,6 @@ test("a cancelling only_once instance whose worker crashes cancels rather than r
   const verify = await startMockService(0, { response: { settled: true } });
   const name = `cancel_once_${crypto.randomUUID()}`;
   const { genroc1, instanceId } = await pauseThenCrash(name, db, mock.port, true, {
-    port: CANCEL1_PORT,
     onError: [{ code: ["only_once.interrupted"], goto: "$check" }],
     extraTasks: [
       {
@@ -549,7 +524,7 @@ test("a cancelling only_once instance whose worker crashes cancels rather than r
     });
     genroc1.crash();
 
-    const genroc2 = await startGenroc(genrocBin, CANCEL2_PORT, db, crashPgDSN, 0);
+    const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
     try {
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
 
@@ -592,7 +567,7 @@ test("crash recovery — an interrupted only_once task routes to its on_error ha
   });
   const verify = await startMockService(0, { response: { exists: true } });
 
-  const genroc1 = await startGenroc(genrocBin, RECOVER1_PORT, db, crashPgDSN);
+  const genroc1 = await startGenroc({ db, pg: crashPgDSN });
   try {
     const processName = `crash_route_${crypto.randomUUID()}`;
     await genroc1.client.PUT("/definitions", {
@@ -641,7 +616,7 @@ test("crash recovery — an interrupted only_once task routes to its on_error ha
 
     genroc1.crash();
 
-    const genroc2 = await startGenroc(genrocBin, RECOVER2_PORT, db, crashPgDSN, 0);
+    const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
     try {
       // First tick expires the abandoned lease and routes; the handler runs on the
       // next one, since a routed goto persists and ends the advance.
@@ -681,7 +656,7 @@ test("crash recovery — a handler may deliberately re-run the interrupted task"
   // The system of record says the charge never landed, so the handler sends it again.
   const verify = await startMockService(0, { response: { exists: false } });
 
-  const genroc1 = await startGenroc(genrocBin, RERUN1_PORT, db, crashPgDSN);
+  const genroc1 = await startGenroc({ db, pg: crashPgDSN });
   try {
     const processName = `crash_rerun_${crypto.randomUUID()}`;
     await genroc1.client.PUT("/definitions", {
@@ -740,7 +715,7 @@ test("crash recovery — a handler may deliberately re-run the interrupted task"
 
     genroc1.crash();
 
-    const genroc2 = await startGenroc(genrocBin, RERUN2_PORT, db, crashPgDSN, 0);
+    const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
     try {
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } }); // route
       await genroc2.client.POST("/tick", {}); // verify → back to charge
@@ -779,7 +754,7 @@ async function interruptedRecovery(
   chargeMock: { port: number; firstRequestReceived: Promise<void> },
 ) {
   const processName = `interrupted_${crypto.randomUUID()}`;
-  const genroc1 = await startGenroc(genrocBin, RECOVER1_PORT, db, crashPgDSN);
+  const genroc1 = await startGenroc({ db, pg: crashPgDSN });
   const { error } = await genroc1.client.PUT("/definitions", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     body: { name: processName, tasks } as any,
@@ -799,7 +774,7 @@ async function interruptedRecovery(
   ]);
   genroc1.crash();
 
-  const genroc2 = await startGenroc(genrocBin, RECOVER2_PORT, db, crashPgDSN, 0);
+  const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
   await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
   return {
     instanceId,
@@ -906,7 +881,7 @@ test("crash recovery — a handler may end the process, and its output is still 
   });
 
   const processName = `interrupted_end_${crypto.randomUUID()}`;
-  const genroc1 = await startGenroc(genrocBin, RECOVER1_PORT, db, crashPgDSN);
+  const genroc1 = await startGenroc({ db, pg: crashPgDSN });
   try {
     const { error } = await genroc1.client.PUT("/definitions", {
       body: {
@@ -925,7 +900,7 @@ test("crash recovery — a handler may end the process, and its output is still 
     await charge.firstRequestReceived;
     genroc1.crash();
 
-    const genroc2 = await startGenroc(genrocBin, RECOVER2_PORT, db, crashPgDSN, 0);
+    const genroc2 = await startGenroc({ db, pg: crashPgDSN, poll: 0 });
     try {
       await genroc2.client.POST("/tick", { body: { advance_ms: 12_000 } });
       expect(await waitForInstance(instanceId, 15_000, genroc2.client)).toBe("completed");
