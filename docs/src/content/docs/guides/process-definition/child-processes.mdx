@@ -1,5 +1,6 @@
 ---
 title: Child processes
+description: Learn how to split and reuse process logic.
 order: 5
 ---
 
@@ -17,8 +18,8 @@ Or as a wrapper for some external system, which allows independent versioning.
 Let's define two processes:
 
 ```genroc
-# child.genroc.yaml
-name: child_process
+# greet.genroc.yaml
+name: greet
 input_schema:
   type: object
   properties:
@@ -40,7 +41,7 @@ tasks:
   - id: spawn_child
     action:
       type: child
-      name: child_process
+      name: greet
       input:
         who: world
       result_schema:
@@ -62,7 +63,7 @@ Let's now apply the processes and run the parent.
 
 ```sh
 > genctl apply
-latest: child_process - -> v1 (new)
+latest: greet - -> v1 (new)
 latest: parent_process - -> v1 (new)
 
 > genctl run parent_process
@@ -101,7 +102,7 @@ we have to add `--children` parameter to see all.
 > genctl instances --children
 ID        STATUS     PROCESS            PARENT    UPDATED  CREATED  CODE  ERROR
 3kjfx4vm  completed  parent_process@v1  -         3m ago   3m ago
-02pcayvt  completed  child_process@v1   3kjfx4vm  3m ago   3m ago         
+02pcayvt  completed  greet@v1   3kjfx4vm  3m ago   3m ago         
 ```
 
 ## `child_map` action
@@ -144,7 +145,7 @@ The proerties are the same as single `child`, but instead of `input` we have `ov
 which must be array of inputs.
 
 ```genroc
-name: checkout
+name: greet_all
 input_schema:
   type: array
   items: { type: string }
@@ -153,17 +154,23 @@ tasks:
   - id: prepare
     action:
       type: child_list
-      name: child_process
+      name: greet
+      # mapping into Array<object{who}>
       over: "$: map(input, (name) => { who: name })"
       result_schema:
         type: object
         properties:
           message: { type: string }
         required: [message]
-    output: "$: self.result"
+    output: "$: self.result"    # result: Array<object{message}>
     switch: end
 output:
-  result: "$: outputs.prepare"
+  result: "$: outputs.prepare"¨
 ```
 
 Notice we are using `map` function to create properly shaped array.
+
+The `result_schema` applies to individual item and the results are mapped into array,
+in the same order as the inputs.
+
+## 

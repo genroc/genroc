@@ -98,6 +98,17 @@ Expressions can also compose objects or arrays:
 ["John", "Marie"]     # returns array
 ```
 
+### `map` function
+
+For working with arrays, genroc also supports `map` function.
+It takes an array as a first argument and callback as second.
+In callback you can transform the items into different shapes.
+
+```genroc
+$: map(names, (name) => { who: name })
+# Array<names> -> Array<{who: string}>
+```
+
 ### String template
 
 This is a simple use case: it lets you compose a string value dynamically.
