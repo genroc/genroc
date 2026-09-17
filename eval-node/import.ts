@@ -157,17 +157,6 @@ const propKey = (k: string) => (IDENT.test(k) ? k : JSON.stringify(k));
 const identifier = (n: string) =>
   IDENT.test(n) ? n : `Def_${n.replace(/[^A-Za-z0-9_$]/g, "_")}`;
 
-function deref(
-  s: Schema | undefined,
-  defs: Record<string, Schema>,
-): Schema | undefined {
-  let cur = s;
-  for (let i = 0; cur && typeof cur.$ref === "string" && i < 16; i++) {
-    cur = defs[cur.$ref.replace(/^#\/\$defs\//, "")];
-  }
-  return cur;
-}
-
 /** Emits one named type per reachable $def rather than inlining: a task output may
  *  reference itself (specs/recursive-type-inference.md) and inlining would not terminate. */
 function declarations(at: Located): string {
