@@ -6,12 +6,12 @@ package main
 // string it is. specs/schema-command.md.
 
 import (
-	"path/filepath"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
