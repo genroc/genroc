@@ -62,6 +62,11 @@ expression AST carries no offsets (specs/language-server.md §6), which is also 
 that does not type is DROPPED rather than reported — the scan cannot tell a member path from a
 word inside a string literal, and the leaf's own line answers either way.
 
+**A type goes in a CODE SPAN, never in prose.** A hover is markdown, and `array<string>` in
+it is an unknown HTML tag the renderer drops — the popup read `array`, reported from an editor.
+`mdType` is the one place that wraps it; `TestNoTypeIsRenderedOutsideACodeSpan` sweeps for the
+one that escapes, since asserting the string the server sends cannot see this.
+
 **A lambda parameter is bound by the EXPRESSION, not by the slot.** `map(input, (line) => …)` put
 `line` in scope nowhere `SlotContexts` can see, so hover fell through to the whole call on every
 name in the body — reported from an editor. `ctx.WithVars(ctx.LambdaVars(expr))` is that scope, for

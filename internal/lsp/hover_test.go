@@ -56,21 +56,21 @@ func hoverOf(t *testing.T, text string, line, col int) string {
 
 // The reason to build hover: the type an author is otherwise guessing at.
 func TestHoverOverASymbolTypesThatSymbol(t *testing.T) {
-	if md := hoverOf(t, hoverDoc, 15, 32); md != "`self.result.total` → **number**" {
+	if md := hoverOf(t, hoverDoc, 15, 32); md != "`self.result.total` → `number`" {
 		t.Errorf("got: %s", md)
 	}
 }
 
 // Truncated AT the segment, so walking a path shows each level rather than always the leaf.
 func TestHoverOverAnIntermediateSegmentTypesThePathUpToIt(t *testing.T) {
-	if md := hoverOf(t, hoverDoc, 15, 19); !strings.HasPrefix(md, "`self` → **object{") {
+	if md := hoverOf(t, hoverDoc, 15, 19); !strings.HasPrefix(md, "`self` → `object{") {
 		t.Errorf("got: %s", md)
 	}
 }
 
 // No symbol under the cursor: the expression it sits in is the answer.
 func TestHoverOnAnOperatorTypesTheWholeExpression(t *testing.T) {
-	if md := hoverOf(t, hoverDoc, 15, 36); md != "`self.result.total * 2` → **number**" {
+	if md := hoverOf(t, hoverDoc, 15, 36); md != "`self.result.total * 2` → `number`" {
 		t.Errorf("got: %s", md)
 	}
 }
@@ -79,7 +79,7 @@ func TestHoverOnAnOperatorTypesTheWholeExpression(t *testing.T) {
 // nothing — but the interpolation being written has a type of its own, and a URL is where most
 // expressions in a definition live.
 func TestHoverInsideAnInterpolationTypesThatInterpolation(t *testing.T) {
-	if md := hoverOf(t, hoverDoc, 11, 38); md != "`input.amount` → **number**" {
+	if md := hoverOf(t, hoverDoc, 11, 38); md != "`input.amount` → `number`" {
 		t.Errorf("got: %s", md)
 	}
 }
@@ -123,7 +123,7 @@ func TestHoverOverABrokenExpressionLeavesItToTheDiagnostic(t *testing.T) {
 // A symbol inside it still types, though, and that is what the diagnostic does NOT say.
 func TestHoverStillTypesAWorkingSymbolInsideABrokenExpression(t *testing.T) {
 	broken := strings.Replace(hoverDoc, "self.result.total * 2", "self.result.nope * 2", 1)
-	if md := hoverOf(t, broken, 15, 19); !strings.HasPrefix(md, "`self` → **object{") {
+	if md := hoverOf(t, broken, 15, 19); !strings.HasPrefix(md, "`self` → `object{") {
 		t.Errorf("got: %s", md)
 	}
 }
@@ -272,7 +272,7 @@ func TestHoverOverALambdaParameterTypesTheElement(t *testing.T) {
 		{"on the use in the body", 44},
 	} {
 		t.Run(at.name, func(t *testing.T) {
-			if md := hoverOf(t, lambdaDoc, 13, at.col); md != "`row` → **object{who}**" {
+			if md := hoverOf(t, lambdaDoc, 13, at.col); md != "`row` → `object{who}`" {
 				t.Errorf("got: %s", md)
 			}
 		})
@@ -281,7 +281,7 @@ func TestHoverOverALambdaParameterTypesTheElement(t *testing.T) {
 
 // The parameter is a path root like any other, so the segments after it must walk.
 func TestHoverInsideALambdaBodyWalksThroughTheParameter(t *testing.T) {
-	if md := hoverOf(t, lambdaDoc, 13, 48); md != "`row.who` → **string**" {
+	if md := hoverOf(t, lambdaDoc, 13, 48); md != "`row.who` → `string`" {
 		t.Errorf("got: %s", md)
 	}
 }
@@ -289,7 +289,7 @@ func TestHoverInsideALambdaBodyWalksThroughTheParameter(t *testing.T) {
 // The map's SOURCE is written in the slot's own scope, not the lambda's — a parameter reaching
 // it would retype a position that has always answered correctly.
 func TestHoverOverAMapSourceIsUnaffectedByTheParameter(t *testing.T) {
-	if md := hoverOf(t, lambdaDoc, 13, 22); md != "`input` → **array<object{who}>**" {
+	if md := hoverOf(t, lambdaDoc, 13, 22); md != "`input` → `array<object{who}>`" {
 		t.Errorf("got: %s", md)
 	}
 }
@@ -302,8 +302,41 @@ func TestHoverDoesNotRebindARootAParameterShadows(t *testing.T) {
 	shadowed := strings.Replace(lambdaDoc, "(row) => { to: row.who }", "(input) => { to: input.who }", 1)
 	// Column 22 is the map's source, 30 the binder: `input` either way.
 	for _, col := range []int{22, 30} {
-		if md := hoverOf(t, shadowed, 13, col); md != "`input` → **array<object{who}>**" {
+		if md := hoverOf(t, shadowed, 13, col); md != "`input` → `array<object{who}>`" {
 			t.Errorf("column %d must keep the root's own type, got: %s", col, md)
 		}
 	}
+}
+
+// The answer is MARKDOWN, and `array<string>` in it is bold text followed by an unknown HTML
+// tag: the renderer drops the tag and the popup reads `array`. Every assertion above passed
+// while that was true, because they compare the string the server sends, not what an editor
+// makes of it.
+// A lone `>` is prose — the struct tags are written with `->` — so only `<` is looked for.
+func TestNoTypeIsRenderedOutsideACodeSpan(t *testing.T) {
+	for _, doc := range []string{hoverDoc, lambdaDoc} {
+		lines := strings.Split(doc, "\n")
+		for line, text := range lines {
+			for col := 1; col <= len(text); col++ {
+				md, _, ok := hoverAt(doc, line+1, col)
+				if !ok {
+					continue
+				}
+				if strings.Contains(outsideCodeSpans(md), "<") {
+					t.Errorf("%d:%d is markup an editor eats: %s", line+1, col, md)
+				}
+			}
+		}
+	}
+}
+
+// outsideCodeSpans is the part of a markdown line a renderer reads as markup.
+func outsideCodeSpans(md string) string {
+	var prose strings.Builder
+	for i, part := range strings.Split(md, "`") {
+		if i%2 == 0 {
+			prose.WriteString(part)
+		}
+	}
+	return prose.String()
 }

@@ -18,7 +18,7 @@ afterAll(async () => lsp?.stop());
 test("a member types as itself, not as the expression it sits in", async () => {
   expect(
     await lsp.hover(at(`      charged: "$: self.result.<^total> - (self.result.discount ?? 0)"`)),
-  ).toBe("`self.result.total` → **number**");
+  ).toBe("`self.result.total` → `number`");
 });
 
 // `discount` is optional, so its own type is where the `?? 0` beside it comes from — the
@@ -26,14 +26,14 @@ test("a member types as itself, not as the expression it sits in", async () => {
 test("an optional member is nullable, which the whole expression's type hides", async () => {
   expect(
     await lsp.hover(at(`      charged: "$: self.result.total - (self.result.<^discount> ?? 0)"`)),
-  ).toBe("`self.result.discount` → **number|null**");
+  ).toBe("`self.result.discount` → `number|null`");
 });
 
 // The path is truncated AT the segment hovered, so walking it shows each level's own type.
 test("an intermediate segment types the path up to it", async () => {
   expect(
     await lsp.hover(at(`      charged: "$: self.<^result>.total - (self.result.discount ?? 0)"`)),
-  ).toBe("`self.result` → **object{discount?, total}**");
+  ).toBe("`self.result` → `object{discount?, total}`");
 });
 
 // A `$ref` behind a null arm used to block resolution and read `unknown` — which is what a
@@ -46,14 +46,14 @@ test("a nullable object still describes what it holds", async () => {
   });
   expect(
     await lsp.hover(at(`      charged: "$: (self.<^previous>.charged ?? 0) + self.result.total"`, looping)),
-  ).toBe("`self.previous` → **object{charged}|null**");
+  ).toBe("`self.previous` → `object{charged}|null`");
 });
 
 // No symbol under the cursor: the expression it sits in is the answer.
 test("on an operator, the whole expression is the answer", async () => {
   expect(
     await lsp.hover(at(`      charged: "$: self.result.total <|>- (self.result.discount ?? 0)"`)),
-  ).toBe("`self.result.total - (self.result.discount ?? 0)` → **number**");
+  ).toBe("`self.result.total - (self.result.discount ?? 0)` → `number`");
 });
 
 // A `${ }` inside a longer string types as the string it renders into, so the leaf says
@@ -64,11 +64,11 @@ test("an interpolation inside a url is typed on its own", async () => {
     await lsp.hover(
       at(`      url: "https://api.example.com/price?customer=\${ input.<^customer_id> }"`),
     ),
-  ).toBe("`input.customer_id` → **string**");
+  ).toBe("`input.customer_id` → `string`");
 });
 
 test("a slot reports its own type", async () => {
-  expect(await lsp.hover(at(`    <^output>:`))).toContain("**tasks.price.output** — object{charged}");
+  expect(await lsp.hover(at(`    <^output>:`))).toContain("**tasks.price.output** — `object{charged}`");
 });
 
 // An expression that does not type is left to the DIAGNOSTIC: the editor puts it at the top of
@@ -86,7 +86,7 @@ test("a symbol inside a broken expression is still typed", async () => {
   expect(
     await lsp.hover(at(`      charged: "$: self.result.total - (self.result.<^discount>)"`,
       edit(orders, { " ?? 0": "" }))),
-  ).toBe("`self.result.discount` → **number|null**");
+  ).toBe("`self.result.discount` → `number|null`");
 });
 
 // The scan reads raw text, so it cannot tell a member path from a word inside a string
@@ -96,7 +96,7 @@ test("a word inside a string literal reports no error of its own", async () => {
     'X-Currency: "\${ input.currency }"': `X-Currency: "$: 'EUR'"`,
   });
   expect(await lsp.hover(at(`        X-Currency: "$: '<^EUR>'"`, literal))).toBe(
-    "`'EUR'` → **string**",
+    "`'EUR'` → `string`",
   );
 });
 
@@ -154,7 +154,7 @@ test("every written line of the fixture answers", async () => {
 // the expression evaluates to.
 test("a switch case's expression is typed, not described as a key", async () => {
   expect(await lsp.hover(at(`      - case: "self.output.<^charged> > 1000"`))).toBe(
-    "`self.output.charged` → **number**",
+    "`self.output.charged` → `number`",
   );
 });
 
@@ -177,9 +177,9 @@ test("a defaulted property is not marked absent, matching the type reading it gi
   });
   // The member list and the type of reading it must agree.
   expect(await lsp.hover(at(`      url: "https://api.example.com/price?customer=\${ <^input>.customer_id }"`, defaulted)))
-    .toBe("`input` → **object{amount, currency, customer_id}**");
+    .toBe("`input` → `object{amount, currency, customer_id}`");
   expect(await lsp.hover(at(`        X-Currency: "\${ input.<^currency> }"`, defaulted)))
-    .toBe("`input.currency` → **string**");
+    .toBe("`input.currency` → `string`");
 });
 
 // Without a default it stays optional, and both halves say so.
@@ -188,9 +188,9 @@ test("an optional property with no default is marked absent and types nullable",
     "  required: [customer_id, amount, currency]": "  required: [customer_id, amount]",
   });
   expect(await lsp.hover(at(`      url: "https://api.example.com/price?customer=\${ <^input>.customer_id }"`, optional)))
-    .toBe("`input` → **object{amount, currency?, customer_id}**");
+    .toBe("`input` → `object{amount, currency?, customer_id}`");
   expect(await lsp.hover(at(`        X-Currency: "\${ input.<^currency> }"`, optional)))
-    .toBe("`input.currency` → **string|null**");
+    .toBe("`input.currency` → `string|null`");
 });
 
 // ── a name the expression binds ──────────────────────────────────────────────────
@@ -200,14 +200,14 @@ test("an optional property with no default is marked absent and types nullable",
 test("a lambda parameter types as the element it is bound to", async () => {
   expect(
     await lsp.hover(at(`      over: "$: map(input.lines, (<^line>) => { order: line.sku })"`, fanout)),
-  ).toBe("`line` → **object{qty, sku}**");
+  ).toBe("`line` → `object{qty, sku}`");
 });
 
 // It is a path root like any other once bound, so the segments after it must walk.
 test("a member of a lambda parameter types through it", async () => {
   expect(
     await lsp.hover(at(`      over: "$: map(input.lines, (line) => { order: line.<^sku> })"`, fanout)),
-  ).toBe("`line.sku` → **string**");
+  ).toBe("`line.sku` → `string`");
 });
 
 // The map's SOURCE is written in the slot's own scope, not the lambda's. A parameter reaching
@@ -215,5 +215,5 @@ test("a member of a lambda parameter types through it", async () => {
 test("the map's source is unaffected by what the lambda binds", async () => {
   expect(
     await lsp.hover(at(`      over: "$: map(input.<^lines>, (line) => { order: line.sku })"`, fanout)),
-  ).toBe("`input.lines` → **array<object{qty, sku}>**");
+  ).toBe("`input.lines` → `array<object{qty, sku}>`");
 });

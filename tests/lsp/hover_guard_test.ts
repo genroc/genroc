@@ -19,19 +19,19 @@ afterAll(async () => lsp?.stop());
 
 test("before the null check, the output is nullable", async () => {
   expect(await lsp.hover(at(`      - case: "self.<^output> == null"`, guarded))).toBe(
-    "`self.output` → **object{activated, email}|null**",
+    "`self.output` → `object{activated, email}|null`",
   );
 });
 
 test("the case below the null check reads it narrowed", async () => {
   expect(await lsp.hover(at(`      - case: "self.<^output>.activated"`, guarded))).toBe(
-    "`self.output` → **object{activated, email}**",
+    "`self.output` → `object{activated, email}`",
   );
 });
 
 test("and so the member is a plain boolean, not boolean|null", async () => {
   expect(await lsp.hover(at(`      - case: "self.output.<^activated>"`, guarded))).toBe(
-    "`self.output.activated` → **boolean**",
+    "`self.output.activated` → `boolean`",
   );
 });
 
@@ -39,7 +39,7 @@ test("and so the member is a plain boolean, not boolean|null", async () => {
 
 test("the task the guard routes to reads the proved value", async () => {
   expect(await lsp.hover(at(`        to: "$: outputs.load.<^email>"`, guarded))).toBe(
-    "`outputs.load.email` → **string**",
+    "`outputs.load.email` → `string`",
   );
 });
 
@@ -47,13 +47,13 @@ test("the task the guard routes to reads the proved value", async () => {
 
 test("before the rule above it, the payload is nullable", async () => {
   expect(await lsp.hover(at(`      - case: "error.data.<^retry_after> == null"`, guarded))).toBe(
-    "`error.data.retry_after` → **integer|null**",
+    "`error.data.retry_after` → `integer|null`",
   );
 });
 
 test("the rule below a pure case reads it narrowed", async () => {
   expect(await lsp.hover(at(`      - case: "error.data.<^retry_after> > 0"`, guarded))).toBe(
-    "`error.data.retry_after` → **integer**",
+    "`error.data.retry_after` → `integer`",
   );
 });
 
@@ -62,7 +62,7 @@ test("the rule below a pure case reads it narrowed", async () => {
 // there is that one's own — and it proves the value IS null, the state nothing else covers.
 test("a case's own proof travels the edge it selects", async () => {
   expect(await lsp.hover(at(`      absent: "$: outputs.<^load> == null"`, guarded))).toBe(
-    "`outputs.load` → **null**",
+    "`outputs.load` → `null`",
   );
 });
 
@@ -72,7 +72,7 @@ test("a case's own proof travels the edge it selects", async () => {
 // editor that already showed it proved would be reasoning in a circle.
 test("the rule's own case still reads the payload nullable", async () => {
   expect(await lsp.hover(at(`        case: "error.data.<^wait> != null"`, guarded))).toBe(
-    "`error.data.wait` → **integer|null**",
+    "`error.data.wait` → `integer|null`",
   );
 });
 
@@ -80,7 +80,7 @@ test("the rule's own case still reads the payload nullable", async () => {
 // CAUGHT, and catching means `(code…) && case` held.
 test("the retry delay beside it reads it narrowed", async () => {
   expect(await lsp.hover(at(`          delay: "$: error.data.<^wait>"`, guarded))).toBe(
-    "`error.data.wait` → **integer**",
+    "`error.data.wait` → `integer`",
   );
 });
 
@@ -89,6 +89,6 @@ test("the retry delay beside it reads it narrowed", async () => {
 // message it was written to make safe.
 test("a switch case's panic message reads what its own case proved", async () => {
   expect(await lsp.hover(at(`          message: "already \${ self.output.<^receipt> }"`, guarded))).toBe(
-    "`self.output.receipt` → **string**",
+    "`self.output.receipt` → `string`",
   );
 });

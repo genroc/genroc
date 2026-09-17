@@ -86,7 +86,7 @@ func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, line string, 
 		// A lambda parameter is bound by the EXPRESSION, not by the slot, so the scope for
 		// this one lookup carries what `map` binds. The whole expression binds its own.
 		if t, err := ctx.WithVars(ctx.LambdaVars(expr)).Infer(symbol); err == nil {
-			return "`" + symbol + "` → **" + t.Summary() + "**"
+			return "`" + symbol + "` → " + mdType(t.Summary())
 		}
 	}
 	return typed(ctx, expr)
@@ -103,8 +103,13 @@ func typeOnly(types map[string]schema.Schema, path string) string {
 	if summary == "unknown" {
 		return ""
 	}
-	return "**" + path + "** — " + summary
+	return "**" + path + "** — " + mdType(summary)
 }
+
+// mdType renders a type for a popup. A summary is not markdown: `array<string>` reaches the
+// renderer as `array` followed by an unknown HTML tag, which is dropped — reported from an
+// editor. A code span is literal, so nothing inside one is read as markup.
+func mdType(summary string) string { return "`" + summary + "`" }
 
 // enclosingSlot walks up from a path to the slot whose context governs it: an expression in
 // `tasks.a.action.url` is written in `tasks.a.action`'s scope.
@@ -186,7 +191,7 @@ func typed(ctx schema.Schema, expr string) string {
 	if err != nil {
 		return ""
 	}
-	return "`" + expr + "` → **" + t.Summary() + "**"
+	return "`" + expr + "` → " + mdType(t.Summary())
 }
 
 // symbolUnder returns the member path the cursor is on, truncated AT the segment it is in:
