@@ -23,8 +23,10 @@ import (
 const source = "genroc"
 
 // analyse returns every diagnostic for text, in the order they were found. A file may hold
-// several definitions; each is indexed and analysed on its own.
-func analyse(text string) []diagnostic {
+// several definitions; each is indexed and analysed on its own. path is the document's file on
+// disk, which structural resolution needs to read a directive's relative argument; "" for a
+// buffer that has none.
+func analyse(text, path string) []diagnostic {
 	lines := splitLines(text)
 	docs, err := defdoc.ParseAll([]byte(text))
 	if err != nil {
@@ -39,7 +41,7 @@ func analyse(text string) []diagnostic {
 
 	out := []diagnostic{}
 	for _, doc := range docs {
-		out = append(out, analyseDoc(doc, lines)...)
+		out = append(out, analyseDoc(doc, lines, path)...)
 	}
 	return out
 }
@@ -53,8 +55,15 @@ func decodeLenient(raw []byte, into *model.ProcessDefinition) error {
 	return numeric.Decode(raw, into)
 }
 
-func analyseDoc(doc *defdoc.Doc, lines []string) []diagnostic {
-	raw, err := json.Marshal(doc.Value)
+func analyseDoc(doc *defdoc.Doc, lines []string, path string) []diagnostic {
+	// Ahead of the marshal: the verdict is about the document an apply would see, which is this
+	// one with its structural directives resolved.
+	value, err := resolveStructural(doc, path)
+	if err != nil {
+		return []diagnostic{at(doc, lines, "", "def.resolve", err.Error())}
+	}
+
+	raw, err := json.Marshal(value)
 	if err != nil {
 		return []diagnostic{at(doc, lines, "", "def.structure", err.Error())}
 	}

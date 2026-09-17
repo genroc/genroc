@@ -12,27 +12,10 @@ import (
 	"strings"
 
 	"genroc/internal/defdoc"
-	"genroc/internal/numeric"
+	"genroc/internal/sources"
 
 	"github.com/bmatcuk/doublestar/v4"
 )
-
-// loadSourceDocs keeps the file each document came from: a directive's path resolves against
-// it, and an error has to name it.
-func loadSourceDocs(files []string) ([]sourceDoc, error) {
-	var all []sourceDoc
-	for _, path := range files {
-		docs, err := readFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
-		}
-		all = append(all, docs...)
-	}
-	if len(all) == 0 {
-		return nil, fmt.Errorf("no process definitions found in provided files")
-	}
-	return all, nil
-}
 
 // definitionPaths is the file list a command operates on: `-f`, or `definitions:` in the nearest
 // `.genroc` when no `-f` was given. Files are never taken positionally. `-f` is LITERAL FIRST --
@@ -41,7 +24,7 @@ func loadSourceDocs(files []string) ([]sourceDoc, error) {
 // outright, and one matching nothing is a mistake worth reporting.
 func definitionPaths(files []string) ([]string, error) {
 	if len(files) == 0 {
-		return expandPaths(defaultDefinitionPaths("."))
+		return expandPaths(sources.DefaultDefinitionPaths("."))
 	}
 	return expandFileFlags(files)
 }
@@ -108,17 +91,17 @@ func resolvedDefs(files []string) ([]any, error) {
 
 // resolvedDefsLocated is resolvedDefs keeping the sources, for a caller that will report a
 // failure and can point at the line it was written on.
-func resolvedDefsLocated(files []string) ([]any, []sourceDoc, error) {
-	docs, err := loadSourceDocs(files)
+func resolvedDefsLocated(files []string) ([]any, []sources.Doc, error) {
+	docs, err := sources.LoadDocs(files)
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err := resolveDocs(docs, "build"); err != nil {
+	if _, err := sources.ResolveCode(docs, "build"); err != nil {
 		return nil, nil, err
 	}
 	out := make([]any, len(docs))
 	for i, d := range docs {
-		out[i] = d.doc
+		out[i] = d.Value
 	}
 	return out, docs, nil
 }
@@ -126,18 +109,18 @@ func resolvedDefsLocated(files []string) ([]any, []sourceDoc, error) {
 // locate finds where a slot address was written among the loaded sources: matching on the address
 // rather than on prose means nothing has to parse a message. A missing REQUIRED field has no node
 // of its own, so the search falls back to the shortest enclosing path that does.
-func locate(docs []sourceDoc, address string) (string, defdoc.Span, bool) {
+func locate(docs []sources.Doc, address string) (string, defdoc.Span, bool) {
 	// Exactly one document may claim the address: two that both resolve it are two processes
 	// with the same task id, and pointing at either would be a guess.
 	var file string
 	var span defdoc.Span
 	found := 0
 	for _, d := range docs {
-		if d.index == nil {
+		if d.Index == nil {
 			continue
 		}
-		if sp, ok := d.index.Span(address); ok {
-			file, span, found = d.file, sp, found+1
+		if sp, ok := d.Index.Span(address); ok {
+			file, span, found = d.File, sp, found+1
 		}
 	}
 	if found == 1 {
@@ -147,43 +130,6 @@ func locate(docs []sourceDoc, address string) (string, defdoc.Span, bool) {
 		return locate(docs, parent)
 	}
 	return "", defdoc.Span{}, false
-}
-
-// readFile parses one source file. The parsed position index travels with each document so a
-// failure the server reports by slot address can be printed as a line in this file.
-func readFile(path string) ([]sourceDoc, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	ext := strings.ToLower(filepath.Ext(path))
-	if ext == ".json" {
-		// No index: JSON allows tabs where YAML does not, so it keeps its own decode and
-		// gives up line numbers. A .json definition is generated far more often than written.
-		var doc any
-		if err := numeric.Decode(data, &doc); err != nil {
-			return nil, fmt.Errorf("parse JSON: %w", err)
-		}
-		if arr, ok := doc.([]any); ok {
-			out := make([]sourceDoc, len(arr))
-			for i, d := range arr {
-				out[i] = sourceDoc{doc: d, file: path}
-			}
-			return out, nil
-		}
-		return []sourceDoc{{doc: doc, file: path}}, nil
-	}
-
-	parsed, err := defdoc.ParseAll(data)
-	if err != nil {
-		return nil, fmt.Errorf("parse YAML: %w", err)
-	}
-	docs := make([]sourceDoc, len(parsed))
-	for i, d := range parsed {
-		docs[i] = sourceDoc{doc: d.Value, file: path, index: d}
-	}
-	return docs, nil
 }
 
 // takeFileValues pulls `-f`/`--f` and every following argument up to the next flag into one list,
@@ -225,7 +171,7 @@ func looksLikePath(s string) bool {
 // fatalLocated prints a rejected apply as one line per failing slot, each pointing at the
 // file and line it was written on — the payoff of the address travelling with the diagnostic.
 // A failure with no per-field detail, or a slot no source claims, falls back to the message.
-func fatalLocated(docs []sourceDoc, err error) {
+func fatalLocated(docs []sources.Doc, err error) {
 	var se *serverError
 	if !errors.As(err, &se) || len(se.Fields) == 0 {
 		fatal("%v", err)

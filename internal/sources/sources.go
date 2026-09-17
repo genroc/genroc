@@ -1,4 +1,4 @@
-package main
+package sources
 
 // Source resolution: a definition source file is not a definition. A `$<resolver>: <path>`
 // leaf is replaced by a string a registered binary produces. See
@@ -144,12 +144,12 @@ func defaultDefinitionPaths(dir string) []string {
 // sourceDoc is one definition together with the file it was read from: a directive's path is
 // relative to that file, and several files in one apply may sit in different directories.
 type sourceDoc struct {
-	doc  any
-	file string
+	Value any
+	File  string
 	// index is where each part of doc was written, kept so a diagnostic the server reports by
 	// slot address becomes a line in this file. Nil for a .json source, which keeps its own
 	// decode. specs/language-server.md §3.
-	index *defdoc.Doc
+	Index *defdoc.Doc
 }
 
 // site is one directive occurrence. The exported fields are the manifest's; loc is how
@@ -291,7 +291,7 @@ func findProjectConfig(dir string) (projectConfig, error) {
 func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 	var out []site
 	for i, sd := range docs {
-		name, _ := sd.doc.(map[string]any)["name"].(string)
+		name, _ := sd.Value.(map[string]any)["name"].(string)
 		var walk func(node any, loc []any) error
 		walk = func(node any, loc []any) error {
 			switch v := node.(type) {
@@ -318,25 +318,25 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 				idx, nameKnown, ok := cfg.matchResolver(resolver, argument)
 				if !nameKnown {
 					return fmt.Errorf("%s: %s: no resolver named %q is registered in %s",
-						sd.file, renderPointer(slotPointer(sd.doc, loc)), resolver, projectConfigName)
+						sd.File, renderPointer(slotPointer(sd.Value, loc)), resolver, projectConfigName)
 				}
 				if !ok {
 					return fmt.Errorf("%s: %s: resolver %q accepts %s files, but %q is not one",
-						sd.file, renderPointer(slotPointer(sd.doc, loc)), resolver,
+						sd.File, renderPointer(slotPointer(sd.Value, loc)), resolver,
 						cfg.acceptedBy(resolver), argument)
 				}
 				s := site{
 					Resolver:    resolver,
 					Process:     name,
-					Pointer:     slotPointer(sd.doc, loc),
+					Pointer:     slotPointer(sd.Value, loc),
 					Argument:    argument,
 					loc:         append([]any(nil), loc...),
 					docIdx:      i,
 					resolverIdx: idx,
 				}
-				s.Task = enclosingTaskID(sd.doc, loc)
+				s.Task = enclosingTaskID(sd.Value, loc)
 				s.Level = levelOf(loc)
-				if task := enclosingTask(sd.doc, loc); task != nil && s.Level == levelAction {
+				if task := enclosingTask(sd.Value, loc); task != nil && s.Level == levelAction {
 					action, _ := task["action"].(map[string]any)
 					s.Action, _ = action["type"].(string)
 					s.Child, _ = action["name"].(string)
@@ -345,7 +345,7 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 			}
 			return nil
 		}
-		if err := walk(sd.doc, nil); err != nil {
+		if err := walk(sd.Value, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -450,14 +450,14 @@ func renderPointer(pointer []any) string {
 // splice writes value at the site's slot. It mutates the document in place, which is what
 // lets the placeholder pass and the real pass share one parse.
 func splice(docs []sourceDoc, s site, value any) error {
-	node := docs[s.docIdx].doc
+	node := docs[s.docIdx].Value
 	for i, seg := range s.loc {
 		last := i == len(s.loc)-1
 		switch k := seg.(type) {
 		case string:
 			m, ok := node.(map[string]any)
 			if !ok {
-				return fmt.Errorf("%s: cannot descend into %s", docs[s.docIdx].file, s.Pointer)
+				return fmt.Errorf("%s: cannot descend into %s", docs[s.docIdx].File, s.Pointer)
 			}
 			if last {
 				m[k] = value
@@ -467,7 +467,7 @@ func splice(docs []sourceDoc, s site, value any) error {
 		case int:
 			a, ok := node.([]any)
 			if !ok || k >= len(a) {
-				return fmt.Errorf("%s: cannot descend into %s", docs[s.docIdx].file, s.Pointer)
+				return fmt.Errorf("%s: cannot descend into %s", docs[s.docIdx].File, s.Pointer)
 			}
 			if last {
 				a[k] = value
@@ -476,7 +476,7 @@ func splice(docs []sourceDoc, s site, value any) error {
 			node = a[k]
 		}
 	}
-	return fmt.Errorf("%s: empty pointer", docs[s.docIdx].file)
+	return fmt.Errorf("%s: empty pointer", docs[s.docIdx].File)
 }
 
 // escapeDollars doubles every `$`. Every string leaf is read as a template
@@ -531,7 +531,7 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 	if len(docs) == 0 {
 		return 0, nil
 	}
-	cfg, err := findProjectConfig(filepath.Dir(docs[0].file))
+	cfg, err := findProjectConfig(filepath.Dir(docs[0].File))
 	if err != nil {
 		return 0, err
 	}
@@ -587,7 +587,11 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 			}
 			group[i].Types = types
 		}
-		m := manifest{Mode: mode, Processes: byProcess(schemas, docs, group)}
+		processes, err := byProcess(schemas, docs, group)
+		if err != nil {
+			return 0, err
+		}
+		m := manifest{Mode: mode, Processes: processes}
 		code, err := runResolver(cfg, cfg.Resolvers[idx], m)
 		if err != nil {
 			return 0, err
@@ -618,7 +622,7 @@ func inferSchemas(docs []sourceDoc, sites []site) (map[string]validation.SchemaF
 	for _, sd := range docs {
 		// Keyed off the raw document, like the sites this answers. A definition with no
 		// directive is never typed: one broken file must not stop a project-wide `types`.
-		name, _ := sd.doc.(map[string]any)["name"].(string)
+		name, _ := sd.Value.(map[string]any)["name"].(string)
 		if !needed[name] {
 			continue
 		}
@@ -631,7 +635,7 @@ func inferSchemas(docs []sourceDoc, sites []site) (map[string]validation.SchemaF
 		}
 		sf, err := validation.Generate(def)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %s: %w", sd.file, name, err)
+			return nil, fmt.Errorf("%s: %s: %w", sd.File, name, err)
 		}
 		out[name] = sf
 	}
@@ -644,13 +648,13 @@ func inferSchemas(docs []sourceDoc, sites []site) (map[string]validation.SchemaF
 // decodeDefinition reads one source document as a definition. Non-strict and without
 // Validate: genctl computes the types, the server decides validity (§inferSchemas).
 func decodeDefinition(sd sourceDoc) (*model.ProcessDefinition, error) {
-	raw, err := json.Marshal(sd.doc)
+	raw, err := json.Marshal(sd.Value)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", sd.file, err)
+		return nil, fmt.Errorf("%s: %w", sd.File, err)
 	}
 	var def model.ProcessDefinition
 	if err := numeric.Decode(raw, &def); err != nil {
-		return nil, fmt.Errorf("%s: %w", sd.file, err)
+		return nil, fmt.Errorf("%s: %w", sd.File, err)
 	}
 	return &def, nil
 }
@@ -687,7 +691,7 @@ func framed(address, task string) ([]schema.Segment, error) {
 // byProcess nests the group's sites under the definition they are in, in the order the files
 // were read, and gives each the definitions its own fragments reach — never the whole pool, and
 // never another process's: a `$ref` inside a fragment points into the pool printed beside it.
-func byProcess(schemas map[string]validation.SchemaFile, docs []sourceDoc, group []site) []manifestProcess {
+func byProcess(schemas map[string]validation.SchemaFile, docs []sourceDoc, group []site) ([]manifestProcess, error) {
 	var order []string
 	sites := map[string][]site{}
 	file := map[string]string{}
@@ -696,9 +700,9 @@ func byProcess(schemas map[string]validation.SchemaFile, docs []sourceDoc, group
 			order = append(order, s.Process)
 			// Absolute: definitions in one call come from different directories, so no single
 			// cwd reads them all — and a relative argument is joined to this, not to the cwd.
-			abs, err := filepath.Abs(docs[s.docIdx].file)
+			abs, err := filepath.Abs(docs[s.docIdx].File)
 			if err != nil {
-				abs = docs[s.docIdx].file
+				abs = docs[s.docIdx].File
 			}
 			file[s.Process] = abs
 		}
@@ -718,25 +722,34 @@ func byProcess(schemas map[string]validation.SchemaFile, docs []sourceDoc, group
 			}
 		}
 		if sf, ok := schemas[name]; ok {
-			pool := poolOf(sf)
+			pool, err := poolOf(sf)
+			if err != nil {
+				return nil, err
+			}
 			collapseAliases(pool, fragments...)
-			p.Defs = reachableDefs(pool, fragments...)
+			if p.Defs, err = reachableDefs(pool, fragments...); err != nil {
+				return nil, err
+			}
 		}
 		out = append(out, p)
 	}
-	return out
+	return out, nil
 }
 
 // poolOf renders a process's $defs as the documents they are printed as, so the reachability
 // walk reads refs the same way it does everywhere else.
-func poolOf(sf validation.SchemaFile) map[string]any {
+func poolOf(sf validation.SchemaFile) (map[string]any, error) {
 	pool := map[string]any{}
 	for _, name := range sf.Defs.Names() {
 		if def, ok := sf.Defs.Get(name); ok {
-			pool[name] = schemaDoc(def.WithoutDefs())
+			doc, err := schemaDoc(def.WithoutDefs())
+			if err != nil {
+				return nil, err
+			}
+			pool[name] = doc
 		}
 	}
-	return pool
+	return pool, nil
 }
 
 // siteTypes answers the resolver's request at one site: each address is resolved against the
@@ -777,7 +790,11 @@ func siteTypes(schemas map[string]validation.SchemaFile, want map[string]string,
 		}
 		// As the document it is printed as, without its pool: a `$ref` inside it points into the
 		// `$defs` beside it, and a copy per fragment would repeat most of the answer.
-		out[name] = schemaDoc(at.WithoutDefs())
+		doc, err := schemaDoc(at.WithoutDefs())
+		if err != nil {
+			return nil, err
+		}
+		out[name] = doc
 	}
 	return out, nil
 }

@@ -158,10 +158,13 @@ func (s *Server) set(uri, text string, version *int) {
 	if !isDefinitionURI(uri) {
 		return
 	}
+	// The path, not the URI: a structural directive's argument is relative to the file holding
+	// it. An untitled buffer has none, and analyse says what that costs.
+	path, _ := uriToPath(uri)
 	_ = s.conn.notify("textDocument/publishDiagnostics", publishParams{
 		URI:         uri,
 		Version:     version,
-		Diagnostics: analyse(text),
+		Diagnostics: analyse(text, path),
 	})
 }
 

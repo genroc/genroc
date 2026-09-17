@@ -11,6 +11,14 @@ cannot disagree. Nothing here reimplements a rule, and nothing reads the publish
 Schema, which is a lossy projection of exactly these calls (§5). `TestTheEditorAgreesWithThe
 ServerOnWhatIsRejected` is that claim as a test; a new check belongs on the server side of it.
 
+**Source resolution runs first, and that test cannot see it.** A `<<` spread changes which keys
+a document HAS, so `analyse` runs `sources.ResolveStructuralPass` before the verdict — over a
+DEEP COPY, because positions come from the index beside the document and an injected key has no
+node there. Resolution is the CLIENT's, so editor-agrees-with-server holds while both disagree
+with `apply`: that test compares the two halves that never resolve. `tests/lsp/spread_test.ts`
+is the reference point it lacks. A buffer with no path on disk is analysed unresolved — a
+directive's argument is relative to the file holding it.
+
 ## Four things that are silent when broken
 
 - **Full sync only.** `initialize` advertises `textDocumentSync: 1`, so every change carries
@@ -238,8 +246,8 @@ is addressable twice (physically and logically) and counting paths finds two of 
 
 `workspaceFolders` (or the older `rootUri`) is what a child action's process is resolved
 against. `.genroc`'s `definitions:` answers a different question — which files an `apply`
-deploys, not which exist — and reaching it would mean moving `cmd/genctl`'s project config out
-of `package main` for nothing. specs/language-server.md §4.
+deploys, not which exist. The file IS read now, for one other thing: `internal/sources` reads
+its resolver registry, which is what decides whether a `<<` is legal. specs/language-server.md §4.
 
 Open buffers are searched **before** disk: the file on disk may be older than what the reader
 is looking at, so renaming a process in the editor must not send them to the name it had. The

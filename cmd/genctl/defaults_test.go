@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"genroc/internal/sources"
 )
 
 // `genctl apply` with no paths reads `definitions:` from the nearest .genroc, and resolves it
@@ -19,7 +21,7 @@ func TestDefaultDefinitionPaths_ResolveAgainstTheConfig(t *testing.T) {
 	}
 
 	for _, from := range []string{root, nested} {
-		got := defaultDefinitionPaths(from)
+		got := sources.DefaultDefinitionPaths(from)
 		if len(got) != 1 {
 			t.Fatalf("from %s: got %v, want one path", from, got)
 		}
@@ -30,7 +32,7 @@ func TestDefaultDefinitionPaths_ResolveAgainstTheConfig(t *testing.T) {
 }
 
 func TestDefaultDefinitionPaths_AbsentIsEmpty(t *testing.T) {
-	if got := defaultDefinitionPaths(t.TempDir()); got != nil {
+	if got := sources.DefaultDefinitionPaths(t.TempDir()); got != nil {
 		t.Errorf("got %v with no .genroc; the caller reports that, not this", got)
 	}
 }

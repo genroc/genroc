@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"genroc/internal/sources"
 )
 
 // A directory is refused rather than walked: implicit recursion hides both the depth and the
@@ -189,7 +191,7 @@ func TestCompatDefaultsToTheProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := expandPaths(defaultDefinitionPaths(root))
+	got, err := expandPaths(sources.DefaultDefinitionPaths(root))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,8 +16,8 @@ import (
 	"strings"
 
 	"genroc/internal/model"
-	"genroc/internal/numeric"
 	"genroc/internal/schema"
+	"genroc/internal/sources"
 	"genroc/internal/validation"
 )
 
@@ -133,7 +133,7 @@ func runSchemaViewCmd(v schemaView, args []string) {
 			}
 			s = inferExpr(s, *expr)
 		}
-		printDoc(*asJSON, selfContained(schemaDoc(s)))
+		printDoc(*asJSON, mustSelfContained(mustSchemaDoc(s)))
 		return
 	}
 
@@ -226,26 +226,26 @@ func loadDefinition(files []string, process string) *model.ProcessDefinition {
 		fmt.Fprintln(os.Stderr, "genctl: no files given, and no `definitions:` in .genroc")
 		os.Exit(1)
 	}
-	docs, err := loadSourceDocs(files)
+	docs, err := sources.LoadDocs(files)
 	if err != nil {
 		fatal("%v", err)
 	}
 	// The STRUCTURAL phase only: it changes the types this command reports, so skipping it
 	// would answer about a definition nobody applies. The code phase is skipped on purpose --
 	// it shells out, and a string splice cannot move a type anyway.
-	if cfg, err := findProjectConfig(filepath.Dir(files[0])); err == nil {
-		if _, err := resolveStructuralPass(docs, cfg, nil); err != nil {
+	if cfg, err := sources.FindProjectConfig(filepath.Dir(files[0])); err == nil {
+		if _, err := sources.ResolveStructuralPass(docs, cfg, nil); err != nil {
 			fatal("%v", err)
 		}
 	}
 	var names []string
 	for _, sd := range docs {
-		name, _ := sd.doc.(map[string]any)["name"].(string)
+		name, _ := sd.Value.(map[string]any)["name"].(string)
 		if name != process {
 			names = append(names, name)
 			continue
 		}
-		def, err := decodeDefinition(sd)
+		def, err := sources.DecodeDefinition(sd)
 		if err != nil {
 			fatal("%v", err)
 		}
@@ -256,213 +256,16 @@ func loadDefinition(files []string, process string) *model.ProcessDefinition {
 	return nil
 }
 
-// schemaDoc renders one schema as the JSON document it is, `$defs` included — a Schema carries
-// its pool, which is what makes an answer self-contained before it is narrowed.
-func schemaDoc(s schema.Schema) map[string]any {
-	raw, err := json.Marshal(s)
-	if err != nil {
-		fatal("render schema: %v", err)
-	}
-	var doc map[string]any
-	// numeric.Decode, not json.Unmarshal: a schema carries `default`, and a default is a literal
-	// someone wrote. specs/number-precision.md.
-	if err := numeric.Decode(raw, &doc); err != nil {
-		fatal("render schema: %v", err)
-	}
-	return doc
-}
-
-// selfContained narrows `$defs` to what the document's refs actually reach, so what is printed
-// can be piped into a generator whole. Refs BETWEEN definitions are followed, which is what
-// keeps a task output that references itself resolvable.
-func selfContained(doc map[string]any) map[string]any {
-	// The pool travels with every arm of a union, not only with the root, so it is collected
-	// from wherever it sits and printed once — three copies of the same definitions is not a
-	// document anyone wants to read or pipe.
-	pool := map[string]any{}
-	body, _ := hoistDefs(doc, pool).(map[string]any)
-	if len(pool) == 0 {
-		return body
-	}
-
-	collapseAliases(pool, body)
-	if kept := reachableDefs(pool, body); len(kept) > 0 {
-		body["$defs"] = kept
-	}
-	return body
-}
-
-// reachableDefs is the subset of pool that from can reach, following refs between definitions —
-// which is what keeps a task output that references itself resolvable. Shared with the resolver
-// manifest, which narrows a process's pool to what its sites' fragments name.
-func reachableDefs(pool map[string]any, from ...any) map[string]any {
-	want := map[string]bool{}
-	for _, v := range from {
-		collectRefs(v, want)
-	}
-	kept := map[string]any{}
-	for {
-		next := ""
-		for name := range want {
-			if _, done := kept[name]; !done {
-				next = name
-				break
-			}
-		}
-		if next == "" {
-			return kept
-		}
-		def, ok := pool[next]
-		if !ok {
-			// A ref with no definition is a bug upstream, not something to hide by dropping it.
-			fatal("schema references $defs/%s, which the pool does not carry", next)
-		}
-		kept[next] = def
-		collectRefs(def, want)
-	}
-}
-
-// collapseAliases rewrites a ref to an alias-only definition — one whose whole document is a
-// `$ref` — as a ref to what it names, and drops it: inference declares `<id>_output` for every
-// task, and where the output simply IS another definition the leftover says nothing. pool and docs
-// are rewritten IN PLACE, and docs must be EVERY document that can reference the pool.
-func collapseAliases(pool map[string]any, docs ...any) {
-	alias := map[string]string{}
-	for name, def := range pool {
-		if to, ok := soleRef(def); ok {
-			if _, defined := pool[to]; defined {
-				alias[name] = to
-			}
-		}
-	}
-	final := map[string]string{}
-	for name := range alias {
-		if to, ok := chaseAlias(alias, name); ok {
-			final[name] = to
-		}
-	}
-	if len(final) == 0 {
-		return
-	}
-	for _, doc := range docs {
-		rewriteRefs(doc, final)
-	}
-	for _, def := range pool {
-		rewriteRefs(def, final)
-	}
-	for name := range final {
-		delete(pool, name)
-	}
-}
-
-// soleRef is the name a document points at when that is ALL it is: a `$ref` beside a
-// `description` still carries something the ref does not.
-func soleRef(v any) (string, bool) {
-	doc, ok := v.(map[string]any)
-	if !ok || len(doc) != 1 {
-		return "", false
-	}
-	ref, ok := doc["$ref"].(string)
-	if !ok {
-		return "", false
-	}
-	return strings.CutPrefix(ref, "#/$defs/")
-}
-
-// chaseAlias follows an alias to the definition that is not one. A cycle of aliases names no
-// type at all, so it is left exactly as it is rather than collapsed to an arbitrary member.
-func chaseAlias(alias map[string]string, name string) (string, bool) {
-	// One probe per alias, plus the one that finds the target is not itself an alias.
-	to := name
-	for range len(alias) + 1 {
-		next, ok := alias[to]
-		if !ok {
-			return to, to != name
-		}
-		to = next
-	}
-	return "", false
-}
-
-func rewriteRefs(v any, alias map[string]string) {
-	switch t := v.(type) {
-	case map[string]any:
-		for k, sub := range t {
-			if k == "$ref" {
-				if ref, ok := sub.(string); ok {
-					if name, ok := strings.CutPrefix(ref, "#/$defs/"); ok {
-						if to, ok := alias[name]; ok {
-							t[k] = "#/$defs/" + to
-						}
-					}
-				}
-				continue
-			}
-			rewriteRefs(sub, alias)
-		}
-	case []any:
-		for _, e := range t {
-			rewriteRefs(e, alias)
-		}
-	}
-}
-
-// hoistDefs returns v with every `$defs` removed, merging them into pool. The pool is one
-// object shared by every level, so merging cannot lose a definition.
-func hoistDefs(v any, pool map[string]any) any {
-	switch node := v.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(node))
-		for k, sub := range node {
-			if k == "$defs" {
-				defs, _ := sub.(map[string]any)
-				maps.Copy(pool, defs)
-				continue
-			}
-			out[k] = hoistDefs(sub, pool)
-		}
-		return out
-	case []any:
-		out := make([]any, len(node))
-		for i, sub := range node {
-			out[i] = hoistDefs(sub, pool)
-		}
-		return out
-	}
-	return v
-}
-
-func collectRefs(v any, out map[string]bool) {
-	switch t := v.(type) {
-	case map[string]any:
-		for k, val := range t {
-			if k == "$ref" {
-				if s, ok := val.(string); ok {
-					if name, ok := strings.CutPrefix(s, "#/$defs/"); ok {
-						out[name] = true
-					}
-				}
-				continue
-			}
-			collectRefs(val, out)
-		}
-	case []any:
-		for _, e := range t {
-			collectRefs(e, out)
-		}
-	}
-}
-
 // listing is every slot keyed by its address, over one shared pool: the same schema appears at
 // several addresses, so a pool per entry would repeat most of the answer.
 func listing(slots map[string]schema.Schema) map[string]any {
 	out := map[string]any{}
 	for address, s := range slots {
-		out[address] = schemaDoc(s)
+		out[address] = mustSchemaDoc(s)
 	}
 	// selfContained hoists every entry's pool into one at the root — the same schema appears at
 	// several addresses, so a pool per entry would repeat most of the answer.
-	return selfContained(out)
+	return mustSelfContained(out)
 }
 
 // printInScope is the human answer: one line per slot naming what it can read. The schemas
@@ -607,3 +410,22 @@ func printJSON(v any) {
 // printYAML is the default for a schema: it is the language definitions are written in, so an
 // answer can be pasted into one, and it spends no lines on punctuation.
 func printYAML(v any) { printYAMLDoc(v, schema.KeywordOrder()) }
+
+// The CLI's answer to a render failure is what it always was -- exit with the message. The
+// library returns an error instead because the language server shares this code and a
+// library that exits takes the editor's session with it.
+func mustSchemaDoc(s schema.Schema) map[string]any {
+	doc, err := sources.SchemaDoc(s)
+	if err != nil {
+		fatal("%v", err)
+	}
+	return doc
+}
+
+func mustSelfContained(doc map[string]any) map[string]any {
+	out, err := sources.SelfContained(doc)
+	if err != nil {
+		fatal("%v", err)
+	}
+	return out
+}

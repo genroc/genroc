@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"genroc/internal/sources"
 )
 
 // parseSelector turns one --from/--to's repeated values into the API selector: EITHER one
@@ -123,7 +125,7 @@ func runCompatCmd(server string, args []string) {
 	// the question worth asking before an apply -- does what I have here break what is running?
 	// Only when no other side was named, so it cannot hijack a stored-versus-stored comparison.
 	if len(files) == 0 && len(fromFlag) > 0 && len(toFlag) == 0 && len(pos) == 0 {
-		expanded, err := expandPaths(defaultDefinitionPaths("."))
+		expanded, err := expandPaths(sources.DefaultDefinitionPaths("."))
 		if err != nil {
 			fatal("%v", err)
 		}

@@ -1,4 +1,4 @@
-package main
+package sources
 
 // The structural phase: a resolver that may change what the typechecker sees, run before
 // validation. specs/source-resolution.md §The two phases and §`$process`.
@@ -35,15 +35,15 @@ func resolveStructuralPass(docs []sourceDoc, cfg projectConfig, stack []string) 
 		rc := cfg.Resolvers[s.resolverIdx]
 		if rc.Name != builtinProcess || len(rc.Command) > 0 {
 			return 0, fmt.Errorf("%s: %s: structural resolver %q is not implemented - only the "+
-				"built-in %q runs today", docs[s.docIdx].file, s.Pointer, rc.Name, builtinProcess)
+				"built-in %q runs today", docs[s.docIdx].File, s.Pointer, rc.Name, builtinProcess)
 		}
-		here, err := filepath.Abs(docs[s.docIdx].file)
+		here, err := filepath.Abs(docs[s.docIdx].File)
 		if err != nil {
 			return 0, err
 		}
-		value, err := resolveProcessDirective(docs[s.docIdx].file, s.Argument, append(stack, here))
+		value, err := resolveProcessDirective(docs[s.docIdx].File, s.Argument, append(stack, here))
 		if err != nil {
-			return 0, fmt.Errorf("%s: %s: %w", docs[s.docIdx].file, s.Pointer, err)
+			return 0, fmt.Errorf("%s: %s: %w", docs[s.docIdx].File, s.Pointer, err)
 		}
 		if err := applyStructural(docs, s, value); err != nil {
 			return 0, err
@@ -76,19 +76,19 @@ func applyStructural(docs []sourceDoc, s site, value map[string]any) error {
 
 // containerOf returns the mapping a spread site sits in.
 func containerOf(docs []sourceDoc, s site) (map[string]any, error) {
-	node := docs[s.docIdx].doc
+	node := docs[s.docIdx].Value
 	for _, seg := range s.loc[:len(s.loc)-1] {
 		switch k := seg.(type) {
 		case string:
 			m, ok := node.(map[string]any)
 			if !ok {
-				return nil, fmt.Errorf("%s: cannot descend into %s", docs[s.docIdx].file, s.Pointer)
+				return nil, fmt.Errorf("%s: cannot descend into %s", docs[s.docIdx].File, s.Pointer)
 			}
 			node = m[k]
 		case int:
 			a, ok := node.([]any)
 			if !ok || k >= len(a) {
-				return nil, fmt.Errorf("%s: cannot descend into %s", docs[s.docIdx].file, s.Pointer)
+				return nil, fmt.Errorf("%s: cannot descend into %s", docs[s.docIdx].File, s.Pointer)
 			}
 			node = a[k]
 		}
@@ -96,7 +96,7 @@ func containerOf(docs []sourceDoc, s site) (map[string]any, error) {
 	m, ok := node.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("%s: %s: `%s` is only a spread inside a mapping",
-			docs[s.docIdx].file, s.Pointer, defdoc.MergeKey)
+			docs[s.docIdx].File, s.Pointer, defdoc.MergeKey)
 	}
 	return m, nil
 }
@@ -181,29 +181,33 @@ func selfContainedSchema(s schema.Schema, pool schema.Defs) (any, error) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return nil, err
 	}
-	return unwrapRootRef(selfContained(doc)), nil
+	contained, err := selfContained(doc)
+	if err != nil {
+		return nil, err
+	}
+	return unwrapRootRef(contained)
 }
 
 // unwrapRootRef replaces a document that is nothing but `$ref` with the definition it names,
 // where that definition does not reach itself. The indirection is inference's -- every process
 // output is stored as a ref (validation.Generate) -- and carrying it into a `result_schema`
 // would make every spread read as a pointer to a type instead of as the type.
-func unwrapRootRef(doc map[string]any) map[string]any {
+func unwrapRootRef(doc map[string]any) (map[string]any, error) {
 	ref, ok := doc["$ref"].(string)
 	if !ok || len(doc) > 2 {
-		return doc
+		return doc, nil
 	}
 	defs, _ := doc["$defs"].(map[string]any)
 	name := strings.TrimPrefix(ref, "#/$defs/")
 	body, ok := defs[name].(map[string]any)
 	if !ok {
-		return doc
+		return doc, nil
 	}
 	// Reachable from itself means the ref is load-bearing: a recursive type has to keep a name.
 	inner := map[string]bool{}
 	collectRefs(body, inner)
 	if inner[name] {
-		return doc
+		return doc, nil
 	}
 	out := map[string]any{}
 	for k, v := range body {
@@ -215,8 +219,12 @@ func unwrapRootRef(doc map[string]any) map[string]any {
 			rest[k] = v
 		}
 	}
-	if kept := reachableDefs(rest, out); len(kept) > 0 {
+	kept, err := reachableDefs(rest, out)
+	if err != nil {
+		return nil, err
+	}
+	if len(kept) > 0 {
 		out["$defs"] = kept
 	}
-	return out
+	return out, nil
 }

@@ -13,6 +13,7 @@ import (
 
 	"genroc/internal/model"
 	"genroc/internal/numeric"
+	"genroc/internal/sources"
 )
 
 func runApplyCmd(server string, args []string) {
@@ -127,11 +128,11 @@ func runTypesCmd(args []string) {
 		os.Exit(1)
 	}
 
-	docs, err := loadSourceDocs(files)
+	docs, err := sources.LoadDocs(files)
 	if err != nil {
 		fatal("%v", err)
 	}
-	n, err := resolveDocs(docs, "types")
+	n, err := sources.ResolveCode(docs, "types")
 	if err != nil {
 		fatal("%v", err)
 	}

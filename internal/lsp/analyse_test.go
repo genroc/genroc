@@ -13,7 +13,7 @@ import (
 
 func only(t *testing.T, text string) diagnostic {
 	t.Helper()
-	ds := analyse(text)
+	ds := analyse(text, "")
 	if len(ds) != 1 {
 		t.Fatalf("want one diagnostic, got %d: %+v", len(ds), ds)
 	}
@@ -21,7 +21,7 @@ func only(t *testing.T, text string) diagnostic {
 }
 
 func TestAValidDefinitionHasNoDiagnostics(t *testing.T) {
-	if ds := analyse(valid); len(ds) != 0 {
+	if ds := analyse(valid, ""); len(ds) != 0 {
 		t.Fatalf("a definition genroc accepts must underline nothing, got %+v", ds)
 	}
 }
@@ -75,9 +75,9 @@ func TestASyntaxErrorIsReportedOnItsOwnLine(t *testing.T) {
 }
 
 func TestEveryBrokenSlotIsUnderlinedNotJustTheFirst(t *testing.T) {
-	ds := analyse("name: demo\ntasks:\n" +
-		"  - id: a\n    action:\n      type: fetch\n      method: post\n      url: \"$: nope.x\"\n    switch: next\n" +
-		"  - id: b\n    action:\n      type: fetch\n      method: post\n      url: \"$: alsonope.y\"\n    switch: end\n")
+	ds := analyse("name: demo\ntasks:\n"+
+		"  - id: a\n    action:\n      type: fetch\n      method: post\n      url: \"$: nope.x\"\n    switch: next\n"+
+		"  - id: b\n    action:\n      type: fetch\n      method: post\n      url: \"$: alsonope.y\"\n    switch: end\n", "")
 	if len(ds) != 2 {
 		t.Fatalf("two broken slots, got %d: %+v", len(ds), ds)
 	}
@@ -89,7 +89,7 @@ func TestEveryBrokenSlotIsUnderlinedNotJustTheFirst(t *testing.T) {
 // A `.genroc.yaml` may hold several definitions; each is indexed on its own, so a position in
 // the second is not read out of the first's index.
 func TestEachDocumentInAMultiDocumentFileIsAnalysed(t *testing.T) {
-	ds := analyse(valid + "---\n" + "name: other\ntasks:\n  - id: z\n    action:\n      type: fetch\n      method: post\n      url: \"$: nope.x\"\n    switch: end\n")
+	ds := analyse(valid+"---\n"+"name: other\ntasks:\n  - id: z\n    action:\n      type: fetch\n      method: post\n      url: \"$: nope.x\"\n    switch: end\n", "")
 	if len(ds) != 1 {
 		t.Fatalf("the second document is broken and the first is not, got %d: %+v", len(ds), ds)
 	}
@@ -135,9 +135,9 @@ func TestTheEditorAgreesWithTheServerOnWhatIsRejected(t *testing.T) {
 		{"a raise with a misspelled key", "name: demo\ntasks:\n  - id: a\n    switch:\n      - raise:\n          code: c\n          mesage: m\n"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			if serverRefuses(t, c.text) != (len(analyse(c.text)) > 0) {
+			if serverRefuses(t, c.text) != (len(analyse(c.text, "")) > 0) {
 				t.Errorf("the editor and the server disagree: server refuses = %v, "+
-					"diagnostics = %+v", serverRefuses(t, c.text), analyse(c.text))
+					"diagnostics = %+v", serverRefuses(t, c.text), analyse(c.text, ""))
 			}
 		})
 	}
