@@ -35,6 +35,20 @@
           "**/*.genroc.yml"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "yaml",
+        "filenames": [
+          ".genroc"
+        ]
+      }
+    ],
+    "yamlValidation": [
+      {
+        "fileMatch": [
+          "/.genroc"
+        ],
+        "url": "./schemas/genroc-config.json"
       }
     ],
     "grammars": [

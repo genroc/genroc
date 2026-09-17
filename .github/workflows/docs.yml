@@ -34,9 +34,10 @@ jobs:
           node-version: "24"
           cache: pnpm
 
-      # Into docs/public/, so the built site serves it at /process-schema.json. Must run
+      # Into docs/public/, so the built site serves /process-schema.json and
+      # /config-schema.json. Must run
       # before the Astro build — public/ is copied into dist/ at build time.
-      - name: Generate process-schema.json
+      - name: Generate the published schemas
         run: make docs-schema
 
       - name: Build site

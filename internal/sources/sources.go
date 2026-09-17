@@ -55,34 +55,37 @@ func builtins() []resolverConfig {
 	}}
 }
 
+// The `json` tags exist for defschema.Config, which reflects this struct into the schema an
+// editor validates `.genroc` against; yaml.v3 ignores them. A name must be spelled the same in
+// both or the editor and the reader disagree about a key -- TestConfigTagsAgree holds them to it.
 type resolverConfig struct {
-	Name string `yaml:"name"`
+	Name string `yaml:"name" json:"name" description:"What a directive names: \"$<name>: <argument>\"."`
 	// Phase is "code" or "structural" -- what the resolver MAY do, never what it contains.
 	// specs/source-resolution.md §The two phases.
-	Phase string `yaml:"phase"`
+	Phase string `yaml:"phase" json:"phase" enum:"code,structural" description:"What the resolver may do. \"code\" fills a slot with text, shelling out to command; \"structural\" may change which keys a document has, and only the built-in \"process\" does."`
 	// Ext is a list of accepted SUFFIXES, not extensions: `.genroc.yaml` has to be
 	// expressible and filepath.Ext answers `.yaml` for it. Empty accepts anything.
-	Ext []string `yaml:"ext"`
+	Ext []string `yaml:"ext" json:"ext,omitempty" description:"Argument suffixes this resolver accepts (\".ts\", \".genroc.yaml\"). Whole suffixes, not extensions; empty accepts anything."`
 	// Command is absent exactly for a built-in, which runs inside genctl. A file entry
 	// without one is refused when the config is read.
-	Command []string `yaml:"command"`
+	Command []string `yaml:"command" json:"command" description:"The resolver binary and its arguments, run from this file's directory with the manifest on stdin."`
 	// Types is what this resolver wants typed, as name → address, and it is the whole reason
 	// genctl no longer decides: a toolchain knows which slot its runtime binds, genroc does
 	// not. Addresses are `genctl schema type`'s, RELATIVE to the task the directive sits in —
 	// `input.input` is the argument an evaluator binds out of the action's input. Absent means
 	// the resolver wants none.
-	Types map[string]string `yaml:"types"`
+	Types map[string]string `yaml:"types" json:"types,omitempty" description:"Declarations the resolver wants generated, as name to address: a genctl schema type address, relative to the task the directive sits in, e.g. task.action.input.input."`
 }
 
 type projectConfig struct {
-	Root string `yaml:"-"`
+	Root string `yaml:"-" json:"-"`
 	// Definitions is what `genctl apply|validate|types` reads when given no paths. Entries are
 	// files, directories (walked) or globs, resolved against the config's own directory -- so
 	// the command works the same from anywhere in the project.
-	Definitions []string `yaml:"definitions"`
+	Definitions []string `yaml:"definitions" json:"definitions,omitempty" description:"What genctl apply, types and schema read when given no -f: files or globs (** matches any depth), resolved against this file."`
 	// Resolvers is ORDERED and taken first-match on (name, suffix) -- which is what makes
 	// overriding a built-in need no rule of its own, since builtins() is appended last.
-	Resolvers []resolverConfig `yaml:"resolvers"`
+	Resolvers []resolverConfig `yaml:"resolvers" json:"resolvers,omitempty" description:"Source resolvers, tried in order and taken first-match on name and suffix; the built-in \"process\" is appended last, so listing one under that name overrides it."`
 }
 
 // matchResolver returns the first entry accepting this name and argument. nameKnown separates

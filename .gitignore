@@ -27,6 +27,7 @@
 *.swp
 openapi.json
 /docs/public/process-schema.json
+/docs/public/config-schema.json
 tests/generated/
 /node_modules/
 tests/node_modules/
@@ -47,5 +48,6 @@ examples/ui/data/
 # VS Code extension build output
 /editors/vscode/dist/
 /editors/vscode/bin/
+/editors/vscode/schemas/
 /editors/vscode/node_modules/
 /editors/vscode/*.vsix

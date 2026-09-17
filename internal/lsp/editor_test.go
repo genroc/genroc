@@ -6,6 +6,7 @@ import (
 	_ "image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -158,5 +159,65 @@ func TestTheExtensionShipsTheIconItDeclares(t *testing.T) {
 	}
 	if cfg.Width < 128 || cfg.Height < 128 {
 		t.Errorf("%s is %dx%d; the marketplace minimum is 128x128", pkg.Icon, cfg.Width, cfg.Height)
+	}
+}
+
+// `.genroc` is YAML, and the extension says so -- with the YAML extension present, that is also
+// what attaches the schema `make extension` generates. Three things are silent when broken: an
+// association on the wrong language id, a `yamlValidation` url naming a file the build does not
+// write, and a `.vscodeignore` that drops it from the .vsix.
+func TestTheExtensionAssociatesTheProjectFileWithYAMLAndItsSchema(t *testing.T) {
+	raw, err := os.ReadFile("../../editors/vscode/package.json")
+	if err != nil {
+		t.Skipf("extension not present: %v", err)
+	}
+	var pkg struct {
+		Contributes struct {
+			Languages []struct {
+				ID        string   `json:"id"`
+				Filenames []string `json:"filenames"`
+			} `json:"languages"`
+			YAMLValidation []struct {
+				FileMatch []string `json:"fileMatch"`
+				URL       string   `json:"url"`
+			} `json:"yamlValidation"`
+		} `json:"contributes"`
+	}
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		t.Fatalf("package.json: %v", err)
+	}
+
+	asYAML := false
+	for _, l := range pkg.Contributes.Languages {
+		if l.ID == "yaml" && slices.Contains(l.Filenames, ".genroc") {
+			asYAML = true
+		}
+	}
+	if !asYAML {
+		t.Error("`.genroc` is not contributed to the `yaml` language, so it is neither highlighted nor validated")
+	}
+
+	url := ""
+	for _, v := range pkg.Contributes.YAMLValidation {
+		if slices.Contains(v.FileMatch, "/.genroc") {
+			url = v.URL
+		}
+	}
+	if url == "" {
+		t.Fatal("no yamlValidation entry matches /.genroc")
+	}
+	rel := strings.TrimPrefix(url, "./")
+	makefile, err := os.ReadFile("../../Makefile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(makefile), "editors/vscode/"+rel) {
+		t.Errorf("package.json points at %s, which no Makefile target generates -- the .vsix would ship without it", url)
+	}
+	ignore, _ := os.ReadFile("../../editors/vscode/.vscodeignore")
+	for _, line := range strings.Split(string(ignore), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "schemas") {
+			t.Errorf(".vscodeignore excludes %q, so the schema package.json points at is not in the .vsix", line)
+		}
 	}
 }

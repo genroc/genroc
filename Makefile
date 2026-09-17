@@ -8,7 +8,7 @@ log     ?= info
 
 # BUILD_FLAGS = CGO_ENABLED=1
 
-.PHONY: install extension run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big bench-iterate swagger client clean generate docs docs-schema docs-build script-runner
+.PHONY: install extension extension-schema run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big bench-iterate swagger client clean generate docs docs-schema docs-build script-runner
 
 run:
 	$(BUILD_FLAGS) go run ./cmd/genroc \
@@ -63,9 +63,15 @@ install:
 # editors/vscode/LICENSE is a COPY of the root one, not a link: vsce reads the extension
 # directory alone, and without a license file there it warns and then stops on a terminal to ask.
 # eval-node/LICENSE is a copy for the same reason -- npm publishes that one.
-extension:
+# The `.genroc` schema is generated into the extension rather than committed, like the site's
+# copy: package.json points at schemas/genroc-config.json, and this is what puts it there.
+extension: extension-schema
 	GOOS=wasip1 GOARCH=wasm go build -ldflags="-s -w" -o editors/vscode/bin/genctl.wasm ./cmd/genctl
 	pnpm install && pnpm -C editors/vscode run compile && pnpm -C editors/vscode run package
+
+extension-schema:
+	mkdir -p editors/vscode/schemas
+	$(BUILD_FLAGS) go run ./cmd/genrocspec -o "" -config-schema editors/vscode/schemas/genroc-config.json
 
 test: test-unit test-int
 
@@ -128,7 +134,7 @@ script-runner:
 # `# yaml-language-server: $schema=` comment resolves with no genroc running. Generated,
 # never committed: it is a projection of internal/model.
 docs-schema:
-	$(BUILD_FLAGS) go run ./cmd/genrocspec -o "" -schema docs/public/process-schema.json
+	$(BUILD_FLAGS) go run ./cmd/genrocspec -o "" -schema docs/public/process-schema.json -config-schema docs/public/config-schema.json
 
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
 # per-version build is served from; unset means the site root.

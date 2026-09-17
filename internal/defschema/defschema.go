@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"genroc/internal/model"
+	"genroc/internal/sources"
 
 	"github.com/swaggest/jsonschema-go"
 )
@@ -39,44 +40,100 @@ func ShapeDefName(_ reflect.Type, defaultDefName string) string {
 // why completion uses this and diagnostics do not.
 func Process() []byte {
 	processSchemaOnce.Do(func() {
-		r := jsonschema.Reflector{}
-		r.DefaultOptions = append(r.DefaultOptions,
-			jsonschema.InterceptDefName(ShapeDefName),
-			jsonschema.InterceptProp(func(params jsonschema.InterceptPropParams) error {
-				if !params.Processed || params.Field.Type == nil || params.ParentSchema == nil {
-					return nil
-				}
-				tag := params.Field.Tag.Get("json")
-				if strings.Contains(tag, "omitempty") || params.Field.Type.Kind() == reflect.Ptr {
-					return nil
-				}
-				for _, r := range params.ParentSchema.Required {
-					if r == params.Name {
-						return nil
-					}
-				}
-				params.ParentSchema.Required = append(params.ParentSchema.Required, params.Name)
-				return nil
-			}),
-			jsonschema.InterceptProp(func(params jsonschema.InterceptPropParams) error {
-				if !params.Processed || params.PropertySchema == nil {
-					return nil
-				}
-				if desc := params.Field.Tag.Get("description"); desc != "" {
-					params.PropertySchema.WithDescription(desc)
-				}
-				return nil
-			}),
-		)
-		r.DefaultOptions = append(r.DefaultOptions, jsonschema.InterceptSchema(closeStructs))
-		s, err := r.Reflect(model.ProcessDefinition{})
-		if err != nil {
-			panic(fmt.Sprintf("processDefinitionSchema: %v", err))
-		}
-		b, _ := json.Marshal(s)
-		processSchemaBytes = upgradeToDraft201909(b)
+		processSchemaBytes = reflectSchema(model.ProcessDefinition{}, "processDefinitionSchema",
+			jsonschema.InterceptDefName(ShapeDefName))
 	})
 	return processSchemaBytes
+}
+
+// Config returns the JSON Schema for a project's `.genroc`, reflected from the struct that reads
+// it so a field added there reaches the editor with no edit here. The docs site publishes it
+// (`# yaml-language-server: $schema=`) and the VS Code extension bundles it. Not cached: it is
+// built once per generator run, and a second Once would be a second thing to allow.
+func Config() []byte {
+	return withoutNull(reflectSchema(sources.Config{}, "configSchema"))
+}
+
+// withoutNull drops `null` from every `type` list. The reflector makes a non-omitempty slice
+// nullable, and the reader treats `command: null` as an empty command and refuses it -- nothing
+// in a `.genroc` is legitimately null. Config only: the process schema's nullability is pinned
+// against the server by its own tests.
+func withoutNull(b []byte) []byte {
+	var root map[string]any
+	if err := json.Unmarshal(b, &root); err != nil {
+		return b
+	}
+	var walk func(v any)
+	walk = func(v any) {
+		switch node := v.(type) {
+		case map[string]any:
+			if types, ok := node["type"].([]any); ok {
+				kept := make([]any, 0, len(types))
+				for _, t := range types {
+					if t != "null" {
+						kept = append(kept, t)
+					}
+				}
+				if len(kept) == 1 {
+					node["type"] = kept[0]
+				} else {
+					node["type"] = kept
+				}
+			}
+			for _, child := range node {
+				walk(child)
+			}
+		case []any:
+			for _, child := range node {
+				walk(child)
+			}
+		}
+	}
+	walk(root)
+	out, _ := json.Marshal(root)
+	return out
+}
+
+// reflectSchema is the projection both schemas share: a field is required unless its json tag
+// says omitempty or it is a pointer, `description` tags become the text an editor shows, and
+// every struct is closed to unknown keys because the reader is.
+func reflectSchema(root any, what string, extra ...func(*jsonschema.ReflectContext)) []byte {
+	r := jsonschema.Reflector{}
+	r.DefaultOptions = append(r.DefaultOptions, extra...)
+	r.DefaultOptions = append(r.DefaultOptions,
+		jsonschema.InterceptProp(func(params jsonschema.InterceptPropParams) error {
+			if !params.Processed || params.Field.Type == nil || params.ParentSchema == nil {
+				return nil
+			}
+			tag := params.Field.Tag.Get("json")
+			if strings.Contains(tag, "omitempty") || params.Field.Type.Kind() == reflect.Ptr {
+				return nil
+			}
+			for _, r := range params.ParentSchema.Required {
+				if r == params.Name {
+					return nil
+				}
+			}
+			params.ParentSchema.Required = append(params.ParentSchema.Required, params.Name)
+			return nil
+		}),
+		jsonschema.InterceptProp(func(params jsonschema.InterceptPropParams) error {
+			if !params.Processed || params.PropertySchema == nil {
+				return nil
+			}
+			if desc := params.Field.Tag.Get("description"); desc != "" {
+				params.PropertySchema.WithDescription(desc)
+			}
+			return nil
+		}),
+		jsonschema.InterceptSchema(closeStructs),
+	)
+	s, err := r.Reflect(root)
+	if err != nil {
+		panic(fmt.Sprintf("%s: %v", what, err))
+	}
+	b, _ := json.Marshal(s)
+	return upgradeToDraft201909(b)
 }
 
 // closeStructs rejects unknown keys on every object reflected from a Go struct, because the server

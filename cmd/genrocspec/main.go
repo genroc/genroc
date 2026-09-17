@@ -6,15 +6,18 @@ import (
 	"os"
 
 	"genroc/internal/api"
+	"genroc/internal/defschema"
 )
 
 func main() {
 	out := flag.String("o", "openapi.json", `OpenAPI output path ("-" for stdout, "" to skip)`)
 	schemaOut := flag.String("schema", "", `process-definition JSON Schema output path ("-" for stdout, "" to skip)`)
+	configOut := flag.String("config-schema", "", `.genroc project-config JSON Schema output path ("-" for stdout, "" to skip)`)
 	flag.Parse()
 
 	write(*out, api.Spec)
 	write(*schemaOut, api.ProcessSchema)
+	write(*configOut, defschema.Config)
 }
 
 // The generators are passed unevaluated so that skipping an output also skips building it.

@@ -49,6 +49,13 @@ Turn it off for these files, or the two servers double-report:
 
 The `# yaml-language-server: $schema=` comment stays useful for anyone without this extension.
 
+## `.genroc`
+
+The project file is plain YAML, and the extension says so, so it is highlighted. With the YAML
+extension installed it is also validated and completed against a schema bundled here — the same
+one the site publishes at `https://genroc.org/config-schema.json`, for any other editor's
+`# yaml-language-server: $schema=` comment.
+
 ## Installing it
 
 From the Marketplace, or — to track `main` — the `genroc-edge.vsix` attached to the
