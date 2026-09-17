@@ -21,18 +21,18 @@ import (
 //
 // A document with no path on disk is returned as-is. A directive's argument is relative to the
 // file holding it, so an unsaved buffer has nothing to resolve against.
-func resolveStructural(doc *defdoc.Doc, path string) (any, error) {
-	if path == "" {
+func resolveStructural(doc *defdoc.Doc, file string) (any, error) {
+	if file == "" {
 		return doc.Value, nil
 	}
-	cfg, err := sources.FindProjectConfig(filepath.Dir(path))
+	cfg, err := sources.FindProjectConfig(filepath.Dir(file))
 	if err != nil {
 		// A malformed `.genroc` is the project's problem, not this document's, and the file it
 		// names is not the one open. Analysing the text as written is the better failure.
 		return doc.Value, nil
 	}
 	copied := deepCopy(doc.Value)
-	docs := []sources.Doc{{Value: copied, File: path}}
+	docs := []sources.Doc{{Value: copied, File: file}}
 	if _, err := sources.ResolveStructuralPass(docs, cfg, nil); err != nil {
 		return nil, err
 	}

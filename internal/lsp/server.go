@@ -122,7 +122,7 @@ func (s *Server) handle(req *request) {
 		if !s.decode(req, &p) {
 			return
 		}
-		_ = s.conn.reply(req.ID, semanticTokensResult{Data: semanticTokens(s.docs[p.TextDocument.URI])})
+		_ = s.conn.reply(req.ID, semanticTokensResult{Data: semanticTokens(s.docs[p.TextDocument.URI], s.pathOf(p.TextDocument.URI))})
 
 	case "textDocument/definition":
 		var p hoverParams // same shape: a document and a position
@@ -158,14 +158,19 @@ func (s *Server) set(uri, text string, version *int) {
 	if !isDefinitionURI(uri) {
 		return
 	}
-	// The path, not the URI: a structural directive's argument is relative to the file holding
-	// it. An untitled buffer has none, and analyse says what that costs.
-	path, _ := uriToPath(uri)
 	_ = s.conn.notify("textDocument/publishDiagnostics", publishParams{
 		URI:         uri,
 		Version:     version,
-		Diagnostics: analyse(text, path),
+		Diagnostics: analyse(text, s.pathOf(uri)),
 	})
+}
+
+// pathOf is the document's file on disk, "" for a URI that names none. Every answer that
+// depends on another file needs it: a structural directive's argument is relative to the file
+// holding it.
+func (s *Server) pathOf(uri string) string {
+	path, _ := uriToPath(uri)
+	return path
 }
 
 // isDefinitionURI keeps the server to the files it is the authority on. An editor may route
@@ -192,7 +197,7 @@ func (s *Server) hover(p hoverParams) any {
 		return nil
 	}
 	lines := splitLines(text)
-	md, r, ok := hoverAt(text, p.Position.Line+1, byteColumn(lines, p.Position))
+	md, r, ok := hoverAt(text, s.pathOf(p.TextDocument.URI), p.Position.Line+1, byteColumn(lines, p.Position))
 	if !ok {
 		return nil
 	}
@@ -209,7 +214,7 @@ func (s *Server) complete(p completionParams) []completionItem {
 	}
 	lines := splitLines(text)
 	line := p.Position.Line + 1
-	items := completeAt(text, line, byteColumn(lines, p.Position))
+	items := completeAt(text, s.pathOf(p.TextDocument.URI), line, byteColumn(lines, p.Position))
 	if items == nil {
 		return []completionItem{}
 	}

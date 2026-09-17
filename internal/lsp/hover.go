@@ -15,7 +15,7 @@ import (
 
 // hoverAt returns the markdown for a cursor, and the range it describes. An empty string means
 // there is nothing to say, which is the common answer and must not become a popup.
-func hoverAt(text string, line, col int) (string, defdoc.Range, bool) {
+func hoverAt(text, file string, line, col int) (string, defdoc.Range, bool) {
 	docs, err := defdoc.ParseAll([]byte(text))
 	if err != nil {
 		return "", defdoc.Range{}, false
@@ -25,7 +25,7 @@ func hoverAt(text string, line, col int) (string, defdoc.Range, bool) {
 		if !ok {
 			continue
 		}
-		def, ok := definitionOf(doc)
+		def, ok := definitionOf(doc, file)
 		if !ok {
 			return "", defdoc.Range{}, false
 		}
@@ -41,8 +41,17 @@ func hoverAt(text string, line, col int) (string, defdoc.Range, bool) {
 // definitionOf decodes a document as far as it goes. Unknown keys are TOLERATED here, unlike in
 // the diagnostics path: a reader hovering one slot is not asking about a typo in another, and
 // refusing to answer until the whole file is clean is the behaviour §7b was written against.
-func definitionOf(doc *defdoc.Doc) (*model.ProcessDefinition, bool) {
-	raw, err := marshal(doc.Value)
+//
+// Structural resolution runs first and is tolerated the same way: a spread carries the
+// `result_schema` that types `self.result`, so skipping it answers `object` where the child
+// declares a shape -- and a spread that will not resolve is the diagnostics path's to report,
+// not a reason to stop describing the slot under the cursor.
+func definitionOf(doc *defdoc.Doc, file string) (*model.ProcessDefinition, bool) {
+	value, err := resolveStructural(doc, file)
+	if err != nil {
+		value = doc.Value
+	}
+	raw, err := marshal(value)
 	if err != nil {
 		return nil, false
 	}

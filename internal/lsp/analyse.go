@@ -26,7 +26,7 @@ const source = "genroc"
 // several definitions; each is indexed and analysed on its own. path is the document's file on
 // disk, which structural resolution needs to read a directive's relative argument; "" for a
 // buffer that has none.
-func analyse(text, path string) []diagnostic {
+func analyse(text, file string) []diagnostic {
 	lines := splitLines(text)
 	docs, err := defdoc.ParseAll([]byte(text))
 	if err != nil {
@@ -41,7 +41,7 @@ func analyse(text, path string) []diagnostic {
 
 	out := []diagnostic{}
 	for _, doc := range docs {
-		out = append(out, analyseDoc(doc, lines, path)...)
+		out = append(out, analyseDoc(doc, lines, file)...)
 	}
 	return out
 }
@@ -55,10 +55,10 @@ func decodeLenient(raw []byte, into *model.ProcessDefinition) error {
 	return numeric.Decode(raw, into)
 }
 
-func analyseDoc(doc *defdoc.Doc, lines []string, path string) []diagnostic {
+func analyseDoc(doc *defdoc.Doc, lines []string, file string) []diagnostic {
 	// Ahead of the marshal: the verdict is about the document an apply would see, which is this
 	// one with its structural directives resolved.
-	value, err := resolveStructural(doc, path)
+	value, err := resolveStructural(doc, file)
 	if err != nil {
 		return []diagnostic{at(doc, lines, "", "def.resolve", err.Error())}
 	}

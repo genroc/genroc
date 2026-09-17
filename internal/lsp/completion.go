@@ -18,10 +18,10 @@ import (
 //
 // The document is usually mid-edit and often unparseable, so everything here works from the
 // raw LINE first and consults the parsed document only to find which slot the line sits in.
-func completeAt(text string, line, col int) []completionItem {
+func completeAt(text, file string, line, col int) []completionItem {
 	src := lineAt(text, line)
 	if expr, ok := expressionPrefix(src, col); ok {
-		return completeExpression(text, line, col, expr)
+		return completeExpression(text, file, line, col, expr)
 	}
 	if refs, ok := routingValues(text, line, col); ok {
 		return refs
@@ -35,7 +35,7 @@ func completeAt(text string, line, col int) []completionItem {
 	// A `case` holds an expression written BARE, so there is no `$:` for the scan above to
 	// find and the cursor would otherwise be read as sitting on a key.
 	if inBareExpression(text, line, col) {
-		return completeExpression(text, line, col, dottedTail(src[:min(col-1, len(src))]))
+		return completeExpression(text, file, line, col, dottedTail(src[:min(col-1, len(src))]))
 	}
 	// Past a `key:` the reader is writing that key's VALUE. The slots above are the ones with an
 	// answer there; anything else has none — and the keys `completeKey` would offer belong to
@@ -272,8 +272,8 @@ func openingBracket(head string, end int) int {
 	return -1
 }
 
-func completeExpression(text string, line, col int, prefix string) []completionItem {
-	ctx, ok := scopeAt(text, line, col)
+func completeExpression(text, file string, line, col int, prefix string) []completionItem {
+	ctx, ok := scopeAt(text, file, line, col)
 	if !ok {
 		return nil
 	}
@@ -354,7 +354,7 @@ func membersOf(s schema.Schema) []completionItem {
 // cursor's line REPAIRED when it will not parse on its own — a mid-typed expression usually
 // leaves an unterminated quote, and refusing to answer until it is closed refuses exactly when
 // the author is asking.
-func scopeAt(text string, line, col int) (schema.Schema, bool) {
+func scopeAt(text, file string, line, col int) (schema.Schema, bool) {
 	doc, ok := parseRepaired(text, line)
 	if !ok {
 		return schema.Schema{}, false
@@ -370,7 +370,7 @@ func scopeAt(text string, line, col int) (schema.Schema, bool) {
 	if blanked, ok := parseRepaired(blankValueAt(text, line), line); ok {
 		source = blanked
 	}
-	def, ok := definitionOf(source)
+	def, ok := definitionOf(source, file)
 	if !ok {
 		return schema.Schema{}, false
 	}

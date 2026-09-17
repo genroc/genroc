@@ -18,7 +18,7 @@ type decoded struct {
 func decodeTokens(t *testing.T, text string) []decoded {
 	t.Helper()
 	lines := splitLines(text)
-	data := semanticTokens(text)
+	data := semanticTokens(text, "")
 	if len(data)%5 != 0 {
 		t.Fatalf("data has %d ints, which is not a whole number of tokens", len(data))
 	}

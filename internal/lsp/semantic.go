@@ -49,7 +49,7 @@ type token struct {
 
 // semanticTokens returns the `data` array for textDocument/semanticTokens/full: five integers
 // per token, each position delta-encoded against the one before it.
-func semanticTokens(text string) []uint32 {
+func semanticTokens(text, file string) []uint32 {
 	lines := splitLines(text)
 	docs, err := defdoc.ParseAll([]byte(text))
 	if err != nil {
@@ -58,7 +58,7 @@ func semanticTokens(text string) []uint32 {
 
 	var out []token
 	for _, doc := range docs {
-		def, ok := definitionOf(doc)
+		def, ok := definitionOf(doc, file)
 		if !ok {
 			continue
 		}

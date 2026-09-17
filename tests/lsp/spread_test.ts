@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { Lsp, useWorkspace } from "./helpers.ts";
+import { at, Lsp, useWorkspace } from "./helpers.ts";
 
 // The structural phase in the editor. A `<<` spread fills `name`, `result_schema` and `raises`
 // from the child definition, so a server that skips resolution reports a document nobody
@@ -92,4 +92,30 @@ test("a mistake the author DID write is still underlined through a spread", asyn
     .replace("outputs.call.doubled", "outputs.call.nope")));
   expect(ds.length, `expected one diagnostic, got ${JSON.stringify(ds)}`).toBe(1);
   expect(ds[0]).toContain("nope");
+});
+
+// Diagnostics are not the only answer the spread changes: `result_schema` arrives with it, so
+// the type of `self.result` — and everything a reader walks out of it — exists only once the
+// structural phase has run.
+test("hover reads a type the spread supplied", async () => {
+  const doc = project(parent());
+  expect(
+    await lsp.hover(at('    output: "$: self.<^result>"', doc)),
+    "self.result is typed by the result_schema the spread filled in",
+  ).toBe("`self.result` → `object{doubled}`");
+});
+
+test("hover walks INTO a spread-supplied type", async () => {
+  const doc = project(parent().replace('"$: self.result"', '"$: self.result.doubled"'));
+  expect(await lsp.hover(at('    output: "$: self.result.<^doubled>"', doc))).toBe(
+    "`self.result.doubled` → `number`",
+  );
+});
+
+test("completion offers the members the spread brought across", async () => {
+  const doc = project(parent().replace('"$: self.result"', '"$: self.result."'));
+  expect(
+    await lsp.completions(at('    output: "$: self.result.<|>"', doc)),
+    "without the spread the slot recovers as {} and offers nothing",
+  ).toContain("doubled");
 });

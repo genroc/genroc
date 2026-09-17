@@ -55,7 +55,7 @@ func labels(items []completionItem) []string {
 
 func completed(t *testing.T, text string, line, col int) []string {
 	t.Helper()
-	items := completeAt(text, line, col)
+	items := completeAt(text, "", line, col)
 	if len(items) == 0 {
 		t.Fatalf("no completions at %d:%d", line, col)
 	}
@@ -160,7 +160,7 @@ func TestTheDocumentRootOffersDefinitionKeys(t *testing.T) {
 // A description is what makes a completion list readable rather than a guessing game, and the
 // schema already carries the prose from the struct tags.
 func TestKeyCompletionsCarryTheirDocumentation(t *testing.T) {
-	for _, it := range completeAt(completionDoc, 16, 5) {
+	for _, it := range completeAt(completionDoc, "", 16, 5) {
 		if it.Label == "on_error" {
 			if !strings.Contains(it.Documentation, "error") {
 				t.Errorf("on_error came with no usable documentation: %q", it.Documentation)

@@ -44,7 +44,7 @@ tasks:
 
 func hoverOf(t *testing.T, text string, line, col int) string {
 	t.Helper()
-	md, _, ok := hoverAt(text, line, col)
+	md, _, ok := hoverAt(text, "", line, col)
 	if !ok {
 		t.Fatalf("nothing to say at %d:%d", line, col)
 	}
@@ -115,7 +115,7 @@ func TestHoverStillAnswersWhenAnotherPartOfTheFileIsBroken(t *testing.T) {
 // position at the top of the same popup — saying it twice is what a reader sees.
 func TestHoverOverABrokenExpressionLeavesItToTheDiagnostic(t *testing.T) {
 	broken := strings.Replace(hoverDoc, "self.result.total * 2", "self.result.nope * 2", 1)
-	if md, _, ok := hoverAt(broken, 15, 36); ok {
+	if md, _, ok := hoverAt(broken, "", 15, 36); ok {
 		t.Errorf("the diagnostic already says this; hover added: %s", md)
 	}
 }
@@ -132,7 +132,7 @@ func TestHoverStillTypesAWorkingSymbolInsideABrokenExpression(t *testing.T) {
 // nothing to the definition language, so it is the one thing with no answer.
 func TestHoverOverAnAuthorsOwnNameIsSilent(t *testing.T) {
 	//	 4   properties: { amount: { type: number } }
-	if md, _, ok := hoverAt(hoverDoc, 4, 18); ok {
+	if md, _, ok := hoverAt(hoverDoc, "", 4, 18); ok {
 		t.Errorf("`amount` is the author's own name; got a popup: %s", md)
 	}
 }
@@ -318,7 +318,7 @@ func TestNoTypeIsRenderedOutsideACodeSpan(t *testing.T) {
 		lines := strings.Split(doc, "\n")
 		for line, text := range lines {
 			for col := 1; col <= len(text); col++ {
-				md, _, ok := hoverAt(doc, line+1, col)
+				md, _, ok := hoverAt(doc, "", line+1, col)
 				if !ok {
 					continue
 				}

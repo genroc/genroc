@@ -11,13 +11,24 @@ cannot disagree. Nothing here reimplements a rule, and nothing reads the publish
 Schema, which is a lossy projection of exactly these calls (§5). `TestTheEditorAgreesWithThe
 ServerOnWhatIsRejected` is that claim as a test; a new check belongs on the server side of it.
 
-**Source resolution runs first, and that test cannot see it.** A `<<` spread changes which keys
-a document HAS, so `analyse` runs `sources.ResolveStructuralPass` before the verdict — over a
-DEEP COPY, because positions come from the index beside the document and an injected key has no
-node there. Resolution is the CLIENT's, so editor-agrees-with-server holds while both disagree
-with `apply`: that test compares the two halves that never resolve. `tests/lsp/spread_test.ts`
-is the reference point it lacks. A buffer with no path on disk is analysed unresolved — a
-directive's argument is relative to the file holding it.
+**Source resolution runs first, in BOTH paths.** A `<<` spread changes which keys a document
+HAS — `name`, `result_schema` and `raises` come from the child — so `analyse` resolves before
+the verdict and `definitionOf` before every type, which is hover, completion and semantic
+tokens at once. Skip it in one and that half answers about a different document: diagnostics
+said `unknown field "<<"`, hover said nothing at all. It runs over a DEEP COPY, because
+positions come from the index beside the document and an injected key has no node there.
+
+Three things bound it. Resolution is the CLIENT's, so editor-agrees-with-server holds while
+both disagree with `apply` — `TestTheEditorAgreesWithTheServerOnWhatIsRejected` compares the
+two halves that never resolve, and `tests/lsp/spread_test.ts` is the reference point it lacks.
+A buffer with **no path on disk** is analysed unresolved, a directive's argument being relative
+to the file holding it. And the **code phase is not run** — it shells out, and a string splice
+cannot move a type — which is the same line `genctl schema` draws (cmd/genctl/schema.go).
+
+**`file` is the document on disk; `path` is a slot address.** Both are strings and every
+signature here carries one or other of them. Passing a `path` where a `file` goes type-checks,
+reads fine, and silently resolves nothing: `filepath.Dir("tasks.call.output")` finds no
+project, so the spread stays unresolved and hover goes quiet. It is how this landed broken.
 
 ## Four things that are silent when broken
 
