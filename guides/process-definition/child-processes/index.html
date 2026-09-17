@@ -103,7 +103,7 @@
       true,
     )
   })()
-</script><link rel="stylesheet" href="/_astro/_slug_.BJw3JiFA.css">
+</script><link rel="stylesheet" href="/_astro/_slug_.DYFCRxLA.css">
 <style>.screenshot[data-astro-cid-kixgfawn]{margin:1.5rem 0;border:1px solid var(--line-strong);border-radius:3px;overflow:hidden}.screenshot[data-astro-cid-kixgfawn]:before{content:"●●●";display:block;padding:.1rem .55rem .2rem;border-bottom:1px solid var(--line-strong);background:var(--code-bg);color:var(--line-strong);font-size:.62em;letter-spacing:.28em;line-height:1.2}.screenshot[data-astro-cid-kixgfawn] img[data-astro-cid-kixgfawn]{display:block;width:100%}
 </style><script type="module" src="/_astro/page.DGRhADao.js"></script></head> <body> <header class="topbar"> <a class="brand" href="/"> <span class="logo" style="--logo-size:1.5em"><svg width="1.5em" height="1.5em" aria-hidden="true" focusable="false" viewBox="0 0 220 220" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;">
     <g id="Artboard1" transform="matrix(1,0,0,1,-143.5,-28.5)">
@@ -271,7 +271,36 @@ which must be array of inputs.</p>
 <p>Notice we are using <code>map</code> function to create properly shaped array.</p>
 <p>The <code>result_schema</code> applies to individual item and the results are mapped into array,
 in the same order as the inputs.</p>
-<h2 id></h2>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/validations-and-types/"> <span>previous</span> <strong>Validation and types</strong> </a> <a class="next" href="/guides/process-definition/versioning/"> <span>next</span> <strong>Versioning</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#child-action">child action</a></li><li class="depth-2"><a href="#child_map-action">child_map action</a></li><li class="depth-2"><a href="#child_list-action">child_list action</a></li><li class="depth-2"><a href="#"></a></li></ul><script>
+<h2 id="parentchild-type-checking">Parent/child type checking<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#parentchild-type-checking"><span></span></a></h2>
+<p>Every process needs to define it’s own types explicitly. So it must be clear
+what are the inputs and outputs. If it wasn’t the case we wouldn’t be able
+to check the types without</p>
+<h2 id="child-error-handling">Child error handling<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#child-error-handling"><span></span></a></h2>
+<p>Genroc doesn’t use classic “catching” for child processses. Main reason that we require
+everything to be explicitly typed and processes should be self-contained in terms of the interface.</p>
+<p>So every process needs to specify which errors it can produce explicitly. This is also
+reason why errors don’t bubble through the tree, if they would, then it would be
+leaking types from it’s children, which we don’t allow.</p>
+<p>Raised errors are understood as a branching tools for expected failiures.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic"># child (fetch action)</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">on_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">http.404</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    raise</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">item_not_found</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      message</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">Item </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">item_id</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">}</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> not found</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic"># parent (child action)</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">raises</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  item_not_found</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A"> null</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">  # we need to specify explicitly what errors we expect</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">on_error</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> code</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">item_not_found</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> $handle_item_not_found</span></span></code></pre>
+<blockquote>
+<p>Read more about <code>panic</code> and <code>raise</code> in the <a href="/guides/process-definition/error-handling/#panic">error handling</a> section</p>
+</blockquote>
+<h3 id="the-raises-field">The <code>raises</code> field<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-raises-field"><span></span></a></h3>
+<p>Specifies what errors we expect. It’s an object where keys are error codes and values are json schemas (optional).
+If you define error schema you can then access <code>error.data</code> (like <code>fetch</code> error responses).</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/validations-and-types/"> <span>previous</span> <strong>Validation and types</strong> </a> <a class="next" href="/guides/process-definition/versioning/"> <span>next</span> <strong>Versioning</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#child-action">child action</a></li><li class="depth-2"><a href="#child_map-action">child_map action</a></li><li class="depth-2"><a href="#child_list-action">child_list action</a></li><li class="depth-2"><a href="#parentchild-type-checking">Parent/child type checking</a></li><li class="depth-2"><a href="#child-error-handling">Child error handling</a></li><li class="depth-3"><a href="#the-raises-field">The raises field</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
