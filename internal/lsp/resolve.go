@@ -59,3 +59,20 @@ func deepCopy(v any) any {
 		return v
 	}
 }
+
+// resolveStructuralInPlace resolves INTO doc.Value, for a caller that reads values back through
+// `doc.ValueAt` -- those are references into the same containers the pass fills, so a copy would
+// leave them as written. The index and the value disagree afterwards (an injected key has no
+// span), which is why this is only for a document the caller parsed itself and throws away.
+func resolveStructuralInPlace(doc *defdoc.Doc, file string) {
+	if file == "" {
+		return
+	}
+	cfg, err := sources.FindProjectConfig(filepath.Dir(file))
+	if err != nil {
+		return
+	}
+	// A directive that will not resolve leaves the document as written, which is the answer a
+	// closed set falls back to; the diagnostics path is where it is reported.
+	_, _ = sources.ResolveStructuralPass([]sources.Doc{{Value: doc.Value, File: file}}, cfg, nil)
+}

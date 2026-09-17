@@ -11,12 +11,19 @@ cannot disagree. Nothing here reimplements a rule, and nothing reads the publish
 Schema, which is a lossy projection of exactly these calls (§5). `TestTheEditorAgreesWithThe
 ServerOnWhatIsRejected` is that claim as a test; a new check belongs on the server side of it.
 
-**Source resolution runs first, in BOTH paths.** A `<<` spread changes which keys a document
-HAS — `name`, `result_schema` and `raises` come from the child — so `analyse` resolves before
-the verdict and `definitionOf` before every type, which is hover, completion and semantic
-tokens at once. Skip it in one and that half answers about a different document: diagnostics
-said `unknown field "<<"`, hover said nothing at all. It runs over a DEEP COPY, because
-positions come from the index beside the document and an injected key has no node there.
+**Source resolution runs first, in every path that reads the document.** A `<<` spread changes
+which keys a document HAS — `name`, `result_schema` and `raises` come from the child — so three
+places resolve, and each was found broken separately: `analyse` before the verdict, which said
+`unknown field "<<"`; `definitionOf` before every type, covering hover, completion scope and
+semantic tokens, which said nothing at all; and `errorCodeValues`, which offered an `on_error`
+`code` set without the child's raises in it.
+
+**Those three do not resolve the same way.** The first two take a DEEP COPY, because positions
+come from the index beside the document and an injected key has no node there. The third cannot:
+it reads the action back through `doc.ValueAt`, whose values are references INTO the containers
+the pass fills, so a copy would leave them as written — `resolveStructuralInPlace` is for that
+one, and is safe only because the doc it mutates is a repaired parse the caller throws away.
+A closed set read out of the document is the shape to watch for: inference never sees it.
 
 Three things bound it. Resolution is the CLIENT's, so editor-agrees-with-server holds while
 both disagree with `apply` — `TestTheEditorAgreesWithTheServerOnWhatIsRejected` compares the

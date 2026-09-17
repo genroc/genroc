@@ -29,7 +29,7 @@ func completeAt(text, file string, line, col int) []completionItem {
 	if types, ok := typeValues(text, line, col); ok {
 		return types
 	}
-	if codes, ok := errorCodeValues(text, line, col); ok {
+	if codes, ok := errorCodeValues(text, file, line, col); ok {
 		return codes
 	}
 	// A `case` holds an expression written BARE, so there is no `$:` for the scan above to

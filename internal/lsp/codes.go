@@ -25,12 +25,16 @@ type offeredCode struct{ code, detail string }
 // errorCodeValues offers what an `on_error` rule's `code` may match. A recognised slot answers
 // even when the set comes out EMPTY: a list of codes never takes a key, and the rule's own
 // siblings are what the cursor there used to be given.
-func errorCodeValues(text string, line, col int) ([]completionItem, bool) {
+func errorCodeValues(text, file string, line, col int) ([]completionItem, bool) {
 	src := lineAt(text, line)
 	doc, ok := parseRepaired(text, line)
 	if !ok {
 		return nil, false
 	}
+	// A child task's raise set can arrive through a `<<` spread, and this reads the action out
+	// of the document rather than through inference -- so the document has to be the resolved
+	// one, or a rule's `code` is offered a set the call does not actually declare.
+	resolveStructuralInPlace(doc, file)
 	path, ok := valueSlot(doc, src, line, col, isErrorCodeSlot)
 	if !ok {
 		if path, ok = dashSlot(doc, text, line, col); !ok || !isErrorCodeSlot(doc, path) {

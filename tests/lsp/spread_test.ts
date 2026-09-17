@@ -119,3 +119,14 @@ test("completion offers the members the spread brought across", async () => {
     "without the spread the slot recovers as {} and offers nothing",
   ).toContain("doubled");
 });
+
+// `raises` arrives with the spread too, and an `on_error` rule's `code` is a closed set the
+// server offers. It is a THIRD path: `completeAt` dispatches to `errorCodeValues` before it
+// ever reaches the expression scope, and that one reads the action out of the document.
+test("completion offers a raise code the spread brought across", async () => {
+  const doc = project(parent("    on_error:", "      - code: []"));
+  expect(
+    await lsp.completions(at("      - code: [<|>]", doc)),
+    "`negative` is declared by the child's raise clause and arrives through `raises`",
+  ).toContain("negative");
+});
