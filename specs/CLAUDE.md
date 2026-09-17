@@ -211,7 +211,8 @@ register; when it disagrees with a §0, the §0 is right.
   which *is* the retention rule. Constrained by migration 018's serving rule (unredacted
   context-only objects are never served).
 - [source-resolution.md](source-resolution.md) — **code phase built** (2026-08-21;
-  `cmd/genctl/sources.go`, `eval-node/import.ts`), structural phase and `$infer` unbuilt.
+  `cmd/genctl/sources.go`, `eval-node/import.ts`), structural phase, `$infer`, the spread form
+  and `$process` unbuilt.
   How a definition **source file** becomes a definition: a `.genroc` in the repo registers resolver binaries and a
   `"$import: ./x.ts"` directive names one, so a TS bundler, a type generator and a YAML
   fragment loader are all clients of one mechanism. Supersedes script-tasks.md's single-pass
@@ -236,7 +237,28 @@ register; when it disagrees with a §0, the §0 is right.
   [unknown-type.md](unknown-type.md)'s unbuilt **Infer** result-typing mode reached at author
   time, which is also the argument for not scheduling the engine-side one. Closes with why a
   resolver registry is **not the plugin door** [custom-tasks.md](custom-tasks.md) rules out:
-  author time, author's machine, ordinary data on the wire.
+  author time, author's machine, ordinary data on the wire. The **spread form** (designed
+  2026-09-17) puts the same directive in a `<<` value, where position alone decides slot-fill
+  versus pre-fill: a bare `$name` key was refused because object keys in a definition are user
+  data (`properties`, `$defs`, `raises`, `responses` are all user-keyed), so the registry would
+  become a namespace over them and adding a resolver would change what an existing file means —
+  `<<` is already defdoc's spread with the precedence wanted. Its one built-in client is
+  **`$process`**, another definition's `name` / `result_schema` / `raises` spread into a child
+  task; built-in because two of those three are not fields to read (`Output` is a Shape,
+  `Raises()` a scan), so only genctl can answer — registered as if the config held
+  `ext: [.genroc.yaml, .genroc.yml, .genroc.json]`, and **appended after everything in `.genroc`**,
+  which is what keeps the built-in namespace non-breaking as genroc adds to it. That reshapes the
+  config (all unbuilt): `resolvers` becomes an **ordered list** taken **first match**, on name and
+  an accepted suffix, and `ext` a **list of suffixes** — the name still dispatches (`import` and
+  `infer` both take `.ts`), so `ext` narrows within a name rather than selecting one, and an
+  override is therefore per suffix. Records that the alias form must stay in
+  `defdoc` (the LSP runs no resolvers), that `raises` replaces **wholesale** because the spread
+  already makes the set complete, and that the result is a Pin, which is what keeps `genctl
+  compat` seeing child drift. **The spread graph must be acyclic while the call graph need not
+  be** — a recursive child is ordinary, but it cannot type itself by reference, because a spread
+  is a concrete copy made before the solver runs; one edge of the cycle is written by hand. The
+  cross-file fixpoint is **possible and declined**, with the reduction recorded so it is not
+  re-derived (§Ordering).
 - [external-task-queue.md](external-task-queue.md) — **BUILT through phase 3** (error channel
   2026-08-23; claim/lease/renew/release and `external.lost` 2026-08-24). Only the long-poll and
   the evaluator switchover remain proposal. Turns `external` into a queue a worker fleet

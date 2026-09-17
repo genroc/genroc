@@ -46,11 +46,12 @@ inside the recursion (so an unknown narrows at any depth), used by
 symmetry, but because nothing conforms a child input on the parent's behalf; the
 privilege belongs exactly where a real check stands behind it.
 
-## Three ways a parent types a child result
+## How a parent types a child result
 
 | Mode | Syntax | Coupling | On a version bump |
 |---|---|---|---|
 | **Pin** (built) | explicit schema | decoupled | drift fails loudly — the annotation is a stability gate, and pinning onto an unknown *is* the narrowing |
+| **Pin, spread** (designed) | `<<: "$process: ./child.yaml"` | decoupled on the wire; coupled to a file at author time | drift fails loudly — a Pin written by reference ([source-resolution.md](source-resolution.md) §`$process`) |
 | **Infer** (not built) | marker TBD | coupled — child must be defined | auto-adopts; fails only where a changed field is used |
 | **Unknown** (built) | `{}` | decoupled | n/a — consumer narrows |
 
@@ -59,6 +60,16 @@ build — it makes output inference recursive across process boundaries: cross-p
 resolution, cycle handling at process granularity (reusing collapse-or-keep /
 productivity), `(process, version)` memoization, and a registration-ordering rule.
 It composes with unknown (an inherited unknown stays unknown; pinning onto it narrows).
+
+**Most of what Infer is wanted for is reachable at author time instead.** The spread form
+resolves another definition's types into the call site and stores the result, so what lands is
+a Pin and none of the runtime machinery above is needed. That is the argument for leaving Infer
+unscheduled, and the reason the row above is a *variant of Pin* rather than a fourth mode.
+
+It pays for that in exactly one place. The spread graph must be **acyclic**, so a self- or
+mutually recursive process cannot type itself by reference, and one edge of the cycle falls back
+to a written Pin or to Unknown ([source-resolution.md](source-resolution.md) §Ordering). Of the
+four costs above, cycle handling is the one that does not disappear — it moves to the author.
 
 ## Consequences (deliberate)
 

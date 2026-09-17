@@ -5,8 +5,11 @@ Status: **PROPOSAL 2026-08-20; the code phase BUILT 2026-08-21; the types moved 
 directives, the batched manifest, `genctl types`, and `eval-node/import.ts` as the first
 resolver (`cmd/genctl/sources.go`, `tests/cli/imports_test.ts`). **Unbuilt: the structural phase**
 — no phase-1 resolver exists, `$infer` is not implemented, and `phase: structural` in a
-config is refused rather than ignored. The key-position merge form (§Directive syntax
-mentions only the value position) is also unbuilt.
+config is refused rather than ignored. The **spread form** and **`$process`** (designed
+2026-09-17) are also unbuilt; they supersede the "key-position merge form" this line used to
+defer. **The config reshape is specced here and not yet built** — `Resolvers` is a name-keyed
+map and `Ext` one string matched with `filepath.Ext`, so the three `.genroc` files in the repo
+still spell the old form and must not be changed ahead of the code.
 
 [script-tasks.md](script-tasks.md) argued for a single-phase import directive; that section
 is superseded by this doc, which owns the resolution model outright. The TypeScript
@@ -110,17 +113,35 @@ not. Different owners, different lifetimes, different files.
 
 ```yaml
 resolvers:
-  import:
+  - name: import
     phase: code
-    ext: .ts
+    ext: [.ts]
     command: [node, tools/genroc-import.ts]
     types: { Input: task.action.input.input, Output: task.action.result }
-  infer:  { phase: structural, ext: .ts, command: [node, tools/genroc-infer.ts] }
+  - { name: infer, phase: structural, ext: [.ts], command: [node, tools/genroc-infer.ts] }
 ```
 
-The directive names the resolver, so `ext` is **an assertion, not a dispatch key**: it makes
-a `.py` path handed to the TypeScript toolchain fail at genctl with a sentence, instead of
-failing inside `tsc` with a stack.
+**`resolvers` is an ordered list, and a directive takes the first entry that matches.** A match
+is the name AND an accepted suffix; walking stops there. A map cannot express order, and order is
+what makes the two rules below mechanical rather than special-cased.
+
+`ext` is **a list of suffixes matched as suffixes** — any one accepts the path, an empty list
+accepts everything. Both halves are forced by a two-part convention: `filepath.Ext` answers
+`.yaml` for `weather.genroc.yaml`, and one string cannot also admit `.genroc.yml`. A list even at
+one entry follows `definitions` in the same file and beats a scalar-or-list union, which is two
+spellings and a custom unmarshaler for one idea. A one-part `.ts` compares the same under a
+suffix test as under `filepath.Ext`.
+
+**The name still dispatches; `ext` only narrows within it.** `import` and `infer` both take
+`.ts` and do unrelated things — one bundles code, the other extracts a return type — so
+suffix-first dispatch has no answer for `./x.ts` and the directive's name would be decoration.
+What the list adds is one name over several file types: two `import` entries, `.ts` and `.py`,
+each with its own command.
+
+So `ext` stays **an assertion, not a dispatch key**, and the property it was for survives: a
+`.py` handed to a name that claims only `.ts` matches nothing and fails at genctl with a
+sentence, instead of inside `tsc` with a stack. Two errors, not one — no entry carries the name
+at all, or some do and none accept the suffix.
 
 **`types` is what the resolver wants typed, and genctl decides none of it.** The names are the
 resolver's; the addresses are [`genctl schema type`](schema-command.md)'s, prefixed by the
@@ -173,6 +194,83 @@ flagging the node. `.json` sources cannot carry a tag at all, and `readFile` acc
 
 A string reaches all of them untouched. The tag's honesty is bought by making the directive
 visible to every tool, when the property wanted is the opposite.
+
+## The spread form — a directive as a `<<` value
+
+    type: child
+    <<: "$process: ./billing.yaml"
+    name: billing
+
+Same string, same resolver, same phase rule. **Position decides where the answer lands**: as a
+value it fills that slot, as a `<<` value it pre-fills the mapping around it. The resolver name
+says nothing about which, so one config entry serves both and a project's own `$xyz` spreads
+without registering twice.
+
+A resolver reached this way **must return a mapping**. The rest of what phase 1 may return — a
+number, a schema, a fragment — is unspreadable, so one resolver can succeed at one site and fail
+at the other. The error names the position, not the type.
+
+### Why `<<` and not a `$` key
+
+The resolver's own name as a bare key (`$process: ./billing.yaml`) reads better and is wrong. It
+makes the registry a **namespace over object keys**, and object keys in a definition are user
+data: `properties` is keyed by property name, `$defs` by def name, `raises` by error code,
+`responses` by status. A schema with a property named `$process` would be captured by a walk that
+consumes registered names, and adding a resolver to `.genroc` would retroactively change what an
+existing file means. `$ref` and `$defs` are the visible half and could be blocklisted; the
+user-keyed half cannot.
+
+**Value position never had this problem** — a `$ref`'s value is `#/$defs/<name>`, which is not of
+the form `$<name>: <params>`. The hazard is created entirely by making a bare key meaningful,
+which is why no form here does.
+
+`<<` costs none of it, and it is already this grammar's spread: `defdoc` implements it
+([defdoc.go:329](../internal/defdoc/defdoc.go#L329)) with the precedence this form wants. One
+construct, no new rule, and a source file means the same thing in every repo.
+
+### Precedence and merge depth
+
+**An explicit key beats a merged one** — defdoc's rule already. It cannot be positional:
+resolution walks `map[string]any`, a Go map has no key order, and `orderKeys` sorts on output
+regardless. Import-wins was never a candidate, because it makes the text the author typed dead.
+
+The merge is **shallow, at the mapping the `<<` sits in**. Deep-merging two schemas is ambiguous
+between narrowing and widening, and a per-key depth rule is one the call site cannot show.
+
+`raises` is the key that tests this and still replaces wholesale. Per-code merging is what an
+author reaches for, and it loses twice: merge depth becomes key-dependent and invisible, and the
+spread already makes the set complete — `Raises()` is a syntactic scan over every clause — so the
+only reason to write `raises` by hand is to **narrow** it, which is replacement. Restating a set
+to tighten one payload is the cost, and it is the rare half.
+
+### The split defdoc keeps
+
+`defdoc` runs before resolution — `sourceDoc.doc` is the `map[string]any` it produced and
+`findSites` walks that, not the node tree — so a `<<` defdoc resolves is gone before phase 1
+looks. The alias form has to stay there: it is pure syntax, the LSP parses with defdoc and runs no
+resolvers, and moving it behind phase 1 turns every anchor in a repo red until an apply runs.
+
+So the seam is the value kind, which is what `mergeTarget` already is:
+
+| `<<` value | resolved by |
+|---|---|
+| an alias to a mapping | `defdoc`, unchanged |
+| a directive string | passed through as a literal `<<` key; phase 1 consumes it |
+
+defdoc's change is to stop claiming a `<<` it cannot resolve. Where phase 1 does not run, the
+leftover key then surfaces as an unresolved directive instead of a parse error — the diagnostic
+the editor wants anyway.
+
+**One spread per mapping**, refused with a message otherwise: the pass-through carries a single
+literal `<<` value and a second would silently overwrite the first. The sequence form stays
+refused for defdoc's own reason — YAML gives its earlier entries precedence, so it reads
+backwards.
+
+Precedence now has two implementations. **One `merge(base, overrides)` called by both** is the
+whole mitigation, for the reason genctl already owns directive detection (§genctl passes the
+sites): two of anything for one rule drift, and the day they disagree the report lands somewhere
+unrelated.
+
 
 ## Escaping on splice — the thing the feature is *for*
 
@@ -326,6 +424,136 @@ What it is, stated so it is not built twice: [unknown-type.md](unknown-type.md)'
 cycle handling at process granularity, `(process, version)` memoization and the
 registration-ordering rule — most of the payoff, none of the engine build. That makes it
 also the argument for not scheduling the engine-side version.
+
+## `$process` — another definition's types, spread
+
+    type: child
+    <<: "$process: ./billing.yaml"
+
+Phase 1, spread form (§The spread form). Returns the call-site pre-fill for a child of that
+definition: `name`, `result_schema`, `raises`. It exists because those are otherwise copied by
+hand from a file in the same repo, and a copy is what drifts.
+
+**It is genctl's first built-in resolver, and has to be.** Two of the three are not fields to
+read: a definition carries `Output *Shape` and no output schema, and `raises` is
+`ProcessDefinition.Raises()`, a scan over every raise clause. The answer is genroc's own inferred
+view — [`genctl schema type`](schema-command.md) §7's — so an external binary could produce it
+only by re-entering genctl. The mechanism stays open to registered resolvers; this instance
+cannot be one. It reaches no server.
+
+Not spelled `$infer`: that name is a script's return type at `ext: .ts`, and `ext` is an
+assertion, so reusing it would make one word mean two file types.
+
+**The child's `output` is the parent's `result_schema`** — a rename, not a copy, which is the
+other reason this is not a generic fragment loader. `version` cannot come from the file at all: a
+source file is not a version and `Version: 0` means latest, so the spread fills the types and not
+the pin, exactly where hand-writing already stood.
+
+### Built-in, and overridable
+
+Registered as if `.genroc` ended with:
+
+```yaml
+- name: process
+  phase: structural
+  ext: [.genroc.yaml, .genroc.yml, .genroc.json]
+```
+
+No `command`, because it runs in genctl; no `types`, because nothing external needs declarations.
+Everything else is the resolver rules unchanged — the phase rule, both directive positions, the
+escape on splice.
+
+`.genroc.yaml` is the convention `genctl init` writes and every example uses, so the assertion
+catches the real mistake — a path to a script, or to a YAML that is not a definition — before the
+parse has to word it. It is also what forced `ext` to be a suffix list (§The project config):
+`filepath.Ext` answers `.yaml` here, and the other two spellings parse just as well.
+
+**Built-ins are appended after everything in `.genroc`**, so overriding needs no rule of its own:
+first match wins and a local entry is always earlier. An ordered list already says it, which is
+why there is no "shadowing" rule here to learn separately.
+
+It also makes an override **per suffix**. An entry named `process` claiming only `.genroc.yaml`
+leaves `.genroc.json` to the built-in — the honest reading of a first-match table, and the one
+surprise worth stating: to take the name outright, claim every suffix.
+
+Allowed for the reason that inverts the risk: **an overridable built-in namespace is a
+non-breaking one.** Reserve the names and every built-in a later genroc adds breaks the repo that
+already used that name; let the local entry win and adding one is invisible to whoever had their
+own. The accident case is the weak one — shadowing takes `process:` written under `resolvers:`,
+which is not reachable by typo.
+
+
+### Where it goes per action type
+
+The spread sits where the fields are, so it needs no rule of its own — but they are not in the
+same mapping for all three:
+
+| action | fields live on | the `<<` goes |
+|---|---|---|
+| `child` | the action | in the action |
+| `child_list` | the action | in the action |
+| `child_map` | each `ChildEntry` ([definition.go:33](../internal/model/definition.go#L33)) | in each entry |
+
+```yaml
+type: child_map
+children:
+  billing:
+    <<: "$process: ./billing.yaml"
+  shipping:
+    <<: "$process: ./shipping.yaml"
+```
+
+`child_list` needs no array wrapping: its single `result_schema` types **one element**
+([infer.go:732](../internal/validation/infer.go#L732)), which is exactly what the child's
+`output` is. Filling it is also what makes the array exportable — without it there is no
+permissive fallback.
+
+In `child_map` the entry key is the child **key** (`child_key`) and the spread fills `name`, the
+**process** name. Often the same word, never the same thing — an entry whose key differs from its
+spread `name` is correct and is not to be "fixed".
+
+
+### It is a Pin, not an Infer
+
+The schema lands in the **stored** definition, so [`genctl compat`](../internal/validation/compat.go#L169)
+reads a changed child type as a real contract break — the same property `$infer` is built on. That
+is the whole argument for doing this at author time: [unknown-type.md](unknown-type.md)'s
+engine-side **Infer** buys the same ergonomics and needs cross-process resolution at runtime,
+`(process, version)` memoization and a registration-ordering rule. Still not scheduled, and this
+is why.
+
+### Ordering, and the recursion it cannot type
+
+A source's own spreads resolve before its types are inferred, so a spread always reads a resolved
+definition. The dependency is a **static file graph**: no versions, no registry lookup, and a
+cycle in it is refused with the path.
+
+**That graph is not the call graph, and only one of the two may cycle.** A recursive child is
+legal and expected — it "terminates under R5's syntactic scan"
+([child-error-handling.md](child-error-handling.md) §8) — so a process that spawns itself, or a
+mutually recursive pair, is an ordinary definition. What it cannot do is type itself by
+reference. `<<: "$process: ./a.yaml"` inside `a.yaml` is a cycle, and it is the case an author
+reaches for first, because at a self-recursive call the types are identical by construction.
+
+The fixpoint that solves this *inside* a definition is not reached from here:
+[recursive-type-inference.md](recursive-type-inference.md)'s `solveCluster` works symbolically,
+during inference, while a spread is a textual pre-fill in phase 1 — strictly before
+`validation.Generate`, so the copy must already be a concrete schema at a point where the solver
+has not run.
+
+**One edge of every cycle is therefore written by hand**, and [unknown-type.md](unknown-type.md)
+holds both spellings: a Pin, or `{}` where the parent only forwards the value. That is what the
+Unknown row is for, and it is the sharpest price of resolving at author time.
+
+**Deferred, not impossible — recorded so it is not re-derived [2026-09-17].** The cross-file case
+reduces to the solver's own problem: a spreading process's output type is one more computed
+definition and a spread is a `$ref` to it, so cycles collapse on contact and the existing
+converge / degenerate / productive / no-base-case outcomes apply unchanged. What is not free is
+cross-file member naming against the two `$defs` pools, and synthesizing `$defs` into the parent
+— a kept recursion is a `$ref` and a stored definition is self-contained. `$process` would also
+stop being a pre-pass and become a participant in inference, which is engine-side **Infer** minus
+the engine. Declined against a one-line annotation at the recursion point.
+
 
 ## What a type generator owes
 
