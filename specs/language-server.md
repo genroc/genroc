@@ -27,8 +27,7 @@ Diagnostics for a definition are two local calls — no server, no database:
 and the editor's other questions are answered by APIs that shipped with `genctl schema`:
 `SlotContexts` (address → what is readable there), `TypeSlots` / `TypeDocument` (address →
 what shape it is), `Navigate` and `Schema.At` (walk a dotted prefix), `Schema.Infer` (the
-type of an expression). Multi-file resolution and the `.genroc` project config are
-`cmd/genctl/sources.go`.
+type of an expression). Multi-file resolution and the `.genroc` project config are `internal/sources`.
 
 Structural checking is the same two calls: `numeric.DecodeStrict` rejects a key with no home
 and `Validate` covers the cross-field rules, so the editor's structural answers are the
@@ -91,7 +90,7 @@ failures.
 
 The collecting form becomes the primitive; `Generate` stays as it is, a wrapper returning the
 first diagnostic as an `error`, so the two callers that only gate on it (`handlers_definitions.go`,
-`sources.go`) do not change.
+`internal/sources`) do not change.
 
 ### A diagnostic code
 
@@ -129,15 +128,19 @@ with it and keeps its tests.
   validator, mimetype, x/*), because JSON-RPC framing is 130 lines and was written by hand.
   The fence guarded a hypothetical.
 - **It could not reach the project config.** `.genroc` discovery, `definitionPaths` and the
-  resolver table live in `cmd/genctl/sources.go`, which is `package main` and therefore
+  resolver table lived in `cmd/genctl/sources.go`, which is `package main` and therefore
   importable by nothing.
 
   **This half was wrong, and building phase 3b showed it** (2026-09-09). Cross-file navigation
   does not want `.genroc` at all: `definitions:` says which files an `apply` DEPLOYS, and
   navigation asks which files EXIST — a different question, already answered by the
-  `workspaceFolders` the editor sends in `initialize`. Nothing moved out of `package main`.
-  The conclusion survives on the first bullet alone; the trigger to revisit is a feature that
-  genuinely needs the resolver table, `$import` resolution being the obvious one.
+  `workspaceFolders` the editor sends in `initialize`.
+
+  **The trigger then fired** (2026-09-17). Not `$import`, which types as the string it
+  lexically is, but the `<<` spread: it changes which keys a document HAS, so an editor that
+  skips resolution reports `unknown field "<<"` on text that applies. Resolution moved to
+  `internal/sources` and the editor runs the structural phase. The conclusion still survives
+  on the first bullet alone — a module would have fenced nothing either way.
 
 This is the reasoning CLAUDE.md already applies to `genctl` itself: it shares its whole
 internal surface with the server, so **a module boundary would relocate the dependency rather

@@ -340,7 +340,7 @@ must handle, which is what a generator is being handed.
 `TaskSchemas` carried `ActionType`, `Input`, `Output` and `Error` and no result, so the declared
 `result_schema` / `responses` existed only as the inline type of `self.result`. The evidence
 that this was a hole rather than a choice: genctl read the declared result **out of the raw
-YAML** — `enclosingTask`, [sources.go](../cmd/genctl/sources.go) — to fill the resolver
+YAML** — `enclosingTask`, [sources.go](../internal/sources/sources.go) — to fill the resolver
 manifest's `output`, so one half of that manifest was a document read and the other inference.
 Adding `Result` is additive (a `SchemaFile` is computed per call, never persisted) and lets that
 read go.

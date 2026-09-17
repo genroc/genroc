@@ -211,8 +211,8 @@ register; when it disagrees with a §0, the §0 is right.
   which *is* the retention rule. Constrained by migration 018's serving rule (unredacted
   context-only objects are never served).
 - [source-resolution.md](source-resolution.md) — **code phase built** (2026-08-21;
-  `cmd/genctl/sources.go`, `eval-node/import.ts`); **structural phase, spread form, `$process`
-  and the config reshape built** (2026-09-17; `cmd/genctl/structural.go`). `$infer` and
+  `internal/sources/sources.go`, `eval-node/import.ts`); **structural phase, spread form, `$process`
+  and the config reshape built** (2026-09-17; `internal/sources/structural.go`). `$infer` and
   registered (non-built-in) structural resolvers are still unbuilt.
   How a definition **source file** becomes a definition: a `.genroc` in the repo registers resolver binaries and a
   `"$import: ./x.ts"` directive names one, so a TS bundler, a type generator and a YAML
@@ -478,7 +478,8 @@ register; when it disagrees with a §0, the §0 is right.
   `yamlToAny`'s existing walk, moved to `internal/defdoc`. **§4 was reversed by building it**:
   the server had its own `genroc/lsp` module for a day and lost it — it inherited all 27 of its
   dependencies from `genroc` so fenced nothing, and `package main` put `cmd/genctl`'s project
-  config, which cross-file navigation needs, permanently out of reach. The measurement worth
+  config out of reach — that second half expired on 2026-09-17, when resolution moved to
+  `internal/sources` for the editor's sake. The measurement worth
   keeping is the one that drove the first draft: a separate module *can* import
   `genroc/internal` (Go's rule is path-prefix, not module-scoped; `ui` is fenced by its go.mod,
   not by the rule, and `archtest`'s comment said otherwise and was wrong). §5 takes the

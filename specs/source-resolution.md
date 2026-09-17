@@ -3,10 +3,10 @@
 Status: **PROPOSAL 2026-08-20; the code phase BUILT 2026-08-21; the types moved into genctl
 2026-09-04.** What ships is the project config, value-position `$<resolver>: <path>`
 directives, the batched manifest, `genctl types`, and `eval-node/import.ts` as the first
-resolver (`cmd/genctl/sources.go`, `tests/cli/imports_test.ts`).
+resolver (`internal/sources/sources.go`, `tests/cli/imports_test.ts`).
 
 **The structural phase, the spread form and `$process` BUILT 2026-09-17**
-(`cmd/genctl/structural.go`, `tests/cli/spread_test.ts`), along with the config reshape this
+(`internal/sources/structural.go`, `tests/cli/spread_test.ts`), along with the config reshape this
 doc describes: `resolvers` is an ordered first-match list and `ext` a suffix list. Still
 unbuilt: **`$infer`**, and any structural resolver that is not the built-in — a registered one
 is refused by name rather than run. Recursive spread typing is **declined, not missing**

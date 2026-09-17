@@ -2,8 +2,8 @@
 
 The language server behind `genctl lsp` — the definition language in an editor.
 specs/language-server.md. A module of its own was measured and rejected (§4): it inherited
-every dependency it would have fenced, and could not reach the project config in
-`cmd/genctl`, which cross-file navigation needs.
+every dependency it would have fenced. Its other argument, that `cmd/genctl` held the
+project config unreachably, expired when resolution moved to `internal/sources`.
 
 **Every answer is the server's own.** Structural checking is `numeric.DecodeStrict` +
 `ProcessDefinition.Validate`, types are `validation.Check` — so the editor and an `apply`

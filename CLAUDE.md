@@ -80,10 +80,11 @@ committed placeholder `go:embed` compiles in, and only the image build swaps the
 The `golang-jwt` claim above is about the Go module; npm is a separate graph that reaches no binary.
 
 A third module for the language server was built and reverted: it inherited all 27 of its
-dependencies from `genroc`, so it fenced nothing, and `package main` put `cmd/genctl`'s project
-config out of its reach. Note that a separate module reaches `genroc/internal` fine — Go's
-internal rule is path-prefix, not module-scoped; `ui` is fenced because its go.mod requires
-nothing from here. specs/language-server.md §4.
+dependencies from `genroc`, so it fenced nothing. Its second argument — `package main` put
+`cmd/genctl`'s project config out of reach — expired when source resolution moved to
+`internal/sources` so the language server could run the structural phase. Note that a separate
+module reaches `genroc/internal` fine — Go's internal rule is path-prefix, not module-scoped;
+`ui` is fenced because its go.mod requires nothing from here. specs/language-server.md §4.
 
 **`./...` matches the current module only.** A command that does not name both silently skips
 one — which is why the Makefile and CI spell out `./... ./ui/...`.
