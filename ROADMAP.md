@@ -26,6 +26,8 @@ One line per item. The argument lives in `specs/`; this is the index.
 - [] **per-definition durability field** (specs/durability-levels.md §8)
 - [] **pause as a debugging tool** — start an instance paused, step it with `tick`
 - [] **docs** — the site ships four pages; the reference gap it was written to close is open
+- [] **`$openapi` resolver** — an operation's response types spread into a fetch; `allOf`
+  flattened in the resolver, not the language (specs/openapi-resolver.md)
 
 ## Shipped
 - [x] **guard narrowing** — a `switch` case's proof travels the edge it selects, so the task

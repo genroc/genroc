@@ -262,6 +262,11 @@ register; when it disagrees with a §0, the §0 is right.
   is a concrete copy made before the solver runs; one edge of the cycle is written by hand. The
   cross-file fixpoint is **possible and declined**, with the reduction recorded so it is not
   re-derived (§Ordering).
+- [openapi-resolver.md](openapi-resolver.md) — **PROPOSAL 2026-09-17.** `$openapi`, a second
+  built-in structural resolver: an operation's `method` and status-keyed `responses` spread into
+  a `fetch`, the way `$process` spreads a child's types. Carries the dialect table (translate /
+  strip / refuse) and the `allOf` decision: flattened in the resolver as `&` on object types, not
+  admitted to the language — with the refusal count on real documents as the trigger to revisit.
 - [external-task-queue.md](external-task-queue.md) — **BUILT through phase 3** (error channel
   2026-08-23; claim/lease/renew/release and `external.lost` 2026-08-24). Only the long-poll and
   the evaluator switchover remain proposal. Turns `external` into a queue a worker fleet
