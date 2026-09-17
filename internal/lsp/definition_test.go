@@ -33,7 +33,7 @@ tasks:
 `
 
 func TestGotoOnAScalarSwitchJumpsToTheTask(t *testing.T) {
-	r, ok := definitionAt(routingDoc, 4, 15) // inside "$second"
+	r, ok := definitionAt(routingDoc, "", 4, 15) // inside "$second"
 	if !ok {
 		t.Fatal("a `$task-id` names a task and must resolve")
 	}
@@ -43,7 +43,7 @@ func TestGotoOnAScalarSwitchJumpsToTheTask(t *testing.T) {
 }
 
 func TestGotoInsideASwitchCaseJumpsToTheTask(t *testing.T) {
-	r, ok := definitionAt(routingDoc, 8, 18) // inside "$first"
+	r, ok := definitionAt(routingDoc, "", 8, 18) // inside "$first"
 	if !ok {
 		t.Fatal("a goto inside a case must resolve")
 	}
@@ -55,17 +55,17 @@ func TestGotoInsideASwitchCaseJumpsToTheTask(t *testing.T) {
 // `end` terminates and `next` is positional, so neither names anything to jump to. Answering
 // with a location anyway would send the reader somewhere arbitrary.
 func TestEndAndNextHaveNoDefinition(t *testing.T) {
-	if _, ok := definitionAt(routingDoc, 9, 17); ok {
+	if _, ok := definitionAt(routingDoc, "", 9, 17); ok {
 		t.Error("`end` terminates the instance; it names no task")
 	}
-	if _, ok := definitionAt(routingDoc, 11, 15); ok {
+	if _, ok := definitionAt(routingDoc, "", 11, 15); ok {
 		t.Error("`next` is positional; it names no task")
 	}
 }
 
 func TestAGotoNamingNoTaskResolvesToNothing(t *testing.T) {
 	broken := "name: demo\ntasks:\n  - id: a\n    switch: \"$nope\"\n"
-	if _, ok := definitionAt(broken, 4, 15); ok {
+	if _, ok := definitionAt(broken, "", 4, 15); ok {
 		t.Error("a goto to a task that does not exist must not resolve somewhere else")
 	}
 }
@@ -80,7 +80,7 @@ func TestOnlyARoutingSlotResolvesEvenWhenTheValueLooksLikeOne(t *testing.T) {
 	//	 8       url: "$second"
 	doc := "name: demo\ntasks:\n  - id: first\n    switch: end\n  - id: second\n    action:\n" +
 		"      type: fetch\n      method: post\n      url: \"$first\"\n    switch: end\n"
-	if _, ok := definitionAt(doc, 8, 15); ok {
+	if _, ok := definitionAt(doc, "", 8, 15); ok {
 		t.Error("a url holding `$first` is a string, not a task reference")
 	}
 }
@@ -89,17 +89,17 @@ func TestOnlyARoutingSlotResolvesEvenWhenTheValueLooksLikeOne(t *testing.T) {
 // value the decoder will refuse, and jumping from it would invent a meaning it does not have.
 func TestABareNameInASwitchIsNotAReference(t *testing.T) {
 	doc := "name: demo\ntasks:\n  - id: first\n    switch: second\n  - id: second\n    switch: end\n"
-	if _, ok := definitionAt(doc, 4, 14); ok {
+	if _, ok := definitionAt(doc, "", 4, 14); ok {
 		t.Error("`switch: second` names no task; a reference is spelled `$second`")
 	}
 }
 
 // A cursor on ordinary text is the common case, and a spurious jump is worse than none.
 func TestACursorOnSomethingElseHasNoDefinition(t *testing.T) {
-	if _, ok := definitionAt(routingDoc, 1, 7); ok {
+	if _, ok := definitionAt(routingDoc, "", 1, 7); ok {
 		t.Error("the process name is not a reference")
 	}
-	if _, ok := definitionAt(routingDoc, 7, 20); ok {
+	if _, ok := definitionAt(routingDoc, "", 7, 20); ok {
 		t.Error("a case expression is not a reference")
 	}
 }
@@ -225,7 +225,7 @@ func TestAChildNamingAProcessThatDoesNotExistResolvesToNothing(t *testing.T) {
 // `name` is a field on several things. Only a child action's is a process reference — a
 // definition's own `name` is not, and jumping from it would send the reader in a circle.
 func TestTheDefinitionsOwnNameIsNotAReference(t *testing.T) {
-	if _, ok := definitionAt(parentDoc, 1, 8); ok {
+	if _, ok := definitionAt(parentDoc, "", 1, 8); ok {
 		t.Error("the process's own name names itself")
 	}
 }

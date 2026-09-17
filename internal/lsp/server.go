@@ -247,7 +247,7 @@ func (s *Server) definition(p hoverParams) any {
 		return nil
 	}
 	lines := splitLines(text)
-	ref, doc, ok := referenceAt(text, p.Position.Line+1, byteColumn(lines, p.Position))
+	ref, doc, ok := referenceAt(text, s.pathOf(p.TextDocument.URI), p.Position.Line+1, byteColumn(lines, p.Position))
 	if !ok {
 		return nil
 	}

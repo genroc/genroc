@@ -29,7 +29,7 @@ const maxScanned = 2000
 // disk: the file on disk may be older than what the reader is looking at.
 func (s *Server) findProcess(name string) (string, defdoc.Range, bool) {
 	for uri, text := range s.docs {
-		if r, ok := processNamed(text, name); ok {
+		if r, ok := processNamed(text, s.pathOf(uri), name); ok {
 			return uri, r, true
 		}
 	}
@@ -59,7 +59,7 @@ func (s *Server) findProcess(name string) (string, defdoc.Range, bool) {
 			if readErr != nil {
 				return nil
 			}
-			if r, ok := processNamed(string(data), name); ok {
+			if r, ok := processNamed(string(data), path, name); ok {
 				found, span = uri, r
 			}
 			return nil
@@ -72,8 +72,8 @@ func (s *Server) findProcess(name string) (string, defdoc.Range, bool) {
 }
 
 // processNamed returns where `name` is written, in the document of text that declares it.
-func processNamed(text, name string) (defdoc.Range, bool) {
-	docs, err := defdoc.ParseAll([]byte(text))
+func processNamed(text, file, name string) (defdoc.Range, bool) {
+	docs, err := parseDocuments(text, file)
 	if err != nil {
 		return defdoc.Range{}, false
 	}

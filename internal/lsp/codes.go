@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"genroc/internal/defdoc"
@@ -27,22 +28,24 @@ type offeredCode struct{ code, detail string }
 // siblings are what the cursor there used to be given.
 func errorCodeValues(text, file string, line, col int) ([]completionItem, bool) {
 	src := lineAt(text, line)
-	doc, ok := parseRepaired(text, line)
+	d, ok := parseRepaired(text, file, line)
 	if !ok {
 		return nil, false
 	}
-	// A child task's raise set can arrive through a `<<` spread, and this reads the action out
-	// of the document rather than through inference -- so the document has to be the resolved
-	// one, or a rule's `code` is offered a set the call does not actually declare.
-	resolveStructuralInPlace(doc, file)
-	path, ok := valueSlot(doc, src, line, col, isErrorCodeSlot)
+	path, ok := valueSlot(d.Doc, src, line, col, isErrorCodeSlot)
 	if !ok {
-		if path, ok = dashSlot(doc, text, line, col); !ok || !isErrorCodeSlot(doc, path) {
+		if path, ok = dashSlot(d.Doc, text, line, col); !ok || !isErrorCodeSlot(d.Doc, path) {
 			return nil, false
 		}
 	}
 	from := replaceFrom(src, col, isCodeToken)
-	codes := catchableCodes(doc, taskOf(path))
+	// Through the definition, not the document: a child's raise set can arrive by a `<<`
+	// spread, and only the decoded definition carries what that supplied.
+	var task *model.Task
+	if def, ok := d.definition(); ok {
+		task = taskIn(def, taskOf(path))
+	}
+	codes := catchableCodes(task)
 	out := make([]completionItem, 0, len(codes))
 	for i, c := range codes {
 		out = append(out, completionItem{
@@ -92,15 +95,20 @@ func taskOf(path string) string {
 }
 
 // catchableCodes is what a task's on_error can see: the codes errcode classifies for this kind
-// of task, after the ones its action declares. A task whose action reports none — a delay, or an
-// action not written yet — answers with nothing, which is the honest answer.
-func catchableCodes(doc *defdoc.Doc, taskPath string) []offeredCode {
-	v, _ := doc.ValueAt(taskPath)
-	task, _ := v.(map[string]any)
-	action, _ := task["action"].(map[string]any)
-
-	actionType := model.ActionType(stringField(action, "type"))
-	only, _ := task["only_once"].(bool)
+// of task, after the ones its action declares. A task whose action reports none -- a delay, or an
+// action not written yet -- answers with nothing, which is the honest answer; nil is a task the
+// document does not have yet, and answers the same way.
+func catchableCodes(task *model.Task) []offeredCode {
+	var action *model.Action
+	only := false
+	if task != nil {
+		action = task.Action
+		only = task.OnlyOnce != nil && *task.OnlyOnce
+	}
+	var actionType model.ActionType
+	if action != nil {
+		actionType = action.Type
+	}
 	// Shared with registration, which refuses a rule naming anything outside this set: what the
 	// editor offers and what applies must be one answer. `only_once` needing an action, and R5
 	// bounding a child task's rules by the raise set, are decided there.
@@ -111,10 +119,15 @@ func catchableCodes(doc *defdoc.Doc, taskPath string) []offeredCode {
 	case model.ActionTypeFetch:
 		out = slices.Clone(fetchPatterns)
 	case model.ActionTypeExternal:
-		out = declaredRaises(action)
+		out = declaredRaises(action.Raises)
 	case model.ActionTypeChild, model.ActionTypeChildMap, model.ActionTypeChildList:
-		for _, entry := range childEntries(action) {
-			out = append(out, declaredRaises(entry)...)
+		// Three spellings reach one field: `child` and `child_list` declare on the action,
+		// `child_map` once per entry under `children`.
+		if len(action.Children) == 0 {
+			out = declaredRaises(action.Raises)
+		}
+		for _, key := range slices.Sorted(maps.Keys(action.Children)) {
+			out = append(out, declaredRaises(action.Children[key].Raises)...)
 		}
 	}
 	for _, info := range errcode.Catchable(kinds) {
@@ -123,34 +136,35 @@ func catchableCodes(doc *defdoc.Doc, taskPath string) []offeredCode {
 	return dedupe(out)
 }
 
-// childEntries is where a child task names the processes it spawns: on the action itself, or
-// one entry per key under `children`.
-func childEntries(action map[string]any) []map[string]any {
-	children, ok := action["children"].(map[string]any)
-	if !ok {
-		return []map[string]any{action}
+// taskIn is the task a slot address names: `tasks.<id>` or `tasks[<n>]`, the two spellings
+// defdoc gives one position.
+func taskIn(def *model.ProcessDefinition, taskPath string) *model.Task {
+	rest, ok := strings.CutPrefix(taskPath, "tasks")
+	if !ok || def == nil {
+		return nil
 	}
-	out := make([]map[string]any, 0, len(children))
-	for _, key := range slices.Sorted(maps.Keys(children)) {
-		if entry, ok := children[key].(map[string]any); ok {
-			out = append(out, entry)
+	if index, ok := strings.CutPrefix(rest, "["); ok {
+		n, err := strconv.Atoi(strings.TrimSuffix(index, "]"))
+		if err != nil || n < 0 || n >= len(def.Tasks) {
+			return nil
+		}
+		return def.Tasks[n]
+	}
+	id := strings.TrimPrefix(rest, ".")
+	for _, t := range def.Tasks {
+		if t != nil && t.ID == id {
+			return t
 		}
 	}
-	return out
+	return nil
 }
 
-func declaredRaises(at map[string]any) []offeredCode {
-	declared, _ := at["raises"].(map[string]any)
+func declaredRaises(declared model.Raises) []offeredCode {
 	out := make([]offeredCode, 0, len(declared))
 	for _, code := range slices.Sorted(maps.Keys(declared)) {
 		out = append(out, offeredCode{code, "declared in raises"})
 	}
 	return out
-}
-
-func stringField(m map[string]any, key string) string {
-	s, _ := m[key].(string)
-	return s
 }
 
 func dedupe(codes []offeredCode) []offeredCode {

@@ -23,10 +23,10 @@ func completeAt(text, file string, line, col int) []completionItem {
 	if expr, ok := expressionPrefix(src, col); ok {
 		return completeExpression(text, file, line, col, expr)
 	}
-	if refs, ok := routingValues(text, line, col); ok {
+	if refs, ok := routingValues(text, file, line, col); ok {
 		return refs
 	}
-	if types, ok := typeValues(text, line, col); ok {
+	if types, ok := typeValues(text, file, line, col); ok {
 		return types
 	}
 	if codes, ok := errorCodeValues(text, file, line, col); ok {
@@ -34,7 +34,7 @@ func completeAt(text, file string, line, col int) []completionItem {
 	}
 	// A `case` holds an expression written BARE, so there is no `$:` for the scan above to
 	// find and the cursor would otherwise be read as sitting on a key.
-	if inBareExpression(text, line, col) {
+	if inBareExpression(text, file, line, col) {
 		return completeExpression(text, file, line, col, dottedTail(src[:min(col-1, len(src))]))
 	}
 	// Past a `key:` the reader is writing that key's VALUE. The slots above are the ones with an
@@ -43,13 +43,13 @@ func completeAt(text, file string, line, col int) []completionItem {
 	if inValuePosition(src, col) {
 		return nil
 	}
-	return completeKey(text, line, col)
+	return completeKey(text, file, line, col)
 }
 
 // inBareExpression reports whether the cursor is inside the VALUE of a slot that holds an
 // expression with no `$:` marker.
-func inBareExpression(text string, line, col int) bool {
-	doc, ok := parseRepaired(text, line)
+func inBareExpression(text, file string, line, col int) bool {
+	doc, ok := parseRepaired(text, file, line)
 	if !ok {
 		return false
 	}
@@ -63,8 +63,8 @@ func inBareExpression(text string, line, col int) bool {
 
 // completeKey offers the keys legal in the mapping the cursor sits in. A cursor on a
 // half-typed key resolves to that key's own node, whose PARENT is the mapping being filled in.
-func completeKey(text string, line, col int) []completionItem {
-	doc, ok := parseRepaired(text, line)
+func completeKey(text, file string, line, col int) []completionItem {
+	doc, ok := parseRepaired(text, file, line)
 	if !ok {
 		return nil
 	}
@@ -77,15 +77,15 @@ func completeKey(text string, line, col int) []completionItem {
 		// beside that line's key, so that key's mapping is the answer — including which of its
 		// keys are already written.
 		if strings.TrimSpace(src) != "" {
-			if path, ok := mappingUnder(doc, line, indentOf(src)+1); ok {
-				return keyEdits(legalKeys(doc, path), src, col)
+			if path, ok := mappingUnder(doc.Doc, line, indentOf(src)+1); ok {
+				return keyEdits(legalKeys(doc.Doc, path), src, col)
 			}
 		}
 		anchorLine, anchorCol, sibling, found := keyAbove(text, line, col)
 		if !found {
 			// Nothing above sits at or outside this indent, so the cursor is at the top
 			// level of the document.
-			return keyEdits(legalKeys(doc, ""), src, col)
+			return keyEdits(legalKeys(doc.Doc, ""), src, col)
 		}
 		path, ok := doc.At(anchorLine, anchorCol)
 		if !ok {
@@ -94,22 +94,22 @@ func completeKey(text string, line, col int) []completionItem {
 		if sibling {
 			path = defdoc.ParentPath(path)
 		}
-		return keyEdits(legalKeys(doc, path), src, col)
+		return keyEdits(legalKeys(doc.Doc, path), src, col)
 	}
 
 	// A line with content: the cursor may be past its end, or in the gap a `- ` leaves, where
 	// nothing covers it but the sequence or the document itself. The line's own key is what it
 	// sits beside, so resolve from there instead of falling out to the root.
-	path, ok := mappingUnder(doc, line, col)
+	path, ok := mappingUnder(doc.Doc, line, col)
 	if !ok {
 		if start := indentOf(src) + 1; start != col {
-			path, ok = mappingUnder(doc, line, start)
+			path, ok = mappingUnder(doc.Doc, line, start)
 		}
 	}
 	if !ok {
 		return nil
 	}
-	return keyEdits(legalKeys(doc, path), src, col)
+	return keyEdits(legalKeys(doc.Doc, path), src, col)
 }
 
 // keyEdits gives each key the range it replaces: the whole word the cursor is in, so a key chosen
@@ -355,7 +355,7 @@ func membersOf(s schema.Schema) []completionItem {
 // leaves an unterminated quote, and refusing to answer until it is closed refuses exactly when
 // the author is asking.
 func scopeAt(text, file string, line, col int) (schema.Schema, bool) {
-	doc, ok := parseRepaired(text, line)
+	doc, ok := parseRepaired(text, file, line)
 	if !ok {
 		return schema.Schema{}, false
 	}
@@ -367,10 +367,10 @@ func scopeAt(text, file string, line, col int) (schema.Schema, bool) {
 	// not type, its slot recovers as {}, and everything that reads the slot — `self.previous`
 	// most of all — then offers nothing, exactly where help was asked for.
 	source := doc
-	if blanked, ok := parseRepaired(blankValueAt(text, line), line); ok {
+	if blanked, ok := parseRepaired(blankValueAt(text, line), file, line); ok {
 		source = blanked
 	}
-	def, ok := definitionOf(source, file)
+	def, ok := source.definition()
 	if !ok {
 		return schema.Schema{}, false
 	}
@@ -398,49 +398,6 @@ func blankValueAt(text string, line int) string {
 	return strings.Join(lines, "\n")
 }
 
-// parseRepaired parses text, retrying with the cursor's line closed off when the document as
-// written will not parse. Only the one line is touched: a repair that rewrote more would
-// answer about a document the author is not looking at.
-func parseRepaired(text string, line int) (*defdoc.Doc, bool) {
-	if doc, ok := soleDocContaining(text, line); ok {
-		return doc, true
-	}
-	lines := splitLines(text)
-	if line < 1 || line > len(lines) {
-		return nil, false
-	}
-	// A half-typed key (`ur`) is not YAML either, so `: ` is one of the repairs — the others
-	// close a string, an interpolation, or a list the author has not finished. An unclosed `[`
-	// swallows every line below it, so without `]` the whole document stops parsing while a
-	// `type: [string,` is being written.
-	for _, suffix := range []string{`"`, `}"`, `"}`, `: `, `]`} {
-		patched := append([]string(nil), lines...)
-		patched[line-1] += suffix
-		if doc, ok := soleDocContaining(strings.Join(patched, "\n"), line); ok {
-			return doc, true
-		}
-	}
-	return nil, false
-}
-
-func soleDocContaining(text string, line int) (*defdoc.Doc, bool) {
-	docs, err := defdoc.ParseAll([]byte(text))
-	if err != nil {
-		return nil, false
-	}
-	for _, doc := range docs {
-		if _, ok := doc.At(line, 1); ok {
-			return doc, true
-		}
-	}
-	// A cursor on a line the index does not reach — a blank line inside a mapping — still
-	// belongs to whichever document is the only one there is.
-	if len(docs) == 1 {
-		return docs[0], true
-	}
-	return nil, false
-}
-
 // indentOf is the 0-based column of a line's first content, or -1 when it has none. A sequence
 // dash is skipped: `  - id: x` has its key at 4, the indent its siblings are written at.
 func indentOf(line string) int {
@@ -463,13 +420,13 @@ func indentOf(line string) int {
 // routingValues offers what a `goto` may name: every task in this document, plus the two words
 // that are not tasks. A routing slot is the one place a VALUE has a closed set, and without
 // this the cursor reads as sitting on a key and the clause's own siblings are offered instead.
-func routingValues(text string, line, col int) ([]completionItem, bool) {
+func routingValues(text, file string, line, col int) ([]completionItem, bool) {
 	src := lineAt(text, line)
-	doc, ok := parseRepaired(text, line)
+	doc, ok := parseRepaired(text, file, line)
 	if !ok {
 		return nil, false
 	}
-	if _, ok := valueSlot(doc, src, line, col, usableRouting); !ok {
+	if _, ok := valueSlot(doc.Doc, src, line, col, usableRouting); !ok {
 		return nil, false
 	}
 	// The token already typed is REPLACED, not appended to: `$` is not a word character, so an
@@ -479,7 +436,7 @@ func routingValues(text string, line, col int) ([]completionItem, bool) {
 		{Label: "end", Kind: kindValue, Detail: "terminate the instance", replaceFrom: from},
 		{Label: "next", Kind: kindValue, Detail: "advance to the next task in the list", replaceFrom: from},
 	}
-	for _, id := range taskIDs(doc) {
+	for _, id := range taskIDs(doc.Doc) {
 		out = append(out, completionItem{
 			Label: "$" + id, Kind: kindValue, Detail: "task", replaceFrom: from,
 		})
@@ -605,17 +562,17 @@ func taskIDs(doc *defdoc.Doc) []string {
 // which: a user schema's JSON types, and — where the node is a discriminated union — the
 // variants its arms declare. Without this the cursor after `type:` reads as sitting on a key
 // and the surrounding keys come back.
-func typeValues(text string, line, col int) ([]completionItem, bool) {
+func typeValues(text, file string, line, col int) ([]completionItem, bool) {
 	src := lineAt(text, line)
-	doc, ok := parseRepaired(text, line)
+	doc, ok := parseRepaired(text, file, line)
 	if !ok {
 		return nil, false
 	}
-	path, ok := valueSlot(doc, src, line, col, isTypeSlot)
+	path, ok := valueSlot(doc.Doc, src, line, col, isTypeSlot)
 	if !ok {
 		return nil, false
 	}
-	names, detail, alsoAList := typeNamesAt(doc, path)
+	names, detail, alsoAList := typeNamesAt(doc.Doc, path)
 	if len(names) == 0 {
 		return nil, false
 	}

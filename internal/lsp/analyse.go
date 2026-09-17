@@ -28,7 +28,7 @@ const source = "genroc"
 // buffer that has none.
 func analyse(text, file string) []diagnostic {
 	lines := splitLines(text)
-	docs, err := defdoc.ParseAll([]byte(text))
+	docs, err := parseDocuments(text, file)
 	if err != nil {
 		return []diagnostic{{
 			Range:    toRange(lines, yamlErrorRange(err)),
@@ -41,24 +41,18 @@ func analyse(text, file string) []diagnostic {
 
 	out := []diagnostic{}
 	for _, doc := range docs {
-		out = append(out, analyseDoc(doc, lines, file)...)
+		out = append(out, analyseDoc(doc, lines)...)
 	}
 	return out
 }
 
 func marshal(v any) ([]byte, error) { return json.Marshal(v) }
 
-// decodeLenient reads as far as the document allows, ignoring keys with no home. Hover uses it
-// and diagnostics do not: a reader asking about one slot is not asking about a typo in another,
-// and the strict decode is a VERDICT, which is the diagnostics path's job alone.
-func decodeLenient(raw []byte, into *model.ProcessDefinition) error {
-	return numeric.Decode(raw, into)
-}
-
-func analyseDoc(doc *defdoc.Doc, lines []string, file string) []diagnostic {
-	// Ahead of the marshal: the verdict is about the document an apply would see, which is this
-	// one with its structural directives resolved.
-	value, err := resolveStructural(doc, file)
+// analyseDoc is the VERDICT: the strict decode, over the document an apply would see. The
+// lenient decode hover and completion read is document.definition.
+func analyseDoc(d *document, lines []string) []diagnostic {
+	doc := d.Doc
+	value, err := d.resolve()
 	if err != nil {
 		return []diagnostic{at(doc, lines, "", "def.resolve", err.Error())}
 	}

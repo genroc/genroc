@@ -19,12 +19,13 @@ type reference struct {
 
 // referenceAt reads the reference under the cursor. A cursor on anything else answers with
 // nothing, which is most of a file.
-func referenceAt(text string, line, col int) (reference, *defdoc.Doc, bool) {
-	docs, err := defdoc.ParseAll([]byte(text))
+func referenceAt(text, file string, line, col int) (reference, *defdoc.Doc, bool) {
+	docs, err := parseDocuments(text, file)
 	if err != nil {
 		return reference{}, nil, false
 	}
-	for _, doc := range docs {
+	for _, d := range docs {
+		doc := d.Doc
 		path, ok := doc.At(line, col)
 		if !ok {
 			continue
@@ -64,8 +65,8 @@ func childProcess(doc *defdoc.Doc, path string) (string, bool) {
 
 // definitionAt resolves a reference that stays inside this document. A child action's process
 // lives in another file, so the server resolves that one — see Server.definition.
-func definitionAt(text string, line, col int) (defdoc.Range, bool) {
-	ref, doc, ok := referenceAt(text, line, col)
+func definitionAt(text, file string, line, col int) (defdoc.Range, bool) {
+	ref, doc, ok := referenceAt(text, file, line, col)
 	if !ok || ref.taskPath == "" {
 		return defdoc.Range{}, false
 	}

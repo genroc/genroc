@@ -51,14 +51,14 @@ type token struct {
 // per token, each position delta-encoded against the one before it.
 func semanticTokens(text, file string) []uint32 {
 	lines := splitLines(text)
-	docs, err := defdoc.ParseAll([]byte(text))
+	docs, err := parseDocuments(text, file)
 	if err != nil {
 		return []uint32{}
 	}
 
 	var out []token
 	for _, doc := range docs {
-		def, ok := definitionOf(doc, file)
+		def, ok := doc.definition()
 		if !ok {
 			continue
 		}
@@ -67,7 +67,7 @@ func semanticTokens(text, file string) []uint32 {
 			continue
 		}
 		for _, path := range doc.Paths() {
-			out = append(out, tokensAt(doc, lines, contexts, path)...)
+			out = append(out, tokensAt(doc.Doc, lines, contexts, path)...)
 		}
 	}
 	return encode(out)

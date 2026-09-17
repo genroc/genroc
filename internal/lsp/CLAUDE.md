@@ -11,31 +11,31 @@ cannot disagree. Nothing here reimplements a rule, and nothing reads the publish
 Schema, which is a lossy projection of exactly these calls (§5). `TestTheEditorAgreesWithThe
 ServerOnWhatIsRejected` is that claim as a test; a new check belongs on the server side of it.
 
-**Source resolution runs first, in every path that reads the document.** A `<<` spread changes
-which keys a document HAS — `name`, `result_schema` and `raises` come from the child — so three
-places resolve, and each was found broken separately: `analyse` before the verdict, which said
-`unknown field "<<"`; `definitionOf` before every type, covering hover, completion scope and
-semantic tokens, which said nothing at all; and `errorCodeValues`, which offered an `on_error`
-`code` set without the child's raises in it.
+**Text becomes a `document` in one place, and meaning is read from the model.** `parseDocuments`
+and `parseRepaired` (document.go) are the only parse sites, and a `document` is the only thing
+that resolves -- lazily, on first use, so a handler reading shape pays nothing. Two kinds of
+read, and the type says which: `Doc` is the text as WRITTEN (spans, addresses, `ValueAt` -- what
+a cursor is on, where a diagnostic lands, whether a key is already typed) and `definition()` is
+what the definition DECLARES (an action's type, its `raises`, its children), decoded from the
+resolved value, which has no other accessor. A `<<` spread supplies `name`, `result_schema` and
+`raises`, so a declaration read off `Doc` is wrong exactly when a spread is in play -- which is
+how three handlers were each found reporting a document nobody applies: diagnostics said
+`unknown field "<<"`, hover said nothing, and `on_error` completion offered a `code` set without
+the child's raises. `tests/lsp/spread_test.ts` pins all three against one seam.
 
-**Those three do not resolve the same way.** The first two take a DEEP COPY, because positions
-come from the index beside the document and an injected key has no node there. The third cannot:
-it reads the action back through `doc.ValueAt`, whose values are references INTO the containers
-the pass fills, so a copy would leave them as written — `resolveStructuralInPlace` is for that
-one, and is safe only because the doc it mutates is a repaired parse the caller throws away.
-A closed set read out of the document is the shape to watch for: inference never sees it.
+Resolution runs over a DEEP COPY, because positions come from `Doc`'s index and an injected key
+has no node there. Three things bound it. Resolution is the CLIENT's, so editor-agrees-with-server
+holds while both disagree with `apply` -- `TestTheEditorAgreesWithTheServerOnWhatIsRejected`
+compares the two halves that never resolve, and the spread suite is the reference point it
+lacks. A buffer with **no path on disk** is analysed as written, a directive's argument being
+relative to the file holding it. And the **code phase is not run** -- it shells out, and a string
+splice cannot move a type -- the same line `genctl schema` draws (cmd/genctl/schema.go).
 
-Three things bound it. Resolution is the CLIENT's, so editor-agrees-with-server holds while
-both disagree with `apply` — `TestTheEditorAgreesWithTheServerOnWhatIsRejected` compares the
-two halves that never resolve, and `tests/lsp/spread_test.ts` is the reference point it lacks.
-A buffer with **no path on disk** is analysed unresolved, a directive's argument being relative
-to the file holding it. And the **code phase is not run** — it shells out, and a string splice
-cannot move a type — which is the same line `genctl schema` draws (cmd/genctl/schema.go).
-
-**`file` is the document on disk; `path` is a slot address.** Both are strings and every
-signature here carries one or other of them. Passing a `path` where a `file` goes type-checks,
-reads fine, and silently resolves nothing: `filepath.Dir("tasks.call.output")` finds no
-project, so the spread stays unresolved and hover goes quiet. It is how this landed broken.
+**`file` is the document on disk; `path` is a slot address.** Both are strings and both travel
+through this package. Passing a `path` where a `file` goes type-checks, reads fine, and silently
+resolves nothing: `filepath.Dir("tasks.call.output")` finds no project, so the spread stays
+unresolved and hover goes quiet. It is how this landed broken the first time; binding `file` at
+construction is why a handler no longer carries one.
 
 ## Four things that are silent when broken
 

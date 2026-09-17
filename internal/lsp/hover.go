@@ -16,50 +16,26 @@ import (
 // hoverAt returns the markdown for a cursor, and the range it describes. An empty string means
 // there is nothing to say, which is the common answer and must not become a popup.
 func hoverAt(text, file string, line, col int) (string, defdoc.Range, bool) {
-	docs, err := defdoc.ParseAll([]byte(text))
+	docs, err := parseDocuments(text, file)
 	if err != nil {
 		return "", defdoc.Range{}, false
 	}
-	for _, doc := range docs {
-		path, ok := doc.At(line, col)
+	for _, d := range docs {
+		path, ok := d.At(line, col)
 		if !ok {
 			continue
 		}
-		def, ok := definitionOf(doc, file)
+		def, ok := d.definition()
 		if !ok {
 			return "", defdoc.Range{}, false
 		}
-		span, _ := doc.Span(path)
-		if md := describe(doc, def, path, lineAt(text, line), col); md != "" {
+		span, _ := d.Span(path)
+		if md := describe(d.Doc, def, path, lineAt(text, line), col); md != "" {
 			return md, span.Value, true
 		}
 		return "", defdoc.Range{}, false
 	}
 	return "", defdoc.Range{}, false
-}
-
-// definitionOf decodes a document as far as it goes. Unknown keys are TOLERATED here, unlike in
-// the diagnostics path: a reader hovering one slot is not asking about a typo in another, and
-// refusing to answer until the whole file is clean is the behaviour §7b was written against.
-//
-// Structural resolution runs first and is tolerated the same way: a spread carries the
-// `result_schema` that types `self.result`, so skipping it answers `object` where the child
-// declares a shape -- and a spread that will not resolve is the diagnostics path's to report,
-// not a reason to stop describing the slot under the cursor.
-func definitionOf(doc *defdoc.Doc, file string) (*model.ProcessDefinition, bool) {
-	value, err := resolveStructural(doc, file)
-	if err != nil {
-		value = doc.Value
-	}
-	raw, err := marshal(value)
-	if err != nil {
-		return nil, false
-	}
-	var def model.ProcessDefinition
-	if err := decodeLenient(raw, &def); err != nil {
-		return nil, false
-	}
-	return &def, true
 }
 
 // describe answers with ONE line: the type of the thing under the cursor. A hover is read at a
