@@ -3,6 +3,7 @@ import { defineConfig } from "astro/config";
 import mdx from "@astrojs/mdx";
 import rehypeSlug from "rehype-slug";
 import rehypeAutolinkHeadings from "rehype-autolink-headings";
+import relativeMarkdownLinks from "astro-rehype-relative-markdown-links";
 import { light, dark } from "./src/shiki-theme.ts";
 import { genroc } from "./src/shiki-genroc.ts";
 
@@ -12,9 +13,11 @@ import { genroc } from "./src/shiki-genroc.ts";
 // src/lib/url.ts rather than written root-absolute. Images in content are the exception:
 // `~/assets/...` (the tsconfig paths alias) reaches Astro's image pipeline, which applies
 // `base` itself -- and errors on a path that resolves to nothing, where a root-absolute 404s.
+const base = process.env.DOCS_BASE ?? "/";
+
 export default defineConfig({
   site: "https://genroc.org",
-  base: process.env.DOCS_BASE ?? "/",
+  base,
   trailingSlash: "always",
   // `prefetchAll` is what opts every internal link in; without it the strategy below applies
   // to nothing, since it only governs links carrying a bare `data-astro-prefetch`.
@@ -25,6 +28,14 @@ export default defineConfig({
   integrations: [mdx()],
   markdown: {
     rehypePlugins: [
+      // Links between pages are written as paths to the source file -- `./error-handling.mdx`,
+      // what an editor completes and follows -- and this turns them into the URL that page is
+      // served from. `collectionBase: false` because the docs collection is the site root: a
+      // slug is the file path, with no `/docs` segment in front (src/content.config.ts).
+      [
+        relativeMarkdownLinks,
+        { collectionBase: false, base, trailingSlash: "always" },
+      ],
       // Astro assigns heading ids in a plugin that runs after these, so autolink would
       // see no id to point at. rehype-slug puts one there first.
       rehypeSlug,

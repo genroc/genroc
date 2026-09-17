@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "astro build && node scripts/check-links.mjs",
     "preview": "astro preview",
     "check": "astro check"
   },
@@ -16,6 +16,7 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.4",
     "@types/node": "^26.1.2",
+    "astro-rehype-relative-markdown-links": "^0.19.2",
     "rehype-autolink-headings": "^7.1.0",
     "rehype-slug": "^6.0.0",
     "typescript": "^5.9.2"

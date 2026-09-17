@@ -173,4 +173,44 @@ Notice we are using `map` function to create properly shaped array.
 The `result_schema` applies to individual item and the results are mapped into array,
 in the same order as the inputs.
 
-## 
+## Parent/child type checking
+
+Every process needs to define it's own types explicitly. So it must be clear
+what are the inputs and outputs. If it wasn't the case we wouldn't be able
+to check the types without 
+
+## Child error handling
+
+Genroc doesn't use classic "catching" for child processses. Main reason that we require
+everything to be explicitly typed and processes should be self-contained in terms of the interface.
+
+So every process needs to specify which errors it can produce explicitly. This is also
+reason why errors don't bubble through the tree, if they would, then it would be
+leaking types from it's children, which we don't allow.
+
+Raised errors are understood as a branching tools for expected failiures.
+
+
+```genroc
+# child (fetch action)
+on_error:
+  - code: ["http.404"]
+    raise:
+      code: "item_not_found"
+      message: "Item ${input.item_id} not found"
+
+# parent (child action)
+raises:
+  item_not_found: null  # we need to specify explicitly what errors we expect
+on_error:
+  - code: ["item_not_found"]
+    goto: $handle_item_not_found
+```
+
+> Read more about `panic` and `raise` in the [error handling](./error-handling.mdx#panic) section
+
+### The `raises` field
+
+Specifies what errors we expect. It's an object where keys are error codes and values are json schemas (optional).
+If you define error schema you can then access `error.data` (like `fetch` error responses).
+

@@ -506,12 +506,28 @@ h4 {
   padding-left: 1.2em;
 }
 
+.prose ul > li {
+  position: relative;
+}
+
+/* The marker lives in a gutter, not in flow: in flow it is an inline-block ahead of the item's
+   content, so a loose list -- one whose items markdown wraps in <p> -- drops it on its own line. */
 .prose ul > li::before {
-  content: "· ";
+  content: "•";
   color: var(--accent);
-  margin-left: -1.2em;
-  display: inline-block;
+  position: absolute;
+  left: -1.2em;
   width: 1.2em;
+}
+
+/* Same list, other half: the wrapping <p> keeps its own margins, which would push the first line
+   clear of the marker now parked at the item's top edge. */
+.prose li > p:first-child {
+  margin-top: 0;
+}
+
+.prose li > p:last-child {
+  margin-bottom: 0;
 }
 
 .prose img {
