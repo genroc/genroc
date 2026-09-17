@@ -6,6 +6,7 @@ package main
 // string it is. specs/schema-command.md.
 
 import (
+	"path/filepath"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -228,6 +229,14 @@ func loadDefinition(files []string, process string) *model.ProcessDefinition {
 	docs, err := loadSourceDocs(files)
 	if err != nil {
 		fatal("%v", err)
+	}
+	// The STRUCTURAL phase only: it changes the types this command reports, so skipping it
+	// would answer about a definition nobody applies. The code phase is skipped on purpose --
+	// it shells out, and a string splice cannot move a type anyway.
+	if cfg, err := findProjectConfig(filepath.Dir(files[0])); err == nil {
+		if _, err := resolveStructuralPass(docs, cfg, nil); err != nil {
+			fatal("%v", err)
+		}
 	}
 	var names []string
 	for _, sd := range docs {

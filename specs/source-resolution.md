@@ -3,13 +3,14 @@
 Status: **PROPOSAL 2026-08-20; the code phase BUILT 2026-08-21; the types moved into genctl
 2026-09-04.** What ships is the project config, value-position `$<resolver>: <path>`
 directives, the batched manifest, `genctl types`, and `eval-node/import.ts` as the first
-resolver (`cmd/genctl/sources.go`, `tests/cli/imports_test.ts`). **Unbuilt: the structural phase**
-— no phase-1 resolver exists, `$infer` is not implemented, and `phase: structural` in a
-config is refused rather than ignored. The **spread form** and **`$process`** (designed
-2026-09-17) are also unbuilt; they supersede the "key-position merge form" this line used to
-defer. **The config reshape is specced here and not yet built** — `Resolvers` is a name-keyed
-map and `Ext` one string matched with `filepath.Ext`, so the three `.genroc` files in the repo
-still spell the old form and must not be changed ahead of the code.
+resolver (`cmd/genctl/sources.go`, `tests/cli/imports_test.ts`).
+
+**The structural phase, the spread form and `$process` BUILT 2026-09-17**
+(`cmd/genctl/structural.go`, `tests/cli/spread_test.ts`), along with the config reshape this
+doc describes: `resolvers` is an ordered first-match list and `ext` a suffix list. Still
+unbuilt: **`$infer`**, and any structural resolver that is not the built-in — a registered one
+is refused by name rather than run. Recursive spread typing is **declined, not missing**
+(§Ordering).
 
 [script-tasks.md](script-tasks.md) argued for a single-phase import directive; that section
 is superseded by this doc, which owns the resolution model outright. The TypeScript
@@ -467,6 +468,11 @@ escape on splice.
 catches the real mistake — a path to a script, or to a YAML that is not a definition — before the
 parse has to word it. It is also what forced `ext` to be a suffix list (§The project config):
 `filepath.Ext` answers `.yaml` here, and the other two spellings parse just as well.
+
+**`genctl schema` runs this phase and not the code phase.** A structural resolver moves the types
+the command reports, so skipping it would answer about a definition nobody applies; a code
+resolver splices a string, which moves nothing, and shells out, which the editor loop cannot
+afford. The same split is what lets the LSP stay useful on an unresolved file.
 
 **Built-ins are appended after everything in `.genroc`**, so overriding needs no rule of its own:
 first match wins and a local entry is always earlier. An ordered list already says it, which is

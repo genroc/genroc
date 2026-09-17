@@ -215,7 +215,11 @@ func (d *Doc) mapping(n *yaml.Node, phys, logi string, key Range) (any, Range, e
 		if err := kn.Decode(&name); err != nil {
 			return nil, r, fmt.Errorf("line %d: object key must be a scalar: %w", kn.Line, err)
 		}
-		if name == mergeKey {
+		// A `<<` whose value is a plain string is a resolution directive, not a merge defdoc
+		// can perform: it is kept as a literal key so genctl's structural phase consumes it,
+		// and where that phase does not run it surfaces as an unresolved directive rather
+		// than as a parse error. specs/source-resolution.md §The split defdoc keeps.
+		if name == mergeKey && !isDirectiveValue(vn) {
 			merges = append(merges, vn)
 			continue
 		}
@@ -326,7 +330,22 @@ func scalar(n *yaml.Node) (any, error) {
 // "<<" field, which the server ignores as unknown and the canonical re-marshal strips -- so a
 // definition using anchors silently lost every merged key. yaml.v3's own decoder merges
 // correctly, so the two readers of one file disagreed.
-const mergeKey = "<<"
+// MergeKey is the spread position. Exported because genctl consumes the directive form defdoc
+// leaves behind, and two spellings of one key would drift exactly as two parsers would.
+const MergeKey = "<<"
+
+const mergeKey = MergeKey
+
+// isDirectiveValue reports whether a `<<` value is a string holding a resolution directive.
+// Only the SHAPE is tested: which names are registered is genctl's question, so `<<: nope`
+// stays the refusal it always was and only a well-formed directive passes through.
+func isDirectiveValue(n *yaml.Node) bool {
+	if n.Kind != yaml.ScalarNode || n.Tag != "!!str" {
+		return false
+	}
+	_, _, ok := Directive(n.Value)
+	return ok
+}
 
 // mergeTarget resolves a `<<` value to the mapping it contributes. The SEQUENCE form is refused:
 // YAML 1.1 gives EARLIER entries precedence, so `<<: [*base, *override]` would silently do the

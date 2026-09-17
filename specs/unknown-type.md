@@ -51,7 +51,7 @@ privilege belongs exactly where a real check stands behind it.
 | Mode | Syntax | Coupling | On a version bump |
 |---|---|---|---|
 | **Pin** (built) | explicit schema | decoupled | drift fails loudly — the annotation is a stability gate, and pinning onto an unknown *is* the narrowing |
-| **Pin, spread** (designed) | `<<: "$process: ./child.yaml"` | decoupled on the wire; coupled to a file at author time | drift fails loudly — a Pin written by reference ([source-resolution.md](source-resolution.md) §`$process`) |
+| **Pin, spread** (built) | `<<: "$process: ./child.yaml"` | decoupled on the wire; coupled to a file at author time | drift fails loudly — a Pin written by reference ([source-resolution.md](source-resolution.md) §`$process`) |
 | **Infer** (not built) | marker TBD | coupled — child must be defined | auto-adopts; fails only where a changed field is used |
 | **Unknown** (built) | `{}` | decoupled | n/a — consumer narrows |
 

@@ -88,7 +88,7 @@ function project(resolvers: string): Project {
 
 function echoProject(): Project {
   // No `types`: this resolver splices text and wants nothing typed, which is most of them.
-  return project(`resolvers:\n  import: { phase: code, command: [node, echo.mjs] }\n`);
+  return project(`resolvers:\n  - { name: import, phase: code, command: [node, echo.mjs] }\n`);
 }
 
 // A resolver that DOES want types names them, by `genctl schema type` address relative to the
@@ -98,7 +98,7 @@ function typedProject(): Project {
   return project(
     [
       "resolvers:",
-      "  import:",
+      "  - name: import",
       "    phase: code",
       "    command: [node, echo.mjs]",
       "    types: { Action: task.action.body, Amount: task.action.body.amount, Output: task.action.result }",
@@ -436,7 +436,7 @@ test("apply — a missing file is the resolver's to refuse", () => {
 });
 
 test("apply — a resolver's exit code aborts the apply with its stderr", () => {
-  const p = project(`resolvers:\n  import: { phase: code, command: [node, fail.mjs] }\n`);
+  const p = project(`resolvers:\n  - { name: import, phase: code, command: [node, fail.mjs] }\n`);
   p.write("fail.mjs", 'console.error("summarize.ts(3,7): error TS2322: nope");\nprocess.exit(1);\n');
   p.write("body.txt", "x");
   const name = uid("import");
@@ -464,7 +464,7 @@ test("apply — a resolver's exit code aborts the apply with its stderr", () => 
 
 test("apply — an ext mismatch is refused by name rather than inside the toolchain", () => {
   const p = project(
-    `resolvers:\n  import: { phase: code, ext: .ts, command: [node, echo.mjs] }\n`,
+    `resolvers:\n  - { name: import, phase: code, ext: [.ts], command: [node, echo.mjs] }\n`,
   );
   writeFileSync(join(p.dir, "echo.mjs"), ECHO_RESOLVER, "utf8");
   p.write("body.txt", "x");
@@ -514,7 +514,7 @@ test("apply — $$ escapes the directive, leaving a literal string", async () =>
 
 test("apply — a definition with no directives spends no resolver and no extra roundtrip", () => {
   // The resolver command does not exist, so running it at all would fail the apply.
-  const p = project(`resolvers:\n  import: { phase: code, command: [/nonexistent/binary] }\n`);
+  const p = project(`resolvers:\n  - { name: import, phase: code, command: [/nonexistent/binary] }\n`);
   const name = uid("import");
   const def = p.write(
     "proc.yaml",
@@ -571,7 +571,7 @@ test("a definition that only names another never reaches the manifest", () => {
   const p = project(
     [
       "resolvers:",
-      "  import:",
+      "  - name: import",
       "    phase: code",
       "    command: [node, echo.mjs]",
       "    types: { Output: task.output }",
@@ -620,7 +620,7 @@ test("a task-relative type is null outside a task, and process-relative still an
   const p = project(
     [
       "resolvers:",
-      "  import:",
+      "  - name: import",
       "    phase: code",
       "    command: [node, echo.mjs]",
       "    types: { Input: task.action.input.input, Output: task.action.result, Whole: process.input }",
@@ -665,7 +665,7 @@ test("a task-relative type is null outside a task, and process-relative still an
 // somewhere unintended.
 test("an address with no frame is refused at the config", () => {
   const p = project(
-    `resolvers:\n  import: { phase: code, command: [node, echo.mjs], types: { X: input.input } }\n`,
+    `resolvers:\n  - { name: import, phase: code, command: [node, echo.mjs], types: { X: input.input } }\n`,
   );
   p.write("body.txt", "x");
   const def = p.write(
@@ -786,9 +786,9 @@ function tsProject(): Project {
   const p = project(
     [
       "resolvers:",
-      "  import:",
+      "  - name: import",
       "    phase: code",
-      "    ext: .ts",
+      "    ext: [.ts]",
       `    command: [node, ${join(REPO, "eval-node/import.ts")}]`,
       "    types: { Input: task.action.input.input, Output: task.action.result }",
       "",

@@ -310,7 +310,7 @@ test("schema context — an unresolved $import types as a string, so no resolver
   // (or a `tsc`) to answer what a code slot's context is.
   writeFileSync(
     join(dir, ".genroc"),
-    `resolvers:\n  import: { phase: code, ext: .ts, command: [node, -e, "require('fs').writeFileSync('${join(dir, "RAN")}','x')"] }\n`,
+    `resolvers:\n  - { name: import, phase: code, ext: [.ts], command: [node, -e, "require('fs').writeFileSync('${join(dir, "RAN")}','x')"] }\n`,
   );
   writeFileSync(join(dir, "script.ts"), "export default () => 1;\n");
   const path = join(dir, "proc.yaml");

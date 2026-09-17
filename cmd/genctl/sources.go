@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -34,9 +33,38 @@ const projectConfigName = ".genroc"
 // when the current name is absent -- an existing checkout keeps working without an edit.
 const legacyProjectConfigName = "genroc.yaml"
 
+// The two phases, named by PERMISSION: structural may change what the typechecker sees and runs
+// before validation; code may not, and runs after it. specs/source-resolution.md §The two phases.
+const (
+	phaseStructural = "structural"
+	phaseCode       = "code"
+)
+
+// builtinProcess spreads another definition's name/result_schema/raises into a child task.
+const builtinProcess = "process"
+
+// builtins are appended after everything a .genroc registers, so first-match already means a
+// local entry of the same name wins and there is no shadowing rule to write. They carry no
+// Command because genctl answers them itself -- the answer is its own inferred view, which no
+// external binary can produce without re-entering genctl.
+func builtins() []resolverConfig {
+	return []resolverConfig{{
+		Name:  builtinProcess,
+		Phase: phaseStructural,
+		Ext:   []string{".genroc.yaml", ".genroc.yml", ".genroc.json"},
+	}}
+}
+
 type resolverConfig struct {
-	Phase   string   `yaml:"phase"`
-	Ext     string   `yaml:"ext"`
+	Name string `yaml:"name"`
+	// Phase is "code" or "structural" -- what the resolver MAY do, never what it contains.
+	// specs/source-resolution.md §The two phases.
+	Phase string `yaml:"phase"`
+	// Ext is a list of accepted SUFFIXES, not extensions: `.genroc.yaml` has to be
+	// expressible and filepath.Ext answers `.yaml` for it. Empty accepts anything.
+	Ext []string `yaml:"ext"`
+	// Command is absent exactly for a built-in, which runs inside genctl. A file entry
+	// without one is refused when the config is read.
 	Command []string `yaml:"command"`
 	// Types is what this resolver wants typed, as name → address, and it is the whole reason
 	// genctl no longer decides: a toolchain knows which slot its runtime binds, genroc does
@@ -51,8 +79,47 @@ type projectConfig struct {
 	// Definitions is what `genctl apply|validate|types` reads when given no paths. Entries are
 	// files, directories (walked) or globs, resolved against the config's own directory -- so
 	// the command works the same from anywhere in the project.
-	Definitions []string                  `yaml:"definitions"`
-	Resolvers   map[string]resolverConfig `yaml:"resolvers"`
+	Definitions []string `yaml:"definitions"`
+	// Resolvers is ORDERED and taken first-match on (name, suffix) -- which is what makes
+	// overriding a built-in need no rule of its own, since builtins() is appended last.
+	Resolvers []resolverConfig `yaml:"resolvers"`
+}
+
+// matchResolver returns the first entry accepting this name and argument. nameKnown separates
+// the two failures a caller must word differently: no entry carries the name at all, or some do
+// and none accept the suffix.
+func (c projectConfig) matchResolver(name, argument string) (idx int, nameKnown, ok bool) {
+	lower := strings.ToLower(argument)
+	for i, r := range c.Resolvers {
+		if r.Name != name {
+			continue
+		}
+		nameKnown = true
+		if len(r.Ext) == 0 {
+			return i, true, true
+		}
+		for _, ext := range r.Ext {
+			if strings.HasSuffix(lower, strings.ToLower(ext)) {
+				return i, true, true
+			}
+		}
+	}
+	return -1, nameKnown, false
+}
+
+// acceptedBy renders every suffix the entries carrying this name accept, for the error that
+// says the name is known and the argument is not one of its files.
+func (c projectConfig) acceptedBy(name string) string {
+	var out []string
+	for _, r := range c.Resolvers {
+		if r.Name == name {
+			out = append(out, r.Ext...)
+		}
+	}
+	if len(out) == 0 {
+		return "any"
+	}
+	return strings.Join(slices.Compact(slices.Sorted(slices.Values(out))), ", ")
 }
 
 // defaultDefinitionPaths is what a bare `genctl apply` operates on: the `definitions` entries
@@ -94,6 +161,9 @@ type site struct {
 	// either — but the pass needs it to know which types to resolve against.
 	Resolver string `json:"-"`
 	Process  string `json:"-"`
+	// resolverIdx is the ENTRY that matched, not just its name: one name may carry several
+	// entries with different suffixes and different commands, and each is its own batch.
+	resolverIdx int `json:"-"`
 	// Level is which namespace the directive sits in — `process`, `task` or `action` — so a
 	// resolver that must know where it landed does not parse the pointer for it.
 	Level string `json:"level"`
@@ -153,11 +223,6 @@ type resolverReply struct {
 	Code []string `json:"code"`
 }
 
-// directiveRe matches a whole leaf of the form `$name: path`. A leaf beginning `$$` cannot
-// match — the second character must be a letter — which is what leaves the escape to the
-// template layer instead of unescaping it twice (specs/typed-values.md).
-var directiveRe = regexp.MustCompile(`^\s*\$([a-zA-Z][a-zA-Z0-9_-]*):\s*(\S.*?)\s*$`)
-
 // ── project config ─────────────────────────────────────────────────────────────
 
 // findProjectConfig walks up from dir for .genroc. Absent is not an error: a project
@@ -186,25 +251,32 @@ func findProjectConfig(dir string) (projectConfig, error) {
 				return projectConfig{}, fmt.Errorf("%s: %w", path, err)
 			}
 			cfg.Root = abs
-			for name, r := range cfg.Resolvers {
-				if r.Phase != "code" {
-					return projectConfig{}, fmt.Errorf("%s: resolver %q has phase %q - only \"code\" is implemented", path, name, r.Phase)
+			for i, r := range cfg.Resolvers {
+				if r.Name == "" {
+					return projectConfig{}, fmt.Errorf("%s: resolver %d has no name", path, i)
+				}
+				if r.Phase != phaseCode && r.Phase != phaseStructural {
+					return projectConfig{}, fmt.Errorf("%s: resolver %q has phase %q - it is %q or %q",
+						path, r.Name, r.Phase, phaseStructural, phaseCode)
 				}
 				if len(r.Command) == 0 {
-					return projectConfig{}, fmt.Errorf("%s: resolver %q has no command", path, name)
+					return projectConfig{}, fmt.Errorf("%s: resolver %q has no command", path, r.Name)
 				}
 				for typeName, address := range r.Types {
 					if _, err := framed(address, "x"); err != nil {
 						return projectConfig{}, fmt.Errorf("%s: resolver %q, type %q: %w",
-							path, name, typeName, err)
+							path, r.Name, typeName, err)
 					}
 				}
 			}
+			cfg.Resolvers = append(cfg.Resolvers, builtins()...)
 			return cfg, nil
 		}
 		parent := filepath.Dir(abs)
 		if parent == abs {
-			return projectConfig{}, nil
+			// No config is not an error, and the built-ins still apply: `$process` needs no
+			// registration, so a project with nothing to declare declares nothing.
+			return projectConfig{Resolvers: builtins()}, nil
 		}
 		abs = parent
 	}
@@ -236,30 +308,31 @@ func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 					}
 				}
 			case string:
-				m := directiveRe.FindStringSubmatch(v)
-				if m == nil {
+				resolver, argument, isDirective := defdoc.Directive(v)
+				if !isDirective {
 					return nil
-				}
-				resolver, argument := m[1], m[2]
-				rc, ok := cfg.Resolvers[resolver]
-				if !ok {
-					return fmt.Errorf("%s: %s: no resolver named %q is registered in %s",
-						sd.file, renderPointer(slotPointer(sd.doc, loc)), resolver, projectConfigName)
 				}
 				// `ext` is a suffix assertion on the ARGUMENT, not a claim that it names a
 				// file: it is what makes a `.py` handed to the TypeScript toolchain fail here
 				// with a sentence rather than inside `tsc` with a stack.
-				if rc.Ext != "" && !strings.EqualFold(filepath.Ext(argument), rc.Ext) {
+				idx, nameKnown, ok := cfg.matchResolver(resolver, argument)
+				if !nameKnown {
+					return fmt.Errorf("%s: %s: no resolver named %q is registered in %s",
+						sd.file, renderPointer(slotPointer(sd.doc, loc)), resolver, projectConfigName)
+				}
+				if !ok {
 					return fmt.Errorf("%s: %s: resolver %q accepts %s files, but %q is not one",
-						sd.file, renderPointer(slotPointer(sd.doc, loc)), resolver, rc.Ext, argument)
+						sd.file, renderPointer(slotPointer(sd.doc, loc)), resolver,
+						cfg.acceptedBy(resolver), argument)
 				}
 				s := site{
-					Resolver: resolver,
-					Process:  name,
-					Pointer:  slotPointer(sd.doc, loc),
-					Argument: argument,
-					loc:      append([]any(nil), loc...),
-					docIdx:   i,
+					Resolver:    resolver,
+					Process:     name,
+					Pointer:     slotPointer(sd.doc, loc),
+					Argument:    argument,
+					loc:         append([]any(nil), loc...),
+					docIdx:      i,
+					resolverIdx: idx,
 				}
 				s.Task = enclosingTaskID(sd.doc, loc)
 				s.Level = levelOf(loc)
@@ -462,9 +535,23 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	sites, err := findSites(docs, cfg)
+	// Phase 1 first, and its result is what phase 2 is typed against: a structural resolver
+	// may change what the typechecker sees, which is the whole difference between the phases.
+	if _, err := resolveStructuralPass(docs, cfg, nil); err != nil {
+		return 0, err
+	}
+
+	// Re-walked rather than filtered from one pass: a spread adds keys to a mapping, so a
+	// location found before it ran can name a different slot after.
+	all, err := findSites(docs, cfg)
 	if err != nil {
 		return 0, err
+	}
+	var sites []site
+	for _, s := range all {
+		if cfg.Resolvers[s.resolverIdx].Phase == phaseCode {
+			sites = append(sites, s)
+		}
 	}
 	if len(sites) == 0 {
 		return 0, nil
@@ -482,26 +569,26 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 		return 0, err
 	}
 
-	byResolver := map[string][]site{}
-	var order []string
+	byResolver := map[int][]site{}
+	var order []int
 	for _, s := range sites {
-		if _, seen := byResolver[s.Resolver]; !seen {
-			order = append(order, s.Resolver)
+		if _, seen := byResolver[s.resolverIdx]; !seen {
+			order = append(order, s.resolverIdx)
 		}
-		byResolver[s.Resolver] = append(byResolver[s.Resolver], s)
+		byResolver[s.resolverIdx] = append(byResolver[s.resolverIdx], s)
 	}
 
-	for _, name := range order {
-		group := byResolver[name]
+	for _, idx := range order {
+		group := byResolver[idx]
 		for i := range group {
-			types, err := siteTypes(schemas, cfg.Resolvers[name].Types, group[i])
+			types, err := siteTypes(schemas, cfg.Resolvers[idx].Types, group[i])
 			if err != nil {
 				return 0, err
 			}
 			group[i].Types = types
 		}
 		m := manifest{Mode: mode, Processes: byProcess(schemas, docs, group)}
-		code, err := runResolver(cfg, cfg.Resolvers[name], m)
+		code, err := runResolver(cfg, cfg.Resolvers[idx], m)
 		if err != nil {
 			return 0, err
 		}
