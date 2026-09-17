@@ -163,8 +163,8 @@ func TestTheExtensionShipsTheIconItDeclares(t *testing.T) {
 }
 
 // `.genroc` is YAML, and the extension says so -- with the YAML extension present, that is also
-// what attaches the schema `make extension` generates. Three things are silent when broken: an
-// association on the wrong language id, a `yamlValidation` url naming a file the build does not
+// what attaches the schema packaging generates. Three things are silent when broken: an
+// association on the wrong language id, a `yamlValidation` url naming a file packaging does not
 // write, and a `.vscodeignore` that drops it from the .vsix.
 func TestTheExtensionAssociatesTheProjectFileWithYAMLAndItsSchema(t *testing.T) {
 	raw, err := os.ReadFile("../../editors/vscode/package.json")
@@ -206,13 +206,14 @@ func TestTheExtensionAssociatesTheProjectFileWithYAMLAndItsSchema(t *testing.T) 
 	if url == "" {
 		t.Fatal("no yamlValidation entry matches /.genroc")
 	}
-	rel := strings.TrimPrefix(url, "./")
-	makefile, err := os.ReadFile("../../Makefile")
-	if err != nil {
-		t.Fatal(err)
+	// vsce runs `vscode:prepublish` before packaging, whoever invokes it -- release.yml packages
+	// without the Makefile, and a build from there shipped the manifest and not the file.
+	var scripts struct {
+		Scripts map[string]string `json:"scripts"`
 	}
-	if !strings.Contains(string(makefile), "editors/vscode/"+rel) {
-		t.Errorf("package.json points at %s, which no Makefile target generates -- the .vsix would ship without it", url)
+	_ = json.Unmarshal(raw, &scripts)
+	if !strings.Contains(scripts.Scripts["vscode:prepublish"], strings.TrimPrefix(url, "./")) {
+		t.Errorf("package.json points at %s, but vscode:prepublish does not generate it -- a .vsix packaged by any path but the Makefile ships without it", url)
 	}
 	ignore, _ := os.ReadFile("../../editors/vscode/.vscodeignore")
 	for _, line := range strings.Split(string(ignore), "\n") {

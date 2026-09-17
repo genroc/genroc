@@ -120,6 +120,7 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "mkdir -p schemas && go run ../../cmd/genrocspec -o \"\" -config-schema schemas/genroc-config.json",
     "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node20 --minify",
     "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node20 --sourcemap --watch",
     "compile": "tsc -p . --noEmit && pnpm run build",
