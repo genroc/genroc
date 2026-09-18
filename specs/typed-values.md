@@ -85,7 +85,9 @@ residual indentation does not defeat detection).
 
 Deferred, with this grammar as prerequisite: per-action payload schemas (collapsing
 `validateActionRequiredFields` into one `Shape.Check`), the fetch payload pull-out, the
-`unknown` result type.
+`unknown` result type. The first is taken up by
+[declared-slot-schemas.md](declared-slot-schemas.md); the `unknown` result type is
+[unknown-type.md](unknown-type.md).
 
 ## Editor schema
 

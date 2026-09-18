@@ -43,6 +43,10 @@ author's knowledge, not the document's. The request side: genroc's `query`, `hea
 are values, not schemas, and what is sent is the server's to judge
 (docs: validation-and-types). `accepted_status`: implied by the 2xx keys.
 
+That first clause is the one [declared-slot-schemas.md](declared-slot-schemas.md) proposes to
+reverse: with `body_schema` and `query_schema` on the wire, the request side becomes fillable
+here too — and §3's stripping argument does not carry across, being safe only for a response.
+
 ## 3. The dialect
 
 genroc's schema language is a strict allowlist ([schema.go](../internal/schema/schema.go)),

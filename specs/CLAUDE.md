@@ -267,6 +267,38 @@ register; when it disagrees with a §0, the §0 is right.
   a `fetch`, the way `$process` spreads a child's types. Carries the dialect table (translate /
   strip / refuse) and the `allOf` decision: flattened in the resolver as `&` on object types, not
   admitted to the language — with the refusal count on real documents as the trigger to revisit.
+- [declared-slot-schemas.md](declared-slot-schemas.md) — **PROPOSAL 2026-09-17, revised
+  2026-09-18.** An optional schema beside a shape: `input_schema` on a child or external call,
+  `body_schema` and `query_schema` on a fetch, `output_schema` on a task and on the process. The
+  motivation is **import** rather than expressiveness — a schema that came from an OpenAPI
+  document or a child definition makes a call checkable offline, which the child input check has
+  never been, since it needs a `DefinitionGetter`. **Read §0: the first draft is reversed.** It
+  made a declaration a *floor* — checked and replacing nothing — and it is now a **boundary**:
+  where declared, the schema is that slot's published type, the value is conformed to it with
+  `ConformToSchemaExactly` on the way out, and the comparison and `$process` read it. §4 is the
+  case that forces the conform and is the one to read first: an optional non-nullable property
+  fed a null needs its key REMOVED, there is no filter builtin to do it by hand, and the
+  removal rule already exists in the conform. Its hard part is the schema package's own
+  invariant — a relation must accept exactly what the fill closes — and the finding is that
+  `ConformToSchemaExactly`'s two halves are pinned against two DIFFERENT relations
+  (`IsSubsetAbsentAsNull` for the insert, `IsSubsetAsStored` for the remove), so the
+  combination this needs is a fourth one nobody has pinned. The check is **closed**: an
+  undeclared key is refused, and `additionalProperties` with it — the argument sharpened in the
+  revision, since the conform would now *silently delete* a key the author wrote rather than
+  merely ignore it. **The conform is an ASSERTION**, and that is the part with the most reach:
+  every value it sees was computed from already-conformed values by expressions the checker
+  typed, so a failure is a defect in genroc's type system and never a condition in the data.
+  `engine.input` is already exactly this assertion for a child's input, and the `engine.*`
+  family is already terminal and uncatchable — a catchable code here would be routed by a rule
+  the author wrote and would HIDE the bug it exists to report. It also settles two things the
+  revision had the other way round: unknowns stay refused (so the relation is closed `IsSubset`
+  and **not** `NarrowsTo`, whose whole licence is a conform that may legitimately fail), and a
+  declaration may not narrow. §8 covers that second limit — a declaration may widen but not
+  narrow, and the appetite to narrow is mostly literal types, which
+  [literal-types.md](literal-types.md) would supply by inference instead. §7 is the half a
+  reader feels — a declared schema is an author's type in a KEY position, the one thing editor
+  completion has never had, so `body:` starts offering the fields the endpoint accepts; it
+  follows `raises` in answering from THIS document and never from another buffer.
 - [external-task-queue.md](external-task-queue.md) — **BUILT through phase 3** (error channel
   2026-08-23; claim/lease/renew/release and `external.lost` 2026-08-24). Only the long-poll and
   the evaluator switchover remain proposal. Turns `external` into a queue a worker fleet
