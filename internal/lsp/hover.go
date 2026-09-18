@@ -42,17 +42,17 @@ func hoverAt(text, file string, line, col int) (string, defdoc.Range, bool) {
 // glance, and the scope a slot carries is a different question — `genctl schema context` is
 // where that one is asked.
 func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, src string, line, col int) string {
-	// A cursor on a KEY inside a declared shape is asking what that key IS, which is the
-	// declaration — not what the expression beside it evaluates to. The two differ exactly
-	// where the conform repairs something, which is where a reader most needs the answer.
-	if md := declaredKeyHover(doc, def, path, line, col); md != "" {
-		return md
-	}
 	contexts, err := validation.SlotContexts(def)
 	if err != nil {
 		return ""
 	}
 	types, _ := validation.TypeSlots(def)
+
+	// A cursor on a KEY inside a shape is asking what that key HOLDS, not what the expression
+	// beside it evaluates to. paths.go's sibling rule, one level down.
+	if md := shapeKeyHover(doc, def, types, path, line, col); md != "" {
+		return md
+	}
 
 	_, ctx, found := enclosingSlot(contexts, path)
 	if !found {

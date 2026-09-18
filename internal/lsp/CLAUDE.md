@@ -242,12 +242,28 @@ addressed by its **`id`** where it has one, so matching only the index offers no
 and an empty remainder is the slot's own root, where `At` errors rather than walking zero steps.
 specs/declared-slot-schemas.md §6.
 
-**Hover on a declared key answers from the declaration, and reads it with `declaredNodeAt`
-rather than `Schema.At`.** `At` walks a path the way an EXPRESSION would, so an optional
-property comes back nullable — correct for a value, wrong for a schema, and the editor then
-contradicts the document on screen. It fires on the key span only: inside the expression the
-expression's type is still the question. The two answers differ exactly where the conform
-repairs something, which is where a reader most needs the declared one.
+**Hover on a KEY inside a shape answers about the key** (`shapeKeyHover`), on the key span only —
+inside the value the expression's own type is still the question. Two sources in one order: the
+DECLARATION where the slot has one, because the value is conformed to it and that is what the
+far side receives; the SLOT VIEW where there is none, or where the declaration says nothing.
+Both halves were learned by shipping the other:
+
+- Reading the declaration ALONE answered a generic child's payload with `unknown` — the far
+  side's contract, true and useless at a call site.
+- Reading the slot view alone showed `number|null` for an expression feeding a declared
+  `number`, which is what the author wrote rather than what arrives.
+- Consulting neither, where no declaration exists, left a key holding a LITERAL with no hover
+  at all — against the rule that a hover always has one line.
+
+It reads a declaration with `declaredNodeAt`, never `Schema.At`: `At` walks a path the way an
+EXPRESSION would, so an optional property comes back nullable, which is right for a value and
+wrong for a schema, and the editor then contradicts the document on screen.
+
+**Two slots are not in the type view**, so a key there still falls back to the expression and a
+literal one answers nothing: `typeSlots` records an action's payload and result, and neither a
+fetch's `query` nor a `child_map` entry's `input` is one. `tests/lsp/declared_schemas_test.ts`
+pins that as a fact. Closing it means two more types on `TaskSchemas` and two addresses in the
+type document, which is specs/schema-command.md's surface.
 
 A declared schema's VALUE is a user schema, so it belongs in `userSchemaKeys` (`semantic.go`)
 and in `pointAtUserSchema`'s slot list (`keys.go`) — the first stops its `default` being painted

@@ -32,6 +32,7 @@ function doc(lines: string[]): Doc {
 // whose battery has a hole nobody can see.
 
 /** `n` is nullable, so every shape below feeds a nullable value into whatever is declared. */
+const NULLABLE_N = ['input_schema:', '  type: object', '  properties: { n: { type: [number, "null"] } }'];
 const PRELUDE = ['input_schema:', '  type: object', '  properties: { n: { type: [number, "null"] } }'];
 
 /** One slot, as the pair of one-line flow mappings that vary: the shape, and its declaration. */
@@ -710,6 +711,36 @@ test("hover on a slot the definition SENDS shows what is sent", async () => {
   expect(h).toBe("**tasks.call.action.body** — `object{discount}`");
 });
 
+// The same asymmetry one level down, and the case that sent me looking: a generic child declares
+// its payload as the TOP TYPE, because the shape is the caller's concern. Answering the key from
+// that declaration says `unknown` — true, and not the question anyone is asking at a call site.
+// The type is what is being SENT; the `?` and the prose stay the far side's, since whether a key
+// may be omitted and what it means are that side's to say.
+test("hover on an input key the far side left unknown shows what is sent", async () => {
+  const d = doc([
+    "input_schema:",
+    "  type: object",
+    "  properties: { who: { type: string } }",
+    "  required: [who]",
+    "tasks:",
+    "  - id: call",
+    "    action:",
+    "      type: child",
+    "      name: no_such_process",
+    "      input:",
+    "        payload:",
+    "          who: '$: input.who'",
+    "      input_schema:",
+    "        type: object",
+    "        properties: { payload: { description: opaque here } }",
+    "    switch: [{ goto: end }]",
+    "output: { ok: true }",
+  ]);
+  expect(await lsp.hover(at("        <^payload>:", d))).toBe(
+    "**payload?** — `object{who}` — opaque here",
+  );
+});
+
 // The other side of it: a slot the definition HANDS BACK reads as its declaration, because that
 // is the contract a consumer reads and `$process` spreads.
 test("hover on a slot the definition HANDS BACK shows what it publishes", async () => {
@@ -727,7 +758,10 @@ test("hover on a slot the definition HANDS BACK shows what it publishes", async 
   );
 });
 
-test("hover on a key of a slot that declares nothing is unchanged", async () => {
+// A slot with no declaration still answers about the key, from the inferred type. Before that
+// fell through, a key holding a literal hovered to NOTHING — against the rule that a hover
+// always has a line, and inconsistent with the same key one line away in a declared slot.
+test("a key in a slot that declares nothing still shows its type", async () => {
   const d = doc([
     "tasks:",
     "  - id: call",
@@ -737,11 +771,14 @@ test("hover on a key of a slot that declares nothing is unchanged", async () => 
     "      method: post",
     "      body:",
     "        loose: '$: 1 + 1'",
+    "        plain: 42",
     "    switch: [{ goto: end }]",
     "output: { ok: true }",
   ]);
-  // No declaration, so there is nothing to say about the key and the expression answers.
-  expect(await lsp.hover(at("        <^loose>: '$: 1 + 1'", d))).toBe("`1 + 1` → `integer`");
+  expect(await lsp.hover(at("        <^loose>: '$: 1 + 1'", d))).toBe("**loose** — `integer`");
+  expect(await lsp.hover(at("        <^plain>: 42", d))).toBe("**plain** — `integer`");
+  // The VALUE is still the expression's own question, which is a different one.
+  expect(await lsp.hover(at("        loose: '$: <^1 + 1>'", d))).toBe("`1 + 1` → `integer`");
 });
 
 test("hover on a declared child input key needs no child definition", async () => {
@@ -780,3 +817,172 @@ test("hover on a nested declared key names the path inside the declaration", asy
   ]);
   expect(await lsp.hover(at("          <^name>: 'x'", d))).toBe("**who.name?** — `string`");
 });
+
+// ─── Hover, over every slot ─────────────────────────────────────────────────────
+//
+// The claim is that hovering a KEY in any shape shows that key's type — from the declaration
+// where the slot has one, from the inferred shape where it does not. A slot tested by hand is a
+// slot whose answer nobody checked, and two of these answered nothing at all before.
+
+const DECL_TWO =
+  "{ type: object, properties: { vexpr: { type: number, description: prose }, vlit: { type: number } } }";
+
+/** Each slot, built with the same two keys, with and without a declaration. */
+const hoverSlots: { name: string; build: (declared: boolean) => Doc }[] = [
+  {
+    name: "fetch body",
+    build: (d) =>
+      doc([
+        ...NULLABLE_N,
+        "tasks:",
+        "  - id: t",
+        "    action:",
+        "      type: fetch",
+        "      url: http://x.invalid/y",
+        "      method: post",
+        "      body:",
+        "        vexpr: '$: input.n'",
+        "        vlit: 42",
+        ...(d ? [`      body_schema: ${DECL_TWO}`] : []),
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "fetch query",
+    build: (d) =>
+      doc([
+        ...NULLABLE_N,
+        "tasks:",
+        "  - id: t",
+        "    action:",
+        "      type: fetch",
+        "      url: http://x.invalid/y",
+        "      method: get",
+        "      query:",
+        "        vexpr: '$: input.n'",
+        "        vlit: 42",
+        ...(d ? [`      query_schema: ${DECL_TWO}`] : []),
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "child input",
+    build: (d) =>
+      doc([
+        ...NULLABLE_N,
+        "tasks:",
+        "  - id: t",
+        "    action:",
+        "      type: child",
+        "      name: no_such_process",
+        "      input:",
+        "        vexpr: '$: input.n'",
+        "        vlit: 42",
+        ...(d ? [`      input_schema: ${DECL_TWO}`] : []),
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "child_map entry input",
+    build: (d) =>
+      doc([
+        ...NULLABLE_N,
+        "tasks:",
+        "  - id: t",
+        "    action:",
+        "      type: child_map",
+        "      children:",
+        "        a:",
+        "          name: no_such_process",
+        "          input:",
+        "            vexpr: '$: input.n'",
+        "            vlit: 42",
+        ...(d ? [`          input_schema: ${DECL_TWO}`] : []),
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "external input",
+    build: (d) =>
+      doc([
+        ...NULLABLE_N,
+        "tasks:",
+        "  - id: t",
+        "    action:",
+        "      type: external",
+        "      input:",
+        "        vexpr: '$: input.n'",
+        "        vlit: 42",
+        ...(d ? [`      input_schema: ${DECL_TWO}`] : []),
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "task output",
+    build: (d) =>
+      doc([
+        ...NULLABLE_N,
+        "tasks:",
+        "  - id: t",
+        "    output:",
+        "      vexpr: '$: input.n'",
+        "      vlit: 42",
+        ...(d ? [`    output_schema: ${DECL_TWO}`] : []),
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "process output",
+    build: (d) =>
+      doc([
+        ...NULLABLE_N,
+        "tasks:",
+        "  - id: t",
+        "    switch: [{ goto: end }]",
+        "output:",
+        "  vexpr: '$: input.n'",
+        "  vlit: 42",
+        ...(d ? [`output_schema: ${DECL_TWO}`] : []),
+      ]),
+  },
+];
+
+for (const slot of hoverSlots) {
+  test(`${slot.name}: a declared key hovers as the DECLARATION, prose and all`, async () => {
+    const d = slot.build(true);
+    // `number`, not the `number|null` the expression types: the value is conformed to the
+    // declaration, so what the far side receives is what a reader is shown.
+    expect(await lsp.hover(at("<^vexpr>: '$: input.n'", d))).toBe(
+      "**vexpr?** — `number` — prose",
+    );
+    expect(await lsp.hover(at("<^vlit>: 42", d))).toBe("**vlit?** — `number`");
+  });
+
+  // Two slots have no entry in the type view at all — `typeSlots` records the action's payload
+  // and result, and neither a fetch's `query` nor a `child_map` entry's `input` is one. Their
+  // inferred types exist (both are checked) but nothing stores them, so a key there falls back
+  // to the expression beside it and a key holding a LITERAL has no answer. Closing that means
+  // carrying two more types on `TaskSchemas` and adding two addresses to the type document,
+  // which is schema-command.md's surface rather than this feature's — so it is written down
+  // here rather than papered over.
+  const inTypeView = !["fetch query", "child_map entry input"].includes(slot.name);
+
+  test(`${slot.name}: an undeclared key hovers as the inferred shape`, async () => {
+    const d = slot.build(false);
+    if (!inTypeView) {
+      // What it does instead, pinned so the gap is a fact rather than a surprise.
+      expect(await lsp.hover(at("<^vexpr>: '$: input.n'", d))).toBe("`input.n` → `number|null`");
+      expect(await lsp.hover(at("<^vlit>: 42", d))).toBe("");
+      return;
+    }
+    // Nothing is conformed here, so the nullable the expression produces IS what is sent.
+    expect(await lsp.hover(at("<^vexpr>: '$: input.n'", d))).toBe("**vexpr** — `number|null`");
+    expect(await lsp.hover(at("<^vlit>: 42", d))).toBe("**vlit** — `integer`");
+  });
+}

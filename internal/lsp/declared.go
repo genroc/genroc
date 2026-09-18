@@ -19,6 +19,7 @@ import (
 	"genroc/internal/defdoc"
 	"genroc/internal/model"
 	"genroc/internal/schema"
+	"genroc/internal/validation"
 )
 
 // declaredKeys returns the keys the declaration governing this mapping allows, minus the ones
@@ -210,36 +211,62 @@ func under(path, head string) (string, bool) {
 	return "", false
 }
 
-// declaredKeyHover answers for a cursor on a KEY inside a shape whose slot carries a
-// declaration: the declared type of that property, and the prose an imported schema brought
-// with it. specs/declared-slot-schemas.md §6.
+// shapeKeyHover answers for a cursor on a KEY inside a shape: what that key holds.
+// specs/declared-slot-schemas.md §6.
 //
-// It fires only on the key, never on the value — the value holds an expression and its type is
-// a different question, which the rest of `describe` already answers. The two diverge exactly
-// where the conform repairs something, so answering with the expression there would show a
-// reader the nullable they wrote rather than the non-nullable that arrives.
-func declaredKeyHover(doc *defdoc.Doc, def *model.ProcessDefinition, path string, line, col int) string {
+// It fires on the key span only. Inside the value the question is what the EXPRESSION there
+// evaluates to, which the rest of `describe` answers — and on a key that is the wrong answer,
+// because a key is not its own expression.
+//
+// Two sources, and the order is the whole rule:
+//
+//   - the DECLARATION, where the slot has one. The value is conformed to it, so it is what the
+//     far side receives: an expression typing `number|null` into a declared `number` arrives as
+//     a number, and showing the nullable would show what the author wrote rather than what is
+//     sent. It also carries the prose, which is the reason importing a schema is worth anything.
+//   - the SLOT VIEW otherwise, or where the declaration says nothing. A generic child declares
+//     its payload as the top type because the shape is the caller's concern, and `unknown` is
+//     the one answer a reader at a call site cannot use. A slot with no declaration at all has
+//     only this, and before it was consulted a key holding a literal hovered to nothing —
+//     against the rule that a hover always has one line.
+func shapeKeyHover(doc *defdoc.Doc, def *model.ProcessDefinition, types map[string]schema.Schema, path string, line, col int) string {
 	span, ok := doc.Span(path)
 	if !ok || !span.Key.Contains(line, col) {
 		return ""
 	}
 	declared, rest, ok := declaredSlotAt(def, path)
-	if !ok || declared == nil || rest == "" {
+	if !ok || rest == "" {
 		return ""
 	}
-	prop, absent, ok := declaredNodeAt(*declared, rest)
-	if !ok {
+
+	var shown schema.Schema
+	var absent bool
+	var prose string
+	if declared != nil {
+		if prop, a, found := declaredNodeAt(*declared, rest); found {
+			shown, absent, prose = prop, a, prop.Description()
+		}
+	}
+	// `Summary` is how `typeOnly` asks this same question, two functions below in hover.go.
+	if shown.IsZero() || shown.Summary() == "unknown" {
+		if typed, found, err := validation.SlotAt(types, path); err == nil && found && !typed.IsZero() {
+			shown = typed
+		}
+	}
+	if shown.IsZero() {
 		return ""
 	}
+
 	// `?` marks an optional property, the spelling `Summary` already uses for one inside an
-	// object — so a reader meets the same mark in both places.
+	// object — so a reader meets the same mark in both places. Only a DECLARATION can say a key
+	// is optional; the slot view describes a key that is written, so it is always there.
 	name := rest
 	if absent {
 		name += "?"
 	}
-	out := "**" + name + "** — " + mdType(prop.Summary())
-	if d := prop.Description(); d != "" {
-		out += " — " + d
+	out := "**" + name + "** — " + mdType(shown.Summary())
+	if prose != "" {
+		out += " — " + prose
 	}
 	return out
 }
