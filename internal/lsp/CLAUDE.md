@@ -242,9 +242,46 @@ addressed by its **`id`** where it has one, so matching only the index offers no
 and an empty remainder is the slot's own root, where `At` errors rather than walking zero steps.
 specs/declared-slot-schemas.md §6.
 
+**Hover on a declared key answers from the declaration, and reads it with `declaredNodeAt`
+rather than `Schema.At`.** `At` walks a path the way an EXPRESSION would, so an optional
+property comes back nullable — correct for a value, wrong for a schema, and the editor then
+contradicts the document on screen. It fires on the key span only: inside the expression the
+expression's type is still the question. The two answers differ exactly where the conform
+repairs something, which is where a reader most needs the declared one.
+
 A declared schema's VALUE is a user schema, so it belongs in `userSchemaKeys` (`semantic.go`)
 and in `pointAtUserSchema`'s slot list (`keys.go`) — the first stops its `default` being painted
 as a template, the second is what makes completion work inside the block at all.
+
+**A `$<resolver>:` argument is a path only when it LOOKS like one** (`paths.go`). Resolution
+never treats it as one — `findSites` hands it over verbatim, because genroc does not know that a
+resolver's argument is a file — so the editor guesses, shell-style: `/`, `./` or `../`, and
+nothing else. **A lone `.` is deliberately not enough**, though it begins two spellings that
+are: `.` is a trigger character, so accepting it put a directory listing on screen the instant
+anyone typed a dot, dotfiles and all. One more keystroke says which was meant. Offering files for `$import: lodash` would invent a meaning the resolver never
+gave it. Four things to keep:
+
+- **It runs before `inValuePosition`**, which ends the chain at a value. A directive's argument
+  IS a value position, and the only one whose answer is the filesystem.
+- **Relative is against the FILE**, never the workspace root — the rule the spread resolver
+  joins by. A second answer here sends a reader somewhere an `apply` never looks.
+- **The suffix filter is `.genroc`'s**, read through `sources.Suffixes` so the editor and
+  `matchResolver` cannot disagree about what a resolver accepts. A name no resolver carries is
+  left UNFILTERED: an empty list while someone is typing reads as a server that does not work.
+- **A directory that does not exist yet still claims the position** (an empty list, not a
+  miss). Falling through would offer the action's remaining KEYS in the middle of a path.
+- **An EMPTY argument is offered paths**, which `looksLikePath` alone cannot cover: there is
+  no meaning yet to invent, and without it the first keystroke has to be guessed blind —
+  `$process: ` answered with nothing at all. Type a name and the offer stops.
+- **A relative insert carries its `./`.** Explicit is clearer, and a bare name is the one
+  spelling a resolver may read as something that is not a path — so what is offered must not
+  produce one. Only where the typed text has no directory part; `./` already written is not
+  doubled.
+
+`/` is a TRIGGER CHARACTER for this, and it is silent when broken in a way none of the
+server's own answers can show: a client filters the list it already holds rather than
+re-requesting, and after `./` nothing matches, so the popup is empty exactly where the
+directory should be. `TestCompletionIsAdvertisedAndAnswered` pins it.
 
 ## The schema is repaired on load
 

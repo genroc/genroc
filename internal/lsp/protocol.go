@@ -148,6 +148,8 @@ const (
 	kindField    = 5
 	kindProperty = 10
 	kindValue    = 12
+	kindFile     = 17
+	kindFolder   = 19
 )
 
 // completionOpts asks the editor to re-request after a `.`, which is where a member list is

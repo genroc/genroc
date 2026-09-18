@@ -74,7 +74,10 @@ func (s *Server) handle(req *request) {
 		var res initializeResult
 		res.Capabilities.TextDocumentSync = 1 // Full: each change carries the whole document
 		res.Capabilities.HoverProvider = true
-		res.Capabilities.CompletionProvider = &completionOpts{TriggerCharacters: []string{".", "$"}}
+		// `/` is here for a path: every directory step is a fresh question, and without it a
+		// client filters the list it already has — which after `./` matches nothing, so a
+		// reader sees an empty popup where the directory listing should be.
+		res.Capabilities.CompletionProvider = &completionOpts{TriggerCharacters: []string{".", "$", "/"}}
 		res.Capabilities.DefinitionProvider = true
 		res.Capabilities.SemanticTokens = &semanticOpts{Full: true}
 		res.Capabilities.SemanticTokens.Legend.TokenTypes = semanticTokenTypes
@@ -257,6 +260,11 @@ func (s *Server) definition(p hoverParams) any {
 			return nil
 		}
 		return location{URI: p.TextDocument.URI, Range: toRange(lines, span.Value)}
+	}
+	// A directive names a FILE, not a position in one: there is nothing inside it the argument
+	// picked out, so the jump lands at its start.
+	if ref.file != "" {
+		return location{URI: pathToURI(ref.file)}
 	}
 
 	uri, r, found := s.findProcess(ref.process)

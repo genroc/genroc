@@ -30,7 +30,7 @@ func hoverAt(text, file string, line, col int) (string, defdoc.Range, bool) {
 			return "", defdoc.Range{}, false
 		}
 		span, _ := d.Span(path)
-		if md := describe(d.Doc, def, path, lineAt(text, line), col); md != "" {
+		if md := describe(d.Doc, def, path, lineAt(text, line), line, col); md != "" {
 			return md, span.Value, true
 		}
 		return "", defdoc.Range{}, false
@@ -41,7 +41,13 @@ func hoverAt(text, file string, line, col int) (string, defdoc.Range, bool) {
 // describe answers with ONE line: the type of the thing under the cursor. A hover is read at a
 // glance, and the scope a slot carries is a different question — `genctl schema context` is
 // where that one is asked.
-func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, line string, col int) string {
+func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, src string, line, col int) string {
+	// A cursor on a KEY inside a declared shape is asking what that key IS, which is the
+	// declaration — not what the expression beside it evaluates to. The two differ exactly
+	// where the conform repairs something, which is where a reader most needs the answer.
+	if md := declaredKeyHover(doc, def, path, line, col); md != "" {
+		return md
+	}
 	contexts, err := validation.SlotContexts(def)
 	if err != nil {
 		return ""
@@ -58,7 +64,7 @@ func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, line string, 
 		// A `${ }` inside a longer string types as the string it renders into, so the whole
 		// leaf says nothing — but the interpolation the cursor is IN has a type of its own,
 		// and that is the one being written.
-		expr, ok = interpolationUnder(line, col)
+		expr, ok = interpolationUnder(src, col)
 	}
 	if !ok {
 		return firstOf(typeOnly(types, path), describeKey(doc, path))
@@ -67,7 +73,7 @@ func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, line string, 
 	// expression: pointing at `count` in `(self.previous.count ?? 0) + 1` asks about
 	// `self.previous.count`. Only when it types -- the scan cannot tell a member path from a
 	// word inside a string literal, and an error would replace the answer the reader came for.
-	if symbol, found := symbolUnder(line, col); found && symbol != expr {
+	if symbol, found := symbolUnder(src, col); found && symbol != expr {
 		// A lambda parameter is bound by the EXPRESSION, not by the slot, so the scope for
 		// this one lookup carries what `map` binds. The whole expression binds its own.
 		if t, err := ctx.WithVars(ctx.LambdaVars(expr)).Infer(symbol); err == nil {

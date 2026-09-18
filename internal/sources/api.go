@@ -63,3 +63,26 @@ func ReachableDefs(pool map[string]any, from ...any) (map[string]any, error) {
 
 // CollapseAliases rewrites refs to alias-only definitions, in place.
 func CollapseAliases(pool map[string]any, docs ...any) { collapseAliases(pool, docs...) }
+
+// Suffixes reports the argument suffixes a resolver accepts, and whether any entry carries the
+// name at all. An empty list with ok=true accepts anything — one entry that accepts everything
+// makes the whole name unfiltered, because matchResolver takes the first entry that fits.
+//
+// It is here for the editor, which offers a path before there is an argument to match. The
+// RESOLVER still treats the argument verbatim (findSites): this is what may be suggested, never
+// what is accepted.
+func Suffixes(c Config, name string) ([]string, bool) {
+	var out []string
+	known := false
+	for _, r := range c.Resolvers {
+		if r.Name != name {
+			continue
+		}
+		known = true
+		if len(r.Ext) == 0 {
+			return nil, true
+		}
+		out = append(out, r.Ext...)
+	}
+	return out, known
+}

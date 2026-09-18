@@ -15,6 +15,7 @@ import (
 type reference struct {
 	taskPath string // a path within this document, when the reference is a `goto`
 	process  string // a process name, when it is a child action's `name`
+	file     string // an absolute path, when it is a `$<resolver>:` directive naming one
 }
 
 // referenceAt reads the reference under the cursor. A cursor on anything else answers with
@@ -35,6 +36,9 @@ func referenceAt(text, file string, line, col int) (reference, *defdoc.Doc, bool
 		}
 		if name, ok := childProcess(doc, path); ok {
 			return reference{process: name}, doc, true
+		}
+		if target, ok := directiveFileAt(doc, path, file); ok {
+			return reference{file: target}, doc, true
 		}
 		return reference{}, nil, false
 	}

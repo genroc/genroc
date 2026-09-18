@@ -32,6 +32,12 @@ func completeAt(text, file string, line, col int) []completionItem {
 	if codes, ok := errorCodeValues(text, file, line, col); ok {
 		return codes
 	}
+	// A directive's argument is a VALUE position, so this has to come before the check below
+	// that ends the chain there. `$name: ./` is the one value slot whose answer is the
+	// filesystem rather than anything in the document.
+	if paths, ok := directivePathValues(text, file, line, col); ok {
+		return paths
+	}
 	// A `case` holds an expression written BARE, so there is no `$:` for the scan above to
 	// find and the cursor would otherwise be read as sitting on a key.
 	if inBareExpression(text, file, line, col) {

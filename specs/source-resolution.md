@@ -20,6 +20,29 @@ Names the config file `.genroc` rather than extending `genctl config`, and calls
 *source resolution* rather than "config and imports", because `config` already denotes the
 runtime `config.*` namespace resolved from `GENROC_<proc>_` every tick.
 
+## The editor's guess about a path
+
+An argument is passed to its resolver **verbatim**: genroc does not know it is a path, and
+`findSites` neither resolves nor stats it. That stays true. What the EDITOR does with it is a
+separate, lower-stakes question, and the answer is a guess in the shell's shape — an argument
+beginning `/`, `./` or `../` is one someone is typing a path into, so files and folders are
+offered and the written path is clickable. A lone `.` does not qualify even though it begins
+two spellings that do: it is a completion trigger, so accepting it listed a directory the
+instant anyone typed a dot. Anything else is left alone, because a resolver's argument may be
+a package name, a URL or a key, and offering files there would invent a meaning.
+
+An argument with **nothing typed yet** is offered paths too, which the rule above cannot cover
+on its own: there is no meaning to invent yet, and without it the first keystroke has to be
+guessed blind. What is offered inserts a **`./` prefix** where the typed text has no directory
+part — explicit is clearer, and a bare name is the one spelling a resolver may read as something
+that is not a path at all.
+
+The suffix filter is the registry's own (`resolvers[].ext`, plus the implicit `$process`), read
+through one accessor so the editor cannot disagree with `matchResolver` about what a resolver
+takes. A name the registry does not carry is left unfiltered rather than answered with nothing:
+the registry is the reader's to fix, and an empty list at the moment they are typing reads as a
+broken server. **BUILT 2026-09-18**, `internal/lsp/paths.go`, `tests/lsp/directive_path_test.ts`.
+
 ## Thesis
 
 A definition **source file** is resolved into a **definition** by binaries the project

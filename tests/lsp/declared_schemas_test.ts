@@ -630,3 +630,133 @@ test("child_list: an untyped element array says so rather than accepting anythin
   expect(ds).toHaveLength(1);
   expect(ds[0]).toContain("element type");
 });
+
+// ─── Hover ──────────────────────────────────────────────────────────────────────
+//
+// A declaration adds two things a reader cannot get anywhere else: the type the far side
+// actually accepts, and the prose an imported schema carried with it. Hover is where both are
+// read, and a hover is ONE line.
+
+/** A fetch whose body is declared, with a property whose declared type DIFFERS from the
+ *  expression feeding it — which is the case the two answers must not be confused on. */
+function hoverDoc(): Doc {
+  return doc([
+    "input_schema:",
+    "  type: object",
+    '  properties: { n: { type: [number, "null"] } }',
+    "tasks:",
+    "  - id: call",
+    "    action:",
+    "      type: fetch",
+    "      url: http://x.invalid/y",
+    "      method: post",
+    "      body:",
+    "        discount: '$: input.n'",
+    "      body_schema:",
+    "        type: object",
+    "        properties: { discount: { type: number, description: in minor units } }",
+    "    switch: [{ goto: end }]",
+    "    output: { v: 1 }",
+    "    output_schema: { type: object, properties: { v: { type: number } } }",
+    "output: { ok: true }",
+    "output_schema: { type: object, properties: { ok: { type: boolean } } }",
+  ]);
+}
+
+// The divergence is the point: the expression is nullable, the declaration is not, and the
+// conform is what closes the gap. Pointing at the key asks what arrives.
+test("hover on a declared key gives the DECLARED type, not the expression's", async () => {
+  const h = await lsp.hover(at("        <^discount>: '$: input.n'", hoverDoc()));
+  expect(h).toBe("**discount?** — `number` — in minor units");
+});
+
+test("hover inside the expression still gives what it evaluates to", async () => {
+  const h = await lsp.hover(at("        discount: '$: input.<^n>'", hoverDoc()));
+  expect(h).toBe("`input.n` → `number|null`");
+});
+
+test("hover on a declared key with no prose is still one line of type", async () => {
+  const h = await lsp.hover(at("    <^output>: { v: 1 }", hoverDoc()));
+  // The task output slot itself, not a property of it — the slot's published type.
+  expect(h).toContain("`object{v");
+});
+
+test("hover on the declaration's own key says what the slot is for", async () => {
+  const d = hoverDoc();
+  expect(await lsp.hover(at("      <^body_schema>:", d))).toContain("conformed to");
+  expect(await lsp.hover(at("    <^output_schema>: { type: object, properties: { v:", d))).toContain(
+    "published type of outputs",
+  );
+  expect(await lsp.hover(at("<^output_schema>: { type: object, properties: { ok:", d))).toContain(
+    "this process publishes",
+  );
+});
+
+// The user-schema repair, read from the other side: inside a declaration the vocabulary is JSON
+// Schema's, and without `pointAtUserSchema` listing the slot there is no prose at all.
+test("hover inside a declaration describes the JSON Schema keyword", async () => {
+  const h = await lsp.hover(at("        <^type>: object", hoverDoc()));
+  expect(h).toContain("JSON type");
+});
+
+// A slot with a declaration publishes it, so what the slot's own type reads as is the
+// declaration — this is §1 as a hover.
+test("hover on a declared shape's slot shows what it publishes", async () => {
+  const h = await lsp.hover(at("      <^body>:", hoverDoc()));
+  // Declared `discount` is optional and non-nullable; the literal that feeds it is neither.
+  expect(h).toBe("**tasks.call.action.body** — `object{discount?}`");
+});
+
+test("hover on a key of a slot that declares nothing is unchanged", async () => {
+  const d = doc([
+    "tasks:",
+    "  - id: call",
+    "    action:",
+    "      type: fetch",
+    "      url: http://x.invalid/y",
+    "      method: post",
+    "      body:",
+    "        loose: '$: 1 + 1'",
+    "    switch: [{ goto: end }]",
+    "output: { ok: true }",
+  ]);
+  // No declaration, so there is nothing to say about the key and the expression answers.
+  expect(await lsp.hover(at("        <^loose>: '$: 1 + 1'", d))).toBe("`1 + 1` → `integer`");
+});
+
+test("hover on a declared child input key needs no child definition", async () => {
+  const d = doc([
+    "tasks:",
+    "  - id: call",
+    "    action:",
+    "      type: child",
+    "      name: no_such_process",
+    "      input:",
+    "        count: 1",
+    "      input_schema:",
+    "        type: object",
+    "        properties: { count: { type: number, description: how many } }",
+    "        required: [count]",
+    "    switch: [{ goto: end }]",
+    "output: { ok: true }",
+  ]);
+  expect(await lsp.hover(at("        <^count>: 1", d))).toBe("**count** — `number` — how many");
+});
+
+test("hover on a nested declared key names the path inside the declaration", async () => {
+  const d = doc([
+    "tasks:",
+    "  - id: call",
+    "    action:",
+    "      type: external",
+    "      input:",
+    "        who:",
+    "          name: 'x'",
+    "      input_schema:",
+    "        type: object",
+    "        properties: { who: { type: object, properties: { name: { type: string } } } }",
+    "    switch: [{ goto: end }]",
+    "output: { ok: true }",
+  ]);
+  expect(await lsp.hover(at("          <^name>: 'x'", d))).toBe("**who.name?** — `string`");
+});

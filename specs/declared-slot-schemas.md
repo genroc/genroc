@@ -372,7 +372,7 @@ an endpoint.
 |---|---|---|
 | on a key inside a declared shape | the declared properties not yet written, required first | nothing, the mapping is open |
 | on a value whose declared property is an `enum` | those values | nothing |
-| hovering such a key | its type and its `description` | the key's own name |
+| hovering such a key | the DECLARED type and its `description` | the expression's type |
 | inside a `$:` in that slot | the scope, unchanged | unchanged |
 
 Key completion is **`legalKeys`'s item shape fed from `membersOf`'s source**, and saying it that
@@ -380,6 +380,18 @@ way is the design. The required-first `sortText`, the colon the item writes, the
 what is already written are all built and are all about the key position; the type summary,
 `MayBeAbsent` and the null-strip are all built and are all about a `schema.Schema`. Neither half
 is new. What is new is that they meet.
+
+**Hover on a key is the declaration's answer, not the expression's**, and the two diverge
+exactly where the conform repairs something: the expression beside an optional non-nullable
+property is nullable and what arrives is not. Answering with the expression there shows a reader
+the value they wrote rather than the value the far side receives. It fires on the KEY only —
+inside the expression the type of the expression is still the question being asked.
+
+A declaration is **described, not read**. `Schema.At` walks a path the way an expression would,
+so an optional property comes back nullable because a missing key reads as null — correct for a
+value and wrong for a schema, where it makes the editor contradict the document the author is
+looking at. `declaredNodeAt` walks declared properties instead and reports optionality as the
+`?` mark `Summary` already uses.
 
 The enum row is the easy one for once. Three value slots have a closed set today and each needed
 a bespoke function — `routingValues`, `typeValues`, `errorCodeValues` — *because none of them is

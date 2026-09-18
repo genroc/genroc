@@ -212,6 +212,13 @@ func TestCompletionIsAdvertisedAndAnswered(t *testing.T) {
 		!slices.Contains(res.Capabilities.CompletionProvider.TriggerCharacters, ".") {
 		t.Error("a member list is wanted after `.`, so the editor has to be asked to re-request there")
 	}
+	// Every directory step of a path is a fresh question. Without this the client filters the
+	// list it already holds, which after `./` matches nothing — an empty popup where the
+	// directory listing should be, and nothing in the server's own answers can show it.
+	if res.Capabilities.CompletionProvider == nil ||
+		!slices.Contains(res.Capabilities.CompletionProvider.TriggerCharacters, "/") {
+		t.Error("a directive's path re-lists at every `/`, so the editor has to re-request there")
+	}
 
 	var items []completionItem
 	if err := jsonUnmarshal(msgs[len(msgs)-1]["result"], &items); err != nil {

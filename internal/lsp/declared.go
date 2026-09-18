@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"genroc/internal/defdoc"
 	"genroc/internal/model"
 	"genroc/internal/schema"
 )
@@ -35,25 +36,9 @@ func declaredKeys(d *document, path string) ([]completionItem, bool) {
 	if !ok || declared == nil {
 		return nil, false
 	}
-	// An empty remainder is the slot's own root — the cursor is directly inside the mapping the
-	// declaration types — and navigating to it is not a walk of zero steps but an error.
-	here := *declared
-	if rest != "" {
-		at, err := declared.At(rest)
-		if err != nil {
-			return nil, false
-		}
-		here = at
-	}
-	// A nullable or referenced node offers no members until it is unwrapped — the same shape,
-	// and the same fix, as membersOf and schema.Summary.
-	if here.HasNull() {
-		if inner := here.StripNull(); !inner.IsZero() && !inner.IsNull() {
-			here = inner
-		}
-	}
-	if resolved, err := here.Resolve(); err == nil {
-		here = resolved
+	here, _, ok := declaredNodeAt(*declared, rest)
+	if !ok {
+		return nil, false
 	}
 	props := here.Properties()
 	if len(props) == 0 {
@@ -223,4 +208,84 @@ func under(path, head string) (string, bool) {
 		return rest, true
 	}
 	return "", false
+}
+
+// declaredKeyHover answers for a cursor on a KEY inside a shape whose slot carries a
+// declaration: the declared type of that property, and the prose an imported schema brought
+// with it. specs/declared-slot-schemas.md §6.
+//
+// It fires only on the key, never on the value — the value holds an expression and its type is
+// a different question, which the rest of `describe` already answers. The two diverge exactly
+// where the conform repairs something, so answering with the expression there would show a
+// reader the nullable they wrote rather than the non-nullable that arrives.
+func declaredKeyHover(doc *defdoc.Doc, def *model.ProcessDefinition, path string, line, col int) string {
+	span, ok := doc.Span(path)
+	if !ok || !span.Key.Contains(line, col) {
+		return ""
+	}
+	declared, rest, ok := declaredSlotAt(def, path)
+	if !ok || declared == nil || rest == "" {
+		return ""
+	}
+	prop, absent, ok := declaredNodeAt(*declared, rest)
+	if !ok {
+		return ""
+	}
+	// `?` marks an optional property, the spelling `Summary` already uses for one inside an
+	// object — so a reader meets the same mark in both places.
+	name := rest
+	if absent {
+		name += "?"
+	}
+	out := "**" + name + "** — " + mdType(prop.Summary())
+	if d := prop.Description(); d != "" {
+		out += " — " + d
+	}
+	return out
+}
+
+// declaredNodeAt walks a dotted path through a DECLARATION, and reports whether the last step
+// may be absent.
+//
+// It does not use `Schema.At`, and that is the point: `At` reads a path the way an EXPRESSION
+// would, so an optional property comes back nullable because a missing key reads as null. A
+// declaration is not being read — it is being described — and answering `string|null` for a
+// property the author declared `string` is the editor contradicting the document.
+func declaredNodeAt(s schema.Schema, path string) (schema.Schema, bool, bool) {
+	node := unwrap(s)
+	absent := false
+	if path == "" {
+		return node, false, true
+	}
+	for _, seg := range strings.Split(path, ".") {
+		if _, err := strconv.Atoi(seg); err == nil {
+			if !node.HasItems() {
+				return schema.Schema{}, false, false
+			}
+			node, absent = unwrap(node.Items()), false
+			continue
+		}
+		props := node.Properties()
+		next, found := props[seg]
+		if !found {
+			return schema.Schema{}, false, false
+		}
+		absent = node.MayBeAbsent(seg)
+		node = unwrap(next)
+	}
+	return node, absent, true
+}
+
+// unwrap makes a node's own members reachable: a nullable wrapper and a `$ref` each hide them,
+// the same shape membersOf and schema.Summary both have to undo.
+func unwrap(s schema.Schema) schema.Schema {
+	if s.HasNull() {
+		if inner := s.StripNull(); !inner.IsZero() && !inner.IsNull() {
+			s = inner
+		}
+	}
+	if resolved, err := s.Resolve(); err == nil {
+		s = resolved
+	}
+	return s
 }
