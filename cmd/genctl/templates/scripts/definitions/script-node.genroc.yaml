@@ -1,5 +1,3 @@
-# yaml-language-server: $schema=https://genroc.org/process-schema.json
-#
 # The script task as a CHILD PROCESS: one place that knows the evaluator's contract, so a caller
 # writes `type: child` plus a result_schema instead of an external task and its own error
 # handling. Apply it alongside your own definitions; you should not need to edit it.

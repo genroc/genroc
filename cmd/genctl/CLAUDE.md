@@ -155,3 +155,11 @@ shape. A top-level holder key (`_defaults: &d`) is rejected, because `ProcessDef
 decodes with unknown fields disallowed. A reserved, genctl-stripped key would fix that; it
 is unbuilt, and is the same shape as `$import`-as-a-key in
 [specs/source-resolution.md](../../specs/source-resolution.md).
+
+## The scaffold is checked twice, and one of the checks is the one that matters
+
+`genctl init` writes the first genroc anyone reads, and it is EMBEDDED rather than exercised, so
+it rots silently. Two tests hold it and they answer different questions:
+`tests/cli/init_scaffold_test.ts` asks whether it typechecks, and `tests/lsp/scaffold_test.ts`
+asks what it looks like OPENED — `genctl schema` answers about one slot and says nothing about
+the others, so a scaffold can pass the first and still open covered in red. It did.

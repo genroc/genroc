@@ -269,10 +269,36 @@ func lookupPropertyGuard(s *node, name string, defs map[string]*node, visiting m
 	// Returned as declared — a $ref stays a $ref, its taint riding the ref node. Non-nullable
 	// iff guaranteed present after validation: required, or defaulted (conformObject fills an
 	// absent optional's default). Only optional-without-default comes back nullable.
-	if !isRequired(resolved, name) && propDefault(prop, defs) == nil {
+	//
+	// The default is read BEFORE it is dropped: it decides presence here, and dropping it first
+	// would make every defaulted property read back nullable.
+	nullable := !isRequired(resolved, name) && propDefault(prop, defs) == nil
+	prop = withoutDefault(prop)
+	if nullable {
 		return withNull(prop), nil
 	}
 	return prop, nil
+}
+
+// withoutDefault is n with its `default` dropped, or n itself when it carries none.
+//
+// A default says how the object CONTAINING a property is conformed — absent, fill this — so by
+// the time the value is read the fill has happened and the keyword is spent. It is not part of
+// what the read yields. Carrying it makes the inferred type an invalid schema DOCUMENT the
+// moment anything requires the property holding it, since `checkDoc` refuses `required` beside
+// a `default`: presence would have two spellings and that pair is neither. A `$process` spread
+// writing an inferred `raises` payload is where that surfaced.
+//
+// A default behind a `$ref` is left alone. Removing it means materializing the reference, which
+// costs the name and does not terminate on a recursive one — so the narrow case is the one
+// worth closing, and `propDefault` still sees through the ref for the presence question above.
+func withoutDefault(n *node) *node {
+	if n == nil || n.Default == nil {
+		return n
+	}
+	m := *n
+	m.Default = nil
+	return &m
 }
 
 // inferIndex returns the element type for array index access on s, always nullable

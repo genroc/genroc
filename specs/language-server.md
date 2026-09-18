@@ -271,11 +271,18 @@ table, which is what happened.
 
 ### What happens to yaml-language-server
 
-The `$schema` comment stays: it is the degraded path, and after the fix above it is an honest
-one. When `genctl lsp` is attached it is the only server that should be answering for
-`*.genroc.yaml`, so the VS Code client ships that setting rather than leaving two servers to
-double-report. This reverses the earlier draft of this section, which accepted the overlap —
-the measurements above are why.
+The `$schema` comment stays as a SPELLING anyone may write: it is the degraded path, and after
+the fix above it is an honest one. When `genctl lsp` is attached it is the only server that
+should be answering for `*.genroc.yaml`, so the VS Code client ships that setting rather than
+leaving two servers to double-report. This reverses the earlier draft of this section, which
+accepted the overlap — the measurements above are why.
+
+**What changed 2026-09-18: `genctl init` no longer writes it.** Keeping the spelling available
+and opening every scaffold with it are different decisions, and this section only ever argued
+the first. A scaffold is the first genroc anyone reads, and the table above is what it was
+pointing them at — the looser of the two analyses, on exactly the mistakes a beginner makes.
+Anyone editing without the extension can still add the line. `tests/cli/init_scaffold_test.ts`
+holds it, and holds the thing nothing held before: that what `init` writes actually typechecks.
 
 **What must not regress:** anchors and aliases, merge keys (`<<:`, already handled by
 `mergeSource`), multi-document files, and exact numeric literals. These are YAML-level and

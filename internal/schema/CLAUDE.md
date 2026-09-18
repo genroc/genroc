@@ -279,6 +279,15 @@ an arm is tested for nullness BEFORE it is stripped — stripping `{"type":"null
 empty node, which reads as the top type, so a null arm dropped too late widens the whole union
 to unknown.
 
+**A read drops the `default`, and the order that decides presence comes first.** A default says
+how the object CONTAINING a property is conformed; by the time the value is read the fill has
+happened, so the keyword is spent and is not part of what the read yields. Keeping it made the
+inferred type an invalid schema DOCUMENT wherever one is emitted — a `$process` spread writes an
+inferred `raises` payload, and `required` beside a `default` is refused right here. `lookupProperty`
+therefore reads `propDefault` for the presence question and drops the keyword after; dropping it
+first makes every defaulted property read back nullable. A default behind a `$ref` is left alone,
+because removing it means materializing the reference.
+
 ## "Optional" is not "may be absent"
 
 `conformObject` fills an absent optional's default, so a property WITH a default is always

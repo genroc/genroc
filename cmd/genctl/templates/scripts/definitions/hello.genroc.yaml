@@ -1,5 +1,3 @@
-# yaml-language-server: $schema=https://genroc.org/process-schema.json
-#
 # Calls a TypeScript script as a child. `script-node.genroc.yaml` beside this file is the process
 # that knows the evaluator's contract; apply both.
 name: hello
@@ -11,13 +9,19 @@ tasks:
   - id: greet
     action:
       type: child
-      name: script-node
+      # `name`, `input_schema` and `raises` come from the child's own definition, so they
+      # cannot drift from it — and the editor checks the input below against them with no
+      # server running. An explicit key still wins, which is why `result_schema` holds.
+      <<: "$process: ./script-node.genroc.yaml"
       input:
         # Bundled and typechecked by `npx genroc-import` at apply time; the stored definition
         # holds the result, so the server never sees TypeScript.
         code: "$import: ./greet.ts"
         input:
           who: "$: input.who"
+      # script-node forwards the TOP TYPE — a generic process must not claim a shape that is
+      # the caller's concern — so narrowing it here is what makes `self.result` readable, and
+      # what `genctl types` generates the script's return type from.
       result_schema:
         type: object
         properties:
