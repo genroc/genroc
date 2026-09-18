@@ -117,11 +117,13 @@ func addClauseSlots(out map[string]schema.Schema, base string, panics, raise *mo
 // Type slots. The contract boundaries — what a generator is handed — addressed in the same
 // space as the contexts above: one slot, two questions. specs/schema-command.md §7.
 const (
-	slotInput   = "input"
-	slotBody    = "body"
-	slotResult  = "result"
-	slotLastErr = "last_error"
-	slotRaises  = "raises"
+	slotInput    = "input"
+	slotBody     = "body"
+	slotQuery    = "query"
+	slotChildren = "children"
+	slotResult   = "result"
+	slotLastErr  = "last_error"
+	slotRaises   = "raises"
 )
 
 // TypeSlots returns the type of every addressable slot, keyed by address. Each carries the
@@ -163,6 +165,11 @@ func typeSlots(sf SchemaFile) map[string]schema.Schema {
 			payload = slotBody
 		}
 		put(schema.JoinPath(action, payload), ts.Input)
+		// The other two things an action SENDS, addressed where the definition writes them.
+		put(schema.JoinPath(action, slotQuery), ts.Query)
+		for key, child := range ts.Children {
+			put(schema.JoinPath(schema.JoinPath(schema.JoinPath(action, slotChildren), key), slotInput), child)
+		}
 		// A routing task's result is `null` — what `self.result` reads there — and that is a
 		// fact about the scope, not a contract a caller generates from.
 		if ts.ActionType != "" {
@@ -181,19 +188,30 @@ func typeSlots(sf SchemaFile) map[string]schema.Schema {
 // case index starts reading as a name in scope. Reports false where no slot matches, which is
 // the caller's cue to fall back to the document, still the map of what could be typed instead.
 func SlotAt(slots map[string]schema.Schema, address string) (schema.Schema, bool, error) {
-	segs, err := schema.ParsePath(address)
-	if err != nil {
+	slot, rest, ok, err := SlotOf(slots, address)
+	if err != nil || !ok {
 		return schema.Schema{}, false, err
 	}
-	for n := len(segs); n > 0; n-- {
-		s, ok := slots[slotKey(segs[:n])]
-		if !ok {
-			continue
-		}
-		inside, err := Navigate(s, address, segs[n:])
-		return inside, true, err
+	inside, err := Navigate(slots[slot], address, rest)
+	return inside, true, err
+}
+
+// SlotOf is SlotAt's first step on its own: the longest slot an address names, and the path
+// left inside it. A caller that wants to READ the parent and then ask about one member — a
+// hover on a key — needs the split without the walk, and this is the one place the prefix
+// rule lives.
+func SlotOf(slots map[string]schema.Schema, address string) (slot string, rest []schema.Segment, ok bool, err error) {
+	segs, err := schema.ParsePath(address)
+	if err != nil {
+		return "", nil, false, err
 	}
-	return schema.Schema{}, false, nil
+	for n := len(segs); n > 0; n-- {
+		key := slotKey(segs[:n])
+		if _, found := slots[key]; found {
+			return key, segs[n:], true, nil
+		}
+	}
+	return "", nil, false, nil
 }
 
 // slotKey renders segments the way the slot constructors do: JoinPath for names, a bare dot for

@@ -92,6 +92,17 @@ silent when missing** — an inferred type can be an open map, so without it the
 reachable and the assertion the relation exists to protect is false.
 specs/declared-slot-schemas.md §4.
 
+**`Conformed` is the third member of that family, and it exists so a type is computed once.**
+`ConformsExactlyTo` is the relation, `ConformToSchemaExactly` the fill, and `Conformed` the TYPE
+of what the fill produces — derived from the inferred side, which the relation proved fits and
+which is already the more precise description, changed only where the fill changes the value:
+an optional property declared non-nullable loses its null and becomes may-be-absent, a required
+nullable the value never sets appears as null, the declaration's `description` is carried and
+its `default` never is. Where the declaration is the top type the inferred side comes back as it
+stands. `schematest/conformed_test.go` holds it to the fill directly: the fill's own output must
+validate strictly against `Conformed`, over every gap shape, or a hover, a CLI answer and a
+generated TypeScript type are all wrong together.
+
 **`IsSubsetAsStored` is a third relation, not a loosening of the pair.** It reads both
 schemas as descriptions of data a conform already produced, so a property the SUB side
 declares with a default is guaranteed present — and that tolerates a gap with no fill behind

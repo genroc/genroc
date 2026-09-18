@@ -30,13 +30,26 @@ func declaredShape(raw any, declared *schema.Schema, label string) (shape.Shape,
 	return sh, hooks
 }
 
-// published is what a slot with a declaration hands downstream: the declaration. The value is
-// conformed to it before it leaves, so this describes what actually flows.
+// published is what a slot the definition HANDS BACK publishes: its declaration. That is the
+// contract a consumer reads and `$process` spreads, and it is stable across a refactor inside —
+// which is the whole reason to declare one on an output.
 func published(inferred schema.Schema, declared *schema.Schema) schema.Schema {
 	if declared == nil {
 		return inferred
 	}
 	return *declared
+}
+
+// sent is the type of a slot the definition SENDS: what this definition produces, conformed to
+// the declaration where there is one (schema.Conformed). Not the declaration — that is the far
+// side's contract, with its own address — and not the raw inferred type either, which still
+// carries the nulls the conform removes. This is computed ONCE, here, and the CLI, the resolver
+// manifest and the language server all read the result; none may carry a rule of its own.
+func sent(inferred schema.Schema, declared *schema.Schema) schema.Schema {
+	if declared == nil {
+		return inferred
+	}
+	return inferred.Conformed(*declared)
 }
 
 // declaredBreaks words every place the inferred type fails its declaration. `undeclared` is
@@ -74,16 +87,19 @@ func at(path string) string {
 // itself against the fixed target above it (`queryValueSchema`: a scalar, null, or an array of
 // scalars). The declaration is checked FIRST so a schema that could never be satisfied is
 // reported as a bad declaration rather than as a shape doing what it was told.
-func checkDeclaredQuery(s *model.Task, ctx schema.Schema) error {
+func checkDeclaredQuery(s *model.Task, ctx schema.Schema) (schema.Schema, error) {
 	declared := *s.Action.QuerySchema
 	if !declared.IsSubset(querySchema) {
-		return fmt.Errorf("task %q query_schema declares a value a query string cannot carry: %s",
+		return schema.Schema{}, fmt.Errorf("task %q query_schema declares a value a query string cannot carry: %s",
 			s.ID, narrowBreaks(declared, querySchema))
 	}
 	label := fmt.Sprintf("task %q query", s.ID)
 	shp, hooks := declaredShape(s.Action.Query.Raw, s.Action.QuerySchema, label)
-	_, err := shp.CheckWith(ctx, hooks)
-	return err
+	inferred, err := shp.CheckWith(ctx, hooks)
+	if err != nil {
+		return schema.Schema{}, err
+	}
+	return sent(inferred, s.Action.QuerySchema), nil
 }
 
 // checkDeclaredListElement checks a child_list's declaration against ONE ELEMENT of `over`.

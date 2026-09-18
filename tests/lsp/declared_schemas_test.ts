@@ -700,22 +700,21 @@ test("hover inside a declaration describes the JSON Schema keyword", async () =>
   expect(h).toContain("JSON type");
 });
 
-// §1's asymmetry, as a hover. A slot the definition SENDS reads as what is being sent, not as
-// what the far side accepts: the declaration is that side's contract and is addressable there.
-// The two differ here — the declaration leaves `discount` optional, and this body always sets
-// it — and the difference is the point. Publishing the declaration instead shipped for a moment
-// and made a generic child's `input` read `unknown` at the address a resolver types a script's
-// argument from.
+// A slot the definition SENDS reads as the CONFORMED type: what is sent, after the declaration
+// has repaired it. This body always sets `discount`, and the expression feeding it is nullable
+// where the declaration is not — so the conform removes the key when it is null, and `?` is the
+// truthful mark. Neither the raw inferred type (`discount`, never absent) nor the declaration
+// alone (`unknown` for a generic child's payload) is this answer, and both shipped for a moment.
 test("hover on a slot the definition SENDS shows what is sent", async () => {
   const h = await lsp.hover(at("      <^body>:", hoverDoc()));
-  expect(h).toBe("**tasks.call.action.body** — `object{discount}`");
+  expect(h).toBe("**tasks.call.action.body** — `object{discount?}`");
 });
 
-// The same asymmetry one level down, and the case that sent me looking: a generic child declares
-// its payload as the TOP TYPE, because the shape is the caller's concern. Answering the key from
-// that declaration says `unknown` — true, and not the question anyone is asking at a call site.
-// The type is what is being SENT; the `?` and the prose stay the far side's, since whether a key
-// may be omitted and what it means are that side's to say.
+// The case that sent me looking: a generic child declares its payload as the TOP TYPE, because
+// the shape is the caller's concern. Answering the key from that declaration says `unknown` —
+// true, and not the question anyone is asking at a call site. The conformed type keeps what is
+// SENT where the declaration says nothing, and carries the far side's prose. No `?`: this caller
+// always sets it, and the type view knows that where the declaration alone could not.
 test("hover on an input key the far side left unknown shows what is sent", async () => {
   const d = doc([
     "input_schema:",
@@ -737,7 +736,7 @@ test("hover on an input key the far side left unknown shows what is sent", async
     "output: { ok: true }",
   ]);
   expect(await lsp.hover(at("        <^payload>:", d))).toBe(
-    "**payload?** — `object{who}` — opaque here",
+    "**payload** — `object{who}` — opaque here",
   );
 });
 
@@ -797,7 +796,9 @@ test("hover on a declared child input key needs no child definition", async () =
     "    switch: [{ goto: end }]",
     "output: { ok: true }",
   ]);
-  expect(await lsp.hover(at("        <^count>: 1", d))).toBe("**count** — `number` — how many");
+  // `integer`, not the declared `number`: the value sent is the literal 1, and the conformed
+  // type keeps the more precise side where the declaration merely admits it.
+  expect(await lsp.hover(at("        <^count>: 1", d))).toBe("**count** — `integer` — how many");
 });
 
 test("hover on a nested declared key names the path inside the declaration", async () => {
@@ -815,20 +816,23 @@ test("hover on a nested declared key names the path inside the declaration", asy
     "    switch: [{ goto: end }]",
     "output: { ok: true }",
   ]);
-  expect(await lsp.hover(at("          <^name>: 'x'", d))).toBe("**who.name?** — `string`");
+  expect(await lsp.hover(at("          <^name>: 'x'", d))).toBe("**who.name** — `string`");
 });
 
 // ─── Hover, over every slot ─────────────────────────────────────────────────────
 //
-// The claim is that hovering a KEY in any shape shows that key's type — from the declaration
-// where the slot has one, from the inferred shape where it does not. A slot tested by hand is a
-// slot whose answer nobody checked, and two of these answered nothing at all before.
+// The claim is that hovering a KEY in any shape shows that key's type, and that the type is the
+// ONE validation computed for the slot — the inferred shape conformed to its declaration — which
+// is also what `genctl schema type` prints and what the resolver generates from. A slot tested by
+// hand is a slot whose answer nobody checked; two of these answered nothing at all before, and
+// two more were not in the type view, so the CLI could not answer for them either.
 
 const DECL_TWO =
   "{ type: object, properties: { vexpr: { type: number, description: prose }, vlit: { type: number } } }";
 
-/** Each slot, built with the same two keys, with and without a declaration. */
-const hoverSlots: { name: string; build: (declared: boolean) => Doc }[] = [
+/** Each slot, built with the same two keys, with and without a declaration. `handsBack` marks
+ *  the two the definition hands back rather than sends: those publish their declaration. */
+const hoverSlots: { name: string; handsBack?: boolean; build: (declared: boolean) => Doc }[] = [
   {
     name: "fetch body",
     build: (d) =>
@@ -924,6 +928,7 @@ const hoverSlots: { name: string; build: (declared: boolean) => Doc }[] = [
   },
   {
     name: "task output",
+    handsBack: true,
     build: (d) =>
       doc([
         ...NULLABLE_N,
@@ -939,6 +944,7 @@ const hoverSlots: { name: string; build: (declared: boolean) => Doc }[] = [
   },
   {
     name: "process output",
+    handsBack: true,
     build: (d) =>
       doc([
         ...NULLABLE_N,
@@ -954,33 +960,26 @@ const hoverSlots: { name: string; build: (declared: boolean) => Doc }[] = [
 ];
 
 for (const slot of hoverSlots) {
-  test(`${slot.name}: a declared key hovers as the DECLARATION, prose and all`, async () => {
+  test(`${slot.name}: a declared key hovers as the slot's ONE type, prose and all`, async () => {
     const d = slot.build(true);
-    // `number`, not the `number|null` the expression types: the value is conformed to the
-    // declaration, so what the far side receives is what a reader is shown.
+    // `number`, not the `number|null` the expression types. On a SENT slot the conform removes
+    // the null and the key with it, so `?` and `number` together are what the far side
+    // receives; on a HANDS-BACK slot the declaration is published as written and says the
+    // same. The prose comes through either way — including on a task output, whose solved
+    // type is canonical and had dropped it.
     expect(await lsp.hover(at("<^vexpr>: '$: input.n'", d))).toBe(
       "**vexpr?** — `number` — prose",
     );
-    expect(await lsp.hover(at("<^vlit>: 42", d))).toBe("**vlit?** — `number`");
+    // Where the two directions differ. A literal integer under a declared `number`: SENT keeps
+    // the precise side and knows the key is always set; HANDS-BACK publishes the declaration,
+    // which says `number` and leaves the key optional — the stable contract a consumer reads.
+    expect(await lsp.hover(at("<^vlit>: 42", d))).toBe(
+      slot.handsBack ? "**vlit?** — `number`" : "**vlit** — `integer`",
+    );
   });
-
-  // Two slots have no entry in the type view at all — `typeSlots` records the action's payload
-  // and result, and neither a fetch's `query` nor a `child_map` entry's `input` is one. Their
-  // inferred types exist (both are checked) but nothing stores them, so a key there falls back
-  // to the expression beside it and a key holding a LITERAL has no answer. Closing that means
-  // carrying two more types on `TaskSchemas` and adding two addresses to the type document,
-  // which is schema-command.md's surface rather than this feature's — so it is written down
-  // here rather than papered over.
-  const inTypeView = !["fetch query", "child_map entry input"].includes(slot.name);
 
   test(`${slot.name}: an undeclared key hovers as the inferred shape`, async () => {
     const d = slot.build(false);
-    if (!inTypeView) {
-      // What it does instead, pinned so the gap is a fact rather than a surprise.
-      expect(await lsp.hover(at("<^vexpr>: '$: input.n'", d))).toBe("`input.n` → `number|null`");
-      expect(await lsp.hover(at("<^vlit>: 42", d))).toBe("");
-      return;
-    }
     // Nothing is conformed here, so the nullable the expression produces IS what is sent.
     expect(await lsp.hover(at("<^vexpr>: '$: input.n'", d))).toBe("**vexpr** — `number|null`");
     expect(await lsp.hover(at("<^vlit>: 42", d))).toBe("**vlit** — `integer`");

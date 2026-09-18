@@ -49,8 +49,8 @@ func describe(doc *defdoc.Doc, def *model.ProcessDefinition, path, src string, l
 	types, _ := validation.TypeSlots(def)
 
 	// A cursor on a KEY inside a shape is asking what that key HOLDS, not what the expression
-	// beside it evaluates to. paths.go's sibling rule, one level down.
-	if md := shapeKeyHover(doc, def, types, path, line, col); md != "" {
+	// beside it evaluates to — and the answer is the type view's, so it cannot differ from the CLI's.
+	if md := shapeKeyHover(doc, types, path, line, col); md != "" {
 		return md
 	}
 

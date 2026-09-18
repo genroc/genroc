@@ -51,6 +51,7 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 			// analysed and the author sees every slot that is wrong at once.
 			b.add(taskSlot(s.ID, slotAction), CodeExpression, func() error {
 				ts, inMap := taskSchemas[s.ID]
+				touched := inMap
 				isFetch := s.Action.Type == model.ActionTypeFetch
 				hasURL := isFetch && s.Action.URL != ""
 				hasMethod := isFetch && s.Action.Method != ""
@@ -125,17 +126,20 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 						}
 					}
 					if hasQuery {
-						if err := inField("query", checkQueryShape(s.Action.Query.Raw, ctx, s.ID)); err != nil {
-							return err
+						q, err := checkQueryShape(s.Action.Query.Raw, ctx, s.ID)
+						if err != nil {
+							return inField("query", err)
 						}
-					}
-					// The declaration is checked BESIDE the fixed target, not instead of it: a
-					// query value is a scalar, null or an array of scalars whatever a
-					// declaration says, and running both keeps each failure named as itself.
-					if isFetch && s.Action.QuerySchema != nil {
-						if err := inField("query", checkDeclaredQuery(s, ctx)); err != nil {
-							return err
+						// The declaration is checked BESIDE the fixed target, not instead of it:
+						// a query value is a scalar, null or an array of scalars whatever a
+						// declaration says, and running both keeps each failure named as itself.
+						if isFetch && s.Action.QuerySchema != nil {
+							if q, err = checkDeclaredQuery(s, ctx); err != nil {
+								return inField("query", err)
+							}
 						}
+						ts.Query = q
+						touched = true
 					}
 					// accepted_status is a shape that must evaluate to an array of strings.
 					// The per-pattern format ("2xx"/"404") is not checked — an expression's
@@ -147,8 +151,13 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 						}
 					}
 					if s.Action.Type == model.ActionTypeChildMap {
-						if err := checkChildMapInputs(s, ctx); err != nil {
+						children, err := checkChildMapInputs(s, ctx)
+						if err != nil {
 							return err
+						}
+						if len(children) > 0 {
+							ts.Children = children
+							touched = true
 						}
 					}
 					if inMap || hasBody || hasInput || hasDeclaredPayload {
@@ -156,10 +165,13 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 						if err != nil {
 							return err
 						}
+						ts.Input = input
+						touched = true
+					}
+					if touched {
 						if !inMap {
 							ts.ActionType = s.Action.Type
 						}
-						ts.Input = input
 						taskSchemas[s.ID] = ts
 					}
 				}
@@ -565,23 +577,24 @@ func inferActionPayload(s *model.Task, ctx schema.Schema) (schema.Schema, error)
 		return schema.Object(), nil
 	}
 	shp, hooks := declaredShape(raw, declared, fmt.Sprintf("task %q %s", s.ID, label))
-	// The INFERRED type, not the declaration. A slot the definition SENDS is typed by what this
-	// definition produces; the declaration is the FAR SIDE's contract, it is checked against,
-	// and it already has its own address (`genctl schema type <child> input`). Publishing it
-	// here answers a question that is asked elsewhere and loses the only answer asked for here
-	// — a generic child declaring its payload as the top type made `task.action.input.input`
-	// read `unknown`, which is the type a resolver generates a script's argument from.
-	// specs/declared-slot-schemas.md §1.
-	return shp.CheckWith(ctx, hooks)
+	inferred, err := shp.CheckWith(ctx, hooks)
+	if err != nil {
+		return schema.Schema{}, err
+	}
+	return sent(inferred, declared), nil
 }
 
 // checkChildMapInputs is the child_map arm of the same check. It is here rather than in
 // validate_children.go because a declaration needs NO database: this is the child input check
 // an editor and an offline genctl can run, which the one against the child itself never could.
-func checkChildMapInputs(s *model.Task, ctx schema.Schema) error {
+func checkChildMapInputs(s *model.Task, ctx schema.Schema) (map[string]schema.Schema, error) {
+	out := make(map[string]schema.Schema, len(s.Action.Children))
 	for _, key := range sortedChildKeys(s.Action.Children) {
 		entry := s.Action.Children[key]
-		if entry.InputSchema == nil {
+		// The same guard a single child's payload has: an entry that neither writes an input
+		// nor declares one has nothing to type, and typing it as an empty object would put a
+		// task in the type view that has no typed surface at all.
+		if !entry.Input.Present() && entry.InputSchema == nil {
 			continue
 		}
 		var raw any = map[string]any{}
@@ -590,11 +603,13 @@ func checkChildMapInputs(s *model.Task, ctx schema.Schema) error {
 		}
 		label := fmt.Sprintf("task %q children[%q] input", s.ID, key)
 		shp, hooks := declaredShape(raw, entry.InputSchema, label)
-		if _, err := shp.CheckWith(ctx, hooks); err != nil {
-			return inField("children."+key+".input", err)
+		inferred, err := shp.CheckWith(ctx, hooks)
+		if err != nil {
+			return nil, inField("children."+key+".input", err)
 		}
+		out[key] = sent(inferred, entry.InputSchema)
 	}
-	return nil
+	return out, nil
 }
 
 // checkHeadersShape verifies the fetch Headers shape produces a non-null object (a literal
@@ -616,9 +631,9 @@ func checkHeadersShape(raw any, ctx schema.Schema, taskID string) error {
 // checkHeadersShape with one difference that carries the feature: a null VALUE is accepted,
 // because omitting a parameter is what saves the author a conditional. The MAP itself may
 // still not be null — a null query is a mistake, not an empty one.
-func checkQueryShape(raw any, ctx schema.Schema, taskID string) error {
+func checkQueryShape(raw any, ctx schema.Schema, taskID string) (schema.Schema, error) {
 	shp := shape.Shape{Raw: raw, Schema: &querySchema, Name: fmt.Sprintf("task %q query", taskID)}
-	_, err := shp.CheckWith(ctx, shape.CheckHooks{
+	return shp.CheckWith(ctx, shape.CheckHooks{
 		Result: func(inferred, _ schema.Schema) error {
 			if inferred.HasNull() || !inferred.IsType("object") {
 				return fmt.Errorf("task %q query must evaluate to a non-null object", taskID)
@@ -626,7 +641,6 @@ func checkQueryShape(raw any, ctx schema.Schema, taskID string) error {
 			return fmt.Errorf("task %q query values must be scalars, null (which omits the parameter), or an array of them (which repeats it)", taskID)
 		},
 	})
-	return err
 }
 
 // checkAcceptedStatusShape: must produce an array of strings; static literal elements are

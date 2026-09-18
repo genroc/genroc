@@ -15,6 +15,7 @@ import (
 func inferOutputs(tasks []*model.Task, scopes taskScopes, b *bag) error {
 	solver := schema.NewSolver(scopes.defs)
 	declared := false
+	checked := map[string]bool{}
 	for _, s := range tasks {
 		if !s.Output.Present() {
 			continue
@@ -55,6 +56,7 @@ func inferOutputs(tasks []*model.Task, scopes taskScopes, b *bag) error {
 				b.poison(id)
 				return schema.Schema{}, nil
 			}
+			checked[id] = true
 			return published(out, declaredOut), nil
 		})
 		declared = true
@@ -62,5 +64,19 @@ func inferOutputs(tasks []*model.Task, scopes taskScopes, b *bag) error {
 	if !declared {
 		return nil
 	}
-	return solver.Solve()
+	if err := solver.Solve(); err != nil {
+		return err
+	}
+	// A DECLARED output goes back into the pool as written, prose and all. The solver stores
+	// what it computes CANONICAL — the fixpoint compares canonical forms — and canonical means
+	// no `description`: nothing lost on an inferred type, and the one thing an imported schema
+	// was worth importing for on a declaration. The type is the same either way; only the
+	// annotation comes back. A slot whose check failed keeps its `{}`, which is what the
+	// diagnostics' poison rule expects to find there.
+	for _, s := range tasks {
+		if s.OutputSchema != nil && checked[s.ID] {
+			scopes.defs.Set(s.ID+"_output", *s.OutputSchema)
+		}
+	}
+	return nil
 }

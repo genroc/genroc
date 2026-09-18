@@ -211,64 +211,71 @@ func under(path, head string) (string, bool) {
 	return "", false
 }
 
-// shapeKeyHover answers for a cursor on a KEY inside a shape: what that key holds.
-// specs/declared-slot-schemas.md §6.
+// shapeKeyHover answers for a cursor on a KEY inside a shape: what that key holds, read from the
+// TYPE VIEW and nowhere else. specs/declared-slot-schemas.md §6.
 //
 // It fires on the key span only. Inside the value the question is what the EXPRESSION there
 // evaluates to, which the rest of `describe` answers — and on a key that is the wrong answer,
 // because a key is not its own expression.
 //
-// Two sources, and the order is the whole rule:
-//
-//   - the DECLARATION, where the slot has one. The value is conformed to it, so it is what the
-//     far side receives: an expression typing `number|null` into a declared `number` arrives as
-//     a number, and showing the nullable would show what the author wrote rather than what is
-//     sent. It also carries the prose, which is the reason importing a schema is worth anything.
-//   - the SLOT VIEW otherwise, or where the declaration says nothing. A generic child declares
-//     its payload as the top type because the shape is the caller's concern, and `unknown` is
-//     the one answer a reader at a call site cannot use. A slot with no declaration at all has
-//     only this, and before it was consulted a key holding a literal hovered to nothing —
-//     against the rule that a hover always has one line.
-func shapeKeyHover(doc *defdoc.Doc, def *model.ProcessDefinition, types map[string]schema.Schema, path string, line, col int) string {
+// There is no rule about declarations here, and that is the point. `validation` computes one
+// type per slot — the inferred shape, conformed to its declaration where it has one
+// (`schema.Conformed`) — and the CLI, the resolver manifest and this hover all read that. They
+// did not agree before: the type view published the inferred side while this answered from the
+// declaration, so `genctl schema type` said `number|null` where hover said `number` for one key.
+// Two answers to one question is the drift this server exists to prevent.
+func shapeKeyHover(doc *defdoc.Doc, types map[string]schema.Schema, path string, line, col int) string {
 	span, ok := doc.Span(path)
 	if !ok || !span.Key.Contains(line, col) {
 		return ""
 	}
-	declared, rest, ok := declaredSlotAt(def, path)
-	if !ok || rest == "" {
+	slot, rest, ok, err := validation.SlotOf(types, path)
+	if err != nil || !ok || len(rest) == 0 {
 		return ""
 	}
-
-	var shown schema.Schema
-	var absent bool
-	var prose string
-	if declared != nil {
-		if prop, a, found := declaredNodeAt(*declared, rest); found {
-			shown, absent, prose = prop, a, prop.Description()
-		}
-	}
-	// `Summary` is how `typeOnly` asks this same question, two functions below in hover.go.
-	if shown.IsZero() || shown.Summary() == "unknown" {
-		if typed, found, err := validation.SlotAt(types, path); err == nil && found && !typed.IsZero() {
-			shown = typed
-		}
-	}
-	if shown.IsZero() {
+	// The PARENT is navigated and the member read off it, never the member itself: `At` reads an
+	// optional property as nullable — right for an expression, wrong for describing a key — and
+	// only the parent knows whether the key may be absent.
+	parent, err := validation.Navigate(types[slot], path, rest[:len(rest)-1])
+	if err != nil {
 		return ""
 	}
-
-	// `?` marks an optional property, the spelling `Summary` already uses for one inside an
-	// object — so a reader meets the same mark in both places. Only a DECLARATION can say a key
-	// is optional; the slot view describes a key that is written, so it is always there.
-	name := rest
-	if absent {
-		name += "?"
+	parent = unwrap(parent)
+	last := rest[len(rest)-1]
+	if last.IsIndex {
+		return ""
 	}
-	out := "**" + name + "** — " + mdType(shown.Summary())
-	if prose != "" {
-		out += " — " + prose
+	prop, found := parent.Properties()[last.Name]
+	if !found {
+		return ""
+	}
+	// `?` is the mark `Summary` already uses for an optional member, so a reader meets one
+	// spelling in both places.
+	label := labelOf(rest)
+	if parent.MayBeAbsent(last.Name) {
+		label += "?"
+	}
+	out := "**" + label + "** — " + mdType(prop.Summary())
+	if d := prop.Description(); d != "" {
+		out += " — " + d
 	}
 	return out
+}
+
+// labelOf spells the path inside a slot the way it was written: names dotted, an index bracketed.
+func labelOf(segs []schema.Segment) string {
+	var b strings.Builder
+	for _, seg := range segs {
+		if seg.IsIndex {
+			b.WriteString("[" + strconv.Itoa(seg.Index) + "]")
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('.')
+		}
+		b.WriteString(seg.Name)
+	}
+	return b.String()
 }
 
 // declaredNodeAt walks a dotted path through a DECLARATION, and reports whether the last step

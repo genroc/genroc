@@ -243,27 +243,24 @@ and an empty remainder is the slot's own root, where `At` errors rather than wal
 specs/declared-slot-schemas.md §6.
 
 **Hover on a KEY inside a shape answers about the key** (`shapeKeyHover`), on the key span only —
-inside the value the expression's own type is still the question. Two sources in one order: the
-DECLARATION where the slot has one, because the value is conformed to it and that is what the
-far side receives; the SLOT VIEW where there is none, or where the declaration says nothing.
-Both halves were learned by shipping the other:
+inside the value the expression's own type is still the question. It reads the TYPE VIEW and
+nothing else: `validation` computes one type per slot (`sent` for what the definition sends,
+`published` for what it hands back), and the CLI, the resolver manifest and this hover all read
+it. There is no rule about declarations here, and there was: for a day the type view published
+the inferred side while hover answered from the declaration, so `genctl schema type` said
+`number|null` where hover said `number` for one key — two answers to one question, which is the
+drift this server exists to prevent. `TestKeyHoverIsTheCLIsOwnAnswer` pins the key level
+against the CLI's own lookup; `tests/lsp/agreement_test.ts` pins the two binaries at the slot.
 
-- Reading the declaration ALONE answered a generic child's payload with `unknown` — the far
-  side's contract, true and useless at a call site.
-- Reading the slot view alone showed `number|null` for an expression feeding a declared
-  `number`, which is what the author wrote rather than what arrives.
-- Consulting neither, where no declaration exists, left a key holding a LITERAL with no hover
-  at all — against the rule that a hover always has one line.
+Two things the walk must still do itself. It navigates to the PARENT and reads the member off
+it, never to the member: `Schema.At` reads an optional property as nullable, right for an
+expression and wrong for describing a key, and only the parent knows whether the key may be
+absent (`MayBeAbsent`, rendered as the `?` `Summary` uses). And it `unwrap`s first — a slot's
+type is a `$ref` into the pool, and a ref has no members until it is followed.
 
-It reads a declaration with `declaredNodeAt`, never `Schema.At`: `At` walks a path the way an
-EXPRESSION would, so an optional property comes back nullable, which is right for a value and
-wrong for a schema, and the editor then contradicts the document on screen.
-
-**Two slots are not in the type view**, so a key there still falls back to the expression and a
-literal one answers nothing: `typeSlots` records an action's payload and result, and neither a
-fetch's `query` nor a `child_map` entry's `input` is one. `tests/lsp/declared_schemas_test.ts`
-pins that as a fact. Closing it means two more types on `TaskSchemas` and two addresses in the
-type document, which is specs/schema-command.md's surface.
+Completion still reads the DECLARATION (`declaredSlotAt`, `declaredNodeAt`): it offers what MAY
+be written, which is the far side's contract rather than what is. A different question, and the
+only place this package reads a declaration directly.
 
 A declared schema's VALUE is a user schema, so it belongs in `userSchemaKeys` (`semantic.go`)
 and in `pointAtUserSchema`'s slot list (`keys.go`) — the first stops its `default` being painted

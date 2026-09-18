@@ -49,6 +49,12 @@ It needs nothing unbuilt. The check is `Shape.Schema`
 [typed-values.md](typed-values.md) §Where it applies listed *per-action payload schemas* as
 deferred behind the `$:` grammar; that grammar is built, and this is the deferral coming due.
 
+**Unified 2026-09-18.** A slot's type is computed ONCE, in validation, and the CLI, the resolver
+manifest and the language server read it (§1). The editor had grown a rule of its own for
+hover and the two disagreed on a key for a day — `number|null` in the CLI, `number` in the
+editor. `schema.Conformed` is what closed it, and `TestKeyHoverIsTheCLIsOwnAnswer` plus
+`tests/lsp/agreement_test.ts` are what hold it closed.
+
 §4's relation question was settled the way its second ending suggested: `nullRemoval` split
 out of `afterConform`, so the new relation takes the removal rule without the defaults rule
 that `ConformToSchemaExactly` does not perform. `schematest/conforms_exactly_test.go` is the
@@ -61,15 +67,18 @@ than a flag on the third.
 > the slot, so what the declaration says is what left. Where no declaration exists, nothing
 > changes and the inferred type remains the only answer.
 
-**With one asymmetry, found by shipping it the other way.** A slot the definition HANDS BACK
-(a task output, the process output) publishes its declaration: that is the contract consumers
-read, and §3 is what makes it honest. A slot the definition SENDS (a body, a query, an input)
-keeps its INFERRED type, because the declaration there is the FAR SIDE's contract rather than a
-description of this value — and it already has an address of its own, `genctl schema type
-<child> input`. Publishing it at the call site answers a question asked elsewhere and discards
-the only one asked here: a generic child declaring its payload as the top type made
-`task.action.input.input` read `unknown`, which is the address the scaffold's resolver generates
-a script's argument type from.
+**With one asymmetry, and one function that makes it a rule rather than a rule of thumb.** A
+slot the definition HANDS BACK (a task output, the process output) publishes its declaration:
+that is the contract consumers read, and §3 is what makes it honest. A slot the definition
+SENDS (a body, a query, an input, a `child_map` entry's input) is typed by **what actually
+leaves it** — the inferred shape conformed to the declaration, `schema.Conformed`, the third
+member of the family beside the relation and the fill. Not the declaration alone, which is the
+far side's contract and made a generic child's `input: {}` read `unknown` at the address a
+script's argument type is generated from. Not the raw inferred type either, which still carries
+the nulls the conform removes, and let the CLI say `number|null` where the editor said `number`.
+Both shipped, one day apart, and the second is the one that mattered: it was two answers to one
+question, from two places. Now there is one place — `TaskSchemas` — and `genctl schema type`,
+the resolver manifest and hover all read it.
 
 Two consequences, and they are the reason for the shape:
 
@@ -391,17 +400,17 @@ what is already written are all built and are all about the key position; the ty
 `MayBeAbsent` and the null-strip are all built and are all about a `schema.Schema`. Neither half
 is new. What is new is that they meet.
 
-**Hover on a key is the declaration's answer, not the expression's**, and the two diverge
-exactly where the conform repairs something: the expression beside an optional non-nullable
-property is nullable and what arrives is not. Answering with the expression there shows a reader
-the value they wrote rather than the value the far side receives. It fires on the KEY only —
-inside the expression the type of the expression is still the question being asked.
+**Hover on a key reads the type view and nothing else.** It fires on the KEY only — inside the
+expression the type of the expression is still the question — and what it shows is the slot's
+one type navigated to the key's parent, with the member read off it: `?` where the parent says
+the key may be absent, the prose the declaration carried, the type the conform produces. There
+is no rule about declarations in the editor. There was one, for a day, and it disagreed with the
+CLI on a key; §1 records the fix. What the editor must still do itself is read the PARENT rather
+than the member — `Schema.At` reads an optional property as nullable, right for an expression
+and wrong for describing a key — and follow the `$ref` a slot's type is stored behind.
 
-A declaration is **described, not read**. `Schema.At` walks a path the way an expression would,
-so an optional property comes back nullable because a missing key reads as null — correct for a
-value and wrong for a schema, where it makes the editor contradict the document the author is
-looking at. `declaredNodeAt` walks declared properties instead and reports optionality as the
-`?` mark `Summary` already uses.
+Completion is the one place the declaration is still read directly, because it answers a
+different question: what MAY be written here, which is the far side's contract, not what is.
 
 The enum row is the easy one for once. Three value slots have a closed set today and each needed
 a bespoke function — `routingValues`, `typeValues`, `errorCodeValues` — *because none of them is
@@ -555,10 +564,10 @@ keys to offer.
 
 ## 11. Open
 
-- **`genctl schema type` reaches only `input` and `output`.** So the published-type rule (§9)
-  is observable at the process output and nowhere else; the action addresses in
-  specs/schema-command.md §2 are still proposal, and that is where the rest of it lands.
-  Nothing here waits on it — the editor answers those positions already.
+- **A declared task output's prose survives `Solve` by being written back afterwards.** The
+  solver stores canonical forms, which carry no `description`; the write-back restores it where
+  the check passed. Storing annotations beside the canonical type would be the cleaner shape if
+  a second annotation ever needs the same treatment.
 - `headers_schema`, when an importer's request side exists to fill it (§2).
 - `additionalProperties`, and with it hiding (§3, §8). Count first.
 - Narrowing declarations, if [literal-types.md](literal-types.md) does not remove the appetite

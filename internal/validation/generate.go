@@ -12,7 +12,14 @@ import (
 
 type TaskSchemas struct {
 	ActionType model.ActionType `json:"action_type"`
-	Input      schema.Schema    `json:"input,omitzero"`
+	// Input, Query and Children are the payloads the definition SENDS — a child's or external's
+	// input, a fetch's body under Input and its query map, a child_map's per-entry inputs keyed
+	// as the definition keys them. Each is the inferred shape, conformed to its declaration
+	// where one exists (schema.Conformed), so that "what is this slot" is computed ONCE here
+	// and the CLI, the resolver manifest and the language server all read it.
+	Input    schema.Schema            `json:"input,omitzero"`
+	Query    schema.Schema            `json:"query,omitzero"`
+	Children map[string]schema.Schema `json:"children,omitempty"`
 	// Result is what the action hands back, typed as `self.result` sees it: a declared
 	// result_schema on a child or external, the accepted responses on a fetch. Absent where the
 	// action types none. A contract boundary — the shape a worker implementing this task

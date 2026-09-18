@@ -107,16 +107,31 @@ on upgrade makes the input relaxation unsound, and the gate's external-result ru
 the relaxed side, because a submitted result is read back as `self.result` rather than
 re-conformed.
 
-## A declared schema types a slot only on the way OUT
+## One type per slot, computed here, read everywhere
 
-An output slot (a task's, the process's) publishes its declaration — that is what `$process`
-spreads and what a consumer reads. An INPUT slot (a body, a query, an input) keeps its inferred
-type: the declaration there describes what the far side ACCEPTS, not what this definition sends,
-and it is already addressable as that side's own `input`. Publishing it at the call site shipped
-for a moment and broke the scaffold — a generic child declaring its payload as the top type made
-`task.action.input.input` read `unknown`, and that address is what the resolver manifest
-generates a script's argument type from (`sources.taskInput`, `typeSlots`).
-specs/declared-slot-schemas.md §1.
+"What is this slot" is answered ONCE, in `TaskSchemas`, and `genctl schema type`, the resolver
+manifest (`sources.taskInput`) and the language server's hover all read it. Two functions in
+`declared.go`, by direction:
+
+- **`sent`** — a body, a query, an input, a `child_map` entry's input: the inferred shape,
+  conformed to its declaration where it has one (`schema.Conformed`). Not the declaration, which
+  is the far side's contract and has its own address; not the raw inferred type either, which
+  still carries the nulls the conform removes. Both shipped: the first made a generic child's
+  `input: {}` read `unknown` at the address a script's argument type is generated from; the
+  second let the CLI say `number|null` where the editor said `number` for one key.
+- **`published`** — a task output, the process output: the declaration as written. That is what
+  `$process` spreads and what a consumer reads, and it is stable across a refactor inside, which
+  is the reason to declare one on an output.
+
+`Query` and `Children` sit on `TaskSchemas` beside `Input` for this reason: until they did, a
+fetch's query and a `child_map` entry had no type the CLI could print, and hover fell back to
+the expression beside the key. `typeSlots` addresses them where the definition writes them.
+
+**A declared task output goes back into the pool as written, after `Solve`.** The solver stores
+what it computes canonical, and canonical means no `description` — nothing lost on an inferred
+type, and the one thing an imported schema was worth importing for on a declaration. The type
+is unchanged; only the annotation comes back, and only where the check passed, so a poisoned
+slot keeps the `{}` the diagnostics' suppression expects. specs/declared-slot-schemas.md §1.
 
 ## A declared child input replaces the inferred one, and child_list has no input slot
 
