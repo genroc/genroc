@@ -1,17 +1,12 @@
-# What `genctl apply|types` reads when you pass no paths. Patterns and files,
-# resolved against this file. `**` matches any depth.
+# What `genctl apply|types` reads when given no paths, resolved against this file.
 definitions: ["./definitions/**/*.genroc.yaml"]
 
-# Resolvers `genctl apply|types` run over source files in this directory. Discovery
-# walks up from the file, so nothing here depends on the cwd.
 resolvers:
   - name: import
     phase: code
     ext: [.ts]
     command: [npx, genroc-import]
-    # What the generated declarations are typed from, as `genctl schema type` addresses,
-    # relative to the task the import sits in. `input.input` is the argument the evaluator
-    # binds out of the action's input; `result` is what the task hands back.
+    # Slot addresses the generated `Input` and `Output` are typed from, relative to the task.
     types:
       Input: task.action.input.input
       Output: task.action.result

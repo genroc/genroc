@@ -1,23 +1,19 @@
 # genroc-ui: the login, the UI, and the proxy that turns a session into a token.
-#
-# Everything omitted has a default: the listen address, the token's issuer and audience, its
-# 60-second lifetime, the callback URL, and whether cookies are Secure. What is left is what a
-# deployment actually has to decide.
+# Everything omitted has a default; what is left is what a deployment has to decide.
 
 server: http://genroc:8448
 
 login:
-  # Passwords in a file: no directory, no registration, no reset, no MFA. Right for a laptop and
-  # wrong for anything else -- `providers:` below is the answer there.
-  #
+  # Passwords in a file: right for a laptop, wrong for anything else (see `providers:` below).
   # Add a user, or replace a lost password, with:  genctl init password <email>
   passwords:
     - email: {{.Email}}
       hash: "{{.Hash}}"
       groups: [admins]
 
-  # WHAT A DEPLOYMENT USES INSTEAD. `type` names an IdP whose quirks genroc-ui already knows, so
-  # `google` needs nothing but a client. Anything else is a generic `oidc` entry with an issuer.
+  # An identity provider instead. `google` needs only a client; anything else is a generic
+  # `oidc` entry with an issuer, and a provider that is not OIDC (GitHub, LDAP, SAML) needs a
+  # broker such as Dex in front, used as a plain `oidc` entry.
   #
   # providers:
   #   - id: google
@@ -26,27 +22,18 @@ login:
   #     client_id: ...
   #     client_secret: ...
   #
-  # A Google ID token carries no groups, so genroc-ui reads Workspace membership from Cloud
-  # Identity at login, with the person's own token -- no service account, nothing stored. Grant
-  # the OAuth client `cloud-identity.groups.readonly` and key `roles:` on the group's EMAIL:
-  #
-  #   roles:
-  #     platform@example.com: [admin]
-  #
-  # A provider that is not OIDC at all (GitHub, LDAP, SAML) still needs a broker such as Dex in
-  # front, which genroc-ui then treats as a plain `oidc` entry.
+  # A Google ID token carries no groups, so genroc-ui reads Workspace membership at login: grant
+  # the client `cloud-identity.groups.readonly` and key `roles:` on the group's email.
 
 token:
-  # The one thing genroc and genroc-ui must agree on. Everything else about the token defaults.
+  # The one thing genroc and genroc-ui must agree on.
   secret_file: /data/jwt-secret
 
-# THE ROLE MAP: groups in, permissions out. It lives here because the token genroc-ui mints
-# carries the ANSWER -- the server has no role map and never learns what a group is.
+# Groups in, permissions out. The token carries the answer; the server has no role map.
 roles:
   admins: [admin]
   # "*": [read]      # anyone who signed in at all
 
-# A subject, for a provider that carries no groups -- which is every Google deployment without a
-# broker in front. Unioned on top of whatever `roles` granted.
+# Permissions by subject, for a provider that carries no groups. Unioned with `roles`.
 # users:
 #   ada@example.com: [admin]

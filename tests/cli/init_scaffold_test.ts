@@ -1,3 +1,4 @@
+import { spawnSync } from "child_process";
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -14,6 +15,7 @@ beforeAll(() => {
 }, 60_000);
 
 const OFFLINE = { GENROC_SERVER: "http://127.0.0.1:1" };
+const REPO = new URL("../../", import.meta.url).pathname;
 
 /** An inferred type is stored as a `$ref` into its own `$defs`; this is what it points at. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,3 +127,29 @@ test("no scaffolded definition points at the published JSON Schema", () => {
     }
   }
 });
+
+// The script imports its types from a file that exists only once the resolver has written it,
+// so the scaffold cannot typecheck on its own: this runs the real resolver over it, then `tsc`
+// under the scaffold's own tsconfig, which is what the author's editor reads.
+test("the eval-node scaffold's script typechecks against the declarations it generates", () => {
+  const dir = scaffold("--eval-node");
+  const cfg = join(dir, ".genroc");
+  const before = readFileSync(cfg, "utf8");
+  expect(before).toContain("command: [npx, genroc-import]");
+  writeFileSync(
+    cfg,
+    before.replace(
+      "command: [npx, genroc-import]",
+      `command: [node, ${join(REPO, "eval-node/import.ts")}]`,
+    ),
+  );
+  const r = runCli(bin, ["types", "-f", join(dir, "definitions/hello.genroc.yaml")], OFFLINE);
+  expect(r.exitCode, r.stderr).toBe(0);
+  const decls = readFileSync(join(dir, "definitions/greet.genroc.d.ts"), "utf8");
+  expect(decls).toContain("who: string");
+  expect(decls).toContain("greeting: string");
+  const tsc = spawnSync(join(REPO, "tests/node_modules/.bin/tsc"), ["--noEmit", "-p", dir], {
+    encoding: "utf8",
+  });
+  expect(tsc.status, tsc.stdout + tsc.stderr).toBe(0);
+}, 60_000);

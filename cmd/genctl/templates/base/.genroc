@@ -1,3 +1,2 @@
-# What `genctl apply|types` reads when you pass no paths. Patterns and files,
-# resolved against this file. `**` matches any depth.
+# What `genctl apply|types` reads when given no paths, resolved against this file.
 definitions: ["./definitions/**/*.genroc.yaml"]
