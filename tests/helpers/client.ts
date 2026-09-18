@@ -175,6 +175,9 @@ export async function startMockService(port: number, options: MockServiceOptions
   // The request line as the server received it, so a test can assert what was actually sent
   // — query encoding is only observable here.
   const urls: string[] = [];
+  // The request BODY as received, for the same reason: what a declared body_schema conformed
+  // away is only observable on this side of the wire.
+  const bodies: string[] = [];
   let resolveFirst!: () => void;
   const firstRequestReceived = new Promise<void>((r) => {
     resolveFirst = r;
@@ -186,6 +189,11 @@ export async function startMockService(port: number, options: MockServiceOptions
   const server = createServer((req, res) => {
     count++;
     urls.push(req.url ?? "");
+    let raw = "";
+    req.on("data", (c) => {
+      raw += c;
+    });
+    req.on("end", () => bodies.push(raw));
     req.socket.on("error", () => {}); // suppress ECONNRESET
     res.on("error", () => {});
 
@@ -217,6 +225,7 @@ export async function startMockService(port: number, options: MockServiceOptions
     firstRequestReceived,
     requestCount: () => count,
     requestUrls: () => [...urls],
+    requestBodies: () => [...bodies],
     // Unblocks the held first request when firstRequestDelayMs === Infinity.
     release: () => { pendingSend?.(); pendingSend = undefined; },
     stop: () => new Promise<void>((r) => server.close(() => r())),

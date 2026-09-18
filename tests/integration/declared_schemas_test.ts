@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { client, waitForInstance } from "../helpers/client.ts";
+import { client, startMockService, waitForInstance } from "../helpers/client.ts";
+import { waitForParked } from "../helpers/external.ts";
 
 // The RUNTIME half of a declared slot schema: the value is conformed to the declaration before
 // it leaves the slot. specs/declared-slot-schemas.md §4.
@@ -340,4 +341,237 @@ test("a nullable input a declaration repairs is accepted against a child that fo
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   expect((inst?.state?.output as any)?.got?.seen).toEqual({});
+});
+
+// ─── The conform at every OTHER slot ────────────────────────────────────────────
+//
+// The repair above is the process output's. Each slot below runs the same conform on a
+// different value, and each is observable somewhere different — which is why they are separate
+// tests rather than one: a slot wired to no conform passes every check that does not look at
+// what actually left it.
+
+test("a fetch body drops an optional null before the request is sent", async () => {
+  const mock = await startMockService(0, { response: { ok: true } });
+  const name = `decl_body_rt_${crypto.randomUUID().slice(0, 8)}`;
+  const { error: putErr } = await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: { type: "object", properties: { n: { type: ["number", "null"] } } },
+      tasks: [
+        {
+          id: "call",
+          action: {
+            type: "fetch",
+            url: `http://localhost:${mock.port}/x`,
+            method: "post",
+            body: { discount: "$: input.n", keep: 1 },
+            body_schema: {
+              type: "object",
+              properties: { discount: { type: "number" }, keep: { type: "number" } },
+            },
+          },
+          switch: "end",
+        },
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
+  });
+  expect(putErr).toBeUndefined();
+
+  const { data } = await client.POST("/instances", { body: { process: name, input: { n: null } } });
+  expect(await waitForInstance(data!.id, 10_000)).toBe("completed");
+
+  // The wire is the only place this is observable — the stored body would look the same either
+  // way if the conform ran after the request rather than before it.
+  const sent = JSON.parse(mock.requestBodies()[0]);
+  expect(sent).toEqual({ keep: 1 });
+  expect(sent).not.toHaveProperty("discount");
+  mock.stop();
+});
+
+// The one slot where the conform can change NOTHING observable, and it is worth saying so
+// rather than leaving a test that looks like it covers something. A query value that is null
+// omits its parameter at serialisation anyway (fetch-http-surface.md §1), so the conform and
+// that rule land on the same bytes; an undeclared key never reaches runtime, because the closed
+// check refuses it at registration. What this pins is that the two rules AGREE — disabling the
+// conform does not move this assertion, by design.
+test("a declared query and the null-omit rule agree on what is sent", async () => {
+  const mock = await startMockService(0, { response: { ok: true } });
+  const name = `decl_query_rt_${crypto.randomUUID().slice(0, 8)}`;
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: { type: "object", properties: { n: { type: ["number", "null"] } } },
+      tasks: [
+        {
+          id: "call",
+          action: {
+            type: "fetch",
+            url: `http://localhost:${mock.port}/x`,
+            method: "get",
+            query: { page: "$: input.n", size: 10 },
+            query_schema: {
+              type: "object",
+              properties: { page: { type: "number" }, size: { type: "number" } },
+            },
+          },
+          switch: "end",
+        },
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
+  });
+  const { data } = await client.POST("/instances", { body: { process: name, input: { n: null } } });
+  expect(await waitForInstance(data!.id, 10_000)).toBe("completed");
+  expect(mock.requestUrls()[0]).toBe("/x?size=10");
+  mock.stop();
+});
+
+test("an external input snapshot is conformed before a worker ever sees it", async () => {
+  const name = `decl_ext_rt_${crypto.randomUUID().slice(0, 8)}`;
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: { type: "object", properties: { n: { type: ["number", "null"] } } },
+      tasks: [
+        {
+          id: "wait",
+          action: {
+            type: "external",
+            input: { discount: "$: input.n", job: "x" },
+            input_schema: {
+              type: "object",
+              properties: { discount: { type: "number" }, job: { type: "string" } },
+            },
+          },
+          switch: "end",
+        },
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
+  });
+  const { data } = await client.POST("/instances", { body: { process: name, input: { n: null } } });
+  const parked = await waitForParked(data!.id);
+  // The snapshot IS the contract a worker reads, so the declaration has to describe it.
+  expect(parked.input).toEqual({ job: "x" });
+  // Answered so the instance does not sit parked for the rest of the run.
+  await client.POST("/external-tasks/resolve", { body: { token: parked.token, result: {} } });
+  expect(await waitForInstance(data!.id, 10_000)).toBe("completed");
+});
+
+test("a task output is conformed, and what later tasks read is the repaired value", async () => {
+  const name = `decl_task_rt_${crypto.randomUUID().slice(0, 8)}`;
+  const { error: putErr } = await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: { type: "object", properties: { n: { type: ["number", "null"] } } },
+      tasks: [
+        {
+          id: "first",
+          output: { discount: "$: input.n", keep: 1 },
+          output_schema: {
+            type: "object",
+            properties: { discount: { type: "number" }, keep: { type: "number" } },
+          },
+          switch: "next",
+        },
+        { id: "second", switch: "end" },
+      ],
+      output: { got: "$: outputs.first" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
+  });
+  expect(putErr).toBeUndefined();
+
+  const { data } = await client.POST("/instances", { body: { process: name, input: { n: null } } });
+  expect(await waitForInstance(data!.id, 10_000)).toBe("completed");
+  const { data: inst } = await client.GET("/instances/{id}/detail", {
+    params: { path: { id: data!.id } },
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  expect((inst?.state?.output as any)?.got).toEqual({ keep: 1 });
+});
+
+// The conform's OTHER half, which nothing at runtime exercised until now: a required nullable
+// the shape never sets is written in as an explicit null rather than left absent.
+test("a required nullable property the shape never sets is written in as null", async () => {
+  const name = `decl_insert_${crypto.randomUUID().slice(0, 8)}`;
+  const { status, output } = await run(
+    {
+      name,
+      tasks: [{ id: "only", switch: "end" }],
+      output: { a: 1 },
+      output_schema: {
+        type: "object",
+        properties: { a: { type: "number" }, seen: { type: ["string", "null"] } },
+        required: ["a", "seen"],
+      },
+    },
+    {},
+  );
+  expect(status).toBe("completed");
+  expect(output).toEqual({ a: 1, seen: null });
+});
+
+test("a child_map entry conforms its own input, per entry", async () => {
+  const child = `decl_cm_child_${crypto.randomUUID().slice(0, 8)}`;
+  const { error: childErr } = await client.PUT("/definitions", {
+    body: {
+      name: child,
+      input_schema: { type: "object", properties: { discount: { type: "number" } } },
+      tasks: [{ id: "only", switch: "end" }],
+      output: { seen: "$: input" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
+  });
+  expect(childErr).toBeUndefined();
+
+  const resultSchema = {
+    type: "object",
+    properties: {
+      seen: { type: "object", properties: { discount: { type: ["number", "null"] } } },
+    },
+  };
+  const parent = `decl_cm_${crypto.randomUUID().slice(0, 8)}`;
+  const { error: putErr } = await client.PUT("/definitions", {
+    body: {
+      name: parent,
+      input_schema: { type: "object", properties: { n: { type: ["number", "null"] } } },
+      tasks: [
+        {
+          id: "fan",
+          action: {
+            type: "child_map",
+            children: {
+              // One entry declares and repairs; the other declares nothing and passes through.
+              declared: {
+                name: child,
+                input: { discount: "$: input.n" },
+                input_schema: { type: "object", properties: { discount: { type: "number" } } },
+                result_schema: resultSchema,
+              },
+              plain: { name: child, input: {}, result_schema: resultSchema },
+            },
+          },
+          output: "$: self.result",
+          switch: "end",
+        },
+      ],
+      output: { got: "$: outputs.fan" },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any,
+  });
+  expect(putErr).toBeUndefined();
+
+  const { data } = await client.POST("/instances", { body: { process: parent, input: { n: null } } });
+  expect(await waitForInstance(data!.id, 10_000)).toBe("completed");
+  const { data: inst } = await client.GET("/instances/{id}/detail", {
+    params: { path: { id: data!.id } },
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const got = (inst?.state?.output as any)?.got;
+  // The declared entry's null was removed before the child ever received it. The undeclared
+  // one is the control: the child's own conform is what shaped it, and it is untouched here.
+  expect(got.declared.seen).toEqual({});
+  expect(got.plain.seen).toEqual({});
 });

@@ -24,235 +24,365 @@ function doc(lines: string[]): Doc {
   };
 }
 
-const FETCH = (body: string, schema: string[]) =>
-  doc([
-    "input_schema:",
-    "  type: object",
-    "  properties: { n: { type: number } }",
-    "tasks:",
-    "  - id: call",
-    "    action:",
-    "      type: fetch",
-    "      url: http://example.invalid/x",
-    "      method: post",
-    `      body: ${body}`,
-    ...schema,
-    "    switch: [{ goto: end }]",
-    "output: { ok: true }",
-  ]);
+// ─── The battery ────────────────────────────────────────────────────────────────
+//
+// Every slot that takes a declaration gets the SAME cases, because the rules are the relation's
+// and not any slot's: what the closed check refuses, and which of the null/absence gaps the
+// conform can close and therefore the relation must admit. A slot tested by hand is a slot
+// whose battery has a hole nobody can see.
 
-const AMOUNT = [
-  "      body_schema:",
-  "        type: object",
-  "        properties: { amount: { type: number } }",
+/** `n` is nullable, so every shape below feeds a nullable value into whatever is declared. */
+const PRELUDE = ['input_schema:', '  type: object', '  properties: { n: { type: [number, "null"] } }'];
+
+/** One slot, as the pair of one-line flow mappings that vary: the shape, and its declaration. */
+interface Slot {
+  name: string;
+  build: (shape: string, decl: string) => Doc;
+}
+
+const slots: Slot[] = [
+  {
+    name: "fetch body",
+    build: (shape, decl) =>
+      doc([
+        ...PRELUDE,
+        "tasks:",
+        "  - id: call",
+        `    action: { type: fetch, url: 'http://x.invalid/y', method: post, body: ${shape}, body_schema: ${decl} }`,
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "fetch query",
+    build: (shape, decl) =>
+      doc([
+        ...PRELUDE,
+        "tasks:",
+        "  - id: call",
+        `    action: { type: fetch, url: 'http://x.invalid/y', method: get, query: ${shape}, query_schema: ${decl} }`,
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "child input",
+    build: (shape, decl) =>
+      doc([
+        ...PRELUDE,
+        "tasks:",
+        "  - id: call",
+        `    action: { type: child, name: no_such_process, input: ${shape}, input_schema: ${decl} }`,
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "child_map entry input",
+    build: (shape, decl) =>
+      doc([
+        ...PRELUDE,
+        "tasks:",
+        "  - id: call",
+        `    action: { type: child_map, children: { a: { name: no_such_process, input: ${shape}, input_schema: ${decl} } } }`,
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "external input",
+    build: (shape, decl) =>
+      doc([
+        ...PRELUDE,
+        "tasks:",
+        "  - id: wait",
+        `    action: { type: external, input: ${shape}, input_schema: ${decl} }`,
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "task output",
+    build: (shape, decl) =>
+      doc([
+        ...PRELUDE,
+        "tasks:",
+        "  - id: only",
+        `    output: ${shape}`,
+        `    output_schema: ${decl}`,
+        "    switch: [{ goto: end }]",
+        "output: { ok: true }",
+      ]),
+  },
+  {
+    name: "process output",
+    build: (shape, decl) =>
+      doc([
+        ...PRELUDE,
+        "tasks:",
+        "  - id: only",
+        "    switch: [{ goto: end }]",
+        `output: ${shape}`,
+        `output_schema: ${decl}`,
+      ]),
+  },
 ];
 
-test("a misspelled body key is named", async () => {
-  const ds = await lsp.diagnostics(FETCH("{ amont: '$: input.n' }", AMOUNT));
-  expect(ds).toHaveLength(1);
-  // The KEY, not a type mismatch — a reader who mistyped needs to be told that.
-  expect(ds[0]).toContain("amont");
-  expect(ds[0]).toContain("not declared");
-});
+const NULLABLE = "{ v: '$: input.n' }";
+const EMPTY = "{}";
 
-test("the same body passes once the key is spelled right", async () => {
-  expect(await lsp.diagnostics(FETCH("{ amount: '$: input.n' }", AMOUNT))).toEqual([]);
-});
+interface Case {
+  name: string;
+  shape: string;
+  decl: string;
+  /** The word the diagnostic must carry, or undefined where the case must be accepted. */
+  refuses?: string;
+}
 
-test("a declared property the body never sets is fine while it is optional", async () => {
-  const ds = await lsp.diagnostics(
-    FETCH("{ amount: '$: input.n' }", [
-      "      body_schema:",
-      "        type: object",
-      "        properties: { amount: { type: number }, note: { type: string } }",
-    ]),
-  );
-  expect(ds).toEqual([]);
-});
+const cases: Case[] = [
+  {
+    // THE case the feature exists for: absence is valid, so the conform removes the key and
+    // the relation must admit the gap. Refusing here makes the declaration unusable.
+    name: "an optional non-nullable property fed a nullable value is accepted",
+    shape: NULLABLE,
+    decl: "{ type: object, properties: { v: { type: number } } }",
+  },
+  {
+    // Its mirror: absence is NOT valid, so there is no repair and the relation must refuse.
+    name: "a REQUIRED non-nullable property fed a nullable value is refused",
+    shape: NULLABLE,
+    decl: "{ type: object, properties: { v: { type: number } }, required: [v] }",
+    refuses: "v",
+  },
+  {
+    // Both states are valid, so nothing is reconciled and the null survives.
+    name: "a nullable target takes the same value untouched",
+    shape: NULLABLE,
+    decl: '{ type: object, properties: { v: { type: [number, "null"] } } }',
+  },
+  {
+    // The conform's other half: it writes the null in, so the relation admits the absence.
+    name: "a required NULLABLE property the shape never sets is accepted",
+    shape: EMPTY,
+    decl: '{ type: object, properties: { v: { type: [number, "null"] } }, required: [v] }',
+  },
+  {
+    name: "a required non-nullable property the shape never sets is refused",
+    shape: EMPTY,
+    decl: "{ type: object, properties: { v: { type: number } }, required: [v] }",
+    refuses: "v",
+  },
+  {
+    // The closed rule. A conform would DROP this key, which is why it is refused instead.
+    name: "a key the declaration does not name is refused",
+    shape: "{ v: 1, w: 2 }",
+    decl: "{ type: object, properties: { v: { type: number } } }",
+    refuses: "w",
+  },
+  {
+    name: "a value of the wrong type is refused",
+    shape: "{ v: 'text' }",
+    decl: "{ type: object, properties: { v: { type: number } } }",
+    refuses: "v",
+  },
+  {
+    name: "an optional property the shape never sets is accepted",
+    shape: EMPTY,
+    decl: "{ type: object, properties: { v: { type: number } } }",
+  },
+];
 
-test("a declared property the body never sets is refused once it is required", async () => {
-  const ds = await lsp.diagnostics(
-    FETCH("{ amount: '$: input.n' }", [
-      "      body_schema:",
-      "        type: object",
-      "        properties: { amount: { type: number }, note: { type: string } }",
-      "        required: [amount, note]",
-    ]),
-  );
-  expect(ds).toHaveLength(1);
-  expect(ds[0]).toContain("note");
-});
+for (const slot of slots) {
+  for (const c of cases) {
+    test(`${slot.name}: ${c.name}`, async () => {
+      const ds = await lsp.diagnostics(slot.build(c.shape, c.decl));
+      if (c.refuses === undefined) {
+        expect(ds, "accepted a gap the conform closes, or a value that fits").toEqual([]);
+        return;
+      }
+      expect(ds, `expected one diagnostic, got ${JSON.stringify(ds)}`).toHaveLength(1);
+      expect(ds[0]).toContain(c.refuses);
+    });
+  }
+}
 
-// The one that needs no child definition anywhere, which is the whole point.
-test("a child input_schema catches a misspelled key with the child nowhere in sight", async () => {
+// An OPEN MAP on the value side is the arm of the closed rule that is silent when missing: its
+// keys are named by no schema, so the conform's strip stays reachable and the assertion behind
+// the whole design is quietly false. It needs an inferred open map, which only a declared
+// `additionalProperties` upstream produces — legal there, and refused in a slot declaration.
+test("an open map cannot be sent where the declaration names fixed properties", async () => {
   const ds = await lsp.diagnostics(
     doc([
       "input_schema:",
       "  type: object",
-      "  properties: { n: { type: number } }",
+      "  properties: { bag: { type: object, additionalProperties: { type: string } } }",
+      "  required: [bag]",
       "tasks:",
       "  - id: call",
       "    action:",
-      "      type: child",
-      "      name: no_such_process",
-      "      input: { cont: '$: input.n' }",
-      "      input_schema:",
-      "        type: object",
-      "        properties: { count: { type: number } }",
+      "      type: fetch",
+      "      url: http://x.invalid/y",
+      "      method: post",
+      "      body: '$: input.bag'",
+      "      body_schema: { type: object, properties: { a: { type: string } } }",
       "    switch: [{ goto: end }]",
       "output: { ok: true }",
     ]),
   );
   expect(ds).toHaveLength(1);
-  expect(ds[0]).toContain("cont");
+  expect(ds[0]).toContain("open map");
 });
 
-test("a child_map entry declares its own input, and is checked per entry", async () => {
-  const ds = await lsp.diagnostics(
-    doc([
-      "tasks:",
-      "  - id: call",
-      "    action:",
-      "      type: child_map",
-      "      children:",
-      "        a:",
-      "          name: no_such_process",
-      "          input: { wrng: 1 }",
-      "          input_schema:",
-      "            type: object",
-      "            properties: { right: { type: number } }",
-      "    switch: [{ goto: end }]",
-      "output: { ok: true }",
-    ]),
-  );
-  expect(ds).toHaveLength(1);
-  expect(ds[0]).toContain("wrng");
-});
+// ─── child_list ─────────────────────────────────────────────────────────────────
+//
+// The one slot whose "shape" is not a value: it has no `input` at all, so the declaration types
+// one ELEMENT of `over` and the battery above cannot be pointed at it. Checked against the
+// absent input instead, it compares an empty object and asserts nothing.
 
-test("a process output_schema is refused when a required key is never set", async () => {
+function listDoc(element: string, decl: string): Doc {
+  return doc([
+    "input_schema:",
+    "  type: object",
+    `  properties: { rows: { type: array, items: ${element} } }`,
+    "  required: [rows]",
+    "tasks:",
+    "  - id: fan",
+    `    action: { type: child_list, name: no_such_process, over: '$: input.rows', input_schema: ${decl} }`,
+    "    switch: [{ goto: end }]",
+    "output: { ok: true }",
+  ]);
+}
+
+const listCases: { name: string; element: string; decl: string; refuses?: string }[] = [
+  {
+    name: "a matching element type passes",
+    element: "{ type: object, properties: { right: { type: number } } }",
+    decl: "{ type: object, properties: { right: { type: number } } }",
+  },
+  {
+    name: "an element key the declaration does not name is refused",
+    element: "{ type: object, properties: { wrng: { type: number } } }",
+    decl: "{ type: object, properties: { right: { type: number } } }",
+    refuses: "wrng",
+  },
+  {
+    name: "an element missing a required key is refused",
+    element: "{ type: object, properties: { right: { type: number } } }",
+    decl: "{ type: object, properties: { right: { type: number }, also: { type: string } }, required: [also] }",
+    refuses: "also",
+  },
+  {
+    name: "an element's optional non-nullable null is accepted, as everywhere else",
+    element: '{ type: object, properties: { v: { type: [number, "null"] } } }',
+    decl: "{ type: object, properties: { v: { type: number } } }",
+  },
+  {
+    name: "an element's REQUIRED non-nullable null is refused, as everywhere else",
+    element: '{ type: object, properties: { v: { type: [number, "null"] } } }',
+    decl: "{ type: object, properties: { v: { type: number } }, required: [v] }",
+    refuses: "v",
+  },
+];
+
+for (const c of listCases) {
+  test(`child_list: ${c.name}`, async () => {
+    const ds = await lsp.diagnostics(listDoc(c.element, c.decl));
+    if (c.refuses === undefined) {
+      expect(ds).toEqual([]);
+      return;
+    }
+    expect(ds, `expected one diagnostic, got ${JSON.stringify(ds)}`).toHaveLength(1);
+    expect(ds[0]).toContain(c.refuses);
+  });
+}
+
+test("child_list: an untyped element array says so rather than accepting anything", async () => {
   const ds = await lsp.diagnostics(
     doc([
-      "tasks:",
-      "  - id: only",
-      "    switch: [{ goto: end }]",
-      "    output: { a: 1 }",
-      "output: { a: '$: outputs.only.a' }",
-      "output_schema:",
+      "input_schema:",
       "  type: object",
-      "  properties: { a: { type: number }, b: { type: string } }",
-      "  required: [a, b]",
-    ]),
-  );
-  expect(ds).toHaveLength(1);
-  expect(ds[0]).toContain("b");
-});
-
-test("a task output_schema is checked the same way", async () => {
-  const ds = await lsp.diagnostics(
-    doc([
+      "  properties: { rows: { type: array } }",
+      "  required: [rows]",
       "tasks:",
-      "  - id: only",
+      "  - id: fan",
+      "    action: { type: child_list, name: no_such_process, over: '$: input.rows', input_schema: { type: object, properties: { v: { type: number } } } }",
       "    switch: [{ goto: end }]",
-      "    output: { a: 1, extra: 2 }",
-      "    output_schema:",
-      "      type: object",
-      "      properties: { a: { type: number } }",
       "output: { ok: true }",
     ]),
   );
   expect(ds).toHaveLength(1);
-  expect(ds[0]).toContain("extra");
+  expect(ds[0]).toContain("element type");
 });
+
+// ─── Placement, and the schema document itself ──────────────────────────────────
+
+const placements: { name: string; lines: string[]; says: string }[] = [
+  {
+    name: "body_schema on an action that makes no request",
+    lines: ["    action: { type: delay, for: 1s, body_schema: { type: object } }"],
+    says: "body_schema",
+  },
+  {
+    name: "query_schema on an action that makes no request",
+    lines: ["    action: { type: external, query_schema: { type: object } }"],
+    says: "query_schema",
+  },
+  {
+    name: "input_schema on a fetch, which sends a body",
+    lines: [
+      "    action: { type: fetch, url: 'http://x.invalid/y', method: post, input_schema: { type: object } }",
+    ],
+    says: "body_schema",
+  },
+  {
+    name: "input_schema on a child_map, whose entries carry their own",
+    lines: [
+      "    action: { type: child_map, input_schema: { type: object }, children: { a: { name: p } } }",
+    ],
+    says: "children",
+  },
+  {
+    name: "input_schema on a delay, which sends nothing",
+    lines: ["    action: { type: delay, for: 1s, input_schema: { type: object } }"],
+    says: "input_schema",
+  },
+];
+
+for (const p of placements) {
+  test(`refused by name: ${p.name}`, async () => {
+    const ds = await lsp.diagnostics(
+      doc(["tasks:", "  - id: t", ...p.lines, "    switch: [{ goto: end }]", "output: { ok: true }"]),
+    );
+    expect(ds.join("\n")).toContain(p.says);
+  });
+}
 
 test("additionalProperties in a declared schema is refused by name", async () => {
   const ds = await lsp.diagnostics(
     doc([
       "tasks:",
       "  - id: only",
-      "    switch: [{ goto: end }]",
       "    output: { a: 1 }",
-      "output: { a: '$: outputs.only.a' }",
-      "output_schema:",
-      "  type: object",
-      "  properties: { a: { type: number } }",
-      "  additionalProperties: { type: string }",
+      "    output_schema: { type: object, properties: { a: { type: number } }, additionalProperties: { type: string } }",
+      "    switch: [{ goto: end }]",
+      "output: { ok: true }",
     ]),
   );
   expect(ds.join("\n")).toContain("additionalProperties");
 });
 
-test("body_schema is refused on an action that makes no request", async () => {
+test("additionalProperties nested inside a declared schema is refused too", async () => {
   const ds = await lsp.diagnostics(
     doc([
-      "tasks:",
-      "  - id: wait",
-      "    action: { type: delay, for: 1s, body_schema: { type: object } }",
-      "    switch: [{ goto: end }]",
-      "output: { ok: true }",
-    ]),
-  );
-  expect(ds.join("\n")).toContain("body_schema");
-});
-
-test("input_schema on a fetch names body_schema rather than being ignored", async () => {
-  const ds = await lsp.diagnostics(
-    doc([
-      "tasks:",
-      "  - id: call",
-      "    action:",
-      "      type: fetch",
-      "      url: http://example.invalid/x",
-      "      method: post",
-      "      input_schema: { type: object }",
-      "    switch: [{ goto: end }]",
-      "output: { ok: true }",
-    ]),
-  );
-  expect(ds.join("\n")).toContain("body_schema");
-});
-
-// A null in an optional non-nullable slot is the case the runtime REPAIRS, so it must not be
-// refused here. Without this the feature is unreachable: the author would have to write around
-// exactly the nullability the repair exists to absorb.
-test("an optional non-nullable property fed a nullable expression is accepted", async () => {
-  const ds = await lsp.diagnostics(
-    doc([
-      "input_schema:",
-      "  type: object",
-      "  properties: { n: { type: [number, 'null'] } }",
       "tasks:",
       "  - id: only",
+      "    output: { a: { b: 1 } }",
+      "    output_schema: { type: object, properties: { a: { type: object, additionalProperties: { type: number } } } }",
       "    switch: [{ goto: end }]",
-      "    output: { discount: '$: input.n' }",
-      "    output_schema:",
-      "      type: object",
-      "      properties: { discount: { type: number } }",
       "output: { ok: true }",
     ]),
   );
-  expect(ds).toEqual([]);
-});
-
-// The same nullability where absence is NOT valid has no repair, so it must still be refused.
-test("a REQUIRED non-nullable property fed a nullable expression is refused", async () => {
-  const ds = await lsp.diagnostics(
-    doc([
-      "input_schema:",
-      "  type: object",
-      "  properties: { n: { type: [number, 'null'] } }",
-      "tasks:",
-      "  - id: only",
-      "    switch: [{ goto: end }]",
-      "    output: { discount: '$: input.n' }",
-      "    output_schema:",
-      "      type: object",
-      "      properties: { discount: { type: number } }",
-      "      required: [discount]",
-      "output: { ok: true }",
-    ]),
-  );
-  expect(ds).toHaveLength(1);
-  expect(ds[0]).toContain("discount");
+  expect(ds.join("\n")).toContain("additionalProperties");
 });
 
 // A declared schema's VALUE is the author's own JSON Schema, so the editor must treat it the

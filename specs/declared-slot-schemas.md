@@ -344,6 +344,12 @@ The null rule composes rather than conflicting. A null omits its parameter at se
 §4 removes the key earlier, at the conform. Both land on the same wire bytes, and the
 declaration is what lets an author say that an optional parameter is genuinely optional.
 
+**So the conform is unobservable here, and that is not a gap.** Every case it could change is
+already closed: a null is omitted either way, an undeclared key never reaches runtime because
+§3 refuses it at registration, and a query value is a scalar or an array of them so there is no
+nesting to repair. The slot keeps the conform for uniformity — one rule at every slot — and its
+e2e test pins the two rules AGREEING rather than pretending to exercise it.
+
 ## 7. What the editor does with it
 
 Every slot in §2 is a mapping whose keys are the author's own, so the editor offers **nothing**
