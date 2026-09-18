@@ -253,7 +253,25 @@ func (s Schema) ExplainSubset(super Schema) []*SubsetBreak {
 
 // ExplainSubsetAsStored is ExplainSubset for the IsSubsetAsStored relation.
 func (s Schema) ExplainSubsetAsStored(super Schema) []*SubsetBreak {
-	return subsetBreaks(s.n, super.n, subsetMode{absentAsNull: true, afterConform: true})
+	return subsetBreaks(s.n, super.n, storedMode())
+}
+
+// ConformsExactlyTo reports whether every value of s survives Validate(v, ConformToSchemaExactly)
+// against super UNCHANGED in its key set — the static half of a declared slot schema. It is
+// IsSubset with exactly the gaps that conform can close admitted (an absent required nullable
+// is written in, a null in an optional non-nullable has its key removed) and one rule added:
+// a key super does not declare is refused rather than left to be stripped.
+//
+// Sound only where the value IS conformed against super, and the pairing is the point — a
+// relation that tolerates more than the fill closes promises a conform that then fails.
+// specs/declared-slot-schemas.md §4. Both schemas must be normalized.
+func (s Schema) ConformsExactlyTo(super Schema) bool {
+	return conformsExactlyTo(s.n, super.n)
+}
+
+// ExplainConformsExactlyTo is ExplainSubset for the ConformsExactlyTo relation.
+func (s Schema) ExplainConformsExactlyTo(super Schema) []*SubsetBreak {
+	return subsetBreaks(s.n, super.n, conformsExactlyMode())
 }
 
 // ExplainNarrowsTo is ExplainSubset for the NarrowsTo relation, and carries its soundness

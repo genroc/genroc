@@ -211,6 +211,21 @@ break silently:
    first write failed and rolled back, leaving the lease held — and why a doubled advance
    can no longer fail an instance it does not own.
 
+## A declared slot schema is conformed as an ASSERTION
+
+`conformDeclared` (`declared.go`) applies a slot's declared schema to the value leaving it.
+Every value it sees was computed from values already conformed at their own boundaries, by
+expressions registration type-checked against that very schema — so **a failure is a defect in
+genroc's type checking, never a condition in the data**, and the code is terminal
+(`engine.output`, or `engine.input` for a payload being sent). Making it catchable would let an
+author's rule route around it and the bug would never be seen.
+specs/declared-slot-schemas.md §4.
+
+On the ordinary path it does one visible thing: an optional non-nullable property fed a null
+has its key REMOVED, because absence is valid there and genroc has no filter builtin to do it
+by hand. `ConformsExactlyTo` is the registration-time half and the two must accept exactly the
+same gaps — the pairing is in `internal/schema/schematest/conforms_exactly_test.go`.
+
 ## A collected child is conformed against the parent's CURRENT task
 
 `resolveAndValidateChildOutput` (`collect.go`) takes the `result_schema` from the parent's

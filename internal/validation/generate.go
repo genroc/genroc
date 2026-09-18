@@ -8,7 +8,6 @@ import (
 
 	"genroc/internal/model"
 	"genroc/internal/schema"
-	"genroc/internal/shape"
 )
 
 type TaskSchemas struct {
@@ -202,8 +201,14 @@ func inferProcessOutput(def *model.ProcessDefinition, tasks map[string]TaskSchem
 	_, _, mustErr, mayErr, errSrc := computeContextSets(def.Tasks)
 	errs := errContexts(def.Tasks, mustErr, mayErr, errSrc, defs)
 	scopes := taskScopes{tasks: tasks, processInput: processInput, configSchema: configSchema, defs: defs, errs: errs}
-	shp := shape.Shape{Raw: def.Output.Raw, Name: "output"}
-	return shp.Check(scopes.processOutputContext(def))
+	// A declared output_schema is what this process PUBLISHES: the value is conformed to it at
+	// completion, so it is what `$process` spreads and what the comparison reads.
+	shp, hooks := declaredShape(def.Output.Raw, def.OutputSchema, "output")
+	out, err := shp.CheckWith(scopes.processOutputContext(def), hooks)
+	if err != nil {
+		return schema.Schema{}, err
+	}
+	return published(out, def.OutputSchema), nil
 }
 
 func collectNamedOutputs(tasks []*model.Task, named map[string]schema.Schema) {

@@ -102,9 +102,10 @@ func containerOf(docs []sourceDoc, s site) (map[string]any, error) {
 }
 
 // resolveProcessDirective answers `$process: <path>` with the call-site pre-fill for a child of
-// that definition: name, result_schema and raises. The types are inferred, not read -- a
-// definition carries no output schema and `raises` is a scan over its raise clauses -- which is
-// why this is built in and no external binary can produce it.
+// that definition: name, input_schema, result_schema and raises. Three of the four are inferred
+// rather than read -- a definition's output type is a Shape and `raises` is a scan over its raise
+// clauses -- which is why this is built in and no external binary can produce it. `input_schema`
+// is the one COPY, and the one the caller can be checked against later.
 func resolveProcessDirective(fromFile, argument string, stack []string) (map[string]any, error) {
 	target, err := filepath.Abs(filepath.Join(filepath.Dir(fromFile), argument))
 	if err != nil {
@@ -144,6 +145,18 @@ func resolveProcessDirective(fromFile, argument string, stack []string) (map[str
 	}
 
 	out := map[string]any{"name": sf.Process}
+	// The input side is a COPY, not an inference: a definition's input_schema is written by its
+	// author, so the spread reproduces it. That makes the registration check against the child a
+	// check that the copy is still current, and it is what lets an editor check the call offline.
+	if def.InputSchema != nil {
+		in, err := selfContainedSchema(*def.InputSchema, sf.Defs)
+		if err != nil {
+			return nil, err
+		}
+		if in != nil {
+			out["input_schema"] = in
+		}
+	}
 	result, err := selfContainedSchema(sf.ProcessOutput, sf.Defs)
 	if err != nil {
 		return nil, err

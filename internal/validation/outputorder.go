@@ -39,15 +39,23 @@ func inferOutputs(tasks []*model.Task, scopes taskScopes, b *bag) error {
 		// inference is sequential, so returning the error here would cost every diagnostic
 		// below it. The {} is what later tasks then read, and `bag.derived` drops the reads
 		// it makes fail. specs/language-server.md §2, unknown-type.md.
+		// A declaration is the task's PUBLISHED output type, so it is what lands in the pool
+		// and what `outputs.<id>` reads downstream. It also ends the recursion for free: a
+		// declared type is concrete, so nothing below it has to be solved.
+		declaredOut := s.OutputSchema
+		if declaredOut != nil {
+			_, declaredHooks := declaredShape(node, declaredOut, label)
+			hooks.Result = declaredHooks.Result
+		}
 		solver.Declare(id+"_output", func() (schema.Schema, error) {
-			shp := shape.Shape{Raw: node, Name: label}
+			shp := shape.Shape{Raw: node, Name: label, Schema: declaredOut, Conformed: declaredOut != nil}
 			out, err := shp.CheckWith(ctx, hooks)
 			if err != nil {
 				b.add(taskSlot(id, slotOutput), CodeExpression, err)
 				b.poison(id)
 				return schema.Schema{}, nil
 			}
-			return out, nil
+			return published(out, declaredOut), nil
 		})
 		declared = true
 	}

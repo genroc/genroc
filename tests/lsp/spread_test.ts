@@ -40,6 +40,10 @@ function parent(...extra: string[]): string {
     "input_schema:",
     "  type: object",
     "  properties: { n: { type: number } }",
+    // Required, because the parent forwards `n` straight into a child that requires it: an
+    // optional property reads as nullable, and the call site's declared input_schema (spread
+    // in from the child) refuses a null where the child declares a number.
+    "  required: [n]",
     "tasks:",
     "  - id: call",
     "    action:",
@@ -129,4 +133,31 @@ test("completion offers a raise code the spread brought across", async () => {
     await lsp.completions(at("      - code: [<|>]", doc)),
     "`negative` is declared by the child's raise clause and arrives through `raises`",
   ).toContain("negative");
+});
+
+// `input_schema` is the fourth thing the spread fills, and the only one that is a COPY rather
+// than an inference — the child's author wrote it. It is what makes a child call checkable with
+// no server, which is what the input check has never been.
+test("the spread brings the child's input_schema across, so a bad input is caught here", async () => {
+  const misspelled = parent().replace("input: { n: '$: input.n' }", "input: { m: '$: input.n' }");
+  const ds = await lsp.diagnostics(project(misspelled));
+  expect(ds.length, `expected one diagnostic, got ${JSON.stringify(ds)}`).toBe(1);
+  // The KEY the child does not declare. Nothing read the child out of a database to know that.
+  expect(ds[0]).toContain("m");
+});
+
+test("a spread that fills input_schema still leaves an explicit one alone", async () => {
+  // An explicit key beats the spread, as everywhere — so a hand-written declaration that the
+  // input does satisfy reports nothing, even though the child's own would have refused it.
+  const own = parent().replace(
+    "      input: { n: '$: input.n' }",
+    [
+      "      input: { n: '$: input.n', extra: 1 }",
+      "      input_schema:",
+      "        type: object",
+      "        properties: { n: { type: number }, extra: { type: number } }",
+    ].join("\n"),
+  );
+  const ds = await lsp.diagnostics(project(own));
+  expect(ds).toEqual([]);
 });

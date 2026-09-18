@@ -135,11 +135,20 @@ func isExpressionSlot(contexts map[string]schema.Schema, path string) bool {
 	for _, s := range seg {
 		// A user schema lives inside the action, so the phase test admits it. Its `default`
 		// and `description` are data about a type, never templates.
-		if s == "result_schema" || s == "responses" {
+		if userSchemaKeys[s] {
 			return false
 		}
 	}
 	return !literalKeys[seg[len(seg)-1]]
+}
+
+// The keys whose VALUE is a user schema rather than anything the engine evaluates. A declared
+// slot schema belongs here for the same reason `result_schema` does, and the symptom of
+// missing one is silent: its `default` would be lexed as a template and painted as one.
+// specs/declared-slot-schemas.md.
+var userSchemaKeys = map[string]bool{
+	"result_schema": true, "responses": true,
+	"input_schema": true, "body_schema": true, "query_schema": true, "output_schema": true,
 }
 
 // The leaves under a task phase that hold text rather than a template. Everything else an

@@ -29,6 +29,7 @@ var taskSlots = []slot[*model.Task]{
 	{"switch", "Switch", func(t *model.Task) any { return t.Switch }},
 	{"on_error", "OnError", func(t *model.Task) any { return t.OnError }},
 	{"only_once", "OnlyOnce", func(t *model.Task) any { return t.OnlyOnce }},
+	{"output_schema", "OutputSchema", func(t *model.Task) any { return t.OutputSchema }},
 }
 
 // actionSlots are the slots read off model.Action. A task with no action reads every one
@@ -43,7 +44,10 @@ var actionSlots = []slot[*model.Action]{
 	{"action.accepted_status", "AcceptedStatus", func(a *model.Action) any { return a.AcceptedStatus }},
 	{"action.timeout", "Timeout", func(a *model.Action) any { return a.Timeout }},
 	{"action.body", "Body", func(a *model.Action) any { return a.Body }},
+	{"action.body_schema", "BodySchema", func(a *model.Action) any { return a.BodySchema }},
+	{"action.query_schema", "QuerySchema", func(a *model.Action) any { return a.QuerySchema }},
 	{"action.input", "Input", func(a *model.Action) any { return a.Input }},
+	{"action.input_schema", "InputSchema", func(a *model.Action) any { return a.InputSchema }},
 	{"action.result_schema", "ResultSchema", func(a *model.Action) any { return a.ResultSchema }},
 	{"action.responses", "Responses", func(a *model.Action) any { return a.Responses }},
 	{"action.raises", "Raises", func(a *model.Action) any { return a.Raises }},
@@ -62,6 +66,7 @@ var childEntrySlots = []slot[model.ChildEntry]{
 	{"name", "Name", func(c model.ChildEntry) any { return c.Name }},
 	{"version", "Version", func(c model.ChildEntry) any { return c.Version }},
 	{"input", "Input", func(c model.ChildEntry) any { return c.Input }},
+	{"input_schema", "InputSchema", func(c model.ChildEntry) any { return c.InputSchema }},
 	{"result_schema", "ResultSchema", func(c model.ChildEntry) any { return c.ResultSchema }},
 	{"raises", "Raises", func(c model.ChildEntry) any { return c.Raises }},
 }
@@ -75,6 +80,7 @@ var definitionSlots = []slot[*model.ProcessDefinition]{
 	{"config_schema", "ConfigSchema", func(d *model.ProcessDefinition) any { return d.ConfigSchema }},
 	{"$defs", "Defs", func(d *model.ProcessDefinition) any { return d.Defs }},
 	{"output", "Output", func(d *model.ProcessDefinition) any { return d.Output }},
+	{"output_schema", "OutputSchema", func(d *model.ProcessDefinition) any { return d.OutputSchema }},
 }
 
 // Addresses that name a place rather than a task. specs/compat-command.md §6a.

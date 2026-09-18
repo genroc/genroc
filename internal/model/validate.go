@@ -34,6 +34,9 @@ func (d *ProcessDefinition) Validate() error {
 	if err := atPath("config_schema", validateConfigSchema(d.ConfigSchema)); err != nil {
 		return err
 	}
+	if err := atPath("output_schema", checkDeclaredSlotSchema("output_schema", d.OutputSchema, d.Defs)); err != nil {
+		return err
+	}
 	taskIDs := make(map[string]struct{}, len(d.Tasks))
 	for _, s := range d.Tasks {
 		// A duplicate is invisible from here down — this set collapses it, and so does every
@@ -576,6 +579,8 @@ func validateFetchOnlySlots(s *Task) error {
 		{"headers", s.Action.Headers.Present()},
 		{"query", s.Action.Query.Present()},
 		{"accepted_status", s.Action.AcceptedStatus.Present()},
+		{"body_schema", s.Action.BodySchema != nil},
+		{"query_schema", s.Action.QuerySchema != nil},
 	} {
 		if slot.set {
 			return fmt.Errorf("task %q: action.%s is only valid on a fetch — a %q task makes no HTTP request, so the value would be ignored", s.ID, slot.name, s.Action.Type)
@@ -708,11 +713,27 @@ func sortedRaiseCodes(r Raises) []string {
 // of status patterns), so — like headers — it is not statically pattern-checked here; an
 // unrecognized pattern simply never matches at runtime (matchAcceptedStatus).
 func validateActionSchemas(s *Task, pool schema.Defs) error {
+	if err := atPath("output_schema", checkDeclaredSlotSchema(fmt.Sprintf("task %q output_schema", s.ID), s.OutputSchema, pool)); err != nil {
+		return err
+	}
 	if s.Action == nil {
 		return nil
 	}
 	if err := atPath("action.result_schema", checkSchemaDoc(fmt.Sprintf("task %q action.result_schema", s.ID), s.Action.ResultSchema, pool)); err != nil {
 		return err
+	}
+	for _, slot := range []struct {
+		name   string
+		schema *schema.Schema
+	}{
+		{"body_schema", s.Action.BodySchema},
+		{"query_schema", s.Action.QuerySchema},
+		{"input_schema", s.Action.InputSchema},
+	} {
+		label := fmt.Sprintf("task %q action.%s", s.ID, slot.name)
+		if err := atPath("action."+slot.name, checkDeclaredSlotSchema(label, slot.schema, pool)); err != nil {
+			return err
+		}
 	}
 	if s.Action.Type == ActionTypeChildMap {
 		for key, entry := range s.Action.Children {
@@ -720,9 +741,49 @@ func validateActionSchemas(s *Task, pool schema.Defs) error {
 			if err := atPath("action.children."+key+".result_schema", checkSchemaDoc(label, entry.ResultSchema, pool)); err != nil {
 				return err
 			}
+			label = fmt.Sprintf("task %q action.children[%q].input_schema", s.ID, key)
+			if err := atPath("action.children."+key+".input_schema", checkDeclaredSlotSchema(label, entry.InputSchema, pool)); err != nil {
+				return err
+			}
 		}
 	}
+	return validateInputSchemaPlacement(s)
+}
+
+// checkDeclaredSlotSchema is checkSchemaDoc plus the one restriction a DECLARED SLOT schema
+// carries: no `additionalProperties`. The slot's value is conformed to this document, so an
+// undeclared key is refused at registration rather than stripped in silence.
+// specs/declared-slot-schemas.md §3.
+func checkDeclaredSlotSchema(label string, s *schema.Schema, pool schema.Defs) error {
+	if err := checkSchemaDoc(label, s, pool); err != nil {
+		return err
+	}
+	if s == nil {
+		return nil
+	}
+	if err := s.CheckNoAdditionalProperties(); err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
 	return nil
+}
+
+// validateInputSchemaPlacement: `input_schema` types the `input` slot, so it belongs to the
+// action types that HAVE one. A fetch's request payload is `body`, and naming its schema
+// `input_schema` there would type a slot the action does not carry.
+func validateInputSchemaPlacement(s *Task) error {
+	if s.Action == nil || s.Action.InputSchema == nil {
+		return nil
+	}
+	switch s.Action.Type {
+	case ActionTypeChild, ActionTypeChildList, ActionTypeExternal:
+		return nil
+	case ActionTypeFetch:
+		return fmt.Errorf("task %q: action.input_schema is not valid on a fetch — a fetch sends a body and a query, so write %s", s.ID, "body_schema")
+	case ActionTypeChildMap:
+		return fmt.Errorf("task %q: action.input_schema is not valid on a child_map — each entry carries its own input, so declare it per entry in children[...].input_schema", s.ID)
+	default:
+		return fmt.Errorf("task %q: action.input_schema is only valid on a child, child_list or external task — a %q task sends no input, so the value would be ignored", s.ID, s.Action.Type)
+	}
 }
 
 func validLikePattern(p string) bool {

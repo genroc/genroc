@@ -19,8 +19,18 @@ type subsetMode struct {
 	absentAsNull bool
 	// afterConform reads both schemas as descriptions of CONFORMED data rather than as
 	// predicates over what may arrive: a property that is required *or* carries a default is
-	// guaranteed present, because the conform filled it. See storedSubset.
+	// guaranteed present, because the conform filled it. See storedSubset. It implies
+	// nullRemoval; the two are separate because ConformToSchemaExactly performs the removal
+	// and does NOT fill defaults, so a relation paired with it takes one rule and not the other.
 	afterConform bool
+	// nullRemoval admits a null in an OPTIONAL property super declares non-nullable, because
+	// the conform reconciles it by removing the key. Paired with ConformToSchemaExactly.
+	nullRemoval bool
+	// closed refuses a key in sub that super does not declare, where super is a closed object.
+	// The conform would strip it, which at an author-written slot is a silent deletion —
+	// specs/declared-slot-schemas.md §3. Includes an open-map sub, whose values are keys no
+	// schema names.
+	closed bool
 }
 
 // isSubset reports whether every value valid under sub is also valid under super.
@@ -41,7 +51,25 @@ func absentAsNullSubset(sub, super *node) bool {
 // and that rule needs no fill behind it, which is why it does not live there. It is asked of
 // the sub side only; see guaranteed. Design: specs/compat-command.md §2e.
 func storedSubset(sub, super *node) bool {
-	return subsetWith(sub, super, subsetMode{absentAsNull: true, afterConform: true})
+	return subsetWith(sub, super, storedMode())
+}
+
+func storedMode() subsetMode {
+	return subsetMode{absentAsNull: true, afterConform: true, nullRemoval: true}
+}
+
+// conformsExactlyTo answers the question a declared slot schema asks: will
+// ConformToSchemaExactly against super succeed on every value of sub, WITHOUT stripping a key?
+// It is the static half of that fill and must accept exactly the gaps the fill closes — the
+// insert (absentAsNull) and the removal (nullRemoval), and neither the defaults rule, which
+// the fill does not perform, nor an undeclared key, which it would silently drop (closed).
+// specs/declared-slot-schemas.md §4.
+func conformsExactlyTo(sub, super *node) bool {
+	return subsetWith(sub, super, conformsExactlyMode())
+}
+
+func conformsExactlyMode() subsetMode {
+	return subsetMode{absentAsNull: true, nullRemoval: true, closed: true}
 }
 
 // isSubset with one rule flipped: an unknown ({}) in sub is accepted anywhere. The static
@@ -334,7 +362,7 @@ func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 			// OPTIONAL, the migration reconciles a stored null by REMOVING the key. Sound only if
 			// everything but the null already fits, which is what the stripped re-check asks;
 			// `required` is the case nothing can fix, since absence is not valid there either.
-			if ctx.afterConform && !superReq[name] && hasNullResolved(subProp, ctx.subDefs) {
+			if ctx.nullRemoval && !superReq[name] && hasNullResolved(subProp, ctx.subDefs) {
 				retry := ctx.mark()
 				if ctx.check(stripNull(subProp), superProp, ctx.at(at, name)) {
 					ctx.rollback(mark)
@@ -376,7 +404,45 @@ func (ctx *subsetCtx) checkObject(sub, super *node, at *pathLink) bool {
 		}
 	}
 
+	if ctx.closed && super.AdditionalProperties == nil && !ctx.checkClosed(sub, super, at, stop) {
+		return false
+	}
+
 	return ok
+}
+
+// checkClosed refuses what sub can carry and super does not name. A conform against super
+// would STRIP it, and where super is a schema the author wrote that is a silent deletion of
+// something they typed — so it is refused instead. specs/declared-slot-schemas.md §3.
+//
+// The open-map arm is the one that is silent when missing: an inferred type CAN be an open
+// map (object<string>, a child_map's output), and a value of one holds keys no schema names,
+// so without it the strip stays reachable and §4's assertion is quietly false.
+func (ctx *subsetCtx) checkClosed(sub, super *node, at *pathLink, stop func() bool) bool {
+	declared := make(map[string]bool, len(super.Properties)+len(super.Required))
+	for name := range super.Properties {
+		declared[name] = true
+	}
+	// A required name with no property declaration is still a name super knows about.
+	for _, name := range super.Required {
+		declared[name] = true
+	}
+	for _, name := range slices.Sorted(maps.Keys(sub.Properties)) {
+		if declared[name] {
+			continue
+		}
+		ctx.no(ctx.at(at, name), BreakUndeclared, "set here", "not declared")
+		if stop() {
+			return false
+		}
+	}
+	if sub.AdditionalProperties != nil {
+		ctx.no(ctx.at(at, "*"), BreakUndeclared, "an open map", "a closed object")
+		if stop() {
+			return false
+		}
+	}
+	return true
 }
 
 func (ctx *subsetCtx) checkArray(sub, super *node, at *pathLink) bool {

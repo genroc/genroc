@@ -322,7 +322,7 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 			inst.Status = model.StatusCompleted
 			inst.WakeAt = nil
 			if err := e.computeOutput(inst); err != nil {
-				return e.failInstance(inst, errcode.EngineExpression, err.Error())
+				return e.failInstance(inst, declaredFailureCode(err, errcode.EngineOutput, errcode.EngineExpression), err.Error())
 			}
 			e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceDone, Data: e.outputData(inst)})
 			return advanceOutcome{kind: outcomeTerminal}
@@ -389,7 +389,8 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 		if hasOutput {
 			remapped, err := e.evalTaskOutput(inst, task, actionResult, priorOutput, meta)
 			if err != nil {
-				return e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q output: %v", task.ID, err))
+				return e.failInstance(inst, declaredFailureCode(err, errcode.EngineOutput, errcode.EngineExpression),
+					fmt.Sprintf("task %q output: %v", task.ID, err))
 			}
 			e.setTaskOutput(inst, task.ID, remapped)
 			taskOutput = remapped
@@ -428,7 +429,7 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 			inst.RetryCount = 0
 			inst.WakeAt = nil
 			if err := e.computeOutput(inst); err != nil {
-				return e.failInstance(inst, errcode.EngineExpression, err.Error())
+				return e.failInstance(inst, declaredFailureCode(err, errcode.EngineOutput, errcode.EngineExpression), err.Error())
 			}
 			e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceDone, Task: task.ID, Data: e.outputData(inst)})
 			return advanceOutcome{kind: outcomeTerminal}
@@ -469,7 +470,11 @@ func (e *Engine) advance(ctx context.Context, inst *model.ProcessInstance) advan
 // where self.result is the raw action result and self.previous is this task's
 // prior output (its value from the last loop iteration, or nil on the first run).
 func (e *Engine) evalTaskOutput(inst *model.ProcessInstance, task *model.Task, result, previous any, meta *fetchMeta) (any, error) {
-	return e.evalShape(inst, shape.Shape{Raw: task.Output.Raw}, taskSelf(result, previous, meta))
+	out, err := e.evalShape(inst, shape.Shape{Raw: task.Output.Raw}, taskSelf(result, previous, meta))
+	if err != nil {
+		return nil, err
+	}
+	return conformDeclared(out, task.OutputSchema, fmt.Sprintf("task %q output", task.ID))
 }
 
 // selfBeforeOutput is the self scope for every slot evaluated before this task writes its own
@@ -632,6 +637,9 @@ func (e *Engine) computeOutput(inst *model.ProcessInstance) error {
 	out, err := e.evalShape(inst, shape.Shape{Raw: def.Output.Raw}, nil)
 	if err != nil {
 		return fmt.Errorf("output: %w", err)
+	}
+	if out, err = conformDeclared(out, def.OutputSchema, "output"); err != nil {
+		return err
 	}
 	inst.State["output"] = out
 	return nil

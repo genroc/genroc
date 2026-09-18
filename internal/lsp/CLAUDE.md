@@ -232,6 +232,20 @@ underlined the whole `tasks:` block. The stack's LAST segment is the field that 
 so it locates like an unknown key does, and `typeErrorMessage` says what that field takes in the
 words the document is written in.
 
+**Key completion has a SECOND source, and the generated schema cannot absorb it.** Where a slot
+carries a declared schema (`declared.go`), the keys offered are that schema's properties rather
+than the definition language's — "this mapping's keys come from the value of a sibling key,
+possibly via a file" is not expressible as a JSON Schema. It is `legalKeys`'s item shape fed
+from `membersOf`'s source. Three things are silent when broken: the declaration is read from
+`definition()` and never off `Doc` (a `$process` spread has no node in the index); a task is
+addressed by its **`id`** where it has one, so matching only the index offers nothing at all;
+and an empty remainder is the slot's own root, where `At` errors rather than walking zero steps.
+specs/declared-slot-schemas.md §6.
+
+A declared schema's VALUE is a user schema, so it belongs in `userSchemaKeys` (`semantic.go`)
+and in `pointAtUserSchema`'s slot list (`keys.go`) — the first stops its `default` being painted
+as a template, the second is what makes completion work inside the block at all.
+
 ## The schema is repaired on load
 
 `processSchema` puts back two things the published document cannot carry, and neither is a

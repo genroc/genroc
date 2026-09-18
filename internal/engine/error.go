@@ -179,7 +179,7 @@ func (e *Engine) completeViaErrorHandler(inst *model.ProcessInstance, task *mode
 	inst.RetryCount = 0
 	inst.WakeAt = nil
 	if err := e.computeOutput(inst); err != nil {
-		return e.failInstance(inst, errcode.EngineExpression, err.Error())
+		return e.failInstance(inst, declaredFailureCode(err, errcode.EngineOutput, errcode.EngineExpression), err.Error())
 	}
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventErrorCompleted, Task: task.ID, Msg: msg, Code: code})
 	return advanceOutcome{kind: outcomeTerminal}

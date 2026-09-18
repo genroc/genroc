@@ -8,7 +8,6 @@ import (
 	"genroc/internal/errcode"
 	"genroc/internal/model"
 	"genroc/internal/schema"
-	"genroc/internal/shape"
 )
 
 // DefinitionGetter looks up process definitions. *db.DB satisfies this interface.
@@ -53,6 +52,7 @@ func ValidateChildProcessRefs(def *model.ProcessDefinition, currentVersion int, 
 				Name:         s.Action.Name,
 				Version:      s.Action.Version,
 				Input:        s.Action.Input,
+				InputSchema:  s.Action.InputSchema,
 				ResultSchema: s.Action.ResultSchema,
 				Raises:       s.Action.Raises,
 			}
@@ -171,19 +171,17 @@ func validateChildEntry(taskID string, label string, p model.ChildEntry, ctx sch
 	}
 
 	// Input compatibility is checkable only when the child declares an input schema; the
-	// output check runs regardless (not gated behind it). CheckWith infers, normalizes over
-	// shared defs, subset-checks; an absent input is an empty object.
+	// output check runs regardless (not gated behind it).
 	if child.InputSchema != nil {
-		var raw any = map[string]any{}
-		if p.Input.Present() {
-			raw = p.Input.Raw
-		}
-		shp := shape.Shape{Raw: raw, Schema: child.InputSchema, Name: fmt.Sprintf("%s input", prefix)}
-		if _, err := shp.CheckWith(ctx.WithDefs(defs), shape.CheckHooks{
-			Result: func(_, _ schema.Schema) error {
-				return fmt.Errorf("%s: input is not compatible with %q v%d input_schema", prefix, p.Name, childVersion)
-			},
-		}); err != nil {
+		// A call site that DECLARES what it sends is checked declaration-to-declaration: the
+		// value is conformed to that declaration before it leaves, so the inferred type is no
+		// longer what arrives — it still carries the nulls the conform removes, and comparing
+		// it here would refuse a call that works. specs/declared-slot-schemas.md §5.
+		if p.InputSchema != nil {
+			if err := checkDeclaredAgainstChild(prefix, *p.InputSchema, child, childVersion); err != nil {
+				return err
+			}
+		} else if err := checkInputShapeAgainstChild(prefix, p, ctx, defs, child, childVersion); err != nil {
 			return err
 		}
 	}
@@ -323,7 +321,13 @@ func validateChildListEntry(taskID string, action *model.Action, ctx schema.Sche
 
 	// Element/input compatibility is only checkable when the child declares an input
 	// schema; the output check runs regardless, so it is not gated behind the input one.
-	if child.InputSchema != nil {
+	if child.InputSchema != nil && action.InputSchema != nil {
+		// Declared: the element is conformed to it per element before the child is spawned,
+		// so the declaration is what the child receives.
+		if err := checkDeclaredAgainstChild(prefix, *action.InputSchema, child, childVersion); err != nil {
+			return err
+		}
+	} else if child.InputSchema != nil {
 		// Extract the element type (resolving `over` through a $ref first, so an array
 		// reached via a shared definition still yields its item schema), then subset-check
 		// it against the child's input schema.

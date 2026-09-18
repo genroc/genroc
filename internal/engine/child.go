@@ -8,6 +8,7 @@ import (
 
 	"genroc/internal/errcode"
 	"genroc/internal/model"
+	"genroc/internal/schema"
 	"genroc/internal/shape"
 )
 
@@ -201,9 +202,9 @@ func (e *Engine) buildSingleChild(inst *model.ProcessInstance, task *model.Task,
 	if err != nil {
 		return nil, stop(e.failInstance(inst, errcode.EngineDefinition, fmt.Sprintf("task %q child: %v", task.ID, err)))
 	}
-	input, err := e.evalChildInput(inst, task.ID, "child", task.Action.Input)
+	input, err := e.evalChildInput(inst, task.ID, "child", task.Action.Input, task.Action.InputSchema)
 	if err != nil {
-		return nil, stop(e.failInstance(inst, errcode.EngineExpression, err.Error()))
+		return nil, stop(e.failInstance(inst, declaredFailureCode(err, errcode.EngineInput, errcode.EngineExpression), err.Error()))
 	}
 	input, err = def.ValidateInput(input)
 	if err != nil {
@@ -234,9 +235,9 @@ func (e *Engine) buildMapChildren(ctx context.Context, inst *model.ProcessInstan
 		if err != nil {
 			return nil, stop(e.failInstance(inst, errcode.EngineDefinition, fmt.Sprintf("task %q child_map[%q]: %v", task.ID, key, err)))
 		}
-		input, err := e.evalChildInput(inst, task.ID, fmt.Sprintf("child_map[%q]", key), entry.Input)
+		input, err := e.evalChildInput(inst, task.ID, fmt.Sprintf("child_map[%q]", key), entry.Input, entry.InputSchema)
 		if err != nil {
-			return nil, stop(e.failInstance(inst, errcode.EngineExpression, err.Error()))
+			return nil, stop(e.failInstance(inst, declaredFailureCode(err, errcode.EngineInput, errcode.EngineExpression), err.Error()))
 		}
 		input, err = def.ValidateInput(input)
 		if err != nil {
@@ -286,6 +287,11 @@ func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInsta
 	// order, so the batch sorts after the parent and among itself in input order.
 	children := make([]*model.ProcessInstance, 0, len(items))
 	for i, elem := range items {
+		// The declaration types one ELEMENT here, matching result_schema on the same action.
+		elem, err := conformDeclared(elem, task.Action.InputSchema, fmt.Sprintf("task %q child_list[%d] input", task.ID, i))
+		if err != nil {
+			return nil, stop(e.failInstance(inst, errcode.EngineInput, err.Error()))
+		}
 		input, err := def.ValidateInput(elem)
 		if err != nil {
 			return nil, stop(e.failInstance(inst, errcode.EngineInput, fmt.Sprintf("task %q child_list[%d] input validation: %v", task.ID, i, err)))
@@ -298,15 +304,23 @@ func (e *Engine) buildListChildren(ctx context.Context, inst *model.ProcessInsta
 	return children, nil
 }
 
-func (e *Engine) evalChildInput(inst *model.ProcessInstance, taskID, label string, input *model.Shape) (any, error) {
-	if !input.Present() {
-		return map[string]any{}, nil
+// declared is the call site's own input_schema, applied AFTER the references materialize and
+// BEFORE the child's own ValidateInput: the call site says what it sends, the child says what
+// it accepts, and registration has already checked the first fits the second.
+func (e *Engine) evalChildInput(inst *model.ProcessInstance, taskID, label string, input *model.Shape, declared *schema.Schema) (any, error) {
+	var val any = map[string]any{}
+	if input.Present() {
+		evaluated, err := e.evalShape(inst, shape.Shape{Raw: input.Raw}, e.selfBeforeOutput(inst))
+		if err != nil {
+			return nil, fmt.Errorf("task %q %s input: %v", taskID, label, err)
+		}
+		concreteVal, err := e.concrete(inst, evaluated)
+		if err != nil {
+			return nil, err
+		}
+		val = concreteVal
 	}
-	val, err := e.evalShape(inst, shape.Shape{Raw: input.Raw}, e.selfBeforeOutput(inst))
-	if err != nil {
-		return nil, fmt.Errorf("task %q %s input: %v", taskID, label, err)
-	}
-	return e.concrete(inst, val)
+	return conformDeclared(val, declared, fmt.Sprintf("task %q %s input", taskID, label))
 }
 
 // concrete materializes the references left in an evaluated value, for the two boundaries a marker

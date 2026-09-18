@@ -78,14 +78,14 @@ func completeKey(text, file string, line, col int) []completionItem {
 		// keys are already written.
 		if strings.TrimSpace(src) != "" {
 			if path, ok := mappingUnder(doc.Doc, line, indentOf(src)+1); ok {
-				return keyEdits(legalKeys(doc.Doc, path), src, col)
+				return keyEdits(keysAt(doc, path), src, col)
 			}
 		}
 		anchorLine, anchorCol, sibling, found := keyAbove(text, line, col)
 		if !found {
 			// Nothing above sits at or outside this indent, so the cursor is at the top
 			// level of the document.
-			return keyEdits(legalKeys(doc.Doc, ""), src, col)
+			return keyEdits(keysAt(doc, ""), src, col)
 		}
 		path, ok := doc.At(anchorLine, anchorCol)
 		if !ok {
@@ -94,7 +94,7 @@ func completeKey(text, file string, line, col int) []completionItem {
 		if sibling {
 			path = defdoc.ParentPath(path)
 		}
-		return keyEdits(legalKeys(doc.Doc, path), src, col)
+		return keyEdits(keysAt(doc, path), src, col)
 	}
 
 	// A line with content: the cursor may be past its end, or in the gap a `- ` leaves, where
@@ -109,7 +109,18 @@ func completeKey(text, file string, line, col int) []completionItem {
 	if !ok {
 		return nil
 	}
-	return keyEdits(legalKeys(doc.Doc, path), src, col)
+	return keyEdits(keysAt(doc, path), src, col)
+}
+
+// keysAt answers with the DECLARED schema's properties where one governs this mapping, and
+// with the definition language's own keys everywhere else. The generated schema cannot absorb
+// the first: a declaration is data in the document, possibly spread in from a file.
+// specs/declared-slot-schemas.md §6.
+func keysAt(doc *document, path string) []completionItem {
+	if items, ok := declaredKeys(doc, path); ok {
+		return items
+	}
+	return legalKeys(doc.Doc, path)
 }
 
 // keyEdits gives each key the range it replaces: the whole word the cursor is in, so a key chosen

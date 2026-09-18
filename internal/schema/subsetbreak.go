@@ -22,6 +22,9 @@ const (
 	BreakConstraint      SubsetBreakKind = "constraint"
 	BreakVariants        SubsetBreakKind = "variants"
 	BreakUnknown         SubsetBreakKind = "unknown"
+	// BreakUndeclared: sub can carry a key super does not declare. Only the `closed` mode
+	// produces it — see checkClosed.
+	BreakUndeclared SubsetBreakKind = "undeclared"
 )
 
 // SubsetBreak is the first place one schema fails to fit another. Sub and Super each say

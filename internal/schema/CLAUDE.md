@@ -81,6 +81,17 @@ is written in rather than rejected; undeclared keys are KEPT (stripping is a con
 and a stale key from a dropped task is real data); and declared defaults are NOT filled, so
 the walk closes exactly what the relation accepts and nothing more.
 
+**`ConformsExactlyTo` is a fourth relation, and it exists because the pair above is not one
+pair.** `ConformToSchemaExactly` has two halves pinned against two DIFFERENT relations — the
+insert against `IsSubsetAbsentAsNull` (`absent_test.go`), the removal against `IsSubsetAsStored`
+(`conform_exact_test.go`) — so a slot that runs the whole conform matches neither. It takes both
+null rules and NOT `afterConform`'s defaults rule, which that conform does not perform, which is
+why `nullRemoval` is a flag of its own. Its extra rule is `closed`: a key super does not declare
+is refused rather than left to be stripped, and the **open-map arm of that rule is what is
+silent when missing** — an inferred type can be an open map, so without it the strip stays
+reachable and the assertion the relation exists to protect is false.
+specs/declared-slot-schemas.md §4.
+
 **`IsSubsetAsStored` is a third relation, not a loosening of the pair.** It reads both
 schemas as descriptions of data a conform already produced, so a property the SUB side
 declares with a default is guaranteed present — and that tolerates a gap with no fill behind

@@ -348,31 +348,38 @@ func processSchema() (map[string]any, bool) {
 	return root, true
 }
 
-// pointAtUserSchema rewrites `responses` values and `result_schema` in every action variant to
-// the user-schema def, which is what they hold.
+// pointAtUserSchema rewrites `responses` values, `result_schema` and the declared slot schemas
+// in every action variant to the user-schema def, which is what they hold. Without it a reader
+// standing inside one gets no completion and no hover, because the action template spells them
+// as permissive objects and nothing marks them as schemas.
 func pointAtUserSchema(defs map[string]any, self map[string]any) {
 	action, _ := defs["ModelAction"].(map[string]any)
 	arms, _ := action["oneOf"].([]any)
 	nullable := map[string]any{"anyOf": []any{self, map[string]any{"type": "null"}}}
+	// Every hand-written slot in the template whose value is the author's own schema.
+	schemaSlots := []string{"result_schema", "input_schema", "body_schema", "query_schema"}
+	point := func(props map[string]any, name string) {
+		if r, ok := props[name].(map[string]any); ok {
+			for k, v := range self {
+				r[k] = v
+			}
+		}
+	}
 	for _, arm := range arms {
 		m, _ := arm.(map[string]any)
 		props, _ := m["properties"].(map[string]any)
 		if r, ok := props["responses"].(map[string]any); ok {
 			r["additionalProperties"] = nullable
 		}
-		if r, ok := props["result_schema"].(map[string]any); ok {
-			for k, v := range self {
-				r[k] = v
-			}
+		for _, name := range schemaSlots {
+			point(props, name)
 		}
-		// child_map nests one child spec per key, each with a result_schema of its own.
+		// child_map nests one child spec per key, each with its own declared schemas.
 		children, _ := props["children"].(map[string]any)
 		if inner, ok := children["additionalProperties"].(map[string]any); ok {
 			nested, _ := inner["properties"].(map[string]any)
-			if r, ok := nested["result_schema"].(map[string]any); ok {
-				for k, v := range self {
-					r[k] = v
-				}
+			for _, name := range schemaSlots {
+				point(nested, name)
 			}
 		}
 	}

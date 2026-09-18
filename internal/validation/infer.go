@@ -64,13 +64,23 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 				hasFor := isDelay && s.Action.For != nil
 				hasUntil := isDelay && s.Action.Until != nil
 				hasTimeout := !s.Action.Timeout.IsZero()
-				if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout {
+				hasDeclaredPayload := s.Action.BodySchema != nil || s.Action.InputSchema != nil
+				hasDeclared := hasDeclaredPayload || s.Action.QuerySchema != nil ||
+					s.Action.Type == model.ActionTypeChildMap
+				if inMap || hasBody || hasInput || hasURL || hasMethod || hasHeaders || hasQuery || hasAcceptedStatus || hasOver || hasFor || hasUntil || hasTimeout || hasDeclared {
 					ctx := scopes.action(s)
 					// The child_list `over` expression must be a non-null array; each
 					// element becomes one child's input. Type-check it here so a malformed or
 					// non-array expression is rejected at registration.
 					if hasOver {
-						if _, err := checkArrayTemplate(s.Action.Over, ctx, s.ID); err != nil {
+						arr, err := checkArrayTemplate(s.Action.Over, ctx, s.ID)
+						if err != nil {
+							return inField("over", err)
+						}
+						// A child_list has no `input` slot: each ELEMENT of `over` is one
+						// child's input, so that is what a declaration types — matching
+						// result_schema, which types one element there too.
+						if err := checkDeclaredListElement(s, arr, scopes.defs); err != nil {
 							return inField("over", err)
 						}
 					}
@@ -119,6 +129,14 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 							return err
 						}
 					}
+					// The declaration is checked BESIDE the fixed target, not instead of it: a
+					// query value is a scalar, null or an array of scalars whatever a
+					// declaration says, and running both keeps each failure named as itself.
+					if isFetch && s.Action.QuerySchema != nil {
+						if err := inField("query", checkDeclaredQuery(s, ctx)); err != nil {
+							return err
+						}
+					}
 					// accepted_status is a shape that must evaluate to an array of strings.
 					// The per-pattern format ("2xx"/"404") is not checked — an expression's
 					// elements aren't known statically, and an unrecognized pattern simply
@@ -128,7 +146,12 @@ func buildInputs(tasks []*model.Task, taskSchemas map[string]TaskSchemas, proces
 							return err
 						}
 					}
-					if inMap || hasBody || hasInput {
+					if s.Action.Type == model.ActionTypeChildMap {
+						if err := checkChildMapInputs(s, ctx); err != nil {
+							return err
+						}
+					}
+					if inMap || hasBody || hasInput || hasDeclaredPayload {
 						input, err := inferActionPayload(s, ctx)
 						if err != nil {
 							return err
@@ -517,19 +540,58 @@ func delaySlotExample(slot string) string {
 }
 
 // inferActionPayload infers the schema of an action's payload shape — the fetch request
-// body (Body) or the external snapshot (Input). Free projection: no required structure.
+// body (Body) or the child/external snapshot (Input). Free projection UNLESS the slot carries
+// a declaration, which is then both the check and the published type.
 func inferActionPayload(s *model.Task, ctx schema.Schema) (schema.Schema, error) {
 	sh := s.Action.Input
 	label := "input"
-	if s.Action.Type == model.ActionTypeFetch {
+	declared := s.Action.InputSchema
+	switch s.Action.Type {
+	case model.ActionTypeFetch:
 		sh = s.Action.Body
 		label = "body"
+		declared = s.Action.BodySchema
+	case model.ActionTypeChildList:
+		// There is no `input` shape to check here — the elements of `over` are the inputs, and
+		// the `over` branch checks them. What this returns is only the published type.
+		return published(schema.Object(), declared), nil
 	}
-	if !sh.Present() {
+	// An absent shape is the empty object rather than nothing to check: a declaration with a
+	// required property and no payload beside it is a mistake worth the same sentence.
+	var raw any = map[string]any{}
+	if sh.Present() {
+		raw = sh.Raw
+	} else if declared == nil {
 		return schema.Object(), nil
 	}
-	shp := shape.Shape{Raw: sh.Raw, Name: fmt.Sprintf("task %q %s", s.ID, label)}
-	return shp.Check(ctx)
+	shp, hooks := declaredShape(raw, declared, fmt.Sprintf("task %q %s", s.ID, label))
+	inferred, err := shp.CheckWith(ctx, hooks)
+	if err != nil {
+		return schema.Schema{}, err
+	}
+	return published(inferred, declared), nil
+}
+
+// checkChildMapInputs is the child_map arm of the same check. It is here rather than in
+// validate_children.go because a declaration needs NO database: this is the child input check
+// an editor and an offline genctl can run, which the one against the child itself never could.
+func checkChildMapInputs(s *model.Task, ctx schema.Schema) error {
+	for _, key := range sortedChildKeys(s.Action.Children) {
+		entry := s.Action.Children[key]
+		if entry.InputSchema == nil {
+			continue
+		}
+		var raw any = map[string]any{}
+		if entry.Input.Present() {
+			raw = entry.Input.Raw
+		}
+		label := fmt.Sprintf("task %q children[%q] input", s.ID, key)
+		shp, hooks := declaredShape(raw, entry.InputSchema, label)
+		if _, err := shp.CheckWith(ctx, hooks); err != nil {
+			return inField("children."+key+".input", err)
+		}
+	}
+	return nil
 }
 
 // checkHeadersShape verifies the fetch Headers shape produces a non-null object (a literal

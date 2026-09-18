@@ -38,6 +38,10 @@ function parent(body: string[]): string {
     "input_schema:",
     "  type: object",
     "  properties: { n: { type: number } }",
+    // Required, because the parent forwards `n` straight into a child that requires it: an
+    // optional property reads as nullable, and the call site's declared input_schema (spread
+    // in from the child) refuses a null where the child declares a number.
+    "  required: [n]",
     "tasks:",
     "  - id: call",
     "    action:",

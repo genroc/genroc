@@ -120,10 +120,11 @@ test("a schema keyword carries what it means", async () => {
 // A completion list is a guessing game without them, and the prose is already on the struct
 // tags — the schema carries it through.
 test("a key completion carries the prose the struct tag already wrote", async () => {
-  // `price` has everything but this one, so it is what is left to offer.
+  // `price` carries everything else, so these two are what is left to offer.
   const keys = await lsp.completionDetails(at(`  - <^id>: price`));
-  expect(Object.keys(keys).sort()).toEqual(["only_once"]);
+  expect(Object.keys(keys).sort()).toEqual(["only_once", "output_schema"]);
   expect(keys["only_once"].documentation).toContain("At-most-once");
+  expect(keys["output_schema"].documentation).toContain("conformed");
 });
 
 // `timeout` bounds the call, so it is offered on the ACTION — the same prose, one level down.

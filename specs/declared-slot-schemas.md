@@ -18,7 +18,17 @@ running it, without a database, and without the other side being registered.
 
 ## 0. Status
 
-**PROPOSAL 2026-09-17, revised 2026-09-18.** Nothing built.
+**BUILT 2026-09-18.** Every slot in §2, the closed relation, the conform, the editor half and
+the `$process` spread. What is NOT built is listed in §11, and one decision moved in the
+building: the fetch request side folds into `engine.input` rather than earning a code of its
+own (§4), on the argument §11 itself made.
+
+Two things the build found, both recorded where they bite. The `$process` fixture in
+`tests/lsp/spread_test.ts` carried a **latent type error** — a parent forwarding an optional
+`n` into a child that requires it — which nothing could report until this check ran offline;
+that is the feature working on its first real document. And the `closed` rule's open-map arm
+(§3) is not decoration: without it the conform's strip stays reachable and §4's assertion is
+quietly false, which no table of declared properties would have caught.
 
 The first draft made a declaration a **floor**: checked against the inferred type and
 replacing it nowhere, with no runtime conform. That is reversed here. A declaration is a
@@ -39,8 +49,11 @@ It needs nothing unbuilt. The check is `Shape.Schema`
 [typed-values.md](typed-values.md) §Where it applies listed *per-action payload schemas* as
 deferred behind the `$:` grammar; that grammar is built, and this is the deferral coming due.
 
-Three days: §3 and §4 are the machinery, §7 is the half a reader feels, and §4's relation
-question (below) is the one that must be settled before any of it.
+§4's relation question was settled the way its second ending suggested: `nullRemoval` split
+out of `afterConform`, so the new relation takes the removal rule without the defaults rule
+that `ConformToSchemaExactly` does not perform. `schematest/conforms_exactly_test.go` is the
+pairing, and `TestConformsExactlyToHasNoDefaultsRule` is why it is a fourth relation rather
+than a flag on the third.
 
 ## 1. Thesis: where a declaration exists, it is the type
 
@@ -78,8 +91,14 @@ so adding one is a version event (§9).
 | `output_schema` | process `output` | nothing | §5 |
 
 Every one is optional, and every one sits beside its shape under the name `<slot>_schema` —
-the spelling `result_schema` and the definition's own `input_schema` already use. On
-`child_list` the declaration types **one element**, matching `result_schema` there.
+the spelling `result_schema` and the definition's own `input_schema` already use.
+
+**`child_list` is the one row that is not what its name suggests.** It has no `input` shape at
+all: each element of `over` is one child's input, so the declaration types **one element**,
+matching `result_schema` there. Both halves follow from that and both were wrong in the first
+build — the check ran against an absent `input` (an empty object, which any schema of optional
+properties accepts, so it asserted nothing), and the conform runs per element rather than once.
+`over` with no declared item type is refused by name, since there is nothing to check.
 
 `headers_schema` is deliberately **not** in the table. Headers already have a fixed target
 (`object<string>`) and a declaration would add only required-ness. The one producer that would
@@ -289,6 +308,12 @@ editor and an offline `genctl` can run at all, since `ValidateChildProcessRefs` 
 and therefore never runs in either. `declared ⊆ child.InputSchema` runs at registration and
 runs **open**: the child's own schema is not ours to close, and closing it would refuse a
 declaration that is perfectly good.
+
+**The second check REPLACES the old one where a declaration exists, and must.** The old check
+compares the INFERRED type against the child, and the inferred type still carries the nulls the
+conform removes — so a call that works at runtime is refused at registration. A nullable input
+declared non-nullable is exactly the case §4 exists for, and leaving both checks in place makes
+the feature unusable on the slot it was written for.
 
 **`$process` should spread `input_schema`.** It fills `name`, `result_schema` and `raises`
 today ([structural.go](../internal/sources/structural.go)) and the input side is the one it
@@ -502,11 +527,10 @@ keys to offer.
 
 ## 11. Open
 
-- **What the fetch request side's terminal code is called** (§4). The output slots want
-  `engine.output` and the input slots already have `engine.input`; a body or query failing its
-  own declaration is neither, and inventing `engine.body` for something that cannot happen may
-  be worse than folding it into one of them. Catchability is NOT open — §4 settles it, and a
-  code here that an `on_error` could name would hide the bug it exists to report.
+- **`genctl schema type` reaches only `input` and `output`.** So the published-type rule (§9)
+  is observable at the process output and nowhere else; the action addresses in
+  specs/schema-command.md §2 are still proposal, and that is where the rest of it lands.
+  Nothing here waits on it — the editor answers those positions already.
 - `headers_schema`, when an importer's request side exists to fill it (§2).
 - `additionalProperties`, and with it hiding (§3, §8). Count first.
 - Narrowing declarations, if [literal-types.md](literal-types.md) does not remove the appetite

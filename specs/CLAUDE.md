@@ -267,8 +267,8 @@ register; when it disagrees with a §0, the §0 is right.
   a `fetch`, the way `$process` spreads a child's types. Carries the dialect table (translate /
   strip / refuse) and the `allOf` decision: flattened in the resolver as `&` on object types, not
   admitted to the language — with the refusal count on real documents as the trigger to revisit.
-- [declared-slot-schemas.md](declared-slot-schemas.md) — **PROPOSAL 2026-09-17, revised
-  2026-09-18.** An optional schema beside a shape: `input_schema` on a child or external call,
+- [declared-slot-schemas.md](declared-slot-schemas.md) — **BUILT 2026-09-18**, spec written the
+  day before and its floor thesis reversed before any of it landed. An optional schema beside a shape: `input_schema` on a child or external call,
   `body_schema` and `query_schema` on a fetch, `output_schema` on a task and on the process. The
   motivation is **import** rather than expressiveness — a schema that came from an OpenAPI
   document or a child definition makes a call checkable offline, which the child input check has
@@ -298,7 +298,11 @@ register; when it disagrees with a §0, the §0 is right.
   [literal-types.md](literal-types.md) would supply by inference instead. §7 is the half a
   reader feels — a declared schema is an author's type in a KEY position, the one thing editor
   completion has never had, so `body:` starts offering the fields the endpoint accepts; it
-  follows `raises` in answering from THIS document and never from another buffer.
+  follows `raises` in answering from THIS document and never from another buffer. Two findings
+  from the build are in §0: the offline check's **first real document was the `$process` test
+  fixture, which held a latent type error nothing could report before**, and the closed rule's
+  open-map arm is load-bearing rather than thorough — without it the conform's strip stays
+  reachable and the assertion is silently false.
 - [external-task-queue.md](external-task-queue.md) — **BUILT through phase 3** (error channel
   2026-08-23; claim/lease/renew/release and `external.lost` 2026-08-24). Only the long-poll and
   the evaluator switchover remain proposal. Turns `external` into a queue a worker fleet

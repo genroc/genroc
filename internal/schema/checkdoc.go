@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -198,4 +199,36 @@ func pathLabel(sl childSlot) string {
 		return sl.kw + "." + strconv.Itoa(sl.idx)
 	}
 	return sl.kw
+}
+
+// CheckNoAdditionalProperties refuses the `additionalProperties` keyword anywhere in s,
+// locating it the way CheckDoc locates its own findings.
+//
+// Not a schema rule — the keyword is valid in a `result_schema` — but a per-slot one. A slot
+// whose value is CONFORMED to s refuses an undeclared key rather than let the conform strip it
+// silently, and an open object would make that refusal conditional on a keyword half those
+// slots cannot honour. specs/declared-slot-schemas.md §3.
+func (s Schema) CheckNoAdditionalProperties() error {
+	if s.n == nil {
+		return nil
+	}
+	return checkNoAdditionalProperties(s.n, map[*node]bool{})
+}
+
+func checkNoAdditionalProperties(nd *node, seen map[*node]bool) error {
+	if nd == nil || seen[nd] {
+		return nil
+	}
+	seen[nd] = true
+	if nd.AdditionalProperties != nil {
+		return AtPath("additionalProperties", errors.New(
+			"additionalProperties is not allowed in a declared slot schema: this schema is what the "+
+				"value is conformed to, so an undeclared key is refused rather than dropped"))
+	}
+	for sl, c := range children(nd) {
+		if err := checkNoAdditionalProperties(c, seen); err != nil {
+			return AtPath(pathLabel(sl), fmt.Errorf("%s: %w", errLabel(sl), err))
+		}
+	}
+	return nil
 }

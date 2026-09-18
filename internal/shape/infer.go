@@ -87,6 +87,16 @@ type CheckHooks struct {
 	Result func(inferred, required schema.Schema) error
 }
 
+// fits is the relation this shape's Schema is checked with. A fixed target (headers, query)
+// has no conform behind it and takes plain subset; a declared slot schema is what the value is
+// conformed to, so it takes the relation paired with that conform.
+func (s *Shape) fits(norm schema.Schema) bool {
+	if s.Conformed {
+		return norm.ConformsExactlyTo(*s.Schema)
+	}
+	return norm.IsSubset(*s.Schema)
+}
+
 // Check is the static-validation phase with default messages; see CheckWith.
 func (s *Shape) Check(ctxSchema schema.Schema) (schema.Schema, error) {
 	return s.CheckWith(ctxSchema, CheckHooks{})
@@ -144,7 +154,7 @@ func (s *Shape) CheckWith(ctxSchema schema.Schema, hooks CheckHooks) (schema.Sch
 				return schema.Schema{}, fmt.Errorf("%s: %w", label, err)
 			}
 		}
-		if !norm.IsSubset(*s.Schema) {
+		if !s.fits(norm) {
 			if hooks.Result != nil {
 				if e := hooks.Result(norm, *s.Schema); e != nil {
 					return schema.Schema{}, e

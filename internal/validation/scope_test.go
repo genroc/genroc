@@ -19,6 +19,9 @@ func TestPreOutputSlotsCoversEveryActionSlot(t *testing.T) {
 		"Type": true, "Name": true, "Version": true,
 		"Responses": true, "ResultSchema": true, "Raises": true,
 		"TZ": true, // an IANA name, parsed by delayspec rather than evaluated
+		// The declared slot schemas: documents describing the shape BESIDE them, never
+		// evaluated against a context. specs/declared-slot-schemas.md.
+		"BodySchema": true, "QuerySchema": true, "InputSchema": true,
 	}
 
 	action := &model.Action{Type: model.ActionTypeFetch, Method: "post"}

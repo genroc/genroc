@@ -111,7 +111,8 @@ const (
 	EngineDefinition Code = "engine.definition" // definition unusable: missing, or names a task/goto not in it
 	EngineExpression Code = "engine.expression" // an expression could not be evaluated against this context
 	EngineConfig     Code = "engine.config"     // config could not be resolved from the environment
-	EngineInput      Code = "engine.input"      // a child's input did not satisfy its input_schema
+	EngineInput      Code = "engine.input"      // an input did not satisfy the schema declared for it
+	EngineOutput     Code = "engine.output"     // an output did not satisfy the schema declared for it
 	EngineSpawn      Code = "engine.spawn"      // spawning children, or arming an external task / reading its answer, failed
 	EngineCollect    Code = "engine.collect"    // collecting a settled batch's outputs failed
 	EnginePanic      Code = "engine.panic"      // a Go panic escaped this instance's advance (see engine.dispatch)

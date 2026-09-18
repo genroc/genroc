@@ -34,6 +34,7 @@ type ChildEntry struct {
 	Name         string         `json:"name"                    description:"Name of the child process to invoke."`
 	Version      int            `json:"version,omitempty"       description:"Version to run; 0 means latest published version."`
 	Input        *Shape         `json:"input,omitempty"         description:"Templated value building the child's input payload."`
+	InputSchema  *schema.Schema `json:"input_schema,omitempty"  description:"JSON Schema this entry's input is checked against and conformed to before it is sent."`
 	ResultSchema *schema.Schema `json:"result_schema,omitempty" description:"JSON Schema validating and exposing this child's output."`
 	Raises       Raises         `json:"raises,omitempty"        description:"Shapes this child's raised faults carry, keyed by raise code. Read as error.data."`
 }
@@ -57,22 +58,28 @@ type Raises map[string]*schema.Schema
 // specs/external-task-queue.md, specs/unknown-type.md and internal/delayspec.
 type Action struct {
 	Type           ActionType                `json:"type"`
-	URL            string                    `json:"url,omitempty"`              // fetch: request URL (an expression)
-	Method         string                    `json:"method,omitempty"`           // fetch: HTTP method, lowercase (an expression); required
-	Headers        *Shape                    `json:"headers,omitempty"`          // fetch: request headers (a shape evaluating to a string map)
-	Query          *Shape                    `json:"query,omitempty"`            // fetch: query parameters appended to the url; a null value omits its parameter
-	AcceptedStatus *Shape                    `json:"accepted_status,omitempty"`  // fetch: a shape evaluating to an array of HTTP status patterns accepted as non-errors
-	Responses      map[string]*schema.Schema `json:"responses,omitempty"`        // fetch: status pattern -> body schema; a present key with a nil schema declares "no body"
-	ResultSchema   *schema.Schema            `json:"result_schema,omitempty"`    // child/child_list/external: validate & persist output
-	Raises         Raises                    `json:"raises,omitempty"`           // child/child_list: raise code -> the shape that code's fault data carries (child_map declares per entry)
-	Name           string                    `json:"name,omitempty"`             // child/child_list
-	Version        int                       `json:"version,omitempty"`          // child/child_list
-	Body           *Shape                    `json:"body,omitempty"`             // fetch: templated request body
-	Input          *Shape                    `json:"input,omitempty"`            // child/external: templated input payload
-	Children       map[string]ChildEntry     `json:"children,omitempty"`         // child_map
-	Over           string                    `json:"over,omitempty"`             // child_list: expression evaluating to the input array (one child per element)
-	Timeout        Timeout                   `json:"timeout,omitempty,omitzero"` // fetch/external: deadline for the call; the prose is per-variant in actionSchemaTemplate
-	DelaySpec                                // delay: exactly one of for / until, plus tz
+	URL            string                    `json:"url,omitempty"`             // fetch: request URL (an expression)
+	Method         string                    `json:"method,omitempty"`          // fetch: HTTP method, lowercase (an expression); required
+	Headers        *Shape                    `json:"headers,omitempty"`         // fetch: request headers (a shape evaluating to a string map)
+	Query          *Shape                    `json:"query,omitempty"`           // fetch: query parameters appended to the url; a null value omits its parameter
+	AcceptedStatus *Shape                    `json:"accepted_status,omitempty"` // fetch: a shape evaluating to an array of HTTP status patterns accepted as non-errors
+	Responses      map[string]*schema.Schema `json:"responses,omitempty"`       // fetch: status pattern -> body schema; a present key with a nil schema declares "no body"
+	ResultSchema   *schema.Schema            `json:"result_schema,omitempty"`   // child/child_list/external: validate & persist output
+	Raises         Raises                    `json:"raises,omitempty"`          // child/child_list: raise code -> the shape that code's fault data carries (child_map declares per entry)
+	Name           string                    `json:"name,omitempty"`            // child/child_list
+	Version        int                       `json:"version,omitempty"`         // child/child_list
+	Body           *Shape                    `json:"body,omitempty"`            // fetch: templated request body
+	Input          *Shape                    `json:"input,omitempty"`           // child/external: templated input payload
+	// The declared slot schemas. Each is the PUBLISHED type of the shape beside it: the
+	// inferred type is checked against it at registration and the value is conformed to it
+	// before it leaves. specs/declared-slot-schemas.md.
+	BodySchema  *schema.Schema        `json:"body_schema,omitempty"`      // fetch
+	QuerySchema *schema.Schema        `json:"query_schema,omitempty"`     // fetch
+	InputSchema *schema.Schema        `json:"input_schema,omitempty"`     // child/child_list/external
+	Children    map[string]ChildEntry `json:"children,omitempty"`         // child_map
+	Over        string                `json:"over,omitempty"`             // child_list: expression evaluating to the input array (one child per element)
+	Timeout     Timeout               `json:"timeout,omitempty,omitzero"` // fetch/external: deadline for the call; the prose is per-variant in actionSchemaTemplate
+	DelaySpec                         // delay: exactly one of for / until, plus tz
 }
 
 // DelaySpec is a target instant named by exactly one of `for` (a duration from now) or
@@ -209,6 +216,8 @@ var actionSchemaTemplate = `{
 					"accepted_status": __ACCEPTED_STATUS_SCHEMA__,
 					"timeout":         __FETCH_TIMEOUT_SCHEMA__,
 					"body":            {"$ref": "#/$defs/ModelShape", "description": "Templated value building the request body; an object is sent as JSON."},
+					"body_schema":     {"type": "object", "additionalProperties": true, "description": "JSON Schema the body is checked against and conformed to before the request is built. An undeclared key is refused."},
+					"query_schema":    {"type": "object", "additionalProperties": true, "description": "JSON Schema the query map is checked against and conformed to. An optional non-nullable parameter fed null is omitted."},
 					"responses": {
 						"type": "object",
 						"description": "Status pattern -> JSON Schema for that body. A 2xx key types self.result and accepts the status.",
@@ -227,6 +236,7 @@ var actionSchemaTemplate = `{
 					"name":          {"type": "string", "description": "Name of the child process to invoke."},
 					"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
 					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value building the child's input payload."},
+					"input_schema":  {"type": "object", "additionalProperties": true, "description": "JSON Schema the input is checked against and conformed to before it is sent. Checkable with no server."},
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing the child's output."},
 					"raises": {
 						"type": "object",
@@ -252,6 +262,7 @@ var actionSchemaTemplate = `{
 								"name":          {"type": "string", "description": "Name of the child process to invoke."},
 								"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
 								"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value building the child's input payload."},
+								"input_schema":  {"type": "object", "additionalProperties": true, "description": "JSON Schema this entry's input is checked against and conformed to before it is sent."},
 								"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing this child's output."},
 								"raises": {
 									"type": "object",
@@ -277,6 +288,7 @@ var actionSchemaTemplate = `{
 					"name":          {"type": "string", "description": "Name of the child process to invoke for every element."},
 					"version":       {"type": "integer", "description": "Version to run; 0 means latest published version."},
 					"over":          {"type": "string", "description": "A $: expression evaluating to an array; one child is spawned per element, with it as input."},
+					"input_schema":  {"type": "object", "additionalProperties": true, "description": "JSON Schema EACH element is checked against and conformed to before it is sent as one child's input."},
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema validating and exposing EACH child's output; the result is an array."},
 					"raises": {
 						"type": "object",
@@ -311,6 +323,7 @@ var actionSchemaTemplate = `{
 					"type":          {"type": "string", "const": "external"},
 					"timeout":       __EXTERNAL_TIMEOUT_SCHEMA__,
 					"input":         {"$ref": "#/$defs/ModelShape", "description": "Templated value snapshotted for the resolver — the only context the queue exposes."},
+					"input_schema":  {"type": "object", "additionalProperties": true, "description": "JSON Schema the input snapshot is checked against and conformed to. It is the contract a worker reads."},
 					"result_schema": {"type": "object", "additionalProperties": true, "description": "JSON Schema the submitted result is validated against. Without it any JSON is accepted."},
 					"raises": {
 						"type": "object",
@@ -331,12 +344,13 @@ var actionSchemaTemplate = `{
 // (terminate), "next" (the following task, invalid on the last) or "$task-id" (jump); as an
 // array of cases the last must be a catch-all with no "case" expression.
 type Task struct {
-	ID       string      `json:"id"                 validate:"required" description:"Task identifier, unique within the definition."`
-	Action   *Action     `json:"action,omitempty"                        description:"Describes the action to perform. Omit for switch-only (routing) tasks."`
-	OnlyOnce *bool       `json:"only_once,omitempty"                   description:"At-most-once execution: only errors that never reached the remote may retry. Defaults to false."`
-	OnError  []ErrorCase `json:"on_error,omitempty"                    description:"Ordered error-routing rules evaluated when the call fails. First match wins."`
-	Output   *Shape      `json:"output,omitempty"                      description:"Templated value remapping this task's output; it becomes outputs.taskID and self.output."`
-	Switch   SwitchMap   `json:"switch"                                description:"Required. Routing: a shorthand (\"next\", \"end\", \"$task-id\") or an ordered list of cases."`
+	ID           string         `json:"id"                 validate:"required" description:"Task identifier, unique within the definition."`
+	Action       *Action        `json:"action,omitempty"                        description:"Describes the action to perform. Omit for switch-only (routing) tasks."`
+	OnlyOnce     *bool          `json:"only_once,omitempty"                   description:"At-most-once execution: only errors that never reached the remote may retry. Defaults to false."`
+	OnError      []ErrorCase    `json:"on_error,omitempty"                    description:"Ordered error-routing rules evaluated when the call fails. First match wins."`
+	Output       *Shape         `json:"output,omitempty"                      description:"Templated value remapping this task's output; it becomes outputs.taskID and self.output."`
+	OutputSchema *schema.Schema `json:"output_schema,omitempty"          description:"JSON Schema this task's output is checked against and conformed to. It becomes the published type of outputs.taskID."`
+	Switch       SwitchMap      `json:"switch"                                description:"Required. Routing: a shorthand (\"next\", \"end\", \"$task-id\") or an ordered list of cases."`
 }
 
 // ProcessDefinition is the immutable versioned blueprint for a process.
@@ -348,6 +362,7 @@ type ProcessDefinition struct {
 	ConfigSchema *schema.Schema `json:"config_schema,omitempty"         description:"Flat object of primitive config variables, resolved from the server environment and read as config.<NAME>."`
 	Defs         schema.Defs    `json:"$defs,omitempty,omitzero"        description:"Shared schema definitions, referenced as \"#/$defs/<name>\"."`
 	Output       *Shape         `json:"output,omitempty"                description:"Templated value evaluated at completion to produce the process output."`
+	OutputSchema *schema.Schema `json:"output_schema,omitempty"         description:"JSON Schema the process output is checked against and conformed to. Declared, it is what this process publishes."`
 }
 
 // OnlyOnceAction reports whether this task is an action the engine must never run twice.
@@ -405,9 +420,40 @@ func (d *ProcessDefinition) Normalize() error {
 		}
 		d.InputSchema = normalized
 	}
+	// A declared slot schema is baked self-contained for the reason the responses loop below
+	// gives: inference embeds the document in a task context, where a `$ref` into the process
+	// pool resolves nowhere.
+	if d.OutputSchema != nil {
+		normalized, err := norm(d.OutputSchema)
+		if err != nil {
+			return fmt.Errorf("output_schema: %w", err)
+		}
+		d.OutputSchema = normalized
+	}
 	for _, s := range d.Tasks {
+		if s.OutputSchema != nil {
+			normalized, err := norm(s.OutputSchema)
+			if err != nil {
+				return fmt.Errorf("task %q output_schema: %w", s.ID, err)
+			}
+			s.OutputSchema = normalized
+		}
 		if s.Action == nil {
 			continue
+		}
+		for name, slot := range map[string]**schema.Schema{
+			"body_schema":  &s.Action.BodySchema,
+			"query_schema": &s.Action.QuerySchema,
+			"input_schema": &s.Action.InputSchema,
+		} {
+			if *slot == nil {
+				continue
+			}
+			normalized, err := norm(*slot)
+			if err != nil {
+				return fmt.Errorf("task %q action.%s: %w", s.ID, name, err)
+			}
+			*slot = normalized
 		}
 		if s.Action.ResultSchema != nil {
 			normalized, err := norm(s.Action.ResultSchema)
@@ -440,6 +486,14 @@ func (d *ProcessDefinition) Normalize() error {
 						return fmt.Errorf("task %q action.children[%q].result_schema: %w", s.ID, key, err)
 					}
 					entry.ResultSchema = normalized
+					s.Action.Children[key] = entry
+				}
+				if entry.InputSchema != nil {
+					normalized, err := norm(entry.InputSchema)
+					if err != nil {
+						return fmt.Errorf("task %q action.children[%q].input_schema: %w", s.ID, key, err)
+					}
+					entry.InputSchema = normalized
 					s.Action.Children[key] = entry
 				}
 			}

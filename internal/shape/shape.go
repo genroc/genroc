@@ -28,6 +28,11 @@ type Shape struct {
 	// with a required Schema of the expected type (e.g. boolean for a case). Structural and
 	// template semantics do not apply.
 	Expr bool
+	// Conformed marks Schema as a DECLARED SLOT schema — one the value is conformed to at
+	// runtime with ConformToSchemaExactly. The check then uses the relation paired with that
+	// fill instead of plain subset: the null repairs are admitted and an undeclared key is
+	// refused rather than left to be stripped. specs/declared-slot-schemas.md §4.
+	Conformed bool
 }
 
 // exprString returns Raw as the bare-expression source for an Expr shape (empty if Raw is

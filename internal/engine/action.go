@@ -65,7 +65,8 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 	// the audit sink, the same as anywhere else.
 	url, err = e.appendQuery(inst, task.Action, url)
 	if err != nil {
-		return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q query: %v", task.ID, err)))
+		return nil, nil, stop(e.failInstance(inst, declaredFailureCode(err, errcode.EngineInput, errcode.EngineExpression),
+			fmt.Sprintf("task %q query: %v", task.ID, err)))
 	}
 	// Stamp the caller's identity on every request (set last so it is authoritative and
 	// a user-supplied header of the same name cannot spoof it).
@@ -82,8 +83,14 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 			// object from genroc, so a reference reaching it is a value that never arrives.
 			body, err = e.resolveRefsInPlace(inst, body)
 		}
+		// The declaration is applied AFTER the refs resolve: the conform has to see values,
+		// and a marker it cannot look inside would read as a shape that does not fit.
+		if err == nil {
+			body, err = conformDeclared(body, task.Action.BodySchema, fmt.Sprintf("task %q body", task.ID))
+		}
 		if err != nil {
-			return nil, nil, stop(e.failInstance(inst, errcode.EngineExpression, fmt.Sprintf("task %q body: %v", task.ID, err)))
+			return nil, nil, stop(e.failInstance(inst, declaredFailureCode(err, errcode.EngineInput, errcode.EngineExpression),
+				fmt.Sprintf("task %q body: %v", task.ID, err)))
 		}
 	}
 	resolvedStatus, err := e.resolveAcceptedStatus(inst, task.Action)
@@ -162,9 +169,13 @@ func (e *Engine) executeAction(ctx context.Context, inst *model.ProcessInstance,
 
 func (e *Engine) buildTaskData(inst *model.ProcessInstance, task *model.Task) (any, error) {
 	if !task.Action.Input.Present() {
-		return map[string]any{}, nil
+		return conformDeclared(map[string]any{}, task.Action.InputSchema, fmt.Sprintf("task %q input", task.ID))
 	}
-	return e.evalShape(inst, shape.Shape{Raw: task.Action.Input.Raw}, e.selfBeforeOutput(inst))
+	val, err := e.evalShape(inst, shape.Shape{Raw: task.Action.Input.Raw}, e.selfBeforeOutput(inst))
+	if err != nil {
+		return nil, err
+	}
+	return conformDeclared(val, task.Action.InputSchema, fmt.Sprintf("task %q input", task.ID))
 }
 
 // runDelay: first entry (WakeAt nil, reset per task transition) evaluates and parks by
@@ -542,6 +553,12 @@ func (e *Engine) appendQuery(inst *model.ProcessInstance, call *model.Action, ra
 	}
 	val, err := e.evalShape(inst, shape.Shape{Raw: call.Query.Raw}, e.selfBeforeOutput(inst))
 	if err != nil {
+		return "", err
+	}
+	// A declared query_schema drops an optional non-nullable parameter fed null before the
+	// string is built. The null-omit below would drop it anyway; doing it here is what makes
+	// the declaration the description of what is sent rather than a claim beside it.
+	if val, err = conformDeclared(val, call.QuerySchema, "query"); err != nil {
 		return "", err
 	}
 	m, ok := val.(map[string]any)

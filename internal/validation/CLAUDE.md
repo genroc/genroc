@@ -107,6 +107,20 @@ on upgrade makes the input relaxation unsound, and the gate's external-result ru
 the relaxed side, because a submitted result is read back as `self.result` rather than
 re-conformed.
 
+## A declared child input replaces the inferred one, and child_list has no input slot
+
+Where a call site declares an `input_schema`, the registration check compares that DECLARATION
+against the child rather than the inferred type of the shape: the value is conformed to the
+declaration before it leaves, so the inferred type is not what arrives — it still carries the
+nulls the conform removes, and comparing it refuses a call that works. Running both checks is
+what made the feature unusable on the slot it was written for.
+
+**`child_list` has no `input` shape.** Each element of `over` is one child input, so a
+declaration there types ONE ELEMENT and is checked against `over`'s item type
+(`checkDeclaredListElement`). Checked against the absent `input` instead it compares an empty
+object, which a schema of optional properties accepts — so it passes while asserting nothing.
+specs/declared-slot-schemas.md §2.
+
 ## Nothing may vanish from a report, and nothing unjudged may look judged
 
 `CompareSet` iterates the **union** of both sides' names, not the target's. A process the
