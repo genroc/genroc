@@ -58,6 +58,27 @@ test("the eval-node scaffold typechecks with no server, spread and all", () => {
   });
 });
 
+// The `.genroc` binds the generated TypeScript types to slot ADDRESSES, so a scaffold that
+// typechecks can still generate `Input = unknown` — which is what shipped for a moment. The
+// addresses are part of the scaffold and have to resolve to something a script can be written
+// against.
+test("the addresses the resolver generates types from resolve to real types", () => {
+  const dir = scaffold("--eval-node");
+  const f = join(dir, "definitions/hello.genroc.yaml");
+  const ask = (address: string) =>
+    resolved(JSON.parse(runCli(bin, ["schema", "type", "hello", address, "--json", "-f", f], OFFLINE).stdout));
+
+  // `Input`: what the script is CALLED with, which is what this caller wrote — not what
+  // script-node would accept, which is the top type and would generate `unknown`.
+  expect(ask("tasks.greet.action.input.input")).toMatchObject({
+    properties: { who: { type: "string" } },
+  });
+  // `Output`: what the script must RETURN, from the caller's own narrowing.
+  expect(ask("tasks.greet.action.result")).toMatchObject({
+    properties: { greeting: { type: "string" } },
+  });
+});
+
 test("the caller no longer names the child, so the two cannot drift", () => {
   const dir = scaffold("--eval-node");
   const hello = readFileSync(join(dir, "definitions/hello.genroc.yaml"), "utf8");
@@ -85,6 +106,14 @@ test("the spread's input_schema catches a typo in the input, with no server", ()
 // LOOSER than the server on exactly the mistakes people make — it accepts `on_eror:` and answers
 // a fetch typo with nine errors demanding keys the action does not take. A scaffold should not
 // open with the worse of the two analyses.
+test("the addresses asserted above are the ones the scaffold actually binds", () => {
+  const dir = scaffold("--eval-node");
+  const cfg = readFileSync(join(dir, ".genroc"), "utf8");
+  // Hard-coding an address in the test above is only safe while the config still names it.
+  expect(cfg).toContain("Input: task.action.input.input");
+  expect(cfg).toContain("Output: task.action.result");
+});
+
 test("no scaffolded definition points at the published JSON Schema", () => {
   for (const flags of [[], ["--eval-node"]]) {
     const dir = scaffold(...flags);

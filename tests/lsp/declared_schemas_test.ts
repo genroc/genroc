@@ -699,12 +699,32 @@ test("hover inside a declaration describes the JSON Schema keyword", async () =>
   expect(h).toContain("JSON type");
 });
 
-// A slot with a declaration publishes it, so what the slot's own type reads as is the
-// declaration — this is §1 as a hover.
-test("hover on a declared shape's slot shows what it publishes", async () => {
+// §1's asymmetry, as a hover. A slot the definition SENDS reads as what is being sent, not as
+// what the far side accepts: the declaration is that side's contract and is addressable there.
+// The two differ here — the declaration leaves `discount` optional, and this body always sets
+// it — and the difference is the point. Publishing the declaration instead shipped for a moment
+// and made a generic child's `input` read `unknown` at the address a resolver types a script's
+// argument from.
+test("hover on a slot the definition SENDS shows what is sent", async () => {
   const h = await lsp.hover(at("      <^body>:", hoverDoc()));
-  // Declared `discount` is optional and non-nullable; the literal that feeds it is neither.
-  expect(h).toBe("**tasks.call.action.body** — `object{discount?}`");
+  expect(h).toBe("**tasks.call.action.body** — `object{discount}`");
+});
+
+// The other side of it: a slot the definition HANDS BACK reads as its declaration, because that
+// is the contract a consumer reads and `$process` spreads.
+test("hover on a slot the definition HANDS BACK shows what it publishes", async () => {
+  const d = doc([
+    "tasks:",
+    "  - id: only",
+    "    switch: [{ goto: end }]",
+    "    output: { v: 1, w: 2 }",
+    // `w` is declared optional; the literal sets it, so the inferred type would call it required.
+    "    output_schema: { type: object, properties: { v: { type: number }, w: { type: number } }, required: [v] }",
+    "output: { ok: true }",
+  ]);
+  expect(await lsp.hover(at("    <^output>: { v: 1, w: 2 }", d))).toBe(
+    "**tasks.only.output** — `object{v, w?}`",
+  );
 });
 
 test("hover on a key of a slot that declares nothing is unchanged", async () => {

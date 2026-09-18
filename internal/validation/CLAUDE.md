@@ -107,6 +107,17 @@ on upgrade makes the input relaxation unsound, and the gate's external-result ru
 the relaxed side, because a submitted result is read back as `self.result` rather than
 re-conformed.
 
+## A declared schema types a slot only on the way OUT
+
+An output slot (a task's, the process's) publishes its declaration — that is what `$process`
+spreads and what a consumer reads. An INPUT slot (a body, a query, an input) keeps its inferred
+type: the declaration there describes what the far side ACCEPTS, not what this definition sends,
+and it is already addressable as that side's own `input`. Publishing it at the call site shipped
+for a moment and broke the scaffold — a generic child declaring its payload as the top type made
+`task.action.input.input` read `unknown`, and that address is what the resolver manifest
+generates a script's argument type from (`sources.taskInput`, `typeSlots`).
+specs/declared-slot-schemas.md §1.
+
 ## A declared child input replaces the inferred one, and child_list has no input slot
 
 Where a call site declares an `input_schema`, the registration check compares that DECLARATION

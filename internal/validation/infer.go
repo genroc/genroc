@@ -553,8 +553,8 @@ func inferActionPayload(s *model.Task, ctx schema.Schema) (schema.Schema, error)
 		declared = s.Action.BodySchema
 	case model.ActionTypeChildList:
 		// There is no `input` shape to check here — the elements of `over` are the inputs, and
-		// the `over` branch checks them. What this returns is only the published type.
-		return published(schema.Object(), declared), nil
+		// the `over` branch checks them.
+		return schema.Object(), nil
 	}
 	// An absent shape is the empty object rather than nothing to check: a declaration with a
 	// required property and no payload beside it is a mistake worth the same sentence.
@@ -565,11 +565,14 @@ func inferActionPayload(s *model.Task, ctx schema.Schema) (schema.Schema, error)
 		return schema.Object(), nil
 	}
 	shp, hooks := declaredShape(raw, declared, fmt.Sprintf("task %q %s", s.ID, label))
-	inferred, err := shp.CheckWith(ctx, hooks)
-	if err != nil {
-		return schema.Schema{}, err
-	}
-	return published(inferred, declared), nil
+	// The INFERRED type, not the declaration. A slot the definition SENDS is typed by what this
+	// definition produces; the declaration is the FAR SIDE's contract, it is checked against,
+	// and it already has its own address (`genctl schema type <child> input`). Publishing it
+	// here answers a question that is asked elsewhere and loses the only answer asked for here
+	// — a generic child declaring its payload as the top type made `task.action.input.input`
+	// read `unknown`, which is the type a resolver generates a script's argument from.
+	// specs/declared-slot-schemas.md §1.
+	return shp.CheckWith(ctx, hooks)
 }
 
 // checkChildMapInputs is the child_map arm of the same check. It is here rather than in

@@ -61,6 +61,16 @@ than a flag on the third.
 > the slot, so what the declaration says is what left. Where no declaration exists, nothing
 > changes and the inferred type remains the only answer.
 
+**With one asymmetry, found by shipping it the other way.** A slot the definition HANDS BACK
+(a task output, the process output) publishes its declaration: that is the contract consumers
+read, and §3 is what makes it honest. A slot the definition SENDS (a body, a query, an input)
+keeps its INFERRED type, because the declaration there is the FAR SIDE's contract rather than a
+description of this value — and it already has an address of its own, `genctl schema type
+<child> input`. Publishing it at the call site answers a question asked elsewhere and discards
+the only one asked here: a generic child declaring its payload as the top type made
+`task.action.input.input` read `unknown`, which is the address the scaffold's resolver generates
+a script's argument type from.
+
 Two consequences, and they are the reason for the shape:
 
 - **A declaration is worth trusting.** A published type that merely *described* a value
