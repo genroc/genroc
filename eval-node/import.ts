@@ -137,15 +137,20 @@ function objectType(s: Schema, used: Set<string>): string {
         ? `  /** ${sub.description} */\n`
         : "";
     lines.push(
-      `${doc}  ${propKey(key)}${required.has(key) ? "" : "?"}: ${tsType(sub, used)};`,
+      `${doc}  ${propKey(key)}${required.has(key) ? "" : "?"}: ${nest(tsType(sub, used))};`,
     );
   }
   if (s.additionalProperties && typeof s.additionalProperties === "object") {
-    lines.push(`  [key: string]: ${tsType(s.additionalProperties, used)};`);
+    lines.push(
+      `  [key: string]: ${nest(tsType(s.additionalProperties, used))};`,
+    );
   }
   if (lines.length === 0) return "Record<string, unknown>";
   return `{\n${lines.join("\n")}\n}`;
 }
+
+/** Every line but the first, which is already placed by the property that opens it. */
+const nest = (t: string) => t.replace(/\n/g, "\n  ");
 
 function union(parts: string[]): string {
   const seen = [...new Set(parts)];

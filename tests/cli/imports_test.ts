@@ -898,6 +898,43 @@ test("evaluator importer — generates declarations keyed by the script's path",
   expect(decls).toContain("fee: number");
 }, 60_000);
 
+test("evaluator importer — a nested object is indented at its depth", () => {
+  const p = tsProject();
+  p.write("geo.ts", "export default async () => ({ ok: true });\n");
+  const def = p.write(
+    "nested.yaml",
+    [
+      `name: ${uid("nested")}`,
+      "input_schema:",
+      "  type: object",
+      "  properties:",
+      "    geo:",
+      "      type: object",
+      "      properties: { lat: { type: number }, name: { type: string } }",
+      "      required: [lat, name]",
+      "  required: [geo]",
+      "tasks:",
+      "  - id: locate",
+      "    action:",
+      "      type: external",
+      "      input:",
+      '        code: "$import: ./geo.ts"',
+      '        input: "$: input"',
+      "      result_schema: { type: object, properties: { ok: { type: boolean } }, required: [ok] }",
+      "      timeout: 5s",
+      "    switch: [{ goto: end }]",
+      "",
+    ].join("\n"),
+  );
+
+  expect(runCli(bin, ["types", "-f", def], OFFLINE).ok).toBe(true);
+
+  const decls = readFileSync(join(p.dir, "geo.genroc.d.ts"), "utf8");
+  expect(decls, "a nested object's members and its closing brace sit one level in").toContain(
+    ["  geo: {", "    lat: number;", "    name: string;", "  };"].join("\n"),
+  );
+}, 60_000);
+
 // genctl is agnostic about what a script is for; that an evaluation request carries its module
 // in `code` is the EVALUATOR's contract, so the evaluator is what enforces it. Its two shapes are
 // a child call to a process that forwards to it (what the scaffold generates) and an external

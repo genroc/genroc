@@ -1,4 +1,3 @@
-# yaml-language-server: $schema=https://genroc.org/process-schema.json
 name: weather-logger
 input_schema:
   type: object
@@ -18,7 +17,12 @@ tasks:
         200:
           $ref: "#/$defs/geo_response"
     output: "$: self.result.results[0]"
-    switch: next
+    switch:
+      - case: "self.output == null"
+        panic:
+          code: "location_not_found"
+          message: "Location ${input.place} not found"
+      - goto: next
 
   # Parks the instance until the next whole 10 seconds, holding no worker.
   - id: wait
@@ -31,7 +35,7 @@ tasks:
   - id: reading
     action:
       type: child
-      name: script-node
+      <<: "$process: ./script-node.genroc.yaml"
       input:
         code: "$import: ./reading.ts"
         # The script's own budget. script.yaml waits 30s on top of it, so an overrun
@@ -41,31 +45,10 @@ tasks:
           geo: "$: outputs.location"
       result_schema:
         $ref: "#/$defs/reading"
-      # What this caller needs of a throw. `script` is generic and cannot mint a code for
-      # reading.ts's refusals (R2), so `name` would die at the process boundary; declaring the
-      # shape here is what carries it across, exactly as result_schema carries the output.
-      raises:
-        script_threw:
-          $ref: "#/$defs/script_throw"
-    output:
-      count: "$: (self.previous.count ?? 0) + 1"
-      last: "$: self.result"
-    on_error:
-      # A reading that may or may not have happened is a reason to look again at the next
-      # window — reading.ts pins nothing, so a rerun is free. There is no "evaluator down"
-      # code to handle any more: a runner that faults releases its claim and the task waits on
-      # the queue, so only a spent DEADLINE reaches here, as script_unknown.
-      - code: ["script_timeout", "script_unknown"]
-        goto: $wait
-      # The sky refusing is transient; anything else reading.ts throws is a bug in it, and
-      # looping on a bug would hide it forever behind a process that never finishes. Deciding
-      # at the rule keeps the instance on `reading`, which is what a retry can still reach.
-      - code: ["script_threw"]
-        case: 'error.data.name == "UpstreamError"'
-        goto: $wait
+    output: "$: self.result"
+    switch: end
 
-    switch:
-      - goto: $wait
+output: "$: outputs.reading"
 
 $defs:
   # Only the two fields this process reads: the conform narrows the forwarded payload to
