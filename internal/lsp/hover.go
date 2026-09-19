@@ -5,6 +5,7 @@ package lsp
 // views, so the editor and the command cannot disagree. specs/schema-command.md.
 
 import (
+	"regexp"
 	"strings"
 
 	"genroc/internal/defdoc"
@@ -16,6 +17,12 @@ import (
 // hoverAt returns the markdown for a cursor, and the range it describes. An empty string means
 // there is nothing to say, which is the common answer and must not become a popup.
 func hoverAt(text, file string, line, col int) (string, defdoc.Range, bool) {
+	// Off the raw line, before the index: a `<<` whose value defdoc merges (an anchor, a nested
+	// mapping) has no node of its own, so the cursor would resolve to the mapping around it and
+	// answer with THAT key's prose -- reported from an editor as `action`'s description.
+	if r, ok := mergeKeyUnder(lineAt(text, line), line, col); ok {
+		return mergeKeyHover, r, true
+	}
 	docs, err := parseDocuments(text, file)
 	if err != nil {
 		return "", defdoc.Range{}, false
@@ -25,11 +32,15 @@ func hoverAt(text, file string, line, col int) (string, defdoc.Range, bool) {
 		if !ok {
 			continue
 		}
+		span, _ := d.Span(path)
+		// A directive is not a slot: what it YIELDS is the answer, and that is a structure.
+		if md := directiveHover(d, path); md != "" {
+			return md, span.Value, true
+		}
 		def, ok := d.definition()
 		if !ok {
 			return "", defdoc.Range{}, false
 		}
-		span, _ := d.Span(path)
 		if md := describe(d.Doc, def, path, lineAt(text, line), line, col); md != "" {
 			return md, span.Value, true
 		}
@@ -163,6 +174,27 @@ func interpolationUnder(line string, col int) (string, bool) {
 		return "", false
 	}
 	return inner, true
+}
+
+// mergeKeyHover is what `<<` means, in one line. It is prose the schema cannot carry: defdoc
+// consumes the key before the server sees a document, so no struct field describes it.
+const mergeKeyHover = "Merges a mapping into this one: an anchored mapping (`<<: *base`), a nested one, " +
+	"or what a `$<resolver>:` directive answers (`$process` spreads a child's types). " +
+	"A key written beside it wins."
+
+var mergeKeyRe = regexp.MustCompile(`^\s*(?:-\s+)?(<<)\s*:`)
+
+// mergeKeyUnder reports whether the cursor is on a `<<` key, and that key's range.
+func mergeKeyUnder(src string, line, col int) (defdoc.Range, bool) {
+	m := mergeKeyRe.FindStringSubmatchIndex(src)
+	if m == nil {
+		return defdoc.Range{}, false
+	}
+	start, end := m[2], m[3]
+	if col-1 < start || col-1 > end {
+		return defdoc.Range{}, false
+	}
+	return defdoc.Range{Line: line, Col: start + 1, EndLine: line, EndCol: end + 1}, true
 }
 
 // lineAt returns one 1-based line of text, or "" past the end.

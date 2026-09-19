@@ -43,6 +43,17 @@ takes. A name the registry does not carry is left unfiltered rather than answere
 the registry is the reader's to fix, and an empty list at the moment they are typing reads as a
 broken server. **BUILT 2026-09-18**, `internal/lsp/paths.go`, `tests/lsp/directive_path_test.ts`.
 
+Hovering a directive shows what it is worth a popup for, as the YAML its author would have
+written. A STRUCTURAL directive — `$process` or a registered one — shows what it yields: the
+value it fills or spreads, from `sources.StructuralValueAt`, the pass's own call for one site, so
+the popup cannot differ from what an apply merges. A key the mapping around a spread writes
+itself stays in the picture with a note that the written one wins: the precedence is the one
+fact a reader would otherwise get wrong. A CODE directive is never run by the editor (it shells
+out, and its answer is a string), and the popup says only that: showing the types its resolver
+would be handed was built and taken out, because it reproduced `genctl types` under a hover for
+an answer the directive's own line already gives. **BUILT 2026-09-18/19**,
+`internal/lsp/directive.go`, `tests/lsp/directive_hover_test.ts`.
+
 ## Thesis
 
 A definition **source file** is resolved into a **definition** by binaries the project
@@ -423,6 +434,24 @@ reaches no server, which is what lets it run on every edit.
 Same binary, same manifest, two modes: a separate types *hook* would mean a second
 subprocess and a second `tsc` over the same project.
 
+## Registered structural resolvers — phase 1's interface
+
+**BUILT 2026-09-19.** A `.genroc` entry with `phase: structural` and a `command` runs on the same
+manifest as phase 2, `mode: "structural"`, minus `types` and `$defs`: it runs before inference,
+so there is nothing to hand it, and an entry that asks for `types` is refused when the config is
+read rather than answered with null at every site. It answers `{"values": [<any>, …]}`, parallel
+to the sites as `code` is, and a value is any JSON: a slot site takes it whole, a spread site
+takes a mapping and refuses anything else by name. Values are decoded exactly
+([number-precision.md](number-precision.md)), so a `default` in a fragment reaches the type view
+as written — a resolver that parses its file into a double has already lost it, which is its own.
+
+Batched like phase 2, one call per entry carrying every site that named it, for the same reason:
+N directives must not mean N processes. What a value CONTAINS is not resolved again. A directive
+inside it is found by the code phase's re-walk, so a structural answer may carry a `$import`,
+but not another structural directive — one pass, no fixpoint, the line §Ordering draws for the
+spread graph. `genctl schema` and the editor both run this phase, which is what the hover above
+reads. `tests/cli/structural_test.ts`, `tests/lsp/directive_hover_test.ts`.
+
 ## `$infer` — the other direction
 
     result_schema: "$infer: ./summarize.ts"
@@ -469,7 +498,10 @@ Not spelled `$infer`: that name is a script's return type at `ext: .ts`, and `ex
 assertion, so reusing it would make one word mean two file types.
 
 **The child's `output` is the parent's `result_schema`** — a rename, not a copy, which is the
-other reason this is not a generic fragment loader. `version` cannot come from the file at all: a
+other reason this is not a generic fragment loader. The one copy, `input_schema`
+([declared-slot-schemas.md](declared-slot-schemas.md)), is NOT canonicalized on the way:
+`Canonicalize` drops `description`, and the child author's prose is what the copy is worth
+having for — it is what the caller's key hover shows. `version` cannot come from the file at all: a
 source file is not a version and `Version: 0` means latest, so the spread fills the types and not
 the pin, exactly where hand-writing already stood.
 
@@ -617,8 +649,7 @@ Stated explicitly because unstated it reads as a violation the first time someon
   fix if it matters: the resolver prints what it wrote and genctl reports it.
 - **Caching.** Resolvers run on every apply. Content-hash the manifest if it becomes slow —
   not before, and never in a way that can serve a stale string.
-- **Phase-1 batching.** Per-file, file-in/stdout-out, since there is no shared project to
-  check. If `$infer` sites grow it takes the same manifest with `mode: "infer"`.
-- **The structural phase.** Nothing registers one yet. `findProjectConfig` refuses
-  `phase: structural` outright rather than accepting and ignoring it, so the day it lands
-  the config that anticipated it fails loudly instead of having silently done nothing.
+- ~~**Phase-1 batching.**~~ **Settled 2026-09-19: the same manifest, batched like phase 2.**
+  §Registered structural resolvers.
+- ~~**The structural phase.**~~ **Built 2026-09-19** for registered resolvers; `$infer` is what
+  remains, and it is one such resolver with `mode: "infer"` reading of the argument.

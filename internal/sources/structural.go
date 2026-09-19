@@ -23,41 +23,88 @@ func (s site) spread() bool {
 // resolveStructuralPass resolves every structural directive in docs, mutating them in place.
 // stack is the chain of files being resolved, which is how a spread cycle is refused by path.
 func resolveStructuralPass(docs []sourceDoc, cfg projectConfig, stack []string) (int, error) {
-	sites, err := findSites(docs, cfg)
+	all, err := findSites(docs, cfg)
 	if err != nil {
 		return 0, err
 	}
-	n := 0
-	for _, s := range sites {
-		if cfg.Resolvers[s.resolverIdx].Phase != phaseStructural {
+	var sites []site
+	for _, s := range all {
+		if cfg.Resolvers[s.resolverIdx].Phase == phaseStructural {
+			sites = append(sites, s)
+		}
+	}
+	values, err := structuralValues(docs, cfg, sites, stack)
+	if err != nil {
+		return 0, err
+	}
+	for i, s := range sites {
+		if err := applyStructural(docs, s, values[i]); err != nil {
+			return 0, err
+		}
+	}
+	return len(sites), nil
+}
+
+// structuralValues answers every site, parallel to sites. The built-in runs in process, one
+// site at a time; a registered resolver runs ONCE with every site that named it, as the code
+// phase does -- N directives must not mean N processes.
+func structuralValues(docs []sourceDoc, cfg projectConfig, sites []site, stack []string) ([]any, error) {
+	out := make([]any, len(sites))
+	byResolver := map[int][]site{}
+	var order []int
+	for i, s := range sites {
+		s.ord = i
+		if _, seen := byResolver[s.resolverIdx]; !seen {
+			order = append(order, s.resolverIdx)
+		}
+		byResolver[s.resolverIdx] = append(byResolver[s.resolverIdx], s)
+	}
+	for _, idx := range order {
+		rc, group := cfg.Resolvers[idx], byResolver[idx]
+		if len(rc.Command) == 0 {
+			if rc.Name != builtinProcess {
+				return nil, fmt.Errorf("structural resolver %q has no command and is not one genctl answers itself", rc.Name)
+			}
+			for _, s := range group {
+				here, err := filepath.Abs(docs[s.docIdx].File)
+				if err != nil {
+					return nil, err
+				}
+				value, err := resolveProcessDirective(docs[s.docIdx].File, s.Argument, append(stack, here))
+				if err != nil {
+					return nil, fmt.Errorf("%s: %s: %w", docs[s.docIdx].File, renderPointer(s.Pointer), err)
+				}
+				out[s.ord] = value
+			}
 			continue
 		}
-		rc := cfg.Resolvers[s.resolverIdx]
-		if rc.Name != builtinProcess || len(rc.Command) > 0 {
-			return 0, fmt.Errorf("%s: %s: structural resolver %q is not implemented - only the "+
-				"built-in %q runs today", docs[s.docIdx].File, s.Pointer, rc.Name, builtinProcess)
-		}
-		here, err := filepath.Abs(docs[s.docIdx].File)
+		// No schemas: phase 1 runs before inference, so the manifest carries no types and no pool.
+		processes, err := byProcess(nil, docs, group)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		value, err := resolveProcessDirective(docs[s.docIdx].File, s.Argument, append(stack, here))
+		m := manifest{Mode: phaseStructural, Processes: processes}
+		values, err := runStructuralResolver(cfg, rc, m)
 		if err != nil {
-			return 0, fmt.Errorf("%s: %s: %w", docs[s.docIdx].File, s.Pointer, err)
+			return nil, err
 		}
-		if err := applyStructural(docs, s, value); err != nil {
-			return 0, err
+		for i, s := range m.flatten() {
+			out[s.ord] = values[i]
 		}
-		n++
 	}
-	return n, nil
+	return out, nil
 }
 
 // applyStructural writes a structural result into the document: a spread pre-fills the mapping
 // the `<<` sits in and an explicit key beats it, a slot site replaces the leaf.
-func applyStructural(docs []sourceDoc, s site, value map[string]any) error {
+func applyStructural(docs []sourceDoc, s site, value any) error {
 	if !s.spread() {
 		return splice(docs, s, value)
+	}
+	fields, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("%s: %s: `%s` spreads a mapping, and %q answered with %s",
+			docs[s.docIdx].File, renderPointer(s.Pointer), defdoc.MergeKey, s.Resolver, kindOf(value))
 	}
 	parent, err := containerOf(docs, s)
 	if err != nil {
@@ -65,13 +112,29 @@ func applyStructural(docs []sourceDoc, s site, value map[string]any) error {
 	}
 	// The explicit keys are already in parent; only what it does not carry is taken. Deleting
 	// the directive last keeps parent non-empty for a caller inspecting it mid-merge.
-	for k, v := range value {
+	for k, v := range fields {
 		if _, taken := parent[k]; !taken {
 			parent[k] = v
 		}
 	}
 	delete(parent, defdoc.MergeKey)
 	return nil
+}
+
+func kindOf(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case []any:
+		return "a list"
+	case string:
+		return "a string"
+	case bool:
+		return "a boolean"
+	case map[string]any:
+		return "a mapping"
+	}
+	return "a number"
 }
 
 // containerOf returns the mapping a spread site sits in.
@@ -149,7 +212,7 @@ func resolveProcessDirective(fromFile, argument string, stack []string) (map[str
 	// author, so the spread reproduces it. That makes the registration check against the child a
 	// check that the copy is still current, and it is what lets an editor check the call offline.
 	if def.InputSchema != nil {
-		in, err := selfContainedSchema(*def.InputSchema, sf.Defs)
+		in, err := selfContainedSchema(*def.InputSchema, sf.Defs, false)
 		if err != nil {
 			return nil, err
 		}
@@ -157,7 +220,7 @@ func resolveProcessDirective(fromFile, argument string, stack []string) (map[str
 			out["input_schema"] = in
 		}
 	}
-	result, err := selfContainedSchema(sf.ProcessOutput, sf.Defs)
+	result, err := selfContainedSchema(sf.ProcessOutput, sf.Defs, true)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +230,7 @@ func resolveProcessDirective(fromFile, argument string, stack []string) (map[str
 	if len(sf.Raises) > 0 {
 		raises := map[string]any{}
 		for code, s := range sf.Raises {
-			r, err := selfContainedSchema(s, sf.Defs)
+			r, err := selfContainedSchema(s, sf.Defs, true)
 			if err != nil {
 				return nil, err
 			}
@@ -179,14 +242,19 @@ func resolveProcessDirective(fromFile, argument string, stack []string) (map[str
 }
 
 // selfContainedSchema renders one schema out of a definition's pool so it can stand alone in a
-// slot: canonical, carrying only the `$defs` its refs reach, and unwrapped where the whole
-// answer is a ref to a non-recursive definition. A nil answer means the definition types nothing
-// there, which is a different fact from typing it as empty.
-func selfContainedSchema(s schema.Schema, pool schema.Defs) (any, error) {
+// slot: carrying only the `$defs` its refs reach, and unwrapped where the whole answer is a ref
+// to a non-recursive definition. A nil answer means the definition types nothing there, which
+// is a different fact from typing it as empty. An INFERRED schema is canonicalized on the way;
+// the authored copy is not, because Canonicalize drops `description`, and the prose is what an
+// imported schema is worth having for.
+func selfContainedSchema(s schema.Schema, pool schema.Defs, inferred bool) (any, error) {
 	if s.IsZero() {
 		return nil, nil
 	}
-	raw, err := json.Marshal(s.Canonicalize().WithDefs(pool))
+	if inferred {
+		s = s.Canonicalize()
+	}
+	raw, err := json.Marshal(s.WithDefs(pool))
 	if err != nil {
 		return nil, err
 	}

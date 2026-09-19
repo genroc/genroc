@@ -138,15 +138,14 @@ test("`<<` with a value that is not a directive stays the parse error it always 
 
 test("a .genroc entry of the same name is matched before the built-in", () => {
   // The local entry claims the name AND the suffix, so first-match stops at it and never
-  // reaches the built-in -- which is visible because it is an external resolver, not the one
-  // genctl answers itself.
+  // reaches the built-in -- visible because its command is RUN, and there is no such file.
   const { parent: path } = project(
     [SPREAD, "      input: { n: '$: input.n' }"],
     "resolvers:\n  - { name: process, phase: structural, ext: [.genroc.yaml], command: [node, x.mjs] }\n",
   );
   const r = runCli(bin, ["schema", "type", "spread-parent", "output", "--json", "-f", path], OFFLINE);
   expect(r.ok).toBe(false);
-  expect(r.stderr).toContain("not implemented");
+  expect(r.stderr).toContain("x.mjs");
 });
 
 test("an override is per suffix: a local entry claiming another one falls through", () => {

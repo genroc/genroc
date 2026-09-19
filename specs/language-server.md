@@ -5,7 +5,8 @@
 `genctl apply` prints `file:line:col: message`, one line per broken slot;
 `POST /api/definitions/validate` returns `fields[]` for a type failure as it always did for a
 struct-tag one; and `genctl lsp` publishes diagnostics over stdio for `*.genroc.yaml`, answers **hover** (one line: the type of the symbol, expression or slot
-under the cursor, else what the key means) and **completion** (scope members, keys, and a routing slot's task ids) (scope members inside an expression, legal keys
+under the cursor, else what the key means; over a structural directive, what it yields, as
+YAML) and **completion** (scope members, keys, and a routing slot's task ids) (scope members inside an expression, legal keys
 everywhere else — discriminated, so a `fetch` is offered fetch's keys and not the union of
 six), navigates a `goto` to the task it names and a child action's process to the file that
 defines it, and ships as a VS Code extension that is a launcher for `genctl lsp` and nothing
@@ -314,7 +315,7 @@ range *inside* an expression — precise squiggles, or semantic highlighting.
 | 0a ✅ | `internal/defdoc`; `additionalProperties: false` on every reflected struct, and the drift test | the published schema stops accepting what the server rejects |
 | 0b ✅ | slot addresses on every diagnostic; collect-with-recovery; codes; `Check` beside `Generate` | API returns `fields[]` for inference errors; `genctl` prints `file:line:col` |
 | 1 ✅ | `genctl lsp`: stdio JSON-RPC, document store, didOpen/didChange, publishDiagnostics — structural *and* inference | squiggles that agree with the server |
-| 2a ✅ | hover: an expression's inferred type, a slot's type, the scope it is written in | the type an author is guessing at, without leaving the file |
+| 2a ✅ | hover: an expression's inferred type, a slot's type, the scope it is written in; what a structural directive yields | the type an author is guessing at, without leaving the file |
 | 2b ✅ | completion: keys and action variants from the schema; scope members inside `$:` / `${ }`, on text that does not parse | the rest of the reason to build it |
 | 3a ✅ | goto-definition on `goto:` — the task it names, in this document | jump through a routing graph |
 | 3b ✅ | goto-definition on a child action's process, across files | jump into the definition a task spawns |

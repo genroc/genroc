@@ -7,6 +7,9 @@ package sources
 // second implementation. specs/source-resolution.md, specs/language-server.md section 4.
 
 import (
+	"strconv"
+	"strings"
+
 	"genroc/internal/model"
 	"genroc/internal/schema"
 )
@@ -35,6 +38,53 @@ func LoadDocs(files []string) ([]Doc, error) { return loadSourceDocs(files) }
 // spread cycle is refused; a caller starting fresh passes nil.
 func ResolveStructuralPass(docs []Doc, cfg Config, stack []string) (int, error) {
 	return resolveStructuralPass(docs, cfg, stack)
+}
+
+// StructuralValueAt answers ONE structural directive without applying it: the value the site at
+// path would be filled or spread with, which is what an editor shows over it. structural is
+// false, with no error, where the directive at path is a code-phase one -- the editor never runs
+// that phase -- or where path holds no directive; an error is the resolution's own. doc is the
+// text as written, since a resolved document no longer holds the site, and it is not mutated.
+func StructuralValueAt(doc Doc, cfg Config, path string) (value any, structural bool, err error) {
+	docs := []sourceDoc{doc}
+	sites, i, err := siteAt(docs, cfg, path)
+	if err != nil || i < 0 || cfg.Resolvers[sites[i].resolverIdx].Phase != phaseStructural {
+		return nil, false, err
+	}
+	values, err := structuralValues(docs, cfg, []site{sites[i]}, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	return values[0], true, nil
+}
+
+// siteAt finds the directive an editor path names among a document's sites: -1 for none.
+func siteAt(docs []sourceDoc, cfg projectConfig, path string) ([]site, int, error) {
+	sites, err := findSites(docs, cfg)
+	if err != nil {
+		return nil, -1, err
+	}
+	for i, s := range sites {
+		if pointerAddress(s.Pointer) == path {
+			return sites, i, nil
+		}
+	}
+	return sites, -1, nil
+}
+
+// pointerAddress spells a pointer the way defdoc addresses a node: dotted, a task by id, an
+// index by number. Not renderPointer, which quotes a key no identifier can spell.
+func pointerAddress(p []any) string {
+	parts := make([]string, len(p))
+	for i, seg := range p {
+		switch v := seg.(type) {
+		case string:
+			parts[i] = v
+		case int:
+			parts[i] = strconv.Itoa(v)
+		}
+	}
+	return strings.Join(parts, ".")
 }
 
 // ResolveCode runs the code phase: every phase-2 resolver, shelling out to the command each

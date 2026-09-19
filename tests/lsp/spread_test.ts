@@ -20,7 +20,7 @@ const CHILD = [
   "name: spread-child",
   "input_schema:",
   "  type: object",
-  "  properties: { n: { type: number } }",
+  "  properties: { n: { type: number, description: 'the number to double' } }",
   "  required: [n]",
   "tasks:",
   "  - id: only",
@@ -160,4 +160,88 @@ test("a spread that fills input_schema still leaves an explicit one alone", asyn
   );
   const ds = await lsp.diagnostics(project(own));
   expect(ds).toEqual([]);
+});
+
+// The directive itself. What a spread fills in is a structure, so this is the one hover that is
+// not a line: the mapping, as the YAML its author would have written, from the same call the
+// structural phase makes.
+test("hover on the directive shows what the spread fills in, as YAML", async () => {
+  const doc = project(parent());
+  expect(await lsp.hover(at('      <<: "$process: <^./child.genroc.yaml>"', doc))).toBe(
+    [
+      "```yaml",
+      "name: spread-child",
+      "input_schema:",
+      "  type: object",
+      "  properties:",
+      // `n` is quoted because a bare one is YAML's `no`; the prose is the child author's,
+      // which the copy keeps.
+      "    n: {description: the number to double, type: number}",
+      '  required: ["n"]',
+      "result_schema:",
+      "  type: object",
+      "  properties:",
+      "    doubled: {type: number}",
+      "  required: [doubled]",
+      "raises:",
+      '  negative: {type: "null"}',
+      "```",
+    ].join("\n"),
+  );
+});
+
+// The copy is worth having for its prose, and Canonicalize drops `description` — so the key
+// hover in the CALLER is where a lost one would show.
+test("a key in the caller's input carries the child author's description", async () => {
+  const doc = project(parent());
+  expect(await lsp.hover(at("      input: { <^n>: '$: input.n' }", doc))).toContain(
+    "the number to double",
+  );
+});
+
+test("a key written beside the spread is marked as the one that wins", async () => {
+  const own = parent().replace(
+    "      input: { n: '$: input.n' }",
+    [
+      "      input: { n: '$: input.n' }",
+      "      result_schema: { type: object, properties: { doubled: { type: number } } }",
+    ].join("\n"),
+  );
+  const md = await lsp.hover(at('      <<: "$process: <^./child.genroc.yaml>"', project(own)));
+  expect(md).toContain("result_schema: # the key written here wins");
+  expect(md, "the other keys are taken, and say nothing").not.toContain("name: spread-child #");
+  // The note is on the KEY only where the value opens a block; a `{}` or a scalar would carry it
+  // on the value, since yaml.v3 otherwise prints it on the next line (scaffold_test pins that).
+});
+
+test("a directive that does not resolve shows no structure", async () => {
+  const broken = parent().replace("./child.genroc.yaml", "./missing.genroc.yaml");
+  const md = await lsp.hover(at('      <<: "$process: <^./missing.genroc.yaml>"', project(broken)));
+  expect(md).not.toContain("```");
+});
+
+// The KEY is a different question from its value: what `<<` does. A `<<` whose value defdoc
+// merges itself (a nested mapping, an anchor) has no node in the index at all, so without an
+// answer of its own the cursor resolved to the mapping around it and hover described `action`.
+test("hover on the `<<` key says what a merge does, whatever its value", async () => {
+  const explains = (md: string) => {
+    expect(md).toContain("Merges a mapping into this one");
+    expect(md).toContain("A key written beside it wins");
+    expect(md, "the key is not the value: no structure here").not.toContain("```");
+  };
+  explains(await lsp.hover(at('      <^<<>: "$process: ./child.genroc.yaml"', project(parent()))));
+
+  // The same keys the spread would have brought, written by hand under a nested mapping.
+  const nested = parent().replace(
+    '      <<: "$process: ./child.genroc.yaml"',
+    [
+      "      <<:",
+      "        name: spread-child",
+      "        result_schema: { type: object, properties: { doubled: { type: number } }, required: [doubled] }",
+    ].join("\n"),
+  );
+  const doc = project(nested);
+  const ds = await lsp.diagnostics(doc);
+  expect(ds, `a nested mapping is a merge defdoc performs: ${JSON.stringify(ds)}`).toEqual([]);
+  explains(await lsp.hover(at("      <^<<>:", doc)));
 });

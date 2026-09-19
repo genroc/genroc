@@ -232,11 +232,15 @@ func loadDefinition(files []string, process string) *model.ProcessDefinition {
 	}
 	// The STRUCTURAL phase only: it changes the types this command reports, so skipping it
 	// would answer about a definition nobody applies. The code phase is skipped on purpose --
-	// it shells out, and a string splice cannot move a type anyway.
-	if cfg, err := sources.FindProjectConfig(filepath.Dir(files[0])); err == nil {
-		if _, err := sources.ResolveStructuralPass(docs, cfg, nil); err != nil {
-			fatal("%v", err)
-		}
+	// it shells out, and a string splice cannot move a type anyway. No config is not an error;
+	// a malformed one is, and swallowing it left a directive unresolved with a decode error
+	// pointing at the definition.
+	cfg, err := sources.FindProjectConfig(filepath.Dir(files[0]))
+	if err != nil {
+		fatal("%v", err)
+	}
+	if _, err := sources.ResolveStructuralPass(docs, cfg, nil); err != nil {
+		fatal("%v", err)
 	}
 	var names []string
 	for _, sd := range docs {

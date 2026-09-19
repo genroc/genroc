@@ -334,12 +334,13 @@ conform removes — so a call that works at runtime is refused at registration. 
 declared non-nullable is exactly the case §4 exists for, and leaving both checks in place makes
 the feature unusable on the slot it was written for.
 
-**`$process` should spread `input_schema`.** It fills `name`, `result_schema` and `raises`
-today ([structural.go](../internal/sources/structural.go)) and the input side is the one it
-leaves out. Unlike the others this is a **copy, not an inference**: a definition's
-`input_schema` is written by its author, so the spread reproduces it through
-`selfContainedSchema` and nothing is derived. That makes the registration check above a check
-that the copy is still current — the `$process` analogue of a stale generated client.
+**`$process` spreads `input_schema`** beside `name`, `result_schema` and `raises`
+([structural.go](../internal/sources/structural.go)). Unlike the others this is a **copy, not an
+inference**: a definition's `input_schema` is written by its author, so the spread reproduces it
+through `selfContainedSchema` and nothing is derived — and it is the one the spread does NOT
+canonicalize, since `Canonicalize` drops `description` and the prose is what the copy is worth
+having for. That makes the registration check above a check that the copy is still current —
+the `$process` analogue of a stale generated client.
 
 **Fetch body.** A note for whoever writes the importer's request side: the dialect table strips
 `format` and `pattern`, and the argument that stripping is safe

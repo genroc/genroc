@@ -82,6 +82,22 @@ twelve, which reads as a hover that does not work, and was reported as one.
 expression around it, and the slot's scope — and the two extra lines answered questions nobody
 had asked at that moment. `genctl schema context` is where a scope is asked for.
 
+**The one block is a STRUCTURAL directive** (`directive.go`) — `$process` or a registered
+command — showing what it YIELDS, from `sources.StructuralValueAt`, the pass's own call for one
+site, over the text as WRITTEN (the site is a node there; resolving removes it). A code directive
+is never run here and says only that it resolves at apply: showing the types its resolver would
+be handed was built and removed, since it reproduced `genctl types` under a hover. Keys follow
+`schema.KeywordOrder` (names under
+`properties`, `$defs` and `raises` sort), and a mapping of short scalars prints inline, the way
+these files are written. A key the mapping around a spread writes itself is kept with a note
+that the written one wins. Silent when broken: yaml.v3 prints a key's line comment on the NEXT
+pair when the value is inline, so the note rides the value there and the key only where the
+value opens a block — `tests/lsp/scaffold_test.ts` pins the `{}` case. It runs before
+`definition()` because it needs none. The `<<` KEY is a different question — what a merge does —
+and it is answered off the raw line (`mergeKeyUnder`) before the index is consulted, because a
+`<<` defdoc merges itself (an anchor, a nested mapping) has no node: the cursor resolved to the
+mapping around it and hover described `action`, reported from an editor.
+
 `symbolUnder` is the same trick one level down: the member path the cursor sits in, truncated
 at that segment, so walking `self.result.total` shows each level. It reads raw text because the
 expression AST carries no offsets (specs/language-server.md §6), which is also why a symbol

@@ -212,8 +212,9 @@ register; when it disagrees with a §0, the §0 is right.
   context-only objects are never served).
 - [source-resolution.md](source-resolution.md) — **code phase built** (2026-08-21;
   `internal/sources/sources.go`, `eval-node/import.ts`); **structural phase, spread form, `$process`
-  and the config reshape built** (2026-09-17; `internal/sources/structural.go`). `$infer` and
-  registered (non-built-in) structural resolvers are still unbuilt.
+  and the config reshape built** (2026-09-17; `internal/sources/structural.go`); **registered
+  structural resolvers built** (2026-09-19, the phase-2 manifest in `mode: "structural"`, answered
+  with `values`). `$infer` is still unbuilt.
   How a definition **source file** becomes a definition: a `.genroc` in the repo registers resolver binaries and a
   `"$import: ./x.ts"` directive names one, so a TS bundler, a type generator and a YAML
   fragment loader are all clients of one mechanism. Supersedes script-tasks.md's single-pass
