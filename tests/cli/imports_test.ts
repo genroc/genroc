@@ -512,6 +512,60 @@ test("apply — $$ escapes the directive, leaving a literal string", async () =>
   expect(instance.state.output).toBe("$import: ./body.txt");
 });
 
+// The OTHER half of that escape, and the half that was missing. The walk looking for directives
+// reads every string leaf and knows nothing about where it is, so a user schema's own data is
+// claimed too. Without the unescape an author can write neither spelling: the bare one is
+// refused by name, and the doubled one is STORED doubled, because the template layer is what
+// collapses `$$` and a user schema never reaches it. specs/source-resolution.md.
+test("schema — a leaf that only LOOKS like a directive is claimed, which is why the escape exists", () => {
+  const p = echoProject();
+  const name = uid("esc");
+  const def = p.write("proc.yaml", schemaWithDefault(name, "$note: fill this in"));
+  const r = runCli(bin, ["schema", "type", name, "input", "--json", "-f", def], OFFLINE);
+  expect(r.ok).toBe(false);
+  expect(r.stderr).toContain('no resolver named "note"');
+  // The slot, so a reader is sent to the leaf rather than to the top of the file.
+  expect(r.stderr).toContain("input_schema.properties.tpl.default");
+});
+
+test("schema — $$ escapes it, and the doubling does not survive into the schema", () => {
+  const p = echoProject();
+  const name = uid("esc");
+  const def = p.write("proc.yaml", schemaWithDefault(name, "$$note: fill this in"));
+  const r = runCli(bin, ["schema", "type", name, "input", "--json", "-f", def], OFFLINE);
+  expect(r.stderr).toBe("");
+  const t = JSON.parse(r.stdout);
+  const inferred = t.$defs?.[String(t.$ref).replace("#/$defs/", "")] ?? t;
+  expect(inferred.properties.tpl.default).toBe("$note: fill this in");
+});
+
+// The colon alone never made a directive: a space has to follow it, which is what keeps `$` free
+// to be the routing sigil as well. So a leaf like this needs no escape at all.
+test("schema — a colon with no space after it is not a directive, and needs no escape", () => {
+  const p = echoProject();
+  const name = uid("esc");
+  const def = p.write("proc.yaml", schemaWithDefault(name, "$note:see-the-docs"));
+  const r = runCli(bin, ["schema", "type", name, "input", "--json", "-f", def], OFFLINE);
+  expect(r.stderr).toBe("");
+  const t = JSON.parse(r.stdout);
+  const inferred = t.$defs?.[String(t.$ref).replace("#/$defs/", "")] ?? t;
+  expect(inferred.properties.tpl.default).toBe("$note:see-the-docs");
+});
+
+/** A definition whose only interesting part is one schema default. */
+function schemaWithDefault(name: string, value: string): string {
+  return [
+    `name: ${name}`,
+    "input_schema:",
+    "  type: object",
+    "  properties:",
+    `    tpl: { type: string, default: ${JSON.stringify(value)} }`,
+    "tasks: []",
+    'output: { ok: true }',
+    "",
+  ].join("\n");
+}
+
 test("apply — a definition with no directives spends no resolver and no extra roundtrip", () => {
   // The resolver command does not exist, so running it at all would fail the apply.
   const p = project(`resolvers:\n  - { name: import, phase: code, command: [/nonexistent/binary] }\n`);

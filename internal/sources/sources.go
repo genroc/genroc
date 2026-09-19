@@ -606,6 +606,7 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 		}
 	}
 	if len(sites) == 0 {
+		unescapeDocs(docs)
 		return 0, nil
 	}
 
@@ -659,6 +660,9 @@ func resolveDocs(docs []sourceDoc, mode string) (int, error) {
 			}
 		}
 	}
+	// Last, once no walk will look for a directive again. A spliced string is untouched: it was
+	// escaped on the way in and the template layer undoes that at run time.
+	unescapeDocs(docs)
 	return len(sites), nil
 }
 

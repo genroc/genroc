@@ -36,8 +36,17 @@ func LoadDocs(files []string) ([]Doc, error) { return loadSourceDocs(files) }
 // ResolveStructuralPass resolves every structural directive in docs, MUTATING them in place,
 // and returns how many it resolved. stack is the chain of files being resolved, by which a
 // spread cycle is refused; a caller starting fresh passes nil.
+//
+// It also finalises the `$$name:` escape, because everyone who calls it from outside this
+// package stops here rather than going on to the code phase. That phase re-walks the document,
+// and a leaf unescaped before that walk is claimed by it.
 func ResolveStructuralPass(docs []Doc, cfg Config, stack []string) (int, error) {
-	return resolveStructuralPass(docs, cfg, stack)
+	n, err := resolveStructuralPass(docs, cfg, stack)
+	if err != nil {
+		return n, err
+	}
+	unescapeDocs(docs)
+	return n, nil
 }
 
 // StructuralValueAt answers ONE structural directive without applying it: the value the site at

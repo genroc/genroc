@@ -212,6 +212,15 @@ General form `"$<resolver>: <path>"`, path relative to the file the directive ap
 `$$import:` is a literal, by the escape rule [typed-values.md](typed-values.md) already
 defines — no new grammar.
 
+**The space after the colon is part of the form, not formatting** (built 2026-09-19). `$` is the
+routing sigil as well, and the space is the only thing separating the two: a task named `a:b` is
+reached by `goto: $a:b`, which read as a directive named `a` — and *ran*, where a resolver
+happened to carry that name. It also keeps `$scheme://host` a string. YAML draws this line
+itself, a mapping needing the space where a plain scalar like `a:b` does not, so the form follows
+the host grammar rather than a looser rule of its own. Task ids are C identifiers as of the same
+day, which closes the same hole from the other side; neither change makes the other redundant,
+since a URL is not a task id.
+
 A YAML `!import` tag was rejected, and not for the reason it first looks like. Reading it in
 Go is *easier*: the tag survives on the `yaml.Node`, `Decode` on the scalar yields the bare
 path, and `node.Tag == "!import"` is a fact from the parser rather than a prefix match on a
@@ -306,6 +315,35 @@ whole mitigation, for the reason genctl already owns directive detection (§genc
 sites): two of anything for one rule drift, and the day they disagree the report lands somewhere
 unrelated.
 
+
+## Escaping on the way IN — writing a leaf that only looks like a directive
+
+**BUILT 2026-09-19.** The walk that looks for directives reads every string leaf and knows
+nothing about where it is, so a leaf of the form `$name: argument` is claimed wherever it sits —
+including inside a user schema, where `default`, `description` and `enum` are the author's own
+data. An unregistered name is a hard error, which is the right answer for a typo in a directive
+and the wrong one for a default that happens to read like one.
+
+The escape is `$$name: argument`, and `defdoc.Directive` already declines it: the character after
+the dollar must be a letter. Only half of that worked. Nothing undid the doubling, because the
+collapse lives in the template layer, every Shape leaf reaches it and **a user schema is not a
+Shape**. So a schema could hold neither spelling: the bare one refused, the escaped one stored
+with two dollars.
+
+`defdoc.UnescapeDirective` is the missing half, and it is the inverse **by construction** rather
+than by a second pattern — drop one `$`, and the leaf was escaped iff what remains is a
+directive. A second regexp is the drift `Directive`'s own doc comment exists to prevent.
+
+**It runs last, after every walk that looks for a directive**, which is the part that is silent
+when broken: phase 2 re-walks the document after phase 1, so a leaf unescaped before that walk is
+claimed by it and the escape fails at the one job it has. That is why the pass does not finalise
+and its callers do — the exported `ResolveStructuralPass` for a consumer that stops there, the
+end of `resolveDocs` for one that does not, and `resolveProcessDirective` for a child whose
+schemas are copied out. A spliced string is untouched by it: that text was doubled on the way in
+by `escapeDollars` and the template layer undoes it at run time, which is the section below.
+
+`tests/cli/imports_test.ts` holds both halves against each other — the Shape one, where the
+template layer always worked, and the schema one, where nothing did.
 
 ## Escaping on splice — the thing the feature is *for*
 

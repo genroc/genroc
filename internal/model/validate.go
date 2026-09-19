@@ -39,6 +39,12 @@ func (d *ProcessDefinition) Validate() error {
 	}
 	taskIDs := make(map[string]struct{}, len(d.Tasks))
 	for _, s := range d.Tasks {
+		if !taskIDRe.MatchString(s.ID) {
+			return atPath("tasks."+s.ID, fmt.Errorf("task ID %q must be a letter or underscore "+
+				"followed by letters, digits or underscores: an id is read back as `outputs.%s` in "+
+				"an expression and as `$%s` in a routing slot, and neither spelling survives a dot, "+
+				"a colon or a space", s.ID, s.ID, s.ID))
+		}
 		// A duplicate is invisible from here down — this set collapses it, and so does every
 		// map keyed by task id after it: `outputs.<id>` names one of them, a `goto` reaches one
 		// of them, and nothing says which.
@@ -209,6 +215,11 @@ func validateActionRequiredFields(s *Task) error {
 // characters are load-bearing — '.' spells engine codes, keeping the namespaces distinct, and
 // '%' is the on_error wildcard, so no pattern ever needs escaping. It also enforces R2, since no
 // expression can be spelled in lower_snake_case.
+// taskIDRe is a C identifier, and the two spellings an id is READ BACK through are why:
+// `outputs.<id>` cannot address one holding a dot, and `$<id>` in a routing slot cannot hold a
+// colon without reading as a resolution directive. specs/source-resolution.md.
+var taskIDRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 var faultCodeRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // ValidFaultCode reports whether s is a well-formed authored error code. Exported for the

@@ -19,10 +19,13 @@ import (
 	"genroc/internal/sources"
 )
 
-// directiveArgRe finds `$name:` on a raw line. The name must start with a LETTER, which is what
-// keeps `$:` (an expression) and `${` (an interpolation) out of it — the same rule
-// defdoc.Directive follows, so the editor and the resolver agree on what a directive is.
-var directiveArgRe = regexp.MustCompile(`\$([a-zA-Z][a-zA-Z0-9_-]*):[ \t]*`)
+// directiveArgRe finds `$name:` on a raw line. The name must start with a LETTER, and the colon
+// must be followed by a space — the same two rules defdoc.Directive follows, so the editor and
+// the resolver agree on what a directive is. The letter keeps `$:` (an expression) and `${` (an
+// interpolation) out; the space keeps a routing target out, `$a:b` being a task id and not a
+// resolver call. The cost is that paths are offered once the space is typed rather than on the
+// colon, which is one keystroke and the price of not offering them over a `goto`.
+var directiveArgRe = regexp.MustCompile(`\$([a-zA-Z][a-zA-Z0-9_-]*):[ \t]+`)
 
 // directiveArgAt reads the directive argument the cursor sits in: the resolver's name, the text
 // typed so far, and the 1-based byte column that text starts at.

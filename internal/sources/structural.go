@@ -95,6 +95,39 @@ func structuralValues(docs []sourceDoc, cfg projectConfig, sites []site, stack [
 	return out, nil
 }
 
+// unescapeDocs collapses `$$name: …` to `$name: …` in every string leaf of every document. It is
+// the other half of the escape `defdoc.Directive` only half performs, and without it a user
+// schema can hold NEITHER spelling: the bare one is claimed as a directive and refused by name,
+// the escaped one is stored with its doubling. The template layer does this for a Shape and a
+// user schema is not one, which is why the doubling survived there and nowhere else.
+//
+// **It runs LAST, after every walk that looks for a directive** -- the code phase re-walks the
+// document after phase 1, and a leaf unescaped before that walk is claimed by it, which is the
+// escape failing at the one job it has. Hence a caller finalises rather than the pass.
+func unescapeDocs(docs []sourceDoc) {
+	for i := range docs {
+		docs[i].Value = unescapeDirectives(docs[i].Value)
+	}
+}
+
+func unescapeDirectives(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, child := range t {
+			t[k] = unescapeDirectives(child)
+		}
+	case []any:
+		for i, child := range t {
+			t[i] = unescapeDirectives(child)
+		}
+	case string:
+		if un, ok := defdoc.UnescapeDirective(t); ok {
+			return un
+		}
+	}
+	return v
+}
+
 // applyStructural writes a structural result into the document: a spread pre-fills the mapping
 // the `<<` sits in and an explicit key beats it, a slot site replaces the leaf.
 func applyStructural(docs []sourceDoc, s site, value any) error {
@@ -197,6 +230,9 @@ func resolveProcessDirective(fromFile, argument string, stack []string) (map[str
 	if _, err := resolveStructuralPass(docs, cfg, append(stack, target)); err != nil {
 		return nil, err
 	}
+
+	// No code phase runs on a child, so the document is final once its own spreads are in.
+	unescapeDocs(docs)
 
 	def, err := decodeDefinition(docs[0])
 	if err != nil {
