@@ -298,3 +298,78 @@ func TestValueAtAnswersForContainersNotJustScalars(t *testing.T) {
 		t.Errorf("want the tasks sequence, got %T", seq)
 	}
 }
+
+// A block scalar's extent is in the SOURCE, not in the value it decodes to: `>` folds the line
+// breaks away, `|-` drops the last one, and an escape narrows a quoted one. Deriving the end
+// from the value's newlines put it back at the indicator, so a cursor in the body resolved to
+// the mapping instead and hover described the key two levels up.
+const blocks = `
+folded: >
+  $: input.who
+literal: |
+  keep
+  these
+empty: >
+after: 1
+multi: >
+  one
+
+  two
+escaped: "a\nb"
+`
+
+func TestABlockScalarSpansItsWholeBody(t *testing.T) {
+	d := parse(t, blocks)
+	//	 2  folded: >        6    these
+	//	 3    $: input.who   7  empty: >
+	//	 4  literal: |       8  after: 1
+	//	 5    keep           9  multi: >
+	for _, c := range []struct {
+		path            string
+		endLine, endCol int
+	}{
+		{"folded", 3, 15},
+		{"literal", 6, 8},
+		// An empty block must not swallow the line below it: that line is the next key.
+		{"empty", 7, 8},
+		// A blank line inside a block is body; the block ends at the first line that outdents.
+		{"multi", 12, 6},
+		// A `\n` in a quoted scalar is an escape, not a line break, so the span stays on line 13.
+		// Its column is the value's width, which an escape shortens -- approximate, as Range says.
+		{"escaped", 13, 15},
+	} {
+		t.Run(c.path, func(t *testing.T) {
+			s := span(t, d, c.path)
+			if s.Value.EndLine != c.endLine || s.Value.EndCol != c.endCol {
+				t.Errorf("%s ends at %d:%d, want %d:%d", c.path,
+					s.Value.EndLine, s.Value.EndCol, c.endLine, c.endCol)
+			}
+		})
+	}
+}
+
+// The reason the span matters: a cursor anywhere in the body has to become that slot's address,
+// or every answer keyed by one — hover, completion, go-to-definition — is about another slot.
+func TestAtResolvesInsideABlockScalarBody(t *testing.T) {
+	d := parse(t, blocks)
+	for _, c := range []struct {
+		name      string
+		line, col int
+		want      string
+	}{
+		{"at the end of a folded body", 3, 14, "folded"},
+		{"on the second line of a literal body", 6, 4, "literal"},
+		{"below a blank line inside a block", 12, 4, "multi"},
+		{"on the key after an empty block", 8, 3, "after"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := d.At(c.line, c.col)
+			if !ok {
+				t.Fatalf("no node at %d:%d", c.line, c.col)
+			}
+			if got != c.want {
+				t.Errorf("At(%d,%d) = %q, want %q", c.line, c.col, got, c.want)
+			}
+		})
+	}
+}

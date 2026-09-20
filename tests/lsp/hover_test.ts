@@ -67,6 +67,18 @@ test("an interpolation inside a url is typed on its own", async () => {
   ).toBe("`input.customer_id` → `string`");
 });
 
+// A block scalar is a legal way to write a long expression — `template.Parse` trims to the
+// marker either way. Its span came off the FOLDED value, whose newlines are not the source's.
+test("an expression written as a block scalar types like an inline one", async () => {
+  const folded = edit(orders, {
+    '      charged: "$: self.result.total - (self.result.discount ?? 0)"':
+      "      charged: >\n        $: self.result.total - (self.result.discount ?? 0)",
+  });
+  expect(
+    await lsp.hover(at(`        $: self.result.<^total> - (self.result.discount ?? 0)`, folded)),
+  ).toBe("`self.result.total` → `number`");
+});
+
 test("a slot reports its own type", async () => {
   expect(await lsp.hover(at(`    <^output>:`))).toContain("**tasks.price.output** — `object{charged}`");
 });

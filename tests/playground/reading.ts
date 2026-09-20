@@ -42,10 +42,6 @@ type Forecast = {
 export default async function (input: Input): Promise<Output> {
   const { geo } = input;
 
-  if (!geo) {
-    throw new Error("No geolocation provided");
-  }
-
   const url = new URL("https://api.open-meteo.com/v1/forecast");
   url.searchParams.set("latitude", String(geo.latitude));
   url.searchParams.set("longitude", String(geo.longitude));

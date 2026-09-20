@@ -24,13 +24,6 @@ tasks:
           message: "Location ${input.place} not found"
       - goto: next
 
-  # Parks the instance until the next whole 10 seconds, holding no worker.
-  - id: wait
-    action:
-      type: delay
-      until: "*:*:0/10"
-    switch: next
-
   # The whole measurement, as a child call. The code lives in reading.ts
   - id: reading
     action:
@@ -42,7 +35,8 @@ tasks:
         # arrives here as script_timeout rather than an unknowable http.timeout.
         timeout_ms: 20000
         input:
-          geo: "$: outputs.location"
+          geo: >
+            $: outputs.location
       result_schema:
         $ref: "#/$defs/reading"
     output: "$: self.result"

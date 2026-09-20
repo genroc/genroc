@@ -41,6 +41,9 @@ type Span struct {
 // Doc is one parsed document.
 type Doc struct {
 	Value any
+	// lines is the source, split, because a block scalar's extent is not in its value: `>`
+	// folds the line breaks away and `|-` drops the last one.
+	lines []string
 	spans map[string]Span
 	// values is the decoded value at each path, so a caller that resolved a cursor to an
 	// address does not navigate the tree again with a second path grammar of its own.
@@ -99,7 +102,7 @@ func Parse(data []byte) (*Doc, error) {
 	if err := yaml.Unmarshal(data, &n); err != nil {
 		return nil, err
 	}
-	return build(&n)
+	return build(&n, data)
 }
 
 // ParseAll reads a multi-document stream. Documents that are entirely empty are dropped, so
@@ -115,7 +118,7 @@ func ParseAll(data []byte) ([]*Doc, error) {
 			}
 			return nil, err
 		}
-		d, err := build(&n)
+		d, err := build(&n, data)
 		if err != nil {
 			return nil, err
 		}
@@ -126,8 +129,8 @@ func ParseAll(data []byte) ([]*Doc, error) {
 	}
 }
 
-func build(n *yaml.Node) (*Doc, error) {
-	d := &Doc{spans: map[string]Span{}, values: map[string]any{}}
+func build(n *yaml.Node, src []byte) (*Doc, error) {
+	d := &Doc{lines: strings.Split(string(src), "\n"), spans: map[string]Span{}, values: map[string]any{}}
 	root := n
 	if root.Kind == yaml.DocumentNode {
 		if len(root.Content) == 0 {
@@ -187,7 +190,7 @@ func (d *Doc) node(n *yaml.Node, phys, logi string, key Range) (any, Range, erro
 		return v, r, err
 
 	case yaml.ScalarNode:
-		r := scalarRange(n)
+		r := d.scalarRange(n)
 		v, err := scalar(n)
 		if err != nil {
 			return nil, r, err
@@ -223,12 +226,12 @@ func (d *Doc) mapping(n *yaml.Node, phys, logi string, key Range) (any, Range, e
 			merges = append(merges, vn)
 			continue
 		}
-		v, vr, err := d.node(vn, join(phys, name), join(logi, name), scalarRange(kn))
+		v, vr, err := d.node(vn, join(phys, name), join(logi, name), d.scalarRange(kn))
 		if err != nil {
 			return nil, r, err
 		}
 		out[name] = v
-		r = extend(extend(r, scalarRange(kn)), vr)
+		r = extend(extend(r, d.scalarRange(kn)), vr)
 	}
 
 	// An explicit key beats a merged one -- YAML's own precedence, so there is no new rule to
@@ -248,7 +251,7 @@ func (d *Doc) mapping(n *yaml.Node, phys, logi string, key Range) (any, Range, e
 			if _, taken := out[name]; taken || name == mergeKey {
 				continue
 			}
-			v, _, err := d.node(src.Content[i+1], join(phys, name), join(logi, name), scalarRange(src.Content[i]))
+			v, _, err := d.node(src.Content[i+1], join(phys, name), join(logi, name), d.scalarRange(src.Content[i]))
 			if err != nil {
 				return nil, r, err
 			}
@@ -383,15 +386,11 @@ func extend(r, by Range) Range {
 	return r
 }
 
-func scalarRange(n *yaml.Node) Range {
-	r := start(n)
-	if nl := strings.Count(n.Value, "\n"); nl > 0 {
-		// A block scalar's Line is its `|` marker, so the end is the marker's line plus the
-		// content's; the column is the last line's width, without its indent. Approximate.
-		last := n.Value[strings.LastIndexByte(n.Value, '\n')+1:]
-		r.EndLine, r.EndCol = n.Line+nl, n.Column+len(last)
-		return r
+func (d *Doc) scalarRange(n *yaml.Node) Range {
+	if n.Style == yaml.LiteralStyle || n.Style == yaml.FoldedStyle {
+		return d.blockRange(n)
 	}
+	r := start(n)
 	w := len(n.Value)
 	if n.Style == yaml.SingleQuotedStyle || n.Style == yaml.DoubleQuotedStyle {
 		w += 2
@@ -399,6 +398,48 @@ func scalarRange(n *yaml.Node) Range {
 	r.EndCol = n.Column + w
 	return r
 }
+
+// blockRange is a block scalar's extent read off the SOURCE: the header plus every following
+// line that is blank or indented past it. The VALUE cannot give it -- folding joins lines and
+// chomping drops them -- so counting its newlines ended the span back at the `>` marker.
+func (d *Doc) blockRange(n *yaml.Node) Range {
+	r := start(n)
+	header := indentOf(d.lineText(n.Line))
+	body, last := -1, 0
+	for i := n.Line; i < len(d.lines); i++ {
+		text := d.lines[i] // 0-based index i is 1-based line i+1
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		w := indentOf(text)
+		if body < 0 {
+			// An empty block: this line is already a sibling of the key that holds it.
+			if w <= header {
+				break
+			}
+			body = w
+		} else if w < body {
+			break
+		}
+		last = i + 1
+	}
+	if last == 0 {
+		return r
+	}
+	r.EndLine, r.EndCol = last, len(d.lines[last-1])+1
+	return r
+}
+
+// lineText returns one 1-based source line, or "" past the end.
+func (d *Doc) lineText(line int) string {
+	if line < 1 || line > len(d.lines) {
+		return ""
+	}
+	return d.lines[line-1]
+}
+
+// indentOf counts leading spaces. Tabs are not indentation in YAML, so they do not count.
+func indentOf(s string) int { return len(s) - len(strings.TrimLeft(s, " ")) }
 
 // At returns the innermost path whose value contains the position (1-based line, 1-based
 // column), which is how a cursor becomes an address. Ties between a node's two spellings go to
