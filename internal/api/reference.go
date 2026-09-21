@@ -7,6 +7,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 )
 
 // ReferenceAction is one endpoint's documentation-only surface.
@@ -62,4 +63,43 @@ func exampleJSON(v any) json.RawMessage {
 		return nil
 	}
 	return b
+}
+
+// ReferenceCode is one API error code as a reader meets it: the classification in the body, the
+// status it renders as, and one line on what it means. The prose is data rather than only a doc
+// comment because a doc comment reaches Go readers and nobody else, and this set is something a
+// client written in any language has to handle.
+type ReferenceCode struct {
+	Code   Code   `json:"code"`
+	Status int    `json:"status"`
+	Means  string `json:"means"`
+}
+
+// codeMeanings is the user-facing line per code. Every Code must appear here, the same rule
+// statusByCode carries and for the same reason; TestEveryCodeIsDocumented enforces it.
+var codeMeanings = map[Code]string{
+	CodeInvalid:         "the request is malformed or unacceptable — retrying it unchanged will never succeed",
+	CodeNotFound:        "the definition, instance, channel or task named does not exist",
+	CodeConflict:        "the request is well-formed and the target exists, but its current state forbids the operation; the identical request may succeed later",
+	CodeUnsupported:     "the endpoint exists, but this server is not configured to serve it",
+	CodeUnavailable:     "this server cannot serve requests right now, its database being unreachable — route elsewhere and retry",
+	CodeUnauthenticated: "no identity was established",
+	CodeForbidden:       "the caller is known and lacks the permission this action needs",
+	CodeInternal:        "anything unclassified, which is a server fault until proven otherwise",
+}
+
+// ReferenceCodes returns every error code, ordered by status then name so the table reads as a
+// progression rather than as whatever order a map produced.
+func ReferenceCodes() []ReferenceCode {
+	out := make([]ReferenceCode, 0, len(statusByCode))
+	for code, status := range statusByCode {
+		out = append(out, ReferenceCode{Code: code, Status: status, Means: codeMeanings[code]})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Status != out[j].Status {
+			return out[i].Status < out[j].Status
+		}
+		return out[i].Code < out[j].Code
+	})
+	return out
 }

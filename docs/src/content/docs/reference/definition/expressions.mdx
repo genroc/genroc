@@ -1,0 +1,100 @@
+---
+title: Expressions
+description: The two expression markers, the operators, and which names a slot can read.
+order: 4
+---
+
+A templated slot takes one of two markers. `$:` is a **typed expression** — the slot becomes
+whatever the expression evaluates to, keeping its type. `${ }` is an **interpolation** — the
+slot becomes a string, with each `${ }` replaced by the value inside it.
+
+```genroc
+    body:
+      count: "$: outputs.load.total"            # a number
+      label: "order ${input.order_id}"          # a string
+      url: "${config.api_url}/orders"
+```
+
+Anything without a marker is a literal. A literal `$` that would otherwise start a marker is
+written `$$`.
+
+## Operators
+
+| Operator | On | Notes |
+| --- | --- | --- |
+| `==` `!=` | anything | deep equality on objects and arrays |
+| `<` `>` `<=` `>=` | numbers | both operands must be non-nullable |
+| `+` | numbers, strings | string concatenation when either side is a string |
+| `-` `*` | numbers | |
+| `/` | numbers | exact to 34 significant digits, the one place arithmetic rounds |
+| `%` | numbers | |
+| `&&` `\|\|` | booleans | short-circuiting |
+| `??` | anything | the left side unless it is null |
+| `!` | booleans | |
+
+Arithmetic is exact base-10, never binary floating point: `0.1 + 0.2` is `0.3`, and an id past
+2<sup>53</sup> survives a round trip.
+
+`??` is what a nullable value needs before it reaches an operator that will not take one. A
+comparison against a slot that might be absent is refused at registration, and the fix is
+either `?? 0` or declaring the slot non-nullable.
+
+## Navigation
+
+`a.b.c` reads through objects, `a[0]` through arrays, and `a["key with spaces"]` through a key
+that is not an identifier. Navigating through a null yields null rather than failing, so
+`outputs.maybe.field` is safe to read and safe to guard with `??`.
+
+## What a slot can read
+
+Four names are in scope everywhere in a task:
+
+| Name | Holds |
+| --- | --- |
+| `input` | the instance's input, conformed once at creation |
+| `outputs.<task id>` | what a task published, for every task on the path taken |
+| `config` | the config variables, re-resolved from the environment on every tick |
+| `last_error` | the error that routed control here from another task's `on_error` |
+
+`self` names the task itself, and its three members come into existence at different points
+along the task's own timeline — so a slot may only read the ones that exist by the time it is
+evaluated.
+
+| Member | Exists from | Holds |
+| --- | --- | --- |
+| `self.previous` | the task is entered | the output of the last run of *this* task |
+| `self.result` | the action answers | the raw action result, typed by `result_schema` or `responses` |
+| `self.output` | the output map has run | the projection that just became `outputs.<id>` |
+
+`self.status` and `self.headers` sit beside `self.result` on a fetch only. A result that no
+declaration types does not exist at all — naming it is refused, and the message says which
+declaration was missing.
+
+Which slots may read which:
+
+| Slot | `previous` | `result` | `output` |
+| --- | --- | --- | --- |
+| `input`, `body`, `url`, `method`, `headers`, `query`, `accepted_status`, `over` | ✓ | | |
+| `for`, `until`, `timeout` | ✓ | | |
+| `on_error` — `case`, `retry`, `raise`, `panic` | ✓ | | |
+| `output` | ✓ | ✓ | |
+| `switch` — `case`, `raise`, `panic` | ✓ | ✓ | ✓ |
+
+`on_error` sits with the action slots rather than with the output: the action answered, but
+with a failure, so there is no result and the output map never ran. Inside an `on_error` rule
+the name `error` is the error that rule caught — distinct from `last_error`, which is the one
+that routed control into this task from somewhere else.
+
+A process-level `output` is not a task slot and has no `self` at all.
+
+## Asking what a slot can see
+
+`genctl schema` answers both halves without a server:
+
+```sh
+> genctl schema type welcome-user tasks.welcome.output
+> genctl schema context welcome-user tasks.welcome.output
+> genctl schema type welcome-user tasks.welcome.output -e 'self.result.id'
+```
+
+`type` is what shape a slot **is**, `context` is what an expression there may **read**.

@@ -51,3 +51,46 @@ func Catchable(kinds Kind) []Info {
 	}
 	return out
 }
+
+// terminal is the other half of the vocabulary: the engine failed the instance itself, so no
+// on_error rule ever sees one (errcode.go's engine.* block). Kinds is zero because no task
+// reports these — the engine does. `TestEveryTerminalCodeIsListed` keeps it complete, on the
+// same standard as catchable: a code with no prose is a bare name wherever it surfaces.
+var terminal = []Info{
+	{EngineDefinition, 0, "the definition is unusable: missing, or it names a task or goto that is not in it"},
+	{EngineExpression, 0, "an expression could not be evaluated against this context"},
+	{EngineConfig, 0, "config could not be resolved from the environment"},
+	{EngineInput, 0, "an input did not satisfy the schema declared for it"},
+	{EngineOutput, 0, "an output did not satisfy the schema declared for it"},
+	{EngineSpawn, 0, "spawning children, or arming an external task and reading its answer, failed"},
+	{EngineCollect, 0, "collecting a settled batch's outputs failed"},
+	{EnginePanic, 0, "a Go panic escaped this instance's advance"},
+}
+
+// Terminal returns the codes that fail an instance outright, in declaration order. The slice is
+// the caller's own.
+func Terminal() []Info { return append([]Info(nil), terminal...) }
+
+// All returns every classified code, catchable first. A caller wanting the whole vocabulary
+// must not have to know the mask that covers every Kind.
+func All() []Info { return append(Catchable(^Kind(0)), terminal...) }
+
+// Names renders the mask as the task kinds an author would recognise, in declaration order.
+// Empty for the zero mask, which is what a terminal code carries.
+func (k Kind) Names() []string {
+	var out []string
+	for _, e := range []struct {
+		kind Kind
+		name string
+	}{
+		{KindFetch, "fetch"},
+		{KindExternal, "external"},
+		{KindChild, "child"},
+		{KindOnlyOnce, "only_once"},
+	} {
+		if k&e.kind != 0 {
+			out = append(out, e.name)
+		}
+	}
+	return out
+}

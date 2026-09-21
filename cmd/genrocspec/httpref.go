@@ -26,6 +26,7 @@ type operation struct {
 		In          string `json:"in"`
 		Description string `json:"description"`
 		Schema      struct {
+			Ref  string   `json:"$ref"`
 			Type any      `json:"type"`
 			Enum []string `json:"enum"`
 		} `json:"schema"`
@@ -54,7 +55,12 @@ func writeHTTPReference(dir string) error {
 		Servers []struct {
 			URL string `json:"url"`
 		} `json:"servers"`
-		Paths map[string]json.RawMessage `json:"paths"`
+		Paths      map[string]json.RawMessage `json:"paths"`
+		Components struct {
+			Schemas map[string]struct {
+				Enum []string `json:"enum"`
+			} `json:"schemas"`
+		} `json:"components"`
 	}{}
 	if err := json.Unmarshal(api.Spec(), &doc); err != nil {
 		return fmt.Errorf("parse the generated OpenAPI document: %w", err)
@@ -62,6 +68,15 @@ func writeHTTPReference(dir string) error {
 	base := ""
 	if len(doc.Servers) > 0 {
 		base = strings.TrimSuffix(doc.Servers[0].URL, "/")
+	}
+	// A parameter whose type is a named one carries a $ref instead of the enum itself, and the
+	// values are what a reader needs. Derived sets land here: the status filter's values come
+	// from model.Status.Enum(), so the parameter names a schema rather than repeating them.
+	enums := map[string][]string{}
+	for name, s := range doc.Components.Schemas {
+		if len(s.Enum) > 0 {
+			enums["#/components/schemas/"+name] = s.Enum
+		}
 	}
 
 	items := map[string]pathItem{}
@@ -122,7 +137,7 @@ func writeHTTPReference(dir string) error {
 	}
 	for i, tag := range tags {
 		path := filepath.Join(dir, slug(tag)+".md")
-		if err := os.WriteFile(path, []byte(renderHTTPTag(tag, byTag[tag], i+1)), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(renderHTTPTag(tag, byTag[tag], i+1, enums)), 0644); err != nil {
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "wrote %s (%d)\n", path, len(byTag[tag]))
@@ -130,7 +145,7 @@ func writeHTTPReference(dir string) error {
 	return nil
 }
 
-func renderHTTPTag(tag string, eps []endpoint, order int) string {
+func renderHTTPTag(tag string, eps []endpoint, order int, enums map[string][]string) string {
 	b := &strings.Builder{}
 	fmt.Fprintf(b, "---\ntitle: %s\ndescription: %s\norder: %d\n---\n",
 		yamlString(tag),
@@ -149,13 +164,17 @@ func renderHTTPTag(tag string, eps []endpoint, order int) string {
 			fmt.Fprint(b, "\n| Parameter | In | Description |\n| --- | --- | --- |\n")
 			for _, p := range e.op.Parameters {
 				desc := escapeProse(p.Description)
-				if len(p.Schema.Enum) > 0 {
+				values := p.Schema.Enum
+				if len(values) == 0 {
+					values = enums[p.Schema.Ref]
+				}
+				if len(values) > 0 {
 					// The tags are written as sentence fragments, so most carry no full stop
 					// and the enum would run straight on from the last word.
 					if desc != "" && !strings.HasSuffix(desc, ".") {
 						desc += "."
 					}
-					desc = strings.TrimSpace(desc + " One of `" + strings.Join(p.Schema.Enum, "`, `") + "`.")
+					desc = strings.TrimSpace(desc + " One of `" + strings.Join(values, "`, `") + "`.")
 				}
 				// A pipe inside a cell ends it, and a description is free prose.
 				fmt.Fprintf(b, "| `%s` | %s | %s |\n", p.Name, p.In, strings.ReplaceAll(desc, "|", `\|`))

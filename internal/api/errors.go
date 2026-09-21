@@ -87,8 +87,11 @@ func statusOf(c Code) int {
 // interface), which is what makes the code a documented part of the contract rather
 // than an undocumented debugging aid clients key on anyway.
 func (Code) Enum() []interface{} {
-	return []interface{}{CodeInvalid, CodeNotFound, CodeConflict, CodeUnsupported,
-		CodeUnavailable, CodeUnauthenticated, CodeForbidden, CodeInternal}
+	out := make([]interface{}, 0, len(statusByCode))
+	for _, c := range ReferenceCodes() {
+		out = append(out, c.Code)
+	}
+	return out
 }
 
 // errorStatuses returns the HTTP statuses to document for an action, given the extra

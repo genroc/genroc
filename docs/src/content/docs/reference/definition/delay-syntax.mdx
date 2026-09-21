@@ -1,0 +1,98 @@
+---
+title: Delay and timeout syntax
+description: The for / until / tz grammar shared by a delay action and any action's timeout.
+order: 5
+---
+
+A `delay` action takes exactly one of **`for`** (a duration measured from the moment the task
+is entered) or **`until`** (an instant), plus an optional **`tz`** both resolve against.
+
+```genroc
+  - id: wait_two_hours
+    action: {type: delay, for: 2h}
+    switch: next
+
+  - id: wait_until_monday
+    action: {type: delay, until: "mon 09:00", tz: Europe/Prague}
+    switch: next
+```
+
+The same grammar is an action's `timeout` — a timeout is this syntax aimed at a deadline
+rather than at a wake-up. Exactly one of the two slots, never both and never neither: there is
+no default, and an absent slot is not zero.
+
+## `for` — a duration
+
+A sequence of number-and-unit pairs, in any order: `2h30m`, `7d`, `1mo15d`. An **unquoted**
+number is milliseconds, so `for: 30000` is thirty seconds — quoted, it is refused, because
+`"30000"` is as likely to have meant seconds.
+
+| Unit | Means | Kind |
+| --- | --- | --- |
+| `ms` | milliseconds | fixed |
+| `s` | seconds | fixed |
+| `m` | minutes | fixed |
+| `h` | hours | fixed |
+| `d` | days | calendar |
+| `w` | weeks | calendar |
+| `mo` | months | calendar |
+| `y` | years | calendar |
+
+**Fixed units are elapsed time; calendar units are calendar arithmetic** in `tz`, and calendar
+units apply first whatever order they were written in. So `1d` is "the same wall clock
+tomorrow" — 23 or 25 hours across a daylight-saving boundary, not 24. Month arithmetic clamps
+to the end of the target month, so 31 January plus `1mo` is 28 or 29 February rather than
+rolling into March.
+
+## `until` — an instant
+
+Four closed forms, and natural language is deliberately not among them:
+
+| Form | Example | Notes |
+| --- | --- | --- |
+| absolute instant | `2026-09-01T08:00:00Z` | RFC 3339; carries its own zone, so `tz` is not consulted |
+| wall clock | `2026-09-01 08:00` | no zone, so it is read in `tz` |
+| offset plus wall clock | `+2d 08:00` | that many days on, at that time |
+| calendar pattern | `*-*-01 08:00`, `mon 09:00`, `*:*:0/5` | the next match after now |
+
+The pattern form is the systemd `OnCalendar` subset: `*` is any, `0/5` is every fifth from
+zero, and a three-letter lowercase weekday (`mon`…`sun`) selects a day.
+
+## `tz`
+
+An IANA name (`Europe/Prague`), the literal `UTC`, or a fixed offset (`+02:00`). Absent means
+UTC.
+
+Abbreviations such as `CET` and the special name `Local` are refused on purpose: an
+abbreviation denotes the wrong thing for half the year, and `Local` resolves against the host's
+zone database — so the same definition would mean different things on two workers.
+
+Two wall clocks have no single answer, and each has a rule. A time that does not exist, because
+the clock jumped forward over it, **normalizes forward**. A time that happens twice, because
+the clock went back, **takes the first occurrence**.
+
+## Expressions in these slots
+
+A slot's accepted form is decided before type inference, so the three spellings are not
+interchangeable:
+
+- a **literal** is parsed against the grammars above;
+- a **`$:` expression** must infer to a number, and is therefore milliseconds;
+- a **`${ }` interpolation** is refused by name, because it produces a string.
+
+```genroc
+    action: {type: delay, for: "$: input.wait_ms"}   # a number of milliseconds
+```
+
+## A target already in the past
+
+Resolution never fails on one — timers keep running while an instance is paused, so a past
+target is a legitimate state to resume into. What happens next depends on who was waiting:
+
+| Slot | Behaviour |
+| --- | --- |
+| a `delay` | clamps to now and wakes |
+| an `external` task's `timeout` | clamps to now and raises `external.timeout` |
+| a `fetch` timeout | refuses — reporting `http.timeout` for a request that was never sent would be a lie |
+
+`until` is external-only as a timeout. A fetch's budget is `for`, and a retry gets a fresh one.

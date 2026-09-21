@@ -244,9 +244,14 @@ with its reason.
 ## Adding a `Code` means three edits
 
 `errors.go` holds the API classification. A new `Code` needs its constant, an entry in
-`statusByCode` (which `statusOf` falls back to 500 for, so an omission is silent), and an
-entry in `Enum()` — that last one is what publishes it to the OpenAPI spec, so a code
-missing from it is undocumented while still being returned.
+`statusByCode` (which `statusOf` falls back to 500 for, so an omission is silent), and a line
+in `codeMeanings` (`reference.go`), which is what the docs site prints beside it.
+`TestEveryCodeIsDocumented` catches the third against the second.
+
+`Enum()` — what publishes the set to the OpenAPI spec — **derives from `statusByCode`** and is
+no longer an edit. It was one, and a code missing from it was undocumented while still being
+returned. The same move fixed the status filter on `GET /instances`, whose values are
+`model.Status.Enum()`; `TestTheStatusFilterOffersEveryStatus` holds it there.
 
 ## Pointers
 

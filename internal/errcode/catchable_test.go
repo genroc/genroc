@@ -97,3 +97,39 @@ func declaredCodes(t *testing.T) map[string]string {
 	}
 	return out
 }
+
+// The mirror of TestEveryCodeIsClassified for the other half. The prefix check there says a
+// terminal code must stay OUT of catchable; nothing said it must be IN terminal, so a new
+// engine.* code was classified by being absent from one list rather than present in any.
+func TestEveryTerminalCodeIsListed(t *testing.T) {
+	listed := map[string]Info{}
+	for _, info := range terminal {
+		listed[string(info.Code)] = info
+	}
+	found := 0
+	for name, code := range declaredCodes(t) {
+		if !strings.HasPrefix(code, "engine.") {
+			continue
+		}
+		found++
+		info, ok := listed[code]
+		if !ok {
+			t.Errorf("%s (%q) is terminal but missing from terminal: add it with what it means, or nothing can name it in the reference", name, code)
+			continue
+		}
+		if info.Means == "" {
+			t.Errorf("%q carries no prose, so it surfaces as a bare name", code)
+		}
+		if info.Kinds != 0 {
+			t.Errorf("%q carries Kinds %d; no task reports a terminal code, the engine does", code, info.Kinds)
+		}
+	}
+	if found < 5 {
+		t.Fatalf("read %d engine.* codes out of the source; the scan is broken, not the package", found)
+	}
+	for code := range listed {
+		if !strings.HasPrefix(code, "engine.") {
+			t.Errorf("%q is in terminal but is not an engine.* code", code)
+		}
+	}
+}

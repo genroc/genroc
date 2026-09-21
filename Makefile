@@ -139,7 +139,10 @@ docs-reference: build
 	$(BUILD_FLAGS) go run ./cmd/genrocspec -o "" \
 		-cli-reference docs/src/content/docs/reference/cli \
 		-http-reference docs/src/content/docs/reference/http-api \
-		-definition-reference docs/src/content/docs/reference/definition
+		-definition-reference docs/src/content/docs/reference/definition \
+		-error-reference \
+		-config-reference docs/src/content/docs/reference \
+		-status-reference docs/src/content/docs/reference
 
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
 # per-version build is served from; unset means the site root.
