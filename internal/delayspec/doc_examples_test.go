@@ -133,3 +133,104 @@ func firstColumnCells(section string) []string {
 	}
 	return out
 }
+
+// The reference page teaches the same grammar to a wider audience, and the sweep above stops
+// at specs/ — so nothing executed it. Every literal it shows as valid is parsed here.
+const referencePage = "../../docs/src/content/docs/reference/definition/delay-syntax.mdx"
+
+// The sentence that splits the tz section into the zones it accepts and the ones it names as
+// refused. Both halves are claims about LoadLocation, so both are checked.
+const tzRefusedSentence = "\nAbbreviations such as"
+
+// A backticked span in the `for` section that opens with a digit is a duration the page is
+// showing. Matching on the leading digit rather than on the grammar is deliberate: a shape
+// test would skip exactly the malformed example this is here to catch.
+var durationLike = regexp.MustCompile(`^\d`)
+
+func TestDocExamples_ReferencePageParses(t *testing.T) {
+	body, err := os.ReadFile(referencePage)
+	if err != nil {
+		t.Fatalf("read %s: %v", referencePage, err)
+	}
+	page := string(body)
+
+	forSection := sectionOf(page, "## `for` — a duration")
+	// Backtick-aware, so the table's "Unit" header falls out with the separator row.
+	units := codeSpansInColumn(forSection, 0)
+	for _, u := range units {
+		if _, err := ParseDuration("1" + u); err != nil {
+			t.Errorf("%s lists %q as a unit, but 1%s does not parse: %v", referencePage, u, u, err)
+		}
+	}
+	durations := codeSpans(forSection, durationLike.MatchString)
+	for _, d := range durations {
+		if _, err := ParseDuration(d); err != nil {
+			t.Errorf("%s shows the duration %q, which does not parse: %v", referencePage, d, err)
+		}
+	}
+
+	instants := codeSpansInColumn(sectionOf(page, "## `until` — an instant"), 1)
+	for _, s := range instants {
+		if _, err := ParseInstant(s); err != nil {
+			t.Errorf("%s shows the instant %q, which does not parse: %v", referencePage, s, err)
+		}
+	}
+
+	tzAccepted, tzRefused, ok := strings.Cut(sectionOf(page, "## `tz`"), tzRefusedSentence)
+	if !ok {
+		t.Fatalf("%s: the tz section no longer contains %q; this test keys on it to tell accepted from refused", referencePage, strings.TrimSpace(tzRefusedSentence))
+	}
+	zones := codeSpans(tzAccepted, func(s string) bool { return s != "tz" })
+	for _, z := range zones {
+		if _, err := LoadLocation(z); err != nil {
+			t.Errorf("%s offers %q as a tz, but it does not load: %v", referencePage, z, err)
+		}
+	}
+	for _, z := range codeSpans(tzRefused, func(string) bool { return true }) {
+		if _, err := LoadLocation(z); err == nil {
+			t.Errorf("%s says %q is refused, but it loads", referencePage, z)
+		}
+	}
+
+	// Extraction that silently matches nothing would pass every loop above.
+	for _, c := range []struct {
+		what string
+		n    int
+		min  int
+	}{{"units", len(units), 8}, {"durations", len(durations), 3}, {"instants", len(instants), 5}, {"zones", len(zones), 3}} {
+		if c.n < c.min {
+			t.Errorf("only %d %s found in %s; the extraction has drifted from the page", c.n, c.what, referencePage)
+		}
+	}
+}
+
+// codeSpans returns every `code` span in s that keep accepts.
+func codeSpans(s string, keep func(string) bool) []string {
+	var out []string
+	for _, m := range codeSpan.FindAllStringSubmatch(s, -1) {
+		if keep(m[1]) {
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
+
+var codeSpan = regexp.MustCompile("`([^`]+)`")
+
+// codeSpansInColumn returns the `code` spans of column idx of every markdown table row in a
+// section — one cell may hold several, which is how the page lists the pattern forms.
+func codeSpansInColumn(section string, idx int) []string {
+	var out []string
+	for _, line := range strings.Split(section, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		if idx >= len(cells) {
+			continue
+		}
+		out = append(out, codeSpans(cells[idx], func(string) bool { return true })...)
+	}
+	return out
+}
