@@ -209,12 +209,13 @@ written <code>$$</code>.</p>
 
 
 
-<table><thead><tr><th>Operator</th><th>On</th><th>Notes</th></tr></thead><tbody><tr><td><code>==</code> <code>!=</code></td><td>anything</td><td>deep equality on objects and arrays</td></tr><tr><td><code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code></td><td>numbers</td><td>both operands must be non-nullable</td></tr><tr><td><code>+</code></td><td>numbers, strings</td><td>string concatenation when either side is a string</td></tr><tr><td><code>-</code> <code>*</code></td><td>numbers</td><td></td></tr><tr><td><code>/</code></td><td>numbers</td><td>exact to 34 significant digits, the one place arithmetic rounds</td></tr><tr><td><code>%</code></td><td>numbers</td><td></td></tr><tr><td><code>&amp;&amp;</code> <code>||</code></td><td>booleans</td><td>short-circuiting</td></tr><tr><td><code>??</code></td><td>anything</td><td>the left side unless it is null</td></tr><tr><td><code>!</code></td><td>booleans</td><td></td></tr></tbody></table>
+<table><thead><tr><th>Operator</th><th>On</th><th>Notes</th></tr></thead><tbody><tr><td><code>==</code> <code>!=</code></td><td>numbers, strings, booleans, null</td><td>refused between two objects or arrays; <code>x == null</code> is fine</td></tr><tr><td><code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code></td><td>numbers</td><td>both operands must be non-nullable</td></tr><tr><td><code>+</code></td><td>numbers, strings</td><td>concatenation only when <strong>both</strong> sides are strings; no implicit stringification</td></tr><tr><td><code>-</code> <code>*</code></td><td>numbers</td><td></td></tr><tr><td><code>/</code></td><td>numbers</td><td>exact to 34 significant digits, the one place arithmetic rounds</td></tr><tr><td><code>%</code></td><td>integers</td><td></td></tr><tr><td><code>&amp;&amp;</code> <code>||</code></td><td>booleans</td><td>short-circuiting</td></tr><tr><td><code>??</code></td><td>anything</td><td>the left side unless it is null</td></tr><tr><td><code>!</code></td><td>booleans</td><td></td></tr></tbody></table>
 <p>Arithmetic is exact base-10, never binary floating point: <code>0.1 + 0.2</code> is <code>0.3</code>, and an id past
 2<sup>53</sup> survives a round trip.</p>
 <p><code>??</code> is what a nullable value needs before it reaches an operator that will not take one. A
 comparison against a slot that might be absent is refused at registration, and the fix is
-either <code>?? 0</code> or declaring the slot non-nullable.</p>
+either <code>?? 0</code> or declaring the slot non-nullable. <code>??</code> cannot be mixed with another operator
+unbracketed, so the fix is spelled <code>(x ?? 0) &lt; 1</code>.</p>
 <h2 id="navigation">Navigation<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#navigation"><span></span></a></h2>
 <p><code>a.b.c</code> reads through objects, <code>a[0]</code> through arrays, and <code>a[&quot;key with spaces&quot;]</code> through a key
 that is not an identifier. Navigating through a null yields null rather than failing, so
