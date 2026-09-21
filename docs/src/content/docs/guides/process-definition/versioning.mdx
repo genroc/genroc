@@ -1,6 +1,6 @@
 ---
 title: Versioning
-description: Learn about versioning system and process upgradability
+description: Learn about versions and channels
 order: 6
 ---
 
@@ -11,6 +11,8 @@ and if it's a new one automatically bumps up the version.
 > genctl apply
 latest: hello v1 -> v2 (new)
 ```
+
+> Commands are assuming `definitions` glob in `.genroc`. If you don't have that, you can use `-f` to specify defintion file(s).
 
 Definitions are compared as a normalized json. If you apply an already existing
 version it's not duplicated but reused (so the version can also go down if you revert a change).
@@ -62,4 +64,41 @@ so you can push your definition to `test` channel, try if it works and then
 just update the latest `channel` to the same version. You can use `genctl promote`
 command to do that.
 
-## Upgradability
+## Child/parent versioning
+
+By default, you don't have to specify which version of the child parent wants to use,
+genroc will assume you want the one from the same channel.
+
+On apply it is decided which version of the child will the parent use and it's baked into the
+saved defintion.
+
+```sh
+> genctl apply
+latest: child v1 (current)
+latest: parent v2 -> v3 (new)
+```
+
+Here the `parent@v3` will always use `child@v1`. If we would change child, the parent defintion will
+change as well, because the version is part of the defintion comparison.
+
+```sh
+> genctl apply
+latest: child v1 -> v2 (new)      # only child was changed
+latest: parent v3 -> v4 (new)     # parent was updated automatically
+```
+
+### Explicit version
+
+You can also explicitly specify which version you want to use in the `child` action.
+
+```genroc
+...
+tasks:
+  - id: greet
+    action:
+      type: child
+      name: welcome
+      version: 2
+```
+
+This will opt out from genroc automatic version resolution.

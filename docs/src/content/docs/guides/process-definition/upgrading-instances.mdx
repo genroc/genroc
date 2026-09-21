@@ -1,0 +1,175 @@
+---
+title: Upgrading instances
+description: Learn about instances upgradability
+order: 7
+---
+
+Once you apply process definition, it is immutable. And if you start a process instance
+with that version the instance carries it even after newer versions are applied.
+
+This might be a bit of a grim prospect for long-running instances. The environment
+around them can change and the definition might need to adapt.
+
+## Internal state compatibility
+
+Because genroc is statically typed, it knows what shape the internal state should have
+at every point of the process. So it can quite easily compare the instance state
+with the new definition's required shape.
+
+### Upgrade command
+
+Genroc allows upgrading an instance from one definition version to another.
+
+```genroc
+name: welcome-user
+input_schema:
+  type: object
+  properties:
+    user_email:
+      type: string
+    user_name:          # new, and not in `required`
+      type: string
+  required: [user_email]
+
+tasks:
+  ...
+  - id: welcome
+    action:
+      type: fetch
+      url: "https://api.example.com/emails"
+      method: post
+      body:
+        to: "$: input.user_email"
+        name: "$: input.user_name"    # also newly added
+        template: welcome-after-registration
+    switch: end
+```
+
+Apply it, then move the instances that are already running:
+
+```sh
+> genctl apply
+latest: welcome-user v1 -> v2 (new)
+
+> genctl upgrade @last --to latest
+3kjfx4vm   welcome-user   -> 2 (1 in tree)
+
+moved 1 tree(s) to latest
+```
+
+Only `paused` or `failed` instances can be upgraded (a `running` one is
+paused before the upgrade and resumed afterwards).
+Genroc checks if the instance's internal state is compatible
+with the equivalent state in the new definition. And if there is no problem,
+it upgrades the instance.
+
+The new version is actually 100% compatible with the old one, so an instance
+can be upgraded at any stage and `upgrade` will never fail here.
+
+> You can also upgrade all instances on a certain version with a command like this:
+  `genctl upgrade welcome-user --from 1 --to latest`
+
+### Failing example
+
+If we'd make `user_name` a required property, the upgrade would fail.
+
+```genroc
+input_schema:
+  type: object
+  properties:
+    user_email:
+      type: string
+    user_name:
+      type: string
+  required: [user_email, user_name] # user_name newly required
+```
+
+All tasks in the process expect `input.user_name` to be non-nullable,
+but the old instances won't have data for this field.
+
+> New defaults are not applied to the older instances during the upgrade.
+
+### Partially upgradable
+
+Instances can also be upgradable only in certain states.
+
+```genroc
+  - id: welcome
+    ...
+    output:                         # newly has output
+      email_id: "$: self.result.id"
+    switch: next
+
+  - id: wait_for_reply
+    action: {type: delay, for: 7d}
+    switch: next
+
+  - id: follow_up
+    action:
+      ...
+      body:
+        in_reply_to: "$: outputs.welcome.email_id"  # new
+```
+
+In this example we've added an output to the `welcome` task.
+Now all the tasks after it can access this output,
+and if we upgraded the instance after that task had already
+run on the old version, the new tasks would break.
+So genroc refuses the upgrade here.
+
+```sh
+> genctl upgrade welcome-user --from 1 --to 2
+3kjfx4vm   welcome-user   REFUSED  state at task "wait_for_reply" does not fit: outputs: required property "welcome" is missing
+02pcayvt   welcome-user   -> 2 (1 in tree)
+
+moved 1 tree(s) from 1 to 2, 1 refused
+```
+
+If your instance has children, they are subject to the upgrade as well.
+So the upgrade reports trees rather than individual instances. Upgrading a child
+without its parent is refused; you can only upgrade root instances.
+
+## Compat command
+
+Genroc allows you to check upgradability before you apply the definition
+with a `compat` command.
+
+```sh
+> genctl compat --from latest -f welcome-user.genroc.yaml
+welcome-user  v1 → (new)  breaking: upgrade; compatible
+  wait_for_reply        (breaking: upgrade)       # <- the issue
+    outputs.welcome: newly required field
+  welcome:output        (ok)
+  follow_up:fetch.body  (not judged)
+```
+
+Compat reads two definitions and never an instance, so it answers the pessimistic
+question - could *any* instance fail to move. Our change breaks one parked at
+`wait_for_reply`, so the whole comparison reads `breaking`, even though the instance
+still in `wait_some_time` would upgrade fine. `upgrade` is the one that looks at a
+real row.
+
+Under the verdict is what it compared: a break names the task and the field, `(ok)`
+is a slot some check passed, and `(not judged)` is a slot no check covers - a URL or
+a request body can change meaning without changing shape, so genroc names it and
+leaves it to you.
+
+The two words are two questions. **upgrade** is about instances you already have;
+**compatible** is about callers outside, who were written against this process's
+input and output. Ours is unaffected - the input didn't change.
+
+It exits non-zero on a break, so it drops into a pipeline. `--ignore contract` drops
+that half from the exit code, when you meant to break it.
+
+## How often are upgrades possible?
+
+Bigger changes to the process definition will almost always be non-upgradable.
+This feature is intended for simple fixes (e.g. URL change), so you can
+fix running instances.
+
+## Semantic correctness
+
+Not all upgrades are safe, even if genroc says so. We compare shapes,
+not meaning. If a property changes meaning - prices in cents instead of
+dollars - or the new version should call an API the old one skipped,
+nothing in the check will notice.
