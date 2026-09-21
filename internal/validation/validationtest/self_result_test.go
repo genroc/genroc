@@ -72,3 +72,26 @@ func TestGenerate_ExternalUntypedResult_Errors(t *testing.T) {
 		t.Errorf("external self.result with a result_schema should be accepted: %v", err)
 	}
 }
+
+// A process-level output is not a task slot: it has no `self` at all, whatever the last task
+// declared. The task's output is reachable there only under its own id.
+// docs reference/definition/expressions.mdx.
+func TestGenerate_ProcessOutputHasNoSelf(t *testing.T) {
+	const task = `{"id":"call","action":{"type":"fetch","method":"post","url":"http://x",
+		"responses":{"200":{"type":"object","properties":{"ok":{"type":"boolean"}}}}},
+		"output":"$: self.result","switch":"end"}`
+	def := func(procOutput string) string {
+		return `{"name":"p","tasks":[` + task + `],"output":"$: ` + procOutput + `"}`
+	}
+	for _, member := range []string{"self.previous", "self.result", "self.output"} {
+		err := runGenerateErr(t, def(member))
+		if err == nil {
+			t.Errorf("a process-level output naming %s was accepted; it is not a task slot and has no self", member)
+		} else if !strings.Contains(err.Error(), `field "self" not found`) {
+			t.Errorf("%s must be refused for having no self, got: %v", member, err)
+		}
+	}
+	if err := runGenerateErr(t, def("outputs.call")); err != nil {
+		t.Errorf("a process-level output must still reach a task's output under its id: %v", err)
+	}
+}

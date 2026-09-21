@@ -1,6 +1,9 @@
 package expressiontest
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Schemas local to error-message tests. Each is a minimal single-field schema
 // that isolates one type behaviour.
@@ -109,6 +112,19 @@ func TestInferError_NullArithmetic(t *testing.T) {
 func TestInferError_NullComparison(t *testing.T) {
 	inferErr(t, "x < 1", nullableIntegerAnyOf, "non-nullable operands")
 	evalErr(t, "x < 1", map[string]any{"x": nil})
+}
+
+// The fix the reference prescribes for the two above, and the parentheses it needs: `??`
+// binds tighter than the comparison, so the unparenthesised form is a parse error rather
+// than a narrower type. docs reference/definition/expressions.mdx.
+func TestInferError_NullOperandFixedByParenthesisedCoalesce(t *testing.T) {
+	for _, expr := range []string{"(x ?? 0) + 1", "(x ?? 0) < 1"} {
+		if _, err := nullableIntegerAnyOf.Infer(expr); err != nil {
+			t.Errorf("%s is the documented fix for a nullable operand and must type-check: %v", expr, err)
+		}
+		inferErr(t, strings.ReplaceAll(strings.ReplaceAll(expr, "(", ""), ")", ""), nullableIntegerAnyOf, "cannot be mixed with coalesce")
+	}
+	assertEq(t, evalOK(t, "(x ?? 0) < 1", map[string]any{"x": nil}), true)
 }
 
 func TestInferError_NullLogical(t *testing.T) {
