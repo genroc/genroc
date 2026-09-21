@@ -161,3 +161,42 @@ test("on_error — unmatched code fails instance", async () => {
 
   failMock.stop();
 });
+
+// `retries` counts the EXTRA attempts, so 3 retries is 4 requests in all — a promise only a
+// request count can keep, and one an off-by-one in the budget would silently break. The goto
+// is what proves the budget was spent rather than the instance still parked.
+// docs guides/process-definition/error-handling.mdx.
+test("retry — N retries is N+1 requests, then the goto", async () => {
+  const failMock = await startMockService(0, { statusCode: 500 });
+
+  const name = `retry_budget_${crypto.randomUUID()}`;
+  await client.PUT("/definitions", {
+    body: {
+      name,
+      tasks: [
+        {
+          id: "call",
+          action: {
+            type: "fetch" as const,
+            method: "post",
+            url: `http://localhost:${failMock.port}/action`,
+            timeout: 2000,
+          },
+          on_error: [{ code: ["http.500"], retry: { retries: 3, delay: 10 }, goto: "$gave_up" }],
+          switch: [{ goto: "end" }],
+        },
+        { id: "gave_up", output: { gave_up: true }, switch: [{ goto: "end" }] },
+      ],
+    },
+  });
+
+  const { data: startData } = await client.POST("/instances", { body: { process: name } });
+  const id = startData!.id;
+  expect(await waitForInstance(id, 15_000)).toBe("completed");
+
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  expect((data?.state?.outputs as any)?.gave_up?.gave_up, "the goto runs once the budget is spent").toBe(true);
+  expect(failMock.requestCount(), "3 retries must be the first attempt plus 3, not 3 in total").toBe(4);
+
+  failMock.stop();
+});
