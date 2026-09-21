@@ -16,6 +16,12 @@ func generatedDefinitionPages(t *testing.T) map[string]string {
 	if err := writeDefinitionReference(dir); err != nil {
 		t.Fatalf("writeDefinitionReference: %v", err)
 	}
+	// The project-file page is rendered by the same renderer and is filed elsewhere only
+	// because `.genroc` configures the tooling rather than the language — the page standards
+	// below are about the renderer, so it is swept with the rest.
+	if err := writeConfigReference(dir); err != nil {
+		t.Fatalf("writeConfigReference: %v", err)
+	}
 	pages := map[string]string{}
 	entries, err := os.ReadDir(dir)
 	if err != nil {

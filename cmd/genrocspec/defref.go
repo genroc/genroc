@@ -382,7 +382,7 @@ func writeConfigReference(dir string) error {
 
 	page := defPage{
 		title: "Project file", slug: "project-file", order: 5,
-		blurb: "`.genroc`, the project file genctl reads when a command is given no -f.",
+		blurb: "`.genroc`, a project's configuration file.",
 		from:  "the .genroc config schema",
 		sections: []defSection{
 			{title: "Keys", fields: fieldsOf(root)},
