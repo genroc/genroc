@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build && node scripts/check-links.mjs",
+    "dev": "node scripts/vendor-swagger.mjs && astro dev",
+    "build": "node scripts/vendor-swagger.mjs && astro build && node scripts/check-links.mjs && node scripts/check-nav.mjs",
     "preview": "astro preview",
     "check": "astro check"
   },
@@ -19,6 +19,7 @@
     "astro-rehype-relative-markdown-links": "^0.19.2",
     "rehype-autolink-headings": "^7.1.0",
     "rehype-slug": "^6.0.0",
+    "swagger-ui-dist": "^5.33.0",
     "typescript": "^5.9.2"
   }
 }

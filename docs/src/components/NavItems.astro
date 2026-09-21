@@ -20,7 +20,9 @@ const holds = (e: NavEntry): boolean => e.children.some((c) => c.slug === curren
     entries.map((e) => {
       const group = e.children.length > 0
       const collapsible = group && e.autoCollapse
-      const trail = group && holds(e)
+      // `current` can sit AT a folder page rather than below it, when that page has a body of
+      // its own -- and a collapsible group must not close under the reader standing on it.
+      const trail = group && (e.slug === current || holds(e))
       const open = group && (trail || !collapsible)
       return (
         <li class:list={[collapsible && 'collapsible', trail && 'trail', open && 'open']}>

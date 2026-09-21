@@ -35,6 +35,9 @@ importers:
       rehype-slug:
         specifier: ^6.0.0
         version: 6.0.0
+      swagger-ui-dist:
+        specifier: ^5.33.0
+        version: 5.33.0
       typescript:
         specifier: ^5.9.2
         version: 5.9.3
@@ -1068,6 +1071,9 @@ packages:
     resolution: {integrity: sha512-at8QVep6S3h5Y6gSbdGU06bRY5WJkf6WUduM9YtvYMbYhB1MOFfUgc6kehitQXzOtMSaT70q7f9ydPhpqu821w==}
     cpu: [x64]
     os: [win32]
+
+  '@scarf/scarf@1.4.0':
+    resolution: {integrity: sha512-xxeapPiUXdZAE3che6f3xogoJPeZgig6omHEy1rIY5WVsB3H2BHNnZH+gHG6x91SCWyQCzWGsuL2Hh3ClO5/qQ==}
 
   '@secretlint/config-creator@10.2.2':
     resolution: {integrity: sha512-BynOBe7Hn3LJjb3CqCHZjeNB09s/vgf0baBaHVw67w7gHF0d25c3ZsZ5+vv8TgwSchRdUCRrbbcq5i2B1fJ2QQ==}
@@ -3154,6 +3160,9 @@ packages:
     engines: {node: '>=16'}
     hasBin: true
 
+  swagger-ui-dist@5.33.0:
+    resolution: {integrity: sha512-wpdK+m6BU5yj6pmUdMskZVTSWYG4DLglAx3sIhylloY37i8O37IrH+YEpqdXNfpaTGxILRBFzUqLF2jKqbfI7A==}
+
   table@6.9.0:
     resolution: {integrity: sha512-9kY+CygyYM6j02t5YFHbNz2FN5QmYGv9zAjVp4lCDjlCw7amdckXlEt/bjMhUIfj4ThGRE4gCUH5+yGnNuPo5A==}
     engines: {node: '>=10.0.0'}
@@ -4547,6 +4556,8 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.63.1':
     optional: true
+
+  '@scarf/scarf@1.4.0': {}
 
   '@secretlint/config-creator@10.2.2':
     dependencies:
@@ -7419,6 +7430,10 @@ snapshots:
       csso: 5.0.5
       picocolors: 1.1.1
       sax: 1.6.1
+
+  swagger-ui-dist@5.33.0:
+    dependencies:
+      '@scarf/scarf': 1.4.0
 
   table@6.9.0:
     dependencies:

@@ -14,6 +14,7 @@ func main() {
 	schemaOut := flag.String("schema", "", `process-definition JSON Schema output path ("-" for stdout, "" to skip)`)
 	configOut := flag.String("config-schema", "", `.genroc project-config JSON Schema output path ("-" for stdout, "" to skip)`)
 	cliRef := flag.String("cli-reference", "", `directory to write the genctl reference pages into ("" to skip)`)
+	httpRef := flag.String("http-reference", "", `directory to write the HTTP endpoint reference pages into ("" to skip)`)
 	genctl := flag.String("genctl", "./genctl", "the genctl binary the CLI reference is read from")
 	flag.Parse()
 
@@ -23,6 +24,12 @@ func main() {
 
 	if *cliRef != "" {
 		if err := writeCLIReference(*cliRef, *genctl); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	if *httpRef != "" {
+		if err := writeHTTPReference(*httpRef); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}

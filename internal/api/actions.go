@@ -444,7 +444,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID      string `path:"id"`
+				ID      string `path:"id" description:"The instance id"`
 				Resolve bool   `query:"resolve" description:"Splice externalized values into the state where they fit; anything over the per-object limit stays listed under objects for the caller to fetch"`
 			}{},
 			Resp: InstanceDetailResp{
@@ -482,7 +482,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID string `path:"id"`
+				ID string `path:"id" description:"The instance id"`
 			}{},
 			Resp: InstanceStatusResp{
 				ID: "550e8400-e29b-41d4-a716-446655440000", Process: "order_pipeline",
@@ -506,7 +506,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID            string `path:"id"`
+				ID            string `path:"id" description:"The instance id"`
 				Level         string `query:"level" enum:"debug,info,warn,error" description:"Lowest level to return: this level and everything above it (warn keeps errors)"`
 				CreatedAfter  int64  `query:"created_after" description:"Only logs at/after this unix-millis timestamp"`
 				CreatedBefore int64  `query:"created_before" description:"Only logs strictly before this unix-millis timestamp"`
@@ -539,7 +539,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Objects"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				Ref string `path:"ref"`
+				Ref string `path:"ref" description:"The value's content hash, as a response's objects section lists it"`
 			}{},
 			Resp: map[string]any{"data": ""},
 			fromHTTP: func(r *http.Request) (Envelope, error) {
@@ -567,7 +567,7 @@ var registry = func() []actionDef {
 			// comes back 204, not 409. specs/id-list-commands.md.
 			Errors: []Code{CodeNotFound},
 			PathQuery: struct {
-				ID string `path:"id"`
+				ID string `path:"id" description:"The root instance's id; the call acts on its whole tree and refuses a child"`
 			}{},
 			Resp: LifecycleResp{},
 			AltSuccess: []altResp{
@@ -587,7 +587,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound, CodeConflict},
 			PathQuery: struct {
-				ID string `path:"id"`
+				ID string `path:"id" description:"The root instance's id; the call acts on its whole tree and refuses a child"`
 			}{},
 			Resp: LifecycleResp{},
 			// No 202: a resume is atomic, nothing is left draining (pause-resume.md §7).
@@ -607,7 +607,7 @@ var registry = func() []actionDef {
 			// assertion and comes back 204. specs/id-list-commands.md.
 			Errors: []Code{CodeNotFound},
 			PathQuery: struct {
-				ID string `path:"id"`
+				ID string `path:"id" description:"The root instance's id; the call acts on its whole tree and refuses a child"`
 			}{},
 			Resp: LifecycleResp{},
 			AltSuccess: []altResp{
@@ -627,7 +627,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound, CodeConflict},
 			PathQuery: struct {
-				ID    string `path:"id"`
+				ID    string `path:"id" description:"The root instance's id; the call acts on its whole tree and refuses a child"`
 				Force bool   `query:"force" description:"Override only_once retry protection"`
 			}{},
 			Resp: LifecycleResp{},
@@ -649,7 +649,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Instances"},
 			Errors:  []Code{CodeNotFound, CodeConflict, CodeInvalid},
 			PathQuery: struct {
-				ID string `path:"id"`
+				ID string `path:"id" description:"The root instance's id; the call acts on its whole tree and refuses a child"`
 			}{},
 			Req:  UpgradeInstanceReq{},
 			Resp: UpgradeResp{},
@@ -765,7 +765,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Tokens"},
 			Errors:  []Code{CodeNotFound},
 			PathQuery: struct {
-				ID string `path:"id"`
+				ID string `path:"id" description:"The token id, as GET /tokens lists it"`
 			}{},
 			Resp: map[string]any{"revoked": true},
 			fromHTTP: func(r *http.Request) (Envelope, error) {

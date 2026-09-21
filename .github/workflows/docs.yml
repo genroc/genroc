@@ -34,11 +34,17 @@ jobs:
           node-version: "24"
           cache: pnpm
 
-      # Into docs/public/, so the built site serves /process-schema.json and
-      # /config-schema.json. Must run
+      # Into docs/public/, so the built site serves /openapi.json,
+      # /process-schema.json and /config-schema.json. Must run
       # before the Astro build — public/ is copied into dist/ at build time.
       - name: Generate the published schemas
         run: make docs-schema
+
+      # The generated reference pages are gitignored, so without this the deploy ships an
+      # api-reference section whose folder pages have no children. Also before the build:
+      # they are content, and the content collection is read at build time.
+      - name: Generate the reference pages
+        run: make docs-reference
 
       - name: Build site
         run: |

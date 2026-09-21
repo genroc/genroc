@@ -33,7 +33,8 @@ func TestWriteSchemaFile(t *testing.T) {
 	}
 }
 
-// "" is how the Makefile asks for the schema without also clobbering openapi.json.
+// "" is how a caller asks for one artifact without building the others: docs-reference wants
+// neither schema, and building a spec it then discards is work nothing reads.
 func TestWriteEmptyPathSkipsBuild(t *testing.T) {
 	built := false
 	write("", func() []byte { built = true; return nil })

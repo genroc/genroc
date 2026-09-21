@@ -1,6 +1,6 @@
 # Binary
 /genroc
-/genrocschema
+/genrocspec
 /genctl
 /genroc-ui
 
@@ -26,9 +26,13 @@
 .vscode/
 *.swp
 openapi.json
+/docs/public/openapi.json
+/docs/public/swagger/swagger-ui*.js
+/docs/public/swagger/swagger-ui*.css
 /docs/public/process-schema.json
 /docs/public/config-schema.json
 /docs/src/content/docs/api-reference/cli/
+/docs/src/content/docs/api-reference/http-api/
 tests/generated/
 /node_modules/
 tests/node_modules/
