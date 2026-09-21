@@ -137,8 +137,9 @@ docs-schema:
 # a committed copy is a second thing to keep true.
 docs-reference: build
 	$(BUILD_FLAGS) go run ./cmd/genrocspec -o "" \
-		-cli-reference docs/src/content/docs/api-reference/cli \
-		-http-reference docs/src/content/docs/api-reference/http-api
+		-cli-reference docs/src/content/docs/reference/cli \
+		-http-reference docs/src/content/docs/reference/http-api \
+		-definition-reference docs/src/content/docs/reference/definition
 
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
 # per-version build is served from; unset means the site root.

@@ -31,8 +31,9 @@ openapi.json
 /docs/public/swagger/swagger-ui*.css
 /docs/public/process-schema.json
 /docs/public/config-schema.json
-/docs/src/content/docs/api-reference/cli/
-/docs/src/content/docs/api-reference/http-api/
+/docs/src/content/docs/reference/cli/
+/docs/src/content/docs/reference/http-api/
+/docs/src/content/docs/reference/definition/
 tests/generated/
 /node_modules/
 tests/node_modules/
