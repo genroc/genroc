@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>genroc API explorer</title>
+    <!-- Vendored by scripts/vendor-swagger.mjs, not a CDN: an archived per-version build must
+         keep the bytes it shipped with. -->
+    <link rel="stylesheet" href="./swagger-ui.css" />
+    <style>
+      body {
+        margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .bar {
+        display: flex;
+        gap: 1rem;
+        align-items: baseline;
+        flex-wrap: wrap;
+        padding: 0.75rem 1.25rem;
+        background: #121212;
+        color: #f7f7f4;
+        font-size: 0.85rem;
+      }
+      .bar a {
+        color: #e8834a;
+      }
+      .bar span {
+        opacity: 0.7;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <a href="/api-reference/http-api/">&larr; docs</a>
+      <span>
+        Browsing only — executing a request needs a running genroc, which serves this same
+        explorer at <code>/public/docs</code> on its own origin.
+      </span>
+    </div>
+    <div id="swagger-ui"></div>
+    <script src="./swagger-ui-bundle.js"></script>
+    <script src="./swagger-ui-standalone-preset.js"></script>
+    <script>
+      SwaggerUIBundle({
+        url: '/openapi.json',
+        dom_id: '#swagger-ui',
+        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+        layout: 'BaseLayout',
+        deepLinking: true,
+        // No Try it out here. genroc sends no CORS headers, so a request from this origin is
+        // blocked by the browser before it reaches any server — including localhost. A button
+        // that can only fail is worse than no button; the server's own copy is same-origin.
+        supportedSubmitMethods: [],
+      })
+    </script>
+  </body>
+</html>

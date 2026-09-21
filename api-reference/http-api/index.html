@@ -1,7 +1,7 @@
 <!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HTTP API — genroc</title><meta name="description" content="The endpoints genctl and the UI are built on, and the OpenAPI document that describes them."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
       const stored = localStorage.getItem('theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
-    </script><link rel="expect" href="#page-end" blocking="render"><script type="application/json" id="vt-data">{"tree":{"/":"00","/guides/getting-started":"00.01.01","/guides/getting-started/installation":"00.01.01.01","/guides/getting-started/first-process":"00.01.01.02","/guides/getting-started/surviving-a-restart":"00.01.01.03","/guides/process-definition":"00.01.02","/guides/process-definition/basics":"00.01.02.01","/guides/process-definition/tasks-and-expressions":"00.01.02.02","/guides/process-definition/error-handling":"00.01.02.03","/guides/process-definition/validations-and-types":"00.01.02.04","/guides/process-definition/child-processes":"00.01.02.05","/guides/process-definition/versioning":"00.01.02.06","/guides/process-definition/upgrading-instances":"00.01.02.07","/api-reference/http-api":"00.02.01","/api-reference/cli":"00.02.02"},"chrome":[{"attr":"vtBanner","selector":".banner-strip"},{"attr":"vtDrawer","selector":".nav-drawer"},{"attr":"vtSidebar","selector":".shell > .sidebar"},{"attr":"vtToc","selector":".toc"},{"attr":"vtFooter","selector":"footer"}]}</script> <script>
+    </script><link rel="expect" href="#page-end" blocking="render"><script type="application/json" id="vt-data">{"tree":{"/":"00","/guides/getting-started":"00.01.01","/guides/getting-started/installation":"00.01.01.01","/guides/getting-started/first-process":"00.01.01.02","/guides/getting-started/surviving-a-restart":"00.01.01.03","/guides/process-definition":"00.01.02","/guides/process-definition/basics":"00.01.02.01","/guides/process-definition/tasks-and-expressions":"00.01.02.02","/guides/process-definition/error-handling":"00.01.02.03","/guides/process-definition/validations-and-types":"00.01.02.04","/guides/process-definition/child-processes":"00.01.02.05","/guides/process-definition/versioning":"00.01.02.06","/guides/process-definition/upgrading-instances":"00.01.02.07","/api-reference/http-api":"00.02.01","/api-reference/http-api/definitions":"00.02.01.01","/api-reference/http-api/instances":"00.02.01.02","/api-reference/http-api/channels":"00.02.01.03","/api-reference/http-api/objects":"00.02.01.04","/api-reference/http-api/external-tasks":"00.02.01.05","/api-reference/http-api/tokens":"00.02.01.06","/api-reference/http-api/debug":"00.02.01.07","/api-reference/cli":"00.02.02","/api-reference/cli/definitions":"00.02.02.01","/api-reference/cli/instances":"00.02.02.02","/api-reference/cli/channels":"00.02.02.03","/api-reference/cli/setup":"00.02.02.04"},"chrome":[{"attr":"vtBanner","selector":".banner-strip"},{"attr":"vtDrawer","selector":".nav-drawer"},{"attr":"vtSidebar","selector":".shell > .sidebar"},{"attr":"vtToc","selector":".toc"},{"attr":"vtFooter","selector":"footer"}]}</script> <script>
   ;(function () {
     const root = document.documentElement
     const { tree, chrome } = JSON.parse(document.getElementById('vt-data').textContent)
@@ -144,16 +144,89 @@
     root.dataset.theme = dark ? 'light' : 'dark'
     localStorage.setItem('theme', root.dataset.theme)
   })
-</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/" aria-current="page"> HTTP API </a>  </li><li> <a href="/api-reference/cli/"> genctl </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li> <a href="/api-reference/http-api/" aria-current="page"> HTTP API </a>  </li><li> <a href="/api-reference/cli/"> genctl </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/api-reference/http-api/">API reference</a> </p> <h1>HTTP API</h1> <p>The endpoints genctl and the UI are built on, and the OpenAPI document that describes them.</p> </div>  <p>TODO. genroc speaks one HTTP API and everything else is a client of it — <code>genctl</code>, the UI, and
-whatever you write. It is described by an OpenAPI document generated from the server itself, so
-it cannot drift from what is served.</p>
+</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li class="collapsible trail open"> <a href="/api-reference/http-api/" aria-current="page"> HTTP API </a> <ul> <li> <a href="/api-reference/http-api/definitions/"> Definitions </a>  </li><li> <a href="/api-reference/http-api/instances/"> Instances </a>  </li><li> <a href="/api-reference/http-api/channels/"> Channels </a>  </li><li> <a href="/api-reference/http-api/objects/"> Objects </a>  </li><li> <a href="/api-reference/http-api/external-tasks/"> External Tasks </a>  </li><li> <a href="/api-reference/http-api/tokens/"> Tokens </a>  </li><li> <a href="/api-reference/http-api/debug/"> Debug </a>  </li> </ul> </li><li class="collapsible"> <a href="/api-reference/cli/definitions/"> genctl </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>API reference</h2> <ul> <li class="collapsible trail open"> <a href="/api-reference/http-api/" aria-current="page"> HTTP API </a> <ul> <li> <a href="/api-reference/http-api/definitions/"> Definitions </a>  </li><li> <a href="/api-reference/http-api/instances/"> Instances </a>  </li><li> <a href="/api-reference/http-api/channels/"> Channels </a>  </li><li> <a href="/api-reference/http-api/objects/"> Objects </a>  </li><li> <a href="/api-reference/http-api/external-tasks/"> External Tasks </a>  </li><li> <a href="/api-reference/http-api/tokens/"> Tokens </a>  </li><li> <a href="/api-reference/http-api/debug/"> Debug </a>  </li> </ul> </li><li class="collapsible"> <a href="/api-reference/cli/definitions/"> genctl </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/api-reference/http-api/">API reference</a> </p> <h1>HTTP API</h1> <p>The endpoints genctl and the UI are built on, and the OpenAPI document that describes them.</p> </div>  <p>genroc speaks one HTTP API and everything else is a client of it — <code>genctl</code>, the UI, and
+whatever you write. The pages below list every endpoint, grouped by what it acts on.</p>
+<p>Everything is served under <code>/api</code>, except the readiness probe at <code>/healthz</code> — a probe must
+not move when the API namespace does.</p>
 <h2 id="the-document">The document<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-document"><span></span></a></h2>
-<p>TODO: where openapi.json is published, and how to generate a client from it.</p>
+<p>The endpoint list is generated from the server’s own action registry, so it cannot drift from
+what is served. This site publishes it at <a href="/openapi.json"><code>/openapi.json</code></a>, and a running
+server serves the same document at <code>/public/openapi.json</code> with a browsable UI at
+<code>/public/docs</code>.</p>
+<p>A client generator takes it as-is — the base path is declared once in <code>servers</code>, so generated
+calls prepend <code>/api</code> and the documented paths stay the ones the server routes.</p>
+<p>To browse it as an API explorer rather than as JSON, there is a
+<a href="/swagger/">Swagger UI here</a>. It is read-only: genroc sends no CORS headers, so a request
+issued from this domain is blocked by the browser before it reaches anything. Your own
+server serves the same explorer at <code>/public/docs</code>, same-origin, with <strong>Try it out</strong> working.</p>
+<p>There is also a per-process document, with that process’s <code>input_schema</code> patched into the
+start-instance body:</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">curl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> localhost:8448/api/definitions/welcome-user/openapi.json</span></span></code></pre>
+<p>Its browsable form is at <code>/api/definitions/{name}/docs</code>.</p>
 <h2 id="authentication">Authentication<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#authentication"><span></span></a></h2>
-<p>TODO: <code>Authorization: Bearer</code>, the two credential kinds, and what a deployment without auth means.</p>
-<h2 id="endpoints">Endpoints<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#endpoints"><span></span></a></h2>
-<p>TODO: definitions, instances, external tasks, objects — grouped by what a caller is trying to do
-rather than by path.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/upgrading-instances/"> <span>previous</span> <strong>Upgrading instances</strong> </a> <a class="next" href="/api-reference/cli/"> <span>next</span> <strong>genctl</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-document">The document</a></li><li class="depth-2"><a href="#authentication">Authentication</a></li><li class="depth-2"><a href="#endpoints">Endpoints</a></li></ul><script>
+<p>genroc accepts exactly two credentials, both on <code>Authorization: Bearer</code>:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>credential</th><th>who holds it</th><th>genroc’s role</th></tr></thead><tbody><tr><td>an opaque <code>genroc_sk_*</code></td><td>machines — CI, workers, apps, <code>genctl</code></td><td>issues it, and verifies it</td></tr><tr><td>a signed JWT</td><td>people, through genroc-ui</td><td>verifies only — never issues, never refreshes</td></tr></tbody></table>
+<p>Nothing else is an identity: no trusted headers, no cookies, no client certificates. A
+deployment configures genroc to accept its identity provider’s tokens, and that configuration
+is the whole integration.</p>
+<p>The default is <code>-auth none</code>, which handles no <code>Authorization</code> at all and leaves every endpoint
+open. That is fine on a laptop and nowhere else — <code>PUT /definitions</code> is arbitrary code
+execution on the server — so genroc warns at startup when it is also bound beyond loopback.</p>
+<h2 id="permissions">Permissions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#permissions"><span></span></a></h2>
+<p>Each endpoint page states what its endpoint needs. Any one of the listed permissions admits
+the call, and <code>admin</code> always does.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>permission</th><th>covers</th></tr></thead><tbody><tr><td><code>worker</code></td><td>the inbound zone — claim, renew, release, resolve, signal — and fetching an object</td></tr><tr><td><code>read</code></td><td>every <code>GET</code>, plus the analyses that write nothing (<code>validate</code>, <code>compat</code>)</td></tr><tr><td><code>operate</code></td><td>acting on runs: start, pause, resume, retry</td></tr><tr><td><code>deploy</code></td><td>changing what runs: definitions, channels, upgrade</td></tr><tr><td><code>admin</code></td><td>tokens, <code>/tick</code>, and anything that declares nothing</td></tr></tbody></table>
+<p>They are a flat set, not a hierarchy — a role maps to a list. <code>upgrade</code> sits under <code>deploy</code>
+rather than <code>operate</code> because it changes which version an instance executes.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/upgrading-instances/"> <span>previous</span> <strong>Upgrading instances</strong> </a> <a class="next" href="/api-reference/http-api/definitions/"> <span>next</span> <strong>Definitions</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-document">The document</a></li><li class="depth-2"><a href="#authentication">Authentication</a></li><li class="depth-2"><a href="#permissions">Permissions</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
