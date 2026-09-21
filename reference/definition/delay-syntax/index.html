@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HTTP API — genroc</title><meta name="description" content="The endpoints genctl and the UI are built on, and the OpenAPI document that describes them."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Delay and timeout syntax — genroc</title><meta name="description" content="The for / until / tz grammar shared by a delay action and any action's timeout."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
       const stored = localStorage.getItem('theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
     </script><link rel="expect" href="#page-end" blocking="render"><script type="application/json" id="vt-data">{"tree":{"/":"00","/guides/getting-started":"00.01.01","/guides/getting-started/installation":"00.01.01.01","/guides/getting-started/first-process":"00.01.01.02","/guides/getting-started/surviving-a-restart":"00.01.01.03","/guides/process-definition":"00.01.02","/guides/process-definition/basics":"00.01.02.01","/guides/process-definition/tasks-and-expressions":"00.01.02.02","/guides/process-definition/error-handling":"00.01.02.03","/guides/process-definition/validations-and-types":"00.01.02.04","/guides/process-definition/child-processes":"00.01.02.05","/guides/process-definition/versioning":"00.01.02.06","/guides/process-definition/upgrading-instances":"00.01.02.07","/reference/http-api":"00.02.01","/reference/http-api/definitions":"00.02.01.01","/reference/http-api/instances":"00.02.01.02","/reference/http-api/channels":"00.02.01.03","/reference/http-api/objects":"00.02.01.04","/reference/http-api/external-tasks":"00.02.01.05","/reference/http-api/tokens":"00.02.01.06","/reference/http-api/debug":"00.02.01.07","/reference/http-api/errors":"00.02.01.08","/reference/cli":"00.02.02","/reference/cli/definitions":"00.02.02.01","/reference/cli/instances":"00.02.02.02","/reference/cli/channels":"00.02.02.03","/reference/cli/setup":"00.02.02.04","/reference/definition":"00.02.03","/reference/definition/process":"00.02.03.01","/reference/definition/task":"00.02.03.02","/reference/definition/actions":"00.02.03.03","/reference/definition/expressions":"00.02.03.04","/reference/definition/delay-syntax":"00.02.03.05","/reference/definition/error-handling":"00.02.03.06","/reference/definition/errors":"00.02.03.07","/reference/instance-statuses":"00.02.04","/reference/project-file":"00.02.05"},"chrome":[{"attr":"vtBanner","selector":".banner-strip"},{"attr":"vtDrawer","selector":".nav-drawer"},{"attr":"vtSidebar","selector":".shell > .sidebar"},{"attr":"vtToc","selector":".toc"},{"attr":"vtFooter","selector":"footer"}]}</script> <script>
@@ -144,57 +144,22 @@
     root.dataset.theme = dark ? 'light' : 'dark'
     localStorage.setItem('theme', root.dataset.theme)
   })
-</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible trail open"> <a href="/reference/http-api/" aria-current="page"> HTTP API </a> <ul> <li> <a href="/reference/http-api/definitions/"> Definitions </a>  </li><li> <a href="/reference/http-api/instances/"> Instances </a>  </li><li> <a href="/reference/http-api/channels/"> Channels </a>  </li><li> <a href="/reference/http-api/objects/"> Objects </a>  </li><li> <a href="/reference/http-api/external-tasks/"> External Tasks </a>  </li><li> <a href="/reference/http-api/tokens/"> Tokens </a>  </li><li> <a href="/reference/http-api/debug/"> Debug </a>  </li><li> <a href="/reference/http-api/errors/"> API errors </a>  </li> </ul> </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/instance-statuses/"> Instance statuses </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible trail open"> <a href="/reference/http-api/" aria-current="page"> HTTP API </a> <ul> <li> <a href="/reference/http-api/definitions/"> Definitions </a>  </li><li> <a href="/reference/http-api/instances/"> Instances </a>  </li><li> <a href="/reference/http-api/channels/"> Channels </a>  </li><li> <a href="/reference/http-api/objects/"> Objects </a>  </li><li> <a href="/reference/http-api/external-tasks/"> External Tasks </a>  </li><li> <a href="/reference/http-api/tokens/"> Tokens </a>  </li><li> <a href="/reference/http-api/debug/"> Debug </a>  </li><li> <a href="/reference/http-api/errors/"> API errors </a>  </li> </ul> </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/instance-statuses/"> Instance statuses </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/reference/http-api/">Reference</a> </p> <h1>HTTP API</h1> <p>The endpoints genctl and the UI are built on, and the OpenAPI document that describes them.</p> </div>  <p>genroc speaks one HTTP API and everything else is a client of it — <code>genctl</code>, the UI, and
-whatever you write. The pages below list every endpoint, grouped by what it acts on.</p>
-<p>Everything is served under <code>/api</code>, except the readiness probe at <code>/healthz</code> — a probe must
-not move when the API namespace does.</p>
-<h2 id="the-document">The document<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-document"><span></span></a></h2>
-<p>The endpoint list is generated from the server’s own action registry, so it cannot drift from
-what is served. This site publishes it at <a href="/openapi.json"><code>/openapi.json</code></a>, and a running
-server serves the same document at <code>/public/openapi.json</code> with a browsable UI at
-<code>/public/docs</code>.</p>
-<p>A client generator takes it as-is — the base path is declared once in <code>servers</code>, so generated
-calls prepend <code>/api</code> and the documented paths stay the ones the server routes.</p>
-<p>To browse it as an API explorer rather than as JSON, there is a
-<a href="/swagger/">Swagger UI here</a>. It is read-only: genroc sends no CORS headers, so a request
-issued from this domain is blocked by the browser before it reaches anything. Your own
-server serves the same explorer at <code>/public/docs</code>, same-origin, with <strong>Try it out</strong> working.</p>
-<p>There is also a per-process document, with that process’s <code>input_schema</code> patched into the
-start-instance body:</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">curl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> localhost:8448/api/definitions/welcome-user/openapi.json</span></span></code></pre>
-<p>Its browsable form is at <code>/api/definitions/{name}/docs</code>.</p>
-<h2 id="authentication">Authentication<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#authentication"><span></span></a></h2>
-<p>genroc accepts exactly two credentials, both on <code>Authorization: Bearer</code>:</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>credential</th><th>who holds it</th><th>genroc’s role</th></tr></thead><tbody><tr><td>an opaque <code>genroc_sk_*</code></td><td>machines — CI, workers, apps, <code>genctl</code></td><td>issues it, and verifies it</td></tr><tr><td>a signed JWT</td><td>people, through genroc-ui</td><td>verifies only — never issues, never refreshes</td></tr></tbody></table>
-<p>Nothing else is an identity: no trusted headers, no cookies, no client certificates. A
-deployment configures genroc to accept its identity provider’s tokens, and that configuration
-is the whole integration.</p>
-<p>The default is <code>-auth none</code>, which handles no <code>Authorization</code> at all and leaves every endpoint
-open. That is fine on a laptop and nowhere else — <code>PUT /definitions</code> is arbitrary code
-execution on the server — so genroc warns at startup when it is also bound beyond loopback.</p>
-<h2 id="permissions">Permissions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#permissions"><span></span></a></h2>
-<p>Each endpoint page states what its endpoint needs. Any one of the listed permissions admits
-the call, and <code>admin</code> always does.</p>
+</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/http-api/"> HTTP API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible trail open"> <a href="/reference/definition/process/"> Definition language </a> <ul> <li> <a href="/reference/definition/process/"> Process </a>  </li><li> <a href="/reference/definition/task/"> Task </a>  </li><li> <a href="/reference/definition/actions/"> Actions </a>  </li><li> <a href="/reference/definition/expressions/"> Expressions </a>  </li><li> <a href="/reference/definition/delay-syntax/" aria-current="page"> Delay and timeout syntax </a>  </li><li> <a href="/reference/definition/error-handling/"> Error handling </a>  </li><li> <a href="/reference/definition/errors/"> Task errors </a>  </li> </ul> </li><li> <a href="/reference/instance-statuses/"> Instance statuses </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/http-api/"> HTTP API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible trail open"> <a href="/reference/definition/process/"> Definition language </a> <ul> <li> <a href="/reference/definition/process/"> Process </a>  </li><li> <a href="/reference/definition/task/"> Task </a>  </li><li> <a href="/reference/definition/actions/"> Actions </a>  </li><li> <a href="/reference/definition/expressions/"> Expressions </a>  </li><li> <a href="/reference/definition/delay-syntax/" aria-current="page"> Delay and timeout syntax </a>  </li><li> <a href="/reference/definition/error-handling/"> Error handling </a>  </li><li> <a href="/reference/definition/errors/"> Task errors </a>  </li> </ul> </li><li> <a href="/reference/instance-statuses/"> Instance statuses </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/reference/http-api/">Reference</a> / <a href="/reference/definition/process/">Definition language</a> </p> <h1>Delay and timeout syntax</h1> <p>The for / until / tz grammar shared by a delay action and any action&#39;s timeout.</p> </div>  <p>A <code>delay</code> action takes exactly one of <strong><code>for</code></strong> (a duration measured from the moment the task
+is entered) or <strong><code>until</code></strong> (an instant), plus an optional <strong><code>tz</code></strong> both resolve against.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> wait_two_hours</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> delay</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> for</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 2h</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> next</span></span>
+<span class="line"></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> wait_until_monday</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> delay</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> until</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">mon 09:00</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> tz</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> Europe/Prague</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> next</span></span></code></pre>
+<p>The same grammar is an action’s <code>timeout</code> — a timeout is this syntax aimed at a deadline
+rather than at a wake-up. Exactly one of the two slots, never both and never neither: there is
+no default, and an absent slot is not zero.</p>
+<h2 id="for--a-duration"><code>for</code> — a duration<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#for--a-duration"><span></span></a></h2>
+<p>A sequence of number-and-unit pairs, in any order: <code>2h30m</code>, <code>7d</code>, <code>1mo15d</code>. An <strong>unquoted</strong>
+number is milliseconds, so <code>for: 30000</code> is thirty seconds — quoted, it is refused, because
+<code>&quot;30000&quot;</code> is as likely to have meant seconds.</p>
 
 
 
@@ -224,9 +189,112 @@ the call, and <code>admin</code> always does.</p>
 
 
 
-<table><thead><tr><th>permission</th><th>covers</th></tr></thead><tbody><tr><td><code>worker</code></td><td>the inbound zone — claim, renew, release, resolve, signal — and fetching an object</td></tr><tr><td><code>read</code></td><td>every <code>GET</code>, plus the analyses that write nothing (<code>validate</code>, <code>compat</code>)</td></tr><tr><td><code>operate</code></td><td>acting on runs: start, pause, resume, retry</td></tr><tr><td><code>deploy</code></td><td>changing what runs: definitions, channels, upgrade</td></tr><tr><td><code>admin</code></td><td>tokens, <code>/tick</code>, and anything that declares nothing</td></tr></tbody></table>
-<p>They are a flat set, not a hierarchy — a role maps to a list. <code>upgrade</code> sits under <code>deploy</code>
-rather than <code>operate</code> because it changes which version an instance executes.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/upgrading-instances/"> <span>previous</span> <strong>Upgrading instances</strong> </a> <a class="next" href="/reference/http-api/definitions/"> <span>next</span> <strong>Definitions</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-document">The document</a></li><li class="depth-2"><a href="#authentication">Authentication</a></li><li class="depth-2"><a href="#permissions">Permissions</a></li></ul><script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Unit</th><th>Means</th><th>Kind</th></tr></thead><tbody><tr><td><code>ms</code></td><td>milliseconds</td><td>fixed</td></tr><tr><td><code>s</code></td><td>seconds</td><td>fixed</td></tr><tr><td><code>m</code></td><td>minutes</td><td>fixed</td></tr><tr><td><code>h</code></td><td>hours</td><td>fixed</td></tr><tr><td><code>d</code></td><td>days</td><td>calendar</td></tr><tr><td><code>w</code></td><td>weeks</td><td>calendar</td></tr><tr><td><code>mo</code></td><td>months</td><td>calendar</td></tr><tr><td><code>y</code></td><td>years</td><td>calendar</td></tr></tbody></table>
+<p><strong>Fixed units are elapsed time; calendar units are calendar arithmetic</strong> in <code>tz</code>, and calendar
+units apply first whatever order they were written in. So <code>1d</code> is “the same wall clock
+tomorrow” — 23 or 25 hours across a daylight-saving boundary, not 24. Month arithmetic clamps
+to the end of the target month, so 31 January plus <code>1mo</code> is 28 or 29 February rather than
+rolling into March.</p>
+<h2 id="until--an-instant"><code>until</code> — an instant<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#until--an-instant"><span></span></a></h2>
+<p>Four closed forms, and natural language is deliberately not among them:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Form</th><th>Example</th><th>Notes</th></tr></thead><tbody><tr><td>absolute instant</td><td><code>2026-09-01T08:00:00Z</code></td><td>RFC 3339; carries its own zone, so <code>tz</code> is not consulted</td></tr><tr><td>wall clock</td><td><code>2026-09-01 08:00</code></td><td>no zone, so it is read in <code>tz</code></td></tr><tr><td>offset plus wall clock</td><td><code>+2d 08:00</code></td><td>that many days on, at that time</td></tr><tr><td>calendar pattern</td><td><code>*-*-01 08:00</code>, <code>mon 09:00</code>, <code>*:*:0/5</code></td><td>the next match after now</td></tr></tbody></table>
+<p>The pattern form is the systemd <code>OnCalendar</code> subset: <code>*</code> is any, <code>0/5</code> is every fifth from
+zero, and a three-letter lowercase weekday (<code>mon</code>…<code>sun</code>) selects a day.</p>
+<h2 id="tz"><code>tz</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#tz"><span></span></a></h2>
+<p>An IANA name (<code>Europe/Prague</code>), the literal <code>UTC</code>, or a fixed offset (<code>+02:00</code>). Absent means
+UTC.</p>
+<p>Abbreviations such as <code>CET</code> and the special name <code>Local</code> are refused on purpose: an
+abbreviation denotes the wrong thing for half the year, and <code>Local</code> resolves against the host’s
+zone database — so the same definition would mean different things on two workers.</p>
+<p>Two wall clocks have no single answer, and each has a rule. A time that does not exist, because
+the clock jumped forward over it, <strong>normalizes forward</strong>. A time that happens twice, because
+the clock went back, <strong>takes the first occurrence</strong>.</p>
+<h2 id="expressions-in-these-slots">Expressions in these slots<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#expressions-in-these-slots"><span></span></a></h2>
+<p>A slot’s accepted form is decided before type inference, so the three spellings are not
+interchangeable:</p>
+<ul>
+<li>a <strong>literal</strong> is parsed against the grammars above;</li>
+<li>a <strong><code>$:</code> expression</strong> must infer to a number, and is therefore milliseconds;</li>
+<li>a <strong><code>${ }</code> interpolation</strong> is refused by name, because it produces a string.</li>
+</ul>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> delay</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">,</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> for</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">wait_ms</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">}</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">   # a number of milliseconds</span></span></code></pre>
+<h2 id="a-target-already-in-the-past">A target already in the past<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#a-target-already-in-the-past"><span></span></a></h2>
+<p>Resolution never fails on one — timers keep running while an instance is paused, so a past
+target is a legitimate state to resume into. What happens next depends on who was waiting:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Slot</th><th>Behaviour</th></tr></thead><tbody><tr><td>a <code>delay</code></td><td>clamps to now and wakes</td></tr><tr><td>an <code>external</code> task’s <code>timeout</code></td><td>clamps to now and raises <code>external.timeout</code></td></tr><tr><td>a <code>fetch</code> timeout</td><td>refuses — reporting <code>http.timeout</code> for a request that was never sent would be a lie</td></tr></tbody></table>
+<p><code>until</code> is external-only as a timeout. A fetch’s budget is <code>for</code>, and a retry gets a fresh one.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/reference/definition/expressions/"> <span>previous</span> <strong>Expressions</strong> </a> <a class="next" href="/reference/definition/error-handling/"> <span>next</span> <strong>Error handling</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#for--a-duration">for — a duration</a></li><li class="depth-2"><a href="#until--an-instant">until — an instant</a></li><li class="depth-2"><a href="#tz">tz</a></li><li class="depth-2"><a href="#expressions-in-these-slots">Expressions in these slots</a></li><li class="depth-2"><a href="#a-target-already-in-the-past">A target already in the past</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links

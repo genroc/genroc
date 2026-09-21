@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>HTTP API — genroc</title><meta name="description" content="The endpoints genctl and the UI are built on, and the OpenAPI document that describes them."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Instance statuses — genroc</title><meta name="description" content="Every state an instance can be in, and which of them are settled."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
       const stored = localStorage.getItem('theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
     </script><link rel="expect" href="#page-end" blocking="render"><script type="application/json" id="vt-data">{"tree":{"/":"00","/guides/getting-started":"00.01.01","/guides/getting-started/installation":"00.01.01.01","/guides/getting-started/first-process":"00.01.01.02","/guides/getting-started/surviving-a-restart":"00.01.01.03","/guides/process-definition":"00.01.02","/guides/process-definition/basics":"00.01.02.01","/guides/process-definition/tasks-and-expressions":"00.01.02.02","/guides/process-definition/error-handling":"00.01.02.03","/guides/process-definition/validations-and-types":"00.01.02.04","/guides/process-definition/child-processes":"00.01.02.05","/guides/process-definition/versioning":"00.01.02.06","/guides/process-definition/upgrading-instances":"00.01.02.07","/reference/http-api":"00.02.01","/reference/http-api/definitions":"00.02.01.01","/reference/http-api/instances":"00.02.01.02","/reference/http-api/channels":"00.02.01.03","/reference/http-api/objects":"00.02.01.04","/reference/http-api/external-tasks":"00.02.01.05","/reference/http-api/tokens":"00.02.01.06","/reference/http-api/debug":"00.02.01.07","/reference/http-api/errors":"00.02.01.08","/reference/cli":"00.02.02","/reference/cli/definitions":"00.02.02.01","/reference/cli/instances":"00.02.02.02","/reference/cli/channels":"00.02.02.03","/reference/cli/setup":"00.02.02.04","/reference/definition":"00.02.03","/reference/definition/process":"00.02.03.01","/reference/definition/task":"00.02.03.02","/reference/definition/actions":"00.02.03.03","/reference/definition/expressions":"00.02.03.04","/reference/definition/delay-syntax":"00.02.03.05","/reference/definition/error-handling":"00.02.03.06","/reference/definition/errors":"00.02.03.07","/reference/instance-statuses":"00.02.04","/reference/project-file":"00.02.05"},"chrome":[{"attr":"vtBanner","selector":".banner-strip"},{"attr":"vtDrawer","selector":".nav-drawer"},{"attr":"vtSidebar","selector":".shell > .sidebar"},{"attr":"vtToc","selector":".toc"},{"attr":"vtFooter","selector":"footer"}]}</script> <script>
@@ -144,57 +144,10 @@
     root.dataset.theme = dark ? 'light' : 'dark'
     localStorage.setItem('theme', root.dataset.theme)
   })
-</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible trail open"> <a href="/reference/http-api/" aria-current="page"> HTTP API </a> <ul> <li> <a href="/reference/http-api/definitions/"> Definitions </a>  </li><li> <a href="/reference/http-api/instances/"> Instances </a>  </li><li> <a href="/reference/http-api/channels/"> Channels </a>  </li><li> <a href="/reference/http-api/objects/"> Objects </a>  </li><li> <a href="/reference/http-api/external-tasks/"> External Tasks </a>  </li><li> <a href="/reference/http-api/tokens/"> Tokens </a>  </li><li> <a href="/reference/http-api/debug/"> Debug </a>  </li><li> <a href="/reference/http-api/errors/"> API errors </a>  </li> </ul> </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/instance-statuses/"> Instance statuses </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible trail open"> <a href="/reference/http-api/" aria-current="page"> HTTP API </a> <ul> <li> <a href="/reference/http-api/definitions/"> Definitions </a>  </li><li> <a href="/reference/http-api/instances/"> Instances </a>  </li><li> <a href="/reference/http-api/channels/"> Channels </a>  </li><li> <a href="/reference/http-api/objects/"> Objects </a>  </li><li> <a href="/reference/http-api/external-tasks/"> External Tasks </a>  </li><li> <a href="/reference/http-api/tokens/"> Tokens </a>  </li><li> <a href="/reference/http-api/debug/"> Debug </a>  </li><li> <a href="/reference/http-api/errors/"> API errors </a>  </li> </ul> </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/instance-statuses/"> Instance statuses </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/reference/http-api/">Reference</a> </p> <h1>HTTP API</h1> <p>The endpoints genctl and the UI are built on, and the OpenAPI document that describes them.</p> </div>  <p>genroc speaks one HTTP API and everything else is a client of it — <code>genctl</code>, the UI, and
-whatever you write. The pages below list every endpoint, grouped by what it acts on.</p>
-<p>Everything is served under <code>/api</code>, except the readiness probe at <code>/healthz</code> — a probe must
-not move when the API namespace does.</p>
-<h2 id="the-document">The document<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-document"><span></span></a></h2>
-<p>The endpoint list is generated from the server’s own action registry, so it cannot drift from
-what is served. This site publishes it at <a href="/openapi.json"><code>/openapi.json</code></a>, and a running
-server serves the same document at <code>/public/openapi.json</code> with a browsable UI at
-<code>/public/docs</code>.</p>
-<p>A client generator takes it as-is — the base path is declared once in <code>servers</code>, so generated
-calls prepend <code>/api</code> and the documented paths stay the ones the server routes.</p>
-<p>To browse it as an API explorer rather than as JSON, there is a
-<a href="/swagger/">Swagger UI here</a>. It is read-only: genroc sends no CORS headers, so a request
-issued from this domain is blocked by the browser before it reaches anything. Your own
-server serves the same explorer at <code>/public/docs</code>, same-origin, with <strong>Try it out</strong> working.</p>
-<p>There is also a per-process document, with that process’s <code>input_schema</code> patched into the
-start-instance body:</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">curl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> localhost:8448/api/definitions/welcome-user/openapi.json</span></span></code></pre>
-<p>Its browsable form is at <code>/api/definitions/{name}/docs</code>.</p>
-<h2 id="authentication">Authentication<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#authentication"><span></span></a></h2>
-<p>genroc accepts exactly two credentials, both on <code>Authorization: Bearer</code>:</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<table><thead><tr><th>credential</th><th>who holds it</th><th>genroc’s role</th></tr></thead><tbody><tr><td>an opaque <code>genroc_sk_*</code></td><td>machines — CI, workers, apps, <code>genctl</code></td><td>issues it, and verifies it</td></tr><tr><td>a signed JWT</td><td>people, through genroc-ui</td><td>verifies only — never issues, never refreshes</td></tr></tbody></table>
-<p>Nothing else is an identity: no trusted headers, no cookies, no client certificates. A
-deployment configures genroc to accept its identity provider’s tokens, and that configuration
-is the whole integration.</p>
-<p>The default is <code>-auth none</code>, which handles no <code>Authorization</code> at all and leaves every endpoint
-open. That is fine on a laptop and nowhere else — <code>PUT /definitions</code> is arbitrary code
-execution on the server — so genroc warns at startup when it is also bound beyond loopback.</p>
-<h2 id="permissions">Permissions<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#permissions"><span></span></a></h2>
-<p>Each endpoint page states what its endpoint needs. Any one of the listed permissions admits
-the call, and <code>admin</code> always does.</p>
+</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still in its prototype phase, and these docs are not ready to be used</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/http-api/"> HTTP API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/instance-statuses/" aria-current="page"> Instance statuses </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> </details> <div class="shell no-toc"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/http-api/"> HTTP API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/instance-statuses/" aria-current="page"> Instance statuses </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/reference/http-api/">Reference</a> </p> <h1>Instance statuses</h1> <p>Every state an instance can be in, and which of them are settled.</p> </div>  <!-- Generated by `make docs-reference` from internal/model. Do not edit. -->
+<p><code>Settled</code> marks a terminal state: no work moves and nothing advances out of it.
+<code>Accepts a result</code> is whether a worker’s answer to an external task is still delivered —
+a pause suspends execution, not delivery.</p>
 
 
 
@@ -224,54 +177,40 @@ the call, and <code>admin</code> always does.</p>
 
 
 
-<table><thead><tr><th>permission</th><th>covers</th></tr></thead><tbody><tr><td><code>worker</code></td><td>the inbound zone — claim, renew, release, resolve, signal — and fetching an object</td></tr><tr><td><code>read</code></td><td>every <code>GET</code>, plus the analyses that write nothing (<code>validate</code>, <code>compat</code>)</td></tr><tr><td><code>operate</code></td><td>acting on runs: start, pause, resume, retry</td></tr><tr><td><code>deploy</code></td><td>changing what runs: definitions, channels, upgrade</td></tr><tr><td><code>admin</code></td><td>tokens, <code>/tick</code>, and anything that declares nothing</td></tr></tbody></table>
-<p>They are a flat set, not a hierarchy — a role maps to a list. <code>upgrade</code> sits under <code>deploy</code>
-rather than <code>operate</code> because it changes which version an instance executes.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/upgrading-instances/"> <span>previous</span> <strong>Upgrading instances</strong> </a> <a class="next" href="/reference/http-api/definitions/"> <span>next</span> <strong>Definitions</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-document">The document</a></li><li class="depth-2"><a href="#authentication">Authentication</a></li><li class="depth-2"><a href="#permissions">Permissions</a></li></ul><script>
-        ;(function () {
-          const links = [...document.querySelectorAll('.toc a[href^="#"]')]
-          const targets = links
-            .map((a) => ({ a: a, el: document.getElementById(decodeURIComponent(a.hash.slice(1))) }))
-            .filter((t) => t.el)
-          if (!targets.length) return
 
-          // The line a heading crosses to become current: just under the sticky topbar, which
-          // is measured rather than assumed -- it is where the readable area actually starts.
-          const line = () => {
-            const bar = document.querySelector('.topbar')
-            return (bar ? bar.getBoundingClientRect().height : 0) + 24
-          }
 
-          let current = null
-          function update() {
-            const y = line()
-            let active = targets[0]
-            for (const t of targets) {
-              if (t.el.getBoundingClientRect().top <= y) active = t
-            }
-            // A last section too short to reach the line would never be current, so the
-            // bottom of the page elects it.
-            if (innerHeight + scrollY >= document.documentElement.scrollHeight - 2) {
-              active = targets[targets.length - 1]
-            }
-            if (active === current) return
-            if (current) current.a.removeAttribute('aria-current')
-            active.a.setAttribute('aria-current', 'location')
-            current = active
-          }
 
-          let queued = false
-          function onScroll() {
-            if (queued) return
-            queued = true
-            requestAnimationFrame(function () {
-              queued = false
-              update()
-            })
-          }
-          addEventListener('scroll', onScroll, { passive: true })
-          addEventListener('resize', onScroll)
-          // A hash in the URL scrolls after this script parses, so re-read once settled.
-          addEventListener('load', update)
-          update()
-        })()
-      </script></aside> </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Status</th><th>Settled</th><th>Accepts a result</th><th>Means</th></tr></thead><tbody><tr><td><code>running</code></td><td>no</td><td>yes</td><td>advancing, or waiting on a timer, a child or an external task</td></tr><tr><td><code>pausing</code></td><td>no</td><td>yes</td><td>a pause was requested while a task was in flight; it settles at the next task boundary</td></tr><tr><td><code>paused</code></td><td>no</td><td>yes</td><td>not being advanced, and able to resume exactly where it stopped; timers keep running</td></tr><tr><td><code>failing</code></td><td>no</td><td>no</td><td>doomed by an error, and draining the descendants still in flight</td></tr><tr><td><code>cancelling</code></td><td>no</td><td>no</td><td>a cancel was requested while a task was in flight; it settles at the next task boundary</td></tr><tr><td><code>completed</code></td><td>yes</td><td>no</td><td>finished by reaching the end of its definition</td></tr><tr><td><code>failed</code></td><td>yes</td><td>no</td><td>stopped by an error; retryable, which is what separates it from the other settled outcomes</td></tr><tr><td><code>raised</code></td><td>yes</td><td>no</td><td>concluded by a <code>raise</code> clause — a condition, not a defect, and catchable by the parent</td></tr><tr><td><code>cancelled</code></td><td>yes</td><td>no</td><td>stopped for good by an operator — terminal, and unlike a pause there is no way back</td></tr></tbody></table>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/reference/definition/errors/"> <span>previous</span> <strong>Task errors</strong> </a> <a class="next" href="/reference/project-file/"> <span>next</span> <strong>Project file</strong> </a> </nav> </div> </main>  </div>  <footer id="page-end"> <span>genroc — a durable process orchestrator</span> <a href="https://github.com/genroc/genroc">source</a>  <a href="https://genroc.org/bench/" data-astro-prefetch="false">benchmarks</a> <a href="/">docs home</a> </footer> </body></html>
