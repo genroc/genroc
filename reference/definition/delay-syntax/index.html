@@ -250,7 +250,7 @@ rolling into March.</p>
 
 <table><thead><tr><th>Form</th><th>Example</th><th>Notes</th></tr></thead><tbody><tr><td>absolute instant</td><td><code>2026-09-01T08:00:00Z</code></td><td>RFC 3339; carries its own zone, so <code>tz</code> is not consulted</td></tr><tr><td>wall clock</td><td><code>2026-09-01 08:00</code></td><td>no zone, so it is read in <code>tz</code></td></tr><tr><td>offset plus wall clock</td><td><code>+2d 08:00</code></td><td>that many days on, at that time</td></tr><tr><td>calendar pattern</td><td><code>*-*-01 08:00</code>, <code>mon 09:00</code>, <code>*:*:0/5</code></td><td>the next match after now</td></tr></tbody></table>
 <p>The pattern form is the systemd <code>OnCalendar</code> subset: <code>*</code> is any, <code>0/5</code> is every fifth from
-zero, and a three-letter lowercase weekday (<code>mon</code>…<code>sun</code>) selects a day.</p>
+zero, and a three-letter weekday (<code>mon</code>…<code>sun</code>, any case) selects a day.</p>
 <h2 id="tz"><code>tz</code><a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#tz"><span></span></a></h2>
 <p>An IANA name (<code>Europe/Prague</code>), the literal <code>UTC</code>, or a fixed offset (<code>+02:00</code>). Absent means
 UTC.</p>
