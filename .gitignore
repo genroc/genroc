@@ -28,6 +28,7 @@
 openapi.json
 /docs/public/process-schema.json
 /docs/public/config-schema.json
+/docs/src/content/docs/api-reference/cli/
 tests/generated/
 /node_modules/
 tests/node_modules/

@@ -8,7 +8,7 @@ log     ?= info
 
 # BUILD_FLAGS = CGO_ENABLED=1
 
-.PHONY: install extension run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big bench-iterate swagger client clean generate docs docs-schema docs-build script-runner
+.PHONY: install extension run build test test-unit test-int test-stress bench-recursive bench-deep bench-drain bench-drain-big bench-iterate swagger client clean generate docs docs-schema docs-reference docs-build script-runner
 
 run:
 	$(BUILD_FLAGS) go run ./cmd/genroc \
@@ -132,12 +132,18 @@ script-runner:
 docs-schema:
 	$(BUILD_FLAGS) go run ./cmd/genrocspec -o "" -schema docs/public/process-schema.json -config-schema docs/public/config-schema.json
 
+# The generated half of the reference. Needs a built genctl: the help text is the source,
+# and a flag is only registered once its command is running. Generated pages are gitignored --
+# a committed copy is a second thing to keep true.
+docs-reference: build
+	$(BUILD_FLAGS) go run ./cmd/genrocspec -o "" -cli-reference docs/src/content/docs/api-reference/cli
+
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
 # per-version build is served from; unset means the site root.
-docs: docs-schema
+docs: docs-schema docs-reference
 	pnpm install && pnpm -C docs run dev
 
-docs-build: docs-schema
+docs-build: docs-schema docs-reference
 	pnpm install && pnpm -C docs run build
 
 clean:
