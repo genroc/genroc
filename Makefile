@@ -138,7 +138,7 @@ docs-schema:
 docs-reference: build
 	$(BUILD_FLAGS) go run ./cmd/genrocspec -o "" \
 		-cli-reference docs/src/content/docs/reference/cli \
-		-http-reference docs/src/content/docs/reference/http-api \
+		-http-reference docs/src/content/docs/reference/rest-api \
 		-definition-reference docs/src/content/docs/reference/definition \
 		-error-reference \
 		-config-reference docs/src/content/docs/reference \

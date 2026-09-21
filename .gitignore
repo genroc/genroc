@@ -32,7 +32,7 @@ openapi.json
 /docs/public/process-schema.json
 /docs/public/config-schema.json
 /docs/src/content/docs/reference/cli/
-/docs/src/content/docs/reference/http-api/
+/docs/src/content/docs/reference/rest-api/
 /docs/src/content/docs/reference/*.md
 /docs/src/content/docs/reference/definition/*.md
 tests/generated/
