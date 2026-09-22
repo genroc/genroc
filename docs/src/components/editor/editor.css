@@ -1,0 +1,158 @@
+/* ---------------------------------------------------------------------------
+   The editor pane on the home page. Everything sits on the character grid the
+   monospace font gives us: a column is 1ch, a line is --lh, and the caret, the
+   diagnostic and the completion popup are all placed with those two numbers.
+
+   Loaded by Editor.astro next to it; nothing else on the site uses these classes.
+   --------------------------------------------------------------------------- */
+
+.editor {
+  --lh: 1.65;
+  --gut: 4; /* line-number gutter, in characters — the popup's origin counts from here */
+  position: relative;
+  line-height: var(--lh);
+  counter-reset: ln;
+}
+
+.editor .row {
+  display: block;
+  position: relative;
+  white-space: pre;
+  padding-left: calc(var(--gut) * 1ch);
+}
+
+.editor .row::before {
+  counter-increment: ln;
+  content: counter(ln);
+  position: absolute;
+  left: 0;
+  width: calc((var(--gut) - 1.5) * 1ch);
+  text-align: right;
+  color: var(--line-strong);
+}
+
+/* The line the caret is on, drawn edge to edge — the pane's padding is negative margin here
+   so the band reaches the frame, the way an editor draws it. */
+.editor .row.current {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  margin-inline: -0.9rem;
+  padding-left: calc(var(--gut) * 1ch + 0.9rem);
+  padding-right: 0.9rem;
+}
+
+.editor .row.current::before {
+  left: 0.9rem;
+  color: var(--accent);
+}
+
+/* --- tokens: the scopes src/shiki-theme.ts colours ------------------------- */
+
+.editor .str {
+  color: var(--code-string);
+}
+
+.editor .constant {
+  color: var(--code-constant);
+}
+
+.editor .comment {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.editor .punct {
+  color: var(--muted);
+}
+
+.editor .key,
+.editor .plain,
+.editor .expr {
+  color: var(--fg);
+}
+
+/* `${`, `}` and `$:` — the marks that say a value is computed. */
+.editor .marker {
+  color: var(--accent);
+}
+
+/* --- diagnostic, caret, completion ----------------------------------------- */
+
+.editor .squiggle {
+  text-decoration: var(--error) wavy underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.25em;
+}
+
+.editor .caret {
+  display: inline-block;
+  width: 0;
+  height: 1.1em;
+  vertical-align: text-bottom;
+  border-left: 2px solid var(--accent);
+  margin-right: -2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .editor .caret {
+    animation: editor-blink 1.1s steps(1, end) infinite;
+  }
+}
+
+@keyframes editor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.editor .completion {
+  position: absolute;
+  top: calc((var(--line) + 0.3) * var(--lh) * 1em);
+  left: calc((var(--col) + var(--gut) - 1) * 1ch);
+  min-width: 26ch;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--bg);
+  box-shadow: 0 6px 18px -8px rgb(0 0 0 / 0.45);
+  padding: 2px;
+  z-index: 1;
+}
+
+.editor .completion .item {
+  display: flex;
+  align-items: baseline;
+  gap: 1ch;
+  padding: 0.1rem 0.5rem;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.editor .completion .selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.editor .completion .icon {
+  color: var(--accent);
+}
+
+.editor .completion .type {
+  margin-left: auto;
+  padding-left: 2ch;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .editor .completion {
+    animation: editor-popup 160ms var(--ease-out) 900ms both;
+  }
+}
+
+@keyframes editor-popup {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

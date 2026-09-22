@@ -7,39 +7,55 @@
 // slot as inline custom properties; transcript.css does the rest.
 import './transcript.css'
 
-export type TranscriptLine = { kind: 'cmd' | 'out'; text: string }
+// A `log` line is one row of `genctl logs`: its columns are the widths logview.go prints,
+// so the block aligns the way the real trail does — the header is a log line too.
+export type Command = { kind: 'cmd' | 'out'; text: string }
+export type LogRow = { kind: 'log'; time: string; level: string; event: string; task?: string; detail?: string; head?: boolean }
+export type TranscriptLine = Command | LogRow
 
 interface Props {
   lines: TranscriptLine[]
-  label?: string
 }
 
-const { lines, label = 'terminal session' } = Astro.props
+const { lines } = Astro.props
 
 const CHAR_MS = 14
 const MAX_COMMAND_MS = 700 // a long command types as a burst rather than dragging the page out
 const OUTPUT_MS = 180
+const LOG_MS = 120 // a trail prints as a block; at a command's pace eight rows read as a queue
 const GAP_MS = 100
+const LOG_GAP_MS = 60
 const START_MS = 250
 
+// One flat shape for every line, so the template stays a single element: a cmd carries text,
+// a log carries columns, and the empty spans of the other kind render nothing.
+type Row = Partial<Omit<Command, 'kind'> & Omit<LogRow, 'kind'>> & {
+  kind: TranscriptLine['kind']
+  delay: number
+  duration: number
+  len: number
+}
+
 let at = START_MS
-const scheduled = lines.map((line) => {
-  const duration = line.kind === 'cmd' ? Math.min(line.text.length * CHAR_MS, MAX_COMMAND_MS) : OUTPUT_MS
-  const slot = { ...line, delay: at, duration }
-  at += duration + GAP_MS
-  return slot
+const scheduled: Row[] = lines.map((line) => {
+  const len = line.kind === 'log' ? 0 : line.text.length
+  const duration =
+    line.kind === 'cmd' ? Math.min(len * CHAR_MS, MAX_COMMAND_MS) : line.kind === 'log' ? LOG_MS : OUTPUT_MS
+  const row = { ...line, delay: at, duration, len }
+  at += duration + (line.kind === 'log' ? LOG_GAP_MS : GAP_MS)
+  return row
 })
 ---
 
-<div class="transcript" role="img" aria-label={label}>
+<div class="transcript">
   {
+    /* The row is `white-space: pre`, so every newline and indent inside it would be one on
+       screen: the tag closes on the span, and the spans run together with no gap. */
     scheduled.map((line) => (
       <div
-        class:list={['line', line.kind]}
-        style={`--delay:${line.delay}ms;--dur:${line.duration}ms;--len:${line.text.length}`}
-      >
-        <span class="text">{line.text}</span>
-      </div>
+        class:list={['line', line.kind, { head: line.head }]}
+        style={`--delay:${line.delay}ms;--dur:${line.duration}ms;--len:${line.len}`}
+      ><span class="time">{line.time}</span><span class:list={['level', line.level?.toLowerCase()]}>{line.level}</span><span class="event">{line.event}</span><span class="task">{line.task}</span><span class="detail">{line.detail}</span><span class="text">{line.text}</span></div>
     ))
   }
 </div>

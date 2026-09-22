@@ -1,25 +1,70 @@
 ---
 import Base from '../layouts/Base.astro'
 import Logo from '../components/Logo.astro'
+import Pane from '../components/pane/Pane.astro'
+import Editor from '../components/editor/Editor.astro'
 import Transcript from '../components/transcript/Transcript.astro'
 import type { TranscriptLine } from '../components/transcript/Transcript.astro'
-import { navSections } from '../lib/nav'
+import { hrefFor } from '../lib/nav'
 
-const sections = await navSections()
+const start = await hrefFor('guides/getting-started')
+if (!start) throw new Error('home: the button has nowhere to go — guides/getting-started.mdx is gone')
+
+// A definition that validates (`genctl apply --check-only`), caught mid-keystroke: `input.`
+// is the incomplete path the completion below is answering, and the only thing here that
+// would not apply. The session under it is this process's real trail, columns trimmed.
+const definition = `name: greet
+input_schema:
+  type: object
+  properties:
+    who: { type: string, default: "world" }
+tasks:
+  - id: fetch_greeting
+    action:
+      type: fetch
+      method: get
+      url: "https://api.example/\${ input. }"
+      responses:
+        200:
+          type: object
+          properties: { text: { type: string } }
+          required: [text]
+    on_error:
+      - code: [http.503]
+        retry: { retries: 3, delay: 2s }
+    output: "$: self.result.text"
+    switch: end
+output: "$: outputs.fetch_greeting"`
+
+const typing = '${ input. }'
+const line = definition.split('\n').findIndex((l) => l.includes(typing)) + 1
+const src = definition.split('\n')[line - 1]
+const mark = {
+  line,
+  from: src.indexOf(typing),
+  to: src.indexOf(typing) + typing.length,
+  caret: src.indexOf('input.') + 'input.'.length,
+}
 
 const session: TranscriptLine[] = [
   { kind: 'cmd', text: 'genctl apply -f greet.genroc.yaml' },
-  { kind: 'out', text: 'greet: version 1 applied' },
-  { kind: 'cmd', text: 'genctl run greet --set url=https://api.example.com --set name=World' },
-  { kind: 'out', text: 'instance 01JBQ… started' },
-  { kind: 'cmd', text: 'genctl get @last' },
-  { kind: 'out', text: 'status: completed   output: {"ok": true}' },
+  { kind: 'out', text: 'latest: greet - -> v1 (new)' },
+  { kind: 'cmd', text: 'genctl run greet --set who=world' },
+  { kind: 'out', text: 'started: 02pcayvt  greet@v1  (running)' },
+  { kind: 'cmd', text: 'genctl logs @last' },
+  { kind: 'log', head: true, time: 'TIME', level: 'LEVEL', event: 'EVENT', task: 'TASK' },
+  { kind: 'log', time: '14:18:55', level: 'INFO', event: 'inst_created', detail: 'input={"who":"world"}' },
+  { kind: 'log', time: '14:18:55', level: 'INFO', event: 'action_started', task: 'fetch_greeting', detail: 'msg=fetch url=https://api.example/world' },
+  { kind: 'log', time: '14:18:55', level: 'WARN', event: 'action_failed', task: 'fetch_greeting', detail: 'code=http.503 status=503' },
+  { kind: 'log', time: '14:18:55', level: 'WARN', event: 'retry_scheduled', task: 'fetch_greeting', detail: 'msg={"error":"upstream busy"} (retry 1/3)' },
+  { kind: 'log', time: '14:18:56', level: 'INFO', event: 'action_succeeded', task: 'fetch_greeting', detail: 'status=200 result={"text":"hello, world"}' },
+  { kind: 'log', time: '14:18:56', level: 'INFO', event: 'inst_completed', task: 'fetch_greeting', detail: 'output="hello, world"' },
 ]
 ---
 
 <Base
   title="genroc — documentation"
-  description="Documentation for genroc, a durable process orchestrator: guides and a reference for the definition language, the HTTP API and genctl."
+  description="Documentation for genroc, a strongly typed durable process orchestrator: guides and a reference for the definition language, the HTTP API and genctl."
 >
   <div class="home">
     <div class="hero">
@@ -32,28 +77,36 @@ const session: TranscriptLine[] = [
 █████ █████ █   █ █   █ █████ █████</pre>
     </div>
 
-    <p class="tagline">
-      A durable process orchestrator. Describe a process as tasks in YAML; genroc runs each
-      instance to completion — surviving worker crashes, restarts and long waits
-      <span class="muted">without holding a thread or losing state.</span>
+    <h1 class="tagline measure">
+      <span class="lead">Strongly typed</span> open-source durable process orchestrator.
+    </h1>
+
+    <p class="lede measure">
+      Describe a process as tasks in YAML; genroc runs each instance to completion —
+      surviving worker crashes, restarts and long waits without holding a thread or losing
+      state.
     </p>
 
-    <Transcript lines={session} />
+    <a class="cta" href={start}>Get started</a>
 
-    {
-      sections.map((s) => (
-        <section>
-          <h2 style="margin-top:2.5rem">{s.label}</h2>
-          <div class="cards">
-            {s.entries.map((e) => (
-              <a class="card" href={e.href}>
-                <strong>{e.title}</strong>
-                <p>{e.description}</p>
-              </a>
-            ))}
-          </div>
-        </section>
-      ))
-    }
+    <p class="pane-label">write it — every expression is checked against the schemas, as you type</p>
+    <Pane label="greet.genroc.yaml open in an editor, the completion listing `who: string` under the unfinished expression ${ input. }">
+      <Fragment slot="bar">
+        <span>definitions</span>
+        <span class="sep">›</span>
+        <span class="here">greet.genroc.yaml</span>
+      </Fragment>
+      <Editor code={definition} mark={mark} completion={[{ label: 'who', type: 'string' }]} />
+    </Pane>
+
+    <p class="pane-label">run it — every attempt, retry and wait lands on the instance's trail</p>
+    <Pane label="a terminal applying the greet definition, running it, and printing the instance's log: a 503, a retry, then completion">
+      <Fragment slot="bar">
+        <span class="here">genctl</span>
+        <span class="sep">—</span>
+        <span>~/greet</span>
+      </Fragment>
+      <Transcript lines={session} />
+    </Pane>
   </div>
 </Base>

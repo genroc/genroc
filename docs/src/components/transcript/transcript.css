@@ -3,15 +3,11 @@
 
    Loaded by Transcript.astro next to it, which schedules the session and passes
    --delay / --dur / --len per line. Nothing else in the site styles these.
+
+   The pane it sits in draws the frame and scrolls it (pane.css), so nothing here does.
    --------------------------------------------------------------------------- */
 
 .transcript {
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: var(--code-bg);
-  padding: 0.9rem 1rem;
-  overflow-x: auto;
-  font-size: 0.92em;
   line-height: 1.6;
 }
 
@@ -26,6 +22,52 @@
 
 .transcript .line.out {
   color: var(--muted);
+}
+
+/* --- `genctl logs` rows ----------------------------------------------------- */
+
+/* The columns logview.go prints, as boxes rather than padding: time 8, level 5, event 16,
+   task 14, each with the two-space separator folded in. A wider value would push its row
+   out of line, so the widths and the Go constants have to move together. */
+.transcript .line.log {
+  color: var(--muted);
+  white-space: pre;
+}
+
+.transcript .line.log span {
+  display: inline-block;
+  vertical-align: top;
+}
+
+.transcript .line.log .time {
+  width: 10ch;
+}
+
+.transcript .line.log .level {
+  width: 7ch;
+}
+
+.transcript .line.log .event {
+  width: 18ch;
+  color: var(--fg);
+}
+
+.transcript .line.log .task {
+  width: 16ch;
+}
+
+.transcript .line.log .warn {
+  color: var(--accent);
+}
+
+.transcript .line.log .error {
+  color: var(--error);
+}
+
+/* The header names the columns; it is not a row of the trail and takes no level colour. */
+.transcript .line.head span {
+  color: var(--muted);
+  opacity: 0.7;
 }
 
 /* A plain fade, deliberately not `1ms steps(1)`: an instantaneous step animation is where
@@ -67,9 +109,11 @@
   }
 }
 
+/* `.transcript .line .text` would lose to the typing rule above, which carries one class
+   more — and a line whose turn had not come stayed clipped to nothing. */
 @media (prefers-reduced-motion: reduce) {
   .transcript .line,
-  .transcript .line .text {
+  .transcript .line.cmd .text {
     animation: none;
   }
 }

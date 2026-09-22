@@ -5,6 +5,8 @@
    page has to carry it in its markup.
    --------------------------------------------------------------------------- */
 
+/* The three colours below --selection are the code palette's; src/shiki-theme.ts holds the
+   same values for Shiki, which cannot read a stylesheet. A change here is a change there. */
 :root {
   --bg: #f7f7f4;
   --fg: #1c1c1c;
@@ -14,6 +16,9 @@
   --line: #d5d5d0;
   --line-strong: #b8b8b2;
   --selection: #b5532b22;
+  --code-string: #3f6b4f;
+  --code-constant: #8a5a1e;
+  --error: #b02a1e;
 
   --font: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
     "Liberation Mono", "DejaVu Sans Mono", monospace;
@@ -35,6 +40,9 @@
     --line: #2b2b2b;
     --line-strong: #3d3d3d;
     --selection: #e07a4f22;
+    --code-string: #8fb996;
+    --code-constant: #d4a76a;
+    --error: #e0564a;
   }
 }
 
@@ -48,6 +56,9 @@
   --line: #d5d5d0;
   --line-strong: #b8b8b2;
   --selection: #b5532b22;
+  --code-string: #3f6b4f;
+  --code-constant: #8a5a1e;
+  --error: #b02a1e;
 }
 
 :root[data-theme="dark"] {
@@ -59,6 +70,9 @@
   --line: #2b2b2b;
   --line-strong: #3d3d3d;
   --selection: #e07a4f22;
+  --code-string: #8fb996;
+  --code-constant: #d4a76a;
+  --error: #e0564a;
 }
 
 * {
@@ -82,8 +96,8 @@ html {
     scroll-behavior: smooth;
   }
 
-  /* Every surface that repaints when the theme flips. Links and cards are excluded on
-     purpose: they carry their own transitions, and a second rule would replace them. */
+  /* Every surface that repaints when the theme flips. Links are excluded on purpose: they
+     carry their own transitions, and a second rule would replace them. */
   html,
   body,
   .topbar,
@@ -93,7 +107,7 @@ html {
   pre,
   :not(pre) > code,
   .note,
-  .transcript,
+  .pane,
   .prose th,
   .prose td,
   .theme-toggle {
@@ -758,10 +772,16 @@ pre code {
 
 /* --- home ------------------------------------------------------------------ */
 
+/* Wider than a page of prose, because the two panes below the hero are screens, not text:
+   the terminal is a hundred columns of `genctl logs`. The words keep their own measure. */
 .home {
-  max-width: 76ch;
+  max-width: 106ch;
   margin: 0 auto;
   padding: 3rem var(--gutter) 5rem;
+}
+
+.home .measure {
+  max-width: 72ch;
 }
 
 .hero {
@@ -785,57 +805,59 @@ pre code {
 }
 
 .tagline {
-  font-size: 1.05em;
-  margin: 0 0 2rem;
+  font-size: 1.5em;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 0 0 1rem;
 }
 
-.tagline .muted {
-  color: var(--muted);
-}
-
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22ch), 1fr));
-  gap: 1rem;
-  margin: 2rem 0;
-}
-
-.card {
-  display: block;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  padding: 0.9rem 1rem;
-  text-decoration: none;
-  color: var(--fg);
-  transition: border-color 200ms var(--ease-out), background-color 200ms var(--ease-out),
-    transform 200ms var(--ease-out);
-}
-
-.card:hover {
-  border-color: var(--accent);
-  background: var(--code-bg);
-  text-decoration: none;
-  transform: translateY(-1px);
-}
-
-.card strong {
+.tagline .lead {
   color: var(--accent);
 }
 
-.card strong::before {
-  content: "▸ ";
+.lede {
+  color: var(--muted);
+  margin: 0 0 2rem;
 }
 
-.card p {
-  margin: 0.35rem 0 0;
+.cta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1ch;
+  margin: 0 0 3.5rem;
+  padding: 0.7rem 1.75rem;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  color: var(--accent);
+  font-size: 1.1em;
+  font-weight: 700;
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+
+.cta::before {
+  content: "\25b8";
+}
+
+.cta:hover {
+  background: var(--accent);
+  color: var(--bg);
+  text-decoration: none;
+}
+
+/* The line above each pane says what it is, so the pane itself carries no caption. */
+.pane-label {
+  margin: 0 0 0.6rem;
   color: var(--muted);
   font-size: 0.9em;
 }
 
+.pane-label::before {
+  content: "── ";
+  color: var(--line-strong);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .card:hover {
-    transform: none;
-  }
   /* Colour transitions are harmless; the ones that move something are not. */
   .sidebar li a::before,
   .nav-drawer > summary::before,

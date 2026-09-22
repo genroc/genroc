@@ -1,0 +1,19 @@
+---
+// A window on the home page: a chrome bar and a body. What goes in the bar is the caller's —
+// a breadcrumb for the editor, a prompt for the terminal.
+//
+// role="img" because the contents are a picture of a screen: read out token by token they are
+// noise, so `label` has to say what the picture shows.
+import './pane.css'
+
+interface Props {
+  label: string
+}
+
+const { label } = Astro.props
+---
+
+<figure class="pane" role="img" aria-label={label}>
+  <div class="pane-bar" aria-hidden="true"><slot name="bar" /></div>
+  <div class="pane-body"><slot /></div>
+</figure>

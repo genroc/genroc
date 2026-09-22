@@ -1,0 +1,137 @@
+---
+// The definition on the home page as the editor shows it: the completion open on an
+// unfinished path, the diagnostic under it.
+//
+// Coloured here rather than by Shiki: the caret and the popup sit BETWEEN tokens, which
+// highlighter output has nowhere to put. The classes are the scopes src/shiki-theme.ts uses.
+import './editor.css'
+
+export type Mark = { line: number; from: number; to: number; caret: number }
+export type Completion = { label: string; type: string }
+
+interface Props {
+  code: string
+  mark: Mark
+  completion: Completion[]
+}
+
+const { code, mark, completion } = Astro.props
+
+type Piece = { cls: string; text: string }
+
+const TOKEN = new RegExp(
+  [
+    '(?<comment>#.*)',
+    '(?<str>"(?:[^"\\\\]|\\\\.)*"?)',
+    '(?<key>[\\w.-]+(?=\\s*:))',
+    '(?<constant>\\b(?:true|false|null)\\b|\\d[\\w.]*)',
+    '(?<plain>[A-Za-z_][\\w.-]*)',
+    '(?<punct>[{}\\[\\],:-]+)',
+  ].join('|'),
+  'g',
+)
+
+// A string is one token to the grammar but not one colour: `${ }` and `$:` are the marks that
+// say the value is computed, and what they wrap is a path, not text.
+function stringPieces(text: string): Piece[] {
+  const close = text.length > 1 && text.endsWith('"') ? '"' : ''
+  const body = text.slice(1, text.length - close.length)
+  const out: Piece[] = [{ cls: 'str', text: '"' }]
+  let expr = false
+  for (const part of body.split(/(\$\{|\}|\$:)/)) {
+    if (!part) continue
+    if (part === '}') expr = false
+    else if (part === '${' || part === '$:') expr = true
+    else {
+      out.push({ cls: expr ? 'expr' : 'str', text: part })
+      continue
+    }
+    out.push({ cls: 'marker', text: part })
+  }
+  if (close) out.push({ cls: 'str', text: close })
+  return out
+}
+
+function tokenize(line: string): Piece[] {
+  const out: Piece[] = []
+  let at = 0
+  for (const m of line.matchAll(TOKEN)) {
+    if (m.index > at) out.push({ cls: 'plain', text: line.slice(at, m.index) })
+    const cls = Object.keys(m.groups!).find((k) => m.groups![k] !== undefined)!
+    if (cls === 'str') out.push(...stringPieces(m[0]))
+    else out.push({ cls, text: m[0] })
+    at = m.index + m[0].length
+  }
+  if (at < line.length) out.push({ cls: 'plain', text: line.slice(at) })
+  return out
+}
+
+// Offsets ascending. No piece may straddle one, or the tag that opens there lands inside
+// a token's span.
+function cut(pieces: Piece[], offsets: number[]): Piece[] {
+  const out: Piece[] = []
+  let at = 0
+  for (const piece of pieces) {
+    let { text } = piece
+    for (const offset of offsets) {
+      const i = offset - at
+      if (i <= 0 || i >= text.length) continue
+      out.push({ cls: piece.cls, text: text.slice(0, i) })
+      text = text.slice(i)
+      at = offset
+    }
+    out.push({ cls: piece.cls, text })
+    at += text.length
+  }
+  return out
+}
+
+const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+function render(text: string, marked: boolean): string {
+  const offsets = marked ? [mark.from, mark.caret, mark.to].sort((a, b) => a - b) : []
+  let at = 0
+  let html = ''
+  // Order at a shared offset: open, caret, close — so a caret on either edge of the range
+  // stays inside the underline, where the editor puts it.
+  const marks = (pos: number) => {
+    if (!marked) return
+    if (pos === mark.from) html += '<span class="squiggle">'
+    if (pos === mark.caret) html += '<span class="caret"></span>'
+    if (pos === mark.to) html += '</span>'
+  }
+  for (const piece of cut(tokenize(text), offsets)) {
+    marks(at)
+    html += `<span class="${piece.cls}">${escapeHtml(piece.text)}</span>`
+    at += piece.text.length
+  }
+  marks(at)
+  return html
+}
+
+const rows = code.split('\n').map((text, i) => ({
+  html: render(text, i + 1 === mark.line),
+  current: i + 1 === mark.line,
+}))
+---
+
+{/* Rows are blocks and only they are `pre`: whitespace between them is collapsible, which is
+    what keeps the source's own indentation out of the rendering. */}
+<div class="editor">
+  {
+    rows.map((row) => <span class:list={['row', { current: row.current }]} set:html={row.html} />)
+  }
+  {/* Placed on the grid rather than nested in its row, which is written as one HTML string:
+      every glyph is one `ch` wide and every line `--lh`, so a column and a line are enough. */}
+  <div class="completion" style={`--line:${mark.line};--col:${mark.caret}`}>
+    {
+      completion.map((item, i) => (
+        <div class:list={['item', { selected: i === 0 }]}>
+          <span class="icon">◈</span>
+          <span class="name">{item.label}</span>
+          <span class="type">{item.type}</span>
+        </div>
+      ))
+    }
+  </div>
+</div>

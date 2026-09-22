@@ -1,0 +1,39 @@
+/* ---------------------------------------------------------------------------
+   The home page's window chrome — one bar, one body. Shared by the editor and
+   the terminal so the two panes read as the same object.
+   --------------------------------------------------------------------------- */
+
+.pane {
+  margin: 0 0 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--code-bg);
+  overflow: hidden;
+}
+
+.pane-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75ch;
+  padding: 0.35rem 0.8rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.82em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.pane-bar .sep {
+  color: var(--line-strong);
+}
+
+.pane-bar .here {
+  color: var(--fg);
+}
+
+.pane-body {
+  overflow-x: auto;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.86em;
+  line-height: 1.6;
+}
