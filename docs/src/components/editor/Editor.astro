@@ -8,14 +8,18 @@ import './editor.css'
 
 export type Mark = { line: number; from: number; to: number; caret: number }
 export type Completion = { label: string; type: string }
+/** What `textDocument/hover` answers over the last segment of `symbol`, at its first
+    occurrence on that line — pointing at `greet` asks about `outputs.greet`. */
+export type Hover = { line: number; symbol: string; type: string }
 
 interface Props {
   code: string
   mark: Mark
   completion: Completion[]
+  hovers: Hover[]
 }
 
-const { code, mark, completion } = Astro.props
+const { code, mark, completion, hovers } = Astro.props
 
 type Piece = { cls: string; text: string }
 
@@ -88,36 +92,67 @@ function cut(pieces: Piece[], offsets: number[]): Piece[] {
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-function render(text: string, marked: boolean): string {
-  const offsets = marked ? [mark.from, mark.caret, mark.to].sort((a, b) => a - b) : []
+type Wrap = { from: number; to: number; open: string; close: string }
+
+function wraps(text: string, line: number): Wrap[] {
+  const out: Wrap[] = []
+  if (line === mark.line) {
+    out.push({ from: mark.from, to: mark.to, open: '<span class="squiggle">', close: '</span>' })
+  }
+  for (const hover of hovers.filter((h) => h.line === line)) {
+    const at = text.indexOf(hover.symbol)
+    if (at < 0) continue
+    const from = at + hover.symbol.lastIndexOf('.') + 1
+    out.push({
+      from,
+      to: at + hover.symbol.length,
+      open: '<span class="hovered">',
+      // The tip hangs off the ROW, not off the symbol, so it can be held inside the pane —
+      // which is why it carries the column it belongs to.
+      close:
+        `<span class="tip" style="--col:${from}"><span class="sym">${escapeHtml(hover.symbol)}</span> \u2192 ` +
+        `<span class="ty">${escapeHtml(hover.type)}</span></span></span>`,
+    })
+  }
+  return out
+}
+
+function render(text: string, line: number): string {
+  const ranges = wraps(text, line)
+  const caret = line === mark.line ? mark.caret : -1
+  const offsets = [...ranges.flatMap((r) => [r.from, r.to]), caret].filter((n) => n >= 0).sort((a, b) => a - b)
   let at = 0
   let html = ''
-  // Order at a shared offset: open, caret, close — so a caret on either edge of the range
-  // stays inside the underline, where the editor puts it.
-  const marks = (pos: number) => {
-    if (!marked) return
-    if (pos === mark.from) html += '<span class="squiggle">'
-    if (pos === mark.caret) html += '<span class="caret"></span>'
-    if (pos === mark.to) html += '</span>'
+  // Closes before opens, so two ranges that touch still nest; none of these ranges overlap.
+  const edges = (pos: number) => {
+    for (const r of ranges) if (r.to === pos) html += r.close
+    for (const r of ranges) if (r.from === pos) html += r.open
+    if (pos === caret) html += '<span class="caret"></span>'
   }
   for (const piece of cut(tokenize(text), offsets)) {
-    marks(at)
+    edges(at)
     html += `<span class="${piece.cls}">${escapeHtml(piece.text)}</span>`
     at += piece.text.length
   }
-  marks(at)
+  edges(at)
   return html
 }
 
-const rows = code.split('\n').map((text, i) => ({
-  html: render(text, i + 1 === mark.line),
+const lines = code.split('\n')
+const rows = lines.map((text, i) => ({
+  html: render(text, i + 1),
   current: i + 1 === mark.line,
 }))
+
+// The gutter and the widest line, in characters: pane.css sizes the text from --cols so the
+// pane fits a phone instead of scrolling, and the gutter is part of what has to fit.
+const GUTTER = 4
+const cols = GUTTER + Math.max(...lines.map((l) => l.length))
 ---
 
 {/* Rows are blocks and only they are `pre`: whitespace between them is collapsible, which is
     what keeps the source's own indentation out of the rendering. */}
-<div class="editor">
+<div class="editor" style={`--gut:${GUTTER};--cols:${cols}`}>
   {
     rows.map((row) => <span class:list={['row', { current: row.current }]} set:html={row.html} />)
   }

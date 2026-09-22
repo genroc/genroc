@@ -772,16 +772,12 @@ pre code {
 
 /* --- home ------------------------------------------------------------------ */
 
-/* Wider than a page of prose, because the two panes below the hero are screens, not text:
-   the terminal is a hundred columns of `genctl logs`. The words keep their own measure. */
+/* Wider than a doc page: there is no sidebar or toc here, and the two panes below the hero
+   are screens rather than text. The prose keeps a measure of its own. */
 .home {
-  max-width: 106ch;
+  max-width: 92ch;
   margin: 0 auto;
   padding: 3rem var(--gutter) 5rem;
-}
-
-.home .measure {
-  max-width: 72ch;
 }
 
 .hero {
@@ -805,7 +801,7 @@ pre code {
 }
 
 .tagline {
-  font-size: 1.5em;
+  font-size: 1.25em;
   font-weight: 700;
   line-height: 1.35;
   margin: 0 0 1rem;
@@ -816,6 +812,7 @@ pre code {
 }
 
 .lede {
+  max-width: 68ch;
   color: var(--muted);
   margin: 0 0 2rem;
 }

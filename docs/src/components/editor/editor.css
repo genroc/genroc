@@ -3,12 +3,12 @@
    monospace font gives us: a column is 1ch, a line is --lh, and the caret, the
    diagnostic and the completion popup are all placed with those two numbers.
 
-   Loaded by Editor.astro next to it; nothing else on the site uses these classes.
+   Loaded by Editor.astro next to it, which passes --gut (the line-number gutter, in
+   characters — the popup's origin counts from there). Nothing else uses these classes.
    --------------------------------------------------------------------------- */
 
 .editor {
   --lh: 1.65;
-  --gut: 4; /* line-number gutter, in characters — the popup's origin counts from here */
   position: relative;
   line-height: var(--lh);
   counter-reset: ln;
@@ -31,17 +31,18 @@
   color: var(--line-strong);
 }
 
-/* The line the caret is on, drawn edge to edge — the pane's padding is negative margin here
-   so the band reaches the frame, the way an editor draws it. */
+/* The line the caret is on, drawn edge to edge — the pane's own padding is negative margin
+   here so the band reaches the frame, the way an editor draws it. --pad-x, never a repeat of
+   it: the narrow layout changes that padding, and a band wider than the pane scrolls it. */
 .editor .row.current {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
-  margin-inline: -0.9rem;
-  padding-left: calc(var(--gut) * 1ch + 0.9rem);
-  padding-right: 0.9rem;
+  margin-inline: calc(-1 * var(--pad-x));
+  padding-left: calc(var(--gut) * 1ch + var(--pad-x));
+  padding-right: var(--pad-x);
 }
 
 .editor .row.current::before {
-  left: 0.9rem;
+  left: var(--pad-x);
   color: var(--accent);
 }
 
@@ -104,11 +105,84 @@
   }
 }
 
+/* Under the caret, except where that would hang the popup off the pane — on a phone the line
+   it belongs to reaches the right edge, and an editor drops the popup back inside. */
+/* Hover, the other half of what the language server answers — over an expression's path, and
+   only there. The tip sits ABOVE its line: the lines that carry one are the last in the file,
+   with nothing below them to open into. */
+/* No positioning here: the tip's containing block is the row, so its width can be capped
+   against the pane rather than against the four characters it hangs under. */
+
+/* `display`, not opacity: hidden, an absolute box still counts toward the pane's scrollable
+   width, and a tip wider than a narrow pane left it scrolling sideways with nothing to see. */
+.editor .tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 0.35em);
+  left: calc((var(--col) + var(--gut)) * 1ch - 0.8ch);
+  /* Never past the pane's right edge: over it the box would widen the scroll area, and a
+     screen you have to scroll sideways to read a tooltip on is worse than a wrapped one. */
+  max-width: calc(100% - (var(--col) + var(--gut)) * 1ch);
+  padding: 0.15rem 0.7rem;
+  /* The row it hangs in is `pre`, which is inherited: without this the text cannot wrap and
+     runs straight through the cap above. */
+  white-space: normal;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--bg);
+  box-shadow: 0 6px 18px -8px rgb(0 0 0 / 0.45);
+  color: var(--muted);
+  opacity: 0;
+  translate: 0 2px;
+  /* `display` is discrete, so the fade needs allow-discrete to survive the toggle — the same
+     pattern the mobile drawer uses. Without support the tip simply appears. */
+  transition: opacity 140ms var(--ease-out), translate 140ms var(--ease-out),
+    display 140ms allow-discrete;
+  transition-behavior: allow-discrete;
+  z-index: 2;
+}
+
+/* A pointer that hovers is the whole interaction, and only the input says whether there is
+   one — a narrow window on a laptop still has a mouse, and a phone held sideways does not.
+   Without it the tip never opens, and nothing marks the code as though it would. */
+@media (hover: hover) {
+  .editor .hovered:hover {
+    text-decoration: underline dotted color-mix(in srgb, var(--fg) 45%, transparent);
+    text-underline-offset: 0.25em;
+  }
+
+  /* Slower going in than coming out, and held back a beat: a pointer crossing the line on
+     its way somewhere else should not set off five of these. */
+  .editor .hovered:hover .tip {
+    display: block;
+    opacity: 1;
+    translate: none;
+    transition-duration: 220ms;
+    transition-delay: 180ms;
+  }
+}
+
+@starting-style {
+  .editor .hovered:hover .tip {
+    opacity: 0;
+    translate: 0 2px;
+  }
+}
+
+.editor .tip .sym {
+  color: var(--fg);
+}
+
+.editor .tip .ty {
+  color: var(--muted);
+}
+
 .editor .completion {
+  --pop: 26ch;
   position: absolute;
   top: calc((var(--line) + 0.3) * var(--lh) * 1em);
-  left: calc((var(--col) + var(--gut) - 1) * 1ch);
-  min-width: 26ch;
+  left: min(calc((var(--col) + var(--gut) - 1) * 1ch), calc(100% - var(--pop)));
+  min-width: var(--pop);
   border: 1px solid var(--line-strong);
   border-radius: 3px;
   background: var(--bg);

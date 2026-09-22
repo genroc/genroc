@@ -26,9 +26,9 @@
 
 /* --- `genctl logs` rows ----------------------------------------------------- */
 
-/* The columns logview.go prints, as boxes rather than padding: time 8, level 5, event 16,
-   task 14, each with the two-space separator folded in. A wider value would push its row
-   out of line, so the widths and the Go constants have to move together. */
+/* The trail's columns as boxes rather than padding. Their widths come from Transcript.astro,
+   which measures the rows it was given — a value wider than its box pushes the rest of its
+   row out of line. */
 .transcript .line.log {
   color: var(--muted);
   white-space: pre;
@@ -40,20 +40,20 @@
 }
 
 .transcript .line.log .time {
-  width: 10ch;
+  width: calc(var(--c-time) * 1ch);
 }
 
 .transcript .line.log .level {
-  width: 7ch;
+  width: calc(var(--c-level) * 1ch);
 }
 
 .transcript .line.log .event {
-  width: 18ch;
+  width: calc(var(--c-event) * 1ch);
   color: var(--fg);
 }
 
 .transcript .line.log .task {
-  width: 16ch;
+  width: calc(var(--c-task) * 1ch);
 }
 
 .transcript .line.log .warn {
@@ -70,6 +70,21 @@
   opacity: 0.7;
 }
 
+/* Narrow: the payloads go, and only the payloads. They are the one column that cannot be made
+   to fit, and a line of them wrapped under every row buries the trail it is there to show —
+   whereas the columns are what makes the rest of it scannable. */
+@media (max-width: 860px) {
+  .transcript .line.log .detail {
+    display: none;
+  }
+}
+
+/* Held until the pane is on screen — see the observer in Transcript.astro. */
+.transcript[data-wait] .line,
+.transcript[data-wait] .line .text {
+  animation-play-state: paused;
+}
+
 /* A plain fade, deliberately not `1ms steps(1)`: an instantaneous step animation is where
    the fill value at the boundary is decided, and Chrome held some of these lines at
    opacity 0 once they finished. Nothing here has a boundary to get wrong. */
@@ -77,7 +92,10 @@
   animation: transcript-appear var(--appear, 120ms) ease var(--delay) both;
 }
 
-.transcript .line.out {
+/* A command's line box is there the moment it starts typing; everything else fades over its
+   own scheduled duration. */
+.transcript .line.out,
+.transcript .line.log {
   animation-duration: var(--dur);
 }
 

@@ -36,6 +36,26 @@ type Row = Partial<Omit<Command, 'kind'> & Omit<LogRow, 'kind'>> & {
   len: number
 }
 
+// Each column is as wide as its own widest value, separator folded in — the fit logview.go's
+// constants are, measured from these rows. transcript.css lays the columns out with them, and
+// --cols is their sum: the widest a row gets once the narrow layout drops the payloads, which
+// is what pane.css sizes the text to fit.
+const SEP = 2
+const logs = lines.filter((line): line is LogRow => line.kind === 'log')
+const width = (field: (line: LogRow) => string | undefined) =>
+  SEP + Math.max(0, ...logs.map((line) => field(line)?.length ?? 0))
+
+const columns = {
+  time: width((l) => l.time),
+  level: width((l) => l.level),
+  event: width((l) => l.event),
+  task: width((l) => l.task),
+}
+const cols = Math.max(
+  Object.values(columns).reduce((a, b) => a + b, 0),
+  ...lines.map((line) => (line.kind === 'log' ? 0 : line.text.length + SEP)),
+)
+
 let at = START_MS
 const scheduled: Row[] = lines.map((line) => {
   const len = line.kind === 'log' ? 0 : line.text.length
@@ -47,7 +67,10 @@ const scheduled: Row[] = lines.map((line) => {
 })
 ---
 
-<div class="transcript">
+<div
+  class="transcript"
+  style={`--cols:${cols};--c-time:${columns.time};--c-level:${columns.level};--c-event:${columns.event};--c-task:${columns.task}`}
+>
   {
     /* The row is `white-space: pre`, so every newline and indent inside it would be one on
        screen: the tag closes on the span, and the spans run together with no gap. */
@@ -59,3 +82,21 @@ const scheduled: Row[] = lines.map((line) => {
     ))
   }
 </div>
+
+<script is:inline>
+  // The pane sits below the fold on most screens, and a session that starts on load is over
+  // before the reader has scrolled to it. Paused from here rather than in the stylesheet, so
+  // that a page with no JavaScript still plays it on load rather than showing nothing.
+  ;(function () {
+    var el = document.currentScript.previousElementSibling
+    el.dataset.wait = ''
+    new IntersectionObserver(
+      function (entries, obs) {
+        if (!entries.some((e) => e.isIntersecting)) return
+        delete el.dataset.wait
+        obs.disconnect()
+      },
+      { threshold: 0, rootMargin: '0px 0px -20% 0px' },
+    ).observe(el)
+  })()
+</script>

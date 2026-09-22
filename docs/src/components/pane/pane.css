@@ -32,8 +32,23 @@
 }
 
 .pane-body {
+  --pad-x: 0.9rem;
   overflow-x: auto;
-  padding: 0.7rem 0.9rem;
-  font-size: 0.86em;
+  padding: 0.7rem var(--pad-x);
+  font-size: 0.92em; /* what a code block on the rest of the site is set in */
   line-height: 1.6;
+}
+
+/* A phone is narrower than either screen, and a screen that scrolls sideways is a screen you
+   read half of. So the text shrinks until the widest line fits: --cols is that line, counted
+   by the child that rendered it, and 0.6em is a monospace advance in every font in the stack
+   — a wider one falls back to the scrolling above. */
+@media (max-width: 860px) {
+  .pane-body {
+    --pad-x: 0.6rem;
+  }
+
+  .pane-body > * {
+    font-size: min(1em, calc((100vw - 2 * var(--gutter) - 2 * var(--pad-x)) / (var(--cols) * 0.6)));
+  }
 }
