@@ -1,3 +1,7 @@
 dist/
 node_modules/
 .astro/
+
+# Generated from the sample by scripts/hover-data.mjs, which needs a built genctl — a
+# committed copy is a second thing to keep true.
+src/samples/*.hovers.json

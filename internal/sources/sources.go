@@ -309,7 +309,11 @@ func findProjectConfig(dir string) (projectConfig, error) {
 func findSites(docs []sourceDoc, cfg projectConfig) ([]site, error) {
 	var out []site
 	for i, sd := range docs {
-		name, _ := sd.Value.(map[string]any)["name"].(string)
+		// Two assertions, not one chained: a document whose root is a sequence or a scalar is
+		// not a definition but it still reaches here -- from an editor, where anything open is
+		// analysed as it is typed -- and asserting the root in one step panicked on it.
+		root, _ := sd.Value.(map[string]any)
+		name, _ := root["name"].(string)
 		var walk func(node any, loc []any) error
 		walk = func(node any, loc []any) error {
 			switch v := node.(type) {
@@ -678,7 +682,11 @@ func inferSchemas(docs []sourceDoc, sites []site) (map[string]validation.SchemaF
 	for _, sd := range docs {
 		// Keyed off the raw document, like the sites this answers. A definition with no
 		// directive is never typed: one broken file must not stop a project-wide `types`.
-		name, _ := sd.Value.(map[string]any)["name"].(string)
+		// Two assertions, not one chained: a document whose root is a sequence or a scalar is
+		// not a definition but it still reaches here -- from an editor, where anything open is
+		// analysed as it is typed -- and asserting the root in one step panicked on it.
+		root, _ := sd.Value.(map[string]any)
+		name, _ := root["name"].(string)
 		if !needed[name] {
 			continue
 		}

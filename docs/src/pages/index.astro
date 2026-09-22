@@ -5,43 +5,23 @@ import Pane from '../components/pane/Pane.astro'
 import Editor from '../components/editor/Editor.astro'
 import Transcript from '../components/transcript/Transcript.astro'
 import type { TranscriptLine } from '../components/transcript/Transcript.astro'
+import sample from '../samples/hello.genroc.yaml?raw'
+import hoverData from '../samples/hello.hovers.json'
 import { hrefFor } from '../lib/nav'
 
 const start = await hrefFor('guides/getting-started')
 if (!start) throw new Error('home: the button has nowhere to go — guides/getting-started.mdx is gone')
 
-// A definition that validates (`genctl apply --check-only`), caught mid-keystroke: `input.`
-// is the incomplete path the completion below is answering, and the only thing here that
-// would not apply. The session under it is this process's real trail, columns trimmed.
-const definition = `name: hello
-input_schema:
-  type: object
-  properties:
-    who: { type: string, default: "world" }
-tasks:
-  - id: greet
-    action:
-      type: fetch
-      method: get
-      url: "https://api.example/\${ input. }"
-      responses:
-        200:
-          type: object
-          properties:
-            text: { type: string }
-          required: [text]
-    on_error:
-      - code: [http.503]
-        retry: { retries: 3, delay: 2s }
-    output: "$: self.result.text"
-    switch: end
-output: "$: outputs.greet"`
-
+// The sample is a real definition, caught mid-keystroke: `input.` is the incomplete path the
+// completion below is answering, and the only thing in it that would not apply. The session
+// under it is this process's real trail, columns trimmed.
+const definition = sample.replace(/\n+$/, '')
 const lineOf = (text: string) => definition.split('\n').findIndex((l) => l.includes(text)) + 1
+const lineAt = (n: number) => definition.split('\n')[n - 1]
 
 const typing = '${ input. }'
 const line = lineOf(typing)
-const src = definition.split('\n')[line - 1]
+const src = lineAt(line)
 const mark = {
   line,
   from: src.indexOf(typing),
@@ -49,17 +29,9 @@ const mark = {
   caret: src.indexOf('input.') + 'input.'.length,
 }
 
-// What `textDocument/hover` answers over these two expressions, from `genctl lsp` itself.
-// Only the last two lines carry them: a tip anywhere higher would open into the completion.
-const taskOutput = lineOf('$: self.result.text')
-const processOutput = lineOf('$: outputs.greet')
-const hovers = [
-  { line: taskOutput, symbol: 'self', type: 'object{headers, result, status}' },
-  { line: taskOutput, symbol: 'self.result', type: 'object{text}' },
-  { line: taskOutput, symbol: 'self.result.text', type: 'string' },
-  { line: processOutput, symbol: 'outputs', type: 'object{greet}' },
-  { line: processOutput, symbol: 'outputs.greet', type: 'string' },
-]
+// Every span `genctl lsp` answers a hover for, generated from this sample by
+// scripts/hover-data.mjs: the expressions and the slot descriptions both, as in the editor.
+const hovers = hoverData
 
 const session: TranscriptLine[] = [
   { kind: 'cmd', text: 'genctl apply -f hello.genroc.yaml' },

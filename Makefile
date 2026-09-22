@@ -145,7 +145,9 @@ docs-reference: build
 		-status-reference docs/src/content/docs/reference
 
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
-# per-version build is served from; unset means the site root.
+# per-version build is served from; unset means the site root. Its own build shells out to
+# genctl for the home page's hover data (docs/scripts/hover-data.mjs), which docs-reference
+# has already built by the time pnpm runs.
 docs: docs-schema docs-reference
 	pnpm install && pnpm -C docs run dev
 

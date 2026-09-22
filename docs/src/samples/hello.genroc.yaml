@@ -1,0 +1,23 @@
+name: hello
+input_schema:
+  type: object
+  properties:
+    who: { type: string, default: "world" }
+tasks:
+  - id: greet
+    action:
+      type: fetch
+      method: get
+      url: "https://api.example/${ input. }"
+      responses:
+        200:
+          type: object
+          properties:
+            text: { type: string }
+          required: [text]
+    on_error:
+      - code: [http.503]
+        retry: { retries: 3, delay: 2s }
+    output: "$: self.result.text"
+    switch: end
+output: "$: outputs.greet"

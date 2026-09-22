@@ -6,6 +6,7 @@ import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import relativeMarkdownLinks from "astro-rehype-relative-markdown-links";
 import { light, dark } from "./src/shiki-theme.ts";
 import { genroc } from "./src/shiki-genroc.ts";
+import hoverData from "./scripts/hover-data.mjs";
 
 // The live site serves from the apex of genroc.org (public/CNAME), so `base` is `/`;
 // the deploy workflow overrides DOCS_BASE only for an archived build at a versioned
@@ -25,7 +26,7 @@ export default defineConfig({
   // *prerender*, which runs the incoming page's scripts before the click, and
   // view-transitions/ViewTransitions.astro reads the outgoing page's state at that point.
   prefetch: { prefetchAll: true, defaultStrategy: "hover" },
-  integrations: [mdx()],
+  integrations: [mdx(), hoverData()],
   markdown: {
     rehypePlugins: [
       // Links between pages are written as paths to the source file -- `./error-handling.mdx`,

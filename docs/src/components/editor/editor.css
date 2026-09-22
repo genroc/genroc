@@ -122,7 +122,10 @@
   left: calc((var(--col) + var(--gut)) * 1ch - 0.8ch);
   /* Never past the pane's right edge: over it the box would widen the scroll area, and a
      screen you have to scroll sideways to read a tooltip on is worse than a wrapped one. */
-  max-width: calc(100% - (var(--col) + var(--gut)) * 1ch);
+  /* A slot's description runs to a paragraph; past ~50 characters a tooltip reads worse wide
+     than it does wrapped. */
+  width: max-content;
+  max-width: min(50ch, calc(100% - (var(--col) + var(--gut)) * 1ch));
   padding: 0.15rem 0.7rem;
   /* The row it hangs in is `pre`, which is inherited: without this the text cannot wrap and
      runs straight through the cap above. */
@@ -132,6 +135,9 @@
   background: var(--bg);
   box-shadow: 0 6px 18px -8px rgb(0 0 0 / 0.45);
   color: var(--muted);
+  /* Nothing to click, and it covers code that is worth hovering: without this the box eats
+     the pointer on its way to the token underneath, and holds itself open doing it. */
+  pointer-events: none;
   opacity: 0;
   translate: 0 2px;
   /* `display` is discrete, so the fade needs allow-discrete to survive the toggle — the same
@@ -169,12 +175,19 @@
   }
 }
 
-.editor .tip .sym {
-  color: var(--fg);
+/* The top rows have nothing above them to open into. */
+.editor .tip.below {
+  top: calc(100% + 0.35em);
+  bottom: auto;
 }
 
-.editor .tip .ty {
+/* The first code span is the path the pointer is on; what follows it is that path's type. */
+.editor .tip .code {
   color: var(--muted);
+}
+
+.editor .tip .code:first-child {
+  color: var(--fg);
 }
 
 .editor .completion {

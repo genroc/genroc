@@ -8,9 +8,9 @@ import './editor.css'
 
 export type Mark = { line: number; from: number; to: number; caret: number }
 export type Completion = { label: string; type: string }
-/** What `textDocument/hover` answers over the last segment of `symbol`, at its first
-    occurrence on that line — pointing at `greet` asks about `outputs.greet`. */
-export type Hover = { line: number; symbol: string; type: string }
+/** One answer from `textDocument/hover`, over the span it answers for — generated from the
+    sample by scripts/hover-data.mjs, markdown and all. */
+export type Hover = { line: number; from: number; to: number; markdown: string }
 
 interface Props {
   code: string
@@ -20,6 +20,10 @@ interface Props {
 }
 
 const { code, mark, completion, hovers } = Astro.props
+
+// A tip opens above its line, where the pane has room for one; the first rows do not, so
+// theirs open downwards instead.
+const ROOM_ABOVE = 3
 
 type Piece = { cls: string; text: string }
 
@@ -90,6 +94,13 @@ function cut(pieces: Piece[], offsets: number[]): Piece[] {
   return out
 }
 
+// The server answers in markdown, and for these spans it uses two things: a code span for a
+// path or a type, bold for a slot name.
+const markdown = (md: string) =>
+  escapeHtml(md)
+    .replace(/`([^`]+)`/g, '<span class="code">$1</span>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 type Wrap = { from: number; to: number; open: string; close: string }
@@ -100,21 +111,27 @@ function wraps(text: string, line: number): Wrap[] {
     out.push({ from: mark.from, to: mark.to, open: '<span class="squiggle">', close: '</span>' })
   }
   for (const hover of hovers.filter((h) => h.line === line)) {
-    const at = text.indexOf(hover.symbol)
-    if (at < 0) continue
-    const from = at + hover.symbol.lastIndexOf('.') + 1
+    // The marked line carries both. A hover INSIDE the underline nests; one that crossed an
+    // edge of it would close the two in the wrong order, so it goes.
+    const crossesMark =
+      line === mark.line &&
+      hover.from < mark.to &&
+      mark.from < hover.to &&
+      !(mark.from <= hover.from && hover.to <= mark.to)
+    if (crossesMark) continue
+    const where = hover.line > ROOM_ABOVE ? 'tip' : 'tip below'
     out.push({
-      from,
-      to: at + hover.symbol.length,
+      from: hover.from,
+      to: hover.to,
       open: '<span class="hovered">',
-      // The tip hangs off the ROW, not off the symbol, so it can be held inside the pane —
-      // which is why it carries the column it belongs to.
-      close:
-        `<span class="tip" style="--col:${from}"><span class="sym">${escapeHtml(hover.symbol)}</span> \u2192 ` +
-        `<span class="ty">${escapeHtml(hover.type)}</span></span></span>`,
+      // The tip hangs off the ROW, not off the span it belongs to, so it can be held inside
+      // the pane — which is why it carries the column.
+      close: `<span class="${where}" style="--col:${hover.from}">${markdown(hover.markdown)}</span></span>`,
     })
   }
-  return out
+  // Widest first where two start together, so that closing in reverse closes the inner one
+  // first and the tags nest.
+  return out.sort((a, b) => a.from - b.from || b.to - a.to)
 }
 
 function render(text: string, line: number): string {
@@ -123,9 +140,10 @@ function render(text: string, line: number): string {
   const offsets = [...ranges.flatMap((r) => [r.from, r.to]), caret].filter((n) => n >= 0).sort((a, b) => a - b)
   let at = 0
   let html = ''
-  // Closes before opens, so two ranges that touch still nest; none of these ranges overlap.
+  // Closes before opens, so two ranges that touch still nest, and closes in reverse so that
+  // a range inside another closes first.
   const edges = (pos: number) => {
-    for (const r of ranges) if (r.to === pos) html += r.close
+    for (let i = ranges.length - 1; i >= 0; i--) if (ranges[i].to === pos) html += ranges[i].close
     for (const r of ranges) if (r.from === pos) html += r.open
     if (pos === caret) html += '<span class="caret"></span>'
   }
