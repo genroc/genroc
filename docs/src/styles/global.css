@@ -866,6 +866,113 @@ pre code {
   }
 }
 
+/* --- hover tips ------------------------------------------------------------ */
+
+/* What the language server answers over a span, on the home page's editor and on every
+   `genroc` block it can type (docs/scripts/hover-data.mjs). The tip hangs off the block rather
+   than off the span, so its width can be capped against the block instead of against the few
+   characters it sits under -- which is why each one carries its column and its line. */
+
+/* `display`, not opacity: hidden, an absolute box still counts toward the pane's scrollable
+   width, and a tip wider than a narrow pane left it scrolling sideways with nothing to see. */
+.tip {
+  display: none;
+  position: absolute;
+  left: calc((var(--col) + var(--gut, 0)) * 1ch - 0.8ch);
+  /* Never past the block's right edge, and never wider than about fifty characters: over the
+     edge the box would widen the scroll area, and a description that runs to a paragraph reads
+     worse wide than it does wrapped. The 64 is TIP_WRAP in astro.config.mjs, which counts the
+     lines a tip wraps to in order to decide which way it opens. */
+  width: max-content;
+  max-width: min(64ch, calc(100% - (var(--col) + var(--gut, 0)) * 1ch));
+  padding: 0.15rem 0.7rem;
+  /* The row it hangs in is `pre`, which is inherited: without this the text cannot wrap and
+     runs straight through the cap above. */
+  white-space: normal;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--bg);
+  box-shadow: 0 6px 18px -8px rgb(0 0 0 / 0.45);
+  color: var(--muted);
+  /* Nothing to click, and it covers code that is worth hovering: without this the box eats
+     the pointer on its way to the token underneath, and holds itself open doing it. */
+  pointer-events: none;
+  opacity: 0;
+  translate: 0 2px;
+  /* `display` is discrete, so the fade needs allow-discrete to survive the toggle — the same
+     pattern the mobile drawer uses. Without support the tip simply appears. */
+  transition: opacity 140ms var(--ease-out), translate 140ms var(--ease-out),
+    display 140ms allow-discrete;
+  transition-behavior: allow-discrete;
+  z-index: 2;
+}
+
+/* A pointer that hovers is the whole interaction, and only the input says whether there is
+   one — a narrow window on a laptop still has a mouse, and a phone held sideways does not.
+   Without it the tip never opens, and nothing marks the code as though it would. */
+@media (hover: hover) {
+  .hovered:hover {
+    text-decoration: underline dotted color-mix(in srgb, var(--fg) 45%, transparent);
+    text-underline-offset: 0.25em;
+  }
+
+  /* Slower going in than coming out, and held back a beat: a pointer crossing the line on
+     its way somewhere else should not set off five of these. */
+  .hovered:hover .tip {
+    display: block;
+    opacity: 1;
+    translate: none;
+    transition-duration: 220ms;
+    transition-delay: 180ms;
+  }
+}
+
+@starting-style {
+  .hovered:hover .tip {
+    opacity: 0;
+    translate: 0 2px;
+  }
+}
+
+/* In the editor pane a line is a block of its own, so the tip hangs off the line. */
+.editor .tip {
+  bottom: calc(100% + 0.35em);
+}
+
+.editor .tip.below {
+  top: calc(100% + 0.35em);
+  bottom: auto;
+}
+
+/* In a code block the lines are inline spans, which cannot anchor a box: the tip hangs off the
+   block instead and finds its own line by number. `transform` rather than `translate`, because
+   the fade uses that one and the two compose. */
+.astro-code code {
+  display: block;
+  position: relative;
+}
+
+.astro-code .tip {
+  top: calc((var(--line) - 1) * 1lh - 0.35em);
+  transform: translateY(-100%);
+}
+
+.astro-code .tip.below {
+  top: calc(var(--line) * 1lh + 0.35em);
+  transform: none;
+}
+
+/* What the pointer is on reads first — the leading code span of an expression answer, or the
+   slot a description belongs to — and its type follows in the muted tone. */
+.tip .code {
+  color: var(--muted);
+}
+
+.tip .code:first-child,
+.tip strong {
+  color: var(--fg);
+}
+
 /* --- footer ---------------------------------------------------------------- */
 
 footer {

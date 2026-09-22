@@ -21,9 +21,13 @@ interface Props {
 
 const { code, mark, completion, hovers } = Astro.props
 
-// A tip opens above its line, where the pane has room for one; the first rows do not, so
-// theirs open downwards instead.
-const ROOM_ABOVE = 3
+// A tip opens above its line unless the rows above cannot hold it — the same rule the doc
+// blocks use, where the text is long enough to wrap (TIP_WRAP in astro.config.mjs).
+const TIP_WRAP = 64
+const opensDown = (markdown: string, line: number, lines: number) => {
+  const rows = Math.ceil(markdown.replace(/`/g, '').length / TIP_WRAP) + 0.5
+  return line - 1 < rows && lines - line >= line - 1
+}
 
 type Piece = { cls: string; text: string }
 
@@ -119,7 +123,7 @@ function wraps(text: string, line: number): Wrap[] {
       mark.from < hover.to &&
       !(mark.from <= hover.from && hover.to <= mark.to)
     if (crossesMark) continue
-    const where = hover.line > ROOM_ABOVE ? 'tip' : 'tip below'
+    const where = opensDown(hover.markdown, hover.line, lines.length) ? 'tip below' : 'tip'
     out.push({
       from: hover.from,
       to: hover.to,
