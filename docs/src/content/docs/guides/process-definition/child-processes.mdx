@@ -17,7 +17,7 @@ Or as a wrapper for some external system, which allows independent versioning.
 
 Let's define two processes:
 
-```genroc
+```genroc-lsp
 # greet.genroc.yaml
 name: greet
 input_schema:
@@ -34,7 +34,7 @@ output:
   message: "$: outputs.welcome"
 ```
 
-```genroc
+```genroc-lsp
 # parent.genroc.yaml
 name: parent_process
 tasks:
@@ -111,9 +111,13 @@ It allows you to run multiple children in parallel,
 they can be of a differend kinds. You specify each child independently in
 the `children` object.
 
-```genroc
+```genroc-lsp
 name: checkout
-input_schema: ...
+input_schema:
+  type: object
+  properties:
+    order_id: { type: string }
+  required: [order_id]
 tasks:
   - id: prepare
     action:
@@ -144,7 +148,7 @@ This one allows run dynamic number of processes in parallel, all of then need to
 The proerties are the same as single `child`, but instead of `input` we have `over`,
 which must be array of inputs.
 
-```genroc
+```genroc-lsp
 name: greet_all
 input_schema:
   type: array

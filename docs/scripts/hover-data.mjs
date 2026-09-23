@@ -1,10 +1,11 @@
 // Every hover the language server answers, baked at build time: what a tooltip on this site
 // shows is then what an editor shows, by construction. Two outputs — the home page's sample,
-// and every `genroc` fence in the docs that is a VALID process.
+// and every ```genroc-lsp fence in the docs.
 //
-// Validity is the server's own answer, not a guess: a fence it reports an error for is skipped,
-// because a hover derived from a definition that does not type is a hover about nothing. Most
-// fences are fragments — an `on_error:` list, a task on its own — and they simply get none.
+// The label is the opt-in, and it is also the alarm: a block marked with it MUST type, so the
+// build stops when the server reports an error for one or answers nothing over it. Silence is
+// the failure worth catching — the tooltips would simply disappear from a page and no one
+// would know. A plain ```genroc fence is left alone; most are fragments that cannot type.
 //
 // Needs a built genctl (`make build`), the same way the generated reference does. The sweep
 // asks column by column and groups the runs that answer alike — a run IS the span the server
@@ -143,7 +144,8 @@ async function sweep(uri, text) {
   return hovers
 }
 
-// Every ```genroc fence in the docs, with the file it came from.
+// Every ```genroc / ```genroc-lsp fence in the docs, with the file it came from and whether
+// its label asks for hovers.
 function fences() {
   // The content tree carries a node_modules and a dist of its own; walking either is a hang,
   // not a slow build.
@@ -159,9 +161,10 @@ function fences() {
           : [],
     )
   return walk(content).flatMap((file) =>
-    [...readFileSync(file, 'utf8').matchAll(/^```genroc\s*\n([\s\S]*?)^```/gm)].map((m) => ({
+    [...readFileSync(file, 'utf8').matchAll(/^```genroc(-lsp)?(?:[ \t][^\n]*)?\n([\s\S]*?)^```/gm)].map((m) => ({
       file: file.slice(content.length + 1),
-      code: m[1],
+      labelled: Boolean(m[1]),
+      code: m[2],
     })),
   )
 }
@@ -170,6 +173,7 @@ let hovers = []
 let found = []
 const byKey = {}
 let valid = 0
+let unlabelled = 0
 try {
   hovers = await sweep(uri, text)
 
@@ -184,9 +188,20 @@ try {
       false,
     )
     await send('textDocument/hover', { textDocument: { uri: fenceUri }, position: { line: 0, character: 0 } })
-    if ((diagnostics.get(fenceUri) ?? []).some((d) => d.severity === 1)) continue
+    const errors = (diagnostics.get(fenceUri) ?? []).filter((d) => d.severity === 1)
+    if (!fence.labelled) {
+      if (!errors.length) unlabelled++
+      continue
+    }
+    const at = `${fence.file}, the \`\`\`genroc-lsp block starting "${fence.code.split('\n')[0].trim()}"`
+    if (errors.length) {
+      const first = errors[0]
+      throw new Error(`${at}: the language server refuses it — line ${first.range.start.line + 1}: ${first.message}`)
+    }
     const spans = await sweep(fenceUri, fence.code)
-    if (!spans.length) continue
+    if (!spans.length) {
+      throw new Error(`${at}: the language server answers no hover anywhere in it`)
+    }
     byKey[fenceKey(fence.code)] = spans
     valid++
   }
@@ -200,7 +215,7 @@ writeFileSync(out, JSON.stringify(hovers, null, 2) + '\n')
 writeFileSync(fencesOut, JSON.stringify(byKey, null, 2) + '\n')
 const spans = Object.values(byKey).reduce((n, s) => n + s.length, 0)
 logger.info(
-  `${hovers.length} spans over the sample; ${spans} over ${valid} of ${found.length} genroc fences ` +
-    `(the rest are fragments the server cannot type)`,
+  `${hovers.length} spans over the sample; ${spans} over ${valid} genroc-lsp fences` +
+    (unlabelled ? `; ${unlabelled} other fences would type too` : ''),
 )
 }

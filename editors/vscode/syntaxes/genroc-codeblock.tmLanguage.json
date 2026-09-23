@@ -1,5 +1,5 @@
 {
-  "$comment": "A ```genroc fence in markdown or MDX, so a definition in the docs reads as one. The inner rule ends on `while`, not `end`: the fence's close belongs to the outer rule, and a nested `end` would take the closing ``` as YAML.",
+  "$comment": "A ```genroc fence in markdown or MDX, so a definition in the docs reads as one. `genroc-lsp` is the same language: the docs build feeds those blocks to the language server for hover data (docs/scripts/hover-data.mjs), and a fence it cannot type fails that build. The inner rule ends on `while`, not `end`: the fence's close belongs to the outer rule, and a nested `end` would take the closing ``` as YAML.",
   "scopeName": "markdown.genroc.codeblock",
   "injectionSelector": "L:text.html.markdown, L:source.mdx",
   "patterns": [
@@ -9,7 +9,7 @@
   ],
   "repository": {
     "fence": {
-      "begin": "(^|\\G)([ \\t]*)(`{3,}|~{3,})[ \\t]*(?i:(genroc)((\\s+|:|,|\\{|\\?)[^`~]*)?$)",
+      "begin": "(^|\\G)([ \\t]*)(`{3,}|~{3,})[ \\t]*(?i:(genroc(?:-lsp)?)((\\s+|:|,|\\{|\\?)[^`~]*)?$)",
       "beginCaptures": {
         "3": {
           "name": "punctuation.definition.markdown"
