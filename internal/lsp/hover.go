@@ -17,6 +17,12 @@ import (
 // hoverAt returns the markdown for a cursor, and the range it describes. An empty string means
 // there is nothing to say, which is the common answer and must not become a popup.
 func hoverAt(text, file string, line, col int) (string, defdoc.Range, bool) {
+	// A comment is the author's own prose, not a slot. The cursor resolves to the mapping it
+	// sits in, so answering here describes the line above it -- reported from an editor as
+	// `action`'s description over a note about a delay.
+	if at := commentColumn(lineAt(text, line)); at >= 0 && col > at {
+		return "", defdoc.Range{}, false
+	}
 	// Off the raw line, before the index: a `<<` whose value defdoc merges (an anchor, a nested
 	// mapping) has no node of its own, so the cursor would resolve to the mapping around it and
 	// answer with THAT key's prose -- reported from an editor as `action`'s description.
@@ -198,6 +204,29 @@ func mergeKeyUnder(src string, line, col int) (defdoc.Range, bool) {
 }
 
 // lineAt returns one 1-based line of text, or "" past the end.
+// commentColumn is where a comment opens on line, or -1. A `#` inside a quoted scalar is not
+// one -- a URL fragment would lose its hover -- and neither is one without a space in front,
+// which is YAML's own rule: `a#b` is a plain scalar.
+func commentColumn(line string) int {
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case quote != 0:
+			if c == '\\' && quote == '"' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+		case c == '\'' || c == '"':
+			quote = c
+		case c == '#' && (i == 0 || line[i-1] == ' ' || line[i-1] == '\t'):
+			return i
+		}
+	}
+	return -1
+}
+
 func lineAt(text string, line int) string {
 	lines := strings.Split(text, "\n")
 	if line < 1 || line > len(lines) {

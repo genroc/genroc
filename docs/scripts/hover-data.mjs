@@ -112,19 +112,48 @@ await send('initialize', { processId: process.pid, rootUri: null, capabilities: 
 await send('initialized', {}, false)
 await send('textDocument/didOpen', { textDocument: { uri, languageId: 'genroc', version: 1, text } }, false)
 
+// Where a quoted scalar sits on a line, as [start, end) pairs over the quotes themselves.
+function quoted(line) {
+  const out = []
+  let quote = 0
+  let start = 0
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (quote) {
+      if (c === '\\' && quote === '"') i++
+      else if (c === quote) {
+        out.push([start, i + 1])
+        quote = 0
+      }
+    } else if (c === '"' || c === "'") {
+      quote = c
+      start = i
+    }
+  }
+  return out
+}
+
 // A run is trimmed to the token it covers and dropped when that leaves nothing: the server
 // answers across the punctuation between two paths, and an underline under a trailing quote
 // reads as a typo. Nothing is lost — the token beside it carries the same answer.
+//
+// Inside a quoted scalar only the computed parts are kept. Pointing anywhere in a value is a
+// fair way to ask an editor what the slot holds, but an underline is not a pointer: it claims
+// the word under it IS the thing, and `Hello,` in "Hello, ${ input.who }" is not the slot. The
+// key on the same line carries that answer already.
 async function sweep(uri, text) {
   const hovers = []
-  const keep = (run, line) => {
+  const keep = (run, line, strings) => {
     if (!run) return
     let { from, to } = run
     while (from < to && !/\w/.test(line[from])) from++
     while (to > from && !/\w/.test(line[to - 1])) to--
-    if (from < to) hovers.push({ ...run, from, to })
+    if (from >= to) return
+    const literal = strings.some(([a, b]) => from >= a && to <= b) && !run.markdown.startsWith('`')
+    if (!literal) hovers.push({ ...run, from, to })
   }
   for (const [i, line] of text.split('\n').entries()) {
+    const strings = quoted(line)
     let run = null
     for (let col = 0; col <= line.length; col++) {
       const answer =
@@ -136,10 +165,10 @@ async function sweep(uri, text) {
         run.to = col + 1
         continue
       }
-      keep(run, line)
+      keep(run, line, strings)
       run = answer ? { line: i + 1, from: col, to: col + 1, markdown: answer } : null
     }
-    keep(run, line)
+    keep(run, line, strings)
   }
   return hovers
 }

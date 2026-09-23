@@ -340,3 +340,74 @@ func outsideCodeSpans(md string) string {
 	}
 	return prose.String()
 }
+
+// Comments are where the cursor rests while an author reads, and they are prose. The position
+// resolves to the mapping around them, so a hover there answered with the enclosing key's
+// description -- `action`'s, over a note about a delay.
+//
+//	 1 name: demo
+//	 2 # prose, and not a slot
+//	 3 tasks:
+//	 4   - id: wait
+//	 5     action:
+//	 6       type: delay   # the process is parked for two hours
+//	 7       for: 2h
+//	 8     switch: next
+//	 9   - id: call
+//	10     action:
+//	11       type: fetch
+//	12       method: get
+//	13       url: "https://x/p#frag"  # the one on the left is not a comment
+//	14     switch: end
+const commentDoc = `name: demo
+# prose, and not a slot
+tasks:
+  - id: wait
+    action:
+      type: delay   # the process is parked for two hours
+      for: 2h
+    switch: next
+  - id: call
+    action:
+      type: fetch
+      method: get
+      url: "https://x/p#frag"  # the one on the left is not a comment
+    switch: end
+`
+
+func TestHoverSaysNothingInsideAComment(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		line, col int
+	}{
+		{"the # that opens one", 6, 21},
+		{"the prose after it", 6, 35},
+		{"a line that is only a comment", 2, 5},
+		{"one that follows a quoted scalar", 13, 32},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if md, _, ok := hoverAt(commentDoc, "", tc.line, tc.col); ok {
+				t.Fatalf("answered inside a comment: %s", md)
+			}
+		})
+	}
+}
+
+// The other half: a comment silences its own line, and only from where it opens.
+func TestHoverAnswersBesideAComment(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		line, col int
+		want      string
+	}{
+		{"the key a trailing comment follows", 6, 7, "Delay action"},
+		{"a `#` inside a quoted scalar is not one", 13, 25, "Request URL"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			md, _, ok := hoverAt(commentDoc, "", tc.line, tc.col)
+			if !ok || !strings.Contains(md, tc.want) {
+				t.Fatalf("want something containing %q, got %q (ok=%v)", tc.want, md, ok)
+			}
+		})
+	}
+}
