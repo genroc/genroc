@@ -313,14 +313,24 @@ test("a lost-claim row does not strand the rest of the batch, and filters isolat
   // request would leave the other task's grant written and never handed to anyone.
   const deadline = Date.now() + 20_000;
   let got: any[] = [];
-  while (Date.now() < deadline) {
-    const { data, error } = await client.POST("/external-tasks/claim", {
-      body: { worker_id: "worker-2", limit: 10 } as never,
-    });
-    expect(error, `a batch containing a lapsed only_once row failed: ${JSON.stringify(error)}`).toBeUndefined();
-    got = ((data as any)?.items ?? []).filter((j: any) => j.process === okName);
-    if (got.length) break;
-    await new Promise((r) => setTimeout(r, 50));
+  // An unfiltered claim on the shared server also takes other files' parked work. It is held
+  // until the loop ends (released at once, it would refill every batch and crowd okName out)
+  // and then handed back, or those instances sit out the whole 30s lease and time out.
+  const foreign: string[] = [];
+  try {
+    while (Date.now() < deadline) {
+      const { data, error } = await client.POST("/external-tasks/claim", {
+        body: { worker_id: "worker-2", limit: 10 } as never,
+      });
+      expect(error, `a batch containing a lapsed only_once row failed: ${JSON.stringify(error)}`).toBeUndefined();
+      const items = ((data as any)?.items ?? []) as any[];
+      foreign.push(...items.filter((j) => j.process !== okName).map((j) => j.token));
+      got = items.filter((j) => j.process === okName);
+      if (got.length) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  } finally {
+    for (const token of foreign) await client.POST("/external-tasks/release", { body: { token } });
   }
   expect(got.length, "the claimable task in the batch was never handed out").toBe(1);
 

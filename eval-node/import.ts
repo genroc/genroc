@@ -243,13 +243,15 @@ async function typecheck(sites: Located[]): Promise<void> {
       // drag the author's whole tree in, to be checked under the worker lib.
       include: [],
     };
-    // Never written: the name only anchors `@types` lookup at the root, where a real one would sit.
+    // Never written: the name only anchors `@types` lookup at the root. It must not be
+    // `tsconfig.json`: that is the base the config `extends` whenever the author keeps one at
+    // the root, and tsc refuses a config that extends its own path as circular.
     const parsed = ts.parseJsonConfigFileContent(
       config,
       ts.sys,
       root,
       undefined,
-      join(root, "tsconfig.json"),
+      join(root, "tsconfig.genroc.json"),
     );
     const program = ts.createProgram({
       rootNames: parsed.fileNames,
