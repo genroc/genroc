@@ -35,20 +35,20 @@ async function ran(def: object & { name: string }, want = "completed"): Promise<
 }
 
 /**
- * Log rows as the server's JSON objects, in the order genctl prints them. --mode json
+ * Log rows as the server's JSON objects, in the order genctl prints them. --json
  * forwards each row verbatim, so the field names are LogEntryResp's — `instance`, not the
  * `id` the column layout abbreviates it to.
  */
 function jsonRows(id: string, extra: string[] = [], env: Record<string, string> = {}) {
-  return runCli(bin, ["logs", id, "--mode", "json", ...extra], env)
+  return runCli(bin, ["logs", id, "--json", ...extra], env)
     .stdout.trim()
     .split("\n")
     .filter(Boolean)
     .map(
       (l) =>
         JSON.parse(l) as {
-          time: string;
-          instance: string;
+          created_at: string;
+          instance_id: string;
           level: string;
           event: string;
           actor?: string;
@@ -70,7 +70,7 @@ test("logs — the table commits to TIME, LEVEL, EVENT and TASK", async () => {
 
 test("logs — entries print oldest→newest, with the newest nearest the prompt", async () => {
   const id = await ran(switchDef(uid("order")));
-  const times = jsonRows(id).map((r) => new Date(r.time).getTime());
+  const times = jsonRows(id).map((r) => new Date(r.created_at).getTime());
 
   expect(times.length).toBeGreaterThanOrEqual(2);
   expect(times).toEqual([...times].sort((a, b) => a - b));
@@ -80,7 +80,7 @@ test("logs — entries print oldest→newest, with the newest nearest the prompt
 
 // ── modes ───────────────────────────────────────────────────────────────────────
 
-test("logs --mode — detail carries the data body, basic drops it, json is one object per line", async () => {
+test("logs — detail carries the data body, basic drops it, --json is one object per line", async () => {
   const id = await ran(switchDef(uid("modes")));
 
   const detail = runCli(bin, ["logs", id, "--mode", "detail"]).stdout;
@@ -97,13 +97,19 @@ test("logs --mode — detail carries the data body, basic drops it, json is one 
 
   const bad = runCli(bin, ["logs", id, "--mode", "verbose"]);
   expect(bad.ok).toBe(false);
-  expect(bad.stderr).toContain("invalid log mode");
+  expect(bad.stderr).toContain("invalid --mode");
+
+  // --mode names the table's density only; the machine form is --json, as on every other
+  // list command, so json is not one of the densities.
+  const asMode = runCli(bin, ["logs", id, "--mode", "json"]);
+  expect(asMode.ok).toBe(false);
+  expect(asMode.stderr).toContain("want basic or detail");
 });
 
-test("logs --mode json — timestamps are UTC RFC3339, independent of the reader's zone", async () => {
+test("logs --json — timestamps are UTC RFC3339, independent of the reader's zone", async () => {
   const id = await ran(switchDef(uid("jsontz")));
-  const prague = jsonRows(id, [], { TZ: "Europe/Prague" }).map((r) => r.time);
-  const utc = jsonRows(id, [], { TZ: "UTC" }).map((r) => r.time);
+  const prague = jsonRows(id, [], { TZ: "Europe/Prague" }).map((r) => r.created_at);
+  const utc = jsonRows(id, [], { TZ: "UTC" }).map((r) => r.created_at);
 
   // The machine form never depends on who ran the command, unlike the column views.
   expect(prague).toEqual(utc);
@@ -172,7 +178,7 @@ test("logs — a long payload is cut to the line width, never wrapped", async ()
   const wide = runCli(bin, ["logs", id], { COLUMNS: "200" }).stdout.trim().split("\n");
   expect(wide.length).toBe(narrow.length);
   expect(wide.join("").length).toBeGreaterThan(narrow.join("").length);
-  expect(runCli(bin, ["logs", id, "--mode", "json"]).stdout).toContain(blob);
+  expect(runCli(bin, ["logs", id, "--json"]).stdout).toContain(blob);
 
   // No COLUMNS: a fixed default width, not the whole line.
   const dflt = runCli(bin, ["logs", id], { COLUMNS: "" }).stdout.trim().split("\n");
@@ -275,9 +281,9 @@ test("logs — a root's trail is its whole tree, and --flat is its own rows", as
   const own = jsonRows(id, ["--flat"]);
   expect(tree.length).toBeGreaterThan(own.length);
   // The tree spans more than one instance, which is why the id becomes a column.
-  expect(new Set(tree.map((r) => r.instance)).size).toBeGreaterThan(1);
+  expect(new Set(tree.map((r) => r.instance_id)).size).toBeGreaterThan(1);
   // --flat is this instance's own rows, so the root is the only id in them.
-  expect(new Set(own.map((r) => r.instance))).toEqual(new Set([id]));
+  expect(new Set(own.map((r) => r.instance_id))).toEqual(new Set([id]));
 
   const header = runCli(bin, ["logs", id]).stdout.trim().split("\n")[0];
   expect(header.split(/\s+/)).toEqual(["TIME", "LEVEL", "ID", "EVENT", "TASK"]);
@@ -299,11 +305,11 @@ test("logs — a child id answers with that child's own rows", async () => {
   const kidRows = jsonRows(kidID);
   expect(kidRows.length).toBeGreaterThan(0);
   expect(
-    new Set(kidRows.map((r) => r.instance)),
+    new Set(kidRows.map((r) => r.instance_id)),
     "a child's trail is its own, not the tree it sits in",
   ).toEqual(new Set([kidID]));
   // ...and the tree read from the root still carries them.
-  expect(jsonRows(rootID).some((r) => r.instance === kidID)).toBe(true);
+  expect(jsonRows(rootID).some((r) => r.instance_id === kidID)).toBe(true);
 }, 15_000);
 
 // ── window and cap ──────────────────────────────────────────────────────────────
@@ -313,7 +319,7 @@ test("logs --since / --until — bound the trail, half-open, and reject a bare i
   // The whole trail, level floor out of the way: this is about the window, and a partition
   // needs more rows than the default view of a two-event process has.
   const times = (extra: string[], env: Record<string, string> = {}) =>
-    jsonRows(id, ["--level", "debug", ...extra], env).map((r) => new Date(r.time).getTime());
+    jsonRows(id, ["--level", "debug", ...extra], env).map((r) => new Date(r.created_at).getTime());
 
   const all = times(["--since", "1h"]);
   expect(all.length).toBeGreaterThanOrEqual(3);
@@ -337,7 +343,7 @@ test("logs — the cap is a fixed default, not a flag; --since is the way past i
   const id = await ran(switchDef(uid("nolimit")));
 
   // A trail under the cap reads the same either way, and never claims truncation.
-  const bare = runCli(bin, ["logs", id, "--mode", "json"]);
+  const bare = runCli(bin, ["logs", id, "--json"]);
   expect(bare.stderr).toBe("");
   expect(jsonRows(id).length).toBe(jsonRows(id, ["--since", "1h"]).length);
 

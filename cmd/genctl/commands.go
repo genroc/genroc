@@ -161,6 +161,10 @@ func runChannelCmd(server string, args []string) {
 	fromFlag := fs.String("from", "", "promote: source channel")
 	toFlag := fs.String("to", "", "promote: target channel")
 	processFlag := fs.String("process", "", "promote: limit to this process and its dependency subtree")
+	// list and status are the readable subcommands, so they carry the machine form every other
+	// listing has. It must be declared HERE: the stdlib stops parsing at the first positional,
+	// so a flag placed after `<process>` is swallowed silently rather than refused.
+	jsonFlag := fs.Bool("json", false, "list, status: print the raw JSON items instead of the table")
 	fs.Parse(args)
 	rest := fs.Args()
 
@@ -176,6 +180,14 @@ func runChannelCmd(server string, args []string) {
 			Actor     string `json:"actor"`
 		}
 		listURL := *serverFlag + "/api/channels?name=" + url.QueryEscape(rest[0])
+		if *jsonFlag {
+			items, err := listAll[json.RawMessage](listURL)
+			if err != nil {
+				fatal("%v", err)
+			}
+			printJSONItems(items)
+			return
+		}
 		resp, err := listAll[channelRow](listURL)
 		if err != nil {
 			fatal("%v", err)
@@ -239,7 +251,7 @@ func runChannelCmd(server string, args []string) {
 		}
 
 	case "status":
-		channelStatus(*serverFlag, rest)
+		channelStatus(*serverFlag, rest, *jsonFlag)
 
 	default:
 		fatal("unknown channel subcommand %q", sub)
@@ -249,29 +261,45 @@ func runChannelCmd(server string, args []string) {
 // channelStatus reports the child references a channel's members baked at a version the
 // channel no longer points at -- a coherence report, not a listing, which is why it prints
 // nothing per clean member.
-func channelStatus(server string, rest []string) {
+func channelStatus(server string, rest []string, asJSON bool) {
 	channel := "latest"
 	if len(rest) > 0 {
 		channel = rest[0]
 	}
 
-	var resp []struct {
-		Name      string `json:"name"`
-		Version   int    `json:"version"`
-		StaleRefs []struct {
-			TaskID         string `json:"task"`
-			ChildName      string `json:"child_name"`
-			BakedVersion   int    `json:"baked_version"`
-			ChannelVersion int    `json:"channel_version"`
-		} `json:"stale_refs"`
+	var resp struct {
+		Items []struct {
+			Name      string `json:"name"`
+			Version   int    `json:"version"`
+			StaleRefs []struct {
+				TaskID         string `json:"task"`
+				ChildName      string `json:"child_name"`
+				BakedVersion   int    `json:"baked_version"`
+				ChannelVersion int    `json:"channel_version"`
+			} `json:"stale_refs"`
+		} `json:"items"`
 	}
 	if err := call(server+"/api/channels/status", http.MethodPost,
 		map[string]any{"channel": channel}, &resp); err != nil {
 		fatal("%v", err)
 	}
+	if asJSON {
+		// Every member, clean ones included: the table prints only the stale, but a machine
+		// form that dropped the rest could not tell "coherent" from "not reported on".
+		items := make([]json.RawMessage, 0, len(resp.Items))
+		for _, it := range resp.Items {
+			b, err := json.Marshal(it)
+			if err != nil {
+				fatal("%v", err)
+			}
+			items = append(items, b)
+		}
+		printJSONItems(items)
+		return
+	}
 
 	allClean := true
-	for _, item := range resp {
+	for _, item := range resp.Items {
 		if len(item.StaleRefs) == 0 {
 			continue
 		}
@@ -583,7 +611,7 @@ func printInstanceHead(inst instanceView) {
 func runInstancesCmd(server string, args []string) {
 	fs := newFlagSet("instances", args)
 	serverFlag := addServerFlag(fs, server)
-	statusFlag := fs.String("status", "", "filter by status (running, completed, failing, failed, raised, pausing, paused, cancelling, cancelled)")
+	statusFlag := fs.String("status", "", "filter by status, comma-separated for several (running, completed, failing, failed, raised, pausing, paused, cancelling, cancelled)")
 	phaseFlag := fs.String("phase", "", "filter by why a running instance is not executing a task (children, collecting, external)")
 	taskFlag := fs.String("task", "", "filter by the exact task id the instance sits on; pair with --process, since a task id is unique only within its definition")
 	codeFlag := fs.String("error-code", "", "filter by exact error code (e.g. card_declined, http.500)")

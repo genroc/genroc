@@ -139,5 +139,7 @@ func (h *Handlers) channelStatus(raw json.RawMessage) Reply {
 			StaleRefs: staleByParent[k],
 		})
 	}
-	return okReply(items)
+	// Wrapped, like every other collection this API returns: a bare array is a shape a caller
+	// has to special-case, and leaves nowhere to add a field later without breaking it.
+	return okReply(map[string]any{"items": items})
 }

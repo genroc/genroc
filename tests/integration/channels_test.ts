@@ -118,7 +118,7 @@ test("channels — channel_status reports stale refs after child is advanced", a
   const { data: statusData } = await client.POST("/channels/status", {
     body: { channel: track },
   });
-  const items = statusData as Array<{
+  const items = (statusData as { items: Array<{
     name: string;
     version: number;
     stale_refs: Array<{
@@ -127,7 +127,7 @@ test("channels — channel_status reports stale refs after child is advanced", a
       baked_version: number;
       channel_version: number;
     }>;
-  }>;
+  }> }).items;
 
   const parentItem = items.find((i) => i.name === parentName);
   expect(parentItem).toBeDefined();
@@ -150,7 +150,7 @@ test("channels — channel_status is clean when everything is coherent", async (
   const { data: statusData } = await client.POST("/channels/status", {
     body: { channel: track },
   });
-  const items = statusData as Array<{ name: string; stale_refs: unknown[] }>;
+  const items = (statusData as { items: Array<{ name: string; stale_refs: unknown[] }> }).items;
   for (const item of items) {
     expect(item.stale_refs ?? []).toHaveLength(0);
   }

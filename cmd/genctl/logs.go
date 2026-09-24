@@ -21,12 +21,20 @@ func runLogsCmd(server string, args []string) {
 	sinceFlag := fs.String("since", "", "read forward from this point: a duration back from now (2h, 45m) or a timestamp (2006-01-02, 2006-01-02 15:04); empty = the newest 200 entries")
 	untilFlag := fs.String("until", "", "stop at this point (same forms as --since); on its own it keeps the cap, giving the newest rows before that instant")
 	flatFlag := fs.Bool("flat", false, "this instance's own rows only; by default a ROOT id answers with every row in its tree")
-	modeFlag := fs.String("mode", "detail", "output: basic (no data body), detail (+ data, cut to one line -- $COLUMNS sets the width), or json (one JSON object per line, untruncated)")
+	modeFlag := fs.String("mode", "detail", "table density: basic (no data body) or detail (+ data, cut to one line -- $COLUMNS sets the width)")
+	jsonFlag := fs.Bool("json", false, "print the raw JSON entries, one per line (JSONL), untruncated")
 	timeFlag := fs.String("time", "clock", "time column: clock (15:04:05, with a day separator per date) or full (2006-01-02 15:04:05 +02:00); both render in the local zone ($TZ)")
 	id := instanceIDAndFlags(fs, args)
-	mode, err := logview.ParseMode(*modeFlag)
-	if err != nil {
-		fatal("%v", err)
+	// --json is the machine form every other list command spells this way, so --mode is left
+	// with the choice it alone has: how much of a row the TABLE shows. logview.Mode still has
+	// a json member -- the server's --log-mode uses it -- so this rejects it rather than
+	// ParseMode, which would name a value this flag does not offer.
+	mode := logview.Mode(*modeFlag)
+	if mode != logview.ModeBasic && mode != logview.ModeDetail {
+		fatal("invalid --mode %q (want basic or detail)", *modeFlag)
+	}
+	if *jsonFlag {
+		mode = logview.ModeJSON
 	}
 	style, err := logview.ParseTimeStyle(*timeFlag)
 	if err != nil {
@@ -85,8 +93,8 @@ func runLogsCmd(server string, args []string) {
 	}
 
 	type logRow struct {
-		Time     string          `json:"time"`
-		Instance string          `json:"instance"`
+		Time     string          `json:"created_at"`
+		Instance string          `json:"instance_id"`
 		Level    string          `json:"level"`
 		Event    string          `json:"event"`
 		Task     string          `json:"task"`

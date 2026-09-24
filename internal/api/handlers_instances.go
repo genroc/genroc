@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"genroc/internal/db"
@@ -96,6 +97,18 @@ func (h *Handlers) startInstance(raw json.RawMessage, actor string) Reply {
 	})
 }
 
+// splitCSV reads a comma-separated filter into its values, dropping blanks -- so `?status=` and
+// an absent parameter mean the same thing (unfiltered) rather than "a status spelled empty".
+func splitCSV(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 	req, err := decodeOptionalBody[ListInstancesReq](raw)
 	if err != nil {
@@ -104,7 +117,7 @@ func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 	// Roots only unless children were asked for: the flag is an opt-IN, so the default
 	// listing is one row per tree. specs/id-list-commands.md.
 	instances, info, err := h.db.ListInstances(db.InstanceQuery{
-		Status:    req.Status,
+		Statuses:  splitCSV(req.Status),
 		Phase:     req.Phase,
 		Task:      req.Task,
 		ErrorCode: req.ErrorCode,

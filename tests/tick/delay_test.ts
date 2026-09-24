@@ -25,7 +25,7 @@ async function armLogs(id: string, want: number) {
         const [spec, target] = (l.message ?? "").split(" -> ");
         return {
           spec: spec!,
-          at: new Date(l.time!).getTime(),
+          at: new Date(l.created_at!).getTime(),
           target: new Date(target!).getTime(),
         };
       });

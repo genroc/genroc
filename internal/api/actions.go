@@ -256,7 +256,9 @@ var registry = func() []actionDef {
 			Summary: "List process instances - roots only unless children=true, so one row per tree",
 			Tags:    []string{"Instances"},
 			PathQuery: struct {
-				Status        model.Status `query:"status" description:"Filter by status"`
+				// Typed so the enum below IS the list of statuses -- reference_test.go fails if one
+				// exists that the filter does not offer. The comma form takes those same values.
+				Status        model.Status `query:"status" description:"Filter by status, or several comma-separated (running,paused) -- the grammar genctl upgrade --status takes. The enum is the vocabulary; a comma-separated list of those values is accepted"`
 				Phase         string       `query:"phase" description:"Filter by why a running instance is not executing a task. The three are not one kind of thing: children (blocked until its children settle), collecting (children terminal, their outputs still to merge — runnable now), external (parked until someone answers, or until its timeout). Orthogonal to status — all three are still running, and survive a pause"`
 				Task          string       `query:"task" description:"Filter by the exact task id the instance sits on — where it is running, parked, or where it stopped. A task id is unique only within its definition, so pair it with process to mean one task"`
 				ErrorCode     string       `query:"error_code" description:"Filter by exact error code. Authored codes (from a raise or panic clause) are lower_snake_case; engine-produced codes contain a dot, e.g. http.500, pre.timeout, engine.spawn."`
@@ -385,7 +387,7 @@ var registry = func() []actionDef {
 			Tags:    []string{"Channels"},
 			Errors:  []Code{CodeNotFound},
 			Req:     ChannelStatusReq{Channel: "latest"},
-			Resp:    []ChannelStatusItem{},
+			Resp:    map[string]any{"items": []ChannelStatusItem{}},
 			handle: func(h *Handlers, env Envelope) Reply {
 				return h.channelStatus(env.Payload)
 			},

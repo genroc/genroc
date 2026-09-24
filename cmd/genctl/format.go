@@ -11,7 +11,7 @@ import (
 
 // logLineWidth is the budget one log line is cut to (logview.Clamp). It is fixed rather than
 // read off the terminal -- genctl links no terminal library, and a trail piped to a file would
-// have no width to read anyway; $COLUMNS is the override, and --mode json is never cut.
+// have no width to read anyway; $COLUMNS is the override, and --json is never cut.
 func logLineWidth() int {
 	if n, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && n > 0 {
 		return n

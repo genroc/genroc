@@ -229,7 +229,7 @@ test("a subtree log lists a child instance's externalized payload", async () => 
       params: { path: { id }, query: { limit: 200, recursive: true } },
     });
     const entry = (body!.items ?? []).find(
-      (l) => l.event === "inst_created" && l.instance !== id,
+      (l) => l.event === "inst_created" && l.instance_id !== id,
     );
     return { entry, body };
   };

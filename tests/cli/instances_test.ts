@@ -976,3 +976,19 @@ test("@last — never implied, and errors when nothing has been run", () => {
   expect(r.ok).toBe(false);
   expect(r.stderr).toContain("no instance recorded");
 });
+
+test("instances --status — takes several, the same grammar upgrade --status takes", async () => {
+  const done = startedID(runCli(bin, ["run", apply(switchDef(uid("st_done")))]).stdout);
+  expect(await waitForInstance(done)).toBe("completed");
+  const parked = startedID(runCli(bin, ["run", apply(externalDef(uid("st_parked")))]).stdout);
+  const token = await waitForExternalToken(parked);
+
+  const both = instances(["--since", "1h", "--status", "completed,running"]).map((i) => i.id);
+  expect(both).toContain(done);
+  expect(both).toContain(parked);
+  // A union, not the last value winning -- which is what a single-value filter would give.
+  expect(instances(["--since", "1h", "--status", "completed"]).map((i) => i.id)).not.toContain(parked);
+
+  runCli(bin, ["resolve", token, "--set", "approved=true"]);
+  expect(await waitForInstance(parked)).toBe("completed");
+}, 15_000);

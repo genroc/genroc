@@ -283,7 +283,7 @@ test("genctl — a literal in a log payload survives the trail", async () => {
   expect(text.stdout).toContain(BIG_INT);
   expect(text.stdout).not.toContain(BIG_INT_AS_FLOAT64);
 
-  const json = runCli(bin, ["logs", id, "--mode", "json"]);
+  const json = runCli(bin, ["logs", id, "--json"]);
   expect(json.stdout).toContain(BIG_INT);
   expect(json.stdout).not.toContain(BIG_INT_AS_FLOAT64);
 });

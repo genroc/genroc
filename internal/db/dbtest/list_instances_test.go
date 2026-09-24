@@ -91,7 +91,7 @@ func TestListInstances_SortAndSummary(t *testing.T) {
 			}
 
 			// Status filter narrows the page.
-			completed, _, err := b.db.ListInstances(dbpkg.InstanceQuery{Status: "completed"})
+			completed, _, err := b.db.ListInstances(dbpkg.InstanceQuery{Statuses: []string{"completed"}})
 			if err != nil {
 				t.Fatalf("ListInstances completed: %v", err)
 			}
@@ -225,7 +225,7 @@ func TestListInstances_ProcessFilter(t *testing.T) {
 			}
 			// beta stays running and a1 is the other alpha, so a filter that dropped either
 			// half of the pair returns a different row than a2.
-			both, _, err := b.db.ListInstances(dbpkg.InstanceQuery{Status: "running", Process: "alpha"})
+			both, _, err := b.db.ListInstances(dbpkg.InstanceQuery{Statuses: []string{"running"}, Process: "alpha"})
 			if err != nil {
 				t.Fatalf("ListInstances status+process: %v", err)
 			}
@@ -379,6 +379,58 @@ func TestListInstances_TaskFilter(t *testing.T) {
 			} else if len(got) != 0 {
 				t.Errorf("task=pa = %v, want none — the match is exact, and %s is the only near miss",
 					summaryIDs(got), alphaPay.ID)
+			}
+		})
+	}
+}
+
+// TestListInstances_StatusSet covers the several-statuses form. One value must behave exactly as
+// it did when this filter took a single string -- that is the compatibility the set has to keep --
+// and the set must be a union rather than the last value winning.
+func TestListInstances_StatusSet(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			at := func(status model.Status) *model.ProcessInstance {
+				t.Helper()
+				inst := saveInstance(t, b.db, "sweep")
+				inst.Status = status
+				if err := b.db.UpdateInstance(inst); err != nil {
+					t.Fatalf("UpdateInstance: %v", err)
+				}
+				dbpkg.AdvanceClock(time.Second)
+				return inst
+			}
+			running := at(model.StatusRunning)
+			paused := at(model.StatusPaused)
+			completed := at(model.StatusCompleted)
+
+			one, _, err := b.db.ListInstances(dbpkg.InstanceQuery{Statuses: []string{"running"}})
+			if err != nil {
+				t.Fatalf("ListInstances one status: %v", err)
+			}
+			if want := []string{running.ID}; !equalStrs(summaryIDs(one), want) {
+				t.Errorf("status=[running] = %v, want %v — one value must still select exactly it", summaryIDs(one), want)
+			}
+
+			two, _, err := b.db.ListInstances(dbpkg.InstanceQuery{Statuses: []string{"running", "paused"}})
+			if err != nil {
+				t.Fatalf("ListInstances two statuses: %v", err)
+			}
+			if want := []string{paused.ID, running.ID}; !equalStrs(summaryIDs(two), want) {
+				t.Errorf("status=[running,paused] = %v, want %v — the set is a union, not the last value", summaryIDs(two), want)
+			}
+			if got := summaryIDs(two); len(got) > 0 && got[0] == completed.ID {
+				t.Errorf("a status outside the set was returned")
+			}
+
+			// Empty is unfiltered, not "a status spelled empty": the default listing must not
+			// collapse to nothing when no --status is given.
+			none, _, err := b.db.ListInstances(dbpkg.InstanceQuery{Statuses: nil})
+			if err != nil {
+				t.Fatalf("ListInstances no status: %v", err)
+			}
+			if len(none) < 3 {
+				t.Errorf("an empty status set returned %d rows, want every row — it must not narrow", len(none))
 			}
 		})
 	}

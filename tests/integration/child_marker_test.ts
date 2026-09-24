@@ -10,7 +10,7 @@ async function childInput(parentID: string): Promise<unknown> {
   const { data: trail } = await client.GET("/instances/{id}/logs", {
     params: { path: { id: parentID }, query: { limit: 200, recursive: true } },
   });
-  const kid = (trail!.items ?? []).find((l) => l.instance !== parentID)?.instance;
+  const kid = (trail!.items ?? []).find((l) => l.instance_id !== parentID)?.instance_id;
   expect(kid, "the parent spawned a child").toBeDefined();
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: kid! } } });
   await spliceObjects(data);

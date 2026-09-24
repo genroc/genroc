@@ -482,19 +482,28 @@ func (db *DB) GetInstance(id string) (*model.ProcessInstance, error) {
 	return toInstance(r)
 }
 
+// anySlice widens a string filter set for the IN builder, which binds []any.
+func anySlice(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, s := range ss {
+		out[i] = s
+	}
+	return out
+}
+
 // InstanceQuery is ListInstances' filter set. Every zero value is "unfiltered", so the empty
 // struct lists everything; Created and Updated stay separate so the caller pairs its bound with
 // the sort it ordered by rather than this function guessing.
 type InstanceQuery struct {
-	Status    string // exact status
-	Phase     string // exact wait state: what a running instance is parked on, "" = unfiltered
-	Task      string // exact task id -- an instance's POSITION, so it spans definitions unless Process narrows it
-	ErrorCode string // exact error code
-	Process   string // exact process name, across every version
-	Version   int    // exact process version (0 = any)
-	RootsOnly bool   // the DEFAULT at every layer above -- one row per tree
-	Created   Window // on created_at (zero = unbounded)
-	Updated   Window // on updated_at (zero = unbounded)
+	Statuses  []string // any of these statuses; empty = unfiltered
+	Phase     string   // exact wait state: what a running instance is parked on, "" = unfiltered
+	Task      string   // exact task id -- an instance's POSITION, so it spans definitions unless Process narrows it
+	ErrorCode string   // exact error code
+	Process   string   // exact process name, across every version
+	Version   int      // exact process version (0 = any)
+	RootsOnly bool     // the DEFAULT at every layer above -- one row per tree
+	Created   Window   // on created_at (zero = unbounded)
+	Updated   Window   // on updated_at (zero = unbounded)
 	Page      PageReq
 }
 
@@ -502,7 +511,7 @@ type InstanceQuery struct {
 // blob — use GetInstance. specs/id-list-commands.md.
 func (db *DB) ListInstances(opts InstanceQuery) ([]*model.InstanceSummary, PageInfo, error) {
 	q := instancePaginator.query(opts.Page).
-		EqIf("status", opts.Status, opts.Status != "").
+		InIf("status", anySlice(opts.Statuses), len(opts.Statuses) > 0).
 		EqIf("phase", opts.Phase, opts.Phase != "").
 		EqIf("task", opts.Task, opts.Task != "").
 		EqIf("error_code", opts.ErrorCode, opts.ErrorCode != "").

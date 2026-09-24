@@ -10,7 +10,7 @@ test("health — a worker that can reach its database answers 200 ok", async () 
   const { data, error } = await rootClient.GET("/healthz");
   expect(error).toBeUndefined();
   expect(data?.status).toBe("ok");
-  expect(data?.worker).toBeTruthy();
+  expect(data?.worker_id).toBeTruthy();
   expect(["sqlite", "postgres"]).toContain(data?.database);
 });
 

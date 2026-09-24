@@ -175,7 +175,7 @@ type ChannelStatusItem struct {
 // on; the rest is operator context for a worker that is up but behaving oddly.
 type HealthResp struct {
 	Status     string `json:"status" description:"ok — this worker reached its database; any other outcome is a 503"`
-	Worker     string `json:"worker" description:"Worker id stamped on the leases this worker holds"`
+	Worker     string `json:"worker_id" description:"Worker id stamped on the leases this worker holds"`
 	Database   string `json:"database" description:"Storage engine backing this worker: sqlite or postgres"`
 	LeaseAgeMs int64  `json:"lease_age_ms" description:"Milliseconds since this worker last renewed its leases. Past --lease-duration means its claimed instances are being taken over by peers."`
 	ManualTick bool   `json:"manual_tick" description:"True when started with -poll 0: the engine only advances via POST /tick"`
@@ -199,7 +199,7 @@ type ListDefinitionsReq struct {
 }
 
 type ListInstancesReq struct {
-	Status        string `json:"status"`         // optional filter: running, completed, failing, failed, raised, pausing, paused
+	Status        string `json:"status"`         // optional filter: one status, or several comma-separated
 	Phase         string `json:"phase"`          // optional filter: children, collecting, external — why it is not executing a task
 	Task          string `json:"task"`           // optional filter: exact task id the instance sits on
 	ErrorCode     string `json:"error_code"`     // optional filter: exact error code (authored or engine)
@@ -453,8 +453,10 @@ type InstanceDetailResp struct {
 }
 
 type LogEntryResp struct {
-	Time     string         `json:"time"`
-	Instance string         `json:"instance"`
+	// created_at and instance_id, spelled as every other resource spells them: a trail row is
+	// still a row with a timestamp and a foreign reference on it.
+	Time     string         `json:"created_at"`
+	Instance string         `json:"instance_id"`
 	Level    model.LogLevel `json:"level"`
 	Event    string         `json:"event"`
 	Task     string         `json:"task,omitempty"`
