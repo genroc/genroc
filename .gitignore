@@ -46,7 +46,6 @@ tests/weather.log
 examples/auth/.env
 ui/frontend/node_modules
 ui/frontend/dist
-.genroc-cache/
 eval-node/dist/
 *.tgz
 go.work.sum

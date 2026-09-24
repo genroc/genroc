@@ -7,12 +7,10 @@
 // code; "build" typechecks and bundles. A separate types hook would mean a second `tsc`
 // over the same project.
 
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, writeFile } from "node:fs/promises";
 import { builtinModules } from "node:module";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
 
 import commonjs from "@rollup/plugin-commonjs";
 import json from "@rollup/plugin-json";
@@ -68,12 +66,6 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/** Creates the parent directory, which `.genroc-cache/` relies on: nothing else makes it. */
-async function write(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, content);
 }
 
 // ── JSON Schema → TypeScript ───────────────────────────────────────────────────
@@ -217,12 +209,7 @@ async function nearestTsconfig(
 }
 
 async function typecheck(sites: Located[]): Promise<void> {
-  // NOT `.genroc`: that is the project config FILE, and a directory of the same name cannot
-  // coexist with it. The suffix is what keeps the scratch area out of its way.
-  const dir = join(root, ".genroc-cache");
-  await write(join(dir, ".gitignore"), "*\n");
-
-  // One tsc per distinct base config: `extends` takes a single base, so merging two would
+  // One program per distinct base config: `extends` takes a single base, so merging two would
   // check each script under the other author's options.
   const groups = new Map<string, Located[]>();
   for (const at of sites) {
@@ -232,10 +219,10 @@ async function typecheck(sites: Located[]): Promise<void> {
     else groups.set(base, [at]);
   }
 
-  let n = 0;
+  const diagnostics: ts.Diagnostic[] = [];
   for (const [base, group] of groups) {
     const config: Record<string, unknown> = {
-      ...(base ? { extends: relative(dir, base) } : {}),
+      ...(base ? { extends: base } : {}),
       compilerOptions: {
         noEmit: true,
         strict: true,
@@ -251,41 +238,40 @@ async function typecheck(sites: Located[]): Promise<void> {
         // base config there is nothing to opt in with, so the default stays none.
         ...(base ? {} : { types: [] }),
       },
-      files: group.flatMap((s) => [
-        relative(dir, s.file),
-        relative(dir, typesPathFor(s.file)),
-      ]),
+      files: group.flatMap((s) => [s.file, typesPathFor(s.file)]),
       // `files` overrides the base's, but a base `include` survives beside it and would
       // drag the author's whole tree in, to be checked under the worker lib.
       include: [],
     };
-    const configPath = join(
-      dir,
-      groups.size === 1 ? "tsconfig.json" : `tsconfig.${n++}.json`,
+    // Never written: the name only anchors `@types` lookup at the root, where a real one would sit.
+    const parsed = ts.parseJsonConfigFileContent(
+      config,
+      ts.sys,
+      root,
+      undefined,
+      join(root, "tsconfig.json"),
     );
-    await write(configPath, JSON.stringify(config, null, 2));
-    await runTsc(root, configPath);
+    const program = ts.createProgram({
+      rootNames: parsed.fileNames,
+      options: parsed.options,
+      projectReferences: parsed.projectReferences,
+      configFileParsingDiagnostics: parsed.errors,
+    });
+    diagnostics.push(...parsed.errors, ...ts.getPreEmitDiagnostics(program));
   }
-}
 
-async function runTsc(root: string, configPath: string): Promise<void> {
-  const tsc = fileURLToPath(import.meta.resolve("typescript/bin/tsc"));
-  const proc = spawn(process.execPath, [tsc, "--noEmit", "-p", configPath], {
-    cwd: root,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let out = "";
-  let err = "";
-  proc.stdout.on("data", (c: Buffer) => (out += c));
-  proc.stderr.on("data", (c: Buffer) => (err += c));
-  const code = await new Promise<number>((resolve, reject) => {
-    proc.on("error", reject);
-    proc.on("close", (c) => resolve(c ?? 1));
-  });
-  if (code !== 0) {
-    // tsc reports on stdout; the exit code IS the type check, so this is the diagnostic
-    // genctl surfaces and the reason a failed import never produces a string.
-    die([out, err].filter(Boolean).join("\n").trimEnd());
+  if (diagnostics.length > 0) {
+    // The diagnostics are the whole type check: this is what genctl surfaces, and the reason a
+    // failed import never produces a string.
+    die(
+      ts
+        .formatDiagnostics(diagnostics, {
+          getCanonicalFileName: (f) => f,
+          getCurrentDirectory: () => root,
+          getNewLine: () => "\n",
+        })
+        .trimEnd(),
+    );
   }
 }
 
@@ -484,7 +470,7 @@ for (const at of located) {
 }
 
 for (const at of byPath.values()) {
-  await write(typesPathFor(at.file), declarations(at));
+  await writeFile(typesPathFor(at.file), declarations(at));
 }
 
 if (manifest.mode === "types") {

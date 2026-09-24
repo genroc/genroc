@@ -1019,6 +1019,10 @@ test("evaluator importer — a checked script applies as a self-contained module
   );
 
   expect(runCli(bin, ["apply", "-f", def]).stdout).toContain(`latest: ${name} - -> v1 (new)`);
+  expect(
+    existsSync(join(p.dir, ".genroc-cache")),
+    "the typecheck runs in memory; a scratch dir is one more thing every author must gitignore",
+  ).toBe(false);
 }, 60_000);
 
 // The one thing the typecheck cannot see: `Input`/`Output` say nothing about HOW the module
