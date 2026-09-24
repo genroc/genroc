@@ -48,17 +48,17 @@ func mustError(t *testing.T, db *dbpkg.DB, id string) string {
 	return inst.ErrorMessage
 }
 
-func mustWaitState(t *testing.T, db *dbpkg.DB, id string) model.WaitState {
+func mustPhase(t *testing.T, db *dbpkg.DB, id string) model.Phase {
 	t.Helper()
 	inst, err := db.GetInstance(id)
 	if err != nil {
 		t.Fatalf("GetInstance %q: %v", id, err)
 	}
-	return inst.WaitState
+	return inst.Phase
 }
 
-// insertInstW inserts an instance with an explicit wait_state (for testing waiting parents).
-func insertInstW(t *testing.T, db *dbpkg.DB, id string, status model.Status, waitState model.WaitState, parentID string, callStack []string, errMsg string) {
+// insertInstW inserts an instance with an explicit phase (for testing waiting parents).
+func insertInstW(t *testing.T, db *dbpkg.DB, id string, status model.Status, phase model.Phase, parentID string, callStack []string, errMsg string) {
 	t.Helper()
 	inst := &model.ProcessInstance{
 		ID:             id,
@@ -67,7 +67,7 @@ func insertInstW(t *testing.T, db *dbpkg.DB, id string, status model.Status, wai
 		Task:           "step1",
 		State:          map[string]any{},
 		Status:         status,
-		WaitState:      waitState,
+		Phase:          phase,
 		ParentID:       parentID,
 		CallStack:      callStack,
 		ErrorMessage:   errMsg,
@@ -129,13 +129,13 @@ func TestPauseProcess_SingleInstance(t *testing.T) {
 
 // TestPauseProcess_Descendants verifies that all descendants of a root are suspended,
 // and that pausing changes nothing but the status column — a child parked on its own
-// children keeps wait_state='waiting' so resuming picks up exactly where it stopped.
+// children keeps phase='children' so resuming picks up exactly where it stopped.
 func TestPauseProcess_Descendants(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "root", model.StatusRunning, "", nil, "")
 			insertInst(t, b.db, "child1", model.StatusRunning, "root", []string{"root"}, "")
-			insertInstW(t, b.db, "child2", model.StatusRunning, model.WaitStateWaiting, "root", []string{"root"}, "")
+			insertInstW(t, b.db, "child2", model.StatusRunning, model.PhaseChildren, "root", []string{"root"}, "")
 			// grandchild of root via child1
 			insertInst(t, b.db, "gc1", model.StatusRunning, "child1", []string{"root", "child1"}, "")
 
@@ -149,8 +149,8 @@ func TestPauseProcess_Descendants(t *testing.T) {
 					t.Errorf("%q: expected paused, got %q", id, got)
 				}
 			}
-			if got := mustWaitState(t, b.db, "child2"); got != model.WaitStateWaiting {
-				t.Errorf("child2: wait_state should be preserved, got %q", got)
+			if got := mustPhase(t, b.db, "child2"); got != model.PhaseChildren {
+				t.Errorf("child2: phase should be preserved, got %q", got)
 			}
 		})
 	}
@@ -276,7 +276,7 @@ func TestPauseProcess_NonRootRejected(t *testing.T) {
 }
 
 // TestResumeProcess_RestoresSubtree verifies that resuming flips a paused tree back
-// to running and nothing else: wait_state, wake_at and retry_count survive the
+// to running and nothing else: phase, wake_at and retry_count survive the
 // pause/resume round trip verbatim, which is what makes resume a status flip rather
 // than the revival RetryProcess performs.
 func TestResumeProcess_RestoresSubtree(t *testing.T) {
@@ -284,7 +284,7 @@ func TestResumeProcess_RestoresSubtree(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			wakeAt := time.Now().Add(time.Hour).UTC().Truncate(time.Millisecond)
 			// Root parked on children; the child parked on a retry backoff.
-			insertInstW(t, b.db, "root", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+			insertInstW(t, b.db, "root", model.StatusRunning, model.PhaseChildren, "", nil, "")
 			backoff := &model.ProcessInstance{
 				ID:             "child",
 				ProcessName:    "test",
@@ -313,8 +313,8 @@ func TestResumeProcess_RestoresSubtree(t *testing.T) {
 					t.Errorf("%q: expected running, got %q", id, got)
 				}
 			}
-			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateWaiting {
-				t.Errorf("root: wait_state should be preserved, got %q", got)
+			if got := mustPhase(t, b.db, "root"); got != model.PhaseChildren {
+				t.Errorf("root: phase should be preserved, got %q", got)
 			}
 			child, err := b.db.GetInstance("child")
 			if err != nil {
@@ -362,7 +362,7 @@ func TestResumeProcess_FlipsPausing(t *testing.T) {
 func TestResumeProcess_FailingRootOverPausedDescendant(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "root", model.StatusFailing, model.WaitStateWaiting, "", nil, "boom")
+			insertInstW(t, b.db, "root", model.StatusFailing, model.PhaseChildren, "", nil, "boom")
 			insertChild(t, b.db, "c-dead", model.StatusFailed, "root", "step1", []string{"root"}, "boom")
 			insertChild(t, b.db, "c-paused", model.StatusPaused, "root", "step1", []string{"root"}, "")
 
@@ -510,7 +510,7 @@ func TestUpdateInstanceProgress_LandsPendingPause(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			held.WaitState = model.WaitStateExternal
+			held.Phase = model.PhaseExternal
 			if err := b.db.UpdateInstanceProgress(held); err != nil {
 				t.Fatalf("UpdateInstanceProgress: %v", err)
 			}
@@ -518,8 +518,8 @@ func TestUpdateInstanceProgress_LandsPendingPause(t *testing.T) {
 			if got := mustStatus(t, b.db, "held"); got != model.StatusPaused {
 				t.Errorf("held: expected paused, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "held"); got != model.WaitStateExternal {
-				t.Errorf("held: expected wait_state=external, got %q", got)
+			if got := mustPhase(t, b.db, "held"); got != model.PhaseExternal {
+				t.Errorf("held: expected phase=external, got %q", got)
 			}
 		})
 	}
@@ -527,13 +527,13 @@ func TestUpdateInstanceProgress_LandsPendingPause(t *testing.T) {
 
 // TestFailInstanceAndAncestors_OverridesPaused verifies that a child failure marks
 // suspended ancestors as 'failing' — a failure is a real outcome and must not be
-// hidden by a pause — while preserving their wait_state so they keep draining until
+// hidden by a pause — while preserving their phase so they keep draining until
 // the remaining children settle.
 func TestFailInstanceAndAncestors_OverridesPaused(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "grand", model.StatusPaused, model.WaitStateWaiting, "", nil, "")
-			insertInstW(t, b.db, "parent", model.StatusPausing, model.WaitStateWaiting, "grand", []string{"grand"}, "")
+			insertInstW(t, b.db, "grand", model.StatusPaused, model.PhaseChildren, "", nil, "")
+			insertInstW(t, b.db, "parent", model.StatusPausing, model.PhaseChildren, "grand", []string{"grand"}, "")
 			// The leaf must exist as a row: its own write is the fenced one, and a write
 			// that matches no row reads as a lost lease (which is correct — a vanished
 			// row is equally not this worker's to write).
@@ -557,8 +557,8 @@ func TestFailInstanceAndAncestors_OverridesPaused(t *testing.T) {
 				if msg := mustError(t, b.db, id); msg != "boom" {
 					t.Errorf("%q: expected error \"boom\", got %q", id, msg)
 				}
-				if got := mustWaitState(t, b.db, id); got != model.WaitStateWaiting {
-					t.Errorf("%q: wait_state should be preserved, got %q", id, got)
+				if got := mustPhase(t, b.db, id); got != model.PhaseChildren {
+					t.Errorf("%q: phase should be preserved, got %q", id, got)
 				}
 			}
 		})
@@ -618,8 +618,8 @@ func TestSpawnChildrenAndWait_RunningParent(t *testing.T) {
 			if got := mustStatus(t, b.db, "parent"); got != model.StatusRunning {
 				t.Errorf("parent: expected running, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateWaiting {
-				t.Errorf("parent: expected wait_state=waiting, got %q", got)
+			if got := mustPhase(t, b.db, "parent"); got != model.PhaseChildren {
+				t.Errorf("parent: expected phase=waiting, got %q", got)
 			}
 			if got := mustStatus(t, b.db, "child"); got != model.StatusRunning {
 				t.Errorf("child: expected running, got %q", got)
@@ -629,7 +629,7 @@ func TestSpawnChildrenAndWait_RunningParent(t *testing.T) {
 }
 
 // A pause landing mid-spawn settles here or never: the write parks the parent on
-// wait_state='waiting', out of the claim predicate, so no later claim could move it out of
+// phase='children', out of the claim predicate, so no later claim could move it out of
 // 'pausing'. Children inherit the settled status — a paused tree spawns nothing runnable.
 func TestSpawnChildrenAndWait_PausingParent(t *testing.T) {
 	for _, b := range testBackends(t) {
@@ -658,8 +658,8 @@ func TestSpawnChildrenAndWait_PausingParent(t *testing.T) {
 			if got := mustStatus(t, b.db, "parent"); got != model.StatusPaused {
 				t.Errorf("parent: expected paused, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateWaiting {
-				t.Errorf("parent: expected wait_state=waiting, got %q", got)
+			if got := mustPhase(t, b.db, "parent"); got != model.PhaseChildren {
+				t.Errorf("parent: expected phase=waiting, got %q", got)
 			}
 			// child is spawned paused (inherits the parent's settled status)
 			if got := mustStatus(t, b.db, "child"); got != model.StatusPaused {
@@ -772,8 +772,8 @@ func TestRetryProcess_FailedTree_RevivesOnlyFailedLeaf(t *testing.T) {
 			if got := mustStatus(t, b.db, "parent"); got != model.StatusRunning {
 				t.Errorf("parent: expected running, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateWaiting {
-				t.Errorf("parent: expected wait_state=waiting, got %q", got)
+			if got := mustPhase(t, b.db, "parent"); got != model.PhaseChildren {
+				t.Errorf("parent: expected phase=waiting, got %q", got)
 			}
 		})
 	}
@@ -800,8 +800,8 @@ func TestRetryProcess_FailedTree_RevivesAllFailedChildren(t *testing.T) {
 			if got := mustStatus(t, b.db, "parent"); got != model.StatusRunning {
 				t.Errorf("parent: expected running, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateWaiting {
-				t.Errorf("parent: expected wait_state=waiting, got %q", got)
+			if got := mustPhase(t, b.db, "parent"); got != model.PhaseChildren {
+				t.Errorf("parent: expected phase=waiting, got %q", got)
 			}
 		})
 	}
@@ -824,15 +824,15 @@ func TestRetryProcess_FailedTree_DeepChain(t *testing.T) {
 			if got := mustStatus(t, b.db, "leaf"); got != model.StatusRunning {
 				t.Errorf("leaf: expected running, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "leaf"); got != model.WaitStateNone {
-				t.Errorf("leaf: expected wait_state none, got %q", got)
+			if got := mustPhase(t, b.db, "leaf"); got != model.PhaseNone {
+				t.Errorf("leaf: expected phase none, got %q", got)
 			}
 			for _, id := range []string{"root", "mid"} {
 				if got := mustStatus(t, b.db, id); got != model.StatusRunning {
 					t.Errorf("%q: expected running, got %q", id, got)
 				}
-				if got := mustWaitState(t, b.db, id); got != model.WaitStateWaiting {
-					t.Errorf("%q: expected wait_state=waiting, got %q", id, got)
+				if got := mustPhase(t, b.db, id); got != model.PhaseChildren {
+					t.Errorf("%q: expected phase=waiting, got %q", id, got)
 				}
 				if got := mustError(t, b.db, id); got != "" {
 					t.Errorf("%q: error should be cleared, got %q", id, got)
@@ -859,8 +859,8 @@ func TestRetryProcess_FailedTree_ReconstructsCollecting(t *testing.T) {
 			if got := mustStatus(t, b.db, "root"); got != model.StatusRunning {
 				t.Errorf("root: expected running, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateCollecting {
-				t.Errorf("root: expected wait_state=collecting, got %q", got)
+			if got := mustPhase(t, b.db, "root"); got != model.PhaseCollecting {
+				t.Errorf("root: expected phase=collecting, got %q", got)
 			}
 			for _, id := range []string{"c1", "c2"} {
 				if got := mustStatus(t, b.db, id); got != model.StatusCompleted {
@@ -872,7 +872,7 @@ func TestRetryProcess_FailedTree_ReconstructsCollecting(t *testing.T) {
 }
 
 // TestRetryProcess_Failed_RerunsPendingStep verifies that a failed instance whose
-// pending task spawned nothing simply re-runs it (wait_state none).
+// pending task spawned nothing simply re-runs it (phase none).
 func TestRetryProcess_Failed_RerunsPendingStep(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -885,8 +885,8 @@ func TestRetryProcess_Failed_RerunsPendingStep(t *testing.T) {
 			if got := mustStatus(t, b.db, "root"); got != model.StatusRunning {
 				t.Errorf("root: expected running, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateNone {
-				t.Errorf("root: expected wait_state none, got %q", got)
+			if got := mustPhase(t, b.db, "root"); got != model.PhaseNone {
+				t.Errorf("root: expected phase none, got %q", got)
 			}
 		})
 	}
@@ -915,8 +915,8 @@ func TestRetryProcess_EmptyQueue(t *testing.T) {
 			if got := mustStatus(t, b.db, "root"); got != model.StatusRunning {
 				t.Errorf("root: expected running, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateNone {
-				t.Errorf("root: expected wait_state none, got %q", got)
+			if got := mustPhase(t, b.db, "root"); got != model.PhaseNone {
+				t.Errorf("root: expected phase none, got %q", got)
 			}
 		})
 	}
@@ -924,12 +924,12 @@ func TestRetryProcess_EmptyQueue(t *testing.T) {
 
 // TestFailInstanceAndAncestors_LastActiveChild_WakesParent verifies that when
 // the failing child is the last active member of its spawn batch, the parent
-// is marked failing AND woken (wait_state ”) so the engine can settle it —
+// is marked failing AND woken (phase ”) so the engine can settle it —
 // never 'collecting': that state is reserved for all-completed batches.
 func TestFailInstanceAndAncestors_LastActiveChild_WakesParent(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "root", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+			insertInstW(t, b.db, "root", model.StatusRunning, model.PhaseChildren, "", nil, "")
 			insertChild(t, b.db, "c-done", model.StatusCompleted, "root", "step1", []string{"root"}, "")
 			insertChild(t, b.db, "c-bad", model.StatusRunning, "root", "step1", []string{"root"}, "")
 
@@ -952,8 +952,8 @@ func TestFailInstanceAndAncestors_LastActiveChild_WakesParent(t *testing.T) {
 			// All batch children terminal → parent woken so the engine can
 			// claim it and settle failing → failed. The wake is to '' (not
 			// 'collecting') because a failing parent never merges outputs.
-			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateNone {
-				t.Errorf("root: expected wait_state none, got %q", got)
+			if got := mustPhase(t, b.db, "root"); got != model.PhaseNone {
+				t.Errorf("root: expected phase none, got %q", got)
 			}
 			if msg := mustError(t, b.db, "root"); msg != "boom" {
 				t.Errorf("root: expected error \"boom\", got %q", msg)
@@ -968,7 +968,7 @@ func TestFailInstanceAndAncestors_LastActiveChild_WakesParent(t *testing.T) {
 func TestFailInstanceAndAncestors_SiblingStillRunning(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "root", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+			insertInstW(t, b.db, "root", model.StatusRunning, model.PhaseChildren, "", nil, "")
 			insertChild(t, b.db, "c-running", model.StatusRunning, "root", "step1", []string{"root"}, "")
 			insertChild(t, b.db, "c-bad", model.StatusRunning, "root", "step1", []string{"root"}, "")
 
@@ -985,8 +985,8 @@ func TestFailInstanceAndAncestors_SiblingStillRunning(t *testing.T) {
 			if got := mustStatus(t, b.db, "root"); got != model.StatusFailing {
 				t.Errorf("root: expected failing, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateWaiting {
-				t.Errorf("root: expected wait_state=waiting (sibling active), got %q", got)
+			if got := mustPhase(t, b.db, "root"); got != model.PhaseChildren {
+				t.Errorf("root: expected phase=waiting (sibling active), got %q", got)
 			}
 			if got := mustStatus(t, b.db, "c-running"); got != model.StatusRunning {
 				t.Errorf("c-running: expected running (untouched), got %q", got)
@@ -1002,7 +1002,7 @@ func TestFailInstanceAndAncestors_SiblingStillRunning(t *testing.T) {
 func TestFailInstanceAndAncestors_PausedSiblingKeepsParentWaiting(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "root", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+			insertInstW(t, b.db, "root", model.StatusRunning, model.PhaseChildren, "", nil, "")
 			insertChild(t, b.db, "c-paused", model.StatusPaused, "root", "step1", []string{"root"}, "")
 			insertChild(t, b.db, "c-bad", model.StatusRunning, "root", "step1", []string{"root"}, "")
 
@@ -1019,8 +1019,8 @@ func TestFailInstanceAndAncestors_PausedSiblingKeepsParentWaiting(t *testing.T) 
 			if got := mustStatus(t, b.db, "root"); got != model.StatusFailing {
 				t.Errorf("root: expected failing, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateWaiting {
-				t.Errorf("root: expected wait_state=waiting (paused sibling still active), got %q", got)
+			if got := mustPhase(t, b.db, "root"); got != model.PhaseChildren {
+				t.Errorf("root: expected phase=waiting (paused sibling still active), got %q", got)
 			}
 			if got := mustStatus(t, b.db, "c-paused"); got != model.StatusPaused {
 				t.Errorf("c-paused: expected paused (untouched), got %q", got)
@@ -1036,7 +1036,7 @@ func TestFailInstanceAndAncestors_PausedSiblingKeepsParentWaiting(t *testing.T) 
 func TestFinishChild_PausedParent_ArmsCollect(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "parent", model.StatusPaused, model.WaitStateWaiting, "", nil, "")
+			insertInstW(t, b.db, "parent", model.StatusPaused, model.PhaseChildren, "", nil, "")
 			insertChild(t, b.db, "child", model.StatusRunning, "parent", "step1", []string{"parent"}, "")
 
 			child, err := b.db.GetInstance("child")
@@ -1048,8 +1048,8 @@ func TestFinishChild_PausedParent_ArmsCollect(t *testing.T) {
 				t.Fatalf("FinishChild: %v", err)
 			}
 
-			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateCollecting {
-				t.Errorf("parent: expected wait_state=collecting, got %q", got)
+			if got := mustPhase(t, b.db, "parent"); got != model.PhaseCollecting {
+				t.Errorf("parent: expected phase=collecting, got %q", got)
 			}
 			if got := mustStatus(t, b.db, "parent"); got != model.StatusPaused {
 				t.Errorf("parent: expected paused (untouched), got %q", got)
@@ -1145,8 +1145,8 @@ func TestRetryProcess_OnlyOnceDeep_RollsBack(t *testing.T) {
 			if got := mustStatus(t, b.db, "leaf"); got != model.StatusRunning {
 				t.Errorf("leaf: expected running after force, got %q", got)
 			}
-			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateWaiting {
-				t.Errorf("root: expected wait_state=waiting after force, got %q", got)
+			if got := mustPhase(t, b.db, "root"); got != model.PhaseChildren {
+				t.Errorf("root: expected phase=waiting after force, got %q", got)
 			}
 		})
 	}
@@ -1157,7 +1157,7 @@ func TestRetryProcess_OnlyOnceDeep_RollsBack(t *testing.T) {
 func TestFinishChild_StepScoped(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "parent", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+			insertInstW(t, b.db, "parent", model.StatusRunning, model.PhaseChildren, "", nil, "")
 			// Leftover running child from an earlier spawn task.
 			insertChild(t, b.db, "old-straggler", model.StatusRunning, "parent", "taskA", []string{"parent"}, "")
 			// Current batch: a single child of taskB.
@@ -1174,8 +1174,8 @@ func TestFinishChild_StepScoped(t *testing.T) {
 
 			// The taskB batch is done — parent must wake even though a taskA
 			// child is still running.
-			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateCollecting {
-				t.Errorf("parent: expected wait_state=collecting, got %q", got)
+			if got := mustPhase(t, b.db, "parent"); got != model.PhaseCollecting {
+				t.Errorf("parent: expected phase=collecting, got %q", got)
 			}
 		})
 	}
@@ -1429,8 +1429,8 @@ func TestRetryProcess_MarksRaisedBatchForRespawn(t *testing.T) {
 			}
 			// Every child is terminal, so the parent comes back armed to COLLECT — which is
 			// where the engine's admission runs and sees the grant.
-			if got := mustWaitState(t, b.db, "root"); got != model.WaitStateCollecting {
-				t.Errorf("parent wait_state = %q, want collecting", got)
+			if got := mustPhase(t, b.db, "root"); got != model.PhaseCollecting {
+				t.Errorf("parent phase = %q, want collecting", got)
 			}
 			root, err := b.db.GetInstance("root")
 			if err != nil {

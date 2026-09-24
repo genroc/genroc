@@ -77,7 +77,7 @@ func TakeoverBefore(t time.Time) Takeover { return Takeover(t.UnixMilli()) }
 
 // ClaimInstances atomically leases up to limit runnable instances to workerID. PostgreSQL
 // appends FOR UPDATE SKIP LOCKED so concurrent workers never block; SQLite needs no such
-// clause. wait_state <> 'waiting' excludes parents suspended for children. The ONLY place
+// clause. phase <> 'children' excludes parents suspended for children. The ONLY place
 // lease_epoch moves, fencing out whoever held the previous one. specs/lease-fencing.md.
 func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int, takeover Takeover) ([]*model.ProcessInstance, error) {
 	now := nowMillis()
@@ -95,10 +95,10 @@ func (db *DB) ClaimInstances(workerID string, leaseDur time.Duration, limit int,
 	// This list and migration 045's partial index are one predicate written twice -- a status
 	// in one but not the other is either never scanned or pure index churn.
 	const where = `status IN ('running', 'failing', 'pausing', 'cancelling')
-			  AND wait_state <> 'waiting'
+			  AND phase <> 'children'
 			  AND (status IN ('failing', 'pausing', 'cancelling')
 			       OR wake_at <= ?
-			       OR (wait_state <> 'external' AND wake_at IS NULL))
+			       OR (phase <> 'external' AND wake_at IS NULL))
 			  AND (worker_id IS NULL OR lease_expires_at <= ?)`
 
 	if db.dialect == "postgres" {

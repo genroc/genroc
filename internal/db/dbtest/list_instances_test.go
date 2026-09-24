@@ -283,52 +283,52 @@ func TestListInstances_VersionAndRootFilters(t *testing.T) {
 	}
 }
 
-// TestListInstances_WaitStateFilter covers the filter the external-task listing is built on.
-// wait_state is orthogonal to status — every row here is running — so a filter that fell back
+// TestListInstances_PhaseFilter covers the filter the external-task listing is built on.
+// phase is orthogonal to status — every row here is running — so a filter that fell back
 // to status would return all four.
-func TestListInstances_WaitStateFilter(t *testing.T) {
+func TestListInstances_PhaseFilter(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			park := func(process string, wait model.WaitState) *model.ProcessInstance {
+			park := func(process string, wait model.Phase) *model.ProcessInstance {
 				t.Helper()
 				inst := saveInstance(t, b.db, process)
-				inst.WaitState = wait
+				inst.Phase = wait
 				if err := b.db.UpdateInstance(inst); err != nil {
 					t.Fatalf("UpdateInstance: %v", err)
 				}
 				dbpkg.AdvanceClock(time.Second)
 				return inst
 			}
-			running := park("alpha", model.WaitStateNone)
-			ext1 := park("alpha", model.WaitStateExternal)
-			kids := park("alpha", model.WaitStateWaiting)
-			ext2 := park("beta", model.WaitStateExternal)
+			running := park("alpha", model.PhaseNone)
+			ext1 := park("alpha", model.PhaseExternal)
+			kids := park("alpha", model.PhaseChildren)
+			ext2 := park("beta", model.PhaseExternal)
 
-			external, _, err := b.db.ListInstances(dbpkg.InstanceQuery{WaitState: "external"})
+			external, _, err := b.db.ListInstances(dbpkg.InstanceQuery{Phase: "external"})
 			if err != nil {
-				t.Fatalf("ListInstances wait_state=external: %v", err)
+				t.Fatalf("ListInstances phase=external: %v", err)
 			}
 			if want := []string{ext2.ID, ext1.ID}; !equalStrs(summaryIDs(external), want) {
-				t.Errorf("wait_state=external = %v, want %v — the filter must select on wait_state alone, not on status",
+				t.Errorf("phase=external = %v, want %v — the filter must select on phase alone, not on status",
 					summaryIDs(external), want)
 			}
 
 			// The empty string is the unfiltered case, not "parked on nothing": it has to
 			// return the unparked row too, or the default listing loses every idle instance.
-			all, _, err := b.db.ListInstances(dbpkg.InstanceQuery{WaitState: ""})
+			all, _, err := b.db.ListInstances(dbpkg.InstanceQuery{Phase: ""})
 			if err != nil {
-				t.Fatalf("ListInstances wait_state empty: %v", err)
+				t.Fatalf("ListInstances phase empty: %v", err)
 			}
 			if want := []string{ext2.ID, kids.ID, ext1.ID, running.ID}; !equalStrs(summaryIDs(all), want) {
-				t.Errorf("wait_state='' = %v, want %v — an empty filter must not narrow the page", summaryIDs(all), want)
+				t.Errorf("phase='' = %v, want %v — an empty filter must not narrow the page", summaryIDs(all), want)
 			}
 
-			both, _, err := b.db.ListInstances(dbpkg.InstanceQuery{WaitState: "external", Process: "alpha"})
+			both, _, err := b.db.ListInstances(dbpkg.InstanceQuery{Phase: "external", Process: "alpha"})
 			if err != nil {
-				t.Fatalf("ListInstances wait_state+process: %v", err)
+				t.Fatalf("ListInstances phase+process: %v", err)
 			}
 			if want := []string{ext1.ID}; !equalStrs(summaryIDs(both), want) {
-				t.Errorf("wait_state=external,process=alpha = %v, want %v — wait_state and process must intersect",
+				t.Errorf("phase=external,process=alpha = %v, want %v — phase and process must intersect",
 					summaryIDs(both), want)
 			}
 		})

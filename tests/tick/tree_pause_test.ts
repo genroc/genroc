@@ -9,16 +9,16 @@
  * The server runs in manual-tick mode (--poll 0, --max-concurrent 1) so every
  * DB state transition is inspectable between ticks.
  *
- * status() returns "status wait_state".trim(), e.g. "running waiting", "paused waiting".
- * Instances with no wait_state show just their status, e.g. "running", "paused".
+ * status() returns "status phase".trim(), e.g. "running children", "paused children".
+ * Instances with no phase show just their status, e.g. "running", "paused".
  *
  * The thing to notice throughout: pausing changes the status column and nothing else.
- * Every node keeps the wait_state it had, so the tree is still structurally mid-flight
+ * Every node keeps the phase it had, so the tree is still structurally mid-flight
  * while suspended, and resuming needs no reconstruction — it is the same status flip
  * in reverse.
  *
  * buildTree() leaves the tree at:
- *   gp="running waiting", parent="running waiting", a="running", b="running"
+ *   gp="running children", parent="running children", a="running", b="running"
  */
 import { expect, test, beforeAll, afterAll } from "vitest";
 import { startMockService } from "../helpers/client.ts";
@@ -78,21 +78,21 @@ beforeAll(async () => {
 afterAll(() => stopMock?.());
 
 // Builds the full tree and leaves it at:
-//   gp="running waiting", parent="running waiting", a="running", b="running"
+//   gp="running children", parent="running children", a="running", b="running"
 async function buildTree() {
   const gp = await ctx.env.start(gpName);
 
-  // tick: gp spawns parent → gp transitions to running+wait_state=waiting
+  // tick: gp spawns parent → gp transitions to running+phase=waiting
   await ctx.env.tick();
   const parent = await ctx.env.childOf(gp, "run_parent");
 
-  // tick: parent spawns a and b → parent transitions to running+wait_state=waiting
+  // tick: parent spawns a and b → parent transitions to running+phase=waiting
   await ctx.env.tick();
   const { a, b } = await ctx.env.childrenOf(parent, "run_children");
 
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "running waiting",
-    parent: "running waiting",
+    gp: "running children",
+    parent: "running children",
     a: "running",
     b: "running",
   });
@@ -106,23 +106,23 @@ test("happy path — tree completes when ticked to completion", async () => {
     // tick: a (spawned first) completes; b still running, parent stays waiting
     await ctx.env.tick();
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "running waiting",
-      parent: "running waiting",
+      gp: "running children",
+      parent: "running children",
       a: "completed",
       b: "running",
     });
 
-    // tick: b completes; count = 0 → parent.wait_state = 'collecting'
+    // tick: b completes; count = 0 → parent.phase = 'collecting'
     await ctx.env.tick();
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "running waiting",
+      gp: "running children",
       parent: "running collecting",
       a: "completed",
       b: "completed",
     });
 
     // tick: parent (running+collecting) collects outputs, advances to end → completed
-    //       FinishChild(parent): gp.wait_state = 'collecting'
+    //       FinishChild(parent): gp.phase = 'collecting'
     await ctx.env.tick();
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
       gp: "running collecting",
@@ -151,11 +151,11 @@ test("pause grandparent — whole tree suspends at once, keeping its wait states
 
     // No node is leased between ticks, so there is no in-flight task to wait out and
     // nothing lands in 'pausing': the whole subtree is suspended by the pause itself.
-    // gp and parent keep wait_state='waiting' — pausing suspends them, it does not
+    // gp and parent keep phase='children' — pausing suspends them, it does not
     // unwind the child-process cycle they are in the middle of.
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "paused waiting",
-      parent: "paused waiting",
+      gp: "paused children",
+      parent: "paused children",
       a: "paused",
       b: "paused",
     });
@@ -163,8 +163,8 @@ test("pause grandparent — whole tree suspends at once, keeping its wait states
     // Nothing in the tree is claimable, so ticking does not advance any of it.
     expect(await ctx.env.tick()).toBe(0);
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "paused waiting",
-      parent: "paused waiting",
+      gp: "paused children",
+      parent: "paused children",
       a: "paused",
       b: "paused",
     });
@@ -173,8 +173,8 @@ test("pause grandparent — whole tree suspends at once, keeping its wait states
     // tree carries on rather than restarting or re-spawning anything.
     await ctx.env.resume(gp);
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "running waiting",
-      parent: "running waiting",
+      gp: "running children",
+      parent: "running children",
       a: "running",
       b: "running",
     });
@@ -201,8 +201,8 @@ test("pause mid-flight — children that completed stay completed on resume", as
     await ctx.env.pause(gp);
     // Completed work is untouched by a pause — only live nodes are suspended.
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "paused waiting",
-      parent: "paused waiting",
+      gp: "paused children",
+      parent: "paused children",
       a: "completed",
       b: "paused",
     });
@@ -234,7 +234,7 @@ test("pause while collecting — the merge still happens on resume", async () =>
 
     await ctx.env.pause(gp);
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "paused waiting",
+      gp: "paused children",
       parent: "paused collecting",
       a: "completed",
       b: "completed",
@@ -307,8 +307,8 @@ test("pause and resume are recorded on every instance, with a root entry for the
     ).toHaveLength(1);
 
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "running waiting",
-      parent: "running waiting",
+      gp: "running children",
+      parent: "running children",
       a: "running",
       b: "running",
     });
@@ -333,8 +333,8 @@ test("pause/resume non-root — rejected naming the root; tree unaffected", asyn
 
     // The rejected calls left the tree untouched.
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "running waiting",
-      parent: "running waiting",
+      gp: "running children",
+      parent: "running children",
       a: "running",
       b: "running",
     });
@@ -352,8 +352,8 @@ test("resume changes nothing when the tree is already advancing", async () => {
     expect(await ctx.env.resume(gp)).toBe("unchanged");
 
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "running waiting",
-      parent: "running waiting",
+      gp: "running children",
+      parent: "running children",
       a: "running",
       b: "running",
     });

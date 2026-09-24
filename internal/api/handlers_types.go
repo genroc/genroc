@@ -200,7 +200,7 @@ type ListDefinitionsReq struct {
 
 type ListInstancesReq struct {
 	Status        string `json:"status"`         // optional filter: running, completed, failing, failed, raised, pausing, paused
-	WaitState     string `json:"wait_state"`     // optional filter: waiting, collecting, external — what a running instance is parked on
+	Phase         string `json:"phase"`          // optional filter: children, collecting, external — why it is not executing a task
 	Task          string `json:"task"`           // optional filter: exact task id the instance sits on
 	ErrorCode     string `json:"error_code"`     // optional filter: exact error code (authored or engine)
 	Process       string `json:"process"`        // optional filter: exact process name (all versions)
@@ -327,15 +327,15 @@ type InstanceSummaryResp struct {
 	ID string `json:"id"`
 	// ParentID is "" for a root. Present on every row, not only when children were asked
 	// for: a caller that filtered them in has nothing else to tell the two apart.
-	ParentID  string          `json:"parent_id,omitempty"`
-	Process   string          `json:"process"`
-	Version   int             `json:"version"`
-	Status    model.Status    `json:"status"`
-	WaitState model.WaitState `json:"wait_state,omitempty"`
+	ParentID string       `json:"parent_id,omitempty"`
+	Process  string       `json:"process"`
+	Version  int          `json:"version"`
+	Status   model.Status `json:"status"`
+	Phase    model.Phase  `json:"phase,omitempty"`
 	// Task is where the instance sits in its definition: the task it is running, is
 	// parked on, or stopped at — and on a settled instance, the one it finished,
 	// failed or raised at. Status says what is happening to the process and
-	// wait_state says what it is waiting for; this says where.
+	// phase says why it is not executing a task; this says where.
 	Task       string `json:"task,omitempty"`
 	RetryCount int    `json:"retry_count"`
 	// The error the instance REPORTS, flat and under the column names it is stored by, so the
@@ -353,14 +353,14 @@ type InstanceSummaryResp struct {
 // declared here — the list and this one must agree on names and TYPES, and an embedded struct
 // whose fields one of them overrides is how they stopped agreeing before.
 type InstanceStatusResp struct {
-	ID         string          `json:"id"`
-	Process    string          `json:"process"`
-	Version    int             `json:"version"`
-	Status     model.Status    `json:"status"`
-	WaitState  model.WaitState `json:"wait_state,omitempty"`
-	Task       string          `json:"task,omitempty"`
-	RetryCount int             `json:"retry_count"`
-	ErrorCode  string          `json:"error_code,omitempty"`
+	ID         string       `json:"id"`
+	Process    string       `json:"process"`
+	Version    int          `json:"version"`
+	Status     model.Status `json:"status"`
+	Phase      model.Phase  `json:"phase,omitempty"`
+	Task       string       `json:"task,omitempty"`
+	RetryCount int          `json:"retry_count"`
+	ErrorCode  string       `json:"error_code,omitempty"`
 	// ErrorMessage and ErrorData are the rest of the same error. Data is what the clause
 	// attached, absent where it attached nothing — a parent reads it only where its call
 	// declares the code under `raises`; here it is for an operator.
@@ -400,13 +400,13 @@ type InstanceDetailResp struct {
 	SpawnTaskID string   `json:"spawn_task_id,omitempty"`
 	CallStack   []string `json:"call_stack,omitempty"`
 
-	Status     model.Status    `json:"status"`
-	WaitState  model.WaitState `json:"wait_state,omitempty"`
-	Task       string          `json:"task,omitempty"`
-	RetryCount int             `json:"retry_count"`
-	WakeAt     string          `json:"wake_at,omitempty"`
-	CreatedAt  string          `json:"created_at"`
-	UpdatedAt  string          `json:"updated_at"`
+	Status     model.Status `json:"status"`
+	Phase      model.Phase  `json:"phase,omitempty"`
+	Task       string       `json:"task,omitempty"`
+	RetryCount int          `json:"retry_count"`
+	WakeAt     string       `json:"wake_at,omitempty"`
+	CreatedAt  string       `json:"created_at"`
+	UpdatedAt  string       `json:"updated_at"`
 
 	ErrorCode    string `json:"error_code,omitempty"`
 	ErrorMessage string `json:"error_message,omitempty"`

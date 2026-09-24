@@ -71,16 +71,16 @@ export class TickEnv {
     });
     if (error)
       throw new Error(`status(${id}) failed: ${JSON.stringify(error)}`);
-    return `${data!.status} ${data!.wait_state ?? ""}`.trim() as string;
+    return `${data!.status} ${data!.phase ?? ""}`.trim() as string;
   }
 
-  async waitState(id: string): Promise<string> {
+  async phase(id: string): Promise<string> {
     const { data, error } = await this.genroc.client.GET("/instances/{id}", {
       params: { path: { id } },
     });
     if (error)
-      throw new Error(`waitState(${id}) failed: ${JSON.stringify(error)}`);
-    return (data!.wait_state as string) ?? "";
+      throw new Error(`phase(${id}) failed: ${JSON.stringify(error)}`);
+    return (data!.phase as string) ?? "";
   }
 
   // Check statuses for a labelled map of instance IDs.

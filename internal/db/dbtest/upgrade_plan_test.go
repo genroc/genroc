@@ -87,7 +87,7 @@ func TestPlanUpgrade_ChildVersionComesFromTheParentsTargetDefinition(t *testing.
 			parent := &model.ProcessInstance{
 				ID: "p", ProcessName: "par", ProcessVersion: 1, Task: "fan",
 				State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused,
-				WaitState: model.WaitStateWaiting,
+				Phase: model.PhaseChildren,
 			}
 			if err := b.db.SaveInstance(parent); err != nil {
 				t.Fatalf("SaveInstance parent: %v", err)
@@ -172,7 +172,7 @@ func TestUpgradeComposition_MovesParentAndChildTogether(t *testing.T) {
 
 			for _, inst := range []*model.ProcessInstance{
 				{ID: "tp", ProcessName: "par", ProcessVersion: 1, Task: "fan",
-					State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused, WaitState: model.WaitStateWaiting},
+					State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused, Phase: model.PhaseChildren},
 				{ID: "tk", ProcessName: "kid", ProcessVersion: 1, Task: "run",
 					State: map[string]any{"outputs": map[string]any{}}, Status: model.StatusPaused, ParentID: "tp", SpawnTaskID: "fan"},
 			} {

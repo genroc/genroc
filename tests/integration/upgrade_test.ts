@@ -48,7 +48,7 @@ test("a paused instance moves to a new version and its state is migrated", async
     tasks: [{ id: "hold", action: { type: "external" }, switch: "end" }],
   });
   const id = await startInstance(name, {});
-  await waitUntil(id, (i) => i.wait_state === "external");
+  await waitUntil(id, (i) => i.phase === "external");
 
   const paused = await client.POST("/instances/{id}/pause", { params: { path: { id } } });
   expect(paused.error).toBeUndefined();
@@ -78,7 +78,7 @@ test("a stale from_version is refused rather than migrated against a version it 
   const name = `upg_stale_${crypto.randomUUID().slice(0, 8)}`;
   await put({ name, tasks: [{ id: "hold", action: { type: "external" }, switch: "end" }] });
   const id = await startInstance(name, {});
-  await waitUntil(id, (i) => i.wait_state === "external");
+  await waitUntil(id, (i) => i.phase === "external");
   await client.POST("/instances/{id}/pause", { params: { path: { id } } });
   await waitUntil(id, (i) => i.status === "paused");
 
@@ -92,7 +92,7 @@ test("a running instance is refused: it can be advanced between the plan and the
   const name = `upg_running_${crypto.randomUUID().slice(0, 8)}`;
   await put({ name, tasks: [{ id: "hold", action: { type: "external" }, switch: "end" }] });
   const id = await startInstance(name, {});
-  await waitUntil(id, (i) => i.wait_state === "external");
+  await waitUntil(id, (i) => i.phase === "external");
   await put({ name, tasks: [{ id: "hold", action: { type: "external" }, switch: "end" }] });
 
   const { data, error } = await upgrade(id, { to_version: 2 });

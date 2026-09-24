@@ -22,7 +22,7 @@ var instancePaginator = paginator{
 		"created": {{"created_at", kindInt}, {"id", kindText}},
 		"updated": {{"updated_at", kindInt}, {"id", kindText}},
 	},
-	filterCols: []string{"status", "wait_state", "task", "error_code", "process_name", "process_version", "parent_id", "created_at", "updated_at"},
+	filterCols: []string{"status", "phase", "task", "error_code", "process_name", "process_version", "parent_id", "created_at", "updated_at"},
 	defSort:    "created",
 	defDesc:    true, // newest first
 	defLimit:   20,
@@ -56,7 +56,7 @@ func instanceSummaryCursorVals(sort string, s *model.InstanceSummary) []any {
 // RetryProcess queries so adding a column touches one place.
 const instanceColumns = `id, process_name, process_version, parent_id,
 	call_stack, retry_count, wake_at, status, error_message,
-	created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
+	created_at, updated_at, worker_id, lease_expires_at, phase, spawn_task_id,
 	input_data, outputs_data, output_data, error_internal, engine_state, task,
 	error_code, lease_epoch, task_epoch, parent_task_epoch,
 	external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
@@ -66,26 +66,26 @@ const instanceColumns = `id, process_name, process_version, parent_id,
 // scanInstanceSummary. error_code stays despite the rule: short, and it is what a list
 // is scanned for when something has gone wrong.
 const instanceSummaryColumns = `id, parent_id, process_name, process_version, retry_count,
-	status, wait_state, task, error_message, error_code, created_at, updated_at`
+	status, phase, task, error_message, error_code, created_at, updated_at`
 
 // Column order must match instanceSummaryColumns.
 func scanInstanceSummary(s interface{ Scan(...any) error }) (*model.InstanceSummary, error) {
 	var (
 		r                          model.InstanceSummary
 		processVersion, retryCount int64
-		status, waitState          string
+		status, phase              string
 		createdAt, updatedAt       int64
 	)
 	if err := s.Scan(
 		&r.ID, &r.ParentID, &r.ProcessName, &processVersion, &retryCount,
-		&status, &waitState, &r.Task, &r.Error, &r.ErrorCode, &createdAt, &updatedAt,
+		&status, &phase, &r.Task, &r.Error, &r.ErrorCode, &createdAt, &updatedAt,
 	); err != nil {
 		return nil, err
 	}
 	r.ProcessVersion = int(processVersion)
 	r.RetryCount = int(retryCount)
 	r.Status = model.Status(status)
-	r.WaitState = model.WaitState(waitState)
+	r.Phase = model.Phase(phase)
 	r.CreatedAt = toTime(createdAt)
 	r.UpdatedAt = toTime(updatedAt)
 	return &r, nil
@@ -97,7 +97,7 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 	err := s.Scan(
 		&r.ID, &r.ProcessName, &r.ProcessVersion, &r.ParentID,
 		&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.ErrorMessage,
-		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
+		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.Phase, &r.SpawnTaskID,
 		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorInternal, &r.EngineState, &r.Task,
 		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
 		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
@@ -319,7 +319,7 @@ func progressParams(inst *model.ProcessInstance, cols stateCols, now int64) dbge
 		Objects:        cols.Objects,
 		RetryCount:     int64(inst.RetryCount),
 		WakeAt:         fromTimePtr(inst.WakeAt),
-		WaitState:      string(inst.WaitState),
+		Phase:          string(inst.Phase),
 		UpdatedAt:      now,
 		LeaseEpoch:     inst.LeaseEpoch,
 		WorkerID:       fenceWorker(inst),
@@ -343,7 +343,7 @@ func updateInstanceParams(inst *model.ProcessInstance, cols stateCols, now int64
 		RetryCount:     int64(inst.RetryCount),
 		WakeAt:         fromTimePtr(inst.WakeAt),
 		Status:         string(inst.Status),
-		WaitState:      string(inst.WaitState),
+		Phase:          string(inst.Phase),
 		ErrorMessage:   inst.ErrorMessage,
 		ErrorCode:      inst.ErrorCode,
 		UpdatedAt:      now,
@@ -416,7 +416,7 @@ func insertInstanceParams(inst *model.ProcessInstance, cols stateCols, status st
 		RetryCount:      int64(inst.RetryCount),
 		WakeAt:          fromTimePtr(inst.WakeAt),
 		Status:          status,
-		WaitState:       string(inst.WaitState),
+		Phase:           string(inst.Phase),
 		ErrorMessage:    inst.ErrorMessage,
 		ErrorCode:       inst.ErrorCode,
 		CreatedAt:       createdAt,
@@ -455,7 +455,7 @@ func (db *DB) UpdateInstance(inst *model.ProcessInstance) error {
 // UpdateInstanceProgress writes the mutable task state without overwriting status or error, so
 // a concurrent FailAncestors result survives to the next tick. It does land a pending pause
 // ('pausing' → 'paused'), which must happen on this write: a checkpoint may park the instance
-// outside the claim predicate, after which no later claim could settle it. wait_state IS
+// outside the claim predicate, after which no later claim could settle it. phase IS
 // written -- a stale 'collecting' would make the next spawn task skip phase 1.
 func (db *DB) UpdateInstanceProgress(inst *model.ProcessInstance) error {
 	ctx := context.Background()
@@ -487,7 +487,7 @@ func (db *DB) GetInstance(id string) (*model.ProcessInstance, error) {
 // the sort it ordered by rather than this function guessing.
 type InstanceQuery struct {
 	Status    string // exact status
-	WaitState string // exact wait state: what a running instance is parked on, "" = unfiltered
+	Phase     string // exact wait state: what a running instance is parked on, "" = unfiltered
 	Task      string // exact task id -- an instance's POSITION, so it spans definitions unless Process narrows it
 	ErrorCode string // exact error code
 	Process   string // exact process name, across every version
@@ -503,7 +503,7 @@ type InstanceQuery struct {
 func (db *DB) ListInstances(opts InstanceQuery) ([]*model.InstanceSummary, PageInfo, error) {
 	q := instancePaginator.query(opts.Page).
 		EqIf("status", opts.Status, opts.Status != "").
-		EqIf("wait_state", opts.WaitState, opts.WaitState != "").
+		EqIf("phase", opts.Phase, opts.Phase != "").
 		EqIf("task", opts.Task, opts.Task != "").
 		EqIf("error_code", opts.ErrorCode, opts.ErrorCode != "").
 		EqIf("process_name", opts.Process, opts.Process != "").
@@ -567,7 +567,7 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 		SpawnTaskID:     r.SpawnTaskID,
 		RetryCount:      int(r.RetryCount),
 		Status:          model.Status(r.Status),
-		WaitState:       model.WaitState(r.WaitState),
+		Phase:           model.Phase(r.Phase),
 		ErrorMessage:    r.ErrorMessage,
 		ErrorCode:       r.ErrorCode,
 		CreatedAt:       toTime(r.CreatedAt),

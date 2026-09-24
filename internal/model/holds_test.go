@@ -35,7 +35,7 @@ func TestHolds_ATimerIsNotAValue(t *testing.T) {
 		t.Error("a delay holds a live instance — an action type may not change under it")
 	}
 	if delay.Result {
-		t.Error("a delay holds no value: it is WaitStateNone with a wake_at, so there is no " +
+		t.Error("a delay holds no value: it is PhaseNone with a wake_at, so there is no " +
 			"result schema to compare")
 	}
 	if got := ActionTypeExternal.Holds(); !got.Result || !got.Anything() {

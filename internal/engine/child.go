@@ -12,18 +12,18 @@ import (
 	"genroc/internal/shape"
 )
 
-// runChildProcesses: WaitStateNone → spawn and park the parent on 'waiting';
-// WaitStateCollecting → merge the settled batch into context and continue. A parent
+// runChildProcesses: PhaseNone → spawn and park the parent on 'children';
+// PhaseCollecting → merge the settled batch into context and continue. A parent
 // paused mid-spawn spawns paused children — a suspended tree queues nothing runnable.
 func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInstance, task *model.Task) (any, *advanceOutcome) {
 	// Phase 2: parent woke up with the batch settled. Read the children once, then either
 	// resolve a raised batch (route via on_error) or, if every child completed, merge
 	// their outputs into the action result (self.result, exported only if the task
 	// projects it). The one read is shared by resolution and collection.
-	if inst.WaitState == model.WaitStateCollecting {
+	if inst.Phase == model.PhaseCollecting {
 		siblings, err := e.db.ChildrenForTask(ctx, inst.ID, task.ID, inst.TaskEpoch)
 		if err != nil {
-			inst.WaitState = model.WaitStateNone
+			inst.Phase = model.PhaseNone
 			return nil, stop(e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %v", task.ID, err)))
 		}
 
@@ -36,7 +36,7 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 
 		output, err := e.buildChildOutput(task, siblings)
 		if err != nil {
-			inst.WaitState = model.WaitStateNone
+			inst.Phase = model.PhaseNone
 			// A failed conform is the caller's narrowing bet losing, so it routes through
 			// on_error as result.invalid; every other failure here is corruption of the
 			// batch and stays a defect. specs/error-extensions.md §X2-c.
@@ -46,7 +46,7 @@ func (e *Engine) runChildProcesses(ctx context.Context, inst *model.ProcessInsta
 			}
 			return nil, stop(e.failInstance(inst, errcode.EngineCollect, fmt.Sprintf("task %q collect: %v", task.ID, err)))
 		}
-		inst.WaitState = model.WaitStateNone
+		inst.Phase = model.PhaseNone
 		e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventChildrenCollect, Task: task.ID})
 		return output, nil
 	}

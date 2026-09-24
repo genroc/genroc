@@ -184,7 +184,7 @@ test("an oversized output is listed at its own path, not inlined and not leaked 
 // The detail view is a strict SUPERSET of the status one: every field the status endpoint
 // returns, detail returns too, so moving a caller to it can never lose them a field. Asserted
 // across the shapes whose OPTIONAL fields differ -- a completed instance has no error, a failed
-// one has all three parts of it, a parked one has a wait_state -- because a superset that only
+// one has all three parts of it, a parked one has a phase -- because a superset that only
 // holds for the fields present on a happy path is not one.
 test("the detail view returns every field the status view does", async () => {
   const cases: Record<string, string> = {};
@@ -221,10 +221,10 @@ test("the detail view returns every field the status view does", async () => {
   const { data: parked } = await client.POST("/instances", { body: { process: parking, input: {} } });
   cases.parked = parked!.id;
   // Parked, not settled: waitForInstance waits for a terminal status and this one never reaches
-  // it, so wait on the wait_state the case is actually about.
+  // it, so wait on the phase the case is actually about.
   for (let i = 0; i < 100; i++) {
     const { data } = await client.GET("/instances/{id}", { params: { path: { id: parked!.id } } });
-    if (data?.wait_state === "external") break;
+    if (data?.phase === "external") break;
     await new Promise((r) => setTimeout(r, 50));
   }
 
@@ -326,13 +326,13 @@ test("the outward view carries the parked external input, under a name of its ow
     "created_at",
     "external_input",
     "id",
+    "phase",
     "process",
     "retry_count",
     "status",
     "task",
     "updated_at",
     "version",
-    "wait_state",
   ]);
 });
 
@@ -345,7 +345,7 @@ test("the parked external input is gone once the task is answered", async () => 
 
   const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
   // The engine deletes the slot when it consumes the answer, so absence here is "not parked"
-  // and needs no wait_state check on the read side.
+  // and needs no phase check on the read side.
   expect(data!.external_input, "a settled instance is not asking for anything").toBeUndefined();
   expect(data!.output).toEqual({ ok: true });
 });

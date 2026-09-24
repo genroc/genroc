@@ -38,7 +38,7 @@ type InstanceRow = {
   process: string;
   version: number;
   status: string;
-  wait_state?: string;
+  phase?: string;
   error_code: string;
   error_message: string;
   created_at: string;
@@ -376,7 +376,7 @@ test("instances --error-code — matches the authored code exactly", async () =>
   expect(instances(["--since", "1h", "--error-code", code.slice(0, -1)])).toEqual([]);
 });
 
-test("instances --wait-state — lists what is parked, which status cannot say", async () => {
+test("instances --phase — lists what is parked, which status cannot say", async () => {
   const name = apply(externalDef(uid("wait_f")));
   const parked = startedID(runCli(bin, ["run", name]).stdout);
   const token = await waitForExternalToken(parked);
@@ -384,9 +384,9 @@ test("instances --wait-state — lists what is parked, which status cannot say",
   const done = startedID(runCli(bin, ["run", apply(switchDef(uid("wait_done")))]).stdout);
   expect(await waitForInstance(done)).toBe("completed");
 
-  const external = instances(["--since", "1h", "--wait-state", "external"]);
+  const external = instances(["--since", "1h", "--phase", "external"]);
   expect(external.some((i) => i.id === parked)).toBe(true);
-  expect(external.every((i) => i.wait_state === "external")).toBe(true);
+  expect(external.every((i) => i.phase === "external")).toBe(true);
   expect(external.some((i) => i.id === done)).toBe(false);
 
   // Orthogonal to status: the parked row is still `running`, so a filter that had fallen
@@ -398,10 +398,10 @@ test("instances --wait-state — lists what is parked, which status cannot say",
   // Answering it empties the filter of that row -- the listing tracks the park, not the run.
   runCli(bin, ["resolve", token, "--set", "approved=true"]);
   expect(await waitForInstance(parked)).toBe("completed");
-  expect(instances(["--since", "1h", "--wait-state", "external"]).some((i) => i.id === parked)).toBe(false);
+  expect(instances(["--since", "1h", "--phase", "external"]).some((i) => i.id === parked)).toBe(false);
 }, 15_000);
 
-test("instances — the STATUS column carries wait_state, and only where there is one", async () => {
+test("instances — the STATUS column carries phase, and only where there is one", async () => {
   const name = apply(externalDef(uid("wait_col")));
   const parked = startedID(runCli(bin, ["run", name]).stdout);
   const token = await waitForExternalToken(parked);

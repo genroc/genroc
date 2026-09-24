@@ -55,15 +55,15 @@ func (c ClaimBinding) check(current int64, worker sql.NullString, expires sql.Nu
 func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch int64, claim ClaimBinding, outcome model.ExternalOutcome) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
-		var status, waitState, taskID string
+		var status, phase, taskID string
 		var workerID, extWorkerID sql.NullString
 		var leaseExpiresAt, extLeaseExpiresAt sql.NullInt64
 		var taskEpoch, claimEpoch int64
 		err := raw.QueryRowContext(ctx,
-			`SELECT status, wait_state, task, worker_id, lease_expires_at, task_epoch,
+			`SELECT status, phase, task, worker_id, lease_expires_at, task_epoch,
 			        external_worker_id, external_lease_expires_at, external_claim_epoch
 		   FROM process_instances WHERE id = ?`+db.forUpdate(), instanceID).
-			Scan(&status, &waitState, &taskID, &workerID, &leaseExpiresAt, &taskEpoch,
+			Scan(&status, &phase, &taskID, &workerID, &leaseExpiresAt, &taskEpoch,
 				&extWorkerID, &extLeaseExpiresAt, &claimEpoch)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("external task: %w", ErrNotFound)
@@ -76,7 +76,7 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch 
 		// tree. Refusing here would leave the deadline running, and on an only_once task the
 		// external.timeout that follows can never be retried -- losing work that already took
 		// effect. specs/external-task-queue.md §Pause.
-		if !model.Status(status).AcceptsExternalOutcome() || model.WaitState(waitState) != model.WaitStateExternal {
+		if !model.Status(status).AcceptsExternalOutcome() || model.Phase(phase) != model.PhaseExternal {
 			return fmt.Errorf("task is not waiting for an external result: %w", ErrConflict)
 		}
 		// A live lease means a worker already claimed this instance (a timeout firing); the
@@ -100,7 +100,7 @@ func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch 
 		if err := db.bufferOutcome(ctx, qtx, instanceID, taskID, outcome); err != nil {
 			return err
 		}
-		// The status/wait_state/token/lease checks above ran under the row lock, so the
+		// The status/phase/token/lease checks above ran under the row lock, so the
 		// un-park is unconditional here.
 		if err := qtx.UnparkExternal(ctx, dbgen.UnparkExternalParams{
 			UpdatedAt: nowMillis(),

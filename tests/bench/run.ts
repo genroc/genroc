@@ -220,7 +220,7 @@ async function anyWithStatus(
 }
 
 // waitDrained blocks until no instance is left running, then asserts none failed. A
-// parent parked on its children keeps status='running' (only its wait_state changes),
+// parent parked on its children keeps status='running' (only its phase changes),
 // so an empty status=running page means every tree has fully collapsed and every
 // childless root is done — for both the trees and the drain backlog. The failed-check
 // stops a broken workload from masquerading as a fast drain (a failed instance is also

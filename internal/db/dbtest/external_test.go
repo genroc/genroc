@@ -10,7 +10,7 @@ import (
 )
 
 // insertExternalParked saves an instance parked on an external task: status=running,
-// wait_state='external', with the external_input snapshot. The occurrence a resolve must
+// phase='external', with the external_input snapshot. The occurrence a resolve must
 // match is task_epoch on the row, not anything in the slot.
 // wakeAt is the (optional) timeout deadline.
 func insertExternalParked(t *testing.T, db *dbpkg.DB, id string, epoch int64, wakeAt *time.Time) {
@@ -24,7 +24,7 @@ func insertExternalParked(t *testing.T, db *dbpkg.DB, id string, epoch int64, wa
 			model.StateExternalInput: map[string]any{"order_id": float64(42)},
 		},
 		Status:    model.StatusRunning,
-		WaitState: model.WaitStateExternal,
+		Phase:     model.PhaseExternal,
 		WakeAt:    wakeAt,
 		TaskEpoch: epoch,
 	}
@@ -46,8 +46,8 @@ func TestResolveExternalTask(t *testing.T) {
 			if err := b.db.ResolveExternalTask(ctx, "inst-ext", epoch-1, dbpkg.Unclaimed, model.ExternalOutcome{Result: map[string]any{"approved": true}}); err == nil {
 				t.Fatal("expected a prior-occurrence resolve to fail")
 			}
-			if got, _ := b.db.GetInstance("inst-ext"); got.WaitState != model.WaitStateExternal {
-				t.Fatalf("a prior-occurrence resolve should leave it parked, got wait_state %q", got.WaitState)
+			if got, _ := b.db.GetInstance("inst-ext"); got.Phase != model.PhaseExternal {
+				t.Fatalf("a prior-occurrence resolve should leave it parked, got phase %q", got.Phase)
 			}
 
 			// The current occurrence resolves: the outcome is BUFFERED and the instance un-parked.
@@ -60,8 +60,8 @@ func TestResolveExternalTask(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			if got.WaitState != model.WaitStateNone {
-				t.Fatalf("expected wait_state cleared, got %q", got.WaitState)
+			if got.Phase != model.PhaseNone {
+				t.Fatalf("expected phase cleared, got %q", got.Phase)
 			}
 			if got.WakeAt != nil {
 				t.Fatalf("expected wake_at cleared, got %v", got.WakeAt)
@@ -172,7 +172,7 @@ func TestResolveExternalTask_LargeOutcomeIsCutWhenConsumed(t *testing.T) {
 			res, _ := outcome.Result.(map[string]any)
 			row.State["outputs"] = map[string]any{"wait": res}
 			row.ConsumedSignalID = id
-			row.WaitState = model.WaitStateNone
+			row.Phase = model.PhaseNone
 			if err := b.db.UpdateInstanceProgress(row); err != nil {
 				t.Fatalf("consume write: %v", err)
 			}

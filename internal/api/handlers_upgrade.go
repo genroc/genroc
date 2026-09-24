@@ -172,7 +172,7 @@ func movableStatus(s model.Status) bool {
 // operator informed, while allowing wedges the parent at collect with a result nothing can
 // accept. Refining it needs materialisation, so it belongs here rather than in validation.
 func (h *Handlers) inFlightBreak(inst *model.ProcessInstance, to *model.ProcessDefinition, toVersion int) string {
-	if inst.WaitState == model.WaitStateNone {
+	if inst.Phase == model.PhaseNone {
 		return ""
 	}
 	from, err := h.db.GetDefinition(inst.ProcessName, inst.ProcessVersion)

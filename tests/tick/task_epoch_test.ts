@@ -53,7 +53,7 @@ test("task_epoch — parking, settling and resuming all leave the parent's epoch
 
   // One tick runs `tick` inline, transitions into `call`, spawns and parks.
   await env.tick();
-  expect(await env.waitState(id)).toBe("waiting");
+  expect(await env.phase(id)).toBe("children");
 
   const atSpawn = env.epochs(id).task;
   const children = env.allChildrenOf(id, "call");

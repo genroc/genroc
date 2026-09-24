@@ -71,7 +71,7 @@ export type Instance = {
   version: number;
   status: string;
   task?: string;
-  wait_state?: string;
+  phase?: string;
   error_code?: string;
   error_message?: string;
   created_at: string;

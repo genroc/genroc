@@ -348,7 +348,7 @@ func (e *Engine) delayNumber(inst *model.ProcessInstance, raw any) (int64, error
 	return delayMillis(v)
 }
 
-// runExternal, by wait_state and the submitted outcome: (1) first arrival — snapshot input,
+// runExternal, by phase and the submitted outcome: (1) first arrival — snapshot input,
 // mint a token, park on 'external' with wake_at from the timeout; (2) an outcome submitted —
 // a failure routes through on_error, a result is consumed; (3) still parked ⇒ claimable only
 // because wake_at passed ⇒ external.timeout.
@@ -370,7 +370,7 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	if buffered {
 		inst.ConsumedSignalID = sigID
 		clearExternalPark(inst)
-		inst.WaitState = model.WaitStateNone
+		inst.Phase = model.PhaseNone
 		if f := outcome.Failure; f != nil {
 			// Routed HERE rather than where it was submitted because resolving a retry policy
 			// and moving retry_count/wake_at are writes on the leased row, which the fail API
@@ -393,12 +393,12 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	// holder's claim lapsed on an only_once task (external.lost) or because the deadline passed
 	// (external.timeout). Both are in errcode.Unknowable(); they stay separate codes so an
 	// on_error rule can tell the two apart.
-	if inst.WaitState == model.WaitStateExternal {
+	if inst.Phase == model.PhaseExternal {
 		code, msg, event := errcode.ExternalTimeout, "external task timed out", model.EventExternalTimeout
 		if inst.ExternalLost {
 			code, msg, event = errcode.ExternalLost, "the worker holding this task did not answer before its claim expired", model.EventExternalLost
 		}
-		inst.WaitState = model.WaitStateNone
+		inst.Phase = model.PhaseNone
 		clearExternalPark(inst)
 		e.audit(inst, logEvent{Level: model.LogWarn, Event: event, Task: task.ID, Msg: msg, Code: code})
 		return nil, stop(e.handleCallError(inst, task, msg, code))

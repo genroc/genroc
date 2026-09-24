@@ -222,7 +222,7 @@ func (e *Engine) raiseInstance(inst *model.ProcessInstance, task *model.Task, f 
 	}
 	msg := e.faultMessage(inst, f, self)
 	inst.Status = model.StatusRaised
-	inst.WaitState = model.WaitStateNone
+	inst.Phase = model.PhaseNone
 	inst.ErrorMessage = msg
 	inst.ErrorCode = f.Code
 	inst.WakeAt = nil
@@ -271,7 +271,7 @@ func setErrorData(inst *model.ProcessInstance, data any) {
 // required from every caller so no failure path leaves error_code empty.
 func (e *Engine) failInstance(inst *model.ProcessInstance, code errcode.Code, reason string) advanceOutcome {
 	inst.Status = model.StatusFailed
-	inst.WaitState = model.WaitStateNone
+	inst.Phase = model.PhaseNone
 	inst.ErrorMessage = reason
 	inst.ErrorCode = string(code)
 	inst.WakeAt = nil
@@ -297,7 +297,7 @@ func (e *Engine) settlePausing(inst *model.ProcessInstance) advanceOutcome {
 // carries on, which is what the operator just forbade. specs/only-once-interrupted.md.
 func (e *Engine) settleCancelling(inst *model.ProcessInstance) advanceOutcome {
 	// Status only, like settlePausing and unlike settleFailing: a cancel abandons a wait
-	// rather than ending one, so wait_state and wake_at stay as the record of what this
+	// rather than ending one, so phase and wake_at stay as the record of what this
 	// instance was doing when it was stopped. It is also what ReleaseExternalClaim finds a
 	// claim by, and a cancelled worker is told to release.
 	inst.Status = model.StatusCancelled
@@ -312,7 +312,7 @@ func (e *Engine) settleCancelling(inst *model.ProcessInstance) advanceOutcome {
 // (it only becomes claimable then). The error was recorded when the failure propagated up.
 func (e *Engine) settleFailing(inst *model.ProcessInstance) advanceOutcome {
 	inst.Status = model.StatusFailed
-	inst.WaitState = model.WaitStateNone
+	inst.Phase = model.PhaseNone
 	inst.WakeAt = nil
 	e.audit(inst, logEvent{Level: model.LogInfo, Event: model.EventInstanceSettled, Msg: inst.ErrorMessage})
 	return advanceOutcome{kind: outcomeTerminal}

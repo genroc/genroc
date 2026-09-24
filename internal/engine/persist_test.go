@@ -89,8 +89,8 @@ func TestAdvance_SpawnWritesNothingUntilPersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInstance (pre-persist): %v", err)
 	}
-	if before.WaitState != model.WaitStateNone {
-		t.Errorf("advance parked the parent itself (wait_state %q)", before.WaitState)
+	if before.Phase != model.PhaseNone {
+		t.Errorf("advance parked the parent itself (phase %q)", before.Phase)
 	}
 	if before.WorkerID == nil {
 		t.Error("advance released the lease itself; only persist may hand the instance on")
@@ -107,8 +107,8 @@ func TestAdvance_SpawnWritesNothingUntilPersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInstance (post-persist): %v", err)
 	}
-	if after.WaitState != model.WaitStateWaiting {
-		t.Errorf("parent wait_state = %q, want %q", after.WaitState, model.WaitStateWaiting)
+	if after.Phase != model.PhaseChildren {
+		t.Errorf("parent phase = %q, want %q", after.Phase, model.PhaseChildren)
 	}
 	if after.WorkerID != nil {
 		t.Errorf("persist left the lease held by %q", *after.WorkerID)
@@ -155,8 +155,8 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInstance (pre-persist): %v", err)
 	}
-	if before.WaitState != model.WaitStateNone {
-		t.Errorf("advance armed the wait itself (wait_state %q)", before.WaitState)
+	if before.Phase != model.PhaseNone {
+		t.Errorf("advance armed the wait itself (phase %q)", before.Phase)
 	}
 	if before.WorkerID == nil {
 		t.Error("advance released the lease itself; only persist may hand the instance on")
@@ -169,8 +169,8 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInstance (post-persist): %v", err)
 	}
-	if after.WaitState != model.WaitStateExternal {
-		t.Errorf("wait_state = %q, want %q", after.WaitState, model.WaitStateExternal)
+	if after.Phase != model.PhaseExternal {
+		t.Errorf("phase = %q, want %q", after.Phase, model.PhaseExternal)
 	}
 	if after.WorkerID != nil {
 		t.Errorf("persist left the lease held by %q", *after.WorkerID)
@@ -178,7 +178,7 @@ func TestAdvance_ExternalArmWritesNothingUntilPersist(t *testing.T) {
 }
 
 // The verdict that moved out of advance with the write: spawning is part of the step, so a refused
-// spawn is the instance's failure, not the worker's. SpawnChildrenAndWait reads wait_state from
+// spawn is the instance's failure, not the worker's. SpawnChildrenAndWait reads phase from
 // the ROW, so parking it on 'external' with an expired deadline and clearing the in-memory copy
 // makes the spawn refuse -- and the rolled-back transaction leaves the lease held, which is what
 // lets the failure write land at all.
@@ -192,14 +192,14 @@ func TestRunAdvance_SpawnFailureFailsTheInstance(t *testing.T) {
 		t.Fatalf("GetInstance: %v", err)
 	}
 	past := db.Now().Add(-time.Minute)
-	parked.WaitState = model.WaitStateExternal
+	parked.Phase = model.PhaseExternal
 	parked.WakeAt = &past
 	if err := database.UpdateInstance(parked); err != nil {
 		t.Fatalf("park the row: %v", err)
 	}
 
 	inst := claimOne(t, database, eng, id)
-	inst.WaitState = model.WaitStateNone // the row is parked; this worker's copy is not
+	inst.Phase = model.PhaseNone // the row is parked; this worker's copy is not
 	if err := eng.runAdvance(context.Background(), inst); err != nil {
 		t.Fatalf("advance returned the write error to the worker instead of failing the instance: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestRunAdvance_DoubledAdvanceCannotFailTheInstance(t *testing.T) {
 		t.Fatalf("first advance: %v", err)
 	}
 	// The same in-memory instance still reads as unparked, so advancing it again reaches
-	// the spawn a second time — and the parent row is now 'waiting' and unleased.
+	// the spawn a second time — and the parent row is now 'children' and unleased.
 	if err := eng.runAdvance(context.Background(), inst); err != nil {
 		t.Fatalf("second advance returned an error to the worker: %v", err)
 	}

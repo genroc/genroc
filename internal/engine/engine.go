@@ -291,7 +291,7 @@ func (e *Engine) runPump(ctx context.Context) {
 		}
 
 		// Acquire every free slot up front so the dispatch loop below never blocks:
-		// with the claim's wait_state<>'waiting' filter, that closes the window where an
+		// with the claim's phase<>'children' filter, that closes the window where an
 		// in-flight advance finishes between claim and dispatch and lets a stale snapshot
 		// through. slots is the exact claim limit, so in-flight never exceeds maxConcurrent.
 		select {

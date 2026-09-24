@@ -2,7 +2,7 @@ import { parkedTask } from "../helpers/external.ts";
 import { expect, test } from "vitest";
 import { useTickEnv } from "./helpers.ts";
 
-// Exercises the `external` action: the engine parks the instance (wait_state='external',
+// Exercises the `external` action: the engine parks the instance (phase='external',
 // no worker held), an outside caller discovers it via GET /external-tasks and submits a
 // result to POST /external-tasks/resolve, and the process resumes. An optional timeout
 // raises a catchable external.timeout. Driven in manual-tick mode.
@@ -44,7 +44,7 @@ test("external parks, is queued, and resumes when resolved", async () => {
   ]);
   const id = await ctx.env.start("ext_happy");
 
-  // First tick arms the wait; the instance parks (running, wait_state='external').
+  // First tick arms the wait; the instance parks (running, phase='external').
   expect(await ctx.env.tick()).toBe(1);
   expect(await ctx.env.status(id)).toBe("running external");
 

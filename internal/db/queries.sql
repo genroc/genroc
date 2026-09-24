@@ -74,7 +74,7 @@ INSERT INTO process_instances
     (id, process_name, process_version, task,
      input_data, outputs_data, output_data, error_internal, error_data, external_input, external_lost, engine_state,
      parent_id, root_id, spawn_task_id, parent_task_epoch, task_epoch,
-     call_stack, retry_count, wake_at, status, wait_state, error_message, error_code, created_at, updated_at, objects,
+     call_stack, retry_count, wake_at, status, phase, error_message, error_code, created_at, updated_at, objects,
      next_replayable)
 VALUES
     (sqlc.arg(id), sqlc.arg(process_name), sqlc.arg(process_version), sqlc.arg(task),
@@ -88,7 +88,7 @@ VALUES
      COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = sqlc.arg(parent_id)), sqlc.arg(id)),
      sqlc.arg(spawn_task_id), sqlc.arg(parent_task_epoch), sqlc.arg(task_epoch),
      sqlc.arg(call_stack), sqlc.arg(retry_count), sqlc.arg(wake_at),
-     sqlc.arg(status), sqlc.arg(wait_state), sqlc.arg(error_message), sqlc.arg(error_code),
+     sqlc.arg(status), sqlc.arg(phase), sqlc.arg(error_message), sqlc.arg(error_code),
      sqlc.arg(created_at), sqlc.arg(updated_at), sqlc.arg(objects),
      sqlc.arg(next_replayable));
 
@@ -120,7 +120,7 @@ SET task             = sqlc.arg(task),
                             WHEN status = 'cancelling'
                             AND CAST(sqlc.arg(status) AS TEXT) = 'running'
                             THEN 'cancelled' ELSE CAST(sqlc.arg(status) AS TEXT) END,
-    wait_state       = sqlc.arg(wait_state),
+    phase       = sqlc.arg(phase),
     error_message    = sqlc.arg(error_message),
     error_code       = sqlc.arg(error_code),
     updated_at       = sqlc.arg(updated_at),
@@ -148,7 +148,7 @@ SET task             = sqlc.arg(task),
     wake_at    = sqlc.arg(wake_at),
     status           = CASE WHEN status = 'pausing'    THEN 'paused'
                             WHEN status = 'cancelling' THEN 'cancelled' ELSE status END,
-    wait_state       = sqlc.arg(wait_state),
+    phase       = sqlc.arg(phase),
     updated_at       = sqlc.arg(updated_at),
     worker_id        = NULL,
     lease_expires_at = NULL
@@ -164,7 +164,7 @@ WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch)
 -- subset row type and every toInstance caller stops compiling.
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
-       created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
+       created_at, updated_at, worker_id, lease_expires_at, phase, spawn_task_id,
        input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
@@ -198,7 +198,7 @@ DELETE FROM process_signals WHERE id = sqlc.arg(id);
 -- tidiness: an answered wait must not later fire external.timeout, which on an only_once task
 -- can never be retried.
 UPDATE process_instances
-SET wait_state = '',
+SET phase = '',
     wake_at    = NULL,
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
@@ -227,7 +227,7 @@ WHERE id IN (
 -- name: CountActiveSiblings :one
 -- Only completed/failed/raised are settled; a paused sibling counts as active, so a
 -- parent never collects while a child is suspended. 'raised' must stay or the parent
--- hangs in 'waiting'. The SQL half of model.Status.Terminal(); kept in step by hand.
+-- hangs in 'children'. The SQL half of model.Status.Terminal(); kept in step by hand.
 -- No superseded_at predicate on purpose: a retired attempt is 'raised', so it is already
 -- outside this test, and the check would cost the child-settle hot path nothing but time.
 SELECT COUNT(*) FROM process_instances
@@ -236,8 +236,8 @@ WHERE parent_id = sqlc.arg(parent_id)
   AND parent_task_epoch = sqlc.arg(parent_task_epoch)
   AND status NOT IN ('completed', 'failed', 'raised', 'cancelled');
 
--- name: GetWaitState :one
-SELECT wait_state FROM process_instances WHERE id = sqlc.arg(id);
+-- name: GetPhase :one
+SELECT phase FROM process_instances WHERE id = sqlc.arg(id);
 
 -- name: WakeParent :exec
 -- A healthy parent moves to 'collecting' to merge its children's outputs; a doomed
@@ -245,7 +245,7 @@ SELECT wait_state FROM process_instances WHERE id = sqlc.arg(id);
 -- (it is suspended, not doomed) so it is armed for the collect it will run when
 -- resumed. Its status keeps it unclaimable in the meantime.
 UPDATE process_instances
-SET wait_state = CASE WHEN status IN ('running', 'pausing', 'paused')
+SET phase = CASE WHEN status IN ('running', 'pausing', 'paused')
                       THEN 'collecting' ELSE '' END,
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
@@ -253,7 +253,7 @@ WHERE id = sqlc.arg(id);
 -- name: GetChildrenForTask :many
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
-       created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
+       created_at, updated_at, worker_id, lease_expires_at, phase, spawn_task_id,
        input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
@@ -299,7 +299,7 @@ UPDATE id_counters SET value = value + 1 WHERE name = 'worker' RETURNING value;
 -- name: SetStatusIn :exec
 -- Sets one status on an explicit id list the CALLER has already locked -- pause, resume and
 -- cancel all write their tree this way. Status ONLY, cancel included: it abandons a wait
--- rather than ending one, and ReleaseExternalClaim finds a claim by wait_state='external'.
+-- rather than ending one, and ReleaseExternalClaim finds a claim by phase='external'.
 -- The ids bind as a JSON array through json_each, the same dynamic-IN pattern as
 -- FailAncestors, which is why neither needs a dialect branch.
 UPDATE process_instances
@@ -537,7 +537,7 @@ WHERE id = sqlc.arg(id)
 -- it cannot settle to `failed` until its children are terminal.
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
-       created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
+       created_at, updated_at, worker_id, lease_expires_at, phase, spawn_task_id,
        input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,

@@ -364,7 +364,7 @@ test("child_map — recursive spawn completes with correct aggregated output", a
 });
 
 // Regression: a parent with TWO sequential child tasks must spawn both batches.
-// Before wait_state was persisted by UpdateInstanceProgress, the stale
+// Before phase was persisted by UpdateInstanceProgress, the stale
 // 'collecting' left over from the first task's collect made the engine treat
 // the second spawn task as already-collected and skip it silently.
 test("child — two sequential child tasks both spawn and collect", async () => {

@@ -169,7 +169,7 @@ func (h *Handlers) resolveExternalTask(raw json.RawMessage) Reply {
 	if inst.Status == model.StatusCancelled || inst.Status == model.StatusCancelling {
 		return conflict("instance was cancelled; stop the work and release the claim").reply()
 	}
-	if !inst.Status.AcceptsExternalOutcome() || inst.WaitState != model.WaitStateExternal || task == nil {
+	if !inst.Status.AcceptsExternalOutcome() || inst.Phase != model.PhaseExternal || task == nil {
 		return conflict("task is not waiting for an external result").reply()
 	}
 	// The task definition is immutable, so validating the pre-lock snapshot is safe;

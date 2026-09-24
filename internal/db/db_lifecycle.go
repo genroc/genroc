@@ -23,19 +23,19 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 	ctx := context.Background()
 	return db.withTxAt(ctx, instanceWriteFloor(child.Status), func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
 
-		// Acquire row locks (oldest-first) and read the parent's wait_state in one shot.
+		// Acquire row locks (oldest-first) and read the parent's phase in one shot.
 		// The locking CTE keeps the same lock order as PauseProcess and
 		// FailInstanceAndAncestors, preventing deadlocks; the FOR UPDATE is appended only
 		// on PostgreSQL — SQLite serialises via its single writer and runs the CTE without it.
-		var parentWaitState string
+		var parentPhase string
 		err := raw.QueryRowContext(ctx, `
 		WITH locked AS (
-			SELECT id, wait_state FROM process_instances
+			SELECT id, phase FROM process_instances
 			WHERE id IN (?, ?)
 			ORDER BY id`+db.forUpdate()+`
 		)
-		SELECT wait_state FROM locked WHERE id = ?`,
-			child.ID, child.ParentID, child.ParentID).Scan(&parentWaitState)
+		SELECT phase FROM locked WHERE id = ?`,
+			child.ID, child.ParentID, child.ParentID).Scan(&parentPhase)
 		// An absent parent is control flow, not a lookup failure — a root child, or a
 		// parent already gone — so this stays sql.ErrNoRows and never becomes ErrNotFound.
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -59,7 +59,7 @@ func (db *DB) FinishChild(child *model.ProcessInstance) error {
 		}
 
 		// If the parent was found and is waiting, check whether all siblings are terminal.
-		if parentFound && model.WaitState(parentWaitState) == model.WaitStateWaiting {
+		if parentFound && model.Phase(parentPhase) == model.PhaseChildren {
 			active, err := qtx.CountActiveSiblings(ctx, dbgen.CountActiveSiblingsParams{
 				ParentID:        child.ParentID,
 				SpawnTaskID:     child.SpawnTaskID,
@@ -145,11 +145,11 @@ func (db *DB) FailInstanceAndAncestors(child *model.ProcessInstance) error {
 		// transition failing → failed. WakeParent picks '' here — the parent is
 		// failing, so it must never enter the collect phase.
 		if child.ParentID != "" {
-			parentWaitState, err := qtx.GetWaitState(ctx, child.ParentID)
+			parentPhase, err := qtx.GetPhase(ctx, child.ParentID)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("read parent wait_state: %w", err)
+				return fmt.Errorf("read parent phase: %w", err)
 			}
-			if err == nil && model.WaitState(parentWaitState) == model.WaitStateWaiting {
+			if err == nil && model.Phase(parentPhase) == model.PhaseChildren {
 				active, err := qtx.CountActiveSiblings(ctx, dbgen.CountActiveSiblingsParams{
 					ParentID:        child.ParentID,
 					SpawnTaskID:     child.SpawnTaskID,
@@ -234,7 +234,7 @@ func scanHeld(settled, leased *[]string) func(*sql.Rows) error {
 }
 
 // PauseProcess atomically suspends a process tree (root + every running descendant), leaving
-// wait_state, wake_at, retry_count and context untouched. Root-only, and an assertion: an
+// phase, wake_at, retry_count and context untouched. Root-only, and an assertion: an
 // already-stopped tree is OutcomeUnchanged, not an error. Only a *leased* row may be marked
 // 'pausing'; a parked one is excluded from ClaimInstances and must go straight to 'paused'.
 // See specs/pause-resume.md and specs/id-list-commands.md.
@@ -688,7 +688,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 			return nil
 		}
 		// node is failed
-		newWaitState := model.WaitStateNone
+		newPhase := model.PhaseNone
 		hasBatch := false
 		if node.Task != "" {
 			// Scoped to the epoch that identifies THIS batch: a spawn task re-entered by a
@@ -723,12 +723,12 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 					}
 				}
 				if anyActive {
-					newWaitState = model.WaitStateWaiting
+					newPhase = model.PhaseChildren
 				} else {
-					newWaitState = model.WaitStateCollecting // re-run the lost collect
+					newPhase = model.PhaseCollecting // re-run the lost collect
 				}
 			} else if !force {
-				// Reviving with wait_state none re-executes the front task, so a
+				// Reviving with phase none re-executes the front task, so a
 				// only_once task that may already have run is rejected unless forced.
 				// (force skips the lookup — it overrides the check regardless.)
 				front, err := loadTask(node)
@@ -743,7 +743,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 		// No current task: interrupted between the last task and the completed
 		// write — advance() completes it on the next claim.
 		node.Status = model.StatusRunning
-		node.WaitState = newWaitState
+		node.Phase = newPhase
 		node.ErrorMessage = ""
 		// A task re-entered from the top is a fresh occurrence and an external task derives
 		// its token from the epoch, so without the bump a result submitted against the
@@ -801,7 +801,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 			TaskEpoch:    node.TaskEpoch,
 			WakeAt:       fromTimePtr(node.WakeAt),
 			Status:       string(node.Status),
-			WaitState:    string(node.WaitState),
+			Phase:        string(node.Phase),
 			ErrorMessage: "",
 			ErrorCode:    "",
 			UpdatedAt:    now,
@@ -828,7 +828,7 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 }
 
 // SpawnChildrenAndWait atomically inserts child instances and transitions the parent to
-// wait_state='waiting'. Children inherit the parent's current status, so a concurrently-paused
+// phase='children'. Children inherit the parent's current status, so a concurrently-paused
 // parent spawns paused children. Zero children is a no-op.
 func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessInstance, children []*model.ProcessInstance) error {
 	if len(children) == 0 {
@@ -841,14 +841,14 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 
 		// Lock parent and read its current status to propagate to children. FOR UPDATE
 		// is appended only on PostgreSQL; SQLite serialises via its single writer.
-		var currentStatus, currentWaitState string
+		var currentStatus, currentPhase string
 		if err := raw.QueryRowContext(ctx,
-			`SELECT status, wait_state FROM process_instances WHERE id = ?`+db.forUpdate(),
-			parent.ID).Scan(&currentStatus, &currentWaitState); err != nil {
+			`SELECT status, phase FROM process_instances WHERE id = ?`+db.forUpdate(),
+			parent.ID).Scan(&currentStatus, &currentPhase); err != nil {
 			return fmt.Errorf("lock parent: %w", err)
 		}
-		if currentWaitState != "" {
-			return fmt.Errorf("parent %q is already in wait_state %q", parent.ID, currentWaitState)
+		if currentPhase != "" {
+			return fmt.Errorf("parent %q is already in phase %q", parent.ID, currentPhase)
 		}
 
 		// A pause that landed mid-spawn settles here or never: the write below parks the parent
@@ -877,7 +877,7 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 			}
 		}
 
-		// Suspend parent: keep status, set wait_state='waiting'. The fence sits here;
+		// Suspend parent: keep status, set phase='children'. The fence sits here;
 		// the child inserts above roll back with it — no children without the park.
 		if err := db.parkParentWaiting(ctx, qtx, parent, currentStatus, now); err != nil {
 			return err
@@ -888,7 +888,7 @@ func (db *DB) SpawnChildrenAndWait(ctx context.Context, parent *model.ProcessIns
 }
 
 // RespawnSlotsAndWait retires raised slots and fills them in one transaction, parking the
-// parent back on 'waiting'. Separate from SpawnChildrenAndWait because the parent reads
+// parent back on 'children'. Separate from SpawnChildrenAndWait because the parent reads
 // 'collecting' here, and because a crash between the retire and the inserts would leave a slot
 // with no live occupant -- silently short in a keyed or list shape.
 // specs/child-error-handling.md s5.5.
@@ -897,14 +897,14 @@ func (db *DB) RespawnSlotsAndWait(ctx context.Context, parent *model.ProcessInst
 		return nil
 	}
 	return db.withTxAt(ctx, syncStrict, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
-		var currentStatus, currentWaitState string
+		var currentStatus, currentPhase string
 		if err := raw.QueryRowContext(ctx,
-			`SELECT status, wait_state FROM process_instances WHERE id = ?`+db.forUpdate(),
-			parent.ID).Scan(&currentStatus, &currentWaitState); err != nil {
+			`SELECT status, phase FROM process_instances WHERE id = ?`+db.forUpdate(),
+			parent.ID).Scan(&currentStatus, &currentPhase); err != nil {
 			return fmt.Errorf("lock parent: %w", err)
 		}
-		if model.WaitState(currentWaitState) != model.WaitStateCollecting {
-			return fmt.Errorf("parent %q is in wait_state %q, not collecting", parent.ID, currentWaitState)
+		if model.Phase(currentPhase) != model.PhaseCollecting {
+			return fmt.Errorf("parent %q is in phase %q, not collecting", parent.ID, currentPhase)
 		}
 		// Same landing as a first spawn: a pause that arrived mid-resolution settles here,
 		// and the replacements inherit it so a suspended tree queues nothing runnable.
@@ -941,7 +941,7 @@ func (db *DB) RespawnSlotsAndWait(ctx context.Context, parent *model.ProcessInst
 	})
 }
 
-// parkParentWaiting writes a parent onto 'waiting' beside the children it just inserted, in
+// parkParentWaiting writes a parent onto 'children' beside the children it just inserted, in
 // their transaction. Shared by the two primitives that park one -- the first spawn and a
 // retry's re-spawn -- because the parameter list is long enough that two copies would drift,
 // and the epoch line in it is the one that must never be "fixed" independently.
@@ -967,7 +967,7 @@ func (db *DB) parkParentWaiting(ctx context.Context, qtx *dbgen.Queries, parent 
 		TaskEpoch:    parent.TaskEpoch,
 		WakeAt:       sql.NullInt64{},
 		Status:       status,
-		WaitState:    string(model.WaitStateWaiting),
+		Phase:        string(model.PhaseChildren),
 		ErrorMessage: parent.ErrorMessage,
 		ErrorCode:    parent.ErrorCode,
 		UpdatedAt:    now,

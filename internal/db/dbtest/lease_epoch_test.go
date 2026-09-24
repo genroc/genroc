@@ -240,7 +240,7 @@ func TestFence_UpdateInstance(t *testing.T) {
 }
 
 // §2.1 — UpdateInstanceProgress: the common checkpoint path is fenced the same way,
-// leaving task position, retry counter and wait_state to the row's new owner.
+// leaving task position, retry counter and phase to the row's new owner.
 func TestFence_UpdateInstanceProgress(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
@@ -248,7 +248,7 @@ func TestFence_UpdateInstanceProgress(t *testing.T) {
 			stale := takeOver(t, b.db, "fence-prog")
 
 			stale.RetryCount = 7
-			stale.WaitState = model.WaitStateCollecting
+			stale.Phase = model.PhaseCollecting
 			if err := b.db.UpdateInstanceProgress(stale); !errors.Is(err, dbpkg.ErrLeaseLost) {
 				t.Fatalf("stale UpdateInstanceProgress: err=%v, want ErrLeaseLost", err)
 			}
@@ -257,8 +257,8 @@ func TestFence_UpdateInstanceProgress(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			if got.RetryCount != 0 || got.WaitState != model.WaitStateNone || got.Task != "step1" {
-				t.Fatalf("refused checkpoint leaked: retry=%d wait=%q task=%q", got.RetryCount, got.WaitState, got.Task)
+			if got.RetryCount != 0 || got.Phase != model.PhaseNone || got.Task != "step1" {
+				t.Fatalf("refused checkpoint leaked: retry=%d wait=%q task=%q", got.RetryCount, got.Phase, got.Task)
 			}
 		})
 	}
@@ -270,7 +270,7 @@ func TestFence_UpdateInstanceProgress(t *testing.T) {
 func TestFence_FinishChild(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "fc-parent", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+			insertInstW(t, b.db, "fc-parent", model.StatusRunning, model.PhaseChildren, "", nil, "")
 			child := &model.ProcessInstance{
 				ID: "fc-child", ProcessName: "test", ProcessVersion: 1, Task: "step1",
 				State: map[string]any{}, Status: model.StatusRunning,
@@ -290,8 +290,8 @@ func TestFence_FinishChild(t *testing.T) {
 			if got, _ := b.db.GetInstance("fc-child"); got.Status.Terminal() {
 				t.Fatalf("refused FinishChild still terminated the child: %q", got.Status)
 			}
-			if parent, _ := b.db.GetInstance("fc-parent"); parent.WaitState != model.WaitStateWaiting {
-				t.Fatalf("refused FinishChild still woke the parent: wait_state=%q", parent.WaitState)
+			if parent, _ := b.db.GetInstance("fc-parent"); parent.Phase != model.PhaseChildren {
+				t.Fatalf("refused FinishChild still woke the parent: phase=%q", parent.Phase)
 			}
 		})
 	}
@@ -303,7 +303,7 @@ func TestFence_FinishChild(t *testing.T) {
 func TestFence_FailInstanceAndAncestors(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "fa-root", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+			insertInstW(t, b.db, "fa-root", model.StatusRunning, model.PhaseChildren, "", nil, "")
 			child := &model.ProcessInstance{
 				ID: "fa-child", ProcessName: "test", ProcessVersion: 1, Task: "step1",
 				State: map[string]any{}, Status: model.StatusRunning,
@@ -328,8 +328,8 @@ func TestFence_FailInstanceAndAncestors(t *testing.T) {
 			if root.Status != model.StatusRunning || root.ErrorMessage != "" {
 				t.Fatalf("no ancestor may flip on a refused child write: status=%q error=%q", root.Status, root.ErrorMessage)
 			}
-			if root.WaitState != model.WaitStateWaiting {
-				t.Fatalf("refused write still woke the parent: wait_state=%q", root.WaitState)
+			if root.Phase != model.PhaseChildren {
+				t.Fatalf("refused write still woke the parent: phase=%q", root.Phase)
 			}
 		})
 	}
@@ -356,8 +356,8 @@ func TestFence_SpawnChildrenAndWait(t *testing.T) {
 			if _, err := b.db.GetInstance("sp-child"); !errors.Is(err, dbpkg.ErrNotFound) {
 				t.Fatalf("a refused spawn left a child behind: err=%v", err)
 			}
-			if parent, _ := b.db.GetInstance("sp-parent"); parent.WaitState != model.WaitStateNone {
-				t.Fatalf("a refused spawn still parked the parent: wait_state=%q", parent.WaitState)
+			if parent, _ := b.db.GetInstance("sp-parent"); parent.Phase != model.PhaseNone {
+				t.Fatalf("a refused spawn still parked the parent: phase=%q", parent.Phase)
 			}
 		})
 	}
@@ -392,8 +392,8 @@ func TestFence_ArmExternal(t *testing.T) {
 			if _, err := b.db.ArmExternalUnlessSignalled(ctx, stale2, "approval", map[string]any{}, nil); !errors.Is(err, dbpkg.ErrLeaseLost) {
 				t.Fatalf("stale park arm: err=%v, want ErrLeaseLost", err)
 			}
-			if got, _ := b.db.GetInstance("arm-2"); got.WaitState == model.WaitStateExternal || got.State[model.StateExternalInput] != nil || got.WakeAt != nil {
-				t.Fatalf("a refused arm still parked: wait=%q external=%v wake=%v", got.WaitState, got.State[model.StateExternalInput], got.WakeAt)
+			if got, _ := b.db.GetInstance("arm-2"); got.Phase == model.PhaseExternal || got.State[model.StateExternalInput] != nil || got.WakeAt != nil {
+				t.Fatalf("a refused arm still parked: wait=%q external=%v wake=%v", got.Phase, got.State[model.StateExternalInput], got.WakeAt)
 			}
 
 			// The current grant is accepted, and its buffer is untouched: the refused arms above

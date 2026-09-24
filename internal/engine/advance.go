@@ -613,7 +613,7 @@ func (e *Engine) resolveGoto(inst *model.ProcessInstance, taskID string) error {
 
 // saveAndNotify is the single exit point for all terminal instance states. Root and
 // failed instances save directly; a non-failed child uses FinishChild, which atomically
-// saves it and moves the parent to WaitStateCollecting once all siblings are done.
+// saves it and moves the parent to PhaseCollecting once all siblings are done.
 func (e *Engine) saveAndNotify(inst *model.ProcessInstance) error {
 	if inst.ParentID == "" {
 		return e.db.UpdateInstance(inst)

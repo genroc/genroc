@@ -105,7 +105,7 @@ func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 	// listing is one row per tree. specs/id-list-commands.md.
 	instances, info, err := h.db.ListInstances(db.InstanceQuery{
 		Status:    req.Status,
-		WaitState: req.WaitState,
+		Phase:     req.Phase,
 		Task:      req.Task,
 		ErrorCode: req.ErrorCode,
 		Process:   req.Process,
@@ -240,7 +240,7 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 		CallStack:   inst.CallStack,
 
 		Status:     inst.Status,
-		WaitState:  inst.WaitState,
+		Phase:      inst.Phase,
 		Task:       inst.Task,
 		RetryCount: inst.RetryCount,
 		WakeAt:     formatTimePtr(inst.WakeAt),
@@ -369,7 +369,7 @@ func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
 	}
 	// Rooted at the response field, which the slot is now spelled the same as: the paths address
 	// THIS shape, the same rule output follows. The slot is gone once the answer is consumed,
-	// so absence here is "not parked" and needs no wait_state check.
+	// so absence here is "not parked" and needs no phase check.
 	var externalInput any
 	if raw, ok := inst.State[model.StateExternalInput]; ok {
 		externalInput = extractObjects(raw, []any{"external_input"}, &objects)
@@ -379,7 +379,7 @@ func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
 		Process:       inst.ProcessName,
 		Version:       inst.ProcessVersion,
 		Status:        inst.Status,
-		WaitState:     inst.WaitState,
+		Phase:         inst.Phase,
 		Task:          inst.Task,
 		RetryCount:    inst.RetryCount,
 		ErrorCode:     inst.ErrorCode,
@@ -409,7 +409,7 @@ func instanceSummaryToResp(s *model.InstanceSummary) InstanceSummaryResp {
 		Process:      s.ProcessName,
 		Version:      s.ProcessVersion,
 		Status:       s.Status,
-		WaitState:    s.WaitState,
+		Phase:        s.Phase,
 		Task:         s.Task,
 		RetryCount:   s.RetryCount,
 		ErrorCode:    s.ErrorCode,

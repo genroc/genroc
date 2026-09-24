@@ -32,7 +32,7 @@ const (
 )
 
 // Terminal reports whether the status is a settled outcome. paused is live work that simply
-// is not being advanced; raised counts, or RetryProcess parks a revived parent in 'waiting'
+// is not being advanced; raised counts, or RetryProcess parks a revived parent in 'children'
 // forever. The SQL copies of this predicate must be kept in step by hand — see
 // CountActiveSiblings in queries.sql.
 func (s Status) Terminal() bool {
@@ -81,14 +81,17 @@ const (
 	StateError = "error"
 )
 
-// WaitState tracks where a parent instance is in the child-process lifecycle.
-type WaitState string
+// Phase says why a running instance is not simply executing its task. The three are not one
+// kind of thing and the name must not imply they are: Children is blocked (the claim skips it),
+// Collecting is RUNNABLE work the engine owes the parent, and External is parked until answered
+// or until its deadline. Empty is the ordinary case -- running a task like any other.
+type Phase string
 
 const (
-	WaitStateNone       WaitState = ""           // not in a child-process wait cycle
-	WaitStateWaiting    WaitState = "waiting"    // children spawned, waiting for them
-	WaitStateCollecting WaitState = "collecting" // all children terminal, collect their outputs
-	WaitStateExternal   WaitState = "external"   // parked on an external task, waiting for a submitted result (or timeout)
+	PhaseNone       Phase = ""           // running a task; not in a child or external cycle
+	PhaseChildren   Phase = "children"   // children spawned, blocked until they settle
+	PhaseCollecting Phase = "collecting" // all children terminal, their outputs still to merge
+	PhaseExternal   Phase = "external"   // parked on an external task, awaiting a result (or timeout)
 )
 
 // ExternalToken is the handle a caller submits to answer an external task: the instance plus
@@ -186,7 +189,7 @@ type ProcessInstance struct {
 	RetryCount int
 	WakeAt     *time.Time
 	Status     Status
-	WaitState  WaitState
+	Phase      Phase
 
 	// ErrorMessage is the human half of the error this instance REPORTS; ErrorCode is the
 	// machine half and _error_data in State is the payload. Named for its column, like the
@@ -275,9 +278,9 @@ type InstanceSummary struct {
 	ProcessVersion int
 	RetryCount     int
 	Status         Status
-	WaitState      WaitState
+	Phase          Phase
 	// Task is the instance's position in its task list — where it is running, parked, or where
-	// it finished. Cheap, and the one "where is this process" fact status and wait_state cannot
+	// it finished. Cheap, and the one "where is this process" fact status and phase cannot
 	// express between them, so unlike the JSON blobs it belongs in the light projection.
 	Task      string
 	Error     string
@@ -288,11 +291,11 @@ type InstanceSummary struct {
 
 // Holds is what an action leaves persisted when it does not finish inside one advance — the
 // state an instance is SITTING in, as opposed to the entry context every task has. One
-// declaration shared by the advance switch, the version comparison and WaitState. The zero
+// declaration shared by the advance switch, the version comparison and Phase. The zero
 // value means the action finishes inside one advance, so the instance is always at ENTRY.
 type Holds struct {
-	// Wait is the state the instance parks in, or WaitStateNone for an action that does not.
-	Wait WaitState
+	// Wait is the state the instance parks in, or PhaseNone for an action that does not.
+	Wait Phase
 	// Timer is true where the action leaves a wake_at the engine will claim on.
 	Timer bool
 	// Result is true where the action leaves a VALUE the entry context does not describe —
@@ -312,12 +315,12 @@ func (t ActionType) Holds() Holds {
 	switch t {
 	case ActionTypeExternal:
 		// Parks until an outside caller submits, and the result is stored on the row.
-		return Holds{Wait: WaitStateExternal, Timer: true, Result: true}
+		return Holds{Wait: PhaseExternal, Timer: true, Result: true}
 	case ActionTypeChild, ActionTypeChildMap, ActionTypeChildList:
 		// Spawns children and waits for them; their outputs are collected afterwards.
-		return Holds{Wait: WaitStateWaiting, Result: true}
+		return Holds{Wait: PhaseChildren, Result: true}
 	case ActionTypeDelay:
-		// A timer and nothing else — WaitStateNone with a wake_at. It holds a live instance
+		// A timer and nothing else — PhaseNone with a wake_at. It holds a live instance
 		// without holding any data, which is why it is in some rules and not others.
 		return Holds{Timer: true}
 	case ActionTypeFetch:

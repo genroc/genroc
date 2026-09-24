@@ -76,7 +76,7 @@ func TestRetryProcess_RaisedChildIsKept(t *testing.T) {
 		t.Run(b.name, func(t *testing.T) {
 			// A failed parent that was collecting a batch of one raised child: the
 			// parent failed *at resolution* because no rule matched the code.
-			insertInstW(t, b.db, "parent", model.StatusFailed, model.WaitStateNone, "", nil, "no rule matched")
+			insertInstW(t, b.db, "parent", model.StatusFailed, model.PhaseNone, "", nil, "no rule matched")
 			insertRaised(t, b.db, "kid", "parent", "step1", "card_declined", []string{"parent"})
 
 			if _, err := b.db.RetryProcess(context.Background(), "parent", false, ""); err != nil {
@@ -97,13 +97,13 @@ func TestRetryProcess_RaisedChildIsKept(t *testing.T) {
 }
 
 // The §11.4 bug: revive asks "after revival, is anything still active?" to rebuild the
-// parent's wait_state. A raised child is settled, so the answer must be no — otherwise
-// the parent is parked in 'waiting' forever on a child that has already concluded, and
+// parent's phase. A raised child is settled, so the answer must be no — otherwise
+// the parent is parked in 'children' forever on a child that has already concluded, and
 // nothing logs why. This is the one failure mode here that is silent and unrecoverable.
 func TestRetryProcess_RaisedChildDoesNotStrandParentInWaiting(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "parent", model.StatusFailed, model.WaitStateNone, "", nil, "boom")
+			insertInstW(t, b.db, "parent", model.StatusFailed, model.PhaseNone, "", nil, "boom")
 			// Batch of the parent's current task: one raised, one completed.
 			insertRaised(t, b.db, "kid-raised", "parent", "step1", "out_of_stock", []string{"parent"})
 			insertChild(t, b.db, "kid-done", model.StatusCompleted, "parent", "step1", []string{"parent"}, "")
@@ -113,10 +113,10 @@ func TestRetryProcess_RaisedChildDoesNotStrandParentInWaiting(t *testing.T) {
 			}
 
 			// Every child is settled, so the parent comes back armed to COLLECT. That is where
-			// the engine re-spawns the raised slot (§12) — a 'waiting' parent here would be
+			// the engine re-spawns the raised slot (§12) — a 'children' parent here would be
 			// waiting on a batch where nothing can run, which is wedged forever.
-			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateCollecting {
-				t.Fatalf("parent should be armed for collect, got wait_state %q", got)
+			if got := mustPhase(t, b.db, "parent"); got != model.PhaseCollecting {
+				t.Fatalf("parent should be armed for collect, got phase %q", got)
 			}
 		})
 	}
@@ -175,7 +175,7 @@ func TestRetryProcess_ClearsErrorCodeAndErrorData(t *testing.T) {
 func TestFinishChild_RaisedSiblingWakesParent(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "parent", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+			insertInstW(t, b.db, "parent", model.StatusRunning, model.PhaseChildren, "", nil, "")
 			insertRaised(t, b.db, "kid-a", "parent", "step1", "out_of_stock", []string{"parent"})
 
 			// The second child finishes last; with 'raised' counted as settled this is the
@@ -193,7 +193,7 @@ func TestFinishChild_RaisedSiblingWakesParent(t *testing.T) {
 				t.Fatalf("FinishChild: %v", err)
 			}
 
-			if got := mustWaitState(t, b.db, "parent"); got != model.WaitStateCollecting {
+			if got := mustPhase(t, b.db, "parent"); got != model.PhaseCollecting {
 				t.Errorf("parent should be armed for collect, got %q "+
 					"(a raised sibling counted as active leaves it waiting forever)", got)
 			}

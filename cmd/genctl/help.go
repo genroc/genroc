@@ -103,7 +103,7 @@ or --version. -q prints only the new id: id=$(genctl run NAME -q).`,
 		summary: "list instances (roots only unless --children)",
 		usage: []string{
 			"instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>]",
-			"          [--wait-state <state>] [--task <task-id>] [--children] [--sort updated|created]",
+			"          [--phase <phase>] [--task <task-id>] [--children] [--sort updated|created]",
 			"          [--since <when>] [--until <when>] [--json | -q]",
 		},
 		detail: `Roots only -- one row per tree, which is the unit pause/resume/cancel/retry and upgrade act on.
@@ -112,11 +112,12 @@ the two apart. -q prints bare ids, and nothing at all when empty, for nesting:
 
   genctl pause $(genctl instances -q --status running)
 
---wait-state asks what a running instance is PARKED on, which status does not say: ` + "`external`" + `
-awaits a submitted result, ` + "`waiting`" + ` has children still running, ` + "`collecting`" + ` has their outputs
-to gather. It is the listing of unresolved external tasks:
+--phase asks why a running instance is not executing a task, which status does not say, and the
+three answers are not one kind of thing: ` + "`children`" + ` is BLOCKED until its children settle,
+` + "`collecting`" + ` has their outputs still to merge and is runnable now, ` + "`external`" + ` is parked
+until someone answers it. So this is the listing of unresolved external tasks:
 
-  genctl instances --wait-state external
+  genctl instances --phase external
 
 The STATUS column carries it after a ` + "`·`" + ` when a row has one (running·external).
 

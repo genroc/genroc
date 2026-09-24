@@ -208,8 +208,8 @@ func TestOnlyOnce_FlagSurvivesSpawnAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetInstance: %v", err)
 	}
-	if parked.WaitState != model.WaitStateWaiting {
-		t.Fatalf("parent is in wait_state %q, want waiting; the spawn write is what this covers", parked.WaitState)
+	if parked.Phase != model.PhaseChildren {
+		t.Fatalf("parent is in phase %q, want waiting; the spawn write is what this covers", parked.Phase)
 	}
 	if !parked.NextReplayable {
 		t.Error("a parent parked by SpawnChildrenAndWait lost its replayable flag; its collect claim now pays an fsync it does not owe")

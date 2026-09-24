@@ -461,7 +461,7 @@ func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
 			bundle := bigString("bundle")
 			inst := &model.ProcessInstance{
 				ID: "inst-extobj", ProcessName: "test", Task: "run", Status: model.StatusRunning,
-				WaitState: model.WaitStateExternal,
+				Phase: model.PhaseExternal,
 				State: map[string]any{
 					model.StateExternalInput: map[string]any{"code": bundle, "n": 1},
 				},
@@ -485,7 +485,7 @@ func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
 
 			// The task resolves: external_input goes, and the claim must go with it.
 			delete(parked.State, model.StateExternalInput)
-			parked.WaitState = model.WaitStateNone
+			parked.Phase = model.PhaseNone
 			if err := b.db.UpdateInstanceProgress(parked); err != nil {
 				t.Fatalf("UpdateInstanceProgress: %v", err)
 			}
@@ -681,7 +681,7 @@ func TestObjects_ExternalInputSurvivesAnUnrelatedWrite(t *testing.T) {
 			bundle := bigString("bundle")
 			inst := &model.ProcessInstance{
 				ID: "inst-extkeep", ProcessName: "test", Task: "run", Status: model.StatusRunning,
-				WaitState: model.WaitStateExternal,
+				Phase: model.PhaseExternal,
 				State: map[string]any{
 					model.StateExternalInput: map[string]any{"code": bundle},
 				},

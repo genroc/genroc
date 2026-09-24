@@ -16,7 +16,7 @@ import (
 // to time out spends a worker on an answer that can no longer be accepted. It reads NONE of the
 // engine's lease columns, which is what keeps the two claims independent.
 // specs/external-task-queue.md.
-const claimableWhere = `wait_state = 'external' AND status = 'running'
+const claimableWhere = `phase = 'external' AND status = 'running'
 		  AND (external_worker_id IS NULL OR external_lease_expires_at <= ?)
 		  AND (wake_at IS NULL OR wake_at > ?)`
 
@@ -240,7 +240,7 @@ func (db *DB) ReleaseExternalClaim(ctx context.Context, instanceID string, taskE
 			   SET external_worker_id = NULL, external_lease_expires_at = NULL,
 			       external_claim_epoch = external_claim_epoch + 1
 			 WHERE id = ? AND task_epoch = ? AND external_claim_epoch = ?
-			   AND wait_state = 'external' AND external_worker_id IS NOT NULL`,
+			   AND phase = 'external' AND external_worker_id IS NOT NULL`,
 			instanceID, taskEpoch, claimEpoch)
 		if err != nil {
 			return fmt.Errorf("release external claim: %w", err)
@@ -265,7 +265,7 @@ func scanInstanceWithPrevHolder(s interface{ Scan(...any) error }) (dbgen.Proces
 	err := s.Scan(
 		&r.ID, &r.ProcessName, &r.ProcessVersion, &r.ParentID,
 		&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.ErrorMessage,
-		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
+		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.Phase, &r.SpawnTaskID,
 		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorInternal, &r.EngineState, &r.Task,
 		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
 		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
@@ -291,7 +291,7 @@ func (db *DB) MarkExternalClaimLost(ctx context.Context, instanceID string, task
 			   SET external_lost = 1, wake_at = ?, updated_at = ?,
 			       external_worker_id = NULL, external_lease_expires_at = NULL,
 			       external_claim_epoch = external_claim_epoch + 1
-			 WHERE id = ? AND task_epoch = ? AND wait_state = 'external'`,
+			 WHERE id = ? AND task_epoch = ? AND phase = 'external'`,
 			now, now, instanceID, taskEpoch)
 		if err != nil {
 			return fmt.Errorf("mark external claim lost: %w", err)

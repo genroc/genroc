@@ -15,7 +15,7 @@ import { listAllInstances } from "../helpers/client.ts";
 // re-counts that subtree bottom-up — a built-in exactly-once checksum.
 //
 // Note pause is not an outcome and not terminal: a paused tree just stops being
-// advanced, keeping its wait_state/wake_at/retry_count/context, and only a resume
+// advanced, keeping its phase/wake_at/retry_count/context, and only a resume
 // starts it moving again. So the chaos loop always pairs a pause with a resume, and
 // a final sweep resumes anything still paused — otherwise the settle wait below
 // would block forever on a tree nobody is advancing.

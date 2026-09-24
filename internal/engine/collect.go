@@ -27,11 +27,11 @@ func (e *Engine) resolveRaisedBatch(ctx context.Context, inst *model.ProcessInst
 		return *fail
 	}
 	if len(replacements) > 0 {
-		inst.WaitState = model.WaitStateWaiting
+		inst.Phase = model.PhaseChildren
 		return advanceOutcome{kind: outcomeRespawn, children: replacements, retired: retired, respawnLogs: logs}
 	}
 
-	inst.WaitState = model.WaitStateNone
+	inst.Phase = model.PhaseNone
 	first := raised[0]
 	// A child's error_code arrives as a persisted string — it may be an authored raise
 	// code as easily as an engine one — so it is converted once, here, at the boundary.

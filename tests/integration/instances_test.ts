@@ -56,7 +56,7 @@ test("GET /instances/{id} — returns instance status", async () => {
   expect(data!.id).toBe(id);
 });
 
-// status says what is happening to a process and wait_state says what it is waiting for;
+// status says what is happening to a process and phase says what it is waiting for;
 // neither says *where* it is. The task field does, on both the detail and the list — which
 // is what makes a stuck or failed instance diagnosable without reading the audit log.
 test("GET /instances — task reports where the instance is, and clears when it ends", async () => {

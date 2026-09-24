@@ -86,7 +86,7 @@ type ProcessInstance struct {
 	UpdatedAt              int64
 	WorkerID               sql.NullString
 	LeaseExpiresAt         sql.NullInt64
-	WaitState              string
+	Phase                  string
 	SpawnTaskID            string
 	InputData              string
 	OutputsData            string

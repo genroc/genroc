@@ -10,7 +10,7 @@ import (
 )
 
 // insertExternalRunning saves a running instance sitting at (but not yet armed on) an
-// external task — wait_state empty, no _external snapshot. A signal delivered now buffers.
+// external task — phase empty, no _external snapshot. A signal delivered now buffers.
 func insertExternalRunning(t *testing.T, db *dbpkg.DB, id string) {
 	t.Helper()
 	inst := &model.ProcessInstance{
@@ -116,7 +116,7 @@ func TestSignals_BufferThenConsumeFIFO(t *testing.T) {
 			if c, _ := b.db.CountBufferedSignals("inst-sig", "approval"); c != 2 {
 				t.Fatalf("the arm consumed a signal: %d buffered, want 2", c)
 			}
-			if got, _ := b.db.GetInstance("inst-sig"); got.WaitState == model.WaitStateExternal {
+			if got, _ := b.db.GetInstance("inst-sig"); got.Phase == model.PhaseExternal {
 				t.Fatal("the arm parked despite a buffered answer -- nothing would wake it")
 			}
 
@@ -153,8 +153,8 @@ func TestSignals_BufferThenConsumeFIFO(t *testing.T) {
 				t.Fatalf("arm 3: armed=%v err=%v (want parked)", armed, err)
 			}
 			got, _ := b.db.GetInstance("inst-sig")
-			if got.WaitState != model.WaitStateExternal {
-				t.Fatalf("expected parked (wait_state external), got %q", got.WaitState)
+			if got.Phase != model.PhaseExternal {
+				t.Fatalf("expected parked (phase external), got %q", got.Phase)
 			}
 			if c, _ := b.db.CountBufferedSignals("inst-sig", "approval"); c != 0 {
 				t.Fatalf("expected 0 buffered after draining, got %d", c)
@@ -180,8 +180,8 @@ func TestSignals_ResolveWhenArmed(t *testing.T) {
 				t.Fatalf("an armed delivery must still buffer, got %d buffered", c)
 			}
 			got, _ := b.db.GetInstance("inst-armed")
-			if got.WaitState != model.WaitStateNone {
-				t.Fatalf("expected un-parked, got wait_state %q", got.WaitState)
+			if got.Phase != model.PhaseNone {
+				t.Fatalf("expected un-parked, got phase %q", got.Phase)
 			}
 			_, outcome, ok, err := b.db.PeekSignal("inst-armed", "approval")
 			if err != nil || !ok {

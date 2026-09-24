@@ -45,7 +45,7 @@ func TestCancelProcess_TakesAPausedTree(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
 			insertInst(t, b.db, "root", model.StatusRunning, "", nil, "")
-			insertInstW(t, b.db, "kid", model.StatusRunning, model.WaitStateNone, "root", []string{"root"}, "")
+			insertInstW(t, b.db, "kid", model.StatusRunning, model.PhaseNone, "root", []string{"root"}, "")
 			if _, err := b.db.PauseProcess(context.Background(), "root", ""); err != nil {
 				t.Fatalf("PauseProcess: %v", err)
 			}
@@ -317,7 +317,7 @@ func TestUpdateInstanceProgress_LandsPendingCancel(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			held.WaitState = model.WaitStateExternal
+			held.Phase = model.PhaseExternal
 			if err := b.db.UpdateInstanceProgress(held); err != nil {
 				t.Fatalf("UpdateInstanceProgress: %v", err)
 			}
@@ -326,14 +326,14 @@ func TestUpdateInstanceProgress_LandsPendingCancel(t *testing.T) {
 			}
 			// The write that lands the cancel is also the one that PARKS the instance, and the
 			// park survives: a cancel abandons a wait rather than ending one. It is load-bearing
-			// as well as honest -- ReleaseExternalClaim finds a claim by wait_state='external',
+			// as well as honest -- ReleaseExternalClaim finds a claim by phase='external',
 			// and releasing is exactly what the heartbeat tells a cancelled worker to do.
 			after, err := b.db.GetInstance("held")
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			if after.WaitState != model.WaitStateExternal {
-				t.Errorf("a landed cancel must keep the park it was stopped in, got %q", after.WaitState)
+			if after.Phase != model.PhaseExternal {
+				t.Errorf("a landed cancel must keep the park it was stopped in, got %q", after.Phase)
 			}
 		})
 	}
@@ -441,12 +441,12 @@ func TestPauseDoesNotReopenACancelledTree(t *testing.T) {
 
 // TestCancelledRowKeepsItsPark: cancel writes the status column and nothing else, exactly as
 // pause does -- the machinery is shared, so a divergence here is a bug in whichever moved.
-// Preserving is not cosmetic: ReleaseExternalClaim finds a claim by wait_state='external', so
+// Preserving is not cosmetic: ReleaseExternalClaim finds a claim by phase='external', so
 // a cleared park would make the release the heartbeat asks a cancelled worker for impossible.
 func TestCancelledRowKeepsItsPark(t *testing.T) {
 	for _, b := range testBackends(t) {
 		t.Run(b.name, func(t *testing.T) {
-			insertInstW(t, b.db, "parked", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+			insertInstW(t, b.db, "parked", model.StatusRunning, model.PhaseChildren, "", nil, "")
 			if _, err := b.db.CancelProcess(context.Background(), "parked", ""); err != nil {
 				t.Fatalf("CancelProcess: %v", err)
 			}
@@ -457,8 +457,8 @@ func TestCancelledRowKeepsItsPark(t *testing.T) {
 			if got.Status != model.StatusCancelled {
 				t.Errorf("expected cancelled, got %q", got.Status)
 			}
-			if got.WaitState != model.WaitStateWaiting {
-				t.Errorf("cancel must write status alone, got wait_state %q", got.WaitState)
+			if got.Phase != model.PhaseChildren {
+				t.Errorf("cancel must write status alone, got phase %q", got.Phase)
 			}
 		})
 	}

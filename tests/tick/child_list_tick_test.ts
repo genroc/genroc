@@ -132,7 +132,7 @@ test("happy path — spawn, children complete in input order, collect ordered ar
 
   // tick: root evaluates child_list → spawns 3 children, parks itself (waiting).
   expect(await ctx.env.tick()).toBe(1);
-  expect(await ctx.env.status(root)).toBe("running waiting");
+  expect(await ctx.env.status(root)).toBe("running children");
   const kids = await ctx.env.listChildrenOf(root, "spread");
   expect(kids).toHaveLength(3);
   expect(await ctx.env.statuses({ c0: kids[0], c1: kids[1], c2: kids[2] })).toEqual({
@@ -144,7 +144,7 @@ test("happy path — spawn, children complete in input order, collect ordered ar
   // tick: c0 (earliest created_at) completes; root stays waiting.
   await ctx.env.tick();
   expect(await ctx.env.statuses({ root, c0: kids[0], c1: kids[1], c2: kids[2] })).toEqual({
-    root: "running waiting",
+    root: "running children",
     c0: "completed",
     c1: "running",
     c2: "running",
@@ -153,7 +153,7 @@ test("happy path — spawn, children complete in input order, collect ordered ar
   // tick: c1 completes.
   await ctx.env.tick();
   expect(await ctx.env.status(kids[1])).toBe("completed");
-  expect(await ctx.env.status(root)).toBe("running waiting");
+  expect(await ctx.env.status(root)).toBe("running children");
 
   // tick: c2 (last) completes → all siblings terminal → root woken to 'collecting'.
   await ctx.env.tick();
@@ -200,7 +200,7 @@ test("a failing child fails the whole batch — root settles to 'failed'", async
 
   // tick: spawn 2 children, park root.
   await ctx.env.tick();
-  expect(await ctx.env.status(root)).toBe("running waiting");
+  expect(await ctx.env.status(root)).toBe("running children");
   const kids = await ctx.env.listChildrenOf(root, "spread");
   expect(kids).toHaveLength(2);
 
@@ -208,7 +208,7 @@ test("a failing child fails the whole batch — root settles to 'failed'", async
   // turns the still-waiting root to 'failing'.
   await ctx.env.tick();
   expect(await ctx.env.status(kids[0])).toBe("failed");
-  expect(await ctx.env.waitState(root)).not.toBe("collecting");
+  expect(await ctx.env.phase(root)).not.toBe("collecting");
   expect(await ctx.env.status(root)).toContain("failing");
 
   // Drain the rest of the tree: the sibling settles and the failing root becomes
@@ -230,7 +230,7 @@ test("pause the root — its whole child_list fan-out suspends, and resume finis
   // Pause is atomic across the whole subtree: root + every child. Nothing is
   // leased between ticks, so they suspend outright with their wait states intact.
   await ctx.env.pause(root);
-  expect(await ctx.env.status(root)).toBe("paused waiting");
+  expect(await ctx.env.status(root)).toBe("paused children");
   expect(
     await ctx.env.statuses({ c0: kids[0], c1: kids[1], c2: kids[2] }),
   ).toEqual({ c0: "paused", c1: "paused", c2: "paused" });

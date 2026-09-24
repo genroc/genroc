@@ -337,7 +337,7 @@ Full rationale, prior art and known gaps: [specs/pause-resume.md](../../specs/pa
 The invariants below are the ones that break silently if you touch this code.
 
 `paused` is **not an outcome**. It means only "does not advance automatically" — the
-instance keeps its `wait_state`, `wake_at`, `retry_count` and context verbatim, and its
+instance keeps its `phase`, `wake_at`, `retry_count` and context verbatim, and its
 timers keep running (a delay that elapses while paused is due the moment it resumes).
 Only `completed` and `failed` are terminal (`model.Status.Terminal()`).
 
@@ -345,7 +345,7 @@ That is what separates the two recovery verbs, and they must not be merged again
 
 - **`ResumeProcess`** (`paused`/`pausing` → `running`) grants nothing. Because pause is
   non-destructive it is a plain status flip over the subtree — no revival, no
-  `wait_state` reconstruction, no `only_once` question, no `force`.
+  `phase` reconstruction, no `only_once` question, no `force`.
 - **`RetryProcess`** (`failed` only) is an override of the definition: the tree already
   spent its `on_error` budget, and retry hands it another attempt (with `force`, one that
   skips `only_once` too). It reconstructs the interrupted path, which is why it carries
@@ -357,7 +357,7 @@ Two invariants that are easy to break:
    if it is currently leased; a worker mid-task cannot know the pause arrived after it
    claimed, so the `pausing` → `paused` transition is a `CASE` in `UpdateInstance` /
    `UpdateInstanceProgress` (and an explicit remap in `SpawnChildrenAndWait`, which parks
-   the parent on `wait_state='waiting'` and would otherwise strand it). Everything not
+   the parent on `phase='children'` and would otherwise strand it). Everything not
    leased is set to `paused` directly — a row parked on `waiting` is excluded from
    `ClaimInstances`, so marking it `pausing` would leave it draining forever. `pausing`
    stays in the claim predicate purely for crash recovery.

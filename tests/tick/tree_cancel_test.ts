@@ -69,8 +69,8 @@ async function buildTree() {
   const { a, b } = await ctx.env.childrenOf(parent, "run_children");
 
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "running waiting",
-    parent: "running waiting",
+    gp: "running children",
+    parent: "running children",
     a: "running",
     b: "running",
   });
@@ -84,8 +84,8 @@ test("cancel grandparent — the whole tree stops at once, and no tick revives i
   // lands in 'cancelling': the subtree is stopped by the cancel itself.
   expect(await ctx.env.cancel(gp)).toBe("applied");
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "cancelled waiting",
-    parent: "cancelled waiting",
+    gp: "cancelled children",
+    parent: "cancelled children",
     a: "cancelled",
     b: "cancelled",
   });
@@ -93,15 +93,15 @@ test("cancel grandparent — the whole tree stops at once, and no tick revives i
   // The wait states survive, exactly as under a pause: cancel writes the status column and
   // nothing else, so a stopped tree still records what each node was doing. gp and parent
   // were mid child-process cycle and still say so.
-  expect(await ctx.env.waitState(gp)).toBe("waiting");
-  expect(await ctx.env.waitState(parent)).toBe("waiting");
+  expect(await ctx.env.phase(gp)).toBe("children");
+  expect(await ctx.env.phase(parent)).toBe("children");
 
   // Terminal means terminal: no node is claimable, and repeated ticks change nothing.
   expect(await ctx.env.tick()).toBe(0);
   expect(await ctx.env.tick()).toBe(0);
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "cancelled waiting",
-    parent: "cancelled waiting",
+    gp: "cancelled children",
+    parent: "cancelled children",
     a: "cancelled",
     b: "cancelled",
   });
@@ -114,8 +114,8 @@ test("cancel is root-only — a descendant is refused, leaving the tree running"
     // The refusal wrote nothing: a partially stopped tree is the state this rule exists
     // to prevent, since the surviving half has no one left to report to.
     expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-      gp: "running waiting",
-      parent: "running waiting",
+      gp: "running children",
+      parent: "running children",
       a: "running",
       b: "running",
     });
@@ -129,8 +129,8 @@ test("cancel disposes of a paused tree, which nothing else can", async () => {
 
   await ctx.env.pause(gp);
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "paused waiting",
-    parent: "paused waiting",
+    gp: "paused children",
+    parent: "paused children",
     a: "paused",
     b: "paused",
   });
@@ -139,8 +139,8 @@ test("cancel disposes of a paused tree, which nothing else can", async () => {
   // way out except resuming it. That gap is the reason cancel exists.
   expect(await ctx.env.cancel(gp)).toBe("applied");
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "cancelled waiting",
-    parent: "cancelled waiting",
+    gp: "cancelled children",
+    parent: "cancelled children",
     a: "cancelled",
     b: "cancelled",
   });
@@ -158,8 +158,8 @@ test("a cancel over a settled branch leaves the finished work alone", async () =
   // The completed child keeps its outcome: the work really did happen, and rewriting it
   // as cancelled would make the trail lie about what ran.
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "cancelled waiting",
-    parent: "cancelled waiting",
+    gp: "cancelled children",
+    parent: "cancelled children",
     a: "completed",
     b: "cancelled",
   });

@@ -84,8 +84,8 @@ async function buildTree() {
   await ctx.env.tick();
   const { a, b } = await ctx.env.childrenOf(parent, "run_children");
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "running waiting",
-    parent: "running waiting",
+    gp: "running children",
+    parent: "running children",
     a: "running",
     b: "running",
   });
@@ -98,8 +98,8 @@ test("cancelling a draining tree stops it as cancelled, not failed", async () =>
   // tick: `a` fails, so its ancestors enter the drain and wait for `b`.
   await ctx.env.tick();
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "failing waiting",
-    parent: "failing waiting",
+    gp: "failing children",
+    parent: "failing children",
     a: "failed",
     b: "running",
   });
@@ -109,8 +109,8 @@ test("cancelling a draining tree stops it as cancelled, not failed", async () =>
   // 'failing' for that reason -- pause's 'running'-only one would have written nothing here.
   expect(await ctx.env.cancel(gp)).toBe("applied");
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "cancelled waiting",
-    parent: "cancelled waiting",
+    gp: "cancelled children",
+    parent: "cancelled children",
     a: "failed", // already terminal: the work really did break, and that is kept
     b: "cancelled",
   });
@@ -120,8 +120,8 @@ test("cancelling a draining tree stops it as cancelled, not failed", async () =>
   // make the tree retryable, i.e. give a cancelled tree the way back it must not have.
   expect(await ctx.env.tick()).toBe(0);
   expect(await ctx.env.statuses({ gp, parent })).toEqual({
-    gp: "cancelled waiting",
-    parent: "cancelled waiting",
+    gp: "cancelled children",
+    parent: "cancelled children",
   });
 });
 
@@ -132,8 +132,8 @@ test("a failure landing after the cancel cannot reopen the tree", async () => {
   // after. `a` is cancelled with its 500 never sent.
   expect(await ctx.env.cancel(gp)).toBe("applied");
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "cancelled waiting",
-    parent: "cancelled waiting",
+    gp: "cancelled children",
+    parent: "cancelled children",
     a: "cancelled",
     b: "cancelled",
   });
@@ -143,8 +143,8 @@ test("a failure landing after the cancel cannot reopen the tree", async () => {
   expect(await ctx.env.tick()).toBe(0);
   expect(await ctx.env.tick()).toBe(0);
   expect(await ctx.env.statuses({ gp, parent, a, b })).toEqual({
-    gp: "cancelled waiting",
-    parent: "cancelled waiting",
+    gp: "cancelled children",
+    parent: "cancelled children",
     a: "cancelled",
     b: "cancelled",
   });

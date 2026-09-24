@@ -458,7 +458,7 @@ type instanceView struct {
 	Process    string `json:"process"`
 	Version    int    `json:"version"`
 	Status     string `json:"status"`
-	WaitState  string `json:"wait_state"`
+	Phase      string `json:"phase"`
 	Task       string `json:"task"`
 	RetryCount int    `json:"retry_count"`
 	// The error this instance REPORTS. The one it CAUGHT is a state slot, and so reaches
@@ -563,8 +563,8 @@ func printInstanceHead(inst instanceView) {
 	if inst.Task != "" {
 		fmt.Fprintf(w, "Task:\t%s\n", inst.Task)
 	}
-	if inst.WaitState != "" {
-		fmt.Fprintf(w, "Wait:\t%s\n", inst.WaitState)
+	if inst.Phase != "" {
+		fmt.Fprintf(w, "Phase:\t%s\n", inst.Phase)
 	}
 	if inst.RetryCount > 0 {
 		fmt.Fprintf(w, "Retries:\t%d\n", inst.RetryCount)
@@ -584,7 +584,7 @@ func runInstancesCmd(server string, args []string) {
 	fs := newFlagSet("instances", args)
 	serverFlag := addServerFlag(fs, server)
 	statusFlag := fs.String("status", "", "filter by status (running, completed, failing, failed, raised, pausing, paused, cancelling, cancelled)")
-	waitFlag := fs.String("wait-state", "", "filter by what a running instance is parked on (external, waiting, collecting)")
+	phaseFlag := fs.String("phase", "", "filter by why a running instance is not executing a task (children, collecting, external)")
 	taskFlag := fs.String("task", "", "filter by the exact task id the instance sits on; pair with --process, since a task id is unique only within its definition")
 	codeFlag := fs.String("error-code", "", "filter by exact error code (e.g. card_declined, http.500)")
 	processFlag := fs.String("process", "", "filter by exact process name, across every version")
@@ -614,8 +614,8 @@ func runInstancesCmd(server string, args []string) {
 	if *statusFlag != "" {
 		q.Set("status", *statusFlag)
 	}
-	if *waitFlag != "" {
-		q.Set("wait_state", *waitFlag)
+	if *phaseFlag != "" {
+		q.Set("phase", *phaseFlag)
 	}
 	if *taskFlag != "" {
 		q.Set("task", *taskFlag)
@@ -681,7 +681,7 @@ func runInstancesCmd(server string, args []string) {
 		Process      string `json:"process"`
 		Version      int    `json:"version"`
 		Status       string `json:"status"`
-		WaitState    string `json:"wait_state"`
+		Phase        string `json:"phase"`
 		ErrorCode    string `json:"error_code"`
 		ErrorMessage string `json:"error_message"`
 		CreatedAt    string `json:"created_at"`
@@ -707,7 +707,7 @@ func runInstancesCmd(server string, args []string) {
 			// and the column would be a wasted width, but WITH it nothing else on the row says
 			// which of the two a line is.
 			fmt.Fprintf(w, "%s\t%s\t%s@v%d%s\t%s\t%s\t%s\t%s\n",
-				r.ID, statusCol(r.Status, r.WaitState), r.Process, r.Version,
+				r.ID, statusCol(r.Status, r.Phase), r.Process, r.Version,
 				parentCol("\t"+dashIfEmpty(r.ParentID), *childrenFlag),
 				shortTime(r.UpdatedAt), shortTime(r.CreatedAt), r.ErrorCode, errMsg)
 		}
@@ -809,7 +809,7 @@ const (
 	listCap        = 20
 )
 
-// statusCol renders wait_state as a qualifier on the status rather than a column of its own:
+// statusCol renders phase as a qualifier on the status rather than a column of its own:
 // it is empty on most rows, and it only ever refines the status beside it (a parked instance
 // is still running). Matches how the UI and `genctl get` already pair the two.
 func statusCol(status, wait string) string {

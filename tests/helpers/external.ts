@@ -21,7 +21,7 @@ type Client = { GET: any };
 /** The parked external task on `id`, or undefined when it is not parked on one. */
 export async function parkedTask(id: string, c: Client = defaultClient): Promise<ParkedTask | undefined> {
   const { data } = await c.GET("/instances/{id}/detail", { params: { path: { id } } });
-  if (!data || data.wait_state !== "external") return undefined;
+  if (!data || data.phase !== "external") return undefined;
   return {
     token: `${id}.${data.task_epoch}`,
     task: data.task,
@@ -52,14 +52,14 @@ export async function tokenFor(id: string, c: Client = defaultClient): Promise<s
 /**
  * Every task parked on an external wait within one process, discovered through the INSTANCES
  * listing — which is where fleet-wide discovery lives now that the external-task listing is
- * gone. `wait_state` is a server-side filter, so the page holds parked rows and nothing else.
+ * gone. `phase` is a server-side filter, so the page holds parked rows and nothing else.
  */
 export async function parkedInProcess(
   process: string,
   c: Client = defaultClient,
 ): Promise<ParkedTask[]> {
   const { data } = await c.GET("/instances", {
-    params: { query: { process, status: "running", wait_state: "external" } },
+    params: { query: { process, status: "running", phase: "external" } },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = ((data as any)?.items ?? []) as any[];

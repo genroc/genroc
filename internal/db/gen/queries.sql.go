@@ -122,7 +122,7 @@ type CountActiveSiblingsParams struct {
 
 // Only completed/failed/raised are settled; a paused sibling counts as active, so a
 // parent never collects while a child is suspended. 'raised' must stay or the parent
-// hangs in 'waiting'. The SQL half of model.Status.Terminal(); kept in step by hand.
+// hangs in 'children'. The SQL half of model.Status.Terminal(); kept in step by hand.
 // No superseded_at predicate on purpose: a retired attempt is 'raised', so it is already
 // outside this test, and the check would cost the child-settle hot path nothing but time.
 func (q *Queries) CountActiveSiblings(ctx context.Context, arg CountActiveSiblingsParams) (int64, error) {
@@ -436,7 +436,7 @@ func (q *Queries) GetChannel(ctx context.Context, arg GetChannelParams) (int64, 
 const getChildrenForTask = `-- name: GetChildrenForTask :many
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
-       created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
+       created_at, updated_at, worker_id, lease_expires_at, phase, spawn_task_id,
        input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
@@ -477,7 +477,7 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.UpdatedAt,
 			&i.WorkerID,
 			&i.LeaseExpiresAt,
-			&i.WaitState,
+			&i.Phase,
 			&i.SpawnTaskID,
 			&i.InputData,
 			&i.OutputsData,
@@ -568,7 +568,7 @@ func (q *Queries) GetDependencyVersion(ctx context.Context, arg GetDependencyVer
 const getInstance = `-- name: GetInstance :one
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
-       created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
+       created_at, updated_at, worker_id, lease_expires_at, phase, spawn_task_id,
        input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
@@ -600,7 +600,7 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.UpdatedAt,
 		&i.WorkerID,
 		&i.LeaseExpiresAt,
-		&i.WaitState,
+		&i.Phase,
 		&i.SpawnTaskID,
 		&i.InputData,
 		&i.OutputsData,
@@ -670,15 +670,15 @@ func (q *Queries) GetObject(ctx context.Context, hash string) (GetObjectRow, err
 	return i, err
 }
 
-const getWaitState = `-- name: GetWaitState :one
-SELECT wait_state FROM process_instances WHERE id = ?1
+const getPhase = `-- name: GetPhase :one
+SELECT phase FROM process_instances WHERE id = ?1
 `
 
-func (q *Queries) GetWaitState(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRowContext(ctx, getWaitState, id)
-	var wait_state string
-	err := row.Scan(&wait_state)
-	return wait_state, err
+func (q *Queries) GetPhase(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getPhase, id)
+	var phase string
+	err := row.Scan(&phase)
+	return phase, err
 }
 
 const grantExternalLeases = `-- name: GrantExternalLeases :exec
@@ -856,7 +856,7 @@ INSERT INTO process_instances
     (id, process_name, process_version, task,
      input_data, outputs_data, output_data, error_internal, error_data, external_input, external_lost, engine_state,
      parent_id, root_id, spawn_task_id, parent_task_epoch, task_epoch,
-     call_stack, retry_count, wake_at, status, wait_state, error_message, error_code, created_at, updated_at, objects,
+     call_stack, retry_count, wake_at, status, phase, error_message, error_code, created_at, updated_at, objects,
      next_replayable)
 VALUES
     (?1, ?2, ?3, ?4,
@@ -896,7 +896,7 @@ type InsertInstanceParams struct {
 	RetryCount      int64
 	WakeAt          sql.NullInt64
 	Status          string
-	WaitState       string
+	Phase           string
 	ErrorMessage    string
 	ErrorCode       string
 	CreatedAt       int64
@@ -927,7 +927,7 @@ func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) 
 		arg.RetryCount,
 		arg.WakeAt,
 		arg.Status,
-		arg.WaitState,
+		arg.Phase,
 		arg.ErrorMessage,
 		arg.ErrorCode,
 		arg.CreatedAt,
@@ -1193,7 +1193,7 @@ func (q *Queries) NextWorkerNumber(ctx context.Context) (int64, error) {
 const nonTerminalSubtree = `-- name: NonTerminalSubtree :many
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
-       created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
+       created_at, updated_at, worker_id, lease_expires_at, phase, spawn_task_id,
        input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
@@ -1237,7 +1237,7 @@ func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]Proces
 			&i.UpdatedAt,
 			&i.WorkerID,
 			&i.LeaseExpiresAt,
-			&i.WaitState,
+			&i.Phase,
 			&i.SpawnTaskID,
 			&i.InputData,
 			&i.OutputsData,
@@ -1502,7 +1502,7 @@ type SetStatusInParams struct {
 
 // Sets one status on an explicit id list the CALLER has already locked -- pause, resume and
 // cancel all write their tree this way. Status ONLY, cancel included: it abandons a wait
-// rather than ending one, and ReleaseExternalClaim finds a claim by wait_state='external'.
+// rather than ending one, and ReleaseExternalClaim finds a claim by phase='external'.
 // The ids bind as a JSON array through json_each, the same dynamic-IN pattern as
 // FailAncestors, which is why neither needs a dialect branch.
 func (q *Queries) SetStatusIn(ctx context.Context, arg SetStatusInParams) error {
@@ -1544,7 +1544,7 @@ func (q *Queries) TouchAPIToken(ctx context.Context, arg TouchAPITokenParams) er
 
 const unparkExternal = `-- name: UnparkExternal :exec
 UPDATE process_instances
-SET wait_state = '',
+SET phase = '',
     wake_at    = NULL,
     updated_at = ?1
 WHERE id = ?2
@@ -1586,7 +1586,7 @@ SET task             = ?1,
                             WHEN status = 'cancelling'
                             AND CAST(?14 AS TEXT) = 'running'
                             THEN 'cancelled' ELSE CAST(?14 AS TEXT) END,
-    wait_state       = ?15,
+    phase       = ?15,
     error_message    = ?16,
     error_code       = ?17,
     updated_at       = ?18,
@@ -1611,7 +1611,7 @@ type UpdateInstanceParams struct {
 	RetryCount     int64
 	WakeAt         sql.NullInt64
 	Status         string
-	WaitState      string
+	Phase          string
 	ErrorMessage   string
 	ErrorCode      string
 	UpdatedAt      int64
@@ -1643,7 +1643,7 @@ func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) 
 		arg.RetryCount,
 		arg.WakeAt,
 		arg.Status,
-		arg.WaitState,
+		arg.Phase,
 		arg.ErrorMessage,
 		arg.ErrorCode,
 		arg.UpdatedAt,
@@ -1672,7 +1672,7 @@ SET task             = ?1,
     wake_at    = ?11,
     status           = CASE WHEN status = 'pausing'    THEN 'paused'
                             WHEN status = 'cancelling' THEN 'cancelled' ELSE status END,
-    wait_state       = ?12,
+    phase       = ?12,
     updated_at       = ?13,
     worker_id        = NULL,
     lease_expires_at = NULL
@@ -1692,7 +1692,7 @@ type UpdateInstanceProgressParams struct {
 	Objects        string
 	RetryCount     int64
 	WakeAt         sql.NullInt64
-	WaitState      string
+	Phase          string
 	UpdatedAt      int64
 	ID             string
 	LeaseEpoch     int64
@@ -1716,7 +1716,7 @@ func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstance
 		arg.Objects,
 		arg.RetryCount,
 		arg.WakeAt,
-		arg.WaitState,
+		arg.Phase,
 		arg.UpdatedAt,
 		arg.ID,
 		arg.LeaseEpoch,
@@ -1832,7 +1832,7 @@ func (q *Queries) UpsertChannel(ctx context.Context, arg UpsertChannelParams) er
 
 const wakeParent = `-- name: WakeParent :exec
 UPDATE process_instances
-SET wait_state = CASE WHEN status IN ('running', 'pausing', 'paused')
+SET phase = CASE WHEN status IN ('running', 'pausing', 'paused')
                       THEN 'collecting' ELSE '' END,
     updated_at = ?1
 WHERE id = ?2

@@ -131,7 +131,7 @@ export function App() {
                 <tr key={r.id} onClick={() => setSelected(r.id)} className="row">
                   <td className="mono">{r.id.slice(0, 8)}</td>
                   <td>{r.process}<span className="muted"> v{r.version}</span></td>
-                  <td><Status value={r.status} wait={r.wait_state} /></td>
+                  <td><Status value={r.status} phase={r.phase} /></td>
                   <td className="mono">{r.task ?? "-"}</td>
                   <td className="muted">{new Date(r.updated_at).toLocaleTimeString()}</td>
                 </tr>
@@ -162,11 +162,11 @@ function Problem({ error }: { error: Error }) {
   );
 }
 
-function Status({ value, wait }: { value: string; wait?: string }) {
+function Status({ value, phase }: { value: string; phase?: string }) {
   return (
     <span className={`status ${value}`}>
       {value}
-      {wait ? <span className="muted"> · {wait}</span> : null}
+      {phase ? <span className="muted"> · {phase}</span> : null}
     </span>
   );
 }
@@ -189,7 +189,7 @@ function Detail({ id, onClose }: { id: string; onClose: () => void }) {
           <>
             <dl>
               <dt>process</dt><dd>{data.process} v{data.version}</dd>
-              <dt>status</dt><dd><Status value={data.status} wait={data.wait_state} /></dd>
+              <dt>status</dt><dd><Status value={data.status} phase={data.phase} /></dd>
               <dt>task</dt><dd className="mono">{data.task ?? "-"}</dd>
               {data.error_code && (<><dt>error</dt><dd className="mono">{data.error_code}: {data.error_message}</dd></>)}
             </dl>

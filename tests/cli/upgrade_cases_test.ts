@@ -105,7 +105,7 @@ interface RestingState {
   values?: Record<string, unknown>;
   /** The version the row is on — the one thing a refused move must not have changed. */
   version?: number;
-  wait_state?: string;
+  phase?: string;
   outputs?: string[];
   /** Top-level keys of the stored state, sorted. */
   state_keys?: string[];
@@ -192,7 +192,7 @@ async function runCase(c: UpgradeCase, at?: NonNullable<UpgradeCase["at"]>[numbe
       task: got.task,
       status: got.status,
       version: got.version,
-      wait_state: got.wait_state ?? "",
+      phase: got.phase ?? "",
       outputs: Object.keys(outs).sort(),
       state_keys: Object.keys(ctx).sort(),
     };
@@ -204,8 +204,8 @@ async function runCase(c: UpgradeCase, at?: NonNullable<UpgradeCase["at"]>[numbe
       throw mismatch("version", actual.version, want.version);
     }
     if (want.status !== undefined && actual.status !== want.status) throw mismatch("status", actual.status, want.status);
-    if (want.wait_state !== undefined && actual.wait_state !== want.wait_state) {
-      throw mismatch("wait_state", actual.wait_state, want.wait_state);
+    if (want.phase !== undefined && actual.phase !== want.phase) {
+      throw mismatch("phase", actual.phase, want.phase);
     }
     for (const [path, expected] of Object.entries(want.values ?? {})) {
       let at: unknown = ctx;

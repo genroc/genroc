@@ -49,7 +49,7 @@ func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.Proces
 	if peekErr == nil {
 		// An answer is already waiting. Write an ordinary checkpoint instead of parking: the
 		// lease is released, the row stays claimable, and the next claim reaches phase 2.
-		inst.WaitState = model.WaitStateNone
+		inst.Phase = model.PhaseNone
 		inst.WakeAt = nil
 		cols, err := db.persistState(ctx, qtx, inst, now)
 		if err != nil {
@@ -69,7 +69,7 @@ func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.Proces
 	// engine returns noop). No token here: the occurrence is task_epoch on this very row, and a
 	// copy in the column would be a second thing to keep true.
 	inst.State[model.StateExternalInput] = input
-	inst.WaitState = model.WaitStateExternal
+	inst.Phase = model.PhaseExternal
 	inst.WakeAt = wakeAt
 	cols, err := db.persistState(ctx, qtx, inst, now)
 	if err != nil {
@@ -100,14 +100,14 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID string, outc
 	}
 	defer tx.Rollback()
 
-	var status, waitState, currentTask string
+	var status, phase, currentTask string
 	var workerID, extWorkerID sql.NullString
 	var leaseExpiresAt, extLeaseExpiresAt sql.NullInt64
 	switch err := raw.QueryRowContext(ctx,
-		`SELECT status, wait_state, task, worker_id, lease_expires_at,
+		`SELECT status, phase, task, worker_id, lease_expires_at,
 		        external_worker_id, external_lease_expires_at
 		   FROM process_instances WHERE id = ?`+db.forUpdate(), instanceID).
-		Scan(&status, &waitState, &currentTask, &workerID, &leaseExpiresAt,
+		Scan(&status, &phase, &currentTask, &workerID, &leaseExpiresAt,
 			&extWorkerID, &extLeaseExpiresAt); {
 	case err == nil:
 	case errors.Is(err, sql.ErrNoRows):
@@ -126,7 +126,7 @@ func (db *DB) DeliverSignal(ctx context.Context, instanceID, taskID string, outc
 	// Armed iff parked on an external wait at exactly this task. Status is deliberately NOT
 	// tested: delivering to a paused instance stores the result and leaves it unclaimable —
 	// treating it as unarmed would buffer a result no re-arm will ever read.
-	armed := model.WaitState(waitState) == model.WaitStateExternal && currentTask == taskID
+	armed := model.Phase(phase) == model.PhaseExternal && currentTask == taskID
 	// A live lease or a live external CLAIM both mean someone is mid-flight on this row; don't
 	// race either — buffer instead, and the signal is consumed if the task re-arms. A signal
 	// carries no handle to fence with, so deferring is the only way it cannot answer over them.

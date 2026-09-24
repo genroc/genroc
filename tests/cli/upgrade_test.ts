@@ -39,7 +39,7 @@ function parkedDef(name: string, requireNote: boolean) {
 async function waitParked(id: string): Promise<string> {
   for (let i = 0; i < 100; i++) {
     const r = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-    if (r.data?.wait_state === "external") return id;
+    if (r.data?.phase === "external") return id;
     await new Promise((res) => setTimeout(res, 50));
   }
   throw new Error(`instance ${id} never parked`);

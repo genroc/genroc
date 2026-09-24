@@ -182,7 +182,7 @@ func TestStress_ConcurrentFinishChild(t *testing.T) {
 
 	for i := 0; i < iterations; i++ {
 		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
-		insertInstW(t, db, "parent", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+		insertInstW(t, db, "parent", model.StatusRunning, model.PhaseChildren, "", nil, "")
 		for j := 0; j < siblings; j++ {
 			insertInst(t, db, fmt.Sprintf("child-%d", j), model.StatusRunning, "parent", []string{"parent"}, "")
 		}
@@ -225,8 +225,8 @@ func TestStress_ConcurrentFinishChild(t *testing.T) {
 			t.Errorf("iteration %d: parent not found: %v", i, err)
 			continue
 		}
-		if parent.WaitState != model.WaitStateCollecting {
-			t.Errorf("iteration %d: parent wait_state = %q, want collecting", i, parent.WaitState)
+		if parent.Phase != model.PhaseCollecting {
+			t.Errorf("iteration %d: parent phase = %q, want collecting", i, parent.Phase)
 		}
 	}
 }
@@ -248,7 +248,7 @@ func TestStress_PauseProcess_vs_FinishChild(t *testing.T) {
 
 	for i := 0; i < iterations; i++ {
 		sharedPgRaw.ExecContext(ctx, "DELETE FROM process_instances")
-		insertInstW(t, db, "parent", model.StatusRunning, model.WaitStateWaiting, "", nil, "")
+		insertInstW(t, db, "parent", model.StatusRunning, model.PhaseChildren, "", nil, "")
 		for j := 0; j < siblings; j++ {
 			insertInst(t, db, fmt.Sprintf("child-%d", j), model.StatusRunning, "parent", []string{"parent"}, "")
 		}
@@ -353,11 +353,11 @@ func TestStress_RetryProcess_vs_PauseProcess(t *testing.T) {
 		if ok != model.StatusCompleted {
 			t.Errorf("iteration %d: completed child touched: %s", i, ok)
 		}
-		// A revived root keeps its reconstructed wait_state through a pause —
+		// A revived root keeps its reconstructed phase through a pause —
 		// pausing writes the status column and nothing else.
 		if root == model.StatusRunning || root == model.StatusPaused {
-			if ws := mustWaitState(t, db, "root"); ws != model.WaitStateWaiting {
-				t.Errorf("iteration %d: revived root wait_state = %q, want waiting", i, ws)
+			if ws := mustPhase(t, db, "root"); ws != model.PhaseChildren {
+				t.Errorf("iteration %d: revived root phase = %q, want waiting", i, ws)
 			}
 		}
 	}
@@ -408,8 +408,8 @@ func TestStress_ConcurrentRetry(t *testing.T) {
 		if got := mustStatus(t, db, "root"); got != model.StatusRunning {
 			t.Errorf("iteration %d: root = %s, want running", i, got)
 		}
-		if got := mustWaitState(t, db, "root"); got != model.WaitStateWaiting {
-			t.Errorf("iteration %d: root wait_state = %q, want waiting", i, got)
+		if got := mustPhase(t, db, "root"); got != model.PhaseChildren {
+			t.Errorf("iteration %d: root phase = %q, want waiting", i, got)
 		}
 		if got := mustStatus(t, db, "c-bad"); got != model.StatusRunning {
 			t.Errorf("iteration %d: c-bad = %s, want running", i, got)
