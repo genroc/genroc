@@ -34,7 +34,7 @@ test("a secret config value is returned by the API, not redacted", async () => {
 
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const output = (data?.state as any)?.output;
+  const output = (data?.output as any);
   expect(output.note).toBe("public value");
   expect(output.auth).toBe("Bearer supersecret-api-key");
 });

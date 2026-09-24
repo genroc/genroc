@@ -229,7 +229,7 @@ test("once a cancel lands, no operator verb moves the instance", async () => {
       "signal",
       () =>
         client.POST("/external-tasks/signal", {
-          body: { instance_id: id, task_id: "work", result: { ok: true } } as never,
+          body: { instance_id: id, task: "work", result: { ok: true } } as never,
         }),
     ],
   ];

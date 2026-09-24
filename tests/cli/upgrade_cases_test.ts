@@ -46,7 +46,7 @@ interface UpgradeCase {
    * The state the instance must be in AFTER the upgrade. Without it a case asserts only what
    * the command PRINTED, and a migration that dropped half the context prints exactly the
    * same line — `context_keys` is what sees engine bookkeeping the definition never declares
-   * (_external, _spawn_*) going missing.
+   * (external_input, _spawn_*) going missing.
    */
   after?: RestingState;
   /** Arguments after `genctl upgrade`. */
@@ -165,13 +165,28 @@ async function runCase(c: UpgradeCase, at?: NonNullable<UpgradeCase["at"]>[numbe
 
   const instanceID = started.data!.id;
 
+  /** The stored state, with detail's separated fields folded back in. */
+  function wholeState(got: Record<string, unknown>): Record<string, unknown> {
+    const out = { ...((got.state ?? {}) as Record<string, unknown>) };
+    for (const [field, slot] of [
+      ["output", "output"],
+      ["error_data", "_error_data"],
+      ["external_input", "external_input"],
+    ] as const) {
+      if (got[field] !== undefined) out[slot] = got[field];
+    }
+    return out;
+  }
+
   /** Compares the instance's live state against what the case declares. */
   async function assertState(label: string, want: RestingState) {
     const { data } = await server!.client.GET("/instances/{id}/detail", {
       params: { path: { id: instanceID } },
     });
     const got = data as unknown as Record<string, unknown>;
-    const ctx = (got.state ?? {}) as Record<string, unknown>;
+    // detail moves output/error_data/external_input to fields of their own so nothing is said
+    // twice; these cases are about the STATE an upgrade validates, so put them back.
+    const ctx = wholeState(got);
     const outs = (ctx.outputs ?? {}) as Record<string, unknown>;
     const actual = {
       task: got.task,
@@ -256,7 +271,7 @@ async function runCase(c: UpgradeCase, at?: NonNullable<UpgradeCase["at"]>[numbe
     );
   }
   if (want.output !== undefined) {
-    const actual = ((got.state ?? {}) as Record<string, unknown>).output;
+    const actual = wholeState(got).output;
     if (JSON.stringify(actual) !== JSON.stringify(want.output)) {
       throw new Error(
         `${c.id} (running on): output is ${JSON.stringify(actual)}, not ${JSON.stringify(want.output)}`,

@@ -50,7 +50,7 @@ test("rest endpoint is evaluated as a template", async () => {
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   // The request reached the mock at the resolved URL and returned its body.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.state as any)?.output).toEqual({ slept: 1 });
+  expect((data?.output as any)).toEqual({ slept: 1 });
 
   mock.stop();
 });
@@ -105,7 +105,7 @@ test("a config value can build a rest endpoint URL", async () => {
 
   const { data } = await api.GET("/instances/{id}/detail", { params: { path: { id } } });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.state as any)?.output).toEqual({ slept: 2 });
+  expect((data?.output as any)).toEqual({ slept: 2 });
 
   await own.stop();
   mock.stop();

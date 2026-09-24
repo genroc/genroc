@@ -65,7 +65,7 @@ test("child — result is the child's output unwrapped (not keyed)", async () =>
     params: { path: { id: data!.id } },
   });
   // Unwrapped: output.got IS the child output { value: 21 }, no intermediate key.
-  expect((inst?.state?.output as any)?.got).toEqual({ value: 21 });
+  expect((inst?.output as any)?.got).toEqual({ value: 21 });
 });
 
 // The collected output is validated against result_schema, and a child whose output

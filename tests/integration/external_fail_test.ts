@@ -366,7 +366,7 @@ test("signal delivers a failure to an armed task, by instance id", async () => {
   await waitForQueued(name); // armed
 
   const { data, error } = await client.POST("/external-tasks/signal", {
-    body: { instance_id: id, task_id: "work", error: { code: "limit_exceeded", message: "over", data: { limit: 3 } } },
+    body: { instance_id: id, task: "work", error: { code: "limit_exceeded", message: "over", data: { limit: 3 } } },
   });
   expect(error, `signal was rejected: ${JSON.stringify(error)}`).toBeUndefined();
   expect((data as any)?.delivered, "an armed task takes the failure immediately").toBe(true);
@@ -402,7 +402,7 @@ test("a failure signalled BEFORE the task arms is buffered, then routed when it 
 
   const id = await startInstance(name);
   const { data, error } = await client.POST("/external-tasks/signal", {
-    body: { instance_id: id, task_id: "work", error: { code: "upstream_failed", message: "the job died", data: { why: "oom" } } },
+    body: { instance_id: id, task: "work", error: { code: "upstream_failed", message: "the job died", data: { why: "oom" } } },
   });
   expect(error, `signal was rejected: ${JSON.stringify(error)}`).toBeUndefined();
   // Buffered, not delivered: the whole reason process_signals.result had to become `outcome`.
@@ -462,14 +462,14 @@ test("signal validates the failure against the task it names, not another task's
   // `only_on_first` is declared by the CURRENT task but not by the one being signalled, so
   // addressing `second` with it must be refused: signal's closed set is the named task's.
   const { error: wrong } = await client.POST("/external-tasks/signal", {
-    body: { instance_id: id, task_id: "second", error: { code: "only_on_first", message: "m" } },
+    body: { instance_id: id, task: "second", error: { code: "only_on_first", message: "m" } },
   });
   expect(wrong, "signal must validate against the task it names, not the current one").toBeTruthy();
   expect(JSON.stringify(wrong)).toContain("only_on_second"); // the message lists that task's set
 
   // And the converse: the named task's own code is accepted, buffered for when it arms.
   const { data, error } = await client.POST("/external-tasks/signal", {
-    body: { instance_id: id, task_id: "second", error: { code: "only_on_second", message: "m" } },
+    body: { instance_id: id, task: "second", error: { code: "only_on_second", message: "m" } },
   });
   expect(error, `the named task's own code was refused: ${JSON.stringify(error)}`).toBeUndefined();
   expect((data as any)?.buffered).toBe(true);
@@ -491,14 +491,14 @@ test("signal runs the same outcome validation as resolve", async () => {
   ];
   for (const [label, body] of cases) {
     const { error } = await client.POST("/external-tasks/signal", {
-      body: { instance_id: id, task_id: "work", ...body } as never,
+      body: { instance_id: id, task: "work", ...body } as never,
     });
     expect(error, `signal must refuse ${label}, as resolve does`).toBeTruthy();
   }
 
   // Still answerable afterwards: every refusal above is a 400 that left the task parked.
   const { error: ok } = await client.POST("/external-tasks/signal", {
-    body: { instance_id: id, task_id: "work", error: { code: "limit_exceeded", message: "m", data: { limit: 9 } } },
+    body: { instance_id: id, task: "work", error: { code: "limit_exceeded", message: "m", data: { limit: 9 } } },
   });
   expect(ok, `the valid submission was rejected: ${JSON.stringify(ok)}`).toBeUndefined();
   expect(await waitForInstance(id)).toBe("completed");
@@ -533,12 +533,12 @@ test("signal validates a result against result_schema", async () => {
   await waitForQueued(name);
 
   const { error } = await client.POST("/external-tasks/signal", {
-    body: { instance_id: id, task_id: "work", result: { approved: "yes" } },
+    body: { instance_id: id, task: "work", result: { approved: "yes" } },
   });
   expect(error, "signal must conform a result to result_schema, as resolve does").toBeTruthy();
 
   const { error: ok } = await client.POST("/external-tasks/signal", {
-    body: { instance_id: id, task_id: "work", result: { approved: true } },
+    body: { instance_id: id, task: "work", result: { approved: true } },
   });
   expect(ok, `the valid result was rejected: ${JSON.stringify(ok)}`).toBeUndefined();
   expect(await waitForInstance(id)).toBe("completed");

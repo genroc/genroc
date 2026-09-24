@@ -87,7 +87,7 @@ test("a declared code makes the payload readable as error.data at the routed tas
   expect(await waitForInstance(id)).toBe("completed");
 
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  expect(data?.state?.output).toEqual({ wait: 3600, why: "51" });
+  expect(data?.output).toEqual({ wait: 3600, why: "51" });
 });
 
 test("an undeclared code leaves error.data absent — the read is a registration error", async () => {
@@ -157,7 +157,7 @@ test("a payload that does not fit the declaration replaces the raised code with 
 
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   expect(
-    data?.state?.output,
+    data?.output,
     "the code is replaced, so the rule naming the raised code no longer fires",
   ).toEqual({ via: "mismatch", code: "result.invalid" });
 
@@ -297,7 +297,7 @@ test("a child_map declares per entry, and the action-level slot is refused", asy
   const { data: started } = await client.POST("/instances", { body: { process: perEntry } });
   expect(await waitForInstance(started!.id)).toBe("completed");
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
-  expect(data?.state?.output).toEqual({ wait: 3600 });
+  expect(data?.output).toEqual({ wait: 3600 });
 
   const wrong = `raises_map_bad_${uid}`;
   const { error } = await client.PUT("/definitions", {
@@ -466,7 +466,7 @@ test("{} exposes the payload opaquely: forwardable, but a field read is refused"
   const { data: started } = await client.POST("/instances", { body: { process: whole } });
   expect(await waitForInstance(started!.id)).toBe("completed");
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
-  expect((data?.state?.output as any)?.payload).toEqual({ decline_code: "51", retry_after: 3600 });
+  expect((data?.output as any)?.payload).toEqual({ decline_code: "51", retry_after: 3600 });
 });
 
 // The conform NORMALIZES, exactly as result_schema does on the success path: the caller sees
@@ -511,7 +511,7 @@ test("the payload is conformed, not passed through: extras dropped, defaults fil
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   expect(await waitForInstance(started!.id)).toBe("completed");
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
-  expect((data?.state?.output as any)?.seen).toEqual({ decline_code: "51", channel: "unknown" });
+  expect((data?.output as any)?.seen).toEqual({ decline_code: "51", channel: "unknown" });
 });
 
 // child_list declares on the action (one process for every element), and the first raised
@@ -551,7 +551,7 @@ test("child_list declares on the action, and the first raised slot's payload cro
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   expect(await waitForInstance(started!.id)).toBe("completed");
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
-  expect(data?.state?.output).toEqual({ slot: 0, why: "51" });
+  expect(data?.output).toEqual({ slot: 0, why: "51" });
 });
 
 // A declaration is an ordinary schema document, so it may name a shared definition — which
@@ -587,7 +587,7 @@ test("a raises schema may be a $ref into the process $defs", async () => {
   const { data: started } = await client.POST("/instances", { body: { process: name } });
   expect(await waitForInstance(started!.id)).toBe("completed");
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
-  expect(data?.state?.output).toEqual({ wait: 3600 });
+  expect(data?.output).toEqual({ wait: 3600 });
 });
 
 // Past the 2 KiB inline cutoff the payload lives in the object store, so crossing to the
@@ -630,16 +630,16 @@ test("a payload past the inline cutoff externalizes and still crosses whole", as
   const { data: lazy } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
   const childId = (await childrenOfTask(started!.id, "pay")) as string;
   const { data: kid } = await client.GET("/instances/{id}/detail", { params: { path: { id: childId } } });
-  // The cut takes the big leaf inside the raised payload, so the listing names a path THROUGH
-  // the state slot it was cut from.
+  // The cut takes the big leaf inside the raised payload, and error_data has a field of its
+  // own, so the listing names that field rather than a path through `state`.
   expect(
-    (kid!.objects ?? []).some((o: any) => o.path[0] === "state" && o.path[1] === "_error_data"),
+    (kid!.objects ?? []).some((o: any) => o.path[0] === "error_data"),
     "8 KiB is past the 2 KiB cutoff, so the payload must be externalized",
   ).toBe(true);
 
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
   await spliceObjects(data);
-  expect((data?.state?.output as any)?.trace).toBe(blob);
+  expect((data?.output as any)?.trace).toBe(blob);
 });
 
 // A wildcard reaches codes no key declares, so it admits null even where every code it
@@ -864,7 +864,7 @@ test("a % rule unions every declared shape it can reach, and the raised code dec
     });
     expect(await waitForInstance(started!.id)).toBe("completed");
     const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
-    const out = data?.state?.output as any;
+    const out = data?.output as any;
     expect(out?.seen, `expired=${expired} must arrive as its own declared shape`).toEqual(expectedArm);
     expect(out?.kind).toBe(expectedArm.kind);
     // The other arm's field is present in the TYPE and null in this VALUE.
@@ -908,7 +908,7 @@ test("a field only one arm of the union declares reads as null when the other ar
   });
   expect(await waitForInstance(started!.id)).toBe("completed");
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
-  expect((data?.state?.output as any)?.code, "card_expired carries no decline_code").toBeNull();
+  expect((data?.output as any)?.code, "card_expired carries no decline_code").toBeNull();
 });
 
 // M2's typing claim: a rule's `case` is checked against the payload of the codes THAT RULE

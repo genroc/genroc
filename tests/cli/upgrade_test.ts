@@ -116,7 +116,7 @@ test("sweeps failed instances too, and --status narrows what it takes", async ()
   const failedId = await startParked(name);
   const failRes = await client.POST("/external-tasks/signal", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: { instance_id: failedId, task_id: "hold", error: { code: "boom", message: "x" } } as any,
+    body: { instance_id: failedId, task: "hold", error: { code: "boom", message: "x" } } as any,
   });
   expect(failRes.error).toBeUndefined();
   // waitForInstance THROWS on timeout; the hand-rolled loop this replaces fell through
@@ -225,7 +225,7 @@ test("several ids move several trees, and one refused does not stop the rest", a
   // an abort would leave `second` behind and the count would say so.
   const done = await client.POST("/external-tasks/signal", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: { instance_id: stuck, task_id: "hold", result: {} } as any,
+    body: { instance_id: stuck, task: "hold", result: {} } as any,
   });
   expect(done.error).toBeUndefined();
   for (let i = 0; i < 100; i++) {

@@ -72,14 +72,14 @@ ORDER BY pc.name;
 -- name: InsertInstance :exec
 INSERT INTO process_instances
     (id, process_name, process_version, task,
-     input_data, outputs_data, output_data, error_internal, error_data, external_data, engine_state,
+     input_data, outputs_data, output_data, error_internal, error_data, external_input, external_lost, engine_state,
      parent_id, root_id, spawn_task_id, parent_task_epoch, task_epoch,
      call_stack, retry_count, wake_at, status, wait_state, error_message, error_code, created_at, updated_at, objects,
      next_replayable)
 VALUES
     (sqlc.arg(id), sqlc.arg(process_name), sqlc.arg(process_version), sqlc.arg(task),
      sqlc.arg(input_data), sqlc.arg(outputs_data), sqlc.arg(output_data),
-     sqlc.arg(error_internal), sqlc.arg(error_data), sqlc.arg(external_data), sqlc.arg(engine_state),
+     sqlc.arg(error_internal), sqlc.arg(error_data), sqlc.arg(external_input), sqlc.arg(external_lost), sqlc.arg(engine_state),
      sqlc.arg(parent_id),
      -- The tree, read off the PARENT rather than taken from the caller: parent_id is the one
      -- edge the whole system agrees on, so deriving from anything else (a call_stack a fixture
@@ -108,7 +108,8 @@ SET task             = sqlc.arg(task),
     output_data      = sqlc.arg(output_data),
     error_internal   = sqlc.arg(error_internal),
     error_data       = sqlc.arg(error_data),
-    external_data    = sqlc.arg(external_data),
+    external_input   = sqlc.arg(external_input),
+    external_lost    = sqlc.arg(external_lost),
     engine_state     = sqlc.arg(engine_state),
     objects          = sqlc.arg(objects),
     retry_count      = sqlc.arg(retry_count),
@@ -139,7 +140,8 @@ SET task             = sqlc.arg(task),
     task_epoch       = sqlc.arg(task_epoch),
     outputs_data     = sqlc.arg(outputs_data),
     error_internal   = sqlc.arg(error_internal),
-    external_data    = sqlc.arg(external_data),
+    external_input   = sqlc.arg(external_input),
+    external_lost    = sqlc.arg(external_lost),
     engine_state     = sqlc.arg(engine_state),
     objects          = sqlc.arg(objects),
     retry_count      = sqlc.arg(retry_count),
@@ -163,10 +165,10 @@ WHERE id = sqlc.arg(id) AND lease_epoch = sqlc.arg(lease_epoch)
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data, superseded_at, root_id
+       next_replayable, error_data, superseded_at, root_id, external_input, external_lost
 FROM process_instances
 WHERE id = sqlc.arg(id);
 
@@ -252,10 +254,10 @@ WHERE id = sqlc.arg(id);
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data, superseded_at, root_id
+       next_replayable, error_data, superseded_at, root_id, external_input, external_lost
 FROM process_instances
 WHERE parent_id = sqlc.arg(parent_id)
   AND spawn_task_id = sqlc.arg(spawn_task_id)
@@ -512,7 +514,8 @@ SET process_version = sqlc.arg(to_version),
     output_data     = sqlc.arg(output_data),
     error_internal  = sqlc.arg(error_internal),
     error_data      = sqlc.arg(error_data),
-    external_data   = sqlc.arg(external_data),
+    external_input  = sqlc.arg(external_input),
+    external_lost   = sqlc.arg(external_lost),
     engine_state    = sqlc.arg(engine_state),
     objects         = sqlc.arg(objects),
     updated_at      = sqlc.arg(updated_at)
@@ -535,10 +538,10 @@ WHERE id = sqlc.arg(id)
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data, superseded_at, root_id
+       next_replayable, error_data, superseded_at, root_id, external_input, external_lost
 FROM process_instances
 WHERE root_id = sqlc.arg(root)
   AND (process_instances.id = sqlc.arg(root)

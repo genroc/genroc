@@ -14,8 +14,7 @@ import (
 )
 
 func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalTaskResp {
-	ext, _ := inst.State[model.StateExternal].(map[string]any)
-	// Derived from the row, not read back from external_data — the epoch IS the occurrence.
+	// Derived from the row, not read back from a column — the epoch IS the occurrence.
 	token := model.ExternalToken(inst.ID, inst.TaskEpoch)
 	var resultSchema *schema.Schema
 	if task.Action != nil {
@@ -40,7 +39,9 @@ func externalTaskToResp(inst *model.ProcessInstance, task *model.Task) ExternalT
 	// The task input can hold externalized values (a bundle embedded in a definition, once
 	// those become objects), so a queue entry lists them the same way a log entry does.
 	var objects []ObjectEntry
-	input := extractObjects(ext["input"], []any{"input"}, &objects)
+	// Rooted at the field name, which is the same word the slot, the column and both instance
+	// views use -- a claim's paths address the ENTRY it hands out, not the instance it came from.
+	input := extractObjects(inst.State[model.StateExternalInput], []any{model.StateExternalInput}, &objects)
 	return ExternalTaskResp{
 		Token:        token,
 		Process:      inst.ProcessName,
@@ -192,7 +193,7 @@ func (h *Handlers) signalInstance(raw json.RawMessage) Reply {
 		return invalid("instance_id is required").reply()
 	}
 	if req.TaskID == "" {
-		return invalid("task_id is required").reply()
+		return invalid("task is required").reply()
 	}
 	id := req.InstanceID
 	inst, err := h.db.GetInstance(id)

@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { client, fetchObject, spliceObjects, waitForInstance } from "../helpers/client.ts";
+import { waitForParked } from "../helpers/external.ts";
 import { BASE_URL } from "../helpers/constants.ts";
 
 // An instance is readable through two views and the split is deliberate.
@@ -57,8 +58,10 @@ test("the detail view carries state, bookkeeping included", async () => {
   const state = data!.state as Record<string, unknown>;
   // `last_error` is seeded null when the instance is created, so it is here even for a process with
   // no error handling at all -- a slot no definition declares, which the outward view used to
-  // hide and this one must not.
-  expect(Object.keys(state).sort()).toEqual(["input", "last_error", "output", "outputs"]);
+  // hide and this one must not. `output` is NOT here: a slot with a field of its own is moved
+  // there, so nothing on this response is said twice.
+  expect(Object.keys(state).sort()).toEqual(["input", "last_error", "outputs"]);
+  expect(data!.output, "moved to its own field rather than dropped").toBeDefined();
   expect(data).toHaveProperty("task_epoch");
   expect(data).toHaveProperty("lease_epoch");
   expect(data).toHaveProperty("next_replayable");
@@ -169,11 +172,13 @@ test("an oversized output is listed at its own path, not inlined and not leaked 
   ).toEqual(["output", "echo"]);
   expect(JSON.parse(await fetchObject(listed!.ref))).toBe(blob);
 
-  // The same value on detail is listed under the state slot it was cut from, so a caller
-  // splicing either response puts it back where that response would hold it.
+  // detail holds the same value under the same field, so it is listed at the same path -- and
+  // at that path ONLY, because the slot was moved out of `state` rather than copied beside it.
   const { data: detail } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   const paths = (detail!.objects ?? []).map((o) => JSON.stringify(o.path));
-  expect(paths).toContain(JSON.stringify(["state", "output", "echo"]));
+  expect(paths).toContain(JSON.stringify(["output", "echo"]));
+  expect(paths, "a value listed twice is a value a caller can splice into a place it is not")
+    .not.toContain(JSON.stringify(["state", "output", "echo"]));
 });
 
 // The detail view is a strict SUPERSET of the status one: every field the status endpoint
@@ -272,4 +277,117 @@ test("state can be rebuilt from what the detail view lists", async () => {
     params: { path: { id }, query: { resolve: true } },
   });
   expect(server!.state, "the caller's rebuild and the server's must agree").toEqual(rebuilt!.state);
+});
+
+// `external_input` is the third unbounded value on the outward view, and the only one that
+// describes what an instance WANTS rather than what it produced. It is on this view because a
+// parked instance's request is outward-facing: reading it takes no claim, so an operator can see
+// what is being asked without leasing the task away from a worker. The full work contract
+// (result_schema, raises) stays with the CLAIM. specs/external-task-queue.md.
+async function parkedOnExternal(extra: Record<string, unknown> = {}): Promise<{ id: string; name: string }> {
+  const name = `views_ext_${crypto.randomUUID().slice(0, 8)}`;
+  const { error } = await client.PUT("/definitions", {
+    body: {
+      name,
+      input_schema: { type: "object", properties: { amount: { type: "number" } }, required: ["amount"] },
+      tasks: [
+        {
+          id: "review",
+          action: {
+            type: "external",
+            // Deliberately NOT the process input: a transformation of it, so a test cannot pass
+            // by surfacing the wrong slot under the right name.
+            input: { doubled: "$: input.amount * 2", note: "please review", ...extra },
+            result_schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] },
+          },
+          output: "$: self.result",
+          switch: "end",
+        },
+      ],
+      output: { ok: "$: outputs.review.ok" },
+    },
+  });
+  expect(error).toBeUndefined();
+  const { data } = await client.POST("/instances", { body: { process: name, input: { amount: 21 } } });
+  await waitForParked(data!.id);
+  return { id: data!.id, name };
+}
+
+test("the outward view carries the parked external input, under a name of its own", async () => {
+  const { id } = await parkedOnExternal();
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+
+  // The evaluated snapshot, not the process's own input -- which is why the name is not `input`.
+  expect(data!.external_input).toEqual({ doubled: 42, note: "please review" });
+
+  // The whole key set again, for the parked shape: this view gained a field and that must stay a
+  // decision. `state` in particular must not have arrived with it.
+  expect(Object.keys(data as object).sort()).toEqual([
+    "created_at",
+    "external_input",
+    "id",
+    "process",
+    "retry_count",
+    "status",
+    "task",
+    "updated_at",
+    "version",
+    "wait_state",
+  ]);
+});
+
+test("the parked external input is gone once the task is answered", async () => {
+  const { id } = await parkedOnExternal();
+  const { token } = await waitForParked(id);
+  const { error } = await client.POST("/external-tasks/resolve", { body: { token, result: { ok: true } } });
+  expect(error).toBeUndefined();
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  // The engine deletes the slot when it consumes the answer, so absence here is "not parked"
+  // and needs no wait_state check on the read side.
+  expect(data!.external_input, "a settled instance is not asking for anything").toBeUndefined();
+  expect(data!.output).toEqual({ ok: true });
+});
+
+test("an oversized external input is listed at its own path, not inlined and not leaked as a marker", async () => {
+  const blob = "B".repeat(8 * 1024);
+  const { id } = await parkedOnExternal({ blob });
+
+  const { data } = await client.GET("/instances/{id}", { params: { path: { id } } });
+  const asked = data!.external_input as Record<string, unknown>;
+  expect(asked.note, "a small sibling is not dragged out with the big leaf").toBe("please review");
+  expect(asked.blob, "the oversized leaf is absent, not a marker").toBeUndefined();
+  expect(JSON.stringify(asked), "no reference may sit where a value goes").not.toContain("ref");
+
+  // Rooted at the RESPONSE field, which the state slot is now spelled the same as -- the
+  // outward view has no state for a path to point into.
+  const listed = (data!.objects ?? []).find(
+    (o) => o.path?.[0] === "external_input" && o.path?.[1] === "blob",
+  );
+  expect(listed, "past the cutoff it must be listed at the path it belongs to").toBeDefined();
+  expect(JSON.parse(await fetchObject(listed!.ref))).toBe(blob);
+});
+
+// detail moves three state slots to fields of their own, so the same value is never in two
+// places on one response -- and its objects entry names one path, not two. Listed twice, a
+// caller splicing the listing writes the value into a slot the response does not have; listed
+// only under `state`, the field beside it is left short a leaf with nothing pointing at it.
+test("detail says each value once, and lists it at the field that holds it", async () => {
+  const blob = "M".repeat(8 * 1024);
+  const { id } = await parkedOnExternal({ blob });
+
+  const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
+  expect(Object.keys(data!.state as object), "a slot with a field of its own is moved out of state")
+    .not.toContain("external_input");
+
+  const paths = (data!.objects ?? []).map((o) => (o.path ?? []).join("."));
+  expect(paths).toContain("external_input.blob");
+  expect(paths, "the slot is not under state any more, so nothing may be listed there")
+    .not.toContain("state.external_input.blob");
+  expect(new Set(paths).size, "one value, one entry").toBe(paths.length);
+
+  // And the field is spliceable from that single entry.
+  const rebuilt = await spliceObjects(structuredClone(data));
+  expect((rebuilt!.external_input as Record<string, unknown>).blob).toBe(blob);
 });

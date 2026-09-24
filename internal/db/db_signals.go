@@ -64,11 +64,11 @@ func (db *DB) ArmExternalUnlessSignalled(ctx context.Context, inst *model.Proces
 		return false, tx.Commit()
 	}
 
-	// No buffered answer: park. Snapshot the input under _external; UpdateInstance writes the
-	// parked state and clears worker_id/lease (the parked instance is non-runnable, so the
+	// No buffered answer: park. Snapshot the input under external_input; UpdateInstance writes
+	// the parked state and clears worker_id/lease (the parked instance is non-runnable, so the
 	// engine returns noop). No token here: the occurrence is task_epoch on this very row, and a
-	// copy in external_data would be a second thing to keep true.
-	inst.State[model.StateExternal] = map[string]any{"input": input}
+	// copy in the column would be a second thing to keep true.
+	inst.State[model.StateExternalInput] = input
 	inst.WaitState = model.WaitStateExternal
 	inst.WakeAt = wakeAt
 	cols, err := db.persistState(ctx, qtx, inst, now)

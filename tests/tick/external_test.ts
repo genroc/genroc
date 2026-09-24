@@ -54,7 +54,7 @@ test("external parks, is queued, and resumes when resolved", async () => {
   // Parked, with the evaluated input snapshot readable and a token derivable from the row.
   const entry = await queueEntryFor(id);
   expect(entry).toBeDefined();
-  expect(entry!.task_id).toBe("approval");
+  expect(entry!.task).toBe("approval");
   expect(entry!.input).toEqual({ msg: "approve me" });
   expect(entry!.token).toBe(`${id}.0`);
 

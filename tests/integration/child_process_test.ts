@@ -360,7 +360,7 @@ test("child_map — recursive spawn completes with correct aggregated output", a
   const { data } = await client.GET("/instances/{id}/detail", {
     params: { path: { id } },
   });
-  expect((data?.state?.output as any)?.processes).toBe(7);
+  expect((data?.output as any)?.processes).toBe(7);
 });
 
 // Regression: a parent with TWO sequential child tasks must spawn both batches.

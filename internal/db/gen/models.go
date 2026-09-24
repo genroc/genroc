@@ -92,7 +92,6 @@ type ProcessInstance struct {
 	OutputsData            string
 	OutputData             string
 	ErrorInternal          string
-	ExternalData           string
 	EngineState            string
 	Task                   string
 	ErrorCode              string
@@ -107,6 +106,8 @@ type ProcessInstance struct {
 	ErrorData              string
 	SupersededAt           sql.NullInt64
 	RootID                 string
+	ExternalInput          string
+	ExternalLost           int64
 }
 
 type ProcessLog struct {

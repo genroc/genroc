@@ -44,11 +44,11 @@ test("big values are returned as references by default", async () => {
   // stays inline. Cutting the slot would fold any sibling in with it, which is what stopped
   // three runs of one script from sharing the script.
   expect((data!.state as any).input.blob).toBeUndefined();
-  expect((data!.state as any).output.echo).toBeUndefined();
+  expect((data!.output as any).echo).toBeUndefined();
   const input = objectAt(data, ["state", "input", "blob"]);
   expect(input, "the big input leaf is listed").toBeDefined();
   expect(input!.size).toBeGreaterThan(BLOB.length - 10);
-  expect(objectAt(data, ["state", "output", "echo"]), "the big output leaf is listed").toBeDefined();
+  expect(objectAt(data, ["output", "echo"]), "the big output leaf is listed").toBeDefined();
 });
 
 // The recipient fetches what it wants and puts it back. The server never materializes a whole
@@ -69,7 +69,7 @@ test("big values are spliced back by the recipient, not by the server", async ()
 
   await spliceObjects(data);
   expect((data!.state as any).input.blob).toBe(BLOB);
-  expect((data!.state as any).output.echo).toBe(BLOB);
+  expect((data!.output as any).echo).toBe(BLOB);
 });
 
 // A log payload is cut exactly like a context slot: the oversized LEAF moves out, the shell
@@ -101,7 +101,7 @@ test("large log payloads are cut per-leaf and share the instance's object", asyn
 
   // The same bytes the instance's own output externalized: one object, two claims.
   const { data: detail } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  const slot = objectAt(detail, ["state", "output", "echo"]);
+  const slot = objectAt(detail, ["output", "echo"]);
   expect(listed!.ref, "the log shares the context slot's object rather than copying it").toBe(slot!.ref);
 
   // And the recipient splices an entry's section exactly as it splices the body's.
@@ -139,8 +139,8 @@ test("only oversized slots become references; small ones stay inline", async () 
   // Big input → listed and absent; small output → carried inline, and NOT listed.
   expect((data!.state as any).input.blob).toBeUndefined();
   expect(objectAt(data, ["state", "input", "blob"])).toBeDefined();
-  expect((data!.state as any).output).toEqual({ ok: "done" });
-  expect(objectAt(data, ["state", "output"])).toBeUndefined();
+  expect((data!.output as any)).toEqual({ ok: "done" });
+  expect(objectAt(data, ["output"])).toBeUndefined();
 });
 
 // A secret inside a LARGE (externalized) value. The slot is listed rather than carried, so a
@@ -310,12 +310,12 @@ test("a big value round-trips through a child's input and output back to the par
   });
   expect(error).toBeUndefined();
   expect(objectAt(lazy, ["state", "outputs", "spawn", "echo"])).toBeDefined();
-  expect(objectAt(lazy, ["state", "output", "echo"])).toBeDefined();
+  expect(objectAt(lazy, ["output", "echo"])).toBeDefined();
 
   // Spliced: the big value is intact after the full parent → child → parent round-trip.
   await spliceObjects(lazy);
   expect((lazy!.state as any).outputs.spawn.echo).toBe(BLOB);
-  expect((lazy!.state as any).output.echo).toBe(BLOB);
+  expect((lazy!.output as any).echo).toBe(BLOB);
 });
 
 // The section's own contract, rather than a value passing through it.
@@ -335,7 +335,7 @@ test("objects — absent when nothing is externalized, and a 404 for a ref that 
   // field, and one shape everywhere beats a distinction between absent and empty.
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id: started!.id } } });
   expect(data!.objects).toBeUndefined();
-  expect((data!.state as any).output).toEqual({ small: "inline" });
+  expect((data!.output as any)).toEqual({ small: "inline" });
 
   // A hash nobody holds is a 404, not an empty body: the store either has the content or it
   // does not, and a caller splicing a stale reference has to be able to tell.
@@ -374,12 +374,12 @@ test("a copied slot keeps its reference rather than being loaded and rewritten",
   expect(error).toBeUndefined();
 
   const source = objectAt(data, ["state", "outputs", "a", "kept"]);
-  const copied = objectAt(data, ["state", "output", "final", "kept"]);
+  const copied = objectAt(data, ["output", "final", "kept"]);
   expect(source, "the task output's big leaf is externalized").toBeDefined();
   expect(copied, "and the copy carries a reference at the same place, not an inlined value").toBeDefined();
   expect(copied!.ref, "the copy must SHARE the object, not write a second one").toBe(source!.ref);
 
   // And it is still the value it started as.
   await spliceObjects(data);
-  expect((data!.state as any).output.final.kept).toBe(BLOB);
+  expect((data!.output as any).final.kept).toBe(BLOB);
 });

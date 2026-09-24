@@ -53,7 +53,7 @@ test("child in a loop — each pass collects its own child, not every child ever
   const { status, data } = await runToEnd(name, { n: 3 });
   expect(status, JSON.stringify(data?.error_message)).toBe("completed");
   // last_seen proves the THIRD pass's child was collected — not the first, and not a merge.
-  expect(data?.state?.output).toEqual({ rounds: 3, last_seen: 3 });
+  expect(data?.output).toEqual({ rounds: 3, last_seen: 3 });
 });
 
 test("child_list in a loop — the collected array is one pass's children, not the accumulation", async () => {
@@ -92,5 +92,5 @@ test("child_list in a loop — the collected array is one pass's children, not t
 
   const { status, data } = await runToEnd(name, { n: 3, items: [{ i: 1 }, { i: 2 }] });
   expect(status, JSON.stringify(data?.error_message)).toBe("completed");
-  expect((data?.state?.output as any)?.got).toEqual([1, 2]);
+  expect((data?.output as any)?.got).toEqual([1, 2]);
 });

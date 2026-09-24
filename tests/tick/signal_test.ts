@@ -17,7 +17,7 @@ const approvedSchema: any = {
 async function signal(id: string, taskId: string, result: unknown) {
   return ctx.env.client.POST("/external-tasks/signal", {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    body: { instance_id: id, task_id: taskId, result } as any,
+    body: { instance_id: id, task: taskId, result } as any,
   });
 }
 

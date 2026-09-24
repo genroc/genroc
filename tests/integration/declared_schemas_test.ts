@@ -36,7 +36,7 @@ async function run(def: object, input: Record<string, unknown>) {
   const { data: inst } = await client.GET("/instances/{id}/detail", {
     params: { path: { id: data!.id } },
   });
-  return { status, output: inst?.state?.output as Record<string, unknown> | undefined };
+  return { status, output: inst?.output as Record<string, unknown> | undefined };
 }
 
 test("a null in an optional non-nullable slot leaves NO key, rather than a null one", async () => {
@@ -229,7 +229,7 @@ test("child_list conforms each element, repairing one without disturbing the oth
     params: { path: { id: data!.id } },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const got = (inst?.state?.output as any)?.got as { seen: Record<string, unknown> }[];
+  const got = (inst?.output as any)?.got as { seen: Record<string, unknown> }[];
   expect(got).toHaveLength(2);
   // The first element's null was removed; the second was left exactly as it arrived.
   expect(got[0].seen).toEqual({});
@@ -340,7 +340,7 @@ test("a nullable input a declaration repairs is accepted against a child that fo
     params: { path: { id: data!.id } },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((inst?.state?.output as any)?.got?.seen).toEqual({});
+  expect((inst?.output as any)?.got?.seen).toEqual({});
 });
 
 // ─── The conform at every OTHER slot ────────────────────────────────────────────
@@ -489,7 +489,7 @@ test("a task output is conformed, and what later tasks read is the repaired valu
     params: { path: { id: data!.id } },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((inst?.state?.output as any)?.got).toEqual({ keep: 1 });
+  expect((inst?.output as any)?.got).toEqual({ keep: 1 });
 });
 
 // The conform's OTHER half, which nothing at runtime exercised until now: a required nullable
@@ -569,7 +569,7 @@ test("a child_map entry conforms its own input, per entry", async () => {
     params: { path: { id: data!.id } },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const got = (inst?.state?.output as any)?.got;
+  const got = (inst?.output as any)?.got;
   // The declared entry's null was removed before the child ever received it. The undeclared
   // one is the control: the child's own conform is what shaped it, and it is untouched here.
   expect(got.declared.seen).toEqual({});

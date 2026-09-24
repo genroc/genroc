@@ -80,7 +80,7 @@ test("child_list — result is an array in input order despite out-of-order comp
   expect(await waitForInstance(id, 15_000)).toBe("completed");
 
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  const results = (data?.state?.output as any)?.results;
+  const results = (data?.output as any)?.results;
   // Order MUST match the input array, not the (reversed) completion order.
   expect(results).toEqual([
     { doubled: 2, original: 1 },
@@ -148,7 +148,7 @@ test("child_list — empty array spawns no children and yields an empty array", 
   expect(await waitForInstance(id, 10_000)).toBe("completed");
 
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  expect((data?.state?.output as any)?.results).toEqual([]);
+  expect((data?.output as any)?.results).toEqual([]);
 
   // No child of the leaf process was ever created.
   const children = (await listAllInstances()).filter((i) => i.process === leaf);
@@ -365,7 +365,7 @@ test("child_list — the collected array is usable downstream by index", async (
   expect(await waitForInstance(id, 10_000)).toBe("completed");
 
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  const output = data?.state?.output as any;
+  const output = data?.output as any;
   expect(output.first).toBe(2);
   expect(output.third).toBe(6);
 });

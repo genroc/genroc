@@ -369,7 +369,7 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	}
 	if buffered {
 		inst.ConsumedSignalID = sigID
-		delete(inst.State, model.StateExternal)
+		clearExternalPark(inst)
 		inst.WaitState = model.WaitStateNone
 		if f := outcome.Failure; f != nil {
 			// Routed HERE rather than where it was submitted because resolving a retry policy
@@ -394,14 +394,12 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 	// (external.timeout). Both are in errcode.Unknowable(); they stay separate codes so an
 	// on_error rule can tell the two apart.
 	if inst.WaitState == model.WaitStateExternal {
-		ext, _ := inst.State[model.StateExternal].(map[string]any)
-		lost, _ := ext[model.StateExternalLost].(bool)
 		code, msg, event := errcode.ExternalTimeout, "external task timed out", model.EventExternalTimeout
-		if lost {
+		if inst.ExternalLost {
 			code, msg, event = errcode.ExternalLost, "the worker holding this task did not answer before its claim expired", model.EventExternalLost
 		}
 		inst.WaitState = model.WaitStateNone
-		delete(inst.State, model.StateExternal)
+		clearExternalPark(inst)
 		e.audit(inst, logEvent{Level: model.LogWarn, Event: event, Task: task.ID, Msg: msg, Code: code})
 		return nil, stop(e.handleCallError(inst, task, msg, code))
 	}
@@ -455,6 +453,13 @@ func (e *Engine) runExternal(ctx context.Context, inst *model.ProcessInstance, t
 		wakeAt:   wakeAt,
 		armedMsg: armedMsg,
 	}})
+}
+
+// clearExternalPark drops both halves of the park together. The marker is a column of its own
+// now, so leaving it set would make the NEXT arming of this task report external.lost.
+func clearExternalPark(inst *model.ProcessInstance) {
+	delete(inst.State, model.StateExternalInput)
+	inst.ExternalLost = false
 }
 
 // externalArm is an external wait for persist to install: either it parks the instance on

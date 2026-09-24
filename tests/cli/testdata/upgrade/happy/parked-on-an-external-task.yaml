@@ -6,7 +6,7 @@
 # disturbing it would throw away work for nothing. The sibling case
 # refused/result-narrowed-while-a-worker-holds-it is the same state where that does not hold.
 #
-# The state carries `_external`, engine bookkeeping no definition declares, so this is also what
+# The state carries `external_input`, engine bookkeeping no definition declares, so this is also what
 # would catch a migration that strips what it does not recognise and silently unparks the row.
 apply:
   - definitions:
@@ -32,10 +32,10 @@ apply:
 # Two live positions, and they are the two an external task has: sitting ON the task with
 # nothing asked yet, and ARMED with the question out. Only the second has anything in flight, so
 # only the second is the state the result-contract gate is about — and the state slots differ,
-# which is what `_external` appearing between them says.
+# which is what `external_input` appearing between them says.
 start: {process: parkedproc, input: {n: 3}}
 at:
   - {ticks: 0, resting: {task: hold, wait_state: ""},         after: {wait_state: "", state_keys: [input, last_error, outputs]}}
-  - {ticks: 1, resting: {task: hold, wait_state: external},   after: {wait_state: external, state_keys: [_external, input, last_error, outputs]}}
+  - {ticks: 1, resting: {task: hold, wait_state: external},   after: {wait_state: external, state_keys: [external_input, input, last_error, outputs]}}
 after: {task: hold, status: running, version: 2}
 run: [parkedproc, --from, "1", --to, "2"]

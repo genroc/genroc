@@ -129,19 +129,11 @@ func ParseExternalToken(token string) (instanceID string, taskEpoch, claimEpoch 
 	return id, n, c, true, true
 }
 
-// Engine-owned STATE keys for the external-task lifecycle. Underscore-prefixed like
-// _spawn_* so they are clearly bookkeeping and not a definition's to read.
-const (
-	// StateExternal holds the parked external task's metadata: {task_id, input}. The queue
-	// endpoint reads input from here and derives the token from the row's task_epoch;
-	// never exposed as process output.
-	StateExternal = "_external"
-	// StateExternalLost, inside _external, marks an arming whose holder's claim lapsed without an
-	// answer on an only_once task. It is written INSTEAD of handing the work out again, and the
-	// engine turns it into errcode.ExternalLost on its next claim. A marker rather than a
-	// derivation: external_worker_id alone cannot say whether the lapse was already reported.
-	StateExternalLost = "lost"
-)
+// StateExternalInput holds the parked external task's evaluated input snapshot -- the value
+// itself, not a wrapper. The task id is the row's, not a copy. Spelled the same at every layer
+// (column, context key, objects path root, API field): an objects path that named the slot
+// differently from the context could not be placed on read. specs/object-store.md.
+const StateExternalInput = "external_input"
 
 // ProcessInstance is a single running execution of a ProcessDefinition.
 // ProcessVersion is pinned at creation — process definition changes
@@ -162,9 +154,14 @@ type ProcessInstance struct {
 	ExternalWorkerID       *string
 	ExternalLeaseExpiresAt *time.Time
 	ExternalClaimEpoch     int64
+	// ExternalLost marks an arming whose holder's claim lapsed without an answer on an only_once
+	// task. Written INSTEAD of handing the work out again, and the engine turns it into
+	// errcode.ExternalLost on its next pass. A marker rather than a derivation: external_worker_id
+	// alone cannot say whether the lapse was already reported.
+	ExternalLost bool
 
 	// State is everything this instance holds: the slots a definition reads plus the engine's
-	// bookkeeping (_error_data, _external, _spawn_*). The set is CLOSED -- storage names these
+	// bookkeeping (_error_data, external_input, _spawn_*). The set is CLOSED -- storage names these
 	// keys and drops the rest -- and nothing derivable belongs here. Not "context", which is
 	// the expression scope: these slots plus config and self.
 	State map[string]any

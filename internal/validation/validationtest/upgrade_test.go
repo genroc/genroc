@@ -115,13 +115,16 @@ func TestMigrateState_RefusesWhatCannotBeReconciled(t *testing.T) {
 }
 
 func TestMigrateState_CarriesEngineBookkeepingThrough(t *testing.T) {
-	// A real state holds more than input/outputs: _external for a parked task, and the spawn
+	// A real state holds more than input/outputs: external_input for a parked task, and the spawn
 	// discriminants for a live child. compat's layers describe none of it -- they are about the
 	// data a definition can see -- so the migration must carry it through untouched. Losing
-	// _external unparks an instance from a task it is still waiting on.
+	// external_input unparks an instance from a task it is still waiting on.
+	//
+	// Carry-through is "the layer does not describe this key", not "the key starts with _", so
+	// external_input is safe only while no layer declares a property of that name.
 	to := defFrom(t, twoTaskDef(false))
 	state := stateAtWork()
-	state["_external"] = map[string]any{"input": map[string]any{"n": float64(1)}}
+	state[model.StateExternalInput] = map[string]any{"n": float64(1)}
 	state["_spawn_child_key"] = "out"
 
 	got, err := validation.MigrateState(to, "work", state, nil)
@@ -131,9 +134,9 @@ func TestMigrateState_CarriesEngineBookkeepingThrough(t *testing.T) {
 	if got["_spawn_child_key"] != "out" {
 		t.Errorf("_spawn_child_key came back %#v; the slot a child occupies is what its upgrade reads", got["_spawn_child_key"])
 	}
-	ext, ok := got["_external"].(map[string]any)
-	if in, _ := ext["input"].(map[string]any); !ok || in["n"] != float64(1) {
-		t.Errorf("_external came back %#v; a parked instance would be unparked by its own upgrade", got["_external"])
+	ext, ok := got[model.StateExternalInput].(map[string]any)
+	if !ok || ext["n"] != float64(1) {
+		t.Errorf("external_input came back %#v; a parked instance would be unparked by its own upgrade", got[model.StateExternalInput])
 	}
 }
 

@@ -437,10 +437,10 @@ const getChildrenForTask = `-- name: GetChildrenForTask :many
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data, superseded_at, root_id
+       next_replayable, error_data, superseded_at, root_id, external_input, external_lost
 FROM process_instances
 WHERE parent_id = ?1
   AND spawn_task_id = ?2
@@ -483,7 +483,6 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.OutputsData,
 			&i.OutputData,
 			&i.ErrorInternal,
-			&i.ExternalData,
 			&i.EngineState,
 			&i.Task,
 			&i.ErrorCode,
@@ -498,6 +497,8 @@ func (q *Queries) GetChildrenForTask(ctx context.Context, arg GetChildrenForTask
 			&i.ErrorData,
 			&i.SupersededAt,
 			&i.RootID,
+			&i.ExternalInput,
+			&i.ExternalLost,
 		); err != nil {
 			return nil, err
 		}
@@ -568,10 +569,10 @@ const getInstance = `-- name: GetInstance :one
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data, superseded_at, root_id
+       next_replayable, error_data, superseded_at, root_id, external_input, external_lost
 FROM process_instances
 WHERE id = ?1
 `
@@ -605,7 +606,6 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.OutputsData,
 		&i.OutputData,
 		&i.ErrorInternal,
-		&i.ExternalData,
 		&i.EngineState,
 		&i.Task,
 		&i.ErrorCode,
@@ -620,6 +620,8 @@ func (q *Queries) GetInstance(ctx context.Context, id string) (ProcessInstance, 
 		&i.ErrorData,
 		&i.SupersededAt,
 		&i.RootID,
+		&i.ExternalInput,
+		&i.ExternalLost,
 	)
 	return i, err
 }
@@ -852,25 +854,25 @@ func (q *Queries) InsertDependency(ctx context.Context, arg InsertDependencyPara
 const insertInstance = `-- name: InsertInstance :exec
 INSERT INTO process_instances
     (id, process_name, process_version, task,
-     input_data, outputs_data, output_data, error_internal, error_data, external_data, engine_state,
+     input_data, outputs_data, output_data, error_internal, error_data, external_input, external_lost, engine_state,
      parent_id, root_id, spawn_task_id, parent_task_epoch, task_epoch,
      call_stack, retry_count, wake_at, status, wait_state, error_message, error_code, created_at, updated_at, objects,
      next_replayable)
 VALUES
     (?1, ?2, ?3, ?4,
      ?5, ?6, ?7,
-     ?8, ?9, ?10, ?11,
-     ?12,
+     ?8, ?9, ?10, ?11, ?12,
+     ?13,
      -- The tree, read off the PARENT rather than taken from the caller: parent_id is the one
      -- edge the whole system agrees on, so deriving from anything else (a call_stack a fixture
      -- forgot, a field a new creation site did not set) would put a row in a tree of its own
      -- and lose its rows from the trail without erroring.
-     COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = ?12), ?1),
-     ?13, ?14, ?15,
-     ?16, ?17, ?18,
-     ?19, ?20, ?21, ?22,
-     ?23, ?24, ?25,
-     ?26)
+     COALESCE((SELECT p.root_id FROM process_instances p WHERE p.id = ?13), ?1),
+     ?14, ?15, ?16,
+     ?17, ?18, ?19,
+     ?20, ?21, ?22, ?23,
+     ?24, ?25, ?26,
+     ?27)
 `
 
 type InsertInstanceParams struct {
@@ -883,7 +885,8 @@ type InsertInstanceParams struct {
 	OutputData      string
 	ErrorInternal   string
 	ErrorData       string
-	ExternalData    string
+	ExternalInput   string
+	ExternalLost    int64
 	EngineState     string
 	ParentID        string
 	SpawnTaskID     string
@@ -913,7 +916,8 @@ func (q *Queries) InsertInstance(ctx context.Context, arg InsertInstanceParams) 
 		arg.OutputData,
 		arg.ErrorInternal,
 		arg.ErrorData,
-		arg.ExternalData,
+		arg.ExternalInput,
+		arg.ExternalLost,
 		arg.EngineState,
 		arg.ParentID,
 		arg.SpawnTaskID,
@@ -1190,10 +1194,10 @@ const nonTerminalSubtree = `-- name: NonTerminalSubtree :many
 SELECT id, process_name, process_version, parent_id,
        call_stack, retry_count, wake_at, status, error_message,
        created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-       input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
+       input_data, outputs_data, output_data, error_internal, engine_state, task,
        error_code, lease_epoch, task_epoch, parent_task_epoch,
        external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-       next_replayable, error_data, superseded_at, root_id
+       next_replayable, error_data, superseded_at, root_id, external_input, external_lost
 FROM process_instances
 WHERE root_id = ?1
   AND (process_instances.id = ?1
@@ -1239,7 +1243,6 @@ func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]Proces
 			&i.OutputsData,
 			&i.OutputData,
 			&i.ErrorInternal,
-			&i.ExternalData,
 			&i.EngineState,
 			&i.Task,
 			&i.ErrorCode,
@@ -1254,6 +1257,8 @@ func (q *Queries) NonTerminalSubtree(ctx context.Context, root string) ([]Proces
 			&i.ErrorData,
 			&i.SupersededAt,
 			&i.RootID,
+			&i.ExternalInput,
+			&i.ExternalLost,
 		); err != nil {
 			return nil, err
 		}
@@ -1569,25 +1574,26 @@ SET task             = ?1,
     output_data      = ?5,
     error_internal   = ?6,
     error_data       = ?7,
-    external_data    = ?8,
-    engine_state     = ?9,
-    objects          = ?10,
-    retry_count      = ?11,
-    wake_at    = ?12,
+    external_input   = ?8,
+    external_lost    = ?9,
+    engine_state     = ?10,
+    objects          = ?11,
+    retry_count      = ?12,
+    wake_at    = ?13,
     status           = CASE WHEN status = 'pausing'
-                            AND CAST(?13 AS TEXT) = 'running'
+                            AND CAST(?14 AS TEXT) = 'running'
                             THEN 'paused'
                             WHEN status = 'cancelling'
-                            AND CAST(?13 AS TEXT) = 'running'
-                            THEN 'cancelled' ELSE CAST(?13 AS TEXT) END,
-    wait_state       = ?14,
-    error_message    = ?15,
-    error_code       = ?16,
-    updated_at       = ?17,
+                            AND CAST(?14 AS TEXT) = 'running'
+                            THEN 'cancelled' ELSE CAST(?14 AS TEXT) END,
+    wait_state       = ?15,
+    error_message    = ?16,
+    error_code       = ?17,
+    updated_at       = ?18,
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = ?18 AND lease_epoch = ?19
-  AND COALESCE(worker_id, '') = CAST(?20 AS TEXT)
+WHERE id = ?19 AND lease_epoch = ?20
+  AND COALESCE(worker_id, '') = CAST(?21 AS TEXT)
 `
 
 type UpdateInstanceParams struct {
@@ -1598,7 +1604,8 @@ type UpdateInstanceParams struct {
 	OutputData     string
 	ErrorInternal  string
 	ErrorData      string
-	ExternalData   string
+	ExternalInput  string
+	ExternalLost   int64
 	EngineState    string
 	Objects        string
 	RetryCount     int64
@@ -1629,7 +1636,8 @@ func (q *Queries) UpdateInstance(ctx context.Context, arg UpdateInstanceParams) 
 		arg.OutputData,
 		arg.ErrorInternal,
 		arg.ErrorData,
-		arg.ExternalData,
+		arg.ExternalInput,
+		arg.ExternalLost,
 		arg.EngineState,
 		arg.Objects,
 		arg.RetryCount,
@@ -1656,19 +1664,20 @@ SET task             = ?1,
     task_epoch       = ?3,
     outputs_data     = ?4,
     error_internal   = ?5,
-    external_data    = ?6,
-    engine_state     = ?7,
-    objects          = ?8,
-    retry_count      = ?9,
-    wake_at    = ?10,
+    external_input   = ?6,
+    external_lost    = ?7,
+    engine_state     = ?8,
+    objects          = ?9,
+    retry_count      = ?10,
+    wake_at    = ?11,
     status           = CASE WHEN status = 'pausing'    THEN 'paused'
                             WHEN status = 'cancelling' THEN 'cancelled' ELSE status END,
-    wait_state       = ?11,
-    updated_at       = ?12,
+    wait_state       = ?12,
+    updated_at       = ?13,
     worker_id        = NULL,
     lease_expires_at = NULL
-WHERE id = ?13 AND lease_epoch = ?14
-  AND COALESCE(worker_id, '') = CAST(?15 AS TEXT)
+WHERE id = ?14 AND lease_epoch = ?15
+  AND COALESCE(worker_id, '') = CAST(?16 AS TEXT)
 `
 
 type UpdateInstanceProgressParams struct {
@@ -1677,7 +1686,8 @@ type UpdateInstanceProgressParams struct {
 	TaskEpoch      int64
 	OutputsData    string
 	ErrorInternal  string
-	ExternalData   string
+	ExternalInput  string
+	ExternalLost   int64
 	EngineState    string
 	Objects        string
 	RetryCount     int64
@@ -1700,7 +1710,8 @@ func (q *Queries) UpdateInstanceProgress(ctx context.Context, arg UpdateInstance
 		arg.TaskEpoch,
 		arg.OutputsData,
 		arg.ErrorInternal,
-		arg.ExternalData,
+		arg.ExternalInput,
+		arg.ExternalLost,
 		arg.EngineState,
 		arg.Objects,
 		arg.RetryCount,
@@ -1725,13 +1736,14 @@ SET process_version = ?1,
     output_data     = ?4,
     error_internal  = ?5,
     error_data      = ?6,
-    external_data   = ?7,
-    engine_state    = ?8,
-    objects         = ?9,
-    updated_at      = ?10
-WHERE id = ?11
-  AND process_version = ?12
-  AND task = ?13
+    external_input  = ?7,
+    external_lost   = ?8,
+    engine_state    = ?9,
+    objects         = ?10,
+    updated_at      = ?11
+WHERE id = ?12
+  AND process_version = ?13
+  AND task = ?14
   AND status IN ('paused', 'failed')
   AND worker_id IS NULL
 `
@@ -1743,7 +1755,8 @@ type UpgradeInstanceVersionParams struct {
 	OutputData    string
 	ErrorInternal string
 	ErrorData     string
-	ExternalData  string
+	ExternalInput string
+	ExternalLost  int64
 	EngineState   string
 	Objects       string
 	UpdatedAt     int64
@@ -1774,7 +1787,8 @@ func (q *Queries) UpgradeInstanceVersion(ctx context.Context, arg UpgradeInstanc
 		arg.OutputData,
 		arg.ErrorInternal,
 		arg.ErrorData,
-		arg.ExternalData,
+		arg.ExternalInput,
+		arg.ExternalLost,
 		arg.EngineState,
 		arg.Objects,
 		arg.UpdatedAt,

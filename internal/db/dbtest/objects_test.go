@@ -463,10 +463,7 @@ func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
 				ID: "inst-extobj", ProcessName: "test", Task: "run", Status: model.StatusRunning,
 				WaitState: model.WaitStateExternal,
 				State: map[string]any{
-					model.StateExternal: map[string]any{
-						"task_id": "run",
-						"input":   map[string]any{"code": bundle, "n": 1},
-					},
+					model.StateExternalInput: map[string]any{"code": bundle, "n": 1},
 				},
 			}
 			if err := b.db.SaveInstance(inst); err != nil {
@@ -477,17 +474,17 @@ func TestObjects_ExternalInputClaimIsReleased(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetInstance: %v", err)
 			}
-			ext := parked.State[model.StateExternal].(map[string]any)
-			ref, ok := ext["input"].(map[string]any)["code"].(*model.ObjectRef)
+			ext := parked.State[model.StateExternalInput].(map[string]any)
+			ref, ok := ext["code"].(*model.ObjectRef)
 			if !ok {
-				t.Fatalf("the bundle was not externalized: %T", ext["input"].(map[string]any)["code"])
+				t.Fatalf("the bundle was not externalized: %T", ext["code"])
 			}
 			if n, err := b.db.CountObjectRefs(ref.Ref); err != nil || n != 1 {
 				t.Fatalf("claims while parked = %d (err=%v), want 1", n, err)
 			}
 
-			// The task resolves: _external goes, and the claim must go with it.
-			delete(parked.State, model.StateExternal)
+			// The task resolves: external_input goes, and the claim must go with it.
+			delete(parked.State, model.StateExternalInput)
 			parked.WaitState = model.WaitStateNone
 			if err := b.db.UpdateInstanceProgress(parked); err != nil {
 				t.Fatalf("UpdateInstanceProgress: %v", err)
@@ -614,7 +611,7 @@ func TestState_RoundTripsWhole(t *testing.T) {
 	  "output":  {"done": true},
 	  "last_error":   {"task": "t", "code": "boom", "message": "m", "data": {"why": "x"}, "child_index": 2},
 	  "_error_data": {"retry_after": 3600},
-	  "_external": {"input": {"k": 1}},
+	  "external_input": {"k": 1},
 	  "_spawn_child_key": "out",
 	  "_spawn_index": 0
 	}`, blob)
@@ -667,6 +664,58 @@ func TestState_RoundTripsWhole(t *testing.T) {
 			have, _ := json.Marshal(got.State)
 			if string(want) != string(have) {
 				t.Errorf("state did not survive the round trip\n  stored: %s\n  read:   %s", want, have)
+			}
+		})
+	}
+}
+
+// The parked input survives a write that is not about it. This is what the single spelling of
+// external_input buys: the objects path stored on the row is the context key the read places it
+// back under, so a round trip returns the marker and the next write re-declares it. Spell the two
+// differently and Place finds nothing, the write emits no ref, the claim is released and a parked
+// task loses its input -- with no error at any step.
+func TestObjects_ExternalInputSurvivesAnUnrelatedWrite(t *testing.T) {
+	for _, b := range testBackends(t) {
+		t.Run(b.name, func(t *testing.T) {
+			b.db.SetObjectGrace(time.Hour)
+			bundle := bigString("bundle")
+			inst := &model.ProcessInstance{
+				ID: "inst-extkeep", ProcessName: "test", Task: "run", Status: model.StatusRunning,
+				WaitState: model.WaitStateExternal,
+				State: map[string]any{
+					model.StateExternalInput: map[string]any{"code": bundle},
+				},
+			}
+			if err := b.db.SaveInstance(inst); err != nil {
+				t.Fatalf("SaveInstance: %v", err)
+			}
+			parked, err := b.db.GetInstance("inst-extkeep")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			ref, ok := parked.State[model.StateExternalInput].(map[string]any)["code"].(*model.ObjectRef)
+			if !ok {
+				t.Fatalf("the read did not place the ref back: %T — the stored path and the context key have diverged",
+					parked.State[model.StateExternalInput].(map[string]any)["code"])
+			}
+
+			// A write about something else entirely. The parked task is untouched, so its claim
+			// must stand.
+			parked.RetryCount++
+			if err := b.db.UpdateInstanceProgress(parked); err != nil {
+				t.Fatalf("UpdateInstanceProgress: %v", err)
+			}
+			if n, err := b.db.CountObjectRefs(ref.Ref); err != nil || n != 1 {
+				t.Fatalf("claims after an unrelated write = %d (err=%v), want 1 — the parked input was dropped by a write that never mentioned it", n, err)
+			}
+
+			// And it is still readable as the value, not as a hole.
+			again, err := b.db.GetInstance("inst-extkeep")
+			if err != nil {
+				t.Fatalf("GetInstance: %v", err)
+			}
+			if _, ok := again.State[model.StateExternalInput].(map[string]any)["code"].(*model.ObjectRef); !ok {
+				t.Fatalf("the parked input lost its reference across a write")
 			}
 		})
 	}

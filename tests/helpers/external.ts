@@ -9,7 +9,7 @@ import { client as defaultClient } from "./client.ts";
 
 export type ParkedTask = {
   token: string;
-  task_id?: string;
+  task?: string;
   input?: unknown;
   claimed_by?: string;
   claim_expires?: string;
@@ -24,9 +24,9 @@ export async function parkedTask(id: string, c: Client = defaultClient): Promise
   if (!data || data.wait_state !== "external") return undefined;
   return {
     token: `${id}.${data.task_epoch}`,
-    task_id: data.task,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    input: (data.state as any)?._external?.input,
+    task: data.task,
+    // The flat field, not a reach into state: both views carry it and it is typed.
+    input: data.external_input,
     claimed_by: data.external_worker_id,
     claim_expires: data.external_lease_expires_at,
   };
@@ -52,17 +52,19 @@ export async function tokenFor(id: string, c: Client = defaultClient): Promise<s
 /**
  * Every task parked on an external wait within one process, discovered through the INSTANCES
  * listing — which is where fleet-wide discovery lives now that the external-task listing is
- * gone. `wait_state` comes back on each row, so the filter is client-side.
+ * gone. `wait_state` is a server-side filter, so the page holds parked rows and nothing else.
  */
 export async function parkedInProcess(
   process: string,
   c: Client = defaultClient,
 ): Promise<ParkedTask[]> {
-  const { data } = await c.GET("/instances", { params: { query: { process, status: "running" } } });
+  const { data } = await c.GET("/instances", {
+    params: { query: { process, status: "running", wait_state: "external" } },
+  });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = ((data as any)?.items ?? []) as any[];
   const out: ParkedTask[] = [];
-  for (const r of rows.filter((r) => r.wait_state === "external")) {
+  for (const r of rows) {
     const t = await parkedTask(r.id, c);
     if (t) out.push(t);
   }

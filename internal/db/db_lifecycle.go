@@ -786,8 +786,9 @@ func (db *DB) RetryProcess(ctx context.Context, id string, force bool, actor str
 			ErrorInternal: raw.ErrorInternal,
 			// A revived instance has concluded nothing, so the fault it was reporting goes with the
 			// status that carried it.
-			ErrorData:    "",
-			ExternalData: raw.ExternalData,
+			ErrorData:     "",
+			ExternalInput: raw.ExternalInput,
+			ExternalLost:  raw.ExternalLost,
 			// The one-shot override marker rides here when this node owns a raised batch: the
 			// engine reads it on the collect that follows and grants those slots an attempt
 			// past their budget, then clears it. specs/child-error-handling.md s12.
@@ -956,7 +957,8 @@ func (db *DB) parkParentWaiting(ctx context.Context, qtx *dbgen.Queries, parent 
 		OutputData:    parentCols.OutputData,
 		ErrorInternal: parentCols.ErrorInternal,
 		ErrorData:     parentCols.ErrorData,
-		ExternalData:  parentCols.ExternalData,
+		ExternalInput: parentCols.ExternalInput,
+		ExternalLost:  boolToInt(parentCols.ExternalLost),
 		EngineState:   parentCols.EngineState,
 		Objects:       parentCols.Objects,
 		RetryCount:    int64(parent.RetryCount),

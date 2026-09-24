@@ -468,15 +468,15 @@ test("script task — a large script leaves the instance and is listed, not carr
 
   for (const e of entries) {
     // The code is gone from the input and named by the entry instead.
-    expect(e.input?.code, "the bundle must not be carried in the task input").toBeUndefined();
+    expect(e.external_input?.code, "the bundle must not be carried in the task input").toBeUndefined();
     const listed = (e.objects ?? []).find(
-      (o: any) => o.path.length === 2 && o.path[0] === "input" && o.path[1] === "code",
+      (o: any) => o.path.length === 2 && o.path[0] === "external_input" && o.path[1] === "code",
     );
-    expect(listed, "the bundle is listed at input.code").toBeDefined();
+    expect(listed, "the bundle is listed at external_input.code").toBeDefined();
     expect(listed.size).toBeGreaterThan(code.length - 100);
     // The per-instance half stays inline: externalizing the whole input would fold it in and
     // give every instance a different hash, which is the sharing this exists for, lost.
-    expect(e.input?.input?.n).toBeGreaterThan(0);
+    expect(e.external_input?.input?.n).toBeGreaterThan(0);
   }
 
   // One object, two tasks: byte-identical code across instances is stored once.

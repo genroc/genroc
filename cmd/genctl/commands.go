@@ -259,7 +259,7 @@ func channelStatus(server string, rest []string) {
 		Name      string `json:"name"`
 		Version   int    `json:"version"`
 		StaleRefs []struct {
-			TaskID         string `json:"task_id"`
+			TaskID         string `json:"task"`
 			ChildName      string `json:"child_name"`
 			BakedVersion   int    `json:"baked_version"`
 			ChannelVersion int    `json:"channel_version"`
@@ -397,7 +397,7 @@ func runResolveCmd(server string, args []string) {
 	endpoint, target := "/api/external-tasks/resolve", map[string]any{"token": ref}
 	if byInstance {
 		id := resolveInstanceID(ref)
-		endpoint, target = "/api/external-tasks/signal", map[string]any{"instance_id": id, "task_id": *taskFlag}
+		endpoint, target = "/api/external-tasks/signal", map[string]any{"instance_id": id, "task": *taskFlag}
 		ref = id
 	}
 
@@ -463,14 +463,15 @@ type instanceView struct {
 	RetryCount int    `json:"retry_count"`
 	// The error this instance REPORTS. The one it CAUGHT is a state slot, and so reaches
 	// `detail` only.
-	ErrorCode    string         `json:"error_code"`
-	ErrorMessage string         `json:"error_message"`
-	ErrorData    any            `json:"error_data"`
-	CreatedAt    string         `json:"created_at"`
-	UpdatedAt    string         `json:"updated_at"`
-	Output       any            `json:"output"`
-	State        map[string]any `json:"state"`
-	Objects      []objectEntry  `json:"objects"`
+	ErrorCode     string         `json:"error_code"`
+	ErrorMessage  string         `json:"error_message"`
+	ErrorData     any            `json:"error_data"`
+	CreatedAt     string         `json:"created_at"`
+	UpdatedAt     string         `json:"updated_at"`
+	Output        any            `json:"output"`
+	ExternalInput any            `json:"external_input"`
+	State         map[string]any `json:"state"`
+	Objects       []objectEntry  `json:"objects"`
 }
 
 func runGetCmd(server string, args []string) {
@@ -498,6 +499,12 @@ func runGetCmd(server string, args []string) {
 	if inst.Output != nil {
 		fmt.Println("\nOutput:")
 		fmt.Println(yamlBlock(withObjectRefs(inst.Output, inst.Objects, "output")))
+	}
+	// What a parked instance is ASKING for. Last because it is the live case and the two
+	// above are the settled ones; present only while the task is unanswered.
+	if inst.ExternalInput != nil {
+		fmt.Println("\nExternal input:")
+		fmt.Println(yamlBlock(withObjectRefs(inst.ExternalInput, inst.Objects, "external_input")))
 	}
 }
 

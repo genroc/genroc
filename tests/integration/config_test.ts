@@ -47,7 +47,7 @@ test("config resolves from the environment and is usable in expressions", async 
     params: { path: { id } },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const output = (data?.state as any)?.output;
+  const output = (data?.output as any);
   expect(output.url).toBe("https://config.example.test");
   expect(output.port).toBe(8080); // coerced to a number, not the string "8080"
   expect(output.region).toBe("us"); // default applied (e2e_region unset)

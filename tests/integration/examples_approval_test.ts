@@ -112,7 +112,7 @@ async function waitForQueued(
     if (opts.tick) await api.POST("/tick", {});
     const items = await parkedInProcess(approval.name, api);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const hit = items.find((t) => t.task_id === taskId && (t.input as any)?.requester === marker);
+    const hit = items.find((t) => t.task === taskId && (t.input as any)?.requester === marker);
     if (hit) return hit;
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -183,7 +183,7 @@ test("examples/expense-approval: a rejection raises expense_rejected", async () 
 
     // The second submission route: address the instance + task directly, no token.
     const { error } = await client.POST("/external-tasks/signal", {
-      body: { instance_id: id, task_id: "review", result: { approved: false, reviewer: "bob" } },
+      body: { instance_id: id, task: "review", result: { approved: false, reviewer: "bob" } },
     });
     expect(error).toBeUndefined();
 

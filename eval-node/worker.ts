@@ -43,8 +43,8 @@ type ObjectEntry = { path: (string | number)[]; ref: string; size: number };
 type QueueTask = {
   token: string;
   process: string;
-  task_id: string;
-  input: unknown;
+  task: string;
+  external_input: unknown;
   objects?: ObjectEntry[];
   raises?: Record<string, unknown>;
 };
@@ -76,15 +76,15 @@ async function fetchObject(ref: string): Promise<unknown> {
 /** Put each listed value back where its path says it belongs. Paths are arrays of keys, so this
  *  needs no parser: the whole reason they are not JSON Pointer strings. */
 async function resolveObjects(job: QueueTask): Promise<unknown> {
-  let input: any = job.input;
+  let input: any = job.external_input;
   for (const e of job.objects ?? []) {
     const value = await fetchObject(e.ref);
     if (e.path.length === 0) {
       input = value;
       continue;
     }
-    // The path is rooted at the entry and starts with "input", which is the value being rebuilt.
-    const rest = e.path[0] === "input" ? e.path.slice(1) : e.path;
+    // The path is rooted at the entry and starts with "external_input", the value being rebuilt.
+    const rest = e.path[0] === "external_input" ? e.path.slice(1) : e.path;
     if (rest.length === 0) {
       input = value;
       continue;

@@ -59,8 +59,8 @@ test("a claim leases the task, and the granted token answers it", async () => {
   // The claim token is three-part: instance, arming, grant. The queue's own two-part token
   // names no grant and is refused while this one is live.
   expect(job.token.split(".").length).toBe(3);
-  expect(job.task_id).toBe("work");
-  expect(job.input).toEqual({ job: "compute" });
+  expect(job.task).toBe("work");
+  expect(job.external_input).toEqual({ job: "compute" });
   expect(job.raises).toHaveProperty("worker_failed");
 
   const { error } = await client.POST("/external-tasks/resolve", {
@@ -180,7 +180,7 @@ test("claim filters by task, and takes a batch", async () => {
   expect(await claim("worker-1", name, { task: "failed", limit: 10 })).toEqual([]);
   const got = await claimWhenReady("worker-1", name, { task: "work", limit: 10 });
   expect(got.length).toBeGreaterThan(0);
-  for (const job of got) expect(job.task_id).toBe("work");
+  for (const job of got) expect(job.task).toBe("work");
 });
 
 test("claim rejects a missing worker_id, and renew rejects a non-claim token", async () => {

@@ -305,7 +305,7 @@ test("retry with parallel children — only the failed child re-runs", async () 
     const { data: detail } = await client.GET("/instances/{id}/detail", {
       params: { path: { id: rootId } },
     });
-    expect((detail?.state?.output as any)?.kids).toEqual({
+    expect((detail?.output as any)?.kids).toEqual({
       good: { slot: "good" },
       bad: { slot: "bad" },
     });
@@ -397,7 +397,7 @@ test("retry re-spawns a raised child once its cause is fixed", async () => {
     expect(await waitForInstance(id, 15_000)).toBe("completed");
     expect(mock.requestCount(), "the replacement child really ran; a revived one would not have called out again").toBe(1);
     const { data: detail } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-    expect((detail?.state?.output as any)?.kid).toEqual({ reached: true });
+    expect((detail?.output as any)?.kid).toEqual({ reached: true });
 
     // The slot now has two rows, and the placeholder must name the LIVE one. The retired
     // attempt is the older of the two, so a single `child` that took the first row would
@@ -470,7 +470,7 @@ test("child task retry — a raised slot is re-spawned until its budget is spent
 
     expect(await waitForInstance(id, 20_000)).toBe("completed");
     const { data: detail } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
-    expect(detail?.state?.output, "the rule routes once the budget is spent").toEqual({ gave_up: true });
+    expect(detail?.output, "the rule routes once the budget is spent").toEqual({ gave_up: true });
     // 1 first attempt + 2 retries. Fewer means admission never fired; more means the counter
     // reset each round, which is the shape that never terminates.
     expect(mock.requestCount(), "the slot ran once per admitted attempt").toBe(3);

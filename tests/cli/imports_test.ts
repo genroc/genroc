@@ -136,7 +136,7 @@ test("apply — an imported file becomes the slot's value, and $ survives it ver
   const id = startedID(runCli(bin, ["run", name]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
   const instance = JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout);
-  expect(instance.state.output).toBe(snippet);
+  expect(instance.output).toBe(snippet);
 });
 
 test("apply — the manifest carries the inferred input type and the declared output type", () => {
@@ -348,7 +348,7 @@ test("apply — a relative -f path still leaves the resolver a base it can join"
   const id = startedID(runCli(bin, ["run", name]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
   const instance = JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout);
-  expect(instance.state.output).toBe("relative\n");
+  expect(instance.output).toBe("relative\n");
 });
 
 test("compat — the document is resolved before it is compared", () => {
@@ -509,7 +509,7 @@ test("apply — $$ escapes the directive, leaving a literal string", async () =>
   const id = startedID(runCli(bin, ["run", name]).stdout);
   expect(await waitForInstance(id)).toBe("completed");
   const instance = JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout);
-  expect(instance.state.output).toBe("$import: ./body.txt");
+  expect(instance.output).toBe("$import: ./body.txt");
 });
 
 // The OTHER half of that escape, and the half that was missing. The walk looking for directives
@@ -1210,7 +1210,7 @@ test("evaluator importer — a data file imported as JSON is inlined and reaches
   const id = startedID(`${started.stdout}${started.stderr}`);
   expect(await waitForInstance(id)).toBe("completed");
   const instance = JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout);
-  expect(instance.state.output.fee, "0.25 must have been baked into the bundle").toBe(25);
+  expect(instance.output.fee, "0.25 must have been baked into the bundle").toBe(25);
 }, 60_000);
 
 test("evaluator importer — an import that resolves to nothing is a failed apply", () => {
@@ -1334,8 +1334,8 @@ test("evaluator importer — a node builtin survives the bundle and runs in the 
 
   // Only a real builtin can answer this: under the browser target `node:fs` bundles to `{}`
   // and `readFileSync` is undefined, so the script reaches the realm and throws.
-  expect(instance.state.output.fee).toBe(25);
-  expect(instance.state.output.host, "the script must have read the real filesystem").toBe(
+  expect(instance.output.fee).toBe(25);
+  expect(instance.output.host, "the script must have read the real filesystem").toBe(
     "the realm reaches the host",
   );
 }, 60_000);

@@ -392,8 +392,8 @@ func TestFence_ArmExternal(t *testing.T) {
 			if _, err := b.db.ArmExternalUnlessSignalled(ctx, stale2, "approval", map[string]any{}, nil); !errors.Is(err, dbpkg.ErrLeaseLost) {
 				t.Fatalf("stale park arm: err=%v, want ErrLeaseLost", err)
 			}
-			if got, _ := b.db.GetInstance("arm-2"); got.WaitState == model.WaitStateExternal || got.State[model.StateExternal] != nil || got.WakeAt != nil {
-				t.Fatalf("a refused arm still parked: wait=%q external=%v wake=%v", got.WaitState, got.State[model.StateExternal], got.WakeAt)
+			if got, _ := b.db.GetInstance("arm-2"); got.WaitState == model.WaitStateExternal || got.State[model.StateExternalInput] != nil || got.WakeAt != nil {
+				t.Fatalf("a refused arm still parked: wait=%q external=%v wake=%v", got.WaitState, got.State[model.StateExternalInput], got.WakeAt)
 			}
 
 			// The current grant is accepted, and its buffer is untouched: the refused arms above

@@ -166,12 +166,26 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 		return errReply(err)
 	}
 	// No redaction here: `secret: true` keeps a value out of stdout, where an operator reads it
-	// without asking; an API response is someone asking. Paths are rooted at "state", the field
-	// they point into on THIS response. specs/object-store.md §Redaction.
+	// without asking; an API response is someone asking. specs/object-store.md §Redaction.
+	//
+	// A slot that has a field of its own is cut out of `state` and rooted at that field, so every
+	// value appears ONCE and its path names the only place it is. Splitting here rather than
+	// copying afterwards is what keeps the objects list free of duplicate entries for one ref.
 	var objects []ObjectEntry
-	state, _ := extractObjects(inst.State, []any{"state"}, &objects).(map[string]any)
-	if state == nil {
-		state = map[string]any{}
+	state := map[string]any{}
+	flat := map[string]any{}
+	for k, v := range inst.State {
+		if field, ok := detailMirrors[k]; ok {
+			flat[field] = extractObjects(v, []any{field}, &objects)
+			continue
+		}
+		state[k] = extractObjects(v, []any{"state", k}, &objects)
+	}
+	// One tree to splice into, so a path rooted at `state` and one rooted at a flat field are
+	// placed by the same walk.
+	root := map[string]any{"state": state}
+	for f, v := range flat {
+		root[f] = v
 	}
 	if resolve {
 		kept := objects[:0]
@@ -190,13 +204,16 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 				kept = append(kept, e)
 				continue
 			}
-			// The path is rooted at the response, so drop the leading "state" to place it in the
-			// map this handler still holds separately.
-			if !model.Place(state, e.Path[1:], value) {
+			// Paths are rooted at this response, and so is `root`.
+			if !model.Place(root, e.Path, value) {
 				kept = append(kept, e)
 			}
 		}
 		objects = kept
+		state, _ = root["state"].(map[string]any)
+		for f := range flat {
+			flat[f] = root[f]
+		}
 	}
 	kids, err := h.db.ChildrenOfInstance(id)
 	if err != nil {
@@ -234,9 +251,10 @@ func (h *Handlers) getInstanceDetail(id string, resolve bool) Reply {
 		ErrorMessage: inst.ErrorMessage,
 		// From the EXTRACTED state, so an externalized payload is the same marker-free value the
 		// status endpoint shows rather than a reference the caller cannot place.
-		ErrorData: state[model.StateErrorData],
-		Output:    state["output"],
-		State:     state,
+		ErrorData:     flat["error_data"],
+		Output:        flat["output"],
+		ExternalInput: flat["external_input"],
+		State:         state,
 
 		WorkerID:        derefString(inst.WorkerID),
 		LeaseExpiresAt:  formatTimePtr(inst.LeaseExpiresAt),
@@ -349,22 +367,39 @@ func instanceToResp(inst *model.ProcessInstance) InstanceStatusResp {
 	if raw, ok := inst.State["output"]; ok {
 		output = extractObjects(raw, []any{"output"}, &objects)
 	}
-	return InstanceStatusResp{
-		ID:           inst.ID,
-		Process:      inst.ProcessName,
-		Version:      inst.ProcessVersion,
-		Status:       inst.Status,
-		WaitState:    inst.WaitState,
-		Task:         inst.Task,
-		RetryCount:   inst.RetryCount,
-		ErrorCode:    inst.ErrorCode,
-		ErrorMessage: inst.ErrorMessage,
-		ErrorData:    payload,
-		Output:       output,
-		CreatedAt:    inst.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:    inst.UpdatedAt.Format(time.RFC3339),
-		Objects:      objects,
+	// Rooted at the response field, which the slot is now spelled the same as: the paths address
+	// THIS shape, the same rule output follows. The slot is gone once the answer is consumed,
+	// so absence here is "not parked" and needs no wait_state check.
+	var externalInput any
+	if raw, ok := inst.State[model.StateExternalInput]; ok {
+		externalInput = extractObjects(raw, []any{"external_input"}, &objects)
 	}
+	return InstanceStatusResp{
+		ID:            inst.ID,
+		Process:       inst.ProcessName,
+		Version:       inst.ProcessVersion,
+		Status:        inst.Status,
+		WaitState:     inst.WaitState,
+		Task:          inst.Task,
+		RetryCount:    inst.RetryCount,
+		ErrorCode:     inst.ErrorCode,
+		ErrorMessage:  inst.ErrorMessage,
+		ErrorData:     payload,
+		Output:        output,
+		ExternalInput: externalInput,
+		CreatedAt:     inst.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:     inst.UpdatedAt.Format(time.RFC3339),
+		Objects:       objects,
+	}
+}
+
+// detailMirrors maps a state slot to the flat field on InstanceDetailResp that carries it. A slot
+// listed here is MOVED out of `state` rather than copied: the field is the one place the value
+// appears, which is what lets its objects path name a single location.
+var detailMirrors = map[string]string{
+	"output":                 "output",
+	model.StateErrorData:     "error_data",
+	model.StateExternalInput: "external_input",
 }
 
 func instanceSummaryToResp(s *model.InstanceSummary) InstanceSummaryResp {

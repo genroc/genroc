@@ -23,7 +23,7 @@ async function runToOutput(name: string, input: unknown = {}, timeoutMs = 15_000
   expect(await waitForInstance(id, timeoutMs)).toBe("completed");
   const { data, error: getErr } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   if (getErr) throw new Error(`get failed: ${JSON.stringify(getErr)}`);
-  return (data!.state as { output: Record<string, unknown> }).output;
+  return data!.output as Record<string, unknown>;
 }
 
 test("outputs.<own id> is the previous output in a pre-action slot and in the output map", async () => {

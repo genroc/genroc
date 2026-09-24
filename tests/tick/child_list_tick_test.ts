@@ -49,7 +49,7 @@ async function startWith(process: string, input: unknown): Promise<string> {
 
 async function outputOf(id: string): Promise<any> {
   const { data } = await ctx.env.client.GET("/instances/{id}/detail", { params: { path: { id } } });
-  return (data?.state?.output as any) ?? null;
+  return (data?.output as any) ?? null;
 }
 
 beforeAll(async () => {

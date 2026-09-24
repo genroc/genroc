@@ -178,7 +178,7 @@ describe.runIf(!!DSN)("single-worker lease pressure — postgres", () => {
       for (const id of rootIds) {
         const { data } = await api.GET("/instances/{id}/detail", { params: { path: { id } } });
         expect(data?.status).toBe("completed");
-        expect((data?.state?.output as { processes?: number })?.processes).toBe(
+        expect((data?.output as { processes?: number })?.processes).toBe(
           NODES_PER_ROOT,
         );
       }

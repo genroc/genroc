@@ -122,7 +122,7 @@ test("channels — channel_status reports stale refs after child is advanced", a
     name: string;
     version: number;
     stale_refs: Array<{
-      task_id: string;
+      task: string;
       child_name: string;
       baked_version: number;
       channel_version: number;

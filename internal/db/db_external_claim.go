@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -267,10 +266,10 @@ func scanInstanceWithPrevHolder(s interface{ Scan(...any) error }) (dbgen.Proces
 		&r.ID, &r.ProcessName, &r.ProcessVersion, &r.ParentID,
 		&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.ErrorMessage,
 		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
-		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorInternal, &r.ExternalData, &r.EngineState, &r.Task,
+		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorInternal, &r.EngineState, &r.Task,
 		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
 		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
-		&r.NextReplayable, &r.ErrorData, &r.RootID,
+		&r.NextReplayable, &r.ErrorData, &r.RootID, &r.ExternalInput, &r.ExternalLost,
 		&prev,
 	)
 	return r, prev, err
@@ -282,28 +281,18 @@ func scanInstanceWithPrevHolder(s interface{ Scan(...any) error }) (dbgen.Proces
 // without it a task with no timeout would sit unclaimable forever, with nothing reporting why.
 func (db *DB) MarkExternalClaimLost(ctx context.Context, instanceID string, taskEpoch int64) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
-		var externalData string
-		err := raw.QueryRowContext(ctx,
-			`SELECT external_data FROM process_instances WHERE id = ?`+db.forUpdate(), instanceID).
-			Scan(&externalData)
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("external task: %w", ErrNotFound)
-		}
-		if err != nil {
-			return fmt.Errorf("lock instance: %w", err)
-		}
-		marked, err := withExternalLost(externalData)
-		if err != nil {
-			return err
-		}
+		// A column of its own, so the marker is set without reading the row first: there is no
+		// payload to decode and re-encode, and external_input is left untouched rather than
+		// rewritten -- which is what keeps a targeted write from disturbing the references the
+		// parked task's input still holds.
 		now := nowMillis()
 		res, err := raw.ExecContext(ctx,
 			`UPDATE process_instances
-			   SET external_data = ?, wake_at = ?, updated_at = ?,
+			   SET external_lost = 1, wake_at = ?, updated_at = ?,
 			       external_worker_id = NULL, external_lease_expires_at = NULL,
 			       external_claim_epoch = external_claim_epoch + 1
 			 WHERE id = ? AND task_epoch = ? AND wait_state = 'external'`,
-			marked, now, now, instanceID, taskEpoch)
+			now, now, instanceID, taskEpoch)
 		if err != nil {
 			return fmt.Errorf("mark external claim lost: %w", err)
 		}

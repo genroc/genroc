@@ -92,7 +92,7 @@ task re-entered by a loop spawns a fresh batch under the same pair.
   same reason the walk's own sibling lookup binds `parent_task_epoch`.
 - **The external token IS it**, not a copy of it: `model.ExternalToken` renders
   `<instance>.<task_epoch>` on demand, `ResolveExternalTask` compares the submitted epoch
-  against the row under the same lock that checks the wait state, and `_external` stores no
+  against the row under the same lock that checks the wait state, and `external_input` stores no
   token at all. The token's whole job is to say WHICH ARMING a submitted result belongs to. That is why the retry branch has to move the epoch -- a re-arm after
   `external.timeout` is a new occurrence with no transition behind it, so without the bump
   two armings share a token and a stale result is accepted. The token is not a secret (the
@@ -320,11 +320,12 @@ Four things break silently:
 3. **`error_internal` has no special shape, and must not regain one.** It had one so reading
    `error.code` would not load the body; that is `model.Context`'s job now (it walks to a path and
    loads only what the walk passes through), and `TestLazyMatrix` pins it from the engine side.
-4. **`external_data` holds the parked bookkeeping and nothing else.** An outcome is never written
+4. **`external_input` holds the parked task's input and nothing else.** An outcome is never written
    onto the instance row: it goes into `process_signals` and the engine pops it under lease,
    through the ordinary context encode — which is the only path that can cut it, declare it in
-   `objects` and claim it. `withExternalKeys` survives for the `lost` marker alone and must not
-   touch `objects`. specs/external-outcome-as-signal.md.
+   `objects` and claim it. The `lost` marker is `external_lost`, a column of its own beside the
+   claim columns, so setting it touches neither the value nor `objects`.
+   specs/external-outcome-as-signal.md.
 
 `outputs_data` keeps its `{order, items}` wrapper: each task output is cut against its own budget
 and the completion order rides along. `engine_state` is not a value slot — spawn/children

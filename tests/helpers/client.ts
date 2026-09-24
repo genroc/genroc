@@ -46,8 +46,11 @@ export async function listAllInstances(
 /**
  * The instance's STATE: everything stored on it, bookkeeping slots included. `context` on the
  * status response carries only what a definition's author reads (input/outputs/output/error);
- * the engine's own slots -- _external, _spawn_*, _error_data -- live
+ * the engine's own slots -- external_input, _spawn_*, _error_data -- live
  * here, because they are state and not context.
+ *
+ * detail MOVES three slots to fields of their own so nothing on that response is said twice;
+ * this puts them back, because a caller asking for the state wants the whole of it.
  */
 export async function instanceState(
   id: string,
@@ -57,7 +60,16 @@ export async function instanceState(
     params: { path: { id } },
   });
   if (error) throw new Error(`detail ${id}: ${JSON.stringify(error)}`);
-  return (data!.state ?? {}) as Record<string, unknown>;
+  const state = { ...((data!.state ?? {}) as Record<string, unknown>) };
+  for (const [field, slot] of [
+    ["output", "output"],
+    ["error_data", "_error_data"],
+    ["external_input", "external_input"],
+  ] as const) {
+    const v = (data as Record<string, unknown>)[field];
+    if (v !== undefined) state[slot] = v;
+  }
+  return state;
 }
 
 /**

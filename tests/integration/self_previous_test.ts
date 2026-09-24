@@ -72,7 +72,7 @@ async function runAndReadOutput(name: string, n: number, timeoutMs: number) {
   const { data, error: getErr } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   if (getErr) throw new Error(`get failed: ${JSON.stringify(getErr)}`);
   await spliceObjects(data);
-  return (data!.state as Record<string, { text: string; count: number }>).output;
+  return data!.output as { text: string; count: number };
 }
 
 test("self.previous accumulates across an in-memory loop (single advance)", async () => {

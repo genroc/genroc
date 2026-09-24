@@ -159,7 +159,7 @@ type CompatResp struct {
 }
 
 type StaleRef struct {
-	TaskID         string `json:"task_id"`
+	TaskID         string `json:"task"`
 	ChildName      string `json:"child_name"`
 	BakedVersion   int    `json:"baked_version"`
 	ChannelVersion int    `json:"channel_version"`
@@ -229,12 +229,12 @@ type ExternalTaskResp struct {
 	Token        string         `json:"token"` // pass back to /external-tasks/resolve
 	Process      string         `json:"process"`
 	Version      int            `json:"version"`
-	TaskID       string         `json:"task_id"`
-	Input        any            `json:"input"`                   // the task's evaluated input snapshot
+	TaskID       string         `json:"task"`
+	Input        any            `json:"external_input"`          // the task's evaluated input snapshot, under the one name every view spells it
 	ResultSchema *schema.Schema `json:"result_schema,omitempty"` // JSON Schema the submitted result must satisfy
 	Raises       model.Raises   `json:"raises,omitempty"`        // the codes this task accepts on the error channel -> the payload each carries (null = none)
 	WaitingSince string         `json:"waiting_since"`           // RFC3339 park time
-	Objects      []ObjectEntry  `json:"objects,omitempty"`       // this entry's externalized values, rooted at the entry (e.g. ["input"])
+	Objects      []ObjectEntry  `json:"objects,omitempty"`       // this entry's externalized values, rooted at the entry (e.g. ["external_input"])
 	Deadline     string         `json:"deadline,omitempty"`      // RFC3339 task timeout; absent = waits forever. Past it the engine raises external.timeout whatever a claim holds
 	ClaimedBy    string         `json:"claimed_by,omitempty"`    // worker holding a live claim; absent = claimable
 	ClaimExpires string         `json:"claim_expires,omitempty"` // RFC3339 visibility timeout of that claim
@@ -278,7 +278,7 @@ type SignalInstanceReq struct {
 	// InstanceID addresses the target BY NAME, where resolve addresses it by token. Both
 	// deliver the same ExternalOutcome; the split is who holds what, not what arrives.
 	InstanceID string      `json:"instance_id"`
-	TaskID     string      `json:"task_id"`          // the external task to deliver to
+	TaskID     string      `json:"task"`             // the external task to deliver to
 	Result     any         `json:"result,omitempty"` // the result, validated against the task's result_schema
 	Error      *FailureReq `json:"error,omitempty"`  // set INSTEAD of result to answer on the error channel
 }
@@ -370,10 +370,17 @@ type InstanceStatusResp struct {
 	// value a parent collects as a child's result (engine/collect.go). It is the reason this
 	// endpoint answers "what did it produce" without handing back state, which is engine
 	// internals; absent until the definition sets it.
-	Output    any    `json:"output,omitempty"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-	// Objects covers error_data and output alike: a payload past the inline cutoff is ABSENT
+	Output any `json:"output,omitempty"`
+	// ExternalInput is the parked external task's evaluated `input:` snapshot -- what this
+	// instance is ASKING for, the outward-facing counterpart to Output. Named apart from the
+	// process's own `input` because they are different values. Present only while parked: the
+	// engine deletes the slot when the answer is consumed. Reading it takes no claim, so it does
+	// not disturb a worker holding the task; the full work contract (result_schema, raises) is
+	// the CLAIM's, not this endpoint's. specs/external-task-queue.md.
+	ExternalInput any    `json:"external_input,omitempty"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
+	// Objects covers error_data, output and external_input alike: a payload past the inline cutoff is ABSENT
 	// above and listed here at the path it belongs to -- which is what tells the two apart --
 	// so nothing in the data can be mistaken for a reference. Fetch one with GET /objects/{ref} and put it back. It is not resolved for you
 	// -- a payload has no size limit, and inlining it here would put an unbounded response behind
@@ -403,12 +410,13 @@ type InstanceDetailResp struct {
 
 	ErrorCode    string `json:"error_code,omitempty"`
 	ErrorMessage string `json:"error_message,omitempty"`
-	// ErrorData is the same value as State["_error_data"], surfaced flat so that this response is
-	// a strict SUPERSET of the status one: a caller can move to this endpoint without losing a
-	// field. Its externalized pieces are listed once, under the state path they were cut from.
-	ErrorData any `json:"error_data,omitempty"`
-	// Output is State["output"] under the same rule, for the same reason.
-	Output any `json:"output,omitempty"`
+	// ErrorData, Output and ExternalInput are the state slots that have a field of their own, so
+	// that this response is a strict SUPERSET of the status one: a caller can move to this
+	// endpoint without losing a field. They are MOVED out of State rather than copied into it --
+	// one value, one place, and an objects path that names it once.
+	ErrorData     any `json:"error_data,omitempty"`
+	Output        any `json:"output,omitempty"`
+	ExternalInput any `json:"external_input,omitempty"`
 
 	// Children is the parent's spawns, keyed by the task that made them: a bare id for a single
 	// `child`, an object keyed by entry for a `child_map`, an array in spawn order for a
@@ -417,9 +425,10 @@ type InstanceDetailResp struct {
 	// keep in step. A `child_list` that spawned nothing therefore names no task here.
 	Children map[string]any `json:"children,omitempty"`
 
-	// State is the stored state verbatim: input, outputs, output, error, and the
-	// engine's own slots (_error_data, _external, _spawn_*). The set is CLOSED -- a key
-	// outside it does not survive a write -- so this is the whole of what the instance holds.
+	// State is what is left of the stored state once the three fields above have been taken out
+	// of it: input, outputs, last_error and the engine's spawn slots. The stored set is CLOSED --
+	// a key outside it does not survive a write -- so State plus those fields is still the whole
+	// of what the instance holds, with nothing said twice.
 	State map[string]any `json:"state"`
 
 	// The lease is the engine's grant to advance this instance; the external claim is a worker

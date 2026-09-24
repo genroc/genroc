@@ -10,8 +10,8 @@ import (
 )
 
 // insertExternalParked saves an instance parked on an external task: status=running,
-// wait_state='external', with the _external {task_id, input} snapshot. The occurrence a
-// resolve must match is task_epoch on the row, not anything inside _external.
+// wait_state='external', with the external_input snapshot. The occurrence a resolve must
+// match is task_epoch on the row, not anything in the slot.
 // wakeAt is the (optional) timeout deadline.
 func insertExternalParked(t *testing.T, db *dbpkg.DB, id string, epoch int64, wakeAt *time.Time) {
 	t.Helper()
@@ -21,10 +21,7 @@ func insertExternalParked(t *testing.T, db *dbpkg.DB, id string, epoch int64, wa
 		ProcessVersion: 1,
 		Task:           "approval",
 		State: map[string]any{
-			model.StateExternal: map[string]any{
-				"task_id": "approval",
-				"input":   map[string]any{"order_id": float64(42)},
-			},
+			model.StateExternalInput: map[string]any{"order_id": float64(42)},
 		},
 		Status:    model.StatusRunning,
 		WaitState: model.WaitStateExternal,

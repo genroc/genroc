@@ -34,7 +34,7 @@ test("a task may be named `end`, and `$end` routes to it while `end` terminates"
   const { data } = await client.GET("/instances/{id}/detail", { params: { path: { id } } });
   // first → $end → the task named `end` → $next → the task named `next` → end (the keyword).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.state as any)?.output).toEqual({ reached_end: "end", reached_next: "next" });
+  expect((data?.output as any)).toEqual({ reached_end: "end", reached_next: "next" });
 });
 
 // The sigil disambiguates a keyword from a task; it does not conjure a task that is not there.

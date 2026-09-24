@@ -57,10 +57,10 @@ func instanceSummaryCursorVals(sort string, s *model.InstanceSummary) []any {
 const instanceColumns = `id, process_name, process_version, parent_id,
 	call_stack, retry_count, wake_at, status, error_message,
 	created_at, updated_at, worker_id, lease_expires_at, wait_state, spawn_task_id,
-	input_data, outputs_data, output_data, error_internal, external_data, engine_state, task,
+	input_data, outputs_data, output_data, error_internal, engine_state, task,
 	error_code, lease_epoch, task_epoch, parent_task_epoch,
 	external_worker_id, external_lease_expires_at, external_claim_epoch, objects,
-	next_replayable, error_data, root_id`
+	next_replayable, error_data, root_id, external_input, external_lost`
 
 // Lightweight ListInstances projection — no context/call-stack blobs; order matches
 // scanInstanceSummary. error_code stays despite the rule: short, and it is what a list
@@ -98,10 +98,10 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 		&r.ID, &r.ProcessName, &r.ProcessVersion, &r.ParentID,
 		&r.CallStack, &r.RetryCount, &r.WakeAt, &r.Status, &r.ErrorMessage,
 		&r.CreatedAt, &r.UpdatedAt, &r.WorkerID, &r.LeaseExpiresAt, &r.WaitState, &r.SpawnTaskID,
-		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorInternal, &r.ExternalData, &r.EngineState, &r.Task,
+		&r.InputData, &r.OutputsData, &r.OutputData, &r.ErrorInternal, &r.EngineState, &r.Task,
 		&r.ErrorCode, &r.LeaseEpoch, &r.TaskEpoch, &r.ParentTaskEpoch,
 		&r.ExternalWorkerID, &r.ExternalLeaseExpiresAt, &r.ExternalClaimEpoch, &r.Objects,
-		&r.NextReplayable, &r.ErrorData, &r.RootID,
+		&r.NextReplayable, &r.ErrorData, &r.RootID, &r.ExternalInput, &r.ExternalLost,
 	)
 	return r, err
 }
@@ -111,7 +111,9 @@ func scanInstance(s interface{ Scan(...any) error }) (dbgen.ProcessInstance, err
 // piece with the path it was cut from, rooted at the CONTEXT -- one place to read what this
 // instance references, in the shape the API puts on the wire. specs/object-store.md.
 type stateCols struct {
-	InputData, OutputsData, OutputData, ErrorInternal, ErrorData, ExternalData, EngineState, Objects string
+	InputData, OutputsData, OutputData, ErrorInternal, ErrorData, ExternalInput, EngineState, Objects string
+	// ExternalLost is a marker, not a value slot: it carries no references and is never cut.
+	ExternalLost bool
 }
 
 // outputsColumn is the on-disk shape of outputs_data: the completion order plus the
@@ -213,9 +215,12 @@ func encodeState(inst *model.ProcessInstance) (cols stateCols, pending []*pendin
 			return
 		}
 	}
-	if cols.ExternalData, err = encodeExternalData(cd, cut); err != nil {
-		return
+	if v, ok := cd[model.StateExternalInput]; ok {
+		if cols.ExternalInput, err = cut(v, model.StateExternalInput); err != nil {
+			return
+		}
 	}
+	cols.ExternalLost = inst.ExternalLost
 	if cols.EngineState, err = encodeEngineState(cd); err != nil {
 		return
 	}
@@ -228,54 +233,6 @@ func encodeState(inst *model.ProcessInstance) (cols stateCols, pending []*pendin
 		cols.Objects = string(b)
 	}
 	return
-}
-
-// encodeExternalData serialises the parked external-task bookkeeping (task_id, input snapshot)
-// into external_data, or "" when none is present. Its references are rooted at _external, which
-// is where the decode puts the map back -- an outcome never lands here, so the column holds one
-// context key and its paths address the context like every other slot's.
-// specs/external-outcome-as-signal.md.
-func encodeExternalData(cd map[string]any, cut func(any, ...any) (string, error)) (string, error) {
-	ext := map[string]any{}
-	if e, ok := cd[model.StateExternal].(map[string]any); ok {
-		for k, v := range e {
-			ext[k] = v
-		}
-	}
-	if len(ext) == 0 {
-		return "", nil
-	}
-	return cut(ext, model.StateExternal)
-}
-
-// withExternalLost sets only the lost marker, with no has_<slot> companion: unlike the two
-// outcome slots it carries no value to distinguish from absence, so a second key would be
-// stored state that says nothing.
-func withExternalLost(externalData string) (string, error) {
-	return withExternalKeys(externalData, map[string]any{model.StateExternalLost: true})
-}
-
-// withExternalKeys sets keys in the external_data column without decoding the context around it.
-// The instance's references live in their own column, which this does not write -- so a targeted
-// outcome cannot disturb what the parked task's input still points at, and there is nothing to
-// remember to carry along. It does not CUT either: this path holds only the instance row lock and
-// has no reference set to reconcile, so an oversized outcome waits for the next full write.
-func withExternalKeys(externalData string, keys map[string]any) (string, error) {
-	ext := map[string]any{}
-	if externalData != "" {
-		if err := numeric.Decode([]byte(externalData), &ext); err != nil {
-			return "", fmt.Errorf("decode external_data: %w", err)
-		}
-	}
-	for k, v := range keys {
-		ext[k] = v
-	}
-	b, err := json.Marshal(ext)
-	return string(b), err
-}
-
-func withExternalSlot(externalData, slot string, v any) (string, error) {
-	return withExternalKeys(externalData, map[string]any{slot: v, "has_" + slot: true})
 }
 
 // encodeEngineState serialises the spawn/children bookkeeping into engine_state.
@@ -356,7 +313,8 @@ func progressParams(inst *model.ProcessInstance, cols stateCols, now int64) dbge
 		Task:           inst.Task,
 		OutputsData:    cols.OutputsData,
 		ErrorInternal:  cols.ErrorInternal,
-		ExternalData:   cols.ExternalData,
+		ExternalInput:  cols.ExternalInput,
+		ExternalLost:   boolToInt(cols.ExternalLost),
 		EngineState:    cols.EngineState,
 		Objects:        cols.Objects,
 		RetryCount:     int64(inst.RetryCount),
@@ -378,7 +336,8 @@ func updateInstanceParams(inst *model.ProcessInstance, cols stateCols, now int64
 		OutputData:     cols.OutputData,
 		ErrorInternal:  cols.ErrorInternal,
 		ErrorData:      cols.ErrorData,
-		ExternalData:   cols.ExternalData,
+		ExternalInput:  cols.ExternalInput,
+		ExternalLost:   boolToInt(cols.ExternalLost),
 		EngineState:    cols.EngineState,
 		Objects:        cols.Objects,
 		RetryCount:     int64(inst.RetryCount),
@@ -445,7 +404,8 @@ func insertInstanceParams(inst *model.ProcessInstance, cols stateCols, status st
 		OutputData:      cols.OutputData,
 		ErrorInternal:   cols.ErrorInternal,
 		ErrorData:       cols.ErrorData,
-		ExternalData:    cols.ExternalData,
+		ExternalInput:   cols.ExternalInput,
+		ExternalLost:    boolToInt(cols.ExternalLost),
 		EngineState:     cols.EngineState,
 		Objects:         cols.Objects,
 		ParentID:        inst.ParentID,
@@ -622,6 +582,7 @@ func toInstance(r dbgen.ProcessInstance) (*model.ProcessInstance, error) {
 		ExternalWorkerID:       nullStringPtr(r.ExternalWorkerID),
 		ExternalLeaseExpiresAt: toTimePtr(r.ExternalLeaseExpiresAt),
 		ExternalClaimEpoch:     r.ExternalClaimEpoch,
+		ExternalLost:           r.ExternalLost != 0,
 	}
 	cd, loaded, err := decodeState(r)
 	if err != nil {
@@ -693,16 +654,14 @@ func decodeState(r dbgen.ProcessInstance) (map[string]any, map[string]struct{}, 
 		}
 		cd["outputs"] = items
 	}
-	if r.ExternalData != "" {
-		v, err := value(r.ExternalData, "external_data")
+	if r.ExternalInput != "" {
+		// The column holds the input VALUE, so it goes straight into the slot -- no wrapper to
+		// unpack, which is what lets the objects path root at the same name the column has.
+		v, err := value(r.ExternalInput, "external_input")
 		if err != nil {
 			return nil, nil, err
 		}
-		ext, _ := v.(map[string]any)
-		if ext == nil {
-			ext = map[string]any{}
-		}
-		cd[model.StateExternal] = ext
+		cd[model.StateExternalInput] = v
 	}
 	if r.EngineState != "" {
 		var es map[string]any

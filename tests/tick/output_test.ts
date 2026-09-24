@@ -34,7 +34,7 @@ test("no-action output map drives a counter via self.previous; switch reads self
     params: { path: { id } },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data!.state as any)?.output?.n).toBe(3);
+  expect((data!.output as any)?.n).toBe(3);
 });
 
 test("cross-task mutual recursion (start <-> loop) type-checks and runs", async () => {
@@ -72,5 +72,5 @@ test("cross-task mutual recursion (start <-> loop) type-checks and runs", async 
   });
   // loop counts 1,2,3 (stops at >= ttl); start mirrors the prior loop value → 2.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data!.state as any)?.output?.num).toBe(2);
+  expect((data!.output as any)?.num).toBe(2);
 });

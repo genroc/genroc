@@ -263,7 +263,7 @@ test("on_error → end computes the process output, like a normal completion", a
     params: { path: { id } },
   });
   expect(data?.status).toBe("completed");
-  expect(data?.state?.output).toBe("recovered");
+  expect(data?.output).toBe("recovered");
 
   failMock.stop();
 });

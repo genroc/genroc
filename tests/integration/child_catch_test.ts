@@ -138,7 +138,7 @@ test("catch — a rule routes to end, completing the parent (and computes output
     params: { path: { id } },
   });
   expect(data?.status).toBe("completed");
-  expect(data?.state?.output).toBe("handled");
+  expect(data?.output).toBe("handled");
 });
 
 // A rule that panics: the parent fails uncatchably with the authored panic code. This is

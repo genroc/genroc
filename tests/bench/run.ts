@@ -158,7 +158,7 @@ async function countInstances(client: Client, rootIds: string[]): Promise<number
     if (data!.status !== "completed") {
       throw new Error(`root ${id} ended ${data!.status}: ${data!.error_message ?? ""}`);
     }
-    const out = data!.state?.output as Record<string, number> | undefined;
+    const out = data!.output as Record<string, number> | undefined;
     const n = out?.[COUNT_FIELD];
     if (typeof n !== "number") {
       throw new Error(

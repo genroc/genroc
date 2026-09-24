@@ -910,7 +910,7 @@ test("crash recovery — a handler may end the process, and its output is still 
       const { data: after } = await genroc2.client.GET("/instances/{id}/detail", {
         params: { path: { id: instanceId } },
       });
-      expect((after!.state as Record<string, unknown>).output).toEqual({
+      expect(after!.output).toEqual({
         recovered: true,
       });
       expect(charge.requestCount()).toBe(1);

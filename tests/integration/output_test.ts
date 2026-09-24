@@ -51,7 +51,7 @@ test("output map remaps an action result — only the projection is exported", a
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   expect((data?.state?.outputs as any)?.create).toEqual({ id: "j-42" });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.state as any)?.output?.id).toBe("j-42");
+  expect((data?.output as any)?.id).toBe("j-42");
 
   mock.stop();
 });
@@ -99,7 +99,7 @@ test("single-expression output passes the action result through", async () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   expect((data?.state?.outputs as any)?.create).toEqual({ job_id: "j-7", queue: "q1" });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  expect((data?.state as any)?.output).toEqual({ job_id: "j-7", queue: "q1" });
+  expect((data?.output as any)).toEqual({ job_id: "j-7", queue: "q1" });
 
   mock.stop();
 });

@@ -50,7 +50,7 @@ func (c ClaimBinding) check(current int64, worker sql.NullString, expires sql.Nu
 //
 // Under the row lock it rejects an expired/absent wait, a live lease (the timeout wins), and an
 // epoch mismatch (an outcome against a PRIOR arming). The epoch comes off the row rather than a
-// token copied into external_data, which would only be a second thing that can disagree.
+// token copied into a column, which would only be a second thing that can disagree.
 // See specs/external-task-queue.md and internal/db/CLAUDE.md.
 func (db *DB) ResolveExternalTask(ctx context.Context, instanceID string, epoch int64, claim ClaimBinding, outcome model.ExternalOutcome) error {
 	return db.withTx(ctx, func(qtx *dbgen.Queries, raw dbgen.DBTX) error {
