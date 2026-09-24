@@ -577,6 +577,8 @@ func runInstancesCmd(server string, args []string) {
 	fs := newFlagSet("instances", args)
 	serverFlag := addServerFlag(fs, server)
 	statusFlag := fs.String("status", "", "filter by status (running, completed, failing, failed, raised, pausing, paused, cancelling, cancelled)")
+	waitFlag := fs.String("wait-state", "", "filter by what a running instance is parked on (external, waiting, collecting)")
+	taskFlag := fs.String("task", "", "filter by the exact task id the instance sits on; pair with --process, since a task id is unique only within its definition")
 	codeFlag := fs.String("error-code", "", "filter by exact error code (e.g. card_declined, http.500)")
 	processFlag := fs.String("process", "", "filter by exact process name, across every version")
 	versionFlag := fs.Int("version", 0, "filter by exact process version; with --process, that process at that version")
@@ -604,6 +606,12 @@ func runInstancesCmd(server string, args []string) {
 	}
 	if *statusFlag != "" {
 		q.Set("status", *statusFlag)
+	}
+	if *waitFlag != "" {
+		q.Set("wait_state", *waitFlag)
+	}
+	if *taskFlag != "" {
+		q.Set("task", *taskFlag)
 	}
 	if *processFlag != "" {
 		q.Set("process", *processFlag)
@@ -666,6 +674,7 @@ func runInstancesCmd(server string, args []string) {
 		Process      string `json:"process"`
 		Version      int    `json:"version"`
 		Status       string `json:"status"`
+		WaitState    string `json:"wait_state"`
 		ErrorCode    string `json:"error_code"`
 		ErrorMessage string `json:"error_message"`
 		CreatedAt    string `json:"created_at"`
@@ -691,7 +700,7 @@ func runInstancesCmd(server string, args []string) {
 			// and the column would be a wasted width, but WITH it nothing else on the row says
 			// which of the two a line is.
 			fmt.Fprintf(w, "%s\t%s\t%s@v%d%s\t%s\t%s\t%s\t%s\n",
-				r.ID, r.Status, r.Process, r.Version,
+				r.ID, statusCol(r.Status, r.WaitState), r.Process, r.Version,
 				parentCol("\t"+dashIfEmpty(r.ParentID), *childrenFlag),
 				shortTime(r.UpdatedAt), shortTime(r.CreatedAt), r.ErrorCode, errMsg)
 		}
@@ -792,6 +801,16 @@ const (
 	logTailDefault = 200
 	listCap        = 20
 )
+
+// statusCol renders wait_state as a qualifier on the status rather than a column of its own:
+// it is empty on most rows, and it only ever refines the status beside it (a parked instance
+// is still running). Matches how the UI and `genctl get` already pair the two.
+func statusCol(status, wait string) string {
+	if wait == "" {
+		return status
+	}
+	return status + "\u00b7" + wait
+}
 
 func parentCol(cell string, children bool) string {
 	if children {

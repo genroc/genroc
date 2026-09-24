@@ -22,7 +22,7 @@ var instancePaginator = paginator{
 		"created": {{"created_at", kindInt}, {"id", kindText}},
 		"updated": {{"updated_at", kindInt}, {"id", kindText}},
 	},
-	filterCols: []string{"status", "error_code", "process_name", "process_version", "parent_id", "created_at", "updated_at"},
+	filterCols: []string{"status", "wait_state", "task", "error_code", "process_name", "process_version", "parent_id", "created_at", "updated_at"},
 	defSort:    "created",
 	defDesc:    true, // newest first
 	defLimit:   20,
@@ -522,21 +522,36 @@ func (db *DB) GetInstance(id string) (*model.ProcessInstance, error) {
 	return toInstance(r)
 }
 
-// ListInstances returns a page of instance summaries, filtered by status, error code, process
-// name, version (0 = any), roots only, and a Window on either timestamp (zero = unbounded). The
-// two windows stay separate so the caller pairs its bound with the sort it ordered by rather
-// than this function guessing. Summaries omit the context blob — use GetInstance. rootsOnly is
-// the DEFAULT at every layer above. specs/id-list-commands.md.
-func (db *DB) ListInstances(status, errorCode, process string, version int, rootsOnly bool, created, updated Window, req PageReq) ([]*model.InstanceSummary, PageInfo, error) {
-	q := instancePaginator.query(req).
-		EqIf("status", status, status != "").
-		EqIf("error_code", errorCode, errorCode != "").
-		EqIf("process_name", process, process != "").
-		EqIf("process_version", version, version != 0).
+// InstanceQuery is ListInstances' filter set. Every zero value is "unfiltered", so the empty
+// struct lists everything; Created and Updated stay separate so the caller pairs its bound with
+// the sort it ordered by rather than this function guessing.
+type InstanceQuery struct {
+	Status    string // exact status
+	WaitState string // exact wait state: what a running instance is parked on, "" = unfiltered
+	Task      string // exact task id -- an instance's POSITION, so it spans definitions unless Process narrows it
+	ErrorCode string // exact error code
+	Process   string // exact process name, across every version
+	Version   int    // exact process version (0 = any)
+	RootsOnly bool   // the DEFAULT at every layer above -- one row per tree
+	Created   Window // on created_at (zero = unbounded)
+	Updated   Window // on updated_at (zero = unbounded)
+	Page      PageReq
+}
+
+// ListInstances returns a page of instance summaries matching opts. Summaries omit the context
+// blob — use GetInstance. specs/id-list-commands.md.
+func (db *DB) ListInstances(opts InstanceQuery) ([]*model.InstanceSummary, PageInfo, error) {
+	q := instancePaginator.query(opts.Page).
+		EqIf("status", opts.Status, opts.Status != "").
+		EqIf("wait_state", opts.WaitState, opts.WaitState != "").
+		EqIf("task", opts.Task, opts.Task != "").
+		EqIf("error_code", opts.ErrorCode, opts.ErrorCode != "").
+		EqIf("process_name", opts.Process, opts.Process != "").
+		EqIf("process_version", opts.Version, opts.Version != 0).
 		// parent_id is NOT NULL DEFAULT '' (migration 001), so a root is the empty string
 		// rather than a null -- and the predicate can use the plain index on it.
-		EqIf("parent_id", "", rootsOnly)
-	b, err := updated.apply(created.apply(q, "created_at"), "updated_at").build()
+		EqIf("parent_id", "", opts.RootsOnly)
+	b, err := opts.Updated.apply(opts.Created.apply(q, "created_at"), "updated_at").build()
 	if err != nil {
 		return nil, PageInfo{}, err
 	}

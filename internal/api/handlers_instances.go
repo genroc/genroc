@@ -103,10 +103,18 @@ func (h *Handlers) listInstances(raw json.RawMessage) Reply {
 	}
 	// Roots only unless children were asked for: the flag is an opt-IN, so the default
 	// listing is one row per tree. specs/id-list-commands.md.
-	instances, info, err := h.db.ListInstances(req.Status, req.ErrorCode, req.Process, req.Version, !req.Children,
-		db.Window{After: req.CreatedAfter, Before: req.CreatedBefore},
-		db.Window{After: req.UpdatedAfter, Before: req.UpdatedBefore},
-		req.page())
+	instances, info, err := h.db.ListInstances(db.InstanceQuery{
+		Status:    req.Status,
+		WaitState: req.WaitState,
+		Task:      req.Task,
+		ErrorCode: req.ErrorCode,
+		Process:   req.Process,
+		Version:   req.Version,
+		RootsOnly: !req.Children,
+		Created:   db.Window{After: req.CreatedAfter, Before: req.CreatedBefore},
+		Updated:   db.Window{After: req.UpdatedAfter, Before: req.UpdatedBefore},
+		Page:      req.page(),
+	})
 	if err != nil {
 		return errReply(err)
 	}

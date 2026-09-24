@@ -38,6 +38,7 @@ type InstanceRow = {
   process: string;
   version: number;
   status: string;
+  wait_state?: string;
   error_code: string;
   error_message: string;
   created_at: string;
@@ -374,6 +375,81 @@ test("instances --error-code — matches the authored code exactly", async () =>
   // Exact, not a prefix: a near-miss selects nothing.
   expect(instances(["--since", "1h", "--error-code", code.slice(0, -1)])).toEqual([]);
 });
+
+test("instances --wait-state — lists what is parked, which status cannot say", async () => {
+  const name = apply(externalDef(uid("wait_f")));
+  const parked = startedID(runCli(bin, ["run", name]).stdout);
+  const token = await waitForExternalToken(parked);
+
+  const done = startedID(runCli(bin, ["run", apply(switchDef(uid("wait_done")))]).stdout);
+  expect(await waitForInstance(done)).toBe("completed");
+
+  const external = instances(["--since", "1h", "--wait-state", "external"]);
+  expect(external.some((i) => i.id === parked)).toBe(true);
+  expect(external.every((i) => i.wait_state === "external")).toBe(true);
+  expect(external.some((i) => i.id === done)).toBe(false);
+
+  // Orthogonal to status: the parked row is still `running`, so a filter that had fallen
+  // back to status would return the same set for both of these.
+  const running = instances(["--since", "1h", "--status", "running"]);
+  expect(running.some((i) => i.id === parked)).toBe(true);
+  expect(external.length).toBeLessThan(running.length + 1);
+
+  // Answering it empties the filter of that row -- the listing tracks the park, not the run.
+  runCli(bin, ["resolve", token, "--set", "approved=true"]);
+  expect(await waitForInstance(parked)).toBe("completed");
+  expect(instances(["--since", "1h", "--wait-state", "external"]).some((i) => i.id === parked)).toBe(false);
+}, 15_000);
+
+test("instances — the STATUS column carries wait_state, and only where there is one", async () => {
+  const name = apply(externalDef(uid("wait_col")));
+  const parked = startedID(runCli(bin, ["run", name]).stdout);
+  const token = await waitForExternalToken(parked);
+  const done = startedID(runCli(bin, ["run", apply(switchDef(uid("wait_col_done")))]).stdout);
+  expect(await waitForInstance(done)).toBe("completed");
+
+  const lines = runCli(bin, ["instances", "--since", "1h"]).stdout.trim().split("\n");
+  // No column of its own: the header is the same one the table has always committed to.
+  expect(lines[0].split(/\s+/)).toEqual([
+    "ID", "STATUS", "PROCESS", "UPDATED", "CREATED", "CODE", "ERROR",
+  ]);
+  expect(lines.find((l) => l.startsWith(parked))!).toContain("running\u00b7external");
+  // A row with no wait state prints the bare status, not a trailing separator.
+  expect(lines.find((l) => l.startsWith(done))!).not.toContain("\u00b7");
+
+  runCli(bin, ["resolve", token, "--set", "approved=true"]);
+  expect(await waitForInstance(parked)).toBe("completed");
+}, 15_000);
+
+test("instances --task — the position, which only --process narrows to one task", async () => {
+  // Two definitions spelling the same task id: that is what makes the pairing advice real
+  // rather than decorative.
+  const shared = "review";
+  const def = (prefix: string, task: string) => ({
+    name: uid(prefix),
+    tasks: [{ id: task, switch: [{ goto: "end" }] }],
+  });
+  const one = apply(def("task_a", shared));
+  const two = apply(def("task_b", shared));
+  const other = apply(def("task_c", "elsewhere"));
+
+  const a = startedID(runCli(bin, ["run", one]).stdout);
+  const b = startedID(runCli(bin, ["run", two]).stdout);
+  const c = startedID(runCli(bin, ["run", other]).stdout);
+  for (const id of [a, b, c]) expect(await waitForInstance(id)).toBe("completed");
+
+  // A terminal instance still carries the task it stopped on, so the filter reaches it.
+  const onShared = instances(["--since", "1h", "--task", shared]).map((i) => i.id);
+  expect(onShared).toContain(a);
+  expect(onShared).toContain(b);
+  expect(onShared).not.toContain(c);
+
+  const scoped = instances(["--since", "1h", "--task", shared, "--process", one]).map((i) => i.id);
+  expect(scoped).toEqual([a]);
+
+  // Exact, not a prefix.
+  expect(instances(["--since", "1h", "--task", shared.slice(0, -1)])).toEqual([]);
+}, 15_000);
 
 test("instances --sort updated — orders by last activity, not creation", async () => {
   const name = apply(externalDef(uid("sort_upd")));

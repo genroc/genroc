@@ -1,0 +1,66 @@
+---
+title: External tasks
+description: Task resolved from outside
+order: 8
+---
+
+Processes can expose a task to be solved by human or machine.
+
+External task works in a similar way as a child task,
+it can have specified input and result_schema.
+It parks the process until it a result is submited.
+
+## Example
+
+```genroc-lsp
+# approval.genroc.yaml
+name: approval
+input_schema:
+  type: object
+  properties:
+    amount: {type: integer}
+  required: [amount]
+
+tasks:
+  - id: review
+    action:
+      type: external
+      input:
+        amount: "$: input.amount"
+      result_schema:
+        type: object
+        properties:
+          approved: {type: boolean}
+        required: [approved]
+    output: "$: self.result.approved"
+    switch: end
+
+output:
+  approved: "$: outputs.review"
+```
+
+Let's apply the example process and run it.
+
+```sh
+> genctl apply                       
+latest: approval v1 (current)
+
+> genctl run approval --set amount=10
+started: 5fy765kh  approval@v1  (running)
+```
+
+If we get the state of the process after it started,
+we'll see it has `Wait: external` (waiting_state in the API).
+
+```sh
+> genctl get @last                   
+ID:       5fy765kh
+Process:  approval@v1
+Status:   running
+Task:     review
+Wait:     external
+```
+
+
+
+

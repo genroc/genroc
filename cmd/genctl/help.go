@@ -103,13 +103,26 @@ or --version. -q prints only the new id: id=$(genctl run NAME -q).`,
 		summary: "list instances (roots only unless --children)",
 		usage: []string{
 			"instances [--process <name>] [--version <n>] [--status <status>] [--error-code <code>]",
-			"          [--children] [--sort updated|created] [--since <when>] [--until <when>] [--json | -q]",
+			"          [--wait-state <state>] [--task <task-id>] [--children] [--sort updated|created]",
+			"          [--since <when>] [--until <when>] [--json | -q]",
 		},
 		detail: `Roots only -- one row per tree, which is the unit pause/resume/cancel/retry and upgrade act on.
 --children adds them back and turns on a PARENT column, since nothing else on a row tells
 the two apart. -q prints bare ids, and nothing at all when empty, for nesting:
 
   genctl pause $(genctl instances -q --status running)
+
+--wait-state asks what a running instance is PARKED on, which status does not say: ` + "`external`" + `
+awaits a submitted result, ` + "`waiting`" + ` has children still running, ` + "`collecting`" + ` has their outputs
+to gather. It is the listing of unresolved external tasks:
+
+  genctl instances --wait-state external
+
+The STATUS column carries it after a ` + "`·`" + ` when a row has one (running·external).
+
+--task narrows to the task an instance sits on -- where it is running, parked, or where it
+stopped. A task id is unique only within its definition, so pair it with --process to mean
+one task rather than that spelling anywhere.
 
 ` + listWindow,
 	},

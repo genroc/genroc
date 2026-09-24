@@ -200,6 +200,8 @@ type ListDefinitionsReq struct {
 
 type ListInstancesReq struct {
 	Status        string `json:"status"`         // optional filter: running, completed, failing, failed, raised, pausing, paused
+	WaitState     string `json:"wait_state"`     // optional filter: waiting, collecting, external — what a running instance is parked on
+	Task          string `json:"task"`           // optional filter: exact task id the instance sits on
 	ErrorCode     string `json:"error_code"`     // optional filter: exact error code (authored or engine)
 	Process       string `json:"process"`        // optional filter: exact process name (all versions)
 	Version       int    `json:"version"`        // optional filter: exact process version (0 = any)
