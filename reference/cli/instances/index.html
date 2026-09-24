@@ -202,8 +202,9 @@ is half-open. Times display in, and are read in, the local zone ($TZ).</p>
 <span class="line"><span>                whichever column --sort selects</span></span>
 <span class="line"><span>  --sort        sort key: created or updated (most recently active) (default</span></span>
 <span class="line"><span>                created)</span></span>
-<span class="line"><span>  --status      filter by status (running, completed, failing, failed, raised,</span></span>
-<span class="line"><span>                pausing, paused, cancelling, cancelled)</span></span>
+<span class="line"><span>  --status      filter by status, comma-separated for several (running,</span></span>
+<span class="line"><span>                completed, failing, failed, raised, pausing, paused,</span></span>
+<span class="line"><span>                cancelling, cancelled)</span></span>
 <span class="line"><span>  --task        filter by the exact task id the instance sits on; pair with</span></span>
 <span class="line"><span>                --process, since a task id is unique only within its</span></span>
 <span class="line"><span>                definition</span></span>
@@ -262,13 +263,13 @@ is half-open. Times display in, and are read in, the local zone ($TZ).</p>
 <p><strong>Flags</strong></p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d; overflow-x: auto;" tabindex="0" data-language="plaintext"><code><span class="line"><span>  --flat    this instance's own rows only; by default a ROOT id answers</span></span>
 <span class="line"><span>            with every row in its tree</span></span>
+<span class="line"><span>  --json    print the raw JSON entries, one per line (JSONL), untruncated</span></span>
 <span class="line"><span>  --level   lowest level to show: this level and everything above it (warn</span></span>
 <span class="line"><span>            keeps errors). `debug` is the bottom, so it is the whole trail</span></span>
 <span class="line"><span>            -- the engine records a call's request and response bodies</span></span>
 <span class="line"><span>            there (default info)</span></span>
-<span class="line"><span>  --mode    output: basic (no data body), detail (+ data, cut to one line</span></span>
-<span class="line"><span>            -- $COLUMNS sets the width), or json (one JSON object per</span></span>
-<span class="line"><span>            line, untruncated) (default detail)</span></span>
+<span class="line"><span>  --mode    table density: basic (no data body) or detail (+ data, cut to</span></span>
+<span class="line"><span>            one line -- $COLUMNS sets the width) (default detail)</span></span>
 <span class="line"><span>  --server  genroc server base URL ($GENROC_SERVER) (default</span></span>
 <span class="line"><span>            http://localhost:8448)</span></span>
 <span class="line"><span>  --since   read forward from this point: a duration back from now (2h,</span></span>
