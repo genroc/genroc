@@ -84,7 +84,7 @@ so its result schema is part of the upgrade check:
 
 - **`external`** — the instance parks; a submitted result is persisted, and one still to come
   is conformed against the schema the instance runs *now*.
-- **`child`, `child_map`, `child_list`** — the parent parks in `waiting`/`collecting`, and
+- **`child`, `child_map`, `child_list`** — the parent parks in `children`/`collecting`, and
   collect conforms each child's output against the parent's result schema **as it currently
   stands** (version-compatibility.md §3a). A narrowing here strands a parent already waiting.
 

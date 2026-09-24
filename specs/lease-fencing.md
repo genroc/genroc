@@ -10,7 +10,7 @@ Two deviations from the draft as shipped:
 
 - The consume branch of the external arm does **not** keep the lease for a second advance
   pass. It is an ordinary fenced `UpdateInstanceProgress` that releases; the result lands
-  durably in `external_data` and the next claim resumes via `runExternal` phase 2. Retired
+  durably in `external_input` and the next claim resumes via `runExternal` phase 2. Retired
   for uniformity ("no outcome keeps the lease") at the cost of one claim round trip per
   pre-buffered signal; the pop still rolls back with a refused write. The inbound write is
   therefore unfenced — its only callers act on parked rows under the row lock. (That write was

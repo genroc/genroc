@@ -219,13 +219,13 @@ read outputs that do not exist yet.
 Precondition: `running ∧ collecting` (failing → `settleFailing`; pausing →
 `settlePausing`; paused is unclaimable and resolves on resume). Consequence: **a resolving
 parent's batch holds only `completed` and `raised` children** — failed poisoned it first
-(§5.4), paused holds it in `waiting` (`CountActiveSiblings`), running means unsettled.
+(§5.4), paused holds it in `children` (`CountActiveSiblings`), running means unsettled.
 
 ```
 E := raised children in slot order
 E = ∅        → collect outputs, continue          (happy path)
 otherwise    → admit retries (§5.5)
-               any slot re-spawned → park on 'waiting'; no error, no route
+               any slot re-spawned → park on 'children'; no error, no route
                else f := E[0]; write `last_error` from f (§5.3); match f's rule:
                     nil or verb-less → fail P   ·  goto:end → complete P
                     raise/panic      → as §5.1  ·  goto:$id → P.task := id
@@ -269,7 +269,7 @@ A rule matched on a raised slot may carry `retry`. **Each slot is a call with it
 budget**: at resolution every raised slot matches its own code (§4), and one whose rule
 carries `retry` and whose attempt count is under that rule's limit is **re-spawned** —
 superseded and replaced in the same batch (§12). If any slot is re-spawned the parent returns
-to `waiting` and resolves again when the batch settles; if none is, `raised[0]`'s rule routes
+to `children` and resolves again when the batch settles; if none is, `raised[0]`'s rule routes
 as in §5.2. Completed siblings stand, so I1 is unchanged: a slot may take several attempts.
 
 The count is `_spawn_attempt`, carried in the child's `_spawn_*` bookkeeping beside its slot
@@ -311,7 +311,7 @@ Five things break silently:
   the code, and the code picks the rule, so every raised slot is conformed each round — where
   before §5.5 only `raised[0]` was. Built: `admitRetries` loops the batch through `slotError`.
 - **Dispatch is `outcomeSpawn` but not `SpawnChildrenAndWait`.** That primitive refuses a
-  parent whose `wait_state` is not `''`, and a retrying parent's row reads `collecting`. The
+  parent whose `phase` is not `''`, and a retrying parent's row reads `collecting`. The
   supersede, the inserts and the park must be one transaction, or a crash leaves a slot with
   no replacement and the next collect is missing it.
 - **A superseded attempt keeps its subtree.** Rows and object claims accumulate per attempt —
@@ -443,7 +443,7 @@ resolution ahead of the collect); batch resolution with `child_key`/`child_index
 ### 10.1 Re-running a batch without retry
 
 A `goto` back to the spawning task re-spawns a fresh batch (the error route cleared
-`wait_state`). Deliberately coarse: every slot re-runs, wrong for `only_once` children,
+`phase`). Deliberately coarse: every slot re-runs, wrong for `only_once` children,
 wasteful for fan-outs, unbounded unless the definition carries its own counter. Exactly what
 per-slot retry would fix — reaching for it repeatedly was named as the evidence to build it,
 and in 2026-08 that fired (D7 reversed; §5.5, §12). The `goto` remains legal and is still the
@@ -491,8 +491,8 @@ mustErr/mayErr admits a `last_error` read only where an error is present on ever
 
 ### 11.4 `Status.Terminal()` must include `raised` — a live bug if missed
 
-Revival reconstructs `waiting` vs `collecting` from "after revival, is anything still
-active?". If `Terminal()` does not know the status, the parent parks in `waiting` forever,
+Revival reconstructs `children` vs `collecting` from "after revival, is anything still
+active?". If `Terminal()` does not know the status, the parent parks in `children` forever,
 unrecoverable and unlogged. The fix belongs in `Terminal()` itself — it answers "is this
 settled", and D4 says yes — and its SQL mirror is `CountActiveSiblings` (§7.1); the two
 edits travel together, either alone hangs a parent.
@@ -542,7 +542,7 @@ The mechanism, shared with §5.5:
   superseded row is `raised`, hence never active.
 
 The parent needs no new handling: the fresh child is non-terminal, so `revive`'s existing "is
-anything still active" test parks it at `waiting` (§11.4).
+anything still active" test parks it at `children` (§11.4).
 
 **`only_once` does not gate a re-spawn.** It bounds attempts within an instance, and a
 re-spawn makes a new one — indistinguishable from starting the process again, or from §10.1's

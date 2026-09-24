@@ -18,7 +18,7 @@ clearing `wake_at`.
 ## The model
 
 `paused` is **not an outcome** — it means only "does not advance automatically". The
-instance keeps `wait_state`, `wake_at`, `retry_count` and context verbatim; timers keep
+instance keeps `phase`, `wake_at`, `retry_count` and context verbatim; timers keep
 running. `pause` (root, running → pausing if leased else paused), `resume` (paused rows
 anywhere in the subtree → running), `retry` (root, failed only, keeps `force`).
 `cancelling`/`cancelled` were **removed, not renamed** — the whole draining machine
@@ -40,7 +40,7 @@ verbs never meet, which is what keeps this document true. See §Cancel below.
    re-merge.
 2. **`pausing` means *leased*, not not-yet-seen.** Only a row a worker currently holds
    drains; everything parked goes straight to `paused` — load-bearing, because a
-   `waiting` row is excluded from claims, so marking it `pausing` would strand it
+   `children` row is excluded from claims, so marking it `pausing` would strand it
    forever (the old cancel path dodged this only via a trick pause cannot use).
    `pausing` stays claimable purely for crash recovery (`settlePausing`); the
    interrupted-`only_once` verdict is resolved on that reclaim *before* the pause
@@ -122,9 +122,9 @@ terminal where pause is reversible:
    just forbade. The interruption stays in the trail; what it must not do is restart the tree.
 
 What does NOT differ is §1: cancel writes the status column and nothing else, so a stopped
-tree still records what each node was doing. Clearing `wait_state` was tried and reverted —
+tree still records what each node was doing. Clearing `phase` was tried and reverted —
 besides losing that record, it breaks `ReleaseExternalClaim`, which finds a claim by
-`wait_state = 'external'`, and releasing is precisely what the heartbeat tells a cancelled
+`phase = 'external'`, and releasing is precisely what the heartbeat tells a cancelled
 worker to do. `settleFailing` clears the wait because there it genuinely ENDED; a cancel
 abandons one, which is not the same thing.
 

@@ -59,7 +59,7 @@ Two zones, and the layout did not express them — both mismatches are now fixed
 - ~~`POST /instances/{id}/signal`~~ — the reverse mismatch: low-trust inbound (an external
   system delivering an outcome to a parked task, no claim token) living beside `retry`,
   `upgrade`, `pause` and `resume`. **Moved to `POST /api/external-tasks/signal` (2026-08-28)**,
-  taking `instance_id` in the body beside the `task_id` it already carried — so the two delivery
+  taking `instance_id` in the body beside the `task` it already carried — so the two delivery
   endpoints sit together and differ only in whether they address by token or by name.
 
 Both are now resolved, and neither by the rename this section originally proposed.

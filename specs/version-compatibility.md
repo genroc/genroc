@@ -38,7 +38,7 @@ advance; inline task chains are an optimization, not the model — every task en
 boundary). Exactly two interrupted states carry an extra persisted value:
 
 - `external` with a submitted result → require `oldResultSchema(T) ⊆ newResultSchema(T)`;
-- `waiting`/`collecting` → the children's own rows (§3).
+- `children`/`collecting` → the children's own rows (§3).
 
 Both are why a parked task's `result_schema` is an *upgrade* concern and not only a contract
 one (compat-command.md §2c).

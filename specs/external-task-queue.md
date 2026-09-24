@@ -13,7 +13,7 @@ the list, pick a task, answer it — and §0's whole argument is that polling a 
 two readers see the same row, and nothing leases. `claim`/`renew`/`release` replaced it, and what
 survived afterwards was a *view*, kept for discovery and for handing out tokens. Both turned out
 to be derivable: a token is `<instance>.<task_epoch>` (`model.ExternalToken`), formed from the
-instance itself, and discovery is `GET /instances` — whose rows carry `wait_state`. What only the
+instance itself, and discovery is `GET /instances` — whose rows carry `phase`. What only the
 listing published was `result_schema`, `raises` and the `objects` list, and those belong to the
 CLAIM, which is what hands a worker the work it must answer. So the endpoint outlived its
 argument, and `idx_external_queue` now earns its keep serving FILTERED claims instead.
@@ -110,7 +110,7 @@ about, so its cutoff is plain `now`.
 plus `(external_worker_id, external_lease_expires_at)` on the claimable predicate.
 
 **Not a separate table.** The queue *is* the parked rows, and every field of an entry is
-already derived from the row — the token from `task_epoch`, the input from `external_data`.
+already derived from the row — the token from `task_epoch`, the input from `external_input`.
 A second table is a second thing that can disagree ([db/CLAUDE.md](../internal/db/CLAUDE.md)
 §"The task epoch").
 
@@ -130,7 +130,7 @@ UI, resolve) untouched and makes claiming a property of the consumer, not the ta
 A mirror of `ClaimInstances`, including the dual-dialect split (Postgres: CTE +
 `FOR UPDATE SKIP LOCKED` + `RETURNING`; SQLite: select-then-update in one transaction).
 
-    wait_state = 'external' AND status = 'running'
+    phase = 'external' AND status = 'running'
       AND (external_worker_id IS NULL OR external_lease_expires_at <= ?)
       AND (wake_at IS NULL OR wake_at > ?)
 
@@ -308,7 +308,7 @@ is due the moment it resumes), and `external.timeout` is unknowable — so `only
 the retry and the instance fails terminally for work that actually succeeded.
 
 The write needs no new mechanism. `SetExternalOutcome` stores the result and clears
-`wait_state` / `wake_at`; `ClaimInstances` excludes `paused`, so the row simply waits, and
+`phase` / `wake_at`; `ClaimInstances` excludes `paused`, so the row simply waits, and
 `ResumeProcess`'s plain status flip makes it claimable into phase 2. Clearing `wake_at` also
 disarms the deadline, which is the point — an answered wait cannot later time out.
 
@@ -355,8 +355,8 @@ Three mechanics that are not obvious from the outside:
 **The timeout split this section used to propose is NOT built, because it is unsound.** The
 argument was that a timeout on a task nobody ever claimed means nothing was reached, so it
 could be retried even under `only_once`. It cannot: an unclaimed task is still reachable and
-still answerable. `GET /instances/{id}/detail` publishes the evaluated `input` under
-`state._external`, a two-part token is formed from that same row, and `signal` delivers an
+still answerable. `GET /instances/{id}/detail` publishes the evaluated `input` as
+`external_input`, a two-part token is formed from that same row, and `signal` delivers an
 outcome with no handle at all — so an unclaimed task may have been picked up and worked on
 without the claim API ever hearing of it. "Never claimed" therefore does not prove "never
 reached", and loosening it would break at-most-once for exactly those callers.

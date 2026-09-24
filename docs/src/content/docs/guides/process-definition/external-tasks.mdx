@@ -50,7 +50,7 @@ started: 5fy765kh  approval@v1  (running)
 ```
 
 If we get the state of the process after it started,
-we'll see it has `Wait: external` (waiting_state in the API).
+we'll see it has `Phase: external` (`phase` in the API).
 
 ```sh
 > genctl get @last                   
@@ -58,9 +58,61 @@ ID:       5fy765kh
 Process:  approval@v1
 Status:   running
 Task:     review
-Wait:     external
+Phase:    external
 ```
 
+We can resolve the task through cli with `resolve` command.
 
+```sh
+genctl resolve @last --task review --set approved=true
+resolved: 5fy765kh  task=review  (delivered)
+```
 
+Once resolved, the process continues it's execution to completion.
 
+```sh
+> genctl get 5fy765kh                                      
+ID:       5fy765kh
+Process:  approval@v1
+Status:   completed
+Task:     review
+Created:  2026-09-24 14:23:27
+Updated:  2026-09-24 14:44:51
+
+Output:
+approved: true
+```
+
+## Listing processes waiting for resolution
+
+You can filter process which are waiting for external resolution
+with the regular instances command.
+
+```sh
+> genctl instances --phase external
+ID        STATUS            PROCESS      UPDATED  CREATED  CODE  ERROR
+3kjfx4vm  running·external  approval@v1  1m ago   1m ago         
+02pcayvt  running·external  approval@v1  1m ago   1m ago         
+4cqpdx8z  running·external  approval@v1  1m ago   1m ago         
+8nte1end  running·external  approval@v1  1m ago   1m ago
+```
+
+## Queues
+
+If we want to resolve external tasks in a systematic way,
+we need to have a queue and workers resolving the tasks.
+
+We could use instances filter and pick the process we want to
+resolve, but that is problematic when we have multiple workers
+ - they need to know which process is already taken.
+
+Genroc offers an API for this. Let's demonstrate the API
+by showing how to create a custom external worker.
+
+### Claiming
+
+Our worker first need to claim the work.
+
+```
+
+```

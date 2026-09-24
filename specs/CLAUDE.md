@@ -11,6 +11,18 @@ between them, and when a feature lands its documentation is written against the 
 behavior while the spec stays put, answering a different question. See
 [docs-site.md](docs-site.md).
 
+**Identifiers here are kept current; arguments are not rewritten.** When something is renamed,
+every spec mentioning it is updated in the same change, so no doc here names a column, field or
+flag that no longer exists. What is never rewritten is the reasoning: a passage describing a
+design that was REMOVED keeps the names that design used, because renaming them would claim the
+mechanism still exists. Those passages say so in place ("later removed", "what goes").
+
+Renamed 2026-09-24, and the old spellings survive only in removed-design passages:
+`wait_state` -> `phase` (value `waiting` -> `children`), `external_data` -> `external_input`
+plus a new `external_lost` column, the `_external` context key -> `external_input`, and on the
+API `task_id` -> `task`, log `time`/`instance` -> `created_at`/`instance_id`, health `worker` ->
+`worker_id`, `genctl logs --mode json` -> `--json`.
+
 ## Design records
 
 Every doc below carries its own dated **§0 status** — proposed, partly built, or built and
@@ -389,7 +401,7 @@ register; when it disagrees with a §0, the §0 is right.
   included; the taint system it made dead was deleted 2026-09-04. Re-architects `process_objects` from a per-instance blob
   table into a global content-addressed store (`objects`) with explicit ownership
   (`object_refs`: instance / log / definition). Opens with a measurement rather than a design:
-  a 221 KB script is copied verbatim into every instance's `external_data` (ten instances =
+  a 221 KB script is copied verbatim into every instance's `external_input` (ten instances =
   2.23 MB) and re-shipped on every claim (670 KB for three tasks, **one** distinct hash), while
   `process_objects` holds zero rows. The four limits it names are shape, not bugs: identity is
   `(instance_id, hash)` so content is per-instance; there is no owner but an instance, which is

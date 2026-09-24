@@ -42,7 +42,7 @@ Three costs, and the third is the one that is not obvious:
 ## Design
 
 **The APIs enqueue and un-park.** Validation, the token's task epoch, and the claim binding are
-unchanged. Then: `InsertSignal`, and — if the instance is armed at this task — clear `wait_state`
+unchanged. Then: `InsertSignal`, and — if the instance is armed at this task — clear `phase`
 and `wake_at` so the row becomes claimable. One transaction under the instance row lock, as now.
 The `armed && !liveLeased` condition survives, but it now decides only *whether to un-park*, not
 *where the outcome goes*.
@@ -86,7 +86,7 @@ about the arm, where the database arbitrates park-xor-consume under the row lock
 `withExternalOutcome`, `withExternalSlot`, `SetExternalOutcome`; the `_external_result` and
 `_external_error` context keys; the `result` / `has_result` / `error` / `has_error` keys in the
 column; the arm's pop-and-write branch; and `decodeState`'s lift-after-place ordering.
-`external_data` becomes the parked bookkeeping and nothing else. `withExternalKeys` stays for the
+`external_input` becomes the parked input and nothing else. `withExternalKeys` stays for the
 `lost` marker.
 
 ## What must not break
@@ -116,7 +116,7 @@ Two things came out better than the design said, and one worse:
 - **Better:** `withExternalSlot` / `withExternalOutcome` are gone entirely rather than shrunk, and
   with them the `result` / `has_result` / `error` / `has_error` keys, the `_external_result` and
   `_external_error` context keys, `SetExternalOutcome`, and `decodeState`'s lift-after-place
-  ordering. `external_data` now holds one context key, so its `objects` paths address the context
+  ordering. `external_input` now holds one context key, so its `objects` paths address the context
   like every other slot's — the store has no non-uniform corner left.
 - **Worse:** a failure to READ the buffer during an advance has nowhere clean to go. `advance`
   returns no error, so it fails the instance with `engine.spawn` (whose remit already covered

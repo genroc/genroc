@@ -29,7 +29,7 @@ loads what that path needs and nothing else.
 ## What blocks each wish
 
 1. Five on-disk shapes for one idea (`Envelope`, the `outputs` wrapper, `last_error.data`,
-   `external_data`'s sibling `objects` key, `engine_state`), and `loaded` collected by hand at
+   `external_input`'s sibling `objects` key, `engine_state`), and `loaded` collected by hand at
    five sites in `decodeState`. [fixed -- see §1]
 2. `Roots` is name-level (`Outputs []string`), and `buildEnv` resolves whole slots before eval.
 3. `resolveNested` **writes back through `inst.ContextData`**. First read destroys the markers,

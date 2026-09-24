@@ -14,7 +14,7 @@ A 221 KB script, ten instances, nothing else running:
 | | |
 |---|---|
 | definition row | 223 KB — one copy, correct |
-| ten instances' `external_data` | **2,233,580 bytes** — the script, verbatim, ten times |
+| ten instances' `external_input` | **2,233,580 bytes** — the script, verbatim, ten times |
 | `process_objects` | **0 rows** |
 | claiming three tasks | **670,686 bytes**, **one** distinct content hash |
 
@@ -33,7 +33,7 @@ these are not bugs, they are limits of the shape:
    addressing dedups *within* an instance and nowhere else, which is the measurement above.
 2. **There is no owner but an instance.** Code comes from a definition and lives as long as the
    definition version. There is nowhere to say that, so definition-embedded values are never
-   externalized at all — they are re-evaluated into every instance's `external_data`.
+   externalized at all — they are re-evaluated into every instance's `external_input`.
 3. **Ownership is implicit and recomputed.** `pinned` is a boolean, not a count, so it is only
    correct because `applyContextObjectDiff` is handed the *complete* set of hashes the instance
    still references and diffs against what it loaded. That works, but it means no write may ever
@@ -509,7 +509,7 @@ only real values:
   section names (`withObjectRefs`, used by `get` and `logs`), because a reader who cannot see
   the key cannot tell a cut value from one that never existed. The ambiguity the wire refuses is
   between data and a marker, and rendered text is consumed by nobody as data — so the machine
-  forms (`--json`, `--mode json`) stay verbatim, section and all.
+  forms (`get --json`, `logs --json`) stay verbatim, section and all.
 
 `resolve=true` returns in a bounded form (§Resolution is automatic while it is small); what goes
 for good is `HydrateContext`'s unbounded materialization and the truncated preview that existed
@@ -592,9 +592,8 @@ the value it stands for; it goes in a sibling `objects` list, with a path saying
 belongs. The stored form is the same shape as the response:
 
 ```jsonc
-// external_data, for a task whose code is a definition-owned object
-{ "task_id": "price",
-  "input":   { "input": { "amount": 250 } },              // the ref'd leaf is absent
+// external_input, for a task whose code is a definition-owned object
+{ "input":   { "input": { "amount": 250 } },              // the ref'd leaf is absent
   "objects": [ { "path": ["input", "code"], "ref": "9f2a", "size": 221110 } ] }
 ```
 
@@ -654,7 +653,7 @@ on every run — and it is the same code a worker needs.
 1. **Cross-instance dedup**, immediately, for every externalized value — not just code.
 2. **A place to own definition-embedded values.** A large Shape literal externalizes at
    `PUT /definitions` under a `definition` ref, evaluation passes the `ObjectRef` leaf through
-   unchanged (the slot cut already does exactly this), and `external_data` holds
+   unchanged (the slot cut already does exactly this), and `external_input` holds
    `{code: {ref, size}}` instead of 221 KB.
 3. **A cacheable handle for workers.** A sha256 ref is immutable by construction, so a worker
    fetches once and caches forever with no invalidation problem. The claim response shrinks to
@@ -764,7 +763,7 @@ selection is a sort plus a walk.
 
 | | before | after |
 |---|---|---|
-| ten instances' `external_data` | 2,233,580 B | **1,360 B** |
+| ten instances' `external_input` | 2,233,580 B | **1,360 B** |
 | objects stored | 0 | **1**, claimed ten times |
 | claiming three tasks | 670,686 B | **1,020 B** |
 

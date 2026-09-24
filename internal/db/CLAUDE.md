@@ -358,7 +358,7 @@ Two invariants that are easy to break:
    claimed, so the `pausing` → `paused` transition is a `CASE` in `UpdateInstance` /
    `UpdateInstanceProgress` (and an explicit remap in `SpawnChildrenAndWait`, which parks
    the parent on `phase='children'` and would otherwise strand it). Everything not
-   leased is set to `paused` directly — a row parked on `waiting` is excluded from
+   leased is set to `paused` directly — a row parked on `children` is excluded from
    `ClaimInstances`, so marking it `pausing` would leave it draining forever. `pausing`
    stays in the claim predicate purely for crash recovery.
 2. **A failure outranks a pause.** `FailAncestors` includes `paused`/`pausing` rows, so a
