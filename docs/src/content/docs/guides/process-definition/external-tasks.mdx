@@ -111,10 +111,10 @@ If we want to resolve external tasks in a systematic way,
 we need to have a queue and workers resolving the tasks.
 
 We could use instances filter and pick the process we want to
-resolve, but that is problematic when we have multiple workers
- - they need to know which process is already taken.
+resolve, but that is problematic when we have
+multiple workers - they need to know which process is already taken.
 
-Genroc offers a [proper API](../../reference/rest-api/external-tasks.md) for this.
+Genroc offers a [REST API](../../reference/rest-api/external-tasks.md) for this.
 
 ### Claiming
 
@@ -127,6 +127,10 @@ worker for the `lease_ms` time.
 Your worker should regularly prolong the leases (unless you can guarantee
 it will always finish in certain time). Lease renewals can be understood
 as a sort of heartbeat letting genroc know that the worker is alive.
+
+The `/renew` endpoint will also let you know if the process is cancelled
+and the result is no longer needed. You can then kill the worker (usefull
+for really long tasks).
 
 ### Resolving task
 
