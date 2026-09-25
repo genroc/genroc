@@ -220,11 +220,9 @@ automatically when needed.</p>
 <p>If we want to resolve external tasks in a systematic way,
 we need to have a queue and workers resolving the tasks.</p>
 <p>We could use instances filter and pick the process we want to
-resolve, but that is problematic when we have multiple workers</p>
-<ul>
-<li>they need to know which process is already taken.</li>
-</ul>
-<p>Genroc offers a <a href="/reference/rest-api/external-tasks/">proper API</a> for this.</p>
+resolve, but that is problematic when we have
+multiple workers - they need to know which process is already taken.</p>
+<p>Genroc offers a <a href="/reference/rest-api/external-tasks/">REST API</a> for this.</p>
 <h3 id="claiming">Claiming<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#claiming"><span></span></a></h3>
 <p>You can use <code>/claim</code> endpoint wich will ensure no other worker
 can work on it at the same time. Claimed tasks are leased to the
@@ -233,6 +231,9 @@ worker for the <code>lease_ms</code> time.</p>
 <p>Your worker should regularly prolong the leases (unless you can guarantee
 it will always finish in certain time). Lease renewals can be understood
 as a sort of heartbeat letting genroc know that the worker is alive.</p>
+<p>The <code>/renew</code> endpoint will also let you know if the process is cancelled
+and the result is no longer needed. You can then kill the worker (usefull
+for really long tasks).</p>
 <h3 id="resolving-task">Resolving task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#resolving-task"><span></span></a></h3>
 <p>After the work is finished, use <code>/resolve</code> endpoint with submitted token
 from the claim. Resolve endpoint is different from signal, because it can only
