@@ -187,9 +187,9 @@ we’ll see it has <code>Phase: external</code>.</p>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Status:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   running</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Task:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">     review</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">Phase:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">    external</span></span></code></pre>
-<p>We can resolve the task through cli with <code>resolve</code> command.</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> resolve</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> @last</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --task</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> review</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --set</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> approved=</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">true</span></span>
-<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">resolved:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 5fy765kh</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  task=review</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  (delivered)</span></span></code></pre>
+<p>We can resolve the task through cli with <code>signal</code> command.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> signal</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> @last</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --task</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> review</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> --set</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> approved=</span><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">true</span></span>
+<span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">signaled:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 5fy765kh</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  task=review</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  (delivered)</span></span></code></pre>
 <p>Once resolved, the process continues it’s execution to completion.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&gt;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> genctl get 5fy765kh                                      </span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">ID:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">       5fy765kh</span></span>
@@ -210,6 +210,12 @@ with the regular instances command.</p>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">02pcayvt</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  running·external</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  approval@v1</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  1m</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   1m</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">         </span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">4cqpdx8z</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  running·external</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  approval@v1</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  1m</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   1m</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">         </span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">8nte1end</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  running·external</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  approval@v1</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">  1m</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">   1m</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> ago</span></span></code></pre>
+<h2 id="signals">Signals<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#signals"><span></span></a></h2>
+<p>In the example above we’ve used <code>genctl signal</code> command
+to submit the result of external task. Signals can be
+submitted any time (even if the process is not waiting for it).
+Genroc puts submitted signals into a queue and it is picked up
+automatically when needed.</p>
 <h2 id="queues">Queues<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#queues"><span></span></a></h2>
 <p>If we want to resolve external tasks in a systematic way,
 we need to have a queue and workers resolving the tasks.</p>
@@ -218,11 +224,22 @@ resolve, but that is problematic when we have multiple workers</p>
 <ul>
 <li>they need to know which process is already taken.</li>
 </ul>
-<p>Genroc offers an API for this. Let’s demonstrate the API
-by showing how to create a custom external worker.</p>
+<p>Genroc offers a <a href="/reference/rest-api/external-tasks/">proper API</a> for this.</p>
 <h3 id="claiming">Claiming<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#claiming"><span></span></a></h3>
-<p>Our worker first need to claim the work.</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span></span></span></code></pre>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/upgrading-instances/"> <span>previous</span> <strong>Upgrading instances</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#example">Example</a></li><li class="depth-2"><a href="#listing-processes-waiting-for-resolution">Listing processes waiting for resolution</a></li><li class="depth-2"><a href="#queues">Queues</a></li><li class="depth-3"><a href="#claiming">Claiming</a></li></ul><script>
+<p>You can use <code>/claim</code> endpoint wich will ensure no other worker
+can work on it at the same time. Claimed tasks are leased to the
+worker for the <code>lease_ms</code> time.</p>
+<h3 id="lease-renewal">Lease renewal<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#lease-renewal"><span></span></a></h3>
+<p>Your worker should regularly prolong the leases (unless you can guarantee
+it will always finish in certain time). Lease renewals can be understood
+as a sort of heartbeat letting genroc know that the worker is alive.</p>
+<h3 id="resolving-task">Resolving task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#resolving-task"><span></span></a></h3>
+<p>After the work is finished, use <code>/resolve</code> endpoint with submitted token
+from the claim. Resolve endpoint is different from signal, because it can only
+be used with previously claimed task and it requires the process to be waiting for
+the result.</p>
+<h3 id="releasing-the-lease">Releasing the lease<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#releasing-the-lease"><span></span></a></h3>
+<p>Hand a claim back to the queue immediately wit <code>/release</code> instead of waiting out its lease.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/upgrading-instances/"> <span>previous</span> <strong>Upgrading instances</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#example">Example</a></li><li class="depth-2"><a href="#listing-processes-waiting-for-resolution">Listing processes waiting for resolution</a></li><li class="depth-2"><a href="#signals">Signals</a></li><li class="depth-2"><a href="#queues">Queues</a></li><li class="depth-3"><a href="#claiming">Claiming</a></li><li class="depth-3"><a href="#lease-renewal">Lease renewal</a></li><li class="depth-3"><a href="#resolving-task">Resolving task</a></li><li class="depth-3"><a href="#releasing-the-lease">Releasing the lease</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
