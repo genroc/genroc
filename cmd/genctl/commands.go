@@ -379,20 +379,16 @@ func runRunCmd(server string, args []string) {
 	fmt.Printf("started: %s  %s@v%d  (%s)\n", resp.ID, resp.Process, resp.Version, resp.Status)
 }
 
-// runResolveCmd submits an outcome for an external task, addressed by the queue token a worker
-// claimed it with or by instance id + --task. The second may arrive BEFORE the task arms, in
-// which case the server buffers it FIFO -- which is why the printed line names what happened.
-// One command because the two are one submission, and the argument's shape (`<id>.<epoch>` or a
-// bare id) says which endpoint it is for.
-func runResolveCmd(server string, args []string) {
+// runSignalCmd delivers an outcome to an instance's external task by id. Unfenced, and it may
+// arrive before the task arms -- the server then buffers it FIFO, so the line says which. A
+// claimed task's fenced answer is API-only: a worker that claimed holds the token.
+func runSignalCmd(server string, args []string) {
 	if len(args) == 0 {
-		fatal("usage: genctl resolve <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]\n" +
-			"       genctl resolve <instance-id> --task <task-id> [same flags]")
+		fatal("usage: genctl signal <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]")
 	}
-
-	fs := newFlagSet("resolve", args)
+	fs := newFlagSet("signal", args)
 	serverFlag := addServerFlag(fs, server)
-	taskFlag := fs.String("task", "", "with an instance id: the external task to deliver to")
+	taskFlag := fs.String("task", "", "the external task to deliver to (required)")
 	resultFlag := fs.String("result", "", "result as a JSON/YAML literal, or - for stdin")
 	fileFlag := fs.String("f", "", "read result/payload from a file (path)")
 	codeFlag := fs.String("code", "", "answer on the ERROR channel with this code (lower_snake_case, no dots)")
@@ -401,18 +397,9 @@ func runResolveCmd(server string, args []string) {
 	fs.Var(&sets, "set", "set a result/payload field: key=value (repeatable; dotted keys nest, values are type-inferred)")
 	quietFlag := fs.Bool("quiet", false, "on success print nothing (exit 0); by default prints a confirmation line")
 	fs.BoolVar(quietFlag, "q", false, "shorthand for --quiet")
-	// The reference is the sole positional, before or after flags; @last resolves here.
-	ref := instanceIDOrToken(fs, args)
-
-	// Which of the two the argument is decides the endpoint, so a half-named address is
-	// refused rather than sent: neither server call can do anything useful with it.
-	byInstance := isInstanceRef(ref)
-	switch {
-	case byInstance && *taskFlag == "":
-		fatal("resolve %s: an instance id needs --task <task-id>; a queue token addresses the task by itself", ref)
-	case !byInstance && *taskFlag != "":
-		fatal("resolve %s: --task names a task on an INSTANCE, and this is not an instance id — "+
-			"a queue token already names one task", ref)
+	id := instanceIDAndFlags(fs, args)
+	if *taskFlag == "" {
+		fatal("signal %s: --task <task-id> is required — an instance id names no task by itself", id)
 	}
 
 	// A missing --result/-f/--set means an empty result: valid for a task with no
@@ -421,21 +408,11 @@ func runResolveCmd(server string, args []string) {
 	if err != nil {
 		fatal("%v", err)
 	}
-
-	endpoint, target := "/api/external-tasks/resolve", map[string]any{"token": ref}
-	if byInstance {
-		id := resolveInstanceID(ref)
-		endpoint, target = "/api/external-tasks/signal", map[string]any{"instance_id": id, "task": *taskFlag}
-		ref = id
-	}
-
+	body := outcomeBody(map[string]any{"instance_id": id, "task": *taskFlag}, payload, *codeFlag, *messageFlag)
 	var resp struct {
-		Resolved bool `json:"resolved"`
 		Buffered bool `json:"buffered"`
 	}
-	if err := call(*serverFlag+endpoint, http.MethodPost, outcomeBody(target, payload, *codeFlag, *messageFlag), &resp); err != nil {
-		// Surface a result-schema mismatch as a clear, dedicated message instead of the
-		// generic "server: ..." wrapper (mirrors run's input-validation handling).
+	if err := call(*serverFlag+"/api/external-tasks/signal", http.MethodPost, body, &resp); err != nil {
 		if detail, ok := resultValidationError(err); ok {
 			fatal("result is not valid for this task:\n  %s", detail)
 		}
@@ -444,15 +421,11 @@ func runResolveCmd(server string, args []string) {
 	if *quietFlag {
 		return
 	}
-
-	line := "resolved: " + ref
-	if byInstance {
-		state := "delivered"
-		if resp.Buffered {
-			state = "buffered"
-		}
-		line = fmt.Sprintf("resolved: %s  task=%s  (%s)", ref, *taskFlag, state)
+	state := "delivered"
+	if resp.Buffered {
+		state = "buffered"
 	}
+	line := fmt.Sprintf("signaled: %s  task=%s  (%s)", id, *taskFlag, state)
 	if *codeFlag != "" {
 		line += " (error " + *codeFlag + ")"
 	}
@@ -460,8 +433,7 @@ func runResolveCmd(server string, args []string) {
 }
 
 // outcomeBody puts the payload on the channel --code selects: the error half when a code is
-// given, the result half otherwise. Shared by resolve and signal so the two spell one
-// submission the same way.
+// given, the result half otherwise.
 func outcomeBody(body map[string]any, payload any, code, message string) map[string]any {
 	if code == "" {
 		body["result"] = payload

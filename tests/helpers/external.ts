@@ -44,7 +44,7 @@ export async function waitForParked(id: string, c: Client = defaultClient, timeo
   throw new Error(`instance ${id} never parked on an external task within ${timeoutMs}ms`);
 }
 
-/** The token for a parked instance, as `genctl resolve` takes it. */
+/** The token for a parked instance, as `POST /external-tasks/resolve` takes it. */
 export async function tokenFor(id: string, c: Client = defaultClient): Promise<string> {
   return (await waitForParked(id, c)).token;
 }

@@ -200,16 +200,14 @@ large value prints as a ref.`,
 			"parked -- `genctl compat` asks the same question without moving anything.\n\n" +
 			instanceRefs,
 	},
-	"resolve": {
-		summary: "answer an external task, by queue token or by instance id",
+	"signal": {
+		summary: "deliver an outcome to an instance's external task by id",
 		usage: []string{
-			"resolve <token> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]",
-			"resolve <instance-id> --task <task-id> [same flags]",
+			"signal <instance-id> --task <task-id> [--result <json|-> | -f file] [--set k=v ...] [--code C --message M] [-q]",
 		},
-		detail: `One submission, addressed the two ways it can be. A worker claims a task off the queue --
-there is no listing endpoint -- and answers with the token that claim returned. Anyone else
-uses the instance id and --task, which BUFFERS the outcome if the task is not armed yet;
-the confirmation line says which happened.
+		detail: `No claim and no fence. It may arrive before the task arms: the server then BUFFERS it
+FIFO until the task parks, and the confirmation line says delivered or buffered. A worker
+that claimed a task answers through the API, with the token its claim returned.
 
 --code/--message answers on the ERROR channel instead of with a result, routed through the
 task's on_error rules like any other call error. No result flags at all means an empty
@@ -286,7 +284,7 @@ var helpGroups = []struct {
 	names []string
 }{
 	{"Definitions", []string{"apply", "types", "schema", "compat", "definitions"}},
-	{"Instances", []string{"run", "instances", "get", "detail", "logs", "pause", "resume", "cancel", "retry", "upgrade", "resolve", "object"}},
+	{"Instances", []string{"run", "instances", "get", "detail", "logs", "pause", "resume", "cancel", "retry", "upgrade", "signal", "object"}},
 	{"Channels", []string{"channel"}},
 	{"Setup", []string{"init", "config", "token", "lsp"}},
 }

@@ -380,7 +380,7 @@ answers the latency note, but second — it changes connection lifetime, not the
 ## Phasing
 
 1. **Error channel.** ✅ **Built 2026-08-23.** An `error` outcome on
-   `/external-tasks/resolve` and `/instances/{id}/signal` (`genctl resolve|signal --code`); `external_data` gains `error`/`has_error` (`SetExternalResult` generalised
+   `/external-tasks/resolve` and `/instances/{id}/signal` (`genctl signal --code`); `external_data` gains `error`/`has_error` (`SetExternalResult` generalised
    to `SetExternalOutcome`); `model.CtxExternalError` routed by `runExternal` phase 2a
    through `handleCallErrorWith`; `raises` legal on an external action, typed into
    `error.data` by `declaredRaises`; `raises` closed on external, with `null` as the no-payload

@@ -61,11 +61,11 @@ Task:     review
 Phase:    external
 ```
 
-We can resolve the task through cli with `resolve` command.
+We can resolve the task through cli with `signal` command.
 
 ```sh
-genctl resolve @last --task review --set approved=true
-resolved: 5fy765kh  task=review  (delivered)
+genctl signal @last --task review --set approved=true
+signaled: 5fy765kh  task=review  (delivered)
 ```
 
 Once resolved, the process continues it's execution to completion.
@@ -97,6 +97,14 @@ ID        STATUS            PROCESS      UPDATED  CREATED  CODE  ERROR
 8nte1end  running·external  approval@v1  1m ago   1m ago
 ```
 
+## Signals
+
+In the example above we've used `genctl signal` command
+to submit the result of external task. Signals can be
+submitted any time (even if the process is not waiting for it).
+Genroc puts submitted signals into a queue and it is picked up
+automatically when needed.
+
 ## Queues
 
 If we want to resolve external tasks in a systematic way,
@@ -106,13 +114,27 @@ We could use instances filter and pick the process we want to
 resolve, but that is problematic when we have multiple workers
  - they need to know which process is already taken.
 
-Genroc offers an API for this. Let's demonstrate the API
-by showing how to create a custom external worker.
+Genroc offers a [proper API](../../reference/rest-api/external-tasks.md) for this.
 
 ### Claiming
 
-Our worker first need to claim the work.
+You can use `/claim` endpoint wich will ensure no other worker
+can work on it at the same time. Claimed tasks are leased to the
+worker for the `lease_ms` time.
 
-```
+### Lease renewal
 
-```
+Your worker should regularly prolong the leases (unless you can guarantee
+it will always finish in certain time). Lease renewals can be understood
+as a sort of heartbeat letting genroc know that the worker is alive.
+
+### Resolving task
+
+After the work is finished, use `/resolve` endpoint with submitted token
+from the claim. Resolve endpoint is different from signal, because it can only
+be used with previously claimed task and it requires the process to be waiting for
+the result.
+
+### Releasing the lease
+
+Hand a claim back to the queue immediately wit `/release` instead of waiting out its lease.

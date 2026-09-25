@@ -379,7 +379,7 @@ test("instances --error-code — matches the authored code exactly", async () =>
 test("instances --phase — lists what is parked, which status cannot say", async () => {
   const name = apply(externalDef(uid("wait_f")));
   const parked = startedID(runCli(bin, ["run", name]).stdout);
-  const token = await waitForExternalToken(parked);
+  await waitForExternalToken(parked);
 
   const done = startedID(runCli(bin, ["run", apply(switchDef(uid("wait_done")))]).stdout);
   expect(await waitForInstance(done)).toBe("completed");
@@ -396,7 +396,7 @@ test("instances --phase — lists what is parked, which status cannot say", asyn
   expect(external.length).toBeLessThan(running.length + 1);
 
   // Answering it empties the filter of that row -- the listing tracks the park, not the run.
-  runCli(bin, ["resolve", token, "--set", "approved=true"]);
+  runCli(bin, ["signal", parked, "--task", "approval", "--set", "approved=true"]);
   expect(await waitForInstance(parked)).toBe("completed");
   expect(instances(["--since", "1h", "--phase", "external"]).some((i) => i.id === parked)).toBe(false);
 }, 15_000);
@@ -404,7 +404,7 @@ test("instances --phase — lists what is parked, which status cannot say", asyn
 test("instances — the STATUS column carries phase, and only where there is one", async () => {
   const name = apply(externalDef(uid("wait_col")));
   const parked = startedID(runCli(bin, ["run", name]).stdout);
-  const token = await waitForExternalToken(parked);
+  await waitForExternalToken(parked);
   const done = startedID(runCli(bin, ["run", apply(switchDef(uid("wait_col_done")))]).stdout);
   expect(await waitForInstance(done)).toBe("completed");
 
@@ -417,7 +417,7 @@ test("instances — the STATUS column carries phase, and only where there is one
   // A row with no wait state prints the bare status, not a trailing separator.
   expect(lines.find((l) => l.startsWith(done))!).not.toContain("\u00b7");
 
-  runCli(bin, ["resolve", token, "--set", "approved=true"]);
+  runCli(bin, ["signal", parked, "--task", "approval", "--set", "approved=true"]);
   expect(await waitForInstance(parked)).toBe("completed");
 }, 15_000);
 
@@ -455,11 +455,12 @@ test("instances --sort updated — orders by last activity, not creation", async
   const name = apply(externalDef(uid("sort_upd")));
   const first = startedID(runCli(bin, ["run", name]).stdout);
   const second = startedID(runCli(bin, ["run", name]).stdout);
+  await waitForExternalToken(first);
   await waitForExternalToken(second);
 
   // Resolving the first-created makes it the last-updated, which is what tells the two
   // sorts apart — under one order it is first, under the other last.
-  runCli(bin, ["resolve", await waitForExternalToken(first), "--set", "approved=true"]);
+  runCli(bin, ["signal", first, "--task", "approval", "--set", "approved=true"]);
   expect(await waitForInstance(first)).toBe("completed");
 
   const ids = (sort: string) => instances(["--since", "1h", "--sort", sort]).map((i) => i.id);
@@ -468,7 +469,7 @@ test("instances --sort updated — orders by last activity, not creation", async
   const byUpdated = ids("updated");
   expect(byUpdated.indexOf(second)).toBeLessThan(byUpdated.indexOf(first));
 
-  runCli(bin, ["resolve", await waitForExternalToken(second), "--set", "approved=true"]);
+  runCli(bin, ["signal", second, "--task", "approval", "--set", "approved=true"]);
   expect(await waitForInstance(second)).toBe("completed");
 }, 30_000);
 
@@ -690,7 +691,7 @@ test("instances — -q and --json are two machine formats, so naming both is ref
 test("pause then resume — parks a running instance and revives it", async () => {
   const name = apply(externalDef(uid("pausable")));
   const id = startedID(runCli(bin, ["run", name]).stdout);
-  const token = await waitForExternalToken(id);
+  await waitForExternalToken(id);
 
   expect(runCli(bin, ["pause", id]).ok).toBe(true);
   expect(instances(["--since", "1h"]).find((i) => i.id === id)?.status).toBe("paused");
@@ -698,7 +699,7 @@ test("pause then resume — parks a running instance and revives it", async () =
   expect(runCli(bin, ["resume", id]).ok).toBe(true);
   expect(instances(["--since", "1h"]).find((i) => i.id === id)?.status).toBe("running");
 
-  runCli(bin, ["resolve", token, "--set", "approved=true"]);
+  runCli(bin, ["signal", id, "--task", "approval", "--set", "approved=true"]);
   expect(await waitForInstance(id)).toBe("completed");
 }, 30_000);
 
@@ -981,7 +982,7 @@ test("instances --status — takes several, the same grammar upgrade --status ta
   const done = startedID(runCli(bin, ["run", apply(switchDef(uid("st_done")))]).stdout);
   expect(await waitForInstance(done)).toBe("completed");
   const parked = startedID(runCli(bin, ["run", apply(externalDef(uid("st_parked")))]).stdout);
-  const token = await waitForExternalToken(parked);
+  await waitForExternalToken(parked);
 
   const both = instances(["--since", "1h", "--status", "completed,running"]).map((i) => i.id);
   expect(both).toContain(done);
@@ -989,6 +990,6 @@ test("instances --status — takes several, the same grammar upgrade --status ta
   // A union, not the last value winning -- which is what a single-value filter would give.
   expect(instances(["--since", "1h", "--status", "completed"]).map((i) => i.id)).not.toContain(parked);
 
-  runCli(bin, ["resolve", token, "--set", "approved=true"]);
+  runCli(bin, ["signal", parked, "--task", "approval", "--set", "approved=true"]);
   expect(await waitForInstance(parked)).toBe("completed");
 }, 15_000);

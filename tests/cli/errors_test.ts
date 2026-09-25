@@ -107,7 +107,7 @@ test("commands that need an argument say which one", () => {
     { args: ["channel", "delete", "p"], want: "usage: genctl channel delete" },
     { args: ["channel", "promote", "--from", "a"], want: "--from and --to are required" },
     { args: ["get"], want: "an instance id is required" },
-    { args: ["resolve"], want: "usage: genctl resolve" },
+    { args: ["signal"], want: "usage: genctl signal" },
   ];
   for (const { args, want } of cases) {
     const r = runCli(bin, args);

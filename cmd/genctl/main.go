@@ -80,8 +80,8 @@ func main() {
 		runRunCmd(server, args)
 	case "token":
 		runTokenCmd(server, args)
-	case "resolve":
-		runResolveCmd(server, args)
+	case "signal":
+		runSignalCmd(server, args)
 	case "object":
 		runObjectCmd(server, args)
 	case "get":
@@ -144,20 +144,6 @@ func instanceIDAndFlags(fs *flag.FlagSet, args []string) string {
 		fatal("%s reads one instance, and %d ids were named", fs.Name(), len(ids))
 	}
 	return ids[0]
-}
-
-// instanceIDOrToken parses resolve's one positional, which is a queue token OR an instance id.
-// It shape-checks neither: a token is the server's to recognise, and which of the two this is
-// decides the endpoint, so the caller reads the shape itself.
-func instanceIDOrToken(fs *flag.FlagSet, args []string) string {
-	pos := leadingArgs(fs, args)
-	if len(pos) == 0 {
-		fatal("resolve needs a queue token, or an instance id with --task")
-	}
-	if len(pos) > 1 {
-		fatal("resolve submits one outcome, and %d were named", len(pos))
-	}
-	return pos[0]
 }
 
 // instanceIDsAndFlags is the same parse for pause/resume/cancel/retry, which act on every id

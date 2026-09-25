@@ -56,15 +56,13 @@ Keep new list/get commands consistent so the surface stays predictable.
   by running it again; `get`/`logs` refuse a second positional rather than dropping it.
   specs/id-list-commands.md.
 - **One positional, several kinds, told apart by shape.** `upgrade` and `compat` take an
-  instance id where a process name goes, and `resolve` takes a queue token (`<id>.<epoch>`)
-  where an instance id goes — `isInstanceRef` (a minted id, a legacy UUID, or `@last`)
-  decides. An id names one row, so the flags that SELECT rows — `--from`, `--status` — are
+  instance id where a process name goes — `isInstanceRef` (a minted id, a legacy UUID, or
+  `@last`) decides. An id names one row, so the flags that SELECT rows — `--from`, `--status` — are
   refused there rather than ignored: a selector that is silently overridden reads as if it
   applied.
-- **`resolve` is one submission with two addresses**, not two commands: same payload flags,
-  same error channel, same conforming. Addressed by instance id it may arrive before the task
-  arms, so the confirmation line says `delivered` or `buffered` — the distinction lives in the
-  output, which is where it is observable.
+- **`signal` is the only way to answer an external task from here.** The fenced answer —
+  `/external-tasks/resolve` with a claim's token — has no command: only a worker that claimed
+  holds a token, and there is no `claim` command, so a `resolve` one had no honest caller.
 - **`--json` is the one machine-readable form.** A list prints raw items as a JSON array
   via `printJSONItems` (lossless, same order as the table); a single item prints the raw
   server object (`callGet` into `json.RawMessage`, then indent). Never invent a

@@ -57,7 +57,7 @@ func TestTheShortHelpStaysShort(t *testing.T) {
 	if lines := strings.Count(b.String(), "\n"); lines > 45 {
 		t.Errorf("`genctl -h` is %d lines; it is the map, and detail belongs under `genctl <cmd> -h`", lines)
 	}
-	for _, name := range []string{"apply", "resolve", "channel"} {
+	for _, name := range []string{"apply", "signal", "channel"} {
 		if summary := commandDocs[name].summary; len(summary) > 70 {
 			t.Errorf("%s: summary is %d chars, and the map lines up on one screen width", name, len(summary))
 		}
