@@ -25,6 +25,15 @@ for (const file of files.filter((f) => f.endsWith('.html'))) {
   pages.set('/' + relative(dist, file).replace(/index\.html$/, ''), ids)
 }
 
+// Swagger UI renders its anchors client-side, so a deep link is checked against the spec it
+// loads: `#/<tag>/<operationId>`, keyed on the operation's first tag.
+const swaggerOps = new Set()
+for (const item of Object.values(JSON.parse(readFileSync(join(dist, 'openapi.json'), 'utf8')).paths)) {
+  for (const op of Object.values(item)) {
+    if (op?.operationId && op.tags?.length) swaggerOps.add(`/${op.tags[0]}/${op.operationId}`)
+  }
+}
+
 const errors = []
 
 // Links are authored as paths to a source file, but reach dist as the URL the rehype plugin
@@ -47,6 +56,10 @@ for (const [page, ids] of pages) {
     const target = base && pathname.startsWith(base + '/') ? pathname.slice(base.length) : pathname
     const fragment = decodeURIComponent(hash.slice(1))
 
+    if (target === '/swagger/index.html' && fragment) {
+      if (!swaggerOps.has(fragment)) errors.push(`${source(page)}: ${href} — no such operation in openapi.json`)
+      continue
+    }
     if (!pages.has(target)) {
       if (!assets.has(target)) errors.push(`${source(page)}: ${href} — no such page`)
       continue

@@ -86,3 +86,13 @@ func TestTheStatusFilterOffersEveryStatus(t *testing.T) {
 		t.Errorf("the filter offers %d values and the model declares %d", len(offered), len(model.Statuses()))
 	}
 }
+
+func TestActionNamesAreUnique(t *testing.T) {
+	seen := map[string]bool{}
+	for _, a := range registry {
+		if seen[a.Name] {
+			t.Errorf("%q names two actions: the dispatcher reaches only the first, and the spec's operationIds collide", a.Name)
+		}
+		seen[a.Name] = true
+	}
+}

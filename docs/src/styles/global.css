@@ -581,7 +581,24 @@ h4 {
   opacity: 1;
 }
 
-/* --- page nav --------------------------------------------------------------- */
+/* Empty in the source for the same reason as .heading-anchor: see cmd/genrocspec/httpref.go. */
+.swagger-link {
+  margin-left: 1ch;
+  font-size: 0.7em;
+  font-weight: normal;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.swagger-link::after {
+  content: "[swagger]";
+}
+
+.swagger-link:hover {
+  color: var(--accent);
+}
+
+/* --- page nav--------------------------------------------------------------- */
 
 /* Reading order, from src/lib/nav.ts — the same sequence the sidebar shows, flattened. */
 .page-nav {

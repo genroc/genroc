@@ -100,6 +100,8 @@ func addOperation(r *openapi31.Reflector, a actionDef) {
 	if err != nil {
 		return
 	}
+	// The docs site deep-links each endpoint into Swagger UI by this id (cmd/genrocspec).
+	op.SetID(a.Name)
 	op.SetSummary(a.Summary)
 	if len(a.Tags) > 0 {
 		op.SetTags(a.Tags...)

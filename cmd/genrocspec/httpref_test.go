@@ -39,7 +39,7 @@ func TestEveryActionReachesAPage(t *testing.T) {
 	for _, ref := range api.Reference() {
 		// The heading carries the base path, which the spec declares once in `servers` and a
 		// root-mounted action overrides — so match the suffix rather than rebuilding the rule.
-		if !strings.Contains(page, "\n## "+ref.Method+" ") || !strings.Contains(page, ref.Path+"\n") {
+		if !strings.Contains(page, "\n## "+ref.Method+" ") || !strings.Contains(page, ref.Path+"<a ") {
 			t.Errorf("%s %s reached no page", ref.Method, ref.Path)
 		}
 	}
@@ -97,4 +97,25 @@ func countOperations(t *testing.T) int {
 		}
 	}
 	return n
+}
+
+func TestEveryEndpointLinksIntoSwagger(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeHTTPReference(dir); err != nil {
+		t.Fatalf("writeHTTPReference: %v", err)
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range strings.Split(string(b), "\n## ")[1:] {
+			heading, _, _ := strings.Cut(s, "\n")
+			if !strings.Contains(heading, `href="../../../swagger/index.html#/`) || !strings.Contains(heading, `target="_blank"`) || strings.Contains(heading, "#/Other/") ||
+				strings.Contains(heading, `/" target`) {
+				t.Errorf("%s: %q has no Swagger deep link naming its tag and operationId", e.Name(), heading)
+			}
+		}
+	}
 }
