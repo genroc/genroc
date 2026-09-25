@@ -218,3 +218,47 @@ on_error:
 Specifies what errors we expect. It's an object where keys are error codes and values are json schemas (optional).
 If you define error schema you can then access `error.data` (like `fetch` error responses).
 
+## Importing child process
+
+You can import child process to reduce duplicated fields in the yaml.
+
+```genroc
+# parent.genroc.yaml
+name: parent_process
+tasks:
+  - id: spawn_child
+    action:
+      type: child
+      <<: "$process: ./child.genroc.yaml"
+      input:
+        who: world
+    output: "$: self.result"
+    switch: end
+output: "$: outputs.spawn_child.message"
+```
+
+`$process:` is a resolver, it finds the specified genroc file,
+builds it's types and returns `name`, `input_schema`, `result_schema` and `raises`.
+
+### `<<` operator
+
+The `<<` operator is yaml convention for spread syntax.
+
+It is used to prefill object with default values. Genroc will
+expand the resolver into object. Equivalent pure yaml
+would look like this:
+
+```genroc
+  - id: spawn_child
+    action:
+      type: child
+      <<:
+        # product of `$process: ./child.genroc.yaml`
+        name: greet
+        result_schema:
+          type: object
+          properties:
+            message: {type: string}
+      input:
+        who: world
+```

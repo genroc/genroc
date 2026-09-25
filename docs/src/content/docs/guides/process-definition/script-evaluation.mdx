@@ -1,0 +1,126 @@
+---
+title: Typescript evaluation
+description: Learn how to run typescript through genroc
+order: 9
+---
+
+If you want to have custom scripts as part of the process,
+initialize your project with `genctl init --eval-node`.
+
+
+### The setup
+
+If we look at the project structure, you will see, that there are some extra fields
+compared to regular one.
+
+```
+├── .genroc                        # registers the `import` resolver for .ts files
+├── compose.yaml                   # adds an `eval-node` worker service
+├── package.json                   # @genroc/eval-node npm package
+├── tsconfig.json
+└── definitions
+    ├── hello.genroc.yaml          # the example process below
+    ├── script-node.genroc.yaml    # the child process that runs a script
+    └── greet.ts                   # the script hello runs
+```
+
+The `script-node.genroc.yaml` is a child process which is an abstraction
+above the execution engine. Inside it uses external task to expose the script
+code and the input.
+
+`compose.yaml` then contains setup for `genroc/eval-node` docker
+container. This is our node worker that is able process the script
+tasks. You can take this as an example implementation of
+[genroc worker](./external-tasks.mdx#queues).
+
+
+
+### Example process
+
+The example process will look something like this:
+
+```genroc
+name: hello
+input_schema:
+  type: object
+  properties:
+    who: { type: string, default: "world" }
+tasks:
+  - id: greet
+    action:
+      type: child
+      # `name`, `input_schema` and `raises` come from the child
+      <<: "$process: ./script-node.genroc.yaml"
+      input:
+        # script code
+        code: "$import: ./greet.ts"
+        # script input
+        input:
+          who: "$: input.who"
+      # defining the script output
+      result_schema:
+        type: object
+        properties:
+          greeting: { type: string }
+          at: { type: string }
+        required: [greeting]
+    output: "$: self.result"
+    switch:
+      - goto: end
+
+output: "$: outputs.greet"
+```
+
+We are using two kinds of resolvers. `$process:` is build in documented in [child process section](./child-processes.mdx#importing-child-process).
+Then we have `$import: ./greet.ts`, this is a special resolver intended for importing typescript files.
+
+The content of the file is bundled with rollup into one string and included directly into the process definition,
+so it can't drift.
+
+### Generated types
+
+Run `genctl types` and this setup will also generate `Input` and `Output` types for the `greet.ts` script.
+
+This way the script input and output is tied to the current `input` and `result_schema` defined in process.
+Genroc will fail if those types don't match.
+
+### The script format
+
+Genroc expects default import to be function and it will pass input as a first argument.
+It will take it's output as a result.
+
+```ts
+// `Input` and `Output` are written beside this file by `genctl types`, and by every apply.
+import type { Input, Output } from "./greet.genroc";
+
+export default function (input: Input): Output {
+  return { greeting: `hello, ${input.who}`, at: new Date().toISOString() };
+}
+```
+
+The bundler will also include any imported files and imported libraries.
+
+## Custom resolvers
+
+If you open `.genroc` file, you can see it contains entry for `import` resolver.
+It executes `genroc-import` script which is a part of `@genroc/eval-node` package (installed in node_modules).
+
+```genroc
+definitions: ["./definitions/**/*.genroc.yaml"]
+
+resolvers:
+  - name: import
+    phase: code
+    ext: [.ts]
+    command: [npx, genroc-import]
+    # Slot addresses the generated `Input` and `Output` are typed from, relative to the task.
+    types:
+      Input: task.action.input.input
+      Output: task.action.result
+```
+
+The resolver can define what types it needs and genroc will provide json schema types for the specified
+fields. Here we need `task.action.input.input` which is the `input` slot next to the `code`. And then
+we also take `result` as a output.
+
+You can create your custom resolvers in the similar fashion.
