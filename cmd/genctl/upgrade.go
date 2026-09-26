@@ -119,7 +119,7 @@ func (t *upgradeTally) record(row instanceRow, res *string, jsonOut bool) {
 	default:
 		t.refused++
 		if !jsonOut {
-			fmt.Printf("%-38s %-16s REFUSED  %s\n", row.ID, row.Process, *res)
+			fmt.Printf("%-10s %-12s REFUSED  %s\n", row.ID, row.Process, *res)
 		}
 	}
 }
@@ -221,7 +221,7 @@ func upgradeNamedTree(server string, row instanceRow, fromRef, toRef string, jso
 // either way, since upgradeOneTree prints what it DECODED and not the server's bytes.
 func reportAlreadyThere(row instanceRow, to int, jsonOut bool) {
 	if !jsonOut {
-		fmt.Printf("%-38s %-16s already on %d\n", row.ID, row.Process, to)
+		fmt.Printf("%-10s %-12s already on %d\n", row.ID, row.Process, to)
 		return
 	}
 	b, _ := json.Marshal(upgradeResult{Moves: []upgradeMove{{
@@ -277,7 +277,7 @@ func upgradeOneTree(server string, row instanceRow, to int, jsonOut bool) *strin
 		}
 	}
 	if !jsonOut {
-		fmt.Printf("%-38s %-16s -> %d (%d in tree)\n", row.ID, row.Process, to, len(res.Moves))
+		fmt.Printf("%-10s %-12s -> %d (%d in tree)\n", row.ID, row.Process, to, len(res.Moves))
 	}
 	return nil
 }

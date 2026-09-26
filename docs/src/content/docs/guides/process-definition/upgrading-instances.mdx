@@ -52,7 +52,7 @@ Apply it, then move the instances that are already running:
 latest: welcome-user v1 -> v2 (new)
 
 > genctl upgrade @last --to latest
-3kjfx4vm   welcome-user   -> 2 (1 in tree)
+3kjfx4vm   welcome-user -> 2 (1 in tree)
 
 moved 1 tree(s) to latest
 ```
@@ -119,8 +119,8 @@ So genroc refuses the upgrade here.
 
 ```sh
 > genctl upgrade welcome-user --from 1 --to 2
-3kjfx4vm   welcome-user   REFUSED  state at task "wait_for_reply" does not fit: outputs: required property "welcome" is missing
-02pcayvt   welcome-user   -> 2 (1 in tree)
+3kjfx4vm   welcome-user REFUSED  at "wait_for_reply": outputs: required property "welcome" is missing
+02pcayvt   welcome-user -> 2 (1 in tree)
 
 moved 1 tree(s) from 1 to 2, 1 refused
 ```

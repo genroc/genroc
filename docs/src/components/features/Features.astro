@@ -1,0 +1,101 @@
+---
+// The home page's feature tabs. Each tab is a markdown file in src/samples/features, so its
+// fences go through the site's own pipeline: highlighted, hovered, and a `genroc-lsp` fence
+// refused by the build if it does not type (scripts/hover-data.mjs).
+import './features.css'
+
+const files = import.meta.glob<{ Content: any; frontmatter: { caption: string } }>('../../samples/features/*.md', { eager: true })
+const labels: Record<string, string> = {
+  typescript: 'TypeScript',
+  upgrades: 'Upgrades',
+  waits: 'Durable waits',
+  errors: 'Errors',
+  'fan-out': 'Fan-out',
+}
+const tabs = Object.entries(files)
+  .sort(([a], [b]) => a.localeCompare(b))
+  .map(([path, mod]) => {
+    const key = path.replace(/^.*\/\d+-|\.md$/g, '')
+    if (!labels[key]) throw new Error(`features: ${path} has no tab label`)
+    return { key, label: labels[key], caption: mod.frontmatter.caption, Content: mod.Content }
+  })
+---
+
+<div class="features pane">
+  <div class="pane-bar features-bar" role="tablist" aria-label="genroc features">
+    {
+      tabs.map((t, i) => (
+        <button
+          type="button"
+          role="tab"
+          id={`feature-tab-${t.key}`}
+          aria-controls={`feature-${t.key}`}
+          aria-selected={i === 0 ? 'true' : 'false'}
+          tabindex={i === 0 ? 0 : -1}
+        >
+          {t.label}
+        </button>
+      ))
+    }
+    <span class="tab-indicator" aria-hidden="true"></span>
+  </div>
+  <div class="feature-stack">
+  {
+    tabs.map((t, i) => (
+      <div
+        class="pane-body feature"
+        role="tabpanel"
+        id={`feature-${t.key}`}
+        aria-labelledby={`feature-tab-${t.key}`}
+        hidden={i !== 0}
+      >
+        <p class="feature-caption">{t.caption}</p>
+        {/* One scroller for all of a tab's code, so a script and its process move together. */}
+        <div class="feature-code">
+          <div class="feature-code-inner">
+            <t.Content />
+          </div>
+        </div>
+      </div>
+    ))
+  }
+  </div>
+  {/* Runs on every page load: navigation is cross-document (view-transitions/). */}
+  <script is:inline>
+    ;(function () {
+      const bar = document.querySelector('.features-bar')
+      if (!bar) return
+      const tabs = [...bar.querySelectorAll('[role="tab"]')]
+      const indicator = bar.querySelector('.tab-indicator')
+      const underline = (tab) => {
+        indicator.style.setProperty('--x', tab.offsetLeft + 'px')
+        indicator.style.setProperty('--w', tab.offsetWidth + 'px')
+      }
+      underline(tabs.find((t) => t.getAttribute('aria-selected') === 'true'))
+      // Placed before it may move, so the first selection slides from here rather than from 0.
+      requestAnimationFrame(() => indicator.classList.add('ready'))
+      const select = (tab) => {
+        underline(tab)
+        bar.scrollTo({ left: tab.offsetLeft - (bar.clientWidth - tab.offsetWidth) / 2, behavior: 'smooth' })
+        for (const t of tabs) {
+          const on = t === tab
+          t.setAttribute('aria-selected', String(on))
+          t.tabIndex = on ? 0 : -1
+          document.getElementById(t.getAttribute('aria-controls')).hidden = !on
+        }
+      }
+      addEventListener('resize', () => underline(bar.querySelector('[aria-selected="true"]')))
+      bar.addEventListener('click', (e) => {
+        const tab = e.target.closest('[role="tab"]')
+        if (tab) select(tab)
+      })
+      bar.addEventListener('keydown', (e) => {
+        const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key]
+        if (!step) return
+        const next = tabs[(tabs.indexOf(document.activeElement) + step + tabs.length) % tabs.length]
+        select(next)
+        next.focus()
+      })
+    })()
+  </script>
+</div>

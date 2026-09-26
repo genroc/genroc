@@ -24,6 +24,8 @@ const sample = root + 'src/samples/hello.genroc.yaml'
 const out = root + 'src/samples/hello.hovers.json'
 const content = root + 'src/content/docs'
 const fencesOut = root + 'src/samples/fences.hovers.json'
+// The home page's feature tabs, imported as markdown; their fences are held to the same bar.
+const features = root + 'src/samples/features'
 
 /** The key a fence is found by, from its text alone — the transformer in astro.config.mjs
     hashes what Shiki hands it and looks the spans up here. */
@@ -189,9 +191,9 @@ function fences() {
           ? [join(dir, e.name)]
           : [],
     )
-  return walk(content).flatMap((file) =>
+  return [...walk(content), ...walk(features)].flatMap((file) =>
     [...readFileSync(file, 'utf8').matchAll(/^```genroc(-lsp)?(?:[ \t][^\n]*)?\n([\s\S]*?)^```/gm)].map((m) => ({
-      file: file.slice(content.length + 1),
+      file: file.slice(root.length),
       labelled: Boolean(m[1]),
       code: m[2],
     })),

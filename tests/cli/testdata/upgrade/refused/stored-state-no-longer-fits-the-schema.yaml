@@ -38,4 +38,4 @@ start: {process: narrowproc, input: {n: 2}, ticks: 2, advance_ms: 1000}
 resting: {task: second, status: running, version: 1}
 after: {task: second, status: running, version: 1}
 run: [narrowproc, --from, "1", --to, "2"]
-refused: {says: 'does not fit'}
+refused: {says: 'at "second": input'}

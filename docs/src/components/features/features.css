@@ -1,0 +1,119 @@
+/* ---------------------------------------------------------------------------
+   The home page's feature tabs: one pane (pane.css), its bar holding the tabs.
+   --------------------------------------------------------------------------- */
+
+.features-bar {
+  position: relative;
+  gap: 0;
+  padding: 0;
+  overflow-x: auto;
+}
+
+.features-bar [role="tab"] {
+  padding: 0.45rem 0.9rem;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.features-bar [role="tab"] {
+  transition: color 180ms var(--ease-out), background-color 180ms var(--ease-out);
+}
+
+.features-bar [role="tab"]:hover {
+  color: var(--fg);
+}
+
+.features-bar [role="tab"][aria-selected="true"] {
+  color: var(--accent);
+  background: var(--bg);
+}
+
+.tab-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: var(--w, 0);
+  height: 2px;
+  background: var(--accent);
+  transform: translateX(var(--x, 0));
+}
+
+.tab-indicator.ready {
+  transition: transform 260ms var(--ease-out), width 260ms var(--ease-out);
+}
+
+/* Every panel in one cell, so the pane is always as tall as its tallest tab and flipping never
+   moves the page. `hidden` therefore hides by visibility: display:none would drop a panel from
+   the cell's height. */
+.feature-stack {
+  display: grid;
+}
+
+.feature {
+  grid-area: 1 / 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
+}
+
+.feature[hidden] {
+  display: flex;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(4px);
+  /* Visibility waits out the fade, or the outgoing panel would vanish rather than fade. */
+  transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out), visibility 0s 220ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feature,
+  .feature[hidden],
+  .tab-indicator.ready {
+    transition: none;
+  }
+  .feature[hidden] {
+    transform: none;
+  }
+}
+
+.feature-caption {
+  margin: 0;
+  padding: 0.7rem var(--pad-x) 0;
+  color: var(--muted);
+}
+
+/* Fills the rest of the pane, so the scroll area is the whole editor, not the code's box. */
+.feature-code {
+  flex: 1;
+  overflow-x: auto;
+  padding: 0.8rem var(--pad-x) 0.7rem;
+}
+
+/* As wide as the widest block, so every block (and the rule between them) spans the scroll. */
+.feature-code-inner {
+  width: max-content;
+  min-width: 100%;
+}
+
+/* The pane already draws the frame each fence would. */
+.feature pre {
+  overflow: visible !important; /* Shiki writes overflow-x inline; .feature-code scrolls instead */
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 1em; /* .pane-body already sets the code size */
+  line-height: inherit;
+}
+
+.feature pre + pre {
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px dashed var(--line);
+}

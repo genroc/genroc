@@ -46,7 +46,7 @@ func MigrateState(to *model.ProcessDefinition, task string, state map[string]any
 
 	moved, err := layer.Validate(state, schema.ConformToSchemaExactly)
 	if err != nil {
-		return nil, fmt.Errorf("state at task %q does not fit: %w", task, err)
+		return nil, fmt.Errorf("at %q: %w", task, err)
 	}
 	out, ok := moved.(map[string]any)
 	if !ok {

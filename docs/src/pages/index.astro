@@ -3,8 +3,7 @@ import Base from '../layouts/Base.astro'
 import Logo from '../components/Logo.astro'
 import Pane from '../components/pane/Pane.astro'
 import Editor from '../components/editor/Editor.astro'
-import Transcript from '../components/transcript/Transcript.astro'
-import type { TranscriptLine } from '../components/transcript/Transcript.astro'
+import Features from '../components/features/Features.astro'
 import sample from '../samples/hello.genroc.yaml?raw'
 import hoverData from '../samples/hello.hovers.json'
 import { hrefFor } from '../lib/nav'
@@ -13,8 +12,7 @@ const start = await hrefFor('guides/getting-started')
 if (!start) throw new Error('home: the button has nowhere to go — guides/getting-started.mdx is gone')
 
 // The sample is a real definition, caught mid-keystroke: `input.` is the incomplete path the
-// completion below is answering, and the only thing in it that would not apply. The session
-// under it is this process's real trail, columns trimmed.
+// completion below is answering, and the only thing in it that would not apply.
 const definition = sample.replace(/\n+$/, '')
 const lineOf = (text: string) => definition.split('\n').findIndex((l) => l.includes(text)) + 1
 const lineAt = (n: number) => definition.split('\n')[n - 1]
@@ -32,21 +30,6 @@ const mark = {
 // Every span `genctl lsp` answers a hover for, generated from this sample by
 // scripts/hover-data.mjs: the expressions and the slot descriptions both, as in the editor.
 const hovers = hoverData
-
-const session: TranscriptLine[] = [
-  { kind: 'cmd', text: 'genctl apply -f hello.genroc.yaml' },
-  { kind: 'out', text: 'latest: hello - -> v1 (new)' },
-  { kind: 'cmd', text: 'genctl run hello --set who=world' },
-  { kind: 'out', text: 'started: 3kjfx4vm  hello@v1  (running)' },
-  { kind: 'cmd', text: 'genctl logs @last' },
-  { kind: 'log', head: true, time: 'TIME', level: 'LEVEL', event: 'EVENT', task: 'TASK' },
-  { kind: 'log', time: '14:50:57', level: 'INFO', event: 'inst_created', detail: 'input={"who":"world"}' },
-  { kind: 'log', time: '14:50:57', level: 'INFO', event: 'action_started', task: 'greet', detail: 'url=https://api.example/world' },
-  { kind: 'log', time: '14:50:57', level: 'WARN', event: 'action_failed', task: 'greet', detail: 'code=http.503 status=503' },
-  { kind: 'log', time: '14:50:57', level: 'WARN', event: 'retry_scheduled', task: 'greet', detail: '(retry 1/3) code=http.503' },
-  { kind: 'log', time: '14:50:59', level: 'INFO', event: 'action_succeeded', task: 'greet', detail: 'status=200' },
-  { kind: 'log', time: '14:50:59', level: 'INFO', event: 'inst_completed', task: 'greet', detail: 'output="hello, world"' },
-]
 ---
 
 <Base
@@ -69,9 +52,9 @@ const session: TranscriptLine[] = [
     </h1>
 
     <p class="lede">
-      Describe a process as tasks in YAML; genroc runs each instance to completion —
-      surviving worker crashes, restarts and long waits without holding a thread or losing
-      state.
+      Describe a process as tasks in YAML — HTTP calls, child processes, or TypeScript you
+      write — and genroc runs each instance to completion, surviving worker crashes, restarts
+      and long waits without holding a thread or losing state.
     </p>
 
     <a class="cta" href={start}>Get started</a>
@@ -91,14 +74,7 @@ const session: TranscriptLine[] = [
       />
     </Pane>
 
-    <p class="pane-label">run it — every attempt, retry and wait lands on the instance's trail</p>
-    <Pane label="a terminal applying the greet definition, running it, and printing the instance's log: a 503, a retry, then completion">
-      <Fragment slot="bar">
-        <span class="here">genctl</span>
-        <span class="sep">—</span>
-        <span>~/hello</span>
-      </Fragment>
-      <Transcript lines={session} />
-    </Pane>
+    <p class="pane-label">run it — for months, through failures, deploys and new versions</p>
+    <Features />
   </div>
 </Base>
