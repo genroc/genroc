@@ -48,6 +48,7 @@ const tabs = Object.entries(files)
         id={`feature-${t.key}`}
         aria-labelledby={`feature-tab-${t.key}`}
         hidden={i !== 0}
+        data-side="after"
       >
         <p class="feature-caption">{t.caption}</p>
         {/* One scroller for all of a tab's code, so a script and its process move together. */}
@@ -77,11 +78,15 @@ const tabs = Object.entries(files)
       const select = (tab) => {
         underline(tab)
         bar.scrollTo({ left: tab.offsetLeft - (bar.clientWidth - tab.offsetWidth) / 2, behavior: 'smooth' })
-        for (const t of tabs) {
-          const on = t === tab
+        const at = tabs.indexOf(tab)
+        for (const [i, t] of tabs.entries()) {
+          const on = i === at
           t.setAttribute('aria-selected', String(on))
           t.tabIndex = on ? 0 : -1
-          document.getElementById(t.getAttribute('aria-controls')).hidden = !on
+          const panel = document.getElementById(t.getAttribute('aria-controls'))
+          panel.hidden = !on
+          // Which side a hidden panel waits on; the one leaving slides out towards it.
+          panel.dataset.side = i < at ? 'before' : 'after'
         }
       }
       addEventListener('resize', () => underline(bar.querySelector('[aria-selected="true"]')))

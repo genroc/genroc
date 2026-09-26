@@ -60,16 +60,22 @@
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out);
+  transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out);
 }
 
+/* A hidden panel waits beside the selected one, on the side its tab is on, so selecting it
+   slides it in from there and the leaving panel slides out the other way. The pane clips both. */
 .feature[hidden] {
   display: flex;
   visibility: hidden;
   opacity: 0;
-  transform: translateY(4px);
-  /* Visibility waits out the fade, or the outgoing panel would vanish rather than fade. */
-  transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out), visibility 0s 220ms;
+  transform: translateX(100%);
+  /* Visibility waits out the slide, or the leaving panel would vanish instead of moving. */
+  transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out), visibility 0s 300ms;
+}
+
+.feature[hidden][data-side="before"] {
+  transform: translateX(-100%);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -78,7 +84,8 @@
   .tab-indicator.ready {
     transition: none;
   }
-  .feature[hidden] {
+  .feature[hidden],
+  .feature[hidden][data-side="before"] {
     transform: none;
   }
 }
