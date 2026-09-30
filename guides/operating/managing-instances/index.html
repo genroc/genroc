@@ -150,8 +150,8 @@ run the process, it validates the input data and
 stores the initial state is created.</p>
 <p>Then the process is picked up by a worker
 which advances the instance into a new state.</p>
-<h2 id="process-lifecycle">Process lifecycle<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#process-lifecycle"><span></span></a></h2>
-<p>Genroc processes communicate their lifecycle by <code>status</code> field.</p>
+<h2 id="instance-lifecycle">Instance lifecycle<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#instance-lifecycle"><span></span></a></h2>
+<p>Genroc instances communicate their lifecycle by <code>status</code> field.</p>
 <figure class="diagram" data-astro-cid-uwvadgfv><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 770 420" role="img" aria-labelledby="sd-title">
   <title id="sd-title">Instance status transitions</title>
   <style>
@@ -327,28 +327,28 @@ a pause suspends execution, not delivery.</p>
 
 <table><thead><tr><th>Status</th><th>Settled</th><th>Accepts a result</th><th>Means</th></tr></thead><tbody><tr><td><code>running</code></td><td>no</td><td>yes</td><td>advancing, or waiting on a timer, a child or an external task</td></tr><tr><td><code>pausing</code></td><td>no</td><td>yes</td><td>a pause was requested while a task was in flight; it settles at the next task boundary</td></tr><tr><td><code>paused</code></td><td>no</td><td>yes</td><td>not being advanced, and able to resume exactly where it stopped; timers keep running</td></tr><tr><td><code>failing</code></td><td>no</td><td>no</td><td>doomed by an error, and draining the descendants still in flight</td></tr><tr><td><code>cancelling</code></td><td>no</td><td>no</td><td>a cancel was requested while a task was in flight; it settles at the next task boundary</td></tr><tr><td><code>completed</code></td><td>yes</td><td>no</td><td>finished by reaching the end of its definition</td></tr><tr><td><code>failed</code></td><td>yes</td><td>no</td><td>stopped by an error; retryable, which is what separates it from the other settled outcomes</td></tr><tr><td><code>raised</code></td><td>yes</td><td>no</td><td>concluded by a <code>raise</code> clause — a condition, not a defect, and catchable by the parent</td></tr><tr><td><code>cancelled</code></td><td>yes</td><td>no</td><td>stopped for good by an operator — terminal, and unlike a pause there is no way back</td></tr></tbody></table>
 <p>You have four commands to your disposal <code>pause</code>, <code>resume</code>, <code>cancel</code> and <code>retry</code>.
-If the process has children, the commands must target the root process not
+If the instance has children, the commands must target the root process not
 to the children separately.</p>
 <h3 id="pause-and-resume">Pause (and resume)<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#pause-and-resume"><span></span></a></h3>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> pause</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> @last</span></span></code></pre>
-<p>This will pause the process if it’s running. The process can then be resumed by <code>resume</code> command with the same syntax.</p>
+<p>This will pause the instance if it’s running. The instance can then be resumed by <code>resume</code> command with the same syntax.</p>
 <p>The <code>pause</code> command will wait for the running workers with <code>pausing</code> status, so no worker is forcefully
 interrupted and no work is repeated.</p>
 <p>Pause/resume operates strictly within the definition boundaries (they never do extra retry),
-so you can use them as you like without changing the process behavior. Only caveat is that timers
-keep running even when the process is paused, so if there is a timeout (e.g. on external task) it
-can run out while the process is paused.</p>
-<p>An external worker can still deliver result through <code>resolve</code>. Even if the process
+so you can use them as you like without changing the instance behavior. Only caveat is that timers
+keep running even when the instance is paused, so if there is a timeout (e.g. on external task) it
+can run out while the instance is paused.</p>
+<p>An external worker can still deliver result through <code>resolve</code>. Even if the instance
 switched to <code>paused</code> status.</p>
 <h3 id="cancel">Cancel<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#cancel"><span></span></a></h3>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> cancel</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> @last</span></span></code></pre>
-<p>Will cancel the process terminally - it is not possible to resume cancelled process.</p>
-<p>The <code>cancel</code> state also has <code>cancelling</code> as a transitioning process.</p>
-<p>An external worker can’t deliver result through <code>resolve</code> (it will fail), if the process
+<p>Will cancel the instnace terminally - it is not possible to resume cancelled instance.</p>
+<p>The <code>cancel</code> state also has <code>cancelling</code> as a transitioning instance.</p>
+<p>An external worker can’t deliver result through <code>resolve</code> (it will fail), if the instance
 was cancelled while the worker was running.</p>
 <h3 id="retry">Retry<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#retry"><span></span></a></h3>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">genctl</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> retry</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> @last</span></span></code></pre>
-<p>Retries <code>failed</code> process, it basically adds one extra <code>retry</code> attempt on the current task.</p>
+<p>Retries <code>failed</code> instance, it basically adds one extra <code>retry</code> attempt on the current task.</p>
 <p>Retry can’t be used on <code>cancelled</code> or <code>raised</code> statuses.</p>
 <p>If the task is <code>only_once</code>, the retry needs to be used with <code>--force</code> flag -
 it’s because with retry you could easily break <code>only_once</code> rule by accident.</p>
@@ -371,7 +371,7 @@ which is indicated by <code>status</code>.</p>
 These are listed only if they contain any value.</p>
 <h3 id="task">Task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#task"><span></span></a></h3>
 <p>The <code>task</code> field tells you what task is being/going to be performed.
-If the process is terminated it tells you which was the last task.</p>
+If the instance is terminated it tells you which was the last task.</p>
 <h3 id="phase">Phase<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#phase"><span></span></a></h3>
 <p>Some tasks are not atomic (external/children), meaning
 the engine needs to perform multiple “ticks” per task.</p>
@@ -405,9 +405,9 @@ System error codes have ”.” inside (e.g. result.invalid), user defined can�
 <p>Check the <a href="/reference/definition/errors/">task error reference</a>.</p>
 <h3 id="output">Output<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#output"><span></span></a></h3>
 <p>This is a public process output.
-It’s available once the process is completed and the <code>output</code> is defined in the process.</p>
+It’s available once the instance is completed and the <code>output</code> is defined in the process.</p>
 <h2 id="process-detail">Process detail<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#process-detail"><span></span></a></h2>
-<p>If you want more info about running process, you can use <code>detail</code> command.</p>
+<p>If you want more info about running instance, you can use <code>detail</code> command.</p>
 <p>It prints everything that <code>get</code>, but there is extra info about the internal state.</p>
 <pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="sh"><code><span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">&gt;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> genctl detail 3kjfx4vm</span></span>
 <span class="line"><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">ID:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">       3kjfx4vm</span></span>
@@ -474,8 +474,8 @@ It’s available once the process is completed and the <code>output</code> is de
 
 
 
-<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Parent</code></td><td>The parent instance and the task that spawned it. Children only.</td></tr><tr><td><code>Call stack</code></td><td>Every ancestor instance, root first. Children only.</td></tr><tr><td><code>Wake at</code></td><td>When a pending timer fires — a <code>delay</code>, a retry backoff or a timeout.</td></tr><tr><td><code>Lease</code></td><td>The engine worker advancing the instance and how long it has left, or that the lease expired.</td></tr><tr><td><code>External</code></td><td>While parked on an external task: <code>unclaimed</code>, <code>claimed by …</code>, or that the claim expired.</td></tr><tr><td><code>Epochs</code></td><td>Counters that keep a stale worker or an old answer from overwriting newer work. For debugging.</td></tr><tr><td><code>Children</code></td><td>The spawned instances, keyed by the task that spawned them.</td></tr><tr><td><code>State</code></td><td><code>input</code>, each task’s output under <code>outputs</code>, and <code>last_error</code> — the error last caught by <code>on_error</code>.</td></tr></tbody></table>
-<p>Only <code>Epochs</code> is always shown; the rest appear when they have a value.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/script-evaluation/"> <span>previous</span> <strong>Typescript evaluation</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#process-lifecycle">Process lifecycle</a></li><li class="depth-3"><a href="#pause-and-resume">Pause (and resume)</a></li><li class="depth-3"><a href="#cancel">Cancel</a></li><li class="depth-3"><a href="#retry">Retry</a></li><li class="depth-2"><a href="#info-about-the-instance">Info about the instance</a></li><li class="depth-3"><a href="#task">Task</a></li><li class="depth-3"><a href="#phase">Phase</a></li><li class="depth-3"><a href="#error-code-and-error-data">Error, Code and Error data</a></li><li class="depth-3"><a href="#output">Output</a></li><li class="depth-2"><a href="#process-detail">Process detail</a></li></ul><script>
+<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Parent</code></td><td>The parent instance and the task that spawned it. Children only.</td></tr><tr><td><code>Call stack</code></td><td>Every ancestor instance, root first. Children only.</td></tr><tr><td><code>Wake at</code></td><td>When a pending timer fires - a <code>delay</code>, a retry backoff or a timeout.</td></tr><tr><td><code>Lease</code></td><td>The engine worker advancing the instance and how long it has left, or that the lease expired.</td></tr><tr><td><code>External</code></td><td>While parked on an external task: <code>unclaimed</code>, <code>claimed by …</code>, or that the claim expired.</td></tr><tr><td><code>Epochs</code></td><td>Counters that keep a stale worker or an old answer from overwriting newer work. For debugging.</td></tr><tr><td><code>Children</code></td><td>The spawned instances, keyed by the task that spawned them.</td></tr><tr><td><code>State</code></td><td><code>input</code>, each task’s output under <code>outputs</code>, and <code>last_error</code> - the error last caught by <code>on_error</code>.</td></tr></tbody></table>
+<p>Only <code>Epochs</code> is always shown; the rest appear when they have a value.</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/script-evaluation/"> <span>previous</span> <strong>Typescript evaluation</strong> </a> <a class="next" href="/reference/rest-api/"> <span>next</span> <strong>REST API</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#instance-lifecycle">Instance lifecycle</a></li><li class="depth-3"><a href="#pause-and-resume">Pause (and resume)</a></li><li class="depth-3"><a href="#cancel">Cancel</a></li><li class="depth-3"><a href="#retry">Retry</a></li><li class="depth-2"><a href="#info-about-the-instance">Info about the instance</a></li><li class="depth-3"><a href="#task">Task</a></li><li class="depth-3"><a href="#phase">Phase</a></li><li class="depth-3"><a href="#error-code-and-error-data">Error, Code and Error data</a></li><li class="depth-3"><a href="#output">Output</a></li><li class="depth-2"><a href="#process-detail">Process detail</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
