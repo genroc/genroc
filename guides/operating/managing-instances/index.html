@@ -326,7 +326,7 @@ a pause suspends execution, not delivery.</p>
 
 
 <table><thead><tr><th>Status</th><th>Settled</th><th>Accepts a result</th><th>Means</th></tr></thead><tbody><tr><td><code>running</code></td><td>no</td><td>yes</td><td>advancing, or waiting on a timer, a child or an external task</td></tr><tr><td><code>pausing</code></td><td>no</td><td>yes</td><td>a pause was requested while a task was in flight; it settles at the next task boundary</td></tr><tr><td><code>paused</code></td><td>no</td><td>yes</td><td>not being advanced, and able to resume exactly where it stopped; timers keep running</td></tr><tr><td><code>failing</code></td><td>no</td><td>no</td><td>doomed by an error, and draining the descendants still in flight</td></tr><tr><td><code>cancelling</code></td><td>no</td><td>no</td><td>a cancel was requested while a task was in flight; it settles at the next task boundary</td></tr><tr><td><code>completed</code></td><td>yes</td><td>no</td><td>finished by reaching the end of its definition</td></tr><tr><td><code>failed</code></td><td>yes</td><td>no</td><td>stopped by an error; retryable, which is what separates it from the other settled outcomes</td></tr><tr><td><code>raised</code></td><td>yes</td><td>no</td><td>concluded by a <code>raise</code> clause — a condition, not a defect, and catchable by the parent</td></tr><tr><td><code>cancelled</code></td><td>yes</td><td>no</td><td>stopped for good by an operator — terminal, and unlike a pause there is no way back</td></tr></tbody></table>
-<p>You have essentialy three commands to your disposal <code>pause</code>, <code>resume</code>, <code>cancel</code> and <code>retry</code>.
+<p>You have four commands to your disposal <code>pause</code>, <code>resume</code>, <code>cancel</code> and <code>retry</code>.
 If the process has children, the commands can only be applied to the root process not
 to the children separately.</p>
 <h3 id="pause-and-resume">Pause (and resume)<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#pause-and-resume"><span></span></a></h3>
@@ -366,10 +366,8 @@ it’s because with retry you could easily break <code>only_once</code> rule by 
 <p>The example shows us an instance which is compleded
 which is indicated by <code>status</code>.</p>
 <h3 id="task">Task<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#task"><span></span></a></h3>
-<p>The <code>task</code> field tells us what was the last task
-that was performed, when the process is running,
-it is showing the next task (or the task that is currently
-performed). It is empty if the process has just started.</p>
+<p>The <code>task</code> field tells you what task is being/going to be performed.
+If the process is terminated it tells you which was the last task.</p>
 <h3 id="phase">Phase<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#phase"><span></span></a></h3>
 <p>Some tasks are not atomic (external/children), meaning
 the engine needs to perform multiple “ticks” per task.</p>
