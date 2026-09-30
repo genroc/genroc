@@ -334,8 +334,10 @@ to the children separately.</p>
 <p>This will pause the process if it’s running. The process can then be resumed by <code>resume</code> command with the same syntax.</p>
 <p>The <code>pause</code> command will wait for the running workers with <code>pausing</code> status, so no worker is forcefully
 interrupted and no work is repeated.</p>
-<p>So if you <code>pause/resume</code> after every task, the final result should be essentialy the same as without it,
-only delayed in time.</p>
+<p>Pause/resume operates strictly within the definition boundaries (they never do extra retry),
+so you can use them as you like without changing the process behavior. Only caveat is that timers
+keep running even when the process is paused, so if there is a timeout (e.g. on external task) it
+can run out while the process is paused.</p>
 <p>An external worker can still deliver result through <code>resolve</code>. Even if the process
 switched to <code>paused</code> status.</p>
 <h3 id="cancel">Cancel<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#cancel"><span></span></a></h3>
@@ -398,7 +400,9 @@ It is shown only when it’s not empty and it has following meaning:</p>
 
 <table><thead><tr><th>Phase</th><th>Meaning</th></tr></thead><tbody><tr><td><code>children</code></td><td>Child instances were spawned; the parent is blocked until all of them finish.</td></tr><tr><td><code>collecting</code></td><td>All children have finished; the engine still has to merge their outputs into the parent.</td></tr><tr><td><code>external</code></td><td>Parked on an external task, waiting for an answer or for its timeout.</td></tr></tbody></table>
 <h3 id="error-code-and-error-data">Error, Code and Error data<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#error-code-and-error-data"><span></span></a></h3>
-<p>Describe an error which was either <code>raised</code> or <code>panicked</code>.</p>
+<p>Describes an error if the status is <code>raised</code> or <code>failed</code>.
+System error codes have ”.” inside (e.g. result.invalid), user defined can’t contain the dot.</p>
+<p>Check the <a href="/reference/definition/errors/">task error reference</a>.</p>
 <h3 id="output">Output<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#output"><span></span></a></h3>
 <p>This is a public process output.
 It’s available once the process is completed and the <code>output</code> is defined in the process.</p>
