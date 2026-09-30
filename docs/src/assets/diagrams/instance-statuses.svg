@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 770 420" role="img" aria-labelledby="sd-title">
+  <title id="sd-title">Instance status transitions</title>
+  <style>
+    .sd-group { fill: none; stroke: var(--line-strong, #b8b8b2); stroke-dasharray: 4 4; }
+    .sd-group-label { fill: var(--muted, #6b6b6b); }
+    .sd-node { fill: var(--bg, #f7f7f4); stroke: var(--line-strong, #b8b8b2); }
+    .sd-node.sd-settled { fill: var(--code-bg, #ececea); }
+    .sd-name { fill: var(--fg, #1c1c1c); text-anchor: middle; dominant-baseline: central; }
+    .sd-engine { fill: none; stroke: var(--muted, #6b6b6b); stroke-width: 1.2; }
+    .sd-op { fill: none; stroke: var(--accent, #b5532b); stroke-width: 1.6; }
+    .sd-engine-label { fill: var(--muted, #6b6b6b); }
+    .sd-op-label { fill: var(--accent, #b5532b); }
+    .sd-engine-head { fill: var(--muted, #6b6b6b); }
+    .sd-op-head { fill: var(--accent, #b5532b); }
+    .sd-dot { fill: var(--fg, #1c1c1c); }
+    text { font-family: inherit; font-size: 13px; }
+  </style>
+  <defs>
+    <marker id="sd-arrow-engine" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="sd-engine-head" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+    <marker id="sd-arrow-op" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="sd-op-head" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+
+  <!-- groups -->
+  <rect class="sd-group" x="12" y="44" width="416" height="330" rx="4"/>
+  <text class="sd-group-label" x="22" y="62">live</text>
+  <rect class="sd-group" x="610" y="44" width="130" height="330" rx="4"/>
+  <text class="sd-group-label" x="620" y="62">settled</text>
+
+  <!-- start -->
+  <circle class="sd-dot" cx="36" cy="102" r="4"/>
+  <text class="sd-engine-label" x="26" y="90">start</text>
+  <path class="sd-engine" d="M40,102 H133" marker-end="url(#sd-arrow-engine)"/>
+
+  <!-- pause chain -->
+  <path class="sd-op" d="M185,126 V192" marker-end="url(#sd-arrow-op)"/>
+  <text class="sd-op-label" x="193" y="163">pause</text>
+  <path class="sd-engine" d="M185,226 V292" marker-end="url(#sd-arrow-engine)"/>
+  <text class="sd-engine-label" x="193" y="263">task ends</text>
+
+  <!-- resume, from paused or pausing -->
+  <path class="sd-op" d="M135,310 H70 V118 H133" marker-end="url(#sd-arrow-op)"/>
+  <path class="sd-op" d="M135,210 H70"/>
+  <text class="sd-op-label" transform="translate(62,214) rotate(-90)" text-anchor="middle">resume</text>
+
+  <!-- a child failed: ancestors turn failing -->
+  <path class="sd-engine" d="M235,122 L322,203" marker-end="url(#sd-arrow-engine)"/>
+  <path class="sd-engine" d="M235,212 L308,218" marker-end="url(#sd-arrow-engine)"/>
+  <path class="sd-engine" d="M235,298 L322,237" marker-end="url(#sd-arrow-engine)"/>
+  <text class="sd-engine-label" x="290" y="168">child failed</text>
+  <text class="sd-engine-label" x="290" y="284">child failed</text>
+
+  <!-- running settles -->
+  <path class="sd-engine" d="M235,104 L623,82" marker-end="url(#sd-arrow-engine)"/>
+  <text class="sd-engine-label" x="430" y="84" text-anchor="middle">end reached</text>
+  <path class="sd-engine" d="M235,112 L623,143" marker-end="url(#sd-arrow-engine)"/>
+  <text class="sd-engine-label" x="430" y="120" text-anchor="middle">raise</text>
+  <path class="sd-engine" d="M235,120 L623,208" marker-end="url(#sd-arrow-engine)"/>
+  <text class="sd-engine-label" x="480" y="164" text-anchor="middle">error</text>
+
+  <!-- failing drains -->
+  <path class="sd-engine" d="M410,220 H623" marker-end="url(#sd-arrow-engine)"/>
+  <text class="sd-engine-label" x="517" y="212" text-anchor="middle">children settle</text>
+
+  <!-- cancel, from anywhere live -->
+  <path class="sd-op" d="M428,330 H488" marker-end="url(#sd-arrow-op)"/>
+  <text class="sd-op-label" x="434" y="350">cancel</text>
+  <path class="sd-engine" d="M590,330 H623" marker-end="url(#sd-arrow-engine)"/>
+  <text class="sd-engine-label" x="606" y="366" text-anchor="middle">task ends</text>
+
+  <!-- retry -->
+  <path class="sd-op" d="M725,220 H752 V22 H200 V92" marker-end="url(#sd-arrow-op)"/>
+  <text class="sd-op-label" x="470" y="16" text-anchor="middle">retry</text>
+
+  <!-- nodes -->
+  <rect class="sd-node" x="135" y="94" width="100" height="32" rx="3"/>
+  <text class="sd-name" x="185" y="110">running</text>
+  <rect class="sd-node" x="135" y="194" width="100" height="32" rx="3"/>
+  <text class="sd-name" x="185" y="210">pausing</text>
+  <rect class="sd-node" x="135" y="294" width="100" height="32" rx="3"/>
+  <text class="sd-name" x="185" y="310">paused</text>
+  <rect class="sd-node" x="310" y="204" width="100" height="32" rx="3"/>
+  <text class="sd-name" x="360" y="220">failing</text>
+  <rect class="sd-node" x="490" y="314" width="100" height="32" rx="3"/>
+  <text class="sd-name" x="540" y="330">cancelling</text>
+
+  <rect class="sd-node sd-settled" x="625" y="64" width="100" height="32" rx="3"/>
+  <text class="sd-name" x="675" y="80">completed</text>
+  <rect class="sd-node sd-settled" x="625" y="129" width="100" height="32" rx="3"/>
+  <text class="sd-name" x="675" y="145">raised</text>
+  <rect class="sd-node sd-settled" x="625" y="204" width="100" height="32" rx="3"/>
+  <text class="sd-name" x="675" y="220">failed</text>
+  <rect class="sd-node sd-settled" x="625" y="314" width="100" height="32" rx="3"/>
+  <text class="sd-name" x="675" y="330">cancelled</text>
+
+  <!-- legend -->
+  <path class="sd-op" d="M12,404 H44" marker-end="url(#sd-arrow-op)"/>
+  <text class="sd-op-label" x="52" y="408">genctl command</text>
+  <path class="sd-engine" d="M190,404 H222" marker-end="url(#sd-arrow-engine)"/>
+  <text class="sd-engine-label" x="230" y="408">engine</text>
+</svg>

@@ -35,6 +35,7 @@ openapi.json
 /docs/src/content/docs/reference/rest-api/
 /docs/src/content/docs/reference/*.md
 /docs/src/content/docs/reference/definition/*.md
+/docs/src/generated/
 tests/generated/
 /node_modules/
 tests/node_modules/

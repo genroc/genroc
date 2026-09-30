@@ -143,8 +143,8 @@ large value prints as a ref.`,
 		usage:   []string{"detail <instance-id> [--resolve] [--json]"},
 		detail: instanceRefs + ` A second id is refused rather than dropped.
 
-The whole row, state included -- engine bookkeeping and all -- which is what an upgrade
-validates and a migration rewrites. Reading it is reading internals; ` + "`get`" + ` is the
+The whole row: everything ` + "`get`" + ` prints, plus parent, children, lease and epochs, and the
+state -- engine bookkeeping and all -- which is what an upgrade validates and a migration rewrites. Reading it is reading internals; ` + "`get`" + ` is the
 everyday view.
 
 --resolve fetches the values listed under "objects" and puts them back inline; without it a

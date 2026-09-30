@@ -7,7 +7,7 @@ import { buildGenctlBinary, runCli, writeDefs } from "../helpers/cli.ts";
 // A minted id: one opaque token, digit-led so a process name cannot match it. One form -- what a
 // listing prints is what every command takes back, with nothing to shorten or expand.
 const ID_RE = /^[0-9][0-9a-hjkmnp-tv-z]{7,13}$/;
-import { waitForInstance } from "../helpers/client.ts";
+import { client, waitForInstance } from "../helpers/client.ts";
 import {
   BIG_BLOB,
   blobInputDef,
@@ -206,6 +206,10 @@ test("get — reports the output and no state; detail reports the state", async 
   expect(detail.ok, detail.stderr).toBe(true);
   expect(detail.stdout).toContain("State:");
   expect(detail.stdout, "the per-task slot only detail carries").toContain("outputs:");
+  expect(
+    detail.stdout,
+    "the server moves output out of state, so detail must print it or it is in neither",
+  ).toContain("Output:");
 
   // --json is the machine form and stays JSON in both.
   const j = JSON.parse(runCli(bin, ["get", id, "--json"]).stdout) as {
@@ -214,6 +218,58 @@ test("get — reports the output and no state; detail reports the state", async 
   };
   expect(j.output.greeting).toBe("hi, ada");
   expect(j.state, "the status endpoint carries no state at all").toBeUndefined();
+}, 15_000);
+
+test("detail — a parent prints its children, a child its parent", async () => {
+  const child = uid("kid");
+  const parent = uid("parent");
+  runCli(bin, ["apply", "-f", writeDefs([switchDef(child), childDef(parent, child)])]);
+  const id = runCli(bin, ["run", parent, "-q"]).stdout.trim();
+  expect(await waitForInstance(id)).toBe("completed");
+
+  const kidID = (JSON.parse(runCli(bin, ["detail", id, "--json"]).stdout) as {
+    children: { spawn: { out: string } };
+  }).children.spawn.out;
+
+  const r = runCli(bin, ["detail", id]);
+  expect(r.ok, r.stderr).toBe(true);
+  expect(r.stdout, "children are on the wire; the text view dropped them").toMatch(
+    new RegExp(`Children:\\s+spawn:\\s+out: ${kidID}`),
+  );
+  expect(r.stdout).toContain("Epochs:");
+
+  const k = runCli(bin, ["detail", kidID]);
+  expect(k.ok, k.stderr).toBe(true);
+  expect(k.stdout).toMatch(new RegExp(`Parent:\\s+${id}  \\(spawned by spawn\\)`));
+}, 15_000);
+
+test("detail — an external task reads as unclaimed, claimed, or its claim expired", async () => {
+  const name = apply(externalDef(uid("ext")));
+  const id = startedID(runCli(bin, ["run", name]).stdout);
+  await waitForExternalToken(id);
+  const external = () => {
+    const r = runCli(bin, ["detail", id]);
+    expect(r.ok, r.stderr).toBe(true);
+    return r.stdout.match(/^External:\s+(.*)$/m)?.[1];
+  };
+  const claim = async (worker: string, lease_ms: number) => {
+    const { data } = await client.POST("/external-tasks/claim", {
+      body: { worker_id: worker, process: name, lease_ms } as never,
+    });
+    expect((data as { items: unknown[] }).items, "the parked task must be claimable").toHaveLength(1);
+  };
+
+  expect(external()).toBe("unclaimed");
+
+  await claim("w1", 1);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(
+    external(),
+    "expiry leaves the holder on the row, so printing it bare would claim w1 still has it",
+  ).toBe("expired just now, was claimed by w1");
+
+  await claim("w2", 60_000);
+  expect(external()).toMatch(/^claimed by w2, \d+s left$/);
 }, 15_000);
 
 test("detail — the block names the instance, its process and its state", () => {

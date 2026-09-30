@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"genroc/internal/model"
 	"genroc/internal/numeric"
@@ -472,6 +474,21 @@ type instanceView struct {
 	ExternalInput any            `json:"external_input"`
 	State         map[string]any `json:"state"`
 	Objects       []objectEntry  `json:"objects"`
+
+	// `detail` only: the row's columns around the state.
+	ParentID               string         `json:"parent_id"`
+	SpawnTaskID            string         `json:"spawn_task_id"`
+	CallStack              []string       `json:"call_stack"`
+	WakeAt                 string         `json:"wake_at"`
+	Children               map[string]any `json:"children"`
+	WorkerID               string         `json:"worker_id"`
+	LeaseExpiresAt         string         `json:"lease_expires_at"`
+	LeaseEpoch             int64          `json:"lease_epoch"`
+	TaskEpoch              int64          `json:"task_epoch"`
+	ParentTaskEpoch        int64          `json:"parent_task_epoch"`
+	ExternalWorkerID       string         `json:"external_worker_id"`
+	ExternalLeaseExpiresAt string         `json:"external_lease_expires_at"`
+	ExternalClaimEpoch     int64          `json:"external_claim_epoch"`
 }
 
 func runGetCmd(server string, args []string) {
@@ -489,7 +506,13 @@ func runGetCmd(server string, args []string) {
 		printIndented(raw)
 		return
 	}
-	printInstanceHead(inst)
+	printInstanceHead(inst, nil)
+	printReported(inst)
+}
+
+// printReported prints the values the instance reports outward. `detail` calls it too: the
+// server moves these slots out of `state`, so skipping it there drops them from the view.
+func printReported(inst instanceView) {
 	// The payload the failing clause attached -- the machine-readable half of the error whose
 	// prose the head printed. Before the output, because on a failed instance there is none.
 	if inst.ErrorData != nil {
@@ -527,11 +550,52 @@ func runDetailCmd(server string, args []string) {
 		printIndented(raw)
 		return
 	}
-	printInstanceHead(inst)
+	printInstanceHead(inst, func(w io.Writer) {
+		if inst.ParentID != "" {
+			fmt.Fprintf(w, "Parent:\t%s  (spawned by %s)\n", inst.ParentID, inst.SpawnTaskID)
+		}
+		if len(inst.CallStack) > 0 {
+			fmt.Fprintf(w, "Call stack:\t%s\n", strings.Join(inst.CallStack, " > "))
+		}
+		if inst.WakeAt != "" {
+			fmt.Fprintf(w, "Wake at:\t%s\n", longTime(inst.WakeAt))
+		}
+		if inst.WorkerID != "" {
+			fmt.Fprintf(w, "Lease:\t%s\n", grantState("held", inst.WorkerID, inst.LeaseExpiresAt))
+		}
+		// Gated on the phase: nothing promises the holder is cleared once the task is answered.
+		if inst.Phase == "external" {
+			claim := "unclaimed"
+			if inst.ExternalWorkerID != "" {
+				claim = grantState("claimed", inst.ExternalWorkerID, inst.ExternalLeaseExpiresAt)
+			}
+			fmt.Fprintf(w, "External:\t%s\n", claim)
+		}
+		fmt.Fprintf(w, "Epochs:\tlease %d, task %d, parent task %d, external claim %d\n",
+			inst.LeaseEpoch, inst.TaskEpoch, inst.ParentTaskEpoch, inst.ExternalClaimEpoch)
+	})
+	printReported(inst)
+	if len(inst.Children) > 0 {
+		fmt.Println("\nChildren:")
+		fmt.Println(yamlBlock(inst.Children))
+	}
 	if len(inst.State) > 0 {
 		fmt.Println("\nState:")
 		fmt.Println(yamlBlock(withObjectRefs(inst.State, inst.Objects, "state")))
 	}
+}
+
+// grantState reads a lease or claim as live or lapsed. Expiry writes nothing, so a lapsed
+// grant still names its holder -- only the clock says it is gone.
+func grantState(verb, holder, expires string) string {
+	t, ok := parseTime(expires)
+	if !ok {
+		return verb + " by " + holder
+	}
+	if left := time.Until(t); left > 0 {
+		return fmt.Sprintf("%s by %s, %s left", verb, holder, span(left))
+	}
+	return fmt.Sprintf("expired %s, was %s by %s", relAge(t), verb, holder)
 }
 
 // One fetch for both views: --resolve has to mean the same thing in each, and the text one
@@ -553,7 +617,8 @@ func fetchInstance(server, path string, resolve bool) (instanceView, json.RawMes
 	return inst, raw
 }
 
-func printInstanceHead(inst instanceView) {
+// extra adds rows to the same table, so they align with the head.
+func printInstanceHead(inst instanceView, extra func(io.Writer)) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(w, "ID:\t%s\n", inst.ID)
 	fmt.Fprintf(w, "Process:\t%s@v%d\n", inst.Process, inst.Version)
@@ -576,6 +641,9 @@ func printInstanceHead(inst instanceView) {
 	}
 	if inst.ErrorCode != "" {
 		fmt.Fprintf(w, "Code:\t%s\n", inst.ErrorCode)
+	}
+	if extra != nil {
+		extra(w)
 	}
 	w.Flush()
 }

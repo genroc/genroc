@@ -19,7 +19,7 @@ func main() {
 	errRef := flag.Bool("error-reference", false,
 		"write the error-code pages into the definition and HTTP reference directories (needs both)")
 	configRef := flag.String("config-reference", "", `directory to write the configuration reference pages into ("" to skip)`)
-	statusRef := flag.String("status-reference", "", `directory to write the instance-status reference page into ("" to skip)`)
+	statusTable := flag.String("status-table", "", `file to write the bare instance-status table into, for a guide to import ("" to skip)`)
 	genctl := flag.String("genctl", "./genctl", "the genctl binary the CLI reference is read from")
 	flag.Parse()
 
@@ -61,8 +61,8 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	if *statusRef != "" {
-		if err := writeStatusReference(*statusRef); err != nil {
+	if *statusTable != "" {
+		if err := writeStatusTable(*statusTable); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}

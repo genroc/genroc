@@ -92,6 +92,20 @@ func relAge(t time.Time) string {
 	}
 }
 
+// span renders a duration at one unit of precision: "25s", "4m", "3h", "2d".
+func span(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}
+
 // longTime renders a full local timestamp with its relative age: "2006-01-02 15:04:05  (5m ago)".
 func longTime(rfc string) string {
 	t, ok := parseTime(rfc)

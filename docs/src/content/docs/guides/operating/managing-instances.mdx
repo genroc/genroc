@@ -1,0 +1,115 @@
+---
+title: Managing instances
+description: Learn how to manage running instancess.
+order: 1
+---
+
+import Diagram from '~/components/Diagram.astro'
+import { Content as StatusTable } from '~/generated/instance-statuses.md'
+
+Instances are essentialy a state machines. When you
+run the process, it validates the input data and
+stores the initial state is created.
+
+Then the process is picked up by a worker
+which advances the instance into a new state.
+
+## Process lifecycle
+
+Genroc processes communicate their lifecycle by `status` field.
+
+<Diagram src="instance-statuses.svg" />
+
+<StatusTable />
+
+You have essentialy three commands to your disposal `pause`, `resume`, `cancel` and `retry`.
+If the process has children, the commands can only be applied to the root process not
+to the children separately.
+
+### Pause (and resume)
+
+```sh
+genctl pause @last
+```
+
+This will pause the process if it's running. The process can then be resumed by `resume` command with the same syntax.
+
+The `pause` command will wait for the running workers with `pausing` status, so no worker is forcefully
+interrupted and no work is repeated.
+
+So if you `pause/resume` after every task, the final result should be essentialy the same as without it,
+only delayed in time.
+
+An external worker can still deliver result through `resolve`. Even if the process
+switched to `paused` status.
+
+### Cancel
+
+```sh
+genctl cancel @last
+```
+Will cancel the process terminally - it is not possible to resume cancelled process.
+
+The `cancel` state also has `cancelling` as a transitioning process.
+
+An external worker can't deliver result through `resolve` (it will fail), if the process
+was cancelled while the worker was running.
+
+### Retry
+
+```sh
+genctl retry @last
+```
+
+Retries `failed` process, it basically adds one extra `retry` attempt on the current task.
+
+Retry can't be used on `cancelled` or `raised` statuses.
+
+If the task is `only_once`, the retry needs to be used with `--force` flag -
+it's because with retry you could easily break `only_once` rule by accident.
+
+## Info about the instance
+
+To check current state of an instance use `get` command.
+
+```sh
+> genctl get @last
+ID:       006y1m7d
+Process:  hello@v1
+Status:   completed
+Task:     greet
+Created:  2026-09-30 12:53:58  (just now)
+Updated:  2026-09-30 12:53:58  (just now)
+
+Output:
+at: "2026-09-30T10:53:58.669Z"
+greeting: hello, world
+```
+
+The example shows us an instance which is compleded
+which is indicated by `status`.
+
+### Task
+The `task` field tells us what was the last task
+that was performed, when the process is running,
+it is showing the next task (or the task that is currently
+performed). It is empty if the process has just started.
+
+### Phase
+
+Some tasks are not atomic (external/children), meaning
+the engine needs to perform multiple "ticks" per task.
+
+In that case the `phase` field is used to distinguish between the sub-states.
+It is shown only when it's not empty and it has following meaning:
+
+| Phase        | Meaning                                                                                   |
+|--------------|-------------------------------------------------------------------------------------------|
+| `children`   | Child instances were spawned; the parent is blocked until all of them finish.            |
+| `collecting` | All children have finished; the engine still has to merge their outputs into the parent. |
+| `external`   | Parked on an external task, waiting for an answer or for its timeout.                    |
+
+
+### Output
+
+This is a public process output. It's available once the process is completed.

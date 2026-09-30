@@ -142,7 +142,7 @@ docs-reference: build
 		-definition-reference docs/src/content/docs/reference/definition \
 		-error-reference \
 		-config-reference docs/src/content/docs/reference \
-		-status-reference docs/src/content/docs/reference
+		-status-table docs/src/generated/instance-statuses.md
 
 # The documentation site (docs/). DOCS_BASE sets the subdirectory an archived
 # per-version build is served from; unset means the site root. Its own build shells out to
