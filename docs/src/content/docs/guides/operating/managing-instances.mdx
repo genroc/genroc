@@ -23,7 +23,7 @@ Genroc processes communicate their lifecycle by `status` field.
 <StatusTable />
 
 You have four commands to your disposal `pause`, `resume`, `cancel` and `retry`.
-If the process has children, the commands can only be applied to the root process not
+If the process has children, the commands must target the root process not
 to the children separately.
 
 ### Pause (and resume)
@@ -89,6 +89,9 @@ greeting: hello, world
 The example shows us an instance which is compleded
 which is indicated by `status`.
 
+The output can also contain `Phase`, `Error`, `Code` and `Error data`.
+These are listed only if they contain any value.
+
 ### Task
 
 The `task` field tells you what task is being/going to be performed.
@@ -108,7 +111,58 @@ It is shown only when it's not empty and it has following meaning:
 | `collecting` | All children have finished; the engine still has to merge their outputs into the parent. |
 | `external`   | Parked on an external task, waiting for an answer or for its timeout.                    |
 
+### Error, Code and Error data
+
+Describe an error which was either `raised` or `panicked`.
+
 
 ### Output
 
-This is a public process output. It's available once the process is completed.
+This is a public process output.
+It's available once the process is completed and the `output` is defined in the process.
+
+## Process detail
+
+If you want more info about running process, you can use `detail` command.
+
+It prints everything that `get`, but there is extra info about the internal state.
+
+```sh
+> genctl detail 3kjfx4vm
+ID:       3kjfx4vm
+Process:  hello@v1
+Status:   completed
+Task:     greet
+Created:  2026-09-25 18:37:52  (4d ago)
+Updated:  2026-09-25 18:37:53  (4d ago)
+Epochs:   lease 2, task 0, parent task 0, external claim 0
+
+Output:
+at: "2026-09-25T16:37:53.073Z"
+greeting: hello, world
+
+Children:
+greet: 02pcayvt
+
+State:
+input:
+  who: world
+last_error: null
+outputs:
+  greet:
+    at: "2026-09-25T16:37:53.073Z"
+    greeting: hello, world
+```
+
+| Field        | Meaning                                                                                         |
+|--------------|-------------------------------------------------------------------------------------------------|
+| `Parent`     | The parent instance and the task that spawned it. Children only.                                |
+| `Call stack` | Every ancestor instance, root first. Children only.                                             |
+| `Wake at`    | When a pending timer fires — a `delay`, a retry backoff or a timeout.                           |
+| `Lease`      | The engine worker advancing the instance and how long it has left, or that the lease expired.   |
+| `External`   | While parked on an external task: `unclaimed`, `claimed by …`, or that the claim expired.       |
+| `Epochs`     | Counters that keep a stale worker or an old answer from overwriting newer work. For debugging.  |
+| `Children`   | The spawned instances, keyed by the task that spawned them.                                     |
+| `State`      | `input`, each task's output under `outputs`, and `last_error` — the error last caught by `on_error`. |
+
+Only `Epochs` is always shown; the rest appear when they have a value.
