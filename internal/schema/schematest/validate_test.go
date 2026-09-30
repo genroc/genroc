@@ -216,3 +216,30 @@ func TestValidateDefaultIsCloned(t *testing.T) {
 		t.Errorf("default leaked between calls: second call sees %v, want 1", got)
 	}
 }
+
+func TestValidateReportsTheSameFailureEveryRun(t *testing.T) {
+	cases := map[string]struct{ schema, data, want string }{
+		"declared properties": {
+			`{"type":"object","properties":{"e":{"type":"string"},"b":{"type":"string"},"d":{"type":"string"},"a":{"type":"string"},"c":{"type":"string"}}}`,
+			`{"a":1,"b":2,"c":3,"d":4,"e":5}`,
+			"a: expected type string, got integer",
+		},
+		"open map keys": {
+			`{"type":"object","additionalProperties":{"type":"string"}}`,
+			`{"e":1,"b":2,"d":3,"a":4,"c":5}`,
+			"a: expected type string, got integer",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			sc := normalize(t, c.schema)
+			data := mustData(t, c.data)
+			for range 50 {
+				_, err := sc.Validate(data)
+				if err == nil || err.Error() != c.want {
+					t.Fatalf("got %v, want %q every run: a value with several failures must name the same one, or a re-run reports a different reason", err, c.want)
+				}
+			}
+		})
+	}
+}

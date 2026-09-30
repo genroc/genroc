@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"genroc/internal/numeric"
+	"maps"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -137,7 +139,10 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 		required[r] = true
 	}
 	out := make(map[string]any, len(nd.Properties))
-	for name, prop := range nd.Properties {
+	// Sorted, because the first failure is the one reported: map order would name a different
+	// property on each run for the same value.
+	for _, name := range slices.Sorted(maps.Keys(nd.Properties)) {
+		prop := nd.Properties[name]
 		val, present := v[name]
 		if !present {
 			if required[name] {
@@ -178,12 +183,12 @@ func conformObject(nd *node, defs map[string]*node, v map[string]any, path strin
 	// additionalProperties subschema and kept for an open map. A migration keeps them
 	// either way — stripping is a conform's job, and losing a value nobody declared is
 	// exactly what an upgrade must not do.
-	for name, val := range v {
-		if _, declared := nd.Properties[name]; declared {
-			continue
-		}
-		if nd.AdditionalProperties != nil {
-			norm, err := conformGuard(nd.AdditionalProperties, defs, val, JoinPath(path, name), nil, mode)
+	if nd.AdditionalProperties != nil {
+		for _, name := range slices.Sorted(maps.Keys(v)) {
+			if _, declared := nd.Properties[name]; declared {
+				continue
+			}
+			norm, err := conformGuard(nd.AdditionalProperties, defs, v[name], JoinPath(path, name), nil, mode)
 			if err != nil {
 				return nil, err
 			}
