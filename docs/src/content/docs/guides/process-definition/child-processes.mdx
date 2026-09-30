@@ -179,9 +179,10 @@ in the same order as the inputs.
 
 ## Parent/child type checking
 
-Every process needs to define it's own types explicitly. So it must be clear
-what are the inputs and outputs. If it wasn't the case we wouldn't be able
-to check the types without 
+Genroc checks the parent/child compatibility when the definitions are applied.
+It checks if the child output and error data fit into the parent's result/raises schemas.
+
+This is not checked locally by lsp, you can check without applying with `genctl apply --check-only`.
 
 ## Child error handling
 

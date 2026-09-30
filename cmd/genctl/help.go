@@ -165,7 +165,7 @@ large value prints as a ref.`,
 		summary: "print an instance's log trail",
 		usage: []string{
 			"logs [--level <level>] [--since <when>] [--until <when>] [--time clock|full]",
-			"     [--flat] [--mode basic|detail|json] <instance-id>",
+			"     [--flat] [--mode basic|detail] [--json] <instance-id>",
 		},
 		detail: "A ROOT id answers with every row in its tree, an ID column telling them apart; --flat\n" +
 			"asks for its own rows alone. A child id answers with its own rows either way -- a tree\n" +
