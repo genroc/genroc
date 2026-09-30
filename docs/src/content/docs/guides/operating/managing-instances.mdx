@@ -22,7 +22,7 @@ Genroc processes communicate their lifecycle by `status` field.
 
 <StatusTable />
 
-You have essentialy three commands to your disposal `pause`, `resume`, `cancel` and `retry`.
+You have four commands to your disposal `pause`, `resume`, `cancel` and `retry`.
 If the process has children, the commands can only be applied to the root process not
 to the children separately.
 
@@ -90,10 +90,9 @@ The example shows us an instance which is compleded
 which is indicated by `status`.
 
 ### Task
-The `task` field tells us what was the last task
-that was performed, when the process is running,
-it is showing the next task (or the task that is currently
-performed). It is empty if the process has just started.
+
+The `task` field tells you what task is being/going to be performed.
+If the process is terminated it tells you which was the last task.
 
 ### Phase
 
