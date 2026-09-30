@@ -111,5 +111,3 @@ The instance lives in the database not in the running server. So if the server r
 You might object that docker stops the server gracefully and so it never aborts the running process forcibly, but what if our computer crashes or there is an electricity outage?
 
 Genroc is safe in these cases too - and here the nuance starts. None of the actions in ticker have side-effects, so genroc can simply re-execute the task and continue.
-
-TODO: link complete durability docs

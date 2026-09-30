@@ -180,9 +180,9 @@ in the same order as the inputs.
 ## Parent/child type checking
 
 Genroc checks the parent/child compatibility when the definitions are applied.
-It checks if the child output and error data fit into the parent's result/raises schemas.
+It checks that the inputs you pass fit the child's `input_schema`, and that the child's output and error data fit the parent's `result_schema` and `raises`.
 
-This is not checked locally by lsp, you can check without applying with `genctl apply --check-only`.
+The editor doesn't check this; to check without applying, run `genctl apply --check-only`.
 
 ## Child error handling
 

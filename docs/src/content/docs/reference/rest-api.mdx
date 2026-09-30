@@ -60,10 +60,12 @@ the call, and `admin` always does.
 | permission | covers |
 | --- | --- |
 | `worker` | the inbound zone — claim, renew, release, resolve, signal — and fetching an object |
-| `read` | every `GET`, plus the analyses that write nothing (`validate`, `compat`) |
-| `operate` | acting on runs: start, pause, resume, retry |
+| `read` | every `GET` except `/tokens`, plus the requests that write nothing (`validate`, `compat`, channel `status`) |
+| `operate` | acting on runs: start, pause, resume, cancel, retry |
 | `deploy` | changing what runs: definitions, channels, upgrade |
-| `admin` | tokens, `/tick`, and anything that declares nothing |
+| `admin` | tokens (including listing them), `/tick`, and anything that declares nothing |
+
+`/healthz` needs no token.
 
 They are a flat set, not a hierarchy — a role maps to a list. `upgrade` sits under `deploy`
 rather than `operate` because it changes which version an instance executes.
