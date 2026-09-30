@@ -102,8 +102,8 @@ the engine needs to perform multiple "ticks" per task.
 In that case the `phase` field is used to distinguish between the sub-states.
 It is shown only when it's not empty and it has following meaning:
 
-| Phase        | Meaning                                                                                   |
-|--------------|-------------------------------------------------------------------------------------------|
+| Phase        | Meaning                                                                                  |
+|--------------|------------------------------------------------------------------------------------------|
 | `children`   | Child instances were spawned; the parent is blocked until all of them finish.            |
 | `collecting` | All children have finished; the engine still has to merge their outputs into the parent. |
 | `external`   | Parked on an external task, waiting for an answer or for its timeout.                    |
