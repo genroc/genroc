@@ -277,8 +277,8 @@ which must be array of inputs.</p>
 in the same order as the inputs.</p>
 <h2 id="parentchild-type-checking">Parent/child type checking<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#parentchild-type-checking"><span></span></a></h2>
 <p>Genroc checks the parent/child compatibility when the definitions are applied.
-It checks if the child output and error data fit into the parent’s result/raises schemas.</p>
-<p>This is not checked locally by lsp, you can check without applying with <code>genctl apply --check-only</code>.</p>
+It checks that the inputs you pass fit the child’s <code>input_schema</code>, and that the child’s output and error data fit the parent’s <code>result_schema</code> and <code>raises</code>.</p>
+<p>The editor doesn’t check this; to check without applying, run <code>genctl apply --check-only</code>.</p>
 <h2 id="child-error-handling">Child error handling<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#child-error-handling"><span></span></a></h2>
 <p>Genroc doesn’t use classic “catching” for child processses. Main reason that we require
 everything to be explicitly typed and processes should be self-contained in terms of the interface.</p>
