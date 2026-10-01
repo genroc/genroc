@@ -1,14 +1,14 @@
 ---
 title: External tasks
-description: Task resolved from outside
+description: Tasks resolved from outside.
 order: 9
 ---
 
-Processes can expose a task to be solved by human or machine.
+A process can expose a task to be solved by a human or a machine.
 
-External task works in a similar way as a child task,
-it can have specified input and result_schema.
-It parks the process until it a result is submited.
+The `external` action works in a similar way to the `child` action:
+it can have an `input` and a `result_schema`.
+It parks the instance until a result is submitted.
 
 ## Example
 
@@ -39,21 +39,31 @@ output:
   approved: "$: outputs.review"
 ```
 
+Available fields:
+
+| Field           | Meaning                                                                                 |
+|-----------------|-----------------------------------------------------------------------------------------|
+| `input`         | What the worker receives; the only data of the instance a worker sees.                   |
+| `input_schema`  | Declares that input — the contract a worker reads.                                      |
+| `result_schema` | What an answer must look like; without it, any JSON is accepted.                        |
+| `raises`        | The error codes a worker may report, with their data schemas. A worker can report only these. |
+| `timeout`       | How long to wait before failing with `external.timeout`; waits forever when omitted.    |
+
 Let's apply the example process and run it.
 
 ```sh
-> genctl apply                       
+> genctl apply
 latest: approval v1 (current)
 
 > genctl run approval --set amount=10
 started: 5fy765kh  approval@v1  (running)
 ```
 
-If we get the state of the process after it started,
+If we get the state of the instance after it has started,
 we'll see it has `Phase: external`.
 
 ```sh
-> genctl get @last                   
+> genctl get @last
 ID:       5fy765kh
 Process:  approval@v1
 Status:   running
@@ -61,17 +71,17 @@ Task:     review
 Phase:    external
 ```
 
-We can resolve the task through cli with `signal` command.
+We can resolve the task through the CLI with the `signal` command.
 
 ```sh
 genctl signal @last --task review --set approved=true
 signaled: 5fy765kh  task=review  (delivered)
 ```
 
-Once resolved, the process continues it's execution to completion.
+Once the task is resolved, the instance continues its execution to completion.
 
 ```sh
-> genctl get 5fy765kh                                      
+> genctl get 5fy765kh
 ID:       5fy765kh
 Process:  approval@v1
 Status:   completed
@@ -83,62 +93,62 @@ Output:
 approved: true
 ```
 
-## Listing processes waiting for resolution
+## Listing instances waiting for resolution
 
-You can filter process which are waiting for external resolution
-with the regular instances command.
+You can filter the instances that are waiting for external resolution
+with the regular `instances` command.
 
 ```sh
 > genctl instances --phase external
 ID        STATUS            PROCESS      UPDATED  CREATED  CODE  ERROR
-3kjfx4vm  running·external  approval@v1  1m ago   1m ago         
-02pcayvt  running·external  approval@v1  1m ago   1m ago         
-4cqpdx8z  running·external  approval@v1  1m ago   1m ago         
+3kjfx4vm  running·external  approval@v1  1m ago   1m ago
+02pcayvt  running·external  approval@v1  1m ago   1m ago
+4cqpdx8z  running·external  approval@v1  1m ago   1m ago
 8nte1end  running·external  approval@v1  1m ago   1m ago
 ```
 
 ## Signals
 
-In the example above we've used `genctl signal` command
-to submit the result of external task. Signals can be
-submitted any time (even if the process is not waiting for it).
-Genroc puts submitted signals into a queue and it is picked up
+In the example above we've used the `genctl signal` command
+to submit the result of an external task. Signals can be
+submitted at any time (even if the instance is not waiting for one yet).
+Genroc puts submitted signals into a queue, and they are picked up
 automatically when needed.
 
 ## Queues
 
 If we want to resolve external tasks in a systematic way,
-we need to have a queue and workers resolving the tasks.
+we need a queue and workers resolving the tasks.
 
-We could use instances filter and pick the process we want to
+We could use the instances filter and pick the instance we want to
 resolve, but that is problematic when we have
-multiple workers - they need to know which process is already taken.
+multiple workers — they need to know which task is already taken.
 
 Genroc offers a [REST API](../../reference/rest-api/external-tasks.md) for this.
 
 ### Claiming
 
-You can use `/claim` endpoint wich will ensure no other worker
-can work on it at the same time. Claimed tasks are leased to the
-worker for the `lease_ms` time.
+You can use the `/claim` endpoint, which ensures no other worker
+can work on a task at the same time. Claimed tasks are leased to the
+worker for `lease_ms` milliseconds.
 
 ### Lease renewal
 
-Your worker should regularly prolong the leases (unless you can guarantee
-it will always finish in certain time). Lease renewals can be understood
-as a sort of heartbeat letting genroc know that the worker is alive.
+Your worker should regularly prolong its leases (unless you can guarantee
+it will always finish within a certain time). Lease renewals can be understood
+as a sort of heartbeat, letting genroc know that the worker is alive.
 
-The `/renew` endpoint will also let you know if the process is cancelled
-and the result is no longer needed. You can then kill the worker (usefull
+The `/renew` endpoint also lets you know if the instance was cancelled
+and the result is no longer needed. You can then stop the work (useful
 for really long tasks).
 
-### Resolving task
+### Resolving the task
 
-After the work is finished, use `/resolve` endpoint with submitted token
-from the claim. Resolve endpoint is different from signal, because it can only
-be used with previously claimed task and it requires the process to be waiting for
+After the work is finished, use the `/resolve` endpoint with the token
+from the claim. The resolve endpoint is different from a signal, because it can only
+be used with a previously claimed task, and it requires the instance to be waiting for
 the result.
 
 ### Releasing the lease
 
-Hand a claim back to the queue immediately wit `/release` instead of waiting out its lease.
+Hand a claim back to the queue immediately with `/release` instead of waiting out its lease.
