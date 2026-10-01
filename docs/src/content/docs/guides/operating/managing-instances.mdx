@@ -1,36 +1,36 @@
 ---
 title: Managing instances
-description: Learn how to manage running instancess.
+description: Learn how to manage running instances.
 order: 1
 ---
 
 import Diagram from '~/components/Diagram.astro'
 import { Content as StatusTable } from '~/generated/instance-statuses.md'
 
-Instances are essentialy a state machines. When you
-run the process, it validates the input data and
-stores the initial state is created.
+Instances are essentially state machines. When you
+run a process, genroc validates the input data and
+stores the initial state.
 
-Then the process is picked up by a worker
-which advances the instance into a new state.
+The instance is then picked up by the engine,
+which advances it into a new state.
 
 ## Listing instances
 
-To list current instances on the server, use `instnaces` command.
+To list current instances on the server, use the `instances` command.
 
 ```sh
-> genctl instances      
+> genctl instances
 ID        STATUS     PROCESS   UPDATED  CREATED  CODE  ERROR
 006y1m7d  completed  hello@v1  22h ago  22h ago
 3kjfx4vm  completed  hello@v1  just now just now
 ```
 
-You can also filter by various parameters like `--status` or `--process` (process name),
+You can also filter by various parameters like `--status` or `--process` (process name);
 check the full [cli docs](../../reference/cli/instances.md#instances) for details.
 
 ## Info about the instance
 
-To check current state of an instance use `get` command.
+To check the current state of an instance, use the `get` command.
 
 ```sh
 > genctl get @last
@@ -46,16 +46,16 @@ at: "2026-09-30T10:53:58.669Z"
 greeting: hello, world
 ```
 
-The example shows us an instance which is compleded
-which is indicated by `status`.
+The example shows a completed instance,
+as indicated by `status`.
 
 The output can also contain `Phase`, `Error`, `Code` and `Error data`.
-These are listed only if they contain any value.
+These are listed only if they have a value.
 
 ### Task
 
-The `task` field tells you what task is being/going to be performed.
-If the instance is terminated it tells you which was the last task.
+The `task` field tells you which task is being or is going to be performed.
+If the instance has finished, it tells you which task was the last.
 
 ### Phase
 
@@ -63,7 +63,7 @@ Some tasks are not atomic (external/children), meaning
 the engine needs to perform multiple "ticks" per task.
 
 In that case the `phase` field is used to distinguish between the sub-states.
-It is shown only when it's not empty and it has following meaning:
+It is shown only when it's not empty, and has the following meaning:
 
 | Phase        | Meaning                                                                                  |
 |--------------|------------------------------------------------------------------------------------------|
@@ -74,27 +74,29 @@ It is shown only when it's not empty and it has following meaning:
 ### Error, Code and Error data
 
 Describes an error if the status is `raised` or `failed`.
-System error codes have "." inside (e.g. result.invalid), user defined can't contain the dot.
+System error codes contain a dot (e.g. `result.invalid`); user-defined codes can't contain one.
+
+`Error data` is an optional payload of `panic` or `raise`.
 
 Check the [task error reference](../../reference/definition/errors.md).
 
 
 ### Output
 
-This is a public process output.
-It's available once the instance is completed and the `output` is defined in the process.
+This is the public output of the process.
+It's available once the instance has completed, if the process defines `output`.
 
 ## Instance lifecycle
 
-Genroc instances communicate their lifecycle by `status` field.
+Genroc instances communicate their lifecycle through the `status` field.
 
 <Diagram src="instance-statuses.svg" />
 
 <StatusTable />
 
-You have four commands to your disposal `pause`, `resume`, `cancel` and `retry`.
-If the instance has children, the commands must target the root process not
-to the children separately.
+You have four commands at your disposal: `pause`, `resume`, `cancel` and `retry`.
+They can only be applied to root instances, and they apply to the whole
+tree. They are refused on children.
 
 ### Pause (and resume)
 
@@ -102,29 +104,29 @@ to the children separately.
 genctl pause @last
 ```
 
-This will pause the instance if it's running. The instance can then be resumed by `resume` command with the same syntax.
+This will pause the instance if it's running. The instance can then be resumed by the `resume` command with the same syntax.
 
-The `pause` command will wait for the running workers with `pausing` status, so no worker is forcefully
+The `pause` command waits for running workers in the `pausing` status, so no worker is forcefully
 interrupted and no work is repeated.
 
-Pause/resume operates strictly within the definition boundaries (they never do extra retry),
-so you can use them as you like without changing the instance behavior. Only caveat is that timers
-keep running even when the instance is paused, so if there is a timeout (e.g. on external task) it
+Pause/resume operates strictly within the definition boundaries (they never add a retry),
+so you can use them as you like without changing the instance's behavior. The only caveat is that timers
+keep running even when the instance is paused, so a timeout (e.g. on an external task)
 can run out while the instance is paused.
 
-An external worker can still deliver result through `resolve`. Even if the instance
-switched to `paused` status.
+An external worker can still deliver a result through `resolve`, even if the instance
+has switched to the `paused` status.
 
 ### Cancel
 
 ```sh
 genctl cancel @last
 ```
-Will cancel the instnace terminally - it is not possible to resume cancelled instance.
+This cancels the instance for good — a cancelled instance can't be resumed.
 
-The `cancel` state also has `cancelling` as a transitioning instance.
+Cancel also goes through `cancelling` while the workers settle.
 
-An external worker can't deliver result through `resolve` (it will fail), if the instance
+An external worker can't deliver a result through `resolve` (it will fail) if the instance
 was cancelled while the worker was running.
 
 ### Retry
@@ -133,18 +135,39 @@ was cancelled while the worker was running.
 genctl retry @last
 ```
 
-Retries `failed` instance, it basically adds one extra `retry` attempt on the current task.
+Retries a `failed` instance; it basically adds one extra attempt on the current task
+(it doesn't reset the retry counter, so it tries once and goes straight back to `failed` on an error).
 
-Retry can't be used on `cancelled` or `raised` statuses.
+Retry can't be used on `paused`, `cancelled` or `raised` statuses.
 
-If the task is `only_once`, the retry needs to be used with `--force` flag -
-it's because with retry you could easily break `only_once` rule by accident.
+If the task is `only_once`, retry needs the `--force` flag,
+because a retry could easily break the `only_once` rule by accident.
 
-## Process detail
+## Instance logs
 
-If you want more info about running instance, you can use `detail` command.
+To see a detailed history of an instance, use the `logs` command.
 
-It prints everything that `get`, but there is extra info about the internal state.
+```sh
+> genctl logs 006y1m7d
+TIME      LEVEL  ID        EVENT             TASK
+--- 2026-09-30 +02:00 ---
+12:53:58  INFO   006y1m7d  inst_created                      by=no-auth:anonymous input={"who":"world"}
+12:53:58  INFO   006y1m7d  child_spawned     greet           msg="1 children"
+12:53:58  INFO   3k1nz7pq  inst_created                      input={"code":"async function greet (input) {\n    return …
+12:53:58  INFO   3k1nz7pq  extern_armed      eval_node       msg="token=3k1nz7pq.0 timeout=30s -> 2026-09-30T10:54:28Z"
+12:53:58  INFO   3k1nz7pq  extern_resolved   eval_node
+12:53:58  INFO   3k1nz7pq  inst_completed    eval_node       output={"at":"2026-09-30T10:53:58.669Z","greeting":"hello,…
+12:53:58  INFO   006y1m7d  child_collected   greet
+12:53:58  INFO   006y1m7d  inst_completed    greet           output={"at":"2026-09-30T10:53:58.669Z","greeting":"hello,…
+```
+
+When you target a root, the logs include its children's logs as well.
+
+## Instance detail
+
+If you want more info about an instance, use the `detail` command.
+
+It prints everything `get` does, plus extra info about the internal state.
 
 ```sh
 > genctl detail @last
