@@ -1,4 +1,4 @@
-<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Basics — genroc</title><meta name="description" content="How is the process defined."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Actions — genroc</title><meta name="description" content="Learn what tasks can do."><link rel="icon" href="/logo.svg" type="image/svg+xml"><meta name="color-scheme" content="light dark"><script>
       const stored = localStorage.getItem('theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.dataset.theme = stored
     </script><link rel="expect" href="#page-end" blocking="render"><script type="application/json" id="vt-data">{"tree":{"/":"00","/guides/getting-started":"00.01.01","/guides/getting-started/installation":"00.01.01.01","/guides/getting-started/first-process":"00.01.01.02","/guides/getting-started/surviving-a-restart":"00.01.01.03","/guides/process-definition":"00.01.02","/guides/process-definition/basics":"00.01.02.01","/guides/process-definition/tasks-and-expressions":"00.01.02.02","/guides/process-definition/actions":"00.01.02.03","/guides/process-definition/error-handling":"00.01.02.04","/guides/process-definition/validations-and-types":"00.01.02.05","/guides/process-definition/child-processes":"00.01.02.06","/guides/process-definition/versioning":"00.01.02.07","/guides/process-definition/upgrading-instances":"00.01.02.08","/guides/process-definition/external-tasks":"00.01.02.09","/guides/process-definition/script-evaluation":"00.01.02.10","/guides/operating":"00.01.03","/guides/operating/managing-instances":"00.01.03.01","/reference/rest-api":"00.02.01","/reference/rest-api/definitions":"00.02.01.01","/reference/rest-api/instances":"00.02.01.02","/reference/rest-api/channels":"00.02.01.03","/reference/rest-api/objects":"00.02.01.04","/reference/rest-api/external-tasks":"00.02.01.05","/reference/rest-api/tokens":"00.02.01.06","/reference/rest-api/debug":"00.02.01.07","/reference/rest-api/errors":"00.02.01.08","/reference/cli":"00.02.02","/reference/cli/definitions":"00.02.02.01","/reference/cli/instances":"00.02.02.02","/reference/cli/channels":"00.02.02.03","/reference/cli/setup":"00.02.02.04","/reference/definition":"00.02.03","/reference/definition/process":"00.02.03.01","/reference/definition/task":"00.02.03.02","/reference/definition/actions":"00.02.03.03","/reference/definition/expressions":"00.02.03.04","/reference/definition/delay-syntax":"00.02.03.05","/reference/definition/error-handling":"00.02.03.06","/reference/definition/errors":"00.02.03.07","/reference/project-file":"00.02.04"},"chrome":[{"attr":"vtBanner","selector":".banner-strip"},{"attr":"vtDrawer","selector":".nav-drawer"},{"attr":"vtSidebar","selector":".shell > .sidebar"},{"attr":"vtToc","selector":".toc"},{"attr":"vtFooter","selector":"footer"}]}</script> <script>
@@ -144,63 +144,230 @@
     root.dataset.theme = dark ? 'light' : 'dark'
     localStorage.setItem('theme', root.dataset.theme)
   })
-</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still a prototype, use at your own risk</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/" aria-current="page"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/actions/"> Actions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li><li> <a href="/guides/process-definition/external-tasks/"> External tasks </a>  </li><li> <a href="/guides/process-definition/script-evaluation/"> Typescript evaluation </a>  </li> </ul> </li><li class="open"> <a href="/guides/operating/managing-instances/"> Operating </a> <ul> <li> <a href="/guides/operating/managing-instances/"> Managing instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/rest-api/"> REST API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/" aria-current="page"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/actions/"> Actions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li><li> <a href="/guides/process-definition/external-tasks/"> External tasks </a>  </li><li> <a href="/guides/process-definition/script-evaluation/"> Typescript evaluation </a>  </li> </ul> </li><li class="open"> <a href="/guides/operating/managing-instances/"> Operating </a> <ul> <li> <a href="/guides/operating/managing-instances/"> Managing instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/rest-api/"> REST API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/process-definition/basics/">Process definition</a> </p> <h1>Basics</h1> <p>How is the process defined.</p> </div>  <p>Genroc uses <code>*.genroc.yaml</code> files to describe processes.</p>
-<p>Each process has a unique name and a version. Definitions are never deleted, when you
-apply new definition different from the previous ones, it gets a new version automatically.
-Once a process is started, it is pinned to it’s current definition version, so new version
-doesn’t have influence on already running processes.</p>
-<p>Process can optionally also have input, which is defined by <a href="https://json-schema.org/">JSON-Schema</a> and is always validated.</p>
-<p>Then there is a required list of tasks, which represent the executable body.</p>
-<p>So the skeleton looks something like this:</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> process-name</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input_schema</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  properties</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    user_name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">  required</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">user_name</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
+</script> <div class="banner-strip" role="note"> <span class="mark">prototype</span> <span>genroc is still a prototype, use at your own risk</span> </div>  <details class="nav-drawer"> <summary>navigation</summary> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/actions/" aria-current="page"> Actions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li><li> <a href="/guides/process-definition/external-tasks/"> External tasks </a>  </li><li> <a href="/guides/process-definition/script-evaluation/"> Typescript evaluation </a>  </li> </ul> </li><li class="open"> <a href="/guides/operating/managing-instances/"> Operating </a> <ul> <li> <a href="/guides/operating/managing-instances/"> Managing instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/rest-api/"> REST API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> </details> <div class="shell"> <aside class="sidebar"> <section> <h2>Guides</h2> <ul> <li class="open"> <a href="/guides/getting-started/installation/"> Getting started </a> <ul> <li> <a href="/guides/getting-started/installation/"> Installation </a>  </li><li> <a href="/guides/getting-started/first-process/"> Your first process </a>  </li><li> <a href="/guides/getting-started/surviving-a-restart/"> Surviving a restart </a>  </li> </ul> </li><li class="trail open"> <a href="/guides/process-definition/basics/"> Process definition </a> <ul> <li> <a href="/guides/process-definition/basics/"> Basics </a>  </li><li> <a href="/guides/process-definition/tasks-and-expressions/"> Tasks and expressions </a>  </li><li> <a href="/guides/process-definition/actions/" aria-current="page"> Actions </a>  </li><li> <a href="/guides/process-definition/error-handling/"> Error handling </a>  </li><li> <a href="/guides/process-definition/validations-and-types/"> Validation and types </a>  </li><li> <a href="/guides/process-definition/child-processes/"> Child processes </a>  </li><li> <a href="/guides/process-definition/versioning/"> Versioning </a>  </li><li> <a href="/guides/process-definition/upgrading-instances/"> Upgrading instances </a>  </li><li> <a href="/guides/process-definition/external-tasks/"> External tasks </a>  </li><li> <a href="/guides/process-definition/script-evaluation/"> Typescript evaluation </a>  </li> </ul> </li><li class="open"> <a href="/guides/operating/managing-instances/"> Operating </a> <ul> <li> <a href="/guides/operating/managing-instances/"> Managing instances </a>  </li> </ul> </li> </ul> </section><section> <h2>Reference</h2> <ul> <li class="collapsible"> <a href="/reference/rest-api/"> REST API </a>  </li><li class="collapsible"> <a href="/reference/cli/definitions/"> CLI </a>  </li><li class="collapsible"> <a href="/reference/definition/process/"> Definition language </a>  </li><li> <a href="/reference/project-file/"> Project file </a>  </li> </ul> </section> </aside> <main> <div class="prose"> <div class="page-head"> <p class="crumb"> <a href="/">docs</a>  / <a href="/guides/getting-started/installation/">Guides</a> / <a href="/guides/process-definition/basics/">Process definition</a> </p> <h1>Actions</h1> <p>Learn what tasks can do.</p> </div>  <p>An action is what a task does. We have several types.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Type</th><th>What it does</th><th>Explained in</th></tr></thead><tbody><tr><td><code>fetch</code></td><td>Calls an HTTP endpoint and reads the response.</td><td>below</td></tr><tr><td><code>delay</code></td><td>Waits for a duration or until a point in time.</td><td>below</td></tr><tr><td><code>child</code></td><td>Starts one child process and waits for its result.</td><td><a href="/guides/process-definition/child-processes/#child-action">Child processes</a></td></tr><tr><td><code>child_map</code></td><td>Starts several named child processes and waits for all of them.</td><td><a href="/guides/process-definition/child-processes/#child_map-action">Child processes</a></td></tr><tr><td><code>child_list</code></td><td>Starts a child process for each item of an array and waits for all.</td><td><a href="/guides/process-definition/child-processes/#child_list-action">Child processes</a></td></tr><tr><td><code>external</code></td><td>Waits for an answer from outside, e.g. a worker or a person.</td><td><a href="/guides/process-definition/external-tasks/">External tasks</a></td></tr></tbody></table>
+<p>A task without an action does no work; it only evaluates its <code>output</code> and <code>switch</code>.</p>
+<h2 id="fetch">Fetch<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#fetch"><span></span></a></h2>
+<p>Calls a REST API endpoint. It is inspired by Node.js <code>fetch</code> and has similar
+properties.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> create_ticket</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> fetch</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      method</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> post</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      url</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">config</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">api_url</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">}</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">/tickets</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      headers</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        Authorization</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">Bearer </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">${</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">config</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">api_token</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">}</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      body</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">                    # sent as JSON</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        email</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">email</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        subject</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">subject</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      responses</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">               # the response type, read as self.result</span></span>
+<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">        201</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">          type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> object</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">          properties</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">            ticket_id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> {</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> string</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> }</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">          required</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> [</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">ticket_id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">]</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    output</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      ticket_id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">$:</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> self</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">result</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">ticket_id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> next</span></span></code></pre>
+<p>This action sends a POST request with a JSON body and expects a 201 status with valid
+JSON that fits the defined schema. The response JSON is available as <code>self.result</code>
+and is referenced in the <code>output</code> field.</p>
+<p>If the status isn’t accepted, fetch fails with <code>http.&lt;status&gt;</code> (e.g. <code>http.404</code>); if the body
+doesn’t fit the schema, with <code>result.invalid</code>. Both can be handled in <code>on_error</code>.
+Check <a href="/guides/process-definition/error-handling/">error handling</a> for details.</p>
+<p>Here is a list of the fields available on the fetch action:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Field</th><th>Required</th><th>Meaning</th></tr></thead><tbody><tr><td><code>method</code></td><td>yes</td><td>HTTP method, lowercase: <code>get</code>, <code>post</code>, <code>put</code>, …</td></tr><tr><td><code>url</code></td><td>yes</td><td>The request URL; can contain <code>${…}</code> templates.</td></tr><tr><td><code>headers</code></td><td></td><td>Request headers; each value a string.</td></tr><tr><td><code>query</code></td><td></td><td>Query parameters appended to the URL. A parameter whose value is <code>null</code> is left out.</td></tr><tr><td><code>body</code></td><td></td><td>The request body; an object is sent as JSON.</td></tr><tr><td><code>responses</code></td><td></td><td>Response types by status. A 2xx entry types <code>self.result</code>; others type the error body (<a href="/guides/process-definition/error-handling/#responses-field">more</a>).</td></tr><tr><td><code>accepted_status</code></td><td></td><td>Statuses that count as success; any 2xx by default (<a href="/guides/process-definition/error-handling/#accepted-statuses">more</a>).</td></tr><tr><td><code>timeout</code></td><td></td><td>Time limit for one attempt, <code>30s</code> by default; each retry gets a new one (<a href="/guides/process-definition/error-handling/#custom-timeout">more</a>).</td></tr></tbody></table>
+<p>In the task’s <code>output</code> and <code>switch</code>, the response is available as <code>self.result</code> (the body),
+<code>self.status</code> and <code>self.headers</code>.</p>
+<h2 id="delay">Delay<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#delay"><span></span></a></h2>
+<p>It parks the instance for a specified amount of time.
+The waiting costs nothing, because it’s just a record in the database,
+not an active process.</p>
+<p>The instance keeps the <code>running</code> status, but the engine
+continues with execution only after the specified time.</p>
+<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> wait_duration</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> delay</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      for</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> 30s</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> next</span></span>
 <span class="line"></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">tasks</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> task-1</span></span>
-<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">    ...</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> task-2</span></span>
-<span class="line"><span style="--shiki-light:#8A5A1E;--shiki-dark:#D4A76A">    ...</span></span></code></pre>
-<p>This process would require input of an object with field <code>user_name</code>. Input is something that can be used inside the process.</p>
-<h2 id="the-tasks">The tasks<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#the-tasks"><span></span></a></h2>
-<p>Tasks represent a unit of work that needs to be done. Process always starts with a first task from the array.
-Each task then needs to specify what should be the following task with a <code>switch</code> statement.</p>
-<p>The syntax allows you to use keywords <code>next</code> or <code>end</code> to go to next task or end the process.
-Or you can reference task by id with <code>$</code> prefix.</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">...</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">tasks</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> task-1</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">          # this is a first task</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $task-2</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">     # next task referenced by id</span></span>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">  # or</span></span>
 <span class="line"></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> task-2</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> next</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">        # same as `$task-3` in this case</span></span>
-<span class="line"></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> task-3</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> end</span><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">         # end of the process</span></span></code></pre>
-<p>The switch field is required in every task, there is no default value.</p>
-<h2 id="branching">Branching<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#branching"><span></span></a></h2>
-<p>The switch statement can also be conditional.</p>
-<pre class="astro-code astro-code-themes genroc-light genroc-dark" style="--shiki-light:#1c1c1c;--shiki-dark:#d6d6d2;--shiki-light-bg:#ececea;--shiki-dark-bg:#1d1d1d;overflow-x:auto" tabindex="0" data-language="genroc"><code><span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">...</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">tasks</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> task-1</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">        # condition to check the name</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">      -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> case</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">input</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">.</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">user_name </span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F">==</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> &#39;Brenda&#39;</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">        goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> $only-brenda</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-light-font-style:italic;--shiki-dark:#8A8A84;--shiki-dark-font-style:italic">        # the default case</span></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">      -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> goto</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> $others</span></span>
-<span class="line"></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> only-brenda</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> end</span></span>
-<span class="line"></span>
-<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> others</span></span>
-<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> end</span></span></code></pre>
-<p>Cases are evaluated top to bottom and first one that evaluates to true wins.
-Last one always need to be “catch-all” - without the <code>case</code> expression (we’ll explain expression in the next chapter).</p>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/getting-started/surviving-a-restart/"> <span>previous</span> <strong>Surviving a restart</strong> </a> <a class="next" href="/guides/process-definition/tasks-and-expressions/"> <span>next</span> <strong>Tasks and expressions</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#the-tasks">The tasks</a></li><li class="depth-2"><a href="#branching">Branching</a></li></ul><script>
+<span class="line"><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">  -</span><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2"> id</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> wait_until</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    action</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      type</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996"> delay</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      until</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">mon 09:00</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">      tz</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84"> &quot;</span><span style="--shiki-light:#3F6B4F;--shiki-dark:#8FB996">Europe/Prague</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">&quot;</span></span>
+<span class="line"><span style="--shiki-light:#1C1C1C;--shiki-dark:#D6D6D2">    switch</span><span style="--shiki-light:#6B6B6B;--shiki-dark:#8A8A84">:</span><span style="--shiki-light:#B5532B;--shiki-dark:#E07A4F"> next</span></span></code></pre>
+<p>Available fields:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody><tr><td><code>for</code></td><td>How long to wait: <code>30s</code>, <code>2h30m</code>, <code>7d</code>, <code>1mo</code>. A plain number is milliseconds.</td></tr><tr><td><code>until</code></td><td>When to stop waiting: <code>2026-09-01 08:00</code>, <code>+2d 08:00</code> (in two days at 8:00), or a pattern like <code>mon 09:00</code> (next Monday).</td></tr><tr><td><code>tz</code></td><td>The time zone <code>until</code> and calendar units (<code>d</code>, <code>w</code>, <code>mo</code>, <code>y</code>) are read in: <code>Europe/Prague</code> or <code>+02:00</code>. UTC by default.</td></tr></tbody></table>
+<p>Use exactly one of <code>for</code> and <code>until</code>. The full syntax is in the <a href="/reference/definition/delay-syntax/">delay syntax reference</a>.</p>
+<p>You can use expressions in <code>for</code> and <code>until</code>, but they only accept
+numbers, as milliseconds (<code>for</code> is relative and <code>until</code> absolute).
+If the value of <code>until</code> is in the past, the instance just continues immediately.</p>
+<h2 id="child-child_map-child_list">Child, child_map, child_list<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#child-child_map-child_list"><span></span></a></h2>
+<p>This is a family of actions that spawn child processes.</p>
+<p>Read more about them at <a href="/guides/process-definition/child-processes/">child processes</a>.</p>
+<h2 id="external">External<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#external"><span></span></a></h2>
+<p>An action that is resolved by an external system or a human.</p>
+<p>Read more at <a href="/guides/process-definition/external-tasks/">external tasks</a>.</p>
+<h2 id="optional-schema-fields">Optional schema fields<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#optional-schema-fields"><span></span></a></h2>
+<p>There are optional <code>*_schema</code> fields for certain shapes within tasks and the process definition.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Field</th><th>Where</th><th>Declares</th></tr></thead><tbody><tr><td><code>body_schema</code></td><td><code>fetch</code></td><td>the request body</td></tr><tr><td><code>query_schema</code></td><td><code>fetch</code></td><td>the query parameters</td></tr><tr><td><code>input_schema</code></td><td><code>child</code>, <code>child_list</code>, each entry of <code>child_map</code>, <code>external</code></td><td>the input sent to the child or worker</td></tr><tr><td><code>output_schema</code></td><td>a task, and the process itself</td><td>the task’s or process’s <code>output</code></td></tr></tbody></table>
+<p>They keep the shapes from drifting. The shapes are checked against the schemas
+when you apply the definition, and the schemas also drive editor completion.</p>
+<p>You can also use a schema to solve optional vs. nullable field problems.
+Genroc adjusts the shape at runtime in the following way:</p>
+<ul>
+<li>an optional field that comes out as <code>null</code> is removed</li>
+<li>a required nullable field that is missing from the shape is added as <code>null</code></li>
+</ul>
+<p>Defaults are not applied by these schemas.</p>
+<blockquote>
+<p>Genroc uses these fields extensively when importing child process schemas with the
+<code>$process:</code> resolver (read <a href="/guides/process-definition/child-processes/">child processes</a>).</p>
+</blockquote>  <nav class="page-nav" aria-label="reading order"> <a class="prev" href="/guides/process-definition/tasks-and-expressions/"> <span>previous</span> <strong>Tasks and expressions</strong> </a> <a class="next" href="/guides/process-definition/error-handling/"> <span>next</span> <strong>Error handling</strong> </a> </nav> </div> </main> <aside class="toc"><h2>on this page</h2><ul><li class="depth-2"><a href="#fetch">Fetch</a></li><li class="depth-2"><a href="#delay">Delay</a></li><li class="depth-2"><a href="#child-child_map-child_list">Child, child_map, child_list</a></li><li class="depth-2"><a href="#external">External</a></li><li class="depth-2"><a href="#optional-schema-fields">Optional schema fields</a></li></ul><script>
         ;(function () {
           const links = [...document.querySelectorAll('.toc a[href^="#"]')]
           const targets = links
