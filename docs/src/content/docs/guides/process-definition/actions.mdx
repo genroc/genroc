@@ -1,0 +1,146 @@
+---
+title: Actions
+description: Learn what tasks can do.
+order: 3
+---
+
+An action is what a task does. We have several types.
+
+| Type         | What it does                                                         | Explained in                                                   |
+|--------------|----------------------------------------------------------------------|----------------------------------------------------------------|
+| `fetch`      | Calls an HTTP endpoint and reads the response.                       | below                                                          |
+| `delay`      | Waits for a duration or until a point in time.                       | below                                                          |
+| `child`      | Starts one child process and waits for its result.                   | [Child processes](./child-processes.mdx#child-action)          |
+| `child_map`  | Starts several named child processes and waits for all of them.      | [Child processes](./child-processes.mdx#child_map-action)      |
+| `child_list` | Starts a child process for each item of an array and waits for all.  | [Child processes](./child-processes.mdx#child_list-action)     |
+| `external`   | Waits for an answer from outside, e.g. a worker or a person.         | [External tasks](./external-tasks.mdx)                         |
+
+A task without an action does no work; it only evaluates its `output` and `switch`.
+
+## Fetch
+
+Calls a REST API endpoint. It is inspired by Node.js `fetch` and has similar
+properties.
+
+```genroc
+  - id: create_ticket
+    action:
+      type: fetch
+      method: post
+      url: "${config.api_url}/tickets"
+      headers:
+        Authorization: "Bearer ${config.api_token}"
+      body:                    # sent as JSON
+        email: "$: input.email"
+        subject: "$: input.subject"
+      responses:               # the response type, read as self.result
+        201:
+          type: object
+          properties:
+            ticket_id: { type: string }
+          required: [ticket_id]
+    output:
+      ticket_id: "$: self.result.ticket_id"
+    switch: next
+```
+
+This action sends a POST request with a JSON body and expects a 201 status with valid
+JSON that fits the defined schema. The response JSON is available as `self.result`
+and is referenced in the `output` field.
+
+If the status isn't accepted, fetch fails with `http.<status>` (e.g. `http.404`); if the body
+doesn't fit the schema, with `result.invalid`. Both can be handled in `on_error`.
+Check [error handling](./error-handling.mdx) for details.
+
+Here is a list of the fields available on the fetch action:
+
+| Field             | Required | Meaning                                                                                                 |
+|-------------------|----------|---------------------------------------------------------------------------------------------------------|
+| `method`          | yes      | HTTP method, lowercase: `get`, `post`, `put`, …                                                         |
+| `url`             | yes      | The request URL; can contain `${…}` templates.                                                          |
+| `headers`         |          | Request headers; each value a string.                                                                   |
+| `query`           |          | Query parameters appended to the URL. A parameter whose value is `null` is left out.                     |
+| `body`            |          | The request body; an object is sent as JSON.                                                            |
+| `responses`       |          | Response types by status. A 2xx entry types `self.result`; others type the error body ([more](./error-handling.mdx#responses-field)). |
+| `accepted_status` |          | Statuses that count as success; any 2xx by default ([more](./error-handling.mdx#accepted-statuses)).   |
+| `timeout`         |          | Time limit for one attempt, `30s` by default; each retry gets a new one ([more](./error-handling.mdx#custom-timeout)). |
+
+In the task's `output` and `switch`, the response is available as `self.result` (the body),
+`self.status` and `self.headers`.
+
+## Delay
+
+It parks the instance for a specified amount of time.
+The waiting costs nothing, because it's just a record in the database,
+not an active process.
+
+The instance keeps the `running` status, but the engine
+continues with execution only after the specified time.
+
+```genroc
+  - id: wait_duration
+    action:
+      type: delay
+      for: 30s
+    switch: next
+
+  # or
+
+  - id: wait_until
+    action:
+      type: delay
+      until: "mon 09:00"
+      tz: "Europe/Prague"
+    switch: next
+```
+
+Available fields:
+
+| Field             | Meaning                                                                                                 |
+|-------------------|---------------------------------------------------------------------------------------------------------|
+| `for`             | How long to wait: `30s`, `2h30m`, `7d`, `1mo`. A plain number is milliseconds.                        |
+| `until`           | When to stop waiting: `2026-09-01 08:00`, `+2d 08:00` (in two days at 8:00), or a pattern like `mon 09:00` (next Monday). |
+| `tz`              | The time zone `until` and calendar units (`d`, `w`, `mo`, `y`) are read in: `Europe/Prague` or `+02:00`. UTC by default. |
+
+Use exactly one of `for` and `until`. The full syntax is in the [delay syntax reference](../../reference/definition/delay-syntax.mdx).
+
+You can use expressions in `for` and `until`, but they only accept
+numbers, as milliseconds (`for` is relative and `until` absolute).
+If the value of `until` is in the past, the instance just continues immediately.
+
+## Child, child_map, child_list
+
+This is a family of actions that spawn child processes.
+
+Read more about them at [child processes](./child-processes.mdx).
+
+## External
+
+An action that is resolved by an external system or a human.
+
+Read more at [external tasks](./external-tasks.mdx).
+
+## Optional schema fields
+
+There are optional `*_schema` fields for certain shapes within tasks and the process definition.
+
+| Field          | Where                                                         | Declares                         |
+|----------------|---------------------------------------------------------------|----------------------------------|
+| `body_schema`  | `fetch`                                                       | the request body                 |
+| `query_schema` | `fetch`                                                       | the query parameters             |
+| `input_schema` | `child`, `child_list`, each entry of `child_map`, `external`  | the input sent to the child or worker |
+| `output_schema`| a task, and the process itself                                | the task's or process's `output` |
+
+They keep the shapes from drifting. The shapes are checked against the schemas
+when you apply the definition, and the schemas also drive editor completion.
+
+You can also use a schema to solve optional vs. nullable field problems.
+Genroc adjusts the shape at runtime in the following way:
+
+- an optional field that comes out as `null` is removed
+- a required nullable field that is missing from the shape is added as `null`
+
+Defaults are not applied by these schemas.
+
+> Genroc uses these fields extensively when importing child process schemas with the
+> `$process:` resolver (read [child processes](./child-processes.mdx)).
